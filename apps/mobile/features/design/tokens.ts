@@ -22,6 +22,18 @@ import { Platform } from "react-native";
 export const darkColors = {
   ground: "#050506",
   surface: "#0B0B0D",
+  /**
+   * `surface` at zero alpha, for the one thing that needs to fade *to* it.
+   *
+   * A gradient needs both ends, and "transparent" is not one of them: CSS
+   * interpolates an unqualified `transparent` through `rgba(0,0,0,0)`, so a
+   * fade from it to a light surface passes through grey and reads as a smudge
+   * — the classic dirty-gradient. It is written as the surface's own channels
+   * at zero rather than derived, because there is no colour arithmetic in this
+   * file and adding some for one token is a worse trade than two literals a
+   * test can compare.
+   */
+  surfaceClear: "rgba(11,11,13,0)",
   surface2: "#111114",
   surface3: "#18181C",
 
@@ -180,6 +192,8 @@ export type Colors = Readonly<Record<keyof typeof darkColors, string>>;
 export const lightColors: Colors = {
   ground: "#FFFFFF",
   surface: "#FFFFFF",
+  /** `surface` at zero alpha. See the dark palette's own note. */
+  surfaceClear: "rgba(255,255,255,0)",
   surface2: "#FAFAFA",
   surface3: "#F1F1F3",
 
@@ -443,33 +457,103 @@ export const layout = {
   /**
    * How much note shows either side of that toolbar.
    *
-   * 52, measured off the reference: the bar runs from x=52.0 to x=387.7 on a
-   * 440pt screen, which is 336pt of pill with 52 of note showing on each side.
-   * That gap is most of what makes the bar read as an object lying on the note
-   * rather than as an edge with rounded corners.
+   * **24, and it was 52 — this is the number the seventh key was bought with.**
    *
-   * **It is the inset that is the measurement, not the width.** An earlier pass
-   * sized the bar to its contents and let the inset be whatever was left over,
-   * which is right only for the number of actions the reference happens to
-   * show: on `@seyi`, where the reader is a team member and there is no New
-   * note, five targets left the pill spanning 78→362 — 78pt in on one side of a
-   * 440pt screen, half again the reference's gap, on a bar that is supposed to
-   * be in the same place on every screen. So the frame insets the slot by this
-   * and the bar fills it.
+   * The 52 was a measurement, not a preference: Obsidian's bar runs from
+   * x=52.0 to x=387.7 on a 440pt screen, which is 336pt of pill with 52pt of
+   * note showing on each side, and that sliver is most of what makes the bar
+   * read as an object lying on the note rather than as an edge with rounded
+   * corners. What it was buying is the *sliver*, and a sliver is worth less
+   * than a destination.
+   *
+   * The arithmetic, on a 390pt phone, which is the narrow case rather than the
+   * reference's 440 — and **the separator is a term in it**, because the rule
+   * `BottomBar` draws before the seventh key is a `flexShrink: 0` child of the
+   * row and therefore takes its width off the targets rather than out of thin
+   * air:
+   *
+   *     390 − 2 × 24 = 342          the pill
+   *     342 − 2 × 12 = 318          inside `bottomBarPad`
+   *     318 −     1  = 317          less `bottomBarRule`, the separator
+   *     317 ÷ 7      = 45.29pt      one target — above the 44pt floor
+   *
+   * and at the old 52:
+   *
+   *     390 − 2 × 52 = 286
+   *     286 − 2 × 12 = 262
+   *     262 −     1  = 261
+   *     261 ÷ 7      = 37.29pt      under the floor; 261 ÷ 6 = 43.5, also under
+   *
+   * **That last pt is why the figure is 45.29 and not 45.4.** The divisor was
+   * 318, which is the width *before* the rule the same paragraph was
+   * describing.
+   *
+   * **It read 45.4 in nine places across six files, and the commit that
+   * corrected it fixed four of them and said "four places".** Two were here and
+   * two in the separator's own doc comment — the one that should have caught
+   * it. A later pass took the two in `bottomBar.test.ts`, where it had been
+   * `318 / 7` compared against `toBeCloseTo(45.43, 2)`, a comment reproduced as
+   * an expectation. Three survived until they were swept for good:
+   * `ConsoleRail.tsx`, `meetingsEntry.test.ts` and
+   * `docs/decisions/meetings.md`. **A count is not a receipt**, and "fixed in
+   * four places" is the sentence that tells the next reader not to look — which
+   * is why what is recorded here is the shape of the miss rather than a number
+   * that sounded complete.
+   *
+   * The false belief underneath all nine was the same one, and it is the belief
+   * that let the row spill: that the separator is free.
+   *
+   * So a seventh key does not fit at 52 and does at 24, and 24 still leaves a
+   * visible sliver of note either side — reduced, not spent. Six of the seven
+   * are the note's verbs; the seventh is the app's other place, and
+   * `BottomBar`'s trailing separator is what keeps them reading as six and one.
+   * `bottomBar.test.ts` computes both rows from these tokens rather than
+   * quoting the numbers, so they cannot drift apart from this comment.
+   *
+   * **It is still the inset that is the measurement, not the width.** An
+   * earlier pass sized the bar to its contents and let the inset be whatever
+   * was left over, which is right only for the number of actions the reference
+   * happens to show: on `@seyi`, where the reader is a team member and there is
+   * no New note, five targets left the pill spanning 78→362 — a bar that is
+   * supposed to be in the same place on every screen. So the frame insets the
+   * slot by this and the bar fills it.
    */
-  bottomBarInset: 52,
+  bottomBarInset: 24,
   /**
    * One target on that toolbar.
    *
    * 52 is what six targets plus `bottomBarPad` either side need to fill the
-   * 336pt the reference measures. It is the *natural* width now rather than the
-   * fixed one — `bottomBarInset` decides the bar's width, and the targets share
-   * it — so it stands as the size a target wants when there is room, with
-   * `minTouchTarget` underneath it as the floor when there is not.
+   * 336pt the reference measures. It is the *natural* width — `bottomBarInset`
+   * decides the bar's width and the targets share it — so it stands as the size
+   * a target wants when there is room, with `minTouchTarget` underneath it as
+   * the floor when there is not. Seven targets on a 390pt phone are under it
+   * and land on the floor's side of it at 45.29; see `bottomBarInset`.
    */
   bottomBarTarget: 52,
-  /** The toolbar's own horizontal padding. See `bottomBarTarget`. */
+  /**
+   * The toolbar's own horizontal padding, where the width allows it.
+   *
+   * See `bottomBarTarget` for what it is worth to the look, and
+   * `bottomBarGeometry` for the order it is spent in: this is the *first*
+   * thing a narrow screen takes back, before the sliver of note either side,
+   * because a target is 44pt wide around a 22pt icon and already carries 11pt
+   * of its own air at each end of the row.
+   */
   bottomBarPad: 12,
+  /**
+   * The hairline between the note's verbs and the key that leaves the note.
+   *
+   * A token rather than a `1` in `BottomBar`'s stylesheet because **it is a
+   * term in the row's width**, not a decoration painted over it: the rule is a
+   * `flexShrink: 0` child of the same flex row as the targets, so every point
+   * it takes is a point the seven targets do not divide. Reading it as free is
+   * what made this codebase say 45.4 where it is 45.29 — in nine places across
+   * six files, of which a commit claiming "four places" fixed four; see
+   * `bottomBarInset` for where the other five were and what a count is worth as
+   * a receipt. `bottomBarGeometry` subtracts this explicitly now, rather than a
+   * comment claiming it is negligible.
+   */
+  bottomBarRule: 1,
   /**
    * The air a panel leaves between the status bar and its first row.
    *
@@ -478,9 +562,18 @@ export const layout = {
    * which the tree's own scroller already contributes 8.
    *
    * **A panel does not clear the floating toggle**, which is what it was doing
-   * instead: the toggle crosses to the sliver of note the moment a panel comes
-   * in (`AppFrame`'s `toggleOnSliver`), so reserving its 44pt here put the first
-   * row at 126 with nothing in the space above it.
+   * instead: the toggle crossed to the sliver of note the moment a panel came
+   * in, so reserving its 44pt here put the first row at 126 with nothing in the
+   * space above it.
+   *
+   * That sentence used to cite `AppFrame`'s `toggleOnSliver` as the reason, and
+   * **there is no such symbol** — there is no toggle either. A phone has no
+   * left panel and nothing that pulls one in (`features/app/frame.ts`), so the
+   * control the citation named went with the panels and took its style with it.
+   * What survives is the *measurement*, which never depended on the toggle: 33
+   * off the reference, less the 8 the tree's own scroller contributes. The
+   * toggle is why the number is not 44 higher, and that is history rather than
+   * a live reference.
    */
   panelGutter: 24,
   /**
@@ -530,6 +623,33 @@ export const layout = {
    */
   chromeButton: MIN_TOUCH_TARGET,
   /**
+   * The account mark pinned at the leading end of a phone's top row.
+   *
+   * 34, and **below `minTouchTarget` on purpose**, which is legal for the same
+   * reason `explorerRow` is: what a thumb hits is the pressable around it, and
+   * the caller pads to the floor. The mark is one glyph and is recognised
+   * rather than read, so it is drawn small and pressed large.
+   *
+   * **The budget written beside it treated that padding as free, and it is
+   * not.** This used to continue: "What 34 buys is the budget for the thing
+   * beside it. At 390pt the row is `390 − 2 × 12 gutters = 366`,
+   * `366 − 34 avatar − 8 gap − 92 capsule − 8 gap ≈ 232pt for the strip` …
+   * A 44pt mark takes ten of those points off the one element on the row that
+   * is a *list*." The mark is still 34; what the arithmetic left out is that
+   * the pressable around it has to reach the floor, and on a phone that
+   * pressable is the product's **only** sign-out control
+   * (`ConsoleRail.AccountBlock`). It was padding by 4 — 34 all in, under the
+   * floor — so the row was budgeting for a target that missed. The real budget:
+   *
+   *     390 − 2 × 12 gutters = 366
+   *     366 − 44 target − 8 gap − 92 capsule − 8 gap ≈ 214pt for the strip
+   *
+   * where 92 is the trailing capsule with two targets in it. 214pt still holds
+   * the two or three legible names the strip has to show before anybody
+   * scrolls, and a control somebody misses is not something ten points buy back.
+   */
+  accountAvatar: 34,
+  /**
    * A row in a grouped list on a phone.
    *
    * Above `minTouchTarget` for the same reason the toolbar is: the floor is
@@ -544,14 +664,18 @@ export const layout = {
   touchRow: 48,
 
   /* ---------------------------------------------------------------------- *
-   * The file tree on a phone, measured off Obsidian on iOS.
+   * A file row on a phone, measured off Obsidian on iOS.
    *
-   * These three numbers are one measurement, not three preferences, and they
-   * were taken from a 1320×2868 screenshot (440×956pt at @3x) rather than
-   * eyeballed: the row pitch, the step between two levels, and where a
-   * top-level name begins. Getting one of them right and the others near is
-   * what makes a tree read as "nearly Obsidian", which is worse than not
-   * trying — a half-matched rhythm reads as a bug rather than as a style.
+   * Taken from a 1320×2868 screenshot (440×956pt at @3x) rather than eyeballed.
+   *
+   * **This was three numbers and is two.** `explorerIndent` (16, one level of
+   * nesting) and `explorerInset` (37, where a top-level name begins) described
+   * a *tree*, and the surface they were measured for — a file-tree drawer on a
+   * phone — does not exist: a phone has no left panel (`features/app/frame.ts`)
+   * and browses through `FolderView`, which lists one folder flat and has no
+   * levels to step between. Their only reader was `FileTree`'s `touch` fork and
+   * they went with it. The pitch below did not, because a flat listing still
+   * has a rhythm and `FolderView` draws it.
    * ---------------------------------------------------------------------- */
 
   /**
@@ -563,10 +687,6 @@ export const layout = {
   explorerRow: 36,
   /** `(minTouchTarget - explorerRow) / 2`, derived so the two cannot drift. */
   explorerRowSlop: (MIN_TOUCH_TARGET - 36) / 2,
-  /** One level of nesting. */
-  explorerIndent: 16,
-  /** Where a top-level row's *name* starts, chevron gutter included. */
-  explorerInset: 37,
 
   /**
    * The note's side margin on a phone, measured off the same reference.
@@ -645,4 +765,131 @@ export function tracking(fontSize: number, em: number): number {
  */
 export function leading(fontSize: number, multiple: number): number {
   return Math.round(fontSize * multiple * 100) / 100;
+}
+
+/**
+ * Where the compact toolbar's edges are, at a given width, for a given row.
+ *
+ * ## Why this is a function and not two numbers
+ *
+ * It was two numbers — `bottomBarInset` and `bottomBarPad` — and the
+ * arithmetic proving they were enough was done at 390pt and nowhere else. A
+ * seventh key was added to the row and the inset was cut 52 → 24 to pay for
+ * it, which fits at 390 (45.29pt a target) and at the reference's 440 (52.43),
+ * and does not fit anywhere below 381:
+ *
+ *     375   43.14pt   iPhone SE 2/3, 12/13 mini, 8/7/6s
+ *     360   41.00pt   most Android
+ *     320   35.29pt   iPhone SE 1st gen, and any window this narrow
+ *
+ * `minWidth: minTouchTarget` holds each target at 44 rather than letting it
+ * shrink — deliberately, because a row of 41pt targets is a bug nobody can see
+ * — so what happened instead is that the row **spilled past the pill's rounded
+ * edge**: `bar` sets no `overflow` and React Native's default is `visible`.
+ * `compact` is every width under 880, so a browser window is in this range too.
+ *
+ * ## What it spends, and in what order
+ *
+ * The row cannot be narrower than every target on the floor plus the rules
+ * between them, which shrink for nobody. What a narrow screen has to give it is
+ * the two margins either side, and they are **not worth the same**:
+ *
+ *  1. **`bottomBarPad` goes first.** It is air inside the pill, and a 44pt
+ *     target already carries 11pt of its own around a 22pt icon, so the row
+ *     loses almost nothing visible by giving it up.
+ *  2. **`bottomBarInset` goes second, and only once the padding is gone.** It
+ *     is the sliver of note showing either side, and that sliver is a
+ *     measurement — most of what makes the pill read as an object lying on the
+ *     note rather than as an edge with rounded corners. It is spent last
+ *     because it is worth the most.
+ *
+ * A width that never comes near the floor never spends either, so **every
+ * device from 381pt up is untouched**: the reference geometry is what it always
+ * was, and only the phones that were broken move.
+ *
+ * ## 320pt, stated plainly
+ *
+ * Seven targets on the floor plus one rule need 309pt, and there are 320. It
+ * fits, at 44.14pt a target, with the padding gone and 5pt of sliver left. The
+ * claim that seven keys cannot fit at 320 by any choice of inset holds only
+ * while the padding is treated as fixed; it is not, and it is the cheaper half.
+ *
+ * Under 309 there is no arrangement at all, and the two things left to do —
+ * a target under the floor, or a key off the edge — are both bugs. So it
+ * answers `fits: false` rather than picking one silently, and `BottomBar`
+ * complains where a developer will hear it.
+ *
+ * ## The inset is the frame's, and this only ever asks for less of it
+ *
+ * `AppFrame` pads the toolbar's band by `bottomBarInset`, which is why that
+ * token is a constant and this returns a number no larger than it. `BottomBar`
+ * takes back the difference with a negative margin, so the resting case sets a
+ * margin of zero and nothing about the wide layout changes.
+ */
+export interface BottomBarGeometry {
+  /** How much note shows either side of the pill, at this width. */
+  inset: number;
+  /** The pill's own horizontal padding, at this width. */
+  pad: number;
+  /** What the targets and the rules divide. `null` until a width is known. */
+  inner: number | null;
+  /** One target's share of it. `null` until a width is known. */
+  target: number | null;
+  /** Whether every target lands on or above `minTouchTarget`. */
+  fits: boolean;
+}
+
+export function bottomBarGeometry(
+  width: number,
+  targets: number,
+  rules = 0,
+): BottomBarGeometry {
+  const keys = Math.max(0, Math.trunc(targets));
+  const rule = Math.max(0, Math.trunc(rules)) * layout.bottomBarRule;
+
+  /*
+    A width of 0 is react-native-web before it has measured anything, not a
+    screen 0pt wide — the same "absent is not zero" the console applies to
+    every other unanswered measurement. Reading it as a screen would collapse
+    the pill onto the note for one frame on every launch and then expand it.
+  */
+  const measured = Number.isFinite(width) && width >= layout.minTouchTarget;
+  if (!measured || keys === 0) {
+    return {
+      inset: layout.bottomBarInset,
+      pad: layout.bottomBarPad,
+      inner: null,
+      target: null,
+      fits: true,
+    };
+  }
+
+  const need = keys * layout.minTouchTarget + rule;
+  /*
+    What is left for the two margins on each side, floored to a whole point.
+
+    A fraction buys nothing: the sliver and the pill's padding are both design
+    numbers rather than measurements to the sub-point, and half a point of note
+    showing is not a sliver anybody can see. Flooring spends the odd point on
+    the targets, which is the side to err on.
+
+    **It does not avoid a target landing on exactly 44.000, and this comment
+    claimed it did.** Landing there is what the arithmetic is *for*: `need` is
+    exactly `keys × 44 + rule`, so wherever the odd point divides out evenly the
+    inner width is exactly `keys × 44` and every target is exactly the floor.
+    Two of the eight widths `bottomRowWidth.test.ts` solves do it — 381, the
+    break-even, and 375, an iPhone SE — and so does 309, the width below which
+    no arrangement exists at all. That is the intended answer rather than a near
+    miss, which is why that file compares against `MIN_TOUCH_TARGET - 1e-9`: the
+    tolerance is against binary floating point in the flex solve, not against a
+    design that lands on its own boundary.
+  */
+  const side = Math.max(0, Math.floor((width - need) / 2));
+
+  const inset = Math.min(layout.bottomBarInset, side);
+  const pad = Math.min(layout.bottomBarPad, side - inset);
+  const inner = width - inset * 2 - pad * 2 - rule;
+  const target = inner / keys;
+
+  return { inset, pad, inner, target, fits: target >= layout.minTouchTarget };
 }

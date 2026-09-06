@@ -2,6 +2,8 @@ import { forgetEverything, forgetWorkspace, waitingOnDevice } from "./cache";
 import { endSession } from "./epoch";
 import { keysForWorkspace, ownedKeys } from "./keys";
 import { forgetPlace, placeKeys } from "../console/lastPlace";
+import { forgetAllMeetings } from "../meetings/local";
+import { meetingKeys } from "../meetings/keys";
 import type { OutboxCounts } from "./outbox";
 import { openStore } from "./store";
 
@@ -216,9 +218,24 @@ async function clearEverything(): Promise<ForgetResult> {
       stance exists to prevent.
     */
     await forgetPlace(store);
+    /*
+      And the meetings namespace, for the same reason and one more.
+
+      A meeting on this device is note content — typed notes and a transcript —
+      so it belongs with the copies rather than beside them. What made it a
+      separate call is that it also holds the destination somebody last chose:
+      a context slug and a folder name, which is the same "name of one of
+      somebody's notes" argument the paragraph above makes about a path, and
+      which would otherwise be handed to the next person to sign in here.
+
+      `keys.ts` claimed sign-out already swept this; its own file header said
+      it did not, and the header was right. Cleared and verified explicitly,
+      like the page above, rather than trusted to `ownedKeys`.
+    */
+    await forgetAllMeetings(store);
     if (!store.durable) return { verdict: "unmeasured" };
     const keys = await store.keys();
-    const left = [...ownedKeys(keys), ...placeKeys(keys)];
+    const left = [...ownedKeys(keys), ...placeKeys(keys), ...meetingKeys(keys)];
     if (left.length > 0) {
       warnLeftBehind("sign-out", left.length);
       return { verdict: "left-behind" };

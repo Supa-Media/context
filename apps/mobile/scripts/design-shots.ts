@@ -21,7 +21,7 @@
  * except the router, the safe-area insets and the Convex subscription; the
  * layout, the styles and every measurement in them are the shipped ones.
  *
- * ## It is not a test, and is not run by `pnpm test`
+ * ## It is not a test, and is not run by `pnpm test` — which has bitten once
  *
  * `jest.config.js` matches `**\/__tests__\/**` only, so this file is inert
  * unless somebody asks for it by name:
@@ -32,6 +32,19 @@
  * is where this repo's TypeScript, JSX and react-native-web aliasing are already
  * configured, and a second toolchain for one screenshot would be a worse trade
  * than an unusual file extension.
+ *
+ * **The cost of being un-run is recorded rather than assumed away.** The
+ * file-explorer shot pressed a `frame-drawer-toggle`; when a phone lost its left
+ * panel that testID stopped rendering, `press(null)` threw, and this file was
+ * red for as long as nobody asked for it by name — while the `.html` it is the
+ * only generator of stayed in `docs/design/obsidian-parity/` still carrying the
+ * markup of a toggle the app no longer draws, under a README saying "open one
+ * in a browser and you are looking at the app".
+ *
+ * So every shot below now **asserts the surface it is a picture of** before it
+ * takes it. A shot that quietly photographs an empty state is worse than one
+ * that fails: the failure is loud the moment somebody runs this, and evidence
+ * that is wrong is worse than evidence that is missing.
  *
  * ## The one thing that is easy to get wrong
  *
@@ -262,6 +275,30 @@ function shoot(
 const find = (container: HTMLElement, testId: string) =>
   container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
 
+/** The same, but a missing one says which one rather than "nothing to press". */
+function need(container: HTMLElement, testId: string): HTMLElement {
+  const node = find(container, testId);
+  if (node === null) throw new Error(`no element with testID ${testId}`);
+  return node;
+}
+
+/**
+ * A control by its accessible name, and **it throws when there is none.**
+ *
+ * Three of the shots below used to find a row with `.find(…)` and then
+ * `if (row !== undefined) press(row)`. Every one of those predicates had gone
+ * stale — the demo console opens on `1-projects/context-lc.md` already, and no
+ * row is labelled `overview`, `bandshell-permit` or `context-lc` — so three
+ * presses were doing nothing and three pictures were of a screen nobody had
+ * asked for, with no way to tell from the output. A missing control is a
+ * failure here, not a skip.
+ */
+function byLabel(container: HTMLElement, label: string): HTMLElement {
+  const node = container.querySelector<HTMLElement>(`[aria-label="${label}"]`);
+  if (node === null) throw new Error(`no control labelled ${label}`);
+  return node;
+}
+
 /* -------------------------------------------------------------------------- */
 
 describe("design shots", () => {
@@ -277,13 +314,20 @@ describe("design shots", () => {
     mockOwner = false;
   });
 
+  /**
+   * A note open, which is where the demo console already is.
+   *
+   * `useDemoFileBrowser` opens on `tree.defaultSelection`, so nothing has to be
+   * pressed — and the press that used to be here was looking for a row labelled
+   * `overview`, which no longer exists, so it was silently doing nothing.
+   * Asserted rather than assumed: `note-scroll` is the document, and the two
+   * pieces of chrome the acceptance question is about are either side of it.
+   */
   test("the reading view", () => {
     shoot("context-reading", (container) => {
-      // Open a note, so the shot is a document rather than an empty state.
-      const row = [...container.querySelectorAll<HTMLElement>('[role="button"]')].find(
-        (node) => (node.getAttribute("aria-label") ?? "").endsWith("overview"),
-      );
-      if (row !== null && row !== undefined) press(row);
+      need(container, "note-scroll");
+      need(container, "context-strip");
+      need(container, "bottom-bar");
     });
     expect(true).toBe(true);
   });
@@ -317,11 +361,10 @@ describe("design shots", () => {
    */
   test("the properties panel", () => {
     shoot("context-properties", (container) => {
-      const row = [...container.querySelectorAll<HTMLElement>('[role="button"]')].find(
-        (node) => (node.getAttribute("aria-label") ?? "").endsWith("bandshell-permit"),
-      );
-      if (row !== undefined) press(row);
-      press(find(container, "note-properties"));
+      press(need(container, "note-properties"));
+      // The panel, once. Pressing the row twice would collapse it again, and a
+      // shot of a collapsed panel is the picture this test exists to not take.
+      need(container, "note-properties-open");
     });
     expect(true).toBe(true);
   });
@@ -340,24 +383,47 @@ describe("design shots", () => {
    */
   test("the editing view", () => {
     shoot("context-editing", (container) => {
-      const row = [...container.querySelectorAll<HTMLElement>('[role="button"]')].find(
-        (node) => (node.getAttribute("aria-label") ?? "").endsWith("context-lc"),
-      );
-      if (row !== undefined) press(row);
       const surface = container.querySelector<HTMLElement>(".cm-content");
-      if (surface !== null) {
-        act(() => {
-          surface.focus();
-          surface.dispatchEvent(new FocusEvent("focus", { bubbles: false }));
-        });
-      }
+      if (surface === null) throw new Error("the editor did not mount a CodeMirror surface");
+      act(() => {
+        surface.focus();
+        surface.dispatchEvent(new FocusEvent("focus", { bubbles: false }));
+      });
     });
     expect(true).toBe(true);
   });
 
-  test("the file explorer", () => {
-    shoot("context-explorer", (container) => {
-      press(find(container, "frame-drawer-toggle"));
+  /**
+   * How a phone browses files, which is not a panel any more.
+   *
+   * **This was `the file explorer`, and it pressed a `frame-drawer-toggle`.**
+   * That control is gone with the drawer it opened: a phone has no left panel at
+   * all (`features/app/frame.ts`), so `press(null)` threw and this file has been
+   * failing, unseen, ever since — see the header.
+   *
+   * The capability did not go with the panel, it moved. At compact `BrowsePane`
+   * draws `FolderView` for the context root: the same listing the tree gave, one
+   * folder at a time, in the region the note would occupy, with
+   * `storage · index · counts` at its foot where the tree's footer used to carry
+   * it. So the shot is the console at rest with nothing selected — there is
+   * nothing to press, which is the point.
+   *
+   * Both testIDs are asserted rather than assumed: an empty region is also what
+   * this renders when the pane fails to mount, and a photograph of that is
+   * exactly the kind of wrong evidence this file exists to avoid producing.
+   */
+  test("the context root, which is how a phone browses files", () => {
+    shoot("context-files", (container) => {
+      // The note's own path bar is the way up on a phone — there is no
+      // breadcrumb at this density and no tree to go back to. Its leading
+      // segment is the context, and it selects `""`, which is the root.
+      press(byLabel(container, "Open @seyi"));
+      need(container, "folder-row");
+      need(container, "context-foot");
+      // And the chrome it has instead of a panel, so a reader can see that the
+      // navigation is on the glass rather than behind a control.
+      need(container, "context-strip");
+      need(container, "bottom-bar");
     });
     expect(true).toBe(true);
   });

@@ -93,19 +93,22 @@ describe("density", () => {
 });
 
 describe("regions", () => {
-  test("a phone is the editor, a drawer and a bottom bar", () => {
+  test("a phone is the editor and a bottom bar, and nothing else", () => {
     const regions = regionsFor("compact", initialFrame);
     expect(regions.rail).toBe("hidden");
     expect(regions.explorer).toBe("hidden");
     expect(regions.bottomBar).toBe(true);
     expect(regions.statusBar).toBe(false);
-    expect(regions.drawerToggle).toBe(true);
+    expect(regions.drawerToggle).toBe(false);
   });
 
-  test("opening the drawer on a phone brings the scrim with it", () => {
+  test("a drawer flag on a phone opens nothing, and raises no scrim", () => {
+    // The flag is still representable — `FrameState` keeps both, and a bundle
+    // that ran before this change could have written one. What it must not do
+    // is put a panel over a layout whose navigation is the strip along the top.
     const regions = regionsFor("compact", { ...initialFrame, drawerOpen: true });
-    expect(regions.explorer).toBe("drawer");
-    expect(regions.scrim).toBe(true);
+    expect(regions.explorer).toBe("hidden");
+    expect(regions.scrim).toBe(false);
   });
 
   test("a medium window trades the rail's labels for the explorer column", () => {
@@ -166,18 +169,20 @@ describe("regions", () => {
     }
   });
 
-  test("the rail is a sheet only where it is not a column", () => {
-    // Collected rather than asserted inside the `if`. A bare conditional in a
-    // sweep executes zero assertions when the condition never holds, so a
-    // change that stopped producing sheets entirely — the original bug — left
-    // this test green and silent.
+  test("no density produces a sheet, and the sweep says so out loud", () => {
+    // Collected rather than asserted inside an `if`, and that is the half of
+    // this test worth keeping through the change. A bare conditional in a
+    // sweep runs zero assertions when the condition never holds, so the
+    // version that asserted `["compact"]` inside the loop would have gone
+    // green and silent the day sheets stopped being produced — which is
+    // exactly the day this is. Collecting makes "none" an assertion.
     const sheetDensities = new Set<Density>();
     for (const { density, state, hasExplorer } of everyFrame()) {
       if (regionsFor(density, state, { hasExplorer }).rail === "sheet") {
         sheetDensities.add(density);
       }
     }
-    expect([...sheetDensities]).toEqual(["compact"]);
+    expect([...sheetDensities]).toEqual([]);
   });
 
   test("the bottom bar and the status bar are never both present", () => {
@@ -193,55 +198,124 @@ describe("regions", () => {
     }
   });
 
-  test("every density has a way to reach the rail", () => {
-    // The bug this pins: `compact` answered `rail: "hidden"` and offered
-    // nothing in its place, so a phone had the pane it landed on and no way to
-    // leave it — Map, Connections, every other context and sign-out all live
-    // in the rail.
-    //
-    // "A control exists" is deliberately not the whole assertion. An earlier
-    // version of this test checked `rail !== "hidden" || navToggle`, which at
-    // compact is the literal `navToggle: true` and at every other density is a
-    // constant `true` on the left — so pinning `rail` to `"hidden"` while
-    // leaving the toggle in place satisfied it, and a button that opens
-    // nothing is not a way to reach anything. So: either the rail is already
-    // on the screen, or the control is there **and pressing it produces a
-    // rail**.
-    //
-    // There are two routes now, not one, and the second is the reason the top
-    // bar can be a toggle and one group of actions: where the layout has a file
-    // tree, the switcher that opens the rail is at the *foot of that tree*
-    // (`Explorer`'s `vault` slot — Obsidian's vault switcher), reached by the
-    // drawer button. So the assertion is "a route exists and it produces a
-    // rail", by whichever of the two the layout offers.
+  /**
+   * **This replaces a retired assertion, which is written out here rather than
+   * deleted.**
+   *
+   * It read *every density has a way to reach the rail*: for every compact
+   * layout `navToggle || drawerToggle` was true, and pressing whichever existed
+   * produced a rail. Its reason was recorded and was right at the time —
+   * `compact` once answered `rail: "hidden"` with nothing in its place, so a
+   * phone had the pane it landed on and no way to leave it (Map, Connections,
+   * every other context and sign-out all lived in the rail), and "landing on
+   * the map after signing in was the end of the session".
+   *
+   * The *reason* expired, not the requirement. A phone's navigation is no
+   * longer behind a control: the context strip runs along the top of every
+   * compact layout and the bottom row sits within thumb reach below it, neither
+   * is a panel, and neither has to be summoned. `compact` answers
+   * `rail: "hidden"` again — with two things in its place instead of nothing.
+   *
+   * So the rule is restated as what is now true, and deliberately as the same
+   * *shape* of claim. Asserting the toggles are merely *absent* would be the
+   * weaker test that an empty phone also passes, which is the trap the retired
+   * version's own comment describes about `rail !== "hidden" || navToggle`; so
+   * the positive half — both bands are claimed, at every state, with or without
+   * a file tree — is asserted first and separately.
+   *
+   * `AppFrame` "knows about geometry and nothing else", so this cannot see
+   * whether the strip has any contexts in it. What it can pin is that compact
+   * always has the two bands and never puts a panel over them.
+   */
+  test("every compact layout has a context strip and a bottom row", () => {
     for (const { density, state, hasExplorer } of everyFrame()) {
+      if (density !== "compact") continue;
       const regions = regionsFor(density, state, { hasExplorer });
-      if (regions.rail !== "hidden") continue;
 
-      const field = railToggleFor(density);
-      const pressed = regionsFor(density, { ...state, [field]: !state[field] }, { hasExplorer });
-      expect(pressed.rail).not.toBe("hidden");
-
-      // The control that reaches `railToggleFor`: the top bar's chip, or the
-      // switcher in the drawer the toggle pulls in. One or the other, always.
-      expect(regions.navToggle || regions.drawerToggle).toBe(true);
+      // The top band the strip lives in. It is the compact top row, and
+      // `statusBar: false` is the same fact from the other end — the bottom
+      // edge is the toolbar's, so the top one is the chrome's.
+      expect(regions.statusBar).toBe(false);
+      // The bottom row, which is what carries the seventh key.
+      expect(regions.bottomBar).toBe(true);
+      // And nothing is over either of them. A scrim made both unreachable,
+      // which is what a panel did to this layout.
+      expect(regions.scrim).toBe(false);
     }
   });
 
-  test("the nav chip is in the bar exactly where no tree can carry the switcher", () => {
+  test("no compact layout has a panel, or a control claiming to open one", () => {
+    // The other half, asserted separately because it fails separately: a
+    // leftover toggle is a button that opens nothing, and a leftover sheet is a
+    // panel nothing on the screen can put away.
     for (const { density, state, hasExplorer } of everyFrame()) {
+      if (density !== "compact") continue;
       const regions = regionsFor(density, state, { hasExplorer });
-      expect(regions.navToggle).toBe(density === "compact" && !hasExplorer);
+      expect(regions.rail).toBe("hidden");
+      expect(regions.explorer).toBe("hidden");
+      expect(regions.navToggle).toBe(false);
+      expect(regions.drawerToggle).toBe(false);
     }
   });
 
-  test("the drawer toggle exists exactly where a drawer can exist", () => {
+  test("no density offers a toggle, because no density has a panel to open", () => {
+    // The sweep, so a density that grows a toggle back without growing the
+    // panel it names fails here rather than on somebody's phone.
     for (const { density, state, hasExplorer } of everyFrame()) {
       const regions = regionsFor(density, state, { hasExplorer });
-      // A toggle exists only where a drawer can exist AND there is something
-      // to pull in. A button that opens an empty panel is worse than no button.
-      expect(regions.drawerToggle).toBe(density === "compact" && hasExplorer);
+      expect(regions.navToggle).toBe(false);
+      expect(regions.drawerToggle).toBe(false);
     }
+  });
+
+  test("both toggles are genuine no-ops at compact", () => {
+    // "Does nothing" has to mean *nothing*, not "does the other one". The
+    // failure this pins is ⌘B writing `railCollapsed` on a layout that never
+    // reads it — how the phone once had no navigation and no error either.
+    expect(railToggleFor("compact")).toBeNull();
+    for (const { state, hasExplorer } of everyFrame()) {
+      expect(explorerToggleFor("compact", { hasExplorer })).toBeNull();
+      // And the regions do not move whichever way the panel flags point, so a
+      // stale flag from a wider layout cannot resurrect a sheet.
+      const off = regionsFor(
+        "compact",
+        { ...state, navOpen: false, drawerOpen: false },
+        { hasExplorer },
+      );
+      const on = regionsFor(
+        "compact",
+        { ...state, navOpen: true, drawerOpen: true },
+        { hasExplorer },
+      );
+      expect(on).toEqual(off);
+    }
+  });
+});
+
+describe("medium and wide are untouched by the phone's change", () => {
+  // The scope of the redesign, asserted rather than assumed: the rail column
+  // and the explorer column are exactly what they were, at every state.
+  test("a tablet still has an explorer column and an icon rail", () => {
+    for (const { density, state, hasExplorer } of everyFrame()) {
+      if (density !== "medium") continue;
+      const regions = regionsFor(density, state, { hasExplorer });
+      expect(regions.explorer).toBe(hasExplorer ? "column" : "hidden");
+      expect(regions.rail).toBe(hasExplorer || state.railCollapsed ? "icons" : "full");
+      expect(regions.statusBar).toBe(true);
+      expect(regions.bottomBar).toBe(false);
+    }
+  });
+
+  test("a desktop still has both columns, and ⌘B still collapses the rail", () => {
+    for (const { density, state, hasExplorer } of everyFrame()) {
+      if (density !== "wide") continue;
+      const regions = regionsFor(density, state, { hasExplorer });
+      expect(regions.explorer).toBe(hasExplorer ? "column" : "hidden");
+      expect(regions.rail).toBe(state.railCollapsed ? "icons" : "full");
+      expect(regions.statusBar).toBe(true);
+    }
+    expect(railToggleFor("wide")).toBe("railCollapsed");
+    expect(railToggleFor("medium")).toBe("railCollapsed");
   });
 });
 
@@ -288,35 +362,40 @@ describe("a route with no file tree", () => {
   });
 });
 
-describe("the rail on a phone", () => {
-  test("is reachable from the top bar even on a pane with no tree", () => {
-    // Map and Connections are exactly where signing in lands you, and they have
-    // no explorer — so the drawer button is absent and this control is the only
-    // navigation on the screen.
-    const regions = regionsFor("compact", initialFrame, { hasExplorer: false });
-    expect(regions.navToggle).toBe(true);
-    expect(regions.drawerToggle).toBe(false);
-    expect(regions.rail).toBe("hidden");
+describe("the rail is not on a phone at all", () => {
+  test("there is no chip in the bar, on a pane with a tree or without one", () => {
+    // Map and Connections are exactly where signing in lands you and they have
+    // no explorer, so this used to be the only navigation on the screen. It is
+    // the strip now, which is on the screen at both routes rather than behind
+    // a control at one of them.
+    for (const hasExplorer of [false, true]) {
+      const regions = regionsFor("compact", initialFrame, { hasExplorer });
+      expect(regions.navToggle).toBe(false);
+      expect(regions.drawerToggle).toBe(false);
+      expect(regions.rail).toBe("hidden");
+    }
   });
 
-  test("comes in as a sheet, over a scrim", () => {
+  test("a nav flag brings in no sheet and no scrim", () => {
     const regions = regionsFor("compact", { ...initialFrame, navOpen: true });
-    expect(regions.rail).toBe("sheet");
-    expect(regions.scrim).toBe(true);
+    expect(regions.rail).toBe("hidden");
+    expect(regions.scrim).toBe(false);
     expect(regions.explorer).toBe("hidden");
   });
 
-  test("wins over a drawer that state says is also open", () => {
-    // The toggles clear each other, so this state is unreachable through the
-    // UI. Resolving it anyway is what keeps the invariants above total.
+  test("nor do both flags together, which is the state that used to need a rule", () => {
+    // The two panels shared one place on the screen, so `regionsFor` had to
+    // decide which won. There is nothing to decide between now, and the state
+    // is still worth driving: it is what a bundle from before this change
+    // could have left on a device.
     const both: FrameState = { ...initialFrame, navOpen: true, drawerOpen: true };
     const regions = regionsFor("compact", both);
-    expect(regions.rail).toBe("sheet");
+    expect(regions.rail).toBe("hidden");
     expect(regions.explorer).toBe("hidden");
-    expect(regions.scrim).toBe(true);
+    expect(regions.scrim).toBe(false);
   });
 
-  test("a sheet left open does not leak into a layout that has a column", () => {
+  test("and a stale flag still does not leak into a layout that has a column", () => {
     const stale: FrameState = { ...initialFrame, navOpen: true };
     expect(regionsFor("medium", stale).rail).toBe("icons");
     expect(regionsFor("wide", stale).rail).toBe("full");
@@ -331,15 +410,21 @@ describe("a panel does not survive the layout that had it", () => {
   // away — no sheet, no scrim, no `navToggle`, and `railToggleFor` answering
   // `"railCollapsed"`. So it waits, and comes back.
 
-  test("clearing is a no-op at compact, where the panels belong", () => {
+  test("compact is no longer exempt, because compact no longer has panels", () => {
+    // This used to assert the opposite — `panelsClearedFor("compact", open)`
+    // returned the same object, because compact was the one density that had
+    // somewhere to put a panel. It does not, so a flag left over from a bundle
+    // that did is cleared here rather than left for a `regionsFor` that no
+    // longer reads it.
     const open: FrameState = { ...initialFrame, navOpen: true, drawerOpen: true };
-    expect(panelsClearedFor("compact", open)).toBe(open);
+    const cleared = panelsClearedFor("compact", open);
+    expect(cleared.navOpen).toBe(false);
+    expect(cleared.drawerOpen).toBe(false);
   });
 
-  test("both panels are put away at every density that has none", () => {
+  test("both panels are put away at every density", () => {
     const open: FrameState = { ...initialFrame, navOpen: true, drawerOpen: true };
     for (const density of DENSITIES) {
-      if (density === "compact") continue;
       const cleared = panelsClearedFor(density, open);
       expect(cleared.navOpen).toBe(false);
       expect(cleared.drawerOpen).toBe(false);
@@ -405,38 +490,47 @@ describe("the touch minimum", () => {
 });
 
 describe("toggling", () => {
-  test("one command, resolved per density", () => {
-    expect(explorerToggleFor("compact")).toBe("drawerOpen");
+  test("⌘⇧E has nothing to toggle at any density", () => {
+    // It used to answer `"drawerOpen"` at compact-with-a-tree. There is no
+    // drawer at any density now, so the one arm that named a field is gone and
+    // the honest answer everywhere is `null` — which the *command* must then
+    // treat as nothing, not as a licence to toggle the rail instead.
+    expect(explorerToggleFor("compact")).toBeNull();
     expect(explorerToggleFor("medium")).toBeNull();
     expect(explorerToggleFor("wide")).toBeNull();
   });
 
-  test("and it does nothing on a pane that has no tree", () => {
-    // Map and Connections. This used to answer `"drawerOpen"` there: the flag
-    // was set, `regionsFor` discarded it, and the keystroke looked inert. It
-    // stopped being inert the moment raising one panel had to put the other
-    // away — ⌘⇧E on the pane you sign in to then dismissed the rail sheet and
-    // opened nothing, which is worse than the no-op it replaced.
+  test("and the tree flag does not resurrect one", () => {
+    // The flag is still on the signature and is still what would decide if a
+    // density grew a drawer back. It decides nothing today, in either
+    // direction, which is the thing to pin — the older failure here was the
+    // opposite one: `"drawerOpen"` answered on Map and Connections, where the
+    // flag was set, `regionsFor` discarded it, and the keystroke looked inert
+    // while writing state.
     expect(explorerToggleFor("compact", { hasExplorer: false })).toBeNull();
-    expect(explorerToggleFor("compact", { hasExplorer: true })).toBe("drawerOpen");
+    expect(explorerToggleFor("compact", { hasExplorer: true })).toBeNull();
     expect(explorerToggleFor("medium", { hasExplorer: false })).toBeNull();
   });
 
-  test("the rail command means bring it in on a phone and collapse it on a pointer", () => {
-    // Never null: every density has a rail, so ⌘B always means something. It
-    // used to toggle `railCollapsed` at compact, which is a preference no
-    // compact layout reads — the command was a no-op on the one surface with
-    // no other way to navigate.
-    expect(railToggleFor("compact")).toBe("navOpen");
+  test("⌘B collapses the rail on a pointer and does nothing on a phone", () => {
+    // It used to answer `"navOpen"` at compact, back when the rail was a sheet
+    // the command brought in. Before *that* it answered `"railCollapsed"`
+    // there, which is a preference no compact layout reads — a command that
+    // was a no-op on the one surface with no other way to navigate. The
+    // difference now is where the navigation went: the strip and the bottom
+    // row, on the screen, rather than nothing.
+    expect(railToggleFor("compact")).toBeNull();
     expect(railToggleFor("medium")).toBe("railCollapsed");
     expect(railToggleFor("wide")).toBe("railCollapsed");
   });
 
-  test("choosing a note closes the drawer, and only the drawer", () => {
-    // On a phone the tree is covering the note you just asked for. On a column
-    // it is a permanent region, and dismissing it because somebody clicked
-    // inside it is how people stop using a file tree.
-    expect(closesOnSelect("compact")).toBe(true);
+  test("choosing a note dismisses nothing, because the tree covers nothing", () => {
+    // This used to be true at compact: the drawer was over the note you had
+    // just asked for, so leaving it open opened every note behind a panel.
+    // With no drawer at any density, the remaining case is the column — and
+    // dismissing a permanent region because somebody clicked inside it is how
+    // people stop using a file tree.
+    expect(closesOnSelect("compact")).toBe(false);
     expect(closesOnSelect("medium")).toBe(false);
     expect(closesOnSelect("wide")).toBe(false);
   });

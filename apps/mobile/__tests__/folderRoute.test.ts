@@ -122,6 +122,9 @@ function consoleWith(files: Partial<FileBrowser>): ConsoleData {
     selectedContextId: "w1",
     selectContext: () => {},
     storage: { status: "connected" },
+    // Required on `ConsoleData`; `null` is "not answered yet", so the context
+    // root page's foot draws no index figure. See `indexProgressSurfaces`.
+    fastSearch: { status: null, loading: false },
     failure: null,
     members: { rows: [], invitations: [] },
     files: {

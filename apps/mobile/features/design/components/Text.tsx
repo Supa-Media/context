@@ -176,11 +176,15 @@ const variantsFor = (colors: Colors) => ({
   /**
    * The same row on a phone.
    *
-   * 15.5 rather than 13, and `text` rather than `text2`. The tree is a list of
-   * *destinations* on a phone — the drawer is the only way to open a note
+   * 15.5 rather than 13, and `text` rather than `text2`. A phone's file list is
+   * a list of *destinations* — `FolderView` is the only way to open a note
    * there — and a destination list is read at the size the rest of the phone is
    * read at. 13px dimmed is a supporting label beside a document you can
    * already see, which is what it is under a pointer and is not what it is here.
+   *
+   * (This said "the drawer is the only way to open a note there" until the
+   * drawer went. The claim is unchanged and its subject moved: there is no left
+   * panel at any density, so the folder page carries it.)
    */
   treeTouch: {
     fontFamily: fonts.body,

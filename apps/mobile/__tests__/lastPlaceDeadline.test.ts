@@ -98,7 +98,8 @@ describe("the read is bounded", () => {
   test("a store that answers is not cut off, and its answer is the one used", async () => {
     // The negative control for the deadline. Without it, a hook hard-wired to
     // `null` would pass the test above and have removed the feature.
-    mockGet = async () => JSON.stringify({ slug: "seyi", note: "3-resources/books/x.md" });
+    // The stored shape is a log, most recent first; the landing reads its head.
+    mockGet = async () => JSON.stringify([{ slug: "seyi", note: "3-resources/books/x.md" }]);
 
     const { seen, root, container } = mount();
     mounted = { root, container };
@@ -129,7 +130,7 @@ describe("the read is bounded", () => {
     expect(seen[seen.length - 1]).toBeNull();
 
     await act(async () => {
-      answer?.(JSON.stringify({ slug: "seyi", note: "late.md" }));
+      answer?.(JSON.stringify([{ slug: "seyi", note: "late.md" }]));
       await Promise.resolve();
     });
     expect(seen[seen.length - 1]).toBeNull();

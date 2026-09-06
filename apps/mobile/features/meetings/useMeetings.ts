@@ -115,13 +115,26 @@ export function useTranscriptionClient(): void {
 /**
  * Point the controller at the signed-in person's context, once.
  *
- * ## Why the workspace comes from the same query the console uses
+ * ## What `workspaceId` here is, and — since it was read as more — what it is not
  *
- * `listMyWorkspaces` plus `defaultContext` — a context you own, and the first
- * of the list only when you own none. That rule is `nav.ts`'s and is not
- * re-derived here: a meetings screen that picked "the first workspace" would
- * record somebody's meeting into a colleague's context, which is a tenancy
- * mistake rather than a cosmetic one.
+ * It is the **device key**: `keys.ts` files a meeting under it so that one
+ * person's several contexts do not share a drawer on the phone, and
+ * `loadMeetings` reads that drawer back. It is not a routing decision and it
+ * never was one. Where a meeting's note *lands* is `MeetingRecord.destination`,
+ * which addresses every gateway call about that meeting — see `gateway.ts`.
+ *
+ * That distinction is written down because the two were briefly conflated, in
+ * the direction that matters. `defaultContext` filters on `role === "owner"`
+ * and nothing else, while the sheet's own "your context" is
+ * `ownPersonalContext` — `kind === "personal"` **and** `role === "owner"`. Two
+ * notions of the same phrase, and while the write followed neither, whichever
+ * one it was read as was wrong: somebody who owns a shared workspace older than
+ * their brain has a `defaultContext` that is shared, and a meeting filed by it
+ * would land in a shared bucket under a row that said "Only you".
+ *
+ * Nothing here decides that any more, so `defaultContext` stays exactly as
+ * `nav.ts` argues it: the rule for which context somebody lands in, which is a
+ * question about a first screen and not about a bucket.
  *
  * Convex dedupes identical subscriptions, so this adds no round trip the app
  * was not already making.
@@ -134,11 +147,44 @@ export function useTranscriptionClient(): void {
  * on the device, and the screens say so. A meeting is never lost by this; what
  * it does not do is reach the bucket.
  */
-export function useMeetingsSetup(options: { gateway?: MeetingsGateway } = {}): void {
-  const spec = useMemo<RequestForQueries>(
-    () => ({ workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} } }),
-    [],
-  );
+export function useMeetingsSetup(
+  options: {
+    gateway?: MeetingsGateway;
+    /**
+     * Whether there is a session to subscribe on behalf of. Default `true`.
+     *
+     * This hook is mounted by the app gate, which runs it **above** its own
+     * early returns so that a cold start into a running meeting configures the
+     * controller on the first render rather than a render late. That means it
+     * also runs while the stored token is still being restored — before the
+     * client has an identity — and `useQueries` with a real spec there is a
+     * request from nobody. `appLayoutGate.test.ts` asserts zero subscriptions
+     * in that window and caught exactly that.
+     *
+     * So the spec empties rather than the hook not running, which is the same
+     * shape the gate already uses for its own two queries. Convex dedupes, and
+     * an empty spec opens nothing.
+     */
+    enabled?: boolean;
+  } = {},
+): void {
+  const enabled = options.enabled ?? true;
+  /*
+    Two `return`s **and** an explicit return annotation, both of which are a
+    type-level requirement rather than a style.
+
+    A conditional expression unions its arms, so the empty arm widens to
+    `{ workspaces?: undefined }` — and `undefined` is not assignable to
+    `RequestForQueries`' index signature, which is what `tsc` refused. Splitting
+    it into two `return`s is not enough on its own: the arrow's return type is
+    still inferred as that same union and only then checked against `useMemo`'s
+    type argument. Annotating the arrow is what gets each `return` checked
+    against `RequestForQueries` separately, and `{}` is a perfectly good one.
+  */
+  const spec = useMemo<RequestForQueries>((): RequestForQueries => {
+    if (!enabled) return {};
+    return { workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} } };
+  }, [enabled]);
   const results = useQueries(spec);
   const raw = results.workspaces;
   const workspaces = raw instanceof Error || raw === undefined ? undefined : raw;

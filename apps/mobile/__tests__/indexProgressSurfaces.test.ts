@@ -27,14 +27,41 @@ import { createRoot } from "react-dom/client";
  *  - **a pointer gets the status strip**, which already carries the bucket and
  *    the conflict-check guarantee, i.e. facts about the context rather than the
  *    open note;
- *  - **a phone gets the file tree's footer line**, because at `compact` the
- *    frame draws a bottom toolbar and **no status strip**
+ *  - **a phone gets the foot of the context root page**, because at `compact`
+ *    the frame draws a bottom toolbar and **no status strip**
  *    (`features/app/frame.ts`). Without that line a phone would have exactly
  *    the problem this feature exists to remove.
  *
  * Neither invents anything: both read `describeIndexProgress`, the one function
  * that decides the words, so a context cannot be 62% in one place and 63% in
  * another.
+ *
+ * ## The phone's half moved, and it moved because its home was demolished
+ *
+ * This used to read "**a phone gets the file tree's footer line**", and the
+ * assertions below opened a drawer and read a testID called
+ * `explorer-vault-detail` — a name that is gone from the repo along with the
+ * slot it labelled; the pointer layout's tree keeps only the counts half of
+ * that footer, at `explorer-counts`. All of that was right for as long as a
+ * phone had a file tree. It has none — no drawer, no rail sheet, no toggle for
+ * either (`features/app/frame.ts`) — so the footer that carried
+ * `storage · index · counts` went with the panel it was the foot of, and **the
+ * phone lost this feature outright**. Nothing about the reason it exists
+ * changed; only the surface did.
+ *
+ * The line is the foot of the **context root page** now — the one folder page
+ * that *is* the context, which is why `FolderView` has always taken a
+ * `contextLabel` for it. `features/console/files/contextFoot.ts` composes it,
+ * `FolderView` draws it under the root's listing, and a subfolder page does not
+ * get one: `loadedCounts` counts every listing that has been read rather than
+ * this folder's, so under `3-resources`' own eight rows the same numbers would
+ * be read as a count of `3-resources` and would be wrong. A line that is
+ * accurate and misread is worse than one that is absent.
+ *
+ * That is also why the phone cases below mount the console with the **root
+ * selected** and read `context-foot`, and why one of them presses nothing: the
+ * old ones had to open a drawer to reach the figure, and there is no longer
+ * anything between somebody browsing their own notes and this line.
  *
  * ## The assertion that matters most
  *
@@ -72,6 +99,31 @@ import { createRoot } from "react-dom/client";
  *
  * Every one of them fails its own case and, where it is genuinely one rule
  * spanning surfaces, all of them — and nothing else.
+ *
+ * ## Sabotage record, the move
+ *
+ * The table above was measured while the phone's half was the file tree's
+ * footer; every row of it still holds, because none of those guards is in the
+ * surface that moved. What follows was measured after it moved, against a green
+ * baseline of **172 suites / 3,285 tests**, one guard broken at a time and the
+ * whole suite re-run (`npx jest --watchman=false`):
+ *
+ * | broken guard | result |
+ * | --- | --- |
+ * | `contextFootLine` drops `describeIndexProgress(…)?.label` | 5 failures / 1 file — every owner case here, phone and both-surfaces alike. The pointer's strip is untouched, which is the point: it is a different caller of the same function. |
+ * | `contextFootLine` drops the binding | 5 failures / 3 files — 2 here, 1 in `noteChrome`, 2 in `storageUnknown`. The line is three facts and the phone has no other route to the first of them. |
+ * | `FolderView`'s foot is handed to every folder page, not only the root | 2 failures / 2 files — `a folder page inside the context carries no caption` here, and `folderRoute`'s `is the same screen as reaching it through the tree`, which catches it from the other direction: a deep-linked folder would gain a caption the tree route does not draw |
+ * | `atContextRoot` drops its `compact &&`, so a pointer layout draws the foot too | 1 failure — `noteChrome`'s `a pointer layout draws no context foot`, and only it. (An earlier shape of this, which composed the line on every render at compact and gated the *prop*, reddened 24: the extra 23 were `browseShare` crashing on a fixture with no `fastSearch` at all. Gating the composition rather than the prop is what makes the mutant land on the assertion written for it instead of on a `TypeError` three files away — and it also stops the listing walk running behind every open note.) |
+ * | `contextFootLine` drops its `storage === undefined` arm, so a binding that has not answered reads as "no bucket connected" | **0**, until the three cases in `storageUnknown.test.ts` were written for it. That guard was correct and unasked — see that file's own record. With them, 1 failure and only it. |
+ * | the percentage is composed here from `notesIndexed ?? 0` instead of asked of `describeIndexProgress` | 5 failures / 1 file — both member cases, the `off` case, and the two owner wordings. This is the mutant that matters most: it is the shape a second implementation naturally takes, and it hands a member the size of what they are not being shown. |
+ *
+ * And two outside this file's subject that the same sweep measured, recorded
+ * here because they were broken in the same change:
+ *
+ * | broken guard | result |
+ * | --- | --- |
+ * | a phone with nothing open draws nothing rather than the context root page | 4 failures / 2 files — `noteChrome`'s `a phone that has opened nothing lands on that page rather than on a dead end`, plus the three `storageUnknown` cases, which reach the foot through exactly that landing |
+ * | the pinned account's pressable goes back to `padding: 4` (34pt) | 1 failure — `consoleChrome`'s `sign-out is reachable, and is a target a thumb can hit`, which is the product's only sign-out |
  */
 
 // `mock`-prefixed so `jest.mock`'s hoisted factories may close over them.
@@ -81,8 +133,24 @@ jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => mockInsets,
 }));
 
+/*
+  `Slot` is the real Browse pane, because the phone's half of this figure is
+  drawn by a *page* now rather than by a panel of the frame. It used to be
+  `() => null` and could be: the file tree was mounted by the layout, so the
+  footer existed without any route rendering. The pane is what draws the
+  context root, so a mock that renders nothing would assert this feature absent
+  and pass.
+*/
 jest.mock("expo-router", () => ({
-  Slot: () => null,
+  Slot: () => {
+    const { createElement: h } = require("react") as typeof import("react");
+    const { BrowsePane } =
+      require("../features/console/panes/BrowsePane") as typeof import("../features/console/panes/BrowsePane");
+    const { useConsoleData } =
+      require("../features/console/ConsoleDataContext") as typeof import("../features/console/ConsoleDataContext");
+    return h(BrowsePane, { data: useConsoleData() });
+  },
+  Redirect: () => null,
   useRouter: () => ({ replace: () => {}, push: () => {} }),
   usePathname: () => "/console/@seyi",
 }));
@@ -105,6 +173,15 @@ type FastSearchStatus =
 /** Swapped per test, read on every render by the mocked hook. */
 let mockStatus: FastSearchStatus | null = null;
 
+/**
+ * What is open, and therefore which page is on screen.
+ *
+ * `""` is the context root — the page that carries the foot. A subfolder is
+ * what the negative case selects; see `a folder page inside the context carries
+ * no caption`.
+ */
+let mockSelected: string | null = "";
+
 function mockConsoleData(): never {
   const files = {
     canEdit: true,
@@ -113,6 +190,23 @@ function mockConsoleData(): never {
     listings: {
       "": {
         path: "",
+        folderDefault: "private" as const,
+        truncated: false,
+        manifestUsable: true,
+        entries: [
+          {
+            kind: "folder" as const,
+            path: "1-projects",
+            name: "1-projects",
+            visibility: "private" as const,
+            inherited: "private" as const,
+            exception: false,
+            readOnly: false,
+          },
+        ],
+      },
+      "1-projects": {
+        path: "1-projects",
         folderDefault: "private" as const,
         truncated: false,
         manifestUsable: true,
@@ -131,14 +225,29 @@ function mockConsoleData(): never {
     },
     expanded: new Set<string>(),
     toggleFolder: () => {},
-    selectedPath: null,
+    selectedPath: mockSelected,
+    opening: null,
+    conflict: null,
+    canSetVisibility: true,
+    canShare: true,
+    canResetPrivacy: false,
+    resetPrivacy: () => {},
+    shares: [],
+    share: () => {},
+    teamShareLink: () => {},
+    revokeShare: () => {},
+    setSharePreviewTitle: () => {},
+    copyShareLink: () => {},
+    openLinkPaths: new Set<string>(),
+    setScope: () => {},
+    collapseAll: () => {},
+    copyTo: () => {},
     select: () => {},
     editor: emptyEditor,
     setDraft: () => {},
     save: () => {},
     useTheirs: () => {},
     keepMine: () => {},
-    conflict: null,
     resolveWith: () => {},
     discard: () => {},
     notice: null,
@@ -241,19 +350,17 @@ function mountConsole(width: number) {
   const find = (testId: string) =>
     container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
 
+  /*
+    `openDrawer` used to be here, and every phone assertion below called it
+    first. It pressed `frame-drawer-toggle` to pull the file tree in, because
+    the figure was that tree's footer. There is no drawer and no toggle at any
+    density now (`features/app/frame.ts`), and the figure is on the page
+    already — so the helper is gone rather than pointed at something else, and
+    the phone cases press nothing.
+  */
   const app = {
     text: () => container.textContent ?? "",
     find,
-    /** The file tree is a drawer on a phone: nothing of it is mounted until asked. */
-    openDrawer: () => {
-      const toggle = find("frame-drawer-toggle");
-      if (toggle === null) throw new Error("no drawer toggle at this width");
-      act(() => {
-        for (const type of ["mousedown", "mouseup", "click"]) {
-          toggle.dispatchEvent(new MouseEvent(type, { bubbles: true }));
-        }
-      });
-    },
     unmount: () => {
       act(() => root.unmount());
       container.remove();
@@ -278,10 +385,15 @@ function pointerText(): string {
   return rendered;
 }
 
-/** Everything the phone console has on screen, drawer open. Same rule. */
+/**
+ * Everything the phone console has on screen. Same rule.
+ *
+ * Nothing is opened first. That is the change and it is worth stating: this
+ * used to open the file-tree drawer, because the figure lived inside a panel
+ * somebody had to summon. It is the foot of the page they are already on.
+ */
 function phoneText(): string {
   const app = mountConsole(390);
-  app.openDrawer();
   const rendered = app.text();
   app.unmount();
   unmountAll = unmountAll.filter((done) => done !== app.unmount);
@@ -307,15 +419,39 @@ describe("an owner sees the figure without opening settings", () => {
     expect(app.text()).toContain("62% indexed");
   });
 
-  test("the file tree's footer carries it on a phone, which has no status strip", () => {
+  test("the context root page's foot carries it on a phone, which has no status strip", () => {
     // The frame draws a bottom toolbar and no status bar at `compact`, so
     // without this line the figure would exist on a phone only inside
     // settings — which is the state that made a stuck backfill invisible.
+    //
+    // This used to open the file tree's drawer and read its footer. A phone has
+    // neither, and the assertion is written positively so that "the panel is
+    // gone" cannot pass as "the feature is here": the foot is *found*, and the
+    // three facts are in it, in order.
     mockStatus = OWNER_MID_BACKFILL;
     const app = mountConsole(390);
     expect(app.find("console-status")).toBeNull();
-    app.openDrawer();
-    expect(app.find("explorer-vault-detail")?.textContent ?? "").toContain("62% indexed");
+    expect(app.find("context-foot")?.textContent ?? "").toBe(
+      "R2 · example-bucket · 62% indexed · 1 note, 1 folder",
+    );
+  });
+
+  test("a folder page inside the context carries no caption", () => {
+    /*
+      The decision `FolderView`'s header records, asserted rather than claimed.
+      `loadedCounts` counts every listing that has been read, not this folder's,
+      so under `1-projects`' own rows those numbers would be read as a count of
+      `1-projects` — accurate and misread, which is worse than absent. The
+      context root is the one folder page that *is* the context.
+    */
+    mockStatus = OWNER_MID_BACKFILL;
+    mockSelected = "1-projects";
+    const app = mountConsole(390);
+    // The positive control: this really is a folder page, so the absence below
+    // is not a page that failed to render.
+    expect(app.find("folder-row")).not.toBeNull();
+    expect(app.find("context-foot")).toBeNull();
+    mockSelected = "";
   });
 
   test("the same words in both places, from the one function that decides them", () => {
@@ -386,15 +522,16 @@ describe("A MEMBER SEES NO PERCENTAGE ON ANY SURFACE", () => {
     }
   });
 
-  test("the phone's footer keeps the bucket and gains nothing else", () => {
-    // The line is shared with the storage label, so "the member is told
-    // nothing" must not be satisfied by the whole line disappearing — that
-    // would be a different regression wearing this test's pass.
+  test("the phone's foot keeps the bucket and the counts, and gains nothing else", () => {
+    // The line is shared with the storage label and the tree counts, so "the
+    // member is told nothing" must not be satisfied by the whole line
+    // disappearing — that would be a different regression wearing this test's
+    // pass. The storage label and the counts are the phone's only route to
+    // either fact, and they travel with the figure rather than behind its gate.
     mockStatus = { state: "preparing", canChange: false };
     const app = mountConsole(390);
-    app.openDrawer();
-    const detail = app.find("explorer-vault-detail")?.textContent ?? "";
-    expect(detail).toContain("R2 · example-bucket");
+    const detail = app.find("context-foot")?.textContent ?? "";
+    expect(detail).toBe("R2 · example-bucket · 1 note, 1 folder");
     expect(detail).not.toMatch(/\d+\s*%/);
     expect(detail).not.toMatch(/indexed/i);
   });

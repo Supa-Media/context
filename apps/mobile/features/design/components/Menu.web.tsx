@@ -46,11 +46,22 @@ import { Text } from "./Text";
  * is left to ask is the width.
  *
  * `layout.narrowBreakpoint` and not a number, and not a *different* number:
- * `frame.ts`'s `densityFor` calls the same threshold `compact`, and `Explorer`
- * passes `platform: "touch"` to `menu.ts` at exactly that density. One
- * breakpoint therefore decides both halves of the same menu — which items
- * exist, and how big they are drawn — so there is no window width where the
- * items say "phone" and the chrome says "desktop".
+ * `frame.ts`'s `densityFor` calls the same threshold `compact`, so the width at
+ * which this file stops drawing a popover is the width at which the app stops
+ * being a pointer layout. One threshold, named once.
+ *
+ * **The rest of that sentence has stopped being true and is corrected rather
+ * than dropped.** It read "and `Explorer` passes `platform: "touch"` to
+ * `menu.ts` at exactly that density. One breakpoint therefore decides both
+ * halves of the same menu — which items exist, and how big they are drawn."
+ * `Explorer.tsx` passes the literal `"web"` now: the file tree exists only on a
+ * pointer layout (`frame.ts` answers `explorer: "hidden"` at compact), and
+ * deriving the platform from a density with one possible value was the pretence
+ * that a phone could reach that tree. So nothing in this app asks `menu.ts` for
+ * its `touch` arm, and that arm is on `frame.ts`'s deliberately-kept list with
+ * its own reason. The day something does pass it, this is the threshold it
+ * should read — which is why the breakpoint stays named rather than becoming a
+ * number.
  *
  * A desktop window dragged narrow gets the sheet, which is right for the same
  * reason it is right in `Palette`: the constraint is the room, not the device.

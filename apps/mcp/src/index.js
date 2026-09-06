@@ -2092,10 +2092,14 @@ function baseToolDefinitions() {
     {
       name: "list_meetings",
       description:
-        "List the meetings the user recorded — what they were called, when, how long they ran and " +
-        "who was there, newest first. Reach for this whenever a question turns on something that " +
-        "was said in a call rather than written down. Each entry carries the note path to pass to " +
-        "read_meeting.",
+        "List the meetings filed in the user's default meetings folder (0-inbox/meetings) — what " +
+        "they were called, when, how long they ran and who was there, newest first. Reach for " +
+        "this whenever a question turns on something that was said in a call rather than written " +
+        "down. Each entry carries the note path to pass to read_meeting. This is not necessarily " +
+        "every meeting: one the user filed elsewhere when they recorded it, or moved afterwards, " +
+        "is an ordinary note in their own folders and does not appear here — nothing records " +
+        "where a meeting was filed, by design. If a meeting they refer to is missing, look for " +
+        "it with search_notes and open it with read_note.",
       inputSchema: {
         type: "object",
         properties: {
@@ -5729,6 +5733,14 @@ async function publishMeetingNote(store, scope, { path, markdown, segmentCount }
  * moved out of the folder stops being listed here and is still a note — which
  * is the correct behaviour for a product whose whole claim is that the files
  * are theirs.
+ *
+ * A meeting a person *filed* elsewhere at finalize time (`FinalizeBody.folder`)
+ * is the same case reached a step earlier, and it is why no folder is passed
+ * here. `isMeetingNotePath` answers about the folder it is given; there is no
+ * meetings table recording where any given meeting went, by decision, and
+ * scanning the whole bucket for `YYYY/MM/YYYY-MM-DD-*.md` would call somebody's
+ * ordinary dated note a meeting. So this lists the default folder, and every
+ * other tool reaches the rest.
  *
  * `canSee` filters before anything is read, so a team connection cannot learn
  * that a private meeting exists by counting.

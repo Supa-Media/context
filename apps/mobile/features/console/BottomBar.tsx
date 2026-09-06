@@ -1,9 +1,9 @@
-import { useState, type JSX } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Fragment, useState, type JSX } from "react";
+import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { FocusRing } from "../design/components/FocusRing";
 import { Icon, type IconName } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
-import { layout, radii } from "../design/tokens";
+import { bottomBarGeometry, layout, radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 
 /**
@@ -12,14 +12,36 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
  * At `compact` the frame renders a `bottomBar` and **no** status bar — the
  * bottom edge is one or the other, never both (`features/app/frame.ts`). This
  * is what goes in that slot: the phone's answer to the right-click menu and the
- * keyboard chord. **Navigation is not its job** — the top bar's switcher pulls
- * the rail in as a sheet, and that is where the app-level panes, the other
- * contexts and sign-out live (`features/app/frame.ts`). There is no keyboard
- * here and no hover: if a *verb* is not on this strip, on a phone it does not
- * exist. That is why the shape is copied from Obsidian mobile — back, forward,
- * search, new, tab count, menu — rather than invented: it is the arrangement
- * the people most likely to arrive at this product already have muscle memory
- * for.
+ * keyboard chord. There is no keyboard here and no hover: if a *verb* is not on
+ * this strip, on a phone it does not exist. That is why the shape is copied
+ * from Obsidian mobile — back, forward, search, new, tab count, menu — rather
+ * than invented: it is the arrangement the people most likely to arrive at this
+ * product already have muscle memory for.
+ *
+ * ## "Navigation is not its job" is amended, and here is how far
+ *
+ * This file used to say that flatly, and gave its reason: the top bar's
+ * switcher pulled the rail in as a sheet, and the rail was where the app-level
+ * panes, the other contexts and sign-out lived. Both halves of that premise are
+ * gone. There is no sheet and no rail on a phone at all
+ * (`features/app/frame.ts`), the contexts moved to the context strip along the
+ * top, and the app's other places had nowhere left to be reached from.
+ *
+ * So this bar takes **one** of them, and the boundary is worth stating exactly,
+ * because a boundary this vague is one a later change walks through. It does
+ * not carry the contexts: those are a list that grows as somebody joins
+ * workspaces, and a list belongs on a strip that scrolls rather than on a row
+ * whose whole value is that a thumb can aim at a fixed position without
+ * looking. It carries one **destination**, in the last position, behind a
+ * separator — so the note's verbs still read as a group and the seventh key
+ * does not join it.
+ *
+ * **This file does not know what that destination is.** `separated` says where
+ * the group ends and nothing here says what comes after it; which route the
+ * last key opens is decided by whoever builds the list, exactly as every other
+ * action here is. A toolbar that named a feature would be a second place that
+ * feature's placement is decided, and the first one would stop being the only
+ * one.
  *
  * ## It is a pill lying on the note, not a bar ruled off from it
  *
@@ -52,6 +74,26 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
  * a different place on the screen, on a device where it is supposed to be in
  * one. `AppFrame` insets the slot by `layout.bottomBarInset` now and the bar
  * fills it; the targets divide what is inside.
+ *
+ * **And the inset is 24 rather than 52, which is what the seventh key cost.**
+ * The measurement above is still the measurement; what changed is that the
+ * sliver of note it buys is worth less than a destination. On a 390pt phone —
+ * the narrow case, not the reference's 440 — seven targets inside a pill inset
+ * by 52 are 37.29pt wide against a 44pt floor, and six are 43.5, which is under
+ * it too. At 24 they are 45.29 — 317 divided seven ways, not 318, because the
+ * separator is a child of the same row and takes its point off the targets.
+ *
+ * **390 is not the narrow case, and treating it as one is what broke this.**
+ * The paragraph above was written at 390 and at 440 and at no other width, and
+ * both of them fit. Below 381 none of them did: 43.14pt a target at 375 (SE
+ * 2/3, 12/13 mini, 8/7/6s), 41.00 at 360 (most Android), 35.29 at 320 — and
+ * because `minWidth` holds the floor rather than letting them shrink, the row
+ * did not squeeze, it **spilled past the pill's rounded edge**. So the two
+ * edges are a *function* now rather than two constants: `bottomBarGeometry`
+ * spends the pill's own padding first and the sliver second, touches nothing
+ * at 381pt or above, and answers `fits: false` below 309 where no arrangement
+ * exists at all. `bottomRowWidth.test.ts` solves the flex row at eight real
+ * device widths rather than dividing one of them by seven.
  *
  * That is deliberately **not** the flush, hairline-topped bar an earlier plan
  * called for. The reference is unambiguous on this point — reading view and
@@ -101,15 +143,27 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
  *
  * ## Two things this deliberately does not do
  *
- * **It sets nothing on its own edges.** `AppFrame` owns all four: it applies
+ * **It adds nothing to its own edges.** `AppFrame` owns all four: it applies
  * `max(insets.bottom, floatingGap)` below and `layout.bottomBarInset` either
  * side of the slot this renders into, so the pill clears the home indicator on
  * a notched phone, still has the reference's 25pt gap on one without, and sits
- * 52pt in from each edge whatever is on it. Setting anything here as well would
+ * `bottomBarInset` in from each edge whatever is on it — 24 at rest, not the 52
+ * this sentence used to name, which is the margin the seventh key was bought
+ * with and is argued for above. Setting anything *vertical* here as well would
  * stack, which is a bar floating 68px above the home indicator, and — because
  * the frame is `100dvh` and clips — pushes the icons off the bottom of the
- * editor's space rather than growing the frame. If this component ever gains a
- * margin or an outer padding of its own, it is a bug.
+ * editor's space rather than growing the frame.
+ *
+ * **This used to say "sets nothing", and the horizontal half of that is now
+ * "adds nothing".** The vertical edges are unchanged and untouchable: nothing
+ * here reads a safe-area inset and nothing here may. Horizontally the pill
+ * carries a `marginHorizontal` that is **zero or negative, never positive** —
+ * it can ask for part of the frame's own sliver back on a phone too narrow to
+ * hold the row otherwise, and it is clamped so it can reach the edge of the
+ * glass and no further. That is subtraction from one number owned in one place
+ * (`layout.bottomBarInset`, read by both files), not a second inset stacked on
+ * top of the first, which is what the original rule exists to forbid. A
+ * *positive* margin or outer padding here is still a bug.
  *
  * **It does not reimplement the tab count.** `TabCountButton` in
  * `files/TabSwitcher.tsx` already owns the count square, its unsaved dot and
@@ -186,14 +240,122 @@ export interface BottomBarAction {
   /** A dot, e.g. unsaved changes. */
   marker?: boolean;
   disabled?: boolean;
+  /**
+   * Draw a hairline immediately **before** this action.
+   *
+   * The row holds two kinds of thing that a person should not have to read the
+   * icons to tell apart: verbs that act on the note in front of them, and — in
+   * the last position — one destination that leaves it. Six of one and one of
+   * the other, undivided, is a seven-icon row where the last one silently does
+   * something categorically different from its neighbours.
+   *
+   * A rule is the cheapest possible answer: no gap (which would cost width the
+   * targets need — see `bottomBarInset`'s arithmetic, where seven targets clear
+   * 44pt by 1.29 on a 390pt phone, the rule's own point already deducted), no
+   * heading, and nothing that has to be announced. It is
+   * `aria-hidden`, because a screen reader is already told each control's whole
+   * name and a decoration between two of them adds nothing but noise.
+   *
+   * Optional, and there is deliberately no "how many groups" model: this row is
+   * seven items wide. One boundary is a rule; two would be a toolbar pretending
+   * to be a menu bar.
+   */
+  separated?: boolean;
+}
+
+/**
+ * Rows this process has already complained about, so it complains once.
+ *
+ * Keyed by the two things that decide it. A render loop must not turn one
+ * layout that cannot be drawn into a console nobody reads.
+ */
+const complained = new Set<string>();
+
+/**
+ * There is no width at which this row can be drawn honestly, so say so.
+ *
+ * The two things left to do are both bugs — a target under the floor, which
+ * nobody can see, or a key off the edge of the pill, which is what was
+ * happening — and the person who can fix either of them is a developer, not
+ * the person holding the phone. A warning is where they will hear it.
+ */
+function reportUnfittable(width: number, keys: number): void {
+  if (process.env.NODE_ENV === "production") return;
+  const key = `${width}x${keys}`;
+  if (complained.has(key)) return;
+  complained.add(key);
+  console.warn(
+    `BottomBar: ${keys} targets cannot clear ${layout.minTouchTarget}pt at ${width}pt — ` +
+      "the pill has spent its padding and the whole inset and is still short. " +
+      "Either the row is too long for this width or the width is below what the app supports.",
+  );
 }
 
 export function BottomBar({ actions }: { actions: BottomBarAction[] }): JSX.Element {
   const styles = useThemedStyles(makeStyles);
+  /*
+    The window, not this view.
+
+    Measuring the band with `onLayout` would be the more careful-looking
+    answer and is the wrong one twice: it lands a frame late, so the first
+    paint would draw the pill at the resting geometry and then move it, and
+    jsdom fires no layout events, so the thing deciding whether the row fits
+    would be the one thing no test could reach.
+
+    It is also exactly right at the only density this renders: `regionsFor`
+    turns `bottomBar` on at `compact` and nowhere else, and a compact frame
+    has no rail and no explorer column — the band is `left: 0, right: 0` on a
+    full-window frame. The window width *is* the band's width, less the inset
+    `AppFrame` pads it by, which is the number both files read.
+  */
+  const { width } = useWindowDimensions();
+
+  /*
+    The row's edges are a function of the window and of what is on the row —
+    see `bottomBarGeometry`, which carries the whole of why. The rules count
+    because a `flexShrink: 0` hairline takes its width off the targets; the
+    leading one is dropped rather than drawn (below), so it does not.
+  */
+  const rules = actions.filter((action, index) => action.separated === true && index > 0).length;
+  const geometry = bottomBarGeometry(width, actions.length, rules);
+  if (!geometry.fits) reportUnfittable(width, actions.length);
+
   return (
-    <View style={styles.bar} role="toolbar" aria-label="Console actions" testID="bottom-bar">
-      {actions.map((action) => (
-        <BottomBarButton key={action.id} action={action} />
+    <View
+      style={[
+        styles.bar,
+        {
+          paddingHorizontal: geometry.pad,
+          /*
+            Zero at every width that has room, which is every phone from 381pt
+            up: the frame's inset stands and this component still sets nothing
+            on its own edges. Below that the pill asks for part of the sliver
+            back — never more than `AppFrame` inset it by, so it can reach the
+            edge of the glass and no further.
+          */
+          marginHorizontal: geometry.inset - layout.bottomBarInset,
+        },
+      ]}
+      role="toolbar"
+      aria-label="Console actions"
+      testID="bottom-bar"
+    >
+      {actions.map((action, index) => (
+        <Fragment key={action.id}>
+          {/*
+            A separator before the first action would be a rule against the
+            pill's own leading edge, which is a mistake in a list somebody
+            reordered rather than a boundary anybody meant. It is dropped
+            rather than drawn, and the flag on the action is left alone — the
+            caller said where its group ends and being first is not a
+            disagreement with that, it is the same statement with nothing on
+            the other side of it.
+          */}
+          {action.separated && index > 0 ? (
+            <View style={styles.separator} aria-hidden testID="bottom-bar-separator" />
+          ) : null}
+          <BottomBarButton action={action} />
+        </Fragment>
       ))}
     </View>
   );
@@ -295,7 +457,14 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     height: layout.bottomBarHeight,
     flexDirection: "row",
     alignItems: "stretch",
-    paddingHorizontal: layout.bottomBarPad,
+    /*
+      No `paddingHorizontal` here, and no `marginHorizontal`: both are set from
+      `bottomBarGeometry` at render, because both are a function of the window
+      width and of how many keys are on the row. A constant here would be a
+      second writer of the number that decides whether this row fits, and a
+      constant is exactly what it used to be — see the geometry's own comment
+      for the three phones that cost.
+    */
     /*
       An object lying on the note, not a slab across the glass.
 
@@ -345,18 +514,37 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    *
    * The bar's width is the screen's now — `layout.bottomBarInset` either side —
    * so the targets divide what is inside it rather than deciding it.
-   * `flexBasis: bottomBarTarget` is what they each want: six of them plus the
-   * bar's own padding is exactly the 336pt the reference measures on a 440pt
-   * screen, so a full toolbar there lands on the reference. A route with one
-   * action fewer spreads that same width between five rather than moving the
-   * bar's edges, which is what a toolbar does — the pill is in the same place
-   * on every screen and the icons stay evenly spaced inside it.
+   * `flexBasis: bottomBarTarget` is what they each *want*, and 52 is that
+   * because six of them plus the bar's own padding is exactly the 336pt the
+   * reference measures on a 440pt screen. A route with one action fewer spreads
+   * the same width between the ones that are left rather than moving the bar's
+   * edges, which is what a toolbar does — the pill is in the same place on
+   * every screen and the icons stay evenly spaced inside it.
+   *
+   * **What it wants is no longer what it gets, and this paragraph described the
+   * bar as though it were.** It said six targets plus the padding land a full
+   * toolbar on the reference, and spoke of a route with one action fewer as
+   * five. A full row is **seven** — six note verbs and one destination — and
+   * the inset is 24 rather than 52, both of which the head of this file
+   * retired. So the pill at 440 is 392 wide, not 336, and the targets are
+   * `flexGrow: 1` into it: the 336 survives as the *reason 52 is 52* and
+   * nothing else. `bottomBar.test.ts` asserts that identity between the three
+   * tokens, because nothing did and `52 → 60` survived the whole suite.
    *
    * `minWidth` is the floor and is why `flexShrink` is allowed at all: a narrow
    * phone with every action present would otherwise squeeze the targets below
-   * what a thumb can hit, and this stops them at `MIN_TOUCH_TARGET` and lets
-   * the row overflow visibly instead — an overflowing toolbar is a problem
-   * somebody sees, and a row of 40pt targets is one nobody does.
+   * what a thumb can hit, and this stops them at `MIN_TOUCH_TARGET`.
+   *
+   * **What it does when it stops them is overflow, and that was the bug rather
+   * than the design.** "An overflowing toolbar is a problem somebody sees" is
+   * true of a developer looking for one and false of everybody else: seven keys
+   * spilled off the pill on every phone under 381pt for the life of this
+   * branch, on the widest-selling screens there are, and nobody saw it. The
+   * floor is still the floor — nothing here draws a 41pt target — but making
+   * room for it is `bottomBarGeometry`'s job now, done before the row is laid
+   * out rather than discovered by it. Overflow is what is left below 309pt,
+   * where no arrangement exists, and it comes with a warning rather than in
+   * silence.
    */
   target: {
     flexGrow: 1,
@@ -369,6 +557,33 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     borderRadius: radii.control,
   },
   targetPressed: { backgroundColor: colors.chromePressed },
+
+  /**
+   * The rule between the note's verbs and the key that leaves the note.
+   *
+   * **It consumes width.** `flexShrink: 0` in the same flex row as the targets
+   * means its `layout.bottomBarRule` point is subtracted from what the seven of
+   * them divide, not painted over them: 317 ÷ 7 = 45.29 on a 390pt phone, not
+   * 318 ÷ 7 = 45.4. This comment said 45.4 and was the one place that should
+   * have caught the omission, since the width it was forgetting is the width it
+   * is describing. `bottomBarGeometry` subtracts it explicitly for that reason.
+   *
+   * It stays a hairline and stays unshrinkable — a hairline that shrinks is a
+   * hairline that disappears — and a *gap* instead of a rule is what there is
+   * no room for; the targets are what absorb a narrow screen.
+   *
+   * Inset vertically rather than run edge to edge: a rule the full 66pt height
+   * of a floating pill reads as a seam splitting the object in two, and what is
+   * meant is a boundary *between two controls inside* one object.
+   */
+  separator: {
+    flexGrow: 0,
+    flexShrink: 0,
+    width: layout.bottomBarRule,
+    alignSelf: "center",
+    height: 22,
+    backgroundColor: colors.line,
+  },
   /** Dimmed rather than hidden — the position is load-bearing. */
   targetDisabled: { opacity: 0.38 },
 

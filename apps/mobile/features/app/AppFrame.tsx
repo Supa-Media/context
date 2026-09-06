@@ -103,11 +103,13 @@ export interface FrameApi {
    */
   toggleExplorer: () => void;
   /**
-   * ⌘B, and the switcher in the top bar.
+   * ⌘B.
    *
-   * Collapses the rail to its marks on a pointer layout and pulls it in as a
-   * sheet on a phone — `railToggleFor` owns which, for the same reason
-   * `explorerToggleFor` owns the other one.
+   * Collapses the rail to its marks on a pointer layout and does nothing on a
+   * phone, where there is no rail to collapse and none to bring in —
+   * `railToggleFor` owns which, for the same reason `explorerToggleFor` owns
+   * the other one. It used to pull the sheet in at compact; the contexts are on
+   * the strip now.
    */
   toggleRail: () => void;
   closeDrawer: () => void;
@@ -296,29 +298,81 @@ const INERT = { inert: true } as unknown as { pointerEvents?: undefined };
 /* -------------------------------------------------------------------------- */
 
 export interface AppFrameProps {
-  /** The context switcher, at the leading edge of the top bar. */
-  switcher: ReactNode;
   /**
-   * What the switcher says, as a string — the accessible name of the control
-   * that opens the rail on a phone.
+   * The context switcher, at the leading edge of the top bar. **Pointer
+   * layouts only** — at compact the leading edge is `accountSlot` and the
+   * contexts are `contextStrip`.
    *
-   * Passed rather than derived, because deriving it only works on one of the
-   * two platforms this app ships to. On web the `<button>` takes its name from
-   * its content and the chevron beside it is `aria-hidden`, so "Your context, 3
-   * reachable" is what a screen reader reads. On iOS and Android neither half
-   * holds: `aria-hidden` is destructured by `View` and **not** by `Text`
-   * (`react-native/Libraries/Text/Text.js`), so it is dropped as an unknown
-   * prop, and `RCTRecursiveAccessibilityLabel` concatenates every descendant's
-   * text regardless — VoiceOver would announce "@seyi personal black
-   * down-pointing small triangle".
+   * It used to travel with a `switcherLabel: string`, and that prop is gone
+   * with the control it named. The chip was *pressable* on a phone — it was
+   * how the rail sheet came in — and a pressable's accessible name cannot be
+   * derived from its content on native: `aria-hidden` is destructured by
+   * `View` and not by `Text`, so it is dropped as an unknown prop, and
+   * `RCTRecursiveAccessibilityLabel` concatenates every descendant's text
+   * regardless — VoiceOver announced "@seyi personal black down-pointing small
+   * triangle". Here the chip is not a control at all, so it has no name to
+   * spell out, and a prop nothing reads is a prop that goes.
    *
-   * Every other glyph in this file sits inside a control that carries an
-   * explicit label, which short-circuits that recursion. This is the first one
-   * that relied on content-derived naming, and it is where the trick fails.
+   * **That rule has not expired, it has moved**: every control on the phone's
+   * top row now carries an explicit `accessibilityLabel` of its own, and
+   * `ContextStrip` states it as one of its three drawing rules. If this slot
+   * ever becomes pressable again, the label comes back with it.
    */
-  switcherLabel?: string;
+  switcher: ReactNode;
   /** Storage chip, avatar — the trailing edge of the top bar. */
   topTrailing?: ReactNode;
+  /**
+   * **Compact only.** Pinned at the leading end of the phone's top row.
+   *
+   * The signed-in identity, and whatever it opens. It used to be the account
+   * block at the foot of the rail sheet, which is where every application puts
+   * it and where nothing on a phone can reach any more — so it comes out to the
+   * one corner of the glass that is always visible.
+   *
+   * Pinned rather than scrolled, and that is the whole reason it is a slot of
+   * its own rather than the first thing in `contextStrip`. A strip long enough
+   * to scroll must not be able to push a person's own identity off the screen,
+   * which is the argument `ConsoleRail` already makes about pinning the account
+   * block above a scrolling list — the same rule, one surface over.
+   *
+   * `layout.accountAvatar` is the *mark* the geometry is budgeted against and
+   * `layout.minTouchTarget` is the pressable around it; the frame imposes
+   * neither, because what goes in here is the caller's. On a phone this slot
+   * holds the product's only sign-out, so the caller pads to the floor — see
+   * `ConsoleRail.AccountBlock`.
+   */
+  accountSlot?: ReactNode;
+  /**
+   * **Compact only.** The flexible middle of the phone's top row.
+   *
+   * The contexts. It flexes — it takes what `accountSlot` and the trailing
+   * capsule leave, and it is expected to scroll rather than to grow, because
+   * the capsule holds the controls that act on the note and a navigation row is
+   * not allowed to push them off the glass.
+   *
+   * **`AppFrame` does not know what a context is, or what an account is.** It
+   * lays out slots, exactly as it already does for `switcher` and `topTrailing`
+   * — the frame "knows about geometry and nothing else", which is what lets it
+   * be mounted in a test without a Convex subscription behind it. The scrolling,
+   * the ordering, the fade and the pills belong to whatever is passed in.
+   *
+   * The geometry it is budgeted against, on a 390pt phone:
+   *
+   *     390 − 2 × 12 gutters            = 366
+   *     366 − 44 account − 8 gap        = 314
+   *     314 − 92 capsule − 8 gap        ≈ 214pt for the strip
+   *
+   * where 92 is the trailing capsule holding two `chromeButton` targets inside
+   * `space.x1` of padding. That is the number the strip has to be legible in,
+   * and it is written here rather than in the strip because this file is the one
+   * that decides it.
+   *
+   * **The account term was 34 and is 44**, and the ten points are not a
+   * revision of taste: 34 is `accountAvatar`, the *mark*, and the slot holds
+   * the *pressable*, which is the phone's only sign-out and has to clear
+   * `minTouchTarget`. See that token for the corrected arithmetic.
+   */
+  contextStrip?: ReactNode;
   /** Opens the palette. Renders the search field on web, a button on touch. */
   onSearch?: () => void;
   /**
@@ -329,12 +383,25 @@ export interface AppFrameProps {
    * needs targets a thumb can hit, and collapsing it to `full` here is what
    * made the sheet inherit a pointer layout's 35pt rows.
    *
-   * Reachable at every density — a column on a pointer layout, a sheet the top
-   * bar brings in on a phone. It is not optional and must not become so: the
-   * app-level panes, the other contexts and sign-out are reachable through this
-   * node and no other, so a density with no way to reach it is a density you
-   * cannot navigate out of. On a phone it is mounted only while the sheet is
-   * up, which is why the slot is a function rather than a node.
+   * **Amended, in the change that reversed it.** This used to read: "Reachable
+   * at every density — a column on a pointer layout, a sheet the top bar brings
+   * in on a phone. It is not optional and must not become so: the app-level
+   * panes, the other contexts and sign-out are reachable through this node and
+   * no other, so a density with no way to reach it is a density you cannot
+   * navigate out of."
+   *
+   * The premise in that sentence is the half that expired — *through this node
+   * and no other*. On a phone the other contexts are the `contextStrip`, the
+   * signed-in identity is the `accountSlot` beside it, and the app's other
+   * places are keys on the bottom row; none of the three is behind a control,
+   * so none of them can be missing. The conclusion still holds wherever the
+   * premise does, which is medium and wide: there this is a permanent column
+   * and it is not optional.
+   *
+   * At compact it is not rendered at all — `regions.rail` is `"hidden"` and
+   * there is no sheet — so the slot is still a function rather than a node,
+   * now because a pointer layout asks for exactly one of three modes rather
+   * than because a phone mounts it late.
    */
   rail: (mode: "full" | "icons" | "sheet") => ReactNode;
   /**
@@ -356,8 +423,9 @@ export interface AppFrameProps {
 
 export function AppFrame({
   switcher,
-  switcherLabel,
   topTrailing,
+  accountSlot,
+  contextStrip,
   onSearch,
   rail,
   explorer,
@@ -365,7 +433,6 @@ export function AppFrame({
   bottomBar,
   children,
 }: AppFrameProps) {
-  const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -392,27 +459,28 @@ export function AppFrame({
   // ⌘B on every layout that has an explorer column.
   const toggleExplorer = useCallback(() => {
     setState((current) => {
-      // `hasExplorer` matters here for the same reason it matters to
-      // `regionsFor`: on Map and Connections there is no tree, the command has
-      // nothing to do, and doing nothing has to mean *nothing* — the line
-      // below would otherwise dismiss the rail sheet on its way to setting a
-      // flag `regionsFor` discards.
+      // `hasExplorer` still travels because `explorerToggleFor` still takes it
+      // — the day a density gets a drawer back it is the flag that decides
+      // whether there is anything to pull in. Today the answer is `null` at
+      // every density and this is a genuine no-op, which is the thing to keep:
+      // "does nothing" must mean *nothing*, not "does the other command".
       const field = explorerToggleFor(densityFor(width), { hasExplorer });
       if (field === null) return current;
-      // The two compact panels share a place on the screen and a scrim, so
-      // raising one puts the other away. `frame.ts` resolves a state carrying
-      // both; that the resolution is unreachable from here is the point.
-      return { ...current, navOpen: false, [field]: !current[field] };
+      return { ...current, [field]: !current[field] };
     });
   }, [width, hasExplorer]);
 
+  // Same rule as `toggleExplorer`: `frame.ts` owns what the command means and
+  // `null` is a real no-op. At compact there is no rail to collapse and no
+  // sheet to bring in — the contexts are on the strip — so ⌘B does nothing
+  // there rather than writing a preference nothing reads, which is the bug
+  // `railToggleFor` was extracted to end.
   const toggleRail = useCallback(
     () =>
       setState((current) => {
         const field = railToggleFor(densityFor(width));
-        return field === "navOpen"
-          ? { ...current, drawerOpen: false, navOpen: !current.navOpen }
-          : { ...current, railCollapsed: !current.railCollapsed };
+        if (field === null) return current;
+        return { ...current, [field]: !current[field] };
       }),
     [width],
   );
@@ -485,9 +553,14 @@ export function AppFrame({
    * already resolves the pair that can never be up together, and it is false at
    * every density that has no bottom bar anyway.
    *
-   * Nobody is stranded by it: the panel's own × closes it, so does the toggle
-   * that crossed to the sliver of note, and so does tapping the note itself
-   * through the scrim. Every one of those brings the bar straight back.
+   * **`regions.scrim` is false at every density today**, so the live arm is
+   * `accessoryOpen` and the paragraph above describes a case that cannot occur.
+   * It is kept for the reason `frame.ts`'s own enumeration keeps the panels
+   * representable, and it is left as the second operand rather than deleted so
+   * that the day a density puts a panel back this line already says the right
+   * thing. Nobody was stranded by it when it did fire: the panel's own ×, the
+   * toggle on the sliver of note, and a tap through the scrim each brought the
+   * bar straight back.
    */
   const toolbarHidden = accessoryOpen || regions.scrim;
 
@@ -614,80 +687,35 @@ export function AppFrame({
             compact && { paddingTop: insets.top, height: contentInsets.top },
           ]}
         >
-          {regions.drawerToggle ? (
-            /*
-              The toggle sits on the note, not on the panel it opened.
-
-              With a panel in, the leading corner of the glass belongs to that
-              panel — a floating button there lies on top of the tree's first
-              row and hides it. Either panel: the brain switcher comes in from
-              the same edge and covers the same corner. The reference puts it on the sliver of
-              note still showing at the trailing edge, which is also where a
-              thumb reaching past an open panel actually is. `marginLeft: auto`
-              rather than a second absolutely-positioned button, so there is
-              one control that moves rather than two that must agree.
-            */
-            <View
-              style={
-                compact && (state.drawerOpen || state.navOpen) ? styles.toggleOnSliver : null
-              }
-            >
-              <FrameIconButton
-                label={state.drawerOpen ? "Close the file tree" : "Open the file tree"}
-                icon="panelLeft"
-                onPress={toggleExplorer}
-                selected={state.drawerOpen}
-                round={compact}
-                testID="frame-drawer-toggle"
-              />
-            </View>
-          ) : null}
-
           {/*
-            The switcher is the way into the rail on a phone.
+            The phone's top row, in three parts: a pinned account mark, the
+            contexts, and the trailing capsule.
 
-            Not a second `☰` beside the tree's: two identical glyphs in a 390px
-            bar opening two different panels is a coin toss, and one of them
-            does not exist on Map or Connections. The chip already names the
-            scope you are in — "Your context", "@you · personal" — which is
-            exactly what a workspace switcher says, so pressing it to change
-            that scope is the behaviour it was already advertising. Its own
-            text is still the accessible name, spelled out through
-            `switcherLabel` because content-derived naming does not survive the
-            crossing to native.
-          */}
-          {/*
-            Nothing in the middle of a phone's top bar.
+            **Two controls used to be here and both are gone with the panels.**
+            A round drawer toggle at the leading edge pulled the file tree in —
+            and crossed to the sliver of note when it did, so it did not lie on
+            the panel it had opened — and the switcher chip pulled the rail in
+            where no file tree was there to carry it at its foot. `frame.ts`
+            answers `false` to both toggles at every density now, so what is
+            left is not a bar with two buttons and a gap: it is a row of slots,
+            and the middle one is a list.
 
-            The switcher chip used to sit here at every density and it is the
-            band this branch exists to empty: `frame.ts` now answers
-            `navToggle: false` wherever there is a file tree, because the
-            switcher has moved to that tree's footer — Obsidian's vault
-            switcher — and the bar is left with a toggle and one group. On Map
-            and Connections there is no tree to carry it, so the chip is still
-            the way in and is still drawn here.
+            At medium and wide the switcher is unchanged and still the leading
+            element of a real bar with a surface and a hairline.
           */}
-          {!regions.navToggle && compact ? null : regions.navToggle ? (
-            <Pressable
-              onPress={toggleRail}
-              role="button"
-              accessibilityLabel={switcherLabel}
-              aria-expanded={state.navOpen}
-              testID="frame-nav-toggle"
-              style={({ pressed }) => [
-                styles.topLead,
-                styles.navToggle,
-                compact && styles.navToggleCompact,
-                pressed && compact && styles.navTogglePressed,
-              ]}
-            >
-              {switcher}
-              <Icon
-                name={state.navOpen ? "chevronUp" : "chevronDown"}
-                size={14}
-                color={colors.muted}
-              />
-            </Pressable>
+          {compact ? (
+            <>
+              {accountSlot == null ? null : (
+                /*
+                  Pinned, and first. It does not scroll with the strip beside
+                  it — see the prop — and it is not inside the strip's own
+                  scroller, so a long list of contexts can never push a
+                  person's identity off the leading edge of the glass.
+                */
+                <View style={styles.accountLead}>{accountSlot}</View>
+              )}
+              {contextStrip}
+            </>
           ) : (
             <View style={styles.topLead}>{switcher}</View>
           )}
@@ -800,12 +828,17 @@ export function AppFrame({
 
                 **It does not clear the toggle**, and that was 34pt of dead
                 space above the first row of the tree — measured at 126pt
-                against the reference's 92. The toggle crosses to the sliver of
-                note the moment a panel is up (`toggleOnSliver`), so it is not
-                over this surface at all; paying `contentInsets.top` here was
-                reserving room for a control that had moved out of the way.
-                `panelGutter` is what is left: the air Obsidian leaves between
-                the status bar and its first row.
+                against the reference's 92. The toggle crossed to the sliver of
+                note the moment a panel was up, so it was not over this surface
+                at all; paying `contentInsets.top` here was reserving room for a
+                control that had moved out of the way. `panelGutter` is what is
+                left: the air Obsidian leaves between the status bar and its
+                first row.
+
+                The toggle itself is gone, along with the style this once cited
+                by name (`toggleOnSliver`, which no longer exists as a symbol
+                anywhere). A phone has no panel to raise, so nothing raises one.
+                The arithmetic is unchanged and is kept in the past tense.
 
                 All of it is on the panel rather than inside the tree's own
                 scroller, which is what keeps rows from riding up under the
@@ -832,8 +865,31 @@ export function AppFrame({
             The rail, over the editor rather than beside it. Full labels, not
             the icon rail: a sheet has the width, and a phone has no hover to
             recover a glyph's meaning with. It carries the account block too,
-            which is why sign-out was unreachable on a phone until this
+            which is why sign-out *was* unreachable on a phone until this
             existed.
+
+            **No density reaches this branch, and neither does the drawer above
+            it or the scrim above that.** `regionsFor` answers `rail: "hidden"`,
+            `explorer: "hidden"` and `scrim: false` at compact and never
+            `"sheet"` or `"drawer"` anywhere; a phone's navigation is the
+            context strip and the bottom row, and sign-out is on the pinned
+            account mark in that strip.
+
+            They are on `frame.ts`'s "what is deliberately kept" list, and this
+            is the *rendering* half of that entry rather than a second decision.
+            The list keeps the `sheet` and `drawer` arms of `Regions`, the
+            `scrim` flag and the two panel flags on `FrameState` because
+            `AppFrame`'s API — `closeDrawer`, `closeNav`, `closeOverlays`,
+            `closesOnSelect` — is held outside this feature, so retiring the
+            representation is one coordinated change made where those callers
+            are. A representable region with nothing that can draw it is exactly
+            the hole that list exists to keep out, so the drawings stay for as
+            long as the arms do and go in the same change.
+
+            What separates that from `Explorer`'s `touch` fork, which was
+            deleted rather than kept: that fork was a second *presentation* of a
+            region, decided by a density, with one caller inside this feature and
+            no representation depending on it.
           */}
           {regions.rail === "sheet" ? (
             <View
@@ -888,10 +944,16 @@ export function AppFrame({
           near enough to the edge to read as attached to it. See the token.
         */}
         {/*
-          Not while the keyboard accessory bar is up, and not while a panel is
-          over the editor — see `toolbarHidden`. The reference has no bottom bar
-          in either screenshot, and two floating bars in the same 66pt of glass
-          is worse than either.
+          Not while the keyboard accessory bar is up — see `toolbarHidden`. The
+          reference has no bottom bar in either screenshot, and two floating bars
+          in the same 66pt of glass is worse than either.
+
+          `toolbarHidden`'s other arm is `regions.scrim`, which is false at every
+          density now that no panel comes in over the editor. It is still read
+          rather than dropped, for the reason `frame.ts`'s enumeration gives for
+          keeping the panels representable at all; what is corrected here is a
+          comment that named the dead arm first, as if the common case were a
+          drawer rather than the keyboard.
         */}
         {bottomBarShowing ? (
           <View
@@ -901,12 +963,20 @@ export function AppFrame({
                 paddingTop: layout.floatingInset,
                 paddingBottom: chromeGap,
                 /*
-                  The 52pt of note showing either side, from here rather than
+                  The sliver of note showing either side, from here rather than
                   from whatever the bar happens to contain. See
                   `layout.bottomBarInset`: sizing the pill to its own controls
                   made the gap a function of how many actions the current route
                   has, so a context somebody is only a member of — no New note —
                   drew the bar 78pt in on a screen where the reference is 52.
+
+                  **It is 24, and this comment said 52.** That was the
+                  measurement off the reference and it is what the token *was*;
+                  the seventh key was bought with it, because seven targets do
+                  not clear the touch floor inside a pill inset by 52. The
+                  number is not repeated here at all now — the token is the one
+                  place it lives, and a second spelling of it is how the two
+                  drift.
                 */
                 paddingHorizontal: layout.bottomBarInset,
               },
@@ -1181,8 +1251,15 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     backgroundColor: "transparent",
   },
   topLead: { flexDirection: "row", alignItems: "center", gap: space.x2, minWidth: 0 },
-  /** See the drawer toggle: the control crosses to the sliver of note. */
-  toggleOnSliver: { marginLeft: "auto" },
+  /**
+   * The account mark, pinned at the leading end of a phone's top row.
+   *
+   * `flexShrink: 0` is the pin: it is the first child of a row whose second
+   * child is a list, and a flex child that may shrink is one the list squeezes
+   * the moment somebody joins a fourth workspace. The strip is what gives way,
+   * because the strip is what scrolls.
+   */
+  accountLead: { flexGrow: 0, flexShrink: 0 },
   topTrail: {
     marginLeft: "auto",
     flexDirection: "row",
@@ -1304,45 +1381,28 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     backgroundColor: colors.surface,
     boxShadow: shadows.drawer,
   },
-  /**
-   * The primary navigation control on a phone, so it is held to the same floor
-   * as the bottom bar's targets rather than to the height of the chip inside
-   * it, which measures about 32pt (13px type at 1.55 leading, 5 of padding
-   * either side, a hairline border).
-   *
-   * `alignSelf: "stretch"` alone would give 43, not 44: the top bar is 44
-   * *including* its bottom hairline. So the floor is set explicitly and the
-   * control takes that last pixel back over the border, where nothing can see
-   * it. Stretching as well keeps the target the full height of the bar rather
-   * than 44 floating inside 43.
-   */
-  navToggle: { alignSelf: "stretch", minHeight: layout.minTouchTarget },
-  /**
-   * The switcher as a chip rather than as a stretched strip.
-   *
-   * On a pointer it fills the bar's height so the whole 44pt band is a target.
-   * There is no band on a phone — stretching to fill a transparent 56pt row
-   * puts an invisible target over the top of the note and leaves the words
-   * floating with nothing under them. A filled chip is the target *and* the
-   * affordance, and it is the shape the two circles beside it are already in.
-   *
-   * **This is the only container.** The node passed as `switcher` used to draw
-   * its own 1px border and 8pt radius *inside* this pill — a bordered box in a
-   * shadowed capsule, for one line of type — which is the detail that made the
-   * phone's top edge read as a toolbar rendered twice. `_layout` drops that
-   * box at compact (`switcherCompact`); nothing in here draws an edge except
-   * this.
-   */
-  navToggleCompact: {
-    alignSelf: "center",
-    paddingLeft: space.x3,
-    paddingRight: space.x2,
-    minHeight: layout.chromeButton,
-    borderRadius: radii.pill,
-    backgroundColor: colors.chrome,
-    boxShadow: shadows.floating,
-  },
-  navTogglePressed: { backgroundColor: colors.chromePressed },
+  /*
+    `navToggle`, `navToggleCompact` and `navTogglePressed` were here, and are
+    gone. They dressed the control that pulled the rail in: a stretched 44pt
+    target on a pointer layout, and on a phone a shadowed white capsule around
+    the context chip. `frame.ts` answers `navToggle: false` at every density
+    now — a phone's navigation is the context strip and the seventh key, and a
+    pointer layout has the rail as a permanent column — so all three had zero
+    render call sites.
+
+    They are a deletion rather than a survivor, which is the distinction
+    `frame.ts`'s "what is deliberately kept" list exists to make: the `sheet`
+    and `drawer` arms of `Regions` are kept because callers outside this feature
+    hold the API that raises them, and a *drawing* of a control no density asks
+    for is held by nobody. `Explorer`'s `touch` fork went the same way.
+
+    They outlived their control because prose kept describing them:
+    `console/_layout.tsx` explained that it dropped the switcher chip's own
+    border because `navToggleCompact` "already draws a shadowed white capsule
+    around it". Nothing drew one, and the style it named was unreachable — which
+    also made the `switcherCompact` it was justifying unreachable, since a phone
+    renders no switcher at all.
+  */
   drawer: {
     position: "absolute",
     top: 0,

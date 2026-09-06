@@ -49,6 +49,32 @@
  * refused, and this must not invent a count that says otherwise. An empty
  * folder and a folder full of notes somebody may not read look identical here,
  * which is the point.
+ *
+ * ## The foot, and why only the root page has one
+ *
+ * `foot` is where `storage · index · counts` lands on a phone — the line that
+ * used to be the file tree's footer and lost its home when a phone stopped
+ * having a file tree. (It was `explorer-vault-detail` there, a testID that no
+ * longer exists anywhere; what survives on a pointer layout is the counts-only
+ * remnant of that footer, `explorer-counts`.) `BrowsePane` supplies it for the
+ * **context root and nothing else**, and that is a decision rather than an
+ * accident of where it was easy to put:
+ *
+ *  - Those three facts are about the *context*, not about a folder. The root is
+ *    the one folder page that **is** the context — this file already takes a
+ *    `contextLabel` for exactly that reason — so under its heading they read as
+ *    a caption on the thing they describe.
+ *  - The counts are `loadedCounts` over every listing that has been read, not
+ *    over this folder. Printed under `3-resources`' own eight rows they would
+ *    be read as a count *of* `3-resources`, and would be wrong — a line that is
+ *    accurate and misread is worse than one that is absent.
+ *  - A caption repeated under forty folder pages is chrome, and the same
+ *    argument the breadcrumb's `pathOnly` makes about not saying a thing twice
+ *    applies to saying it forty times.
+ *
+ * It is a string rather than a node, and it is composed by `contextFoot.ts`
+ * rather than here, because this file has no business knowing what a storage
+ * binding or a backfill is — the same split `Explorer` made for the same line.
  */
 
 import { StyleSheet, View, useWindowDimensions } from "react-native";
@@ -66,6 +92,7 @@ export function FolderView({
   listing,
   canSetVisibility,
   contextLabel,
+  foot,
   onSelect,
 }: {
   entry: FileEntry;
@@ -87,6 +114,14 @@ export function FolderView({
    * A context's root folder *is* the context, so it says so.
    */
   contextLabel: string;
+  /**
+   * `storage · index · counts`, for the one folder page that is the context.
+   *
+   * Absent everywhere else, and absent on a pointer layout, where the status
+   * strip and the top bar's chip already carry the same three facts. See the
+   * file header for why the root page and not every folder page.
+   */
+  foot?: string;
   onSelect: (path: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -155,6 +190,21 @@ export function FolderView({
           </Text>
         ) : null}
       </View>
+
+      {/*
+        The context's own caption, under its listing.
+
+        Below the rows rather than above them, for the reason the tree put it at
+        its foot: it is a caption on what you have just read, and a phone's
+        first screen belongs to the notes rather than to a line about them. It
+        scrolls with the page — this whole view is inside `BrowsePane`'s
+        scroller on a phone — so it costs nothing permanent.
+      */}
+      {foot === undefined ? null : (
+        <Text variant="treeMeta" style={styles.foot} testID="context-foot">
+          {foot}
+        </Text>
+      )}
     </View>
   );
 }
@@ -190,10 +240,21 @@ function FolderRow({ row, onSelect }: { row: FileEntry; onSelect: (path: string)
         {label}
       </Text>
       {/*
-        The tree marks **only exceptions**, and so does this — as the same pip,
-        not as a word. A trailing "team" on every row of a context whose root is
-        private is the folder's default drawn once per file, which buries the
-        one note that differs from it. See `FileEntry.exception`.
+        The tree marks **only exceptions**, and so does this. A trailing "team"
+        on every row of a context whose root is private is the folder's default
+        drawn once per file, which buries the one note that differs from it. See
+        `FileEntry.exception`.
+
+        **It is a pip here and a word in the tree, and this comment used to say
+        the two were the same mark.** They were, briefly: `FileTree` drew a 7pt
+        pip under `touch`, because a 372pt panel lying over a note had no width
+        for `team` beside every row. There is no such panel — the tree is a
+        pointer-layout column now (`features/app/frame.ts`) — so `FileTree` has
+        one presentation and it is the word, in a column with room for it, and
+        its own comment says so. This is the surface that still has no width: a
+        folder listing on a phone is the note's own measure, and a word at the
+        end of every row would be competing with the file name. One rule, two
+        marks, and the two are never on screen together.
       */}
       {row.exception ? (
         <View
@@ -219,11 +280,18 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   contents: { marginTop: space.x3 },
 
   /**
-   * The tree's row, at the tree's pitch.
+   * The row, at `layout.explorerRow`'s pitch.
    *
-   * `height` rather than `minHeight`, for the reason `FileTree.nodeTouch`
-   * gives: the pitch is the measurement, and a row free to grow is a listing
-   * whose rhythm depends on how long a name is.
+   * `height` rather than `minHeight`: the pitch **is** the measurement, and a
+   * row free to grow is a listing whose rhythm depends on how long a name is.
+   * The touch floor is paid by the pressable's `hitSlop` rather than by the
+   * visual — see that token, and `PressRow`.
+   *
+   * It used to attribute that reason to `FileTree.nodeTouch`. **There is no
+   * such symbol**, and there is no longer an argument there to defer to either:
+   * `FileTree`'s whole `touch` fork went when a phone lost its left panel, and
+   * this file is the surface that inherited its measurements. So the reason is
+   * stated here, where the last reader of it lives.
    */
   row: {
     flexDirection: "row",
@@ -251,4 +319,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   pipPrivate: { backgroundColor: colors.muted },
 
   aside: { paddingVertical: space.x2 },
+  /** The caption at the foot of the context's own page. See the file header. */
+  foot: { marginTop: space.x4, color: colors.muted },
 });

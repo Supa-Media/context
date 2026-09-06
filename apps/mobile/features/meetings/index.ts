@@ -46,6 +46,39 @@ export type {
   TranscriptSegment,
 } from "./protocol";
 
+/*
+  The way in from outside this feature. One hook, so a layout that wants a
+  microphone key has one thing to call and one thing to mount — see
+  `useMeetingFlow.ts` for what pressing it does, what it deliberately does not
+  do, and the one line the caller still owes (`useMeetingsSetup`).
+*/
+export {
+  useMeetingFlow,
+  NOT_READY_REFUSAL,
+  type MeetingFlow,
+  type MeetingFlowInput,
+} from "./useMeetingFlow";
+export {
+  chooseOffer,
+  describeDestination,
+  parseDestination,
+  recallDestination,
+  rememberDestination,
+  resolveDestinations,
+  sameDestination,
+  CONTEXT_ROOT_LABEL,
+  INBOX_FOLDER,
+  ONLY_YOU,
+  READ_ONLY_REFUSAL,
+  VISIBLE_TO_TEAM,
+  type CurrentPage,
+  type DestinationChoice,
+  type DestinationContext,
+  type DestinationOffer,
+  type MeetingDestination,
+} from "./destination";
+export { DestinationSheet, AUDIO_SENTENCE } from "./components/DestinationSheet";
+
 export { LiveMeetingScreen } from "./LiveMeetingScreen";
 export { MeetingNoteScreen } from "./MeetingNoteScreen";
 export { MeetingsListScreen } from "./MeetingsListScreen";
@@ -72,6 +105,7 @@ export {
   gatewayOriginFrom,
   MeetingGatewayError,
   GATEWAY_TIMEOUT_MS,
+  type MeetingAddress,
   type MeetingsGateway,
 } from "./gateway";
 export { fakeGateway, type FakeGateway } from "./fakeGateway";
@@ -133,6 +167,7 @@ export {
   NOT_DURABLE_REASON,
 } from "./local";
 export {
+  destinationKey,
   meetingKey,
   meetingKeys,
   meetingKeysForWorkspace,

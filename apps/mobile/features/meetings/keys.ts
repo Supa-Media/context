@@ -39,15 +39,20 @@
  * mount after an upgrade, and a meeting that has not reached the bucket is not
  * a disposable copy.
  *
- * **The cost is that `forgetLocalCopies` does not clear these keys yet.** It
- * clears `ownedKeys` (the offline namespace) and, explicitly, the last-place
- * keys from `console/lastPlace.ts` — which is the precedent: a feature with its
- * own namespace is named in that function rather than swept up by accident.
- * Adding `meetingKeys` to the same list is the one line this feature still owes
- * sign-out, and `__tests__/meetingsController.test.ts` pins the gap — see its
- * "PINNED GAP" case — so it is a red line in a suite rather than a comment
- * nobody reads. Until then the barrier
- * that *is* in force is the epoch: every write goes through
+ * **`forgetLocalCopies` clears these keys**, since 2026-09-06. It clears
+ * `ownedKeys` (the offline namespace) and then, explicitly and by name, the
+ * last-place keys from `console/lastPlace.ts` and this namespace — a feature
+ * with its own namespace is named in that function rather than swept up by
+ * accident, and a clear that module does not measure is the silent half-clear
+ * its own "never silently" stance exists to prevent.
+ *
+ * This paragraph used to say the opposite, and a "PINNED GAP" test asserted
+ * the gap so it was a red line rather than a comment nobody reads. That test
+ * carried its own instruction — when it fails, replace it with the opposite
+ * assertion — and `__tests__/offlineForget.test.ts` now holds it, driving the
+ * real `forgetLocalCopies` rather than the namespace sweeper directly.
+ *
+ * The other barrier, unchanged, is the epoch: every write goes through
  * `features/offline/epoch.ts`, so nothing lands after a session has ended.
  */
 
@@ -61,6 +66,46 @@ const PREFIX = `${NAMESPACE}${SEP}${VERSION}${SEP}`;
 /** One meeting's record. */
 export function meetingKey(workspaceId: string, meetingId: string): string {
   return `${PREFIX}meeting${SEP}${workspaceId}${SEP}${meetingId}`;
+}
+
+/**
+ * The destination this device chose last time the sheet was opened.
+ *
+ * Under this feature's namespace and this feature's separator, deliberately:
+ * the value is a context slug and the name of one of somebody's folders, which
+ * is exactly the kind of thing `console/lastPlace.ts` says must leave a device
+ * on sign-out. `meetingKeys` already names everything under this namespace, so
+ * putting it here means one list rather than two to keep in step.
+ *
+ * **Sign-out takes it.** `forgetLocalCopies` clears the offline namespace, the
+ * last-place keys, and this namespace, each by name — see the file header. On a
+ * shared device this would otherwise be a previous person's context slug and
+ * folder name surviving their sign-out and preselecting a row for the next.
+ * `__tests__/offlineForget.test.ts` holds it, driving the real sign-out rather
+ * than the namespace sweeper.
+ *
+ * **This paragraph has now been wrong twice, in opposite directions, and is
+ * left saying so in a file whose comments are the record.** It first claimed
+ * sign-out took these keys while nothing did. `73dc357` corrected that, and was
+ * right at the time: "it does not follow that sign-out takes it… `meetingKeys`
+ * is not on that list yet". Then `5f5a6db` put `meetingKeys` on that list,
+ * rewrote the file header, and rewrote the *second half* of this paragraph —
+ * leaving the first half asserting the negation of what the second half now
+ * said, four lines apart, citing the header as agreeing with the half that had
+ * just become false, and with a sentence severed between the two. Each pass
+ * read the half it was changing.
+ *
+ * It carries **no workspace segment**, unlike a meeting. A meeting belongs to
+ * one context; this is a preference of the person holding the phone, and filing
+ * it per workspace would mean a choice made in one context silently failing to
+ * apply in the next — which is the opposite of "the last choice is remembered".
+ *
+ * `parseMeetingKey` answers `null` for it, which is what keeps it out of
+ * `loadMeetings`: a key that does not name a meeting is not counted as a
+ * meeting this build could not read.
+ */
+export function destinationKey(): string {
+  return `${PREFIX}destination`;
 }
 
 export interface ParsedMeetingKey {
@@ -82,10 +127,17 @@ export function parseMeetingKey(key: string): ParsedMeetingKey | null {
 /**
  * Every key this feature owns, current version or not.
  *
- * For sign-out, and for the test that pins what sign-out does not do yet. It is
- * the whole namespace rather than `parseMeetingKey` succeeding, for the reason
- * `ownedKeys` gives: a key from a version this build cannot parse is still this
- * feature's to clear, and leaving it behind leaves note text on the device.
+ * For sign-out — `forgetAllMeetings` removes them and `forgetLocalCopies`
+ * re-lists them afterwards to check that the removals landed, which is that
+ * module's "never silently" stance applied to this namespace. **It used to say
+ * "and for the test that pins what sign-out does not do yet"; there is no such
+ * test, because there is no such gap** — `offlineForget.test.ts` drives the
+ * real sign-out and asserts the keys are gone.
+ *
+ * It is the whole namespace rather than `parseMeetingKey` succeeding, for the
+ * reason `ownedKeys` gives: a key from a version this build cannot parse is
+ * still this feature's to clear, and leaving it behind leaves note text on the
+ * device.
  */
 export function meetingKeys(keys: readonly string[]): string[] {
   return keys.filter((key) => key.startsWith(`${NAMESPACE}${SEP}`));

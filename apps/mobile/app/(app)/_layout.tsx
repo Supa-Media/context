@@ -6,7 +6,7 @@ import { useConvexAuth, useQueries, type RequestForQueries } from "convex/react"
 import { api } from "@context/convex/_generated/api";
 import { useColors } from "../../features/design/theme";
 import { RecordingBar } from "../../features/meetings/components/RecordingBar";
-import { useTranscriptionClient } from "../../features/meetings/useMeetings";
+import { useMeetingsSetup, useTranscriptionClient } from "../../features/meetings/useMeetings";
 import { useAttemptedHref } from "../../features/auth/attemptedHref";
 import { resolveProtectedRoute } from "../../features/auth/redirect";
 import { EMPTY_QUERY_SPEC } from "../../features/console/querySpec";
@@ -120,6 +120,26 @@ export default function AppLayout() {
   // job is to gate, and a hook that ran only on the happy path would install
   // transcription a render late on a cold start into a running meeting.
   useTranscriptionClient();
+  /*
+    And the setup beside it, for the same reason and now one more.
+
+    It used to be mounted by the meetings navigator, which is the half of the
+    app that unmounts the moment somebody leaves `/meetings`. That was already
+    the wrong half for a recording that outlives the screen that started it —
+    the argument this file makes about `useTranscriptionClient` two paragraphs
+    up. It is now also the wrong half because the console's microphone key can
+    start a meeting without `/meetings` ever having been mounted: the
+    controller has to be pointed at the signed-in person before the key is
+    pressed, not after.
+
+    One mount, here, above both navigators. The meetings navigator no longer
+    calls it, so nothing opens these subscriptions twice.
+
+    `enabled` rather than a conditional call, for the reason this file already
+    gives about its own `spec`: the hook has to run on every render, and what
+    must wait for a session is the *subscription*, not the hook.
+  */
+  useMeetingsSetup({ enabled: authed });
 
   const spec = useMemo<RequestForQueries>(() => {
     if (!authed) return EMPTY_QUERY_SPEC;

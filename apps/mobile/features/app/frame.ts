@@ -47,11 +47,73 @@
  * scrolled somewhere else.
  *
  * `rail: "full" | "icons" | "sheet" | "hidden"` is one field for the same
- * reason, and the `sheet` arm is the one this file was missing. `compact`
- * answered `rail: "hidden"` and put nothing in its place, so a phone had the
- * pane it landed on and no way to leave it: Map and Connections, every other
- * context, and sign-out are all in the rail. Landing on the map after signing
- * in was the end of the session.
+ * reason.
+ *
+ * ## `compact` answers `rail: "hidden"` again, and this time it is not a hole
+ *
+ * **Amended, and the version it replaces is stated rather than deleted.** This
+ * paragraph used to argue for the `sheet` arm: `compact` answered
+ * `rail: "hidden"` and put *nothing* in its place, so a phone had the pane it
+ * landed on and no way to leave it — Map and Connections, every other context
+ * and sign-out are all in the rail, and landing on the map after signing in was
+ * the end of the session. That was true, and the sheet fixed it.
+ *
+ * What has changed is not the requirement but the answer to it. A phone now has
+ * **no left panel at all** — no rail sheet, no file-tree drawer, no toggle for
+ * either and no scrim from either — because navigation moved to two surfaces
+ * that are always on the glass and are not panels: a horizontally scrolling
+ * **context strip** along the top (`AppFrame`'s `contextStrip` slot, beside a
+ * pinned `accountSlot`) and a seventh key on the bottom row. Neither has to be
+ * summoned, so neither can be missing; a person is never one press away from
+ * navigation, they are looking at it.
+ *
+ * The old invariant — "every compact layout offers `navToggle` or
+ * `drawerToggle`" — is therefore retired rather than dropped, and
+ * `appFrame.test.ts` carries the rule that replaced it: at compact there is
+ * always a context strip and always a bottom row. A toggle for a panel that
+ * does not exist is not navigation, which is what made the old assertion the
+ * right one to write and the wrong one to keep.
+ *
+ * ## What is deliberately kept although no density reaches it
+ *
+ * This is the whole list. **Anything not on it that a phone used to reach is a
+ * deletion, not a survivor** — that is what makes the list worth keeping, and
+ * it is enforced by being read: the day something else here stops being
+ * reachable it is added with its reason or it goes.
+ *
+ *  - **The `sheet` and `drawer` arms of `Regions`, the `scrim`, and the two
+ *    panel flags on `FrameState`.** `AppFrame`'s API (`closeDrawer`,
+ *    `closeNav`, `closeOverlays`, `closesOnSelect`) is consumed outside this
+ *    feature — the file tree and the console layout both hold it — and retiring
+ *    the representation is one change, made where those callers are, rather
+ *    than a hole opened here for somebody else to find.
+ *  - **The three branches in `AppFrame` that draw them**, and the styles those
+ *    branches use. This is the same entry seen one layer down rather than a
+ *    second decision: a representable region with nothing that can draw it is
+ *    precisely the hole the line above refuses to open, so the arms and their
+ *    drawings go together or not at all. `appFrameRender.test.ts` asserts that
+ *    none of the three renders at any density, which is what stops "kept" from
+ *    quietly becoming "reachable again".
+ *
+ *    The rail sheet's comment carried a live-sounding claim for a while —
+ *    "which is why sign-out was unreachable on a phone until this exists" — and
+ *    it is in the past tense now, beside a statement that no density reaches
+ *    the branch. Sign-out is on the account mark pinned to the context strip.
+ *  - **`menu.ts`'s `platform: "touch"` arm**, which decides that a surface with
+ *    no keyboard prints no chords and is offered no "Open in new tab". That is
+ *    a *rule* rather than a rendering fork, `menu.ts` is its single owner, and
+ *    both values are checked; deleting it would move the decision into whatever
+ *    grows a long-press menu next. `Explorer` no longer derives it from the
+ *    density — it passes the literal `"web"`, because it is a pointer-layout
+ *    region and nothing else.
+ *
+ * **What was removed rather than kept**, so that the two lists are visibly
+ * different things: `Explorer`'s whole `const touch = frame.density ===
+ * "compact"` fork — a footer icon row, a revealed filter, an autofocus, a
+ * "Close the file tree" button, thumb-sized targets — and `FileTree`'s `touch`
+ * presentation with it. Those are *drawings* of a region that is `hidden` at
+ * compact, with one caller each inside this feature, so nothing outside was
+ * holding them and nothing was deciding anything by them.
  */
 
 import { layout } from "../design/tokens";
@@ -118,24 +180,24 @@ export interface Regions {
   bottomBar: boolean;
   /** Counts, save state and the conflict-check mode. No room for it on a phone. */
   statusBar: boolean;
-  /** Compact only: the button that pulls the drawer in. */
+  /**
+   * The button that pulls the drawer in. **False at every density.**
+   *
+   * A phone has no file-tree drawer to pull in — see the file header — and a
+   * pointer layout has the column already. It is kept as a field rather than
+   * deleted because `drawer` is still a representable value of `explorer`, and
+   * a region with no control to raise it is the pair this file exists to keep
+   * honest.
+   */
   drawerToggle: boolean;
   /**
-   * Compact only, and only where the file tree is not there to carry it: the
-   * control in the top bar that pulls the rail in.
+   * The control in the top bar that pulls the rail in. **False at every
+   * density**, for `drawerToggle`'s reason.
    *
-   * There is always somewhere to go — the app-level panes, the other contexts
-   * and the way to sign out all live in the rail and nowhere else — so a phone
-   * with no route to it is a phone with no navigation at all. What changed is
-   * *where the route is*. Obsidian's top bar is a sidebar toggle and one group
-   * of actions with nothing in the middle, and the vault switcher lives at the
-   * foot of the sidebar. Ours does too: on a route with a tree, `Explorer`'s
-   * `vault` slot carries the switcher and `drawerToggle` is the way to it.
-   *
-   * Map and Connections have no tree and therefore no footer, so the chip stays
-   * in the bar there. `appFrame.test.ts` holds the invariant in the form it now
-   * takes: every compact layout has *some* route to the rail, and this control
-   * exists exactly where the other one does not.
+   * It used to be compact-only, and only where the file tree was not there to
+   * carry the switcher at its foot. Both halves of that are gone with the
+   * panels: a phone's navigation is the context strip and the bottom row, which
+   * are on the screen rather than behind a control.
    */
   navToggle: boolean;
 }
@@ -172,26 +234,27 @@ export function regionsFor(
 
   if (density === "compact") {
     /*
-      Two panels can come in over the editor and only one of them may be up at
-      a time — they occupy the same place on the screen and share one scrim.
-      The toggles clear each other, so a state carrying both is already
-      impossible; this resolves it anyway rather than leaving the answer to
-      whichever `View` happens to be painted last. The rail wins because it is
-      the panel that can get you out of here.
+      A phone has no left panel. Not a hidden one, not one behind a toggle —
+      none, at either route, whether or not there is a file tree.
+
+      The two panels used to come in over the editor from the same edge under
+      one scrim, and the state's two flags decided which. Both flags are still
+      on `FrameState` and neither is read here, which is the whole of the
+      change: navigation moved onto the glass, to the context strip along the
+      top and the seventh key on the bottom row, and a panel that has to be
+      summoned is not what a phone offers any more. See the file header for
+      what that retires and why the reason it retires is not the reason the
+      sheet was added.
     */
-    const nav = state.navOpen;
-    const tree = hasExplorer && state.drawerOpen && !nav;
     return {
-      rail: nav ? "sheet" : "hidden",
-      explorer: tree ? "drawer" : "hidden",
+      rail: "hidden",
+      explorer: "hidden",
       editor: true,
-      scrim: nav || tree,
+      scrim: false,
       bottomBar: true,
       statusBar: false,
-      drawerToggle: hasExplorer,
-      // See the field's doc: where there is a tree, its footer is the vault
-      // switcher and the top bar keeps to a toggle and one group of actions.
-      navToggle: !hasExplorer,
+      drawerToggle: false,
+      navToggle: false,
     };
   }
 
@@ -245,24 +308,27 @@ export function clampExplorerWidth(width: number): number {
  * in, and hiding the column outright is a product decision nobody has taken.
  * The day somebody takes it, this is where it lands — one function, one
  * meaning, and every caller follows.
+ *
+ * **It now answers `null` at every density, compact included.** A phone has no
+ * file-tree drawer to pull in (see the file header), so the one arm that
+ * returned a field has nothing left to write. That makes this a constant, and
+ * it stays a function anyway for the reason it was extracted: ⌘⇧E and the
+ * button that used to press it must not each carry their own idea of what
+ * toggling the explorer means, and a constant *here* is a single owner
+ * answering "nothing", where a deleted function is every caller deciding for
+ * itself. `AppFrame.toggleExplorer` is still its only caller and is still a
+ * genuine no-op rather than a licence to do something else — toggling the rail
+ * there is what once made ⌘⇧E a duplicate of ⌘B.
  */
 export function explorerToggleFor(
-  density: Density,
+  _density: Density,
   /**
-   * Whether this route has a file tree, exactly as `regionsFor` takes it.
-   *
-   * Without this the command was answering `"drawerOpen"` on Map and
-   * Connections, where there is no tree: `regionsFor` discarded the flag, so
-   * the keystroke looked inert and was in fact writing state. That was
-   * harmless until the rail became a panel and raising one panel had to put
-   * the other away — then ⌘⇧E on the pane you sign in to *dismissed the only
-   * navigation on the screen and opened nothing in its place.* The command
-   * has to answer "nothing to toggle" here, not "toggle the drawer that
-   * cannot exist".
+   * Whether this route has a file tree, exactly as `regionsFor` takes it. Kept
+   * on the signature — every caller already has it and the day a density gets
+   * a drawer back it is the flag that decides — and unread today.
    */
-  options: { hasExplorer?: boolean } = {},
+  _options: { hasExplorer?: boolean } = {},
 ): "drawerOpen" | null {
-  if (density === "compact" && (options.hasExplorer ?? true)) return "drawerOpen";
   return null;
 }
 
@@ -274,21 +340,28 @@ export function explorerToggleFor(
  * neither the keymap nor the button has to know the density.
  *
  * On a pointer layout the rail is a permanent column and the command collapses
- * it to its marks. On a phone there is no column to collapse: the rail is a
- * sheet that is either over the editor or not, and the command is what brings
- * it in. Toggling `railCollapsed` there — which is what happened before this
- * existed — set a preference no compact layout reads, so ⌘B did nothing and
- * the phone had no navigation at all.
+ * it to its marks.
  *
- * Unlike `explorerToggleFor` this never returns `null`: every density has a
- * rail, so there is always a field to write. That is not the same as always
- * being *visible* — a medium window with an explorer column renders the rail
- * as icons whichever way `railCollapsed` points, so there the command changes
- * a preference you only see later, on a pane with no tree. Pre-existing, and
- * stated here rather than in a comment claiming otherwise.
+ * **On a phone it now answers `null`, and that reverses what this comment used
+ * to say.** It used to answer `"navOpen"`, because compact had no column to
+ * collapse and the rail was a sheet the command brought in — and the sentence
+ * before that one is worth keeping, because it is the failure this must not go
+ * back to: writing `railCollapsed` at compact set a preference no compact
+ * layout reads, so ⌘B did nothing and the phone had no navigation at all.
+ *
+ * A phone has no rail at all now (see the file header), so there is genuinely
+ * no field to write and `null` is the honest answer. What makes that different
+ * from the old bug is *where the navigation went*: it is the context strip and
+ * the bottom row, on the screen, rather than nothing.
+ *
+ * At medium and wide it still answers `"railCollapsed"`, and still writes a
+ * preference you may only see later: a medium window with an explorer column
+ * renders the rail as icons whichever way the flag points, so there the command
+ * changes something visible on a pane with no tree. Pre-existing, and stated
+ * here rather than in a comment claiming otherwise.
  */
-export function railToggleFor(density: Density): "navOpen" | "railCollapsed" {
-  return density === "compact" ? "navOpen" : "railCollapsed";
+export function railToggleFor(density: Density): "railCollapsed" | null {
+  return density === "compact" ? null : "railCollapsed";
 }
 
 /**
@@ -298,21 +371,27 @@ export function railToggleFor(density: Density): "navOpen" | "railCollapsed" {
  * chose, and that argument is right — about `railCollapsed` and
  * `explorerWidth`, which are *preferences*. `drawerOpen` and `navOpen` are
  * not preferences. They are "a panel is currently over your editor", which is
- * a thing that is either true of what is on the screen or is stale, and only
- * `compact` has panels at all.
+ * a thing that is either true of what is on the screen or is stale.
  *
- * Left uncleared they are write-once-and-stuck: at medium and wide there is no
- * sheet, no scrim, no `navToggle`, and `railToggleFor` answers
- * `"railCollapsed"` — so nothing can put them away, and they wait. Open the
- * rail on an iPad in portrait (820pt is under `narrowBreakpoint`, so compact),
- * rotate to landscape, work in the rail column, rotate back, and a sheet
- * nobody asked for is sitting over the note behind a full-body scrim.
+ * Left uncleared they are write-once-and-stuck: there is no sheet, no scrim and
+ * no toggle at any density now, so nothing can put them away and they wait.
+ * That used to be a description of medium and wide only, and the case it was
+ * written for was real — open the rail on an iPad in portrait (820pt is under
+ * `narrowBreakpoint`, so compact), rotate to landscape, work in the rail
+ * column, rotate back, and a sheet nobody asked for is sitting over the note
+ * behind a full-body scrim.
+ *
+ * **The compact exemption is gone with the panels.** It existed because compact
+ * was the one density that *had* somewhere to put them; it does not, so a flag
+ * left over from a bundle that did is cleared here rather than left to be read
+ * by a `regionsFor` that no longer looks at it. The density is still taken —
+ * this is the one place that decides where a panel may live, and a density that
+ * grows one back changes this line and nothing else.
  *
  * Returns the same object when there is nothing to clear, so this is safe to
  * call from a state updater on every density change.
  */
-export function panelsClearedFor(density: Density, state: FrameState): FrameState {
-  if (density === "compact") return state;
+export function panelsClearedFor(_density: Density, state: FrameState): FrameState {
   if (!state.drawerOpen && !state.navOpen) return state;
   return { ...state, drawerOpen: false, navOpen: false };
 }
@@ -463,11 +542,18 @@ export function surfacePadding({
 /**
  * Whether a selection in the tree should dismiss the explorer.
  *
- * True on a phone and nowhere else: the drawer is covering the thing you just
- * asked to read, so leaving it open means every note opens behind a panel. On a
- * column it must stay put — dismissing a permanent region because somebody
- * clicked inside it is the behaviour that makes people stop using the tree.
+ * **False everywhere now, and the reason it used to be true on a phone is worth
+ * keeping**: the drawer was covering the thing you had just asked to read, so
+ * leaving it open meant every note opened behind a panel. On a column it must
+ * stay put — dismissing a permanent region because somebody clicked inside it
+ * is the behaviour that makes people stop using the tree.
+ *
+ * There is no drawer at any density (see the file header), so the first half
+ * has nothing to be true of and the second half is the only case left. It stays
+ * a function of the density because that is the question it answers, and the
+ * day a density puts the tree over the document again this is the line that
+ * changes rather than the call site in `Explorer`.
  */
-export function closesOnSelect(density: Density): boolean {
-  return density === "compact";
+export function closesOnSelect(_density: Density): boolean {
+  return false;
 }

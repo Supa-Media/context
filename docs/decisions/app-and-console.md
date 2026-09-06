@@ -511,10 +511,16 @@ only added to the query spec once a context is selected, so it is necessarily a
 round trip behind the thing that was guarding it. `storage` is
 `ConsoleStorage | null | undefined` now, `undefined` means *ask again in a
 moment*, and the four places that used to read an absence off it — the Browse
-banner, the top-bar pill, the phone's tree detail, the settings pane — each
+banner, the top-bar pill, the phone's binding line, the settings pane — each
 check which one they are holding. `storagePillLabel` still answers `null` to
 both, because its one caller that needs no check is the status bar, which
 *omits* a segment rather than printing a claim.
+
+The third of those read "the phone's tree detail" when this was written, and it
+was the file tree's footer. A phone has no file tree; the same line is the foot
+of the **context root page** now (`files/contextFoot.ts`, drawn by
+`FolderView`). That moves where it is drawn and changes nothing about the
+three-state read, which is why it is corrected here rather than re-argued.
 
 The empty state is the same shape one layer down. `selectedPath` moves the
 instant somebody picks a note; the body is a Convex action away and a folder's
@@ -914,6 +920,112 @@ this was being written, and the note branch simply had no bar.
 It scrolls away with the document rather than being pinned: it answers a
 question people ask on arrival, and a permanent band costs a line of every note
 forever.
+
+**And the drawer this section argues against is now gone entirely**, which
+makes the path bar the *only* way between folders on a phone rather than the
+better of two. Nothing above changes: every reason it was built is still a
+reason, and the one sentence that has stopped being true is "the only way to
+another folder was the drawer". The section below is what that removal cost
+elsewhere.
+
+### A phone has no left panel, so the one thing its footer said had to move
+
+The rail sheet, the file-tree drawer, both toggles and their scrim are gone at
+`compact`; navigation is a context strip along the top and a seven-key bottom
+row, neither of which has to be summoned. `features/app/frame.ts` carries the
+whole of that decision and amends its own paragraphs in place.
+
+What that removal cost is one line, and it is worth naming because deleting it
+with the panel would have been silent. The tree's footer read
+`R2 · brain · 62% indexed · 12 notes, 8 folders` — the storage binding, how much
+of the context is in the hosted index, and how much of the tree has actually
+been read — and its own comment recorded *why it was on a phone at all*: at
+`compact` the frame draws a bottom toolbar and **no status strip**, so without
+it the only way to learn how far a backfill had got was to open settings, which
+is precisely the state that made a stuck backfill and a working one look
+identical for hours. Two of those three facts had no other route on that
+density at all.
+
+**It is the foot of the context root page now**, composed by
+`features/console/files/contextFoot.ts` and drawn by `FolderView`. Four things
+about that are decisions rather than placement:
+
+- **The root page and not every folder page.** The three facts are about the
+  *context*, and the root is the one folder page that **is** the context —
+  `FolderView` already took a `contextLabel` for exactly that. `loadedCounts`
+  counts every listing that has been read rather than the open folder's, so
+  under a subfolder's own rows the same numbers would be read as a count *of*
+  that subfolder: accurate, misread, and worse than absent. A caption repeated
+  under forty pages is chrome.
+- **Compact only.** A pointer layout says all three already — the bucket and
+  the tier are the top bar's chips, the percentage is the status strip's
+  segment, the counts are the tree's own foot — and a second copy under the
+  listing is the same facts twice on the density that never lost them.
+- **One composer, and the words still come from `describeIndexProgress`.**
+  That function is the owner-only gate as well as the phrasing: `notesIndexed`
+  and `notesPending` are `undefined` for a member because the index counts
+  private notes they cannot read, and a percentage is that total divided (see
+  [search](./search.md), *The backfill percentage is derived*). Composing a
+  figure at this call site instead is the natural shape of a second
+  implementation and it hands a member exactly what the server withheld —
+  measured, it reddens both member cases, the `off` case and two owner
+  wordings.
+- **Each of the three parts is omitted rather than filled in, and the three
+  absences mean different things.** `undefined` storage is "the binding has not
+  answered" and says nothing; `null` storage is "no bucket connected" and is a
+  claim worth making; a `null` index figure is a member, an `off` context or an
+  unanswered status and draws nothing at all — not a dash, not a `0%`. The
+  counts are always drawn, because "Nothing read yet" is true of an unexpanded
+  tree and an empty string is not.
+
+**And the page it sits on had to become reachable.** With no tree, a phone
+landing on `/console/@slug` with no `?note=` drew "Choose a note to read or edit
+it. Right-click any row — or press and hold on a phone" — a sentence naming a
+gesture with nothing on the screen to perform it on, and no route to a single
+note in the context. `BrowsePane` draws the context's own root folder there
+instead, at `compact` only, as a **render fallback and not a `select("")`**: a
+selection written there would be a third writer of the relationship
+`useNoteAddress` owns two directions of, and `noteAddress.ts` exists because
+that relationship oscillates when more than one thing drives it. A pointer
+layout keeps its empty state, where "choose a note" names a tree that is on the
+screen.
+
+**The navigation landmark moved with them too, and for a while it did not
+arrive.** `AppFrame` declares `role="navigation"` on exactly two things, the
+rail column and the rail sheet, and neither is rendered at `compact`. The
+assertion that a phone had one was written about the sheet and was deleted with
+it, so a phone-width browser window had **zero** `<nav>` landmarks: every pill
+and every key kept a real `aria-label`, and a screen-reader user rotoring by
+landmark — or anything that jumps to `<nav>` — could not find the navigation at
+all. Labelling each control and being able to find the group of them are
+different capabilities, and the second one was lost silently.
+
+The **context strip** carries it: `role="navigation"`, labelled `Contexts`
+rather than the rail's `Console`, which needs no disambiguation because the two
+are never on screen together. The **bottom row deliberately does not** — it
+stays `role="toolbar"`, named `Console actions`. Six of its seven keys are verbs
+about the open note, and calling a row of verbs "navigation" because one
+destination sits at the end of it behind a separator makes the landmark mean
+less rather than more. `contextStrip.test.ts` holds the declaration and
+`consoleChrome.test.ts` counts the landmarks on a mounted phone console —
+exactly one, and not the toolbar — because a component that declares a role
+correctly while the density renders none of it is the failure this replaces.
+
+**Sign-out moved with the panels and had to grow.** It is the only sign-out
+control in the product; it was at the foot of the rail, which a phone can no
+longer reach, and it is now the pinned account slot at the leading end of the
+top row. The mark stays `layout.accountAvatar` (34) and the pressable around it
+is `layout.minTouchTarget` — it had been padding by 4, so the target was 34 and
+under the floor, and the row's width budget in `tokens.ts` and `AppFrame` was
+written against the mark rather than the target. Both are corrected there.
+
+What a simplification of any of this costs, and the tests that fail:
+`indexProgressSurfaces.test.ts` carries the sabotage table for the figure
+itself, `noteChrome.test.ts` follows each of the four things the tree's footer
+carried to where it went, `storageUnknown.test.ts` holds the three-valued
+binding on this new surface — a guard that measured **zero** failures until
+those three cases were written for it — and `consoleChrome.test.ts` holds the
+strip, the bottom row and sign-out's 44pt.
 
 ### A copy is one press, and it is confirmed outside the modal
 

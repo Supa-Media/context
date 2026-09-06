@@ -8,6 +8,13 @@ This folder is the evidence: the same components the app ships, rendered by
 react-native-web at the reference's own size, photographed, and put beside the
 measurements they were built to.
 
+**Where the design has since departed from the reference on purpose, this file
+says so rather than quietly keeping the old number.** A phone no longer has a
+left panel at all — no file-tree drawer, no rail sheet, no toggle for either
+(`apps/mobile/features/app/frame.ts`) — so several rows below describe a surface
+that was removed rather than one that is unmatched, and they are marked
+*retired* instead of being deleted.
+
 ## The reference
 
 Four screenshots of Obsidian on iOS, all 1320×2868 — **440×956 points at @3x**,
@@ -20,7 +27,7 @@ repo, at the paths cited in the pull request.
 
 | | What it fixes |
 | --- | --- |
-| file explorer | the tree's rhythm, the vault switcher at its foot, the drawer's height |
+| file explorer | the row rhythm and the vault switcher at its foot — **retired**: see *What is deliberately not matched* |
 | reading view | paper, type, the floating chrome, the toolbar, the inline title |
 | editing view | the keyboard accessory bar and its dismiss key |
 | long note, mid-scroll | the chrome floating *over* a continuous scroll surface, and the expanded Properties panel |
@@ -30,13 +37,28 @@ repo, at the paths cited in the pull request.
 One question, asked of `shots/reading.png`: **can you count more than one row of
 chrome above the note?**
 
-No. There is one transparent row — the sidebar toggle at the leading edge, one
-grouped capsule at the trailing edge, nothing between them — and the note names
-itself with an inline title *inside* the document, which scrolls up behind that
-row. The breadcrumb that used to be the second row is gone from this density;
-the three things it carried are the inline title, a Properties row, and the
-capsule (see the table below, and `__tests__/noteChrome.test.ts`, which asserts
-all three rather than leaving them to the eye).
+No. There is one transparent row, and it holds three things measured at 440×956:
+the account mark pinned at the leading edge (44×44 at x=12), the context strip
+flexing in the middle (x=64, 260pt wide, pills 44pt tall), and one grouped
+capsule at the trailing edge (two 44×44 targets, the last ending at x=424).
+Under it the note names itself with an inline title *inside* the document, in a
+scroller that is full-bleed — 440×897 from y=59 — so the title scrolls up behind
+that row rather than stopping short of it.
+
+**This paragraph used to read "the sidebar toggle at the leading edge … nothing
+between them", and both halves are now false.** There is no sidebar and no
+toggle for one; what is at the leading edge is the account, and what is between
+it and the capsule is the strip — a scrolling list of contexts, which is the
+whole of how a phone changes context. Neither is a control that opens a panel:
+they are the navigation, on the glass.
+
+The breadcrumb that used to be a second row is still gone from this density; the
+three things it carried are the inline title, a Properties row, and the capsule
+(see `__tests__/noteChrome.test.ts`, which asserts all three rather than leaving
+them to the eye). What the note draws above its own text is the path bar — a
+context segment and its folders, which is a phone's only way *up* now that there
+is no tree — and it is inside the scroller with the document rather than pinned
+over it.
 
 ## Our side
 
@@ -45,22 +67,36 @@ Playwright at 440×956.
 
 | File | State |
 | --- | --- |
-| `shots/explorer.png` | the file tree, drawer open |
+| `shots/files.png` | the context root: how a phone browses files, with `storage · index · counts` at its foot |
 | `shots/reading.png` | a note open |
 | `shots/properties.png` | the same note with its Properties panel expanded |
 | `shots/editing.png` | the note focused, with the keyboard accessory bar up |
 | `shots/desktop.png` | the pointer layout at 1440×900 — a regression shot, not a parity one |
 
+`shots/explorer.png` is gone, and so is the `context-explorer.html` beside it.
+It was a picture of the file-tree drawer, taken by a shot that pressed
+`frame-drawer-toggle`; when that control stopped rendering the generator threw,
+and because `jest.config.js` matches `__tests__/` only, nothing in `pnpm test`
+could see it. The committed HTML therefore sat here still carrying the markup of
+a toggle the app does not draw. `shots/files.png` replaces it with the surface
+the capability actually moved to.
+
 The four phone shots are taken of an **owner's** console. `useDemoConsoleData`
 pins `canEdit`, `canShare` and `canSetVisibility` to `false` so a landing-page
 visitor is never offered a control that would lie; held that way, half of what
 is being measured does not exist — the accessory bar is gated on `editable`, the
-tree's create verbs on `canEdit`, the note toolbar's Share on `canShare`. The
-harness lifts those three flags and changes nothing else (`mockOwner` in
+create verbs on `canEdit`, the note toolbar's Share on `canShare`. The harness
+lifts those three flags and changes nothing else (`mockOwner` in
 `design-shots.ts`). The demo context `@seyi` already carries `role: "owner"`, so
 this is the shape the product hands an owner, not an invented one. The desktop
 shot keeps the read-only demo — it exists to prove nothing broke, and fewer
 variables is better.
+
+Every shot now **asserts the surface it is a picture of** before taking it. That
+is not belt and braces: three of the presses in this file had gone stale and
+were silently doing nothing, so three pictures were of a screen nobody had asked
+for, with no way to tell from the output. A shot that fails is better evidence
+than a shot that is quietly wrong.
 
 The editing shot has no soft keyboard in it, because a headless browser has
 none. What it shows is the accessory bar and where it lands, which is the half
@@ -71,15 +107,20 @@ None of the demo notes is longer than a screen, so no shot here shows the
 mid-scroll state the fourth reference screenshot does. It was checked in the
 browser instead, on `context-properties.html` at 440×956 with the note's text
 lengthened in the console: the scroller's `scrollHeight` grows past the
-viewport, and at `scrollTop: 200` the inline title's box is at `y: -65` while
-the sidebar toggle sits at `y: 65…109` — the title has passed *behind* the
-chrome rather than stopping short of it, which is the property the whole
-content-padding arrangement exists for.
+viewport, and at `scrollTop: 200` the inline title's box has passed *behind* the
+floating chrome rather than stopping short of it, which is the property the
+whole content-padding arrangement exists for. **That measurement was taken when
+the leading control was the sidebar toggle**; the control at those coordinates
+is the account mark now, in the same 44pt band at the same place, and the
+scroller is unchanged — but the numbers have not been re-measured against the
+new chrome and are therefore not quoted here any more.
 
 The `.html` files beside them are what Playwright opened. They are
 self-contained: the markup, react-native-web's atomic stylesheet, CodeMirror's
 base theme and the live-preview rules, all inlined. Open one in a browser at
-440×956 and you are looking at the app.
+440×956 and you are looking at the app — and they are regenerated in the same
+commit as any change to the chrome, for the reason the deleted explorer shot
+gives above.
 
 Everything in them is the landing page's demo data (`placeholderData.ts`), which
 is why they are safe to commit — there is no customer content in this folder by
@@ -89,7 +130,7 @@ construction.
 
 ```sh
 cd apps/mobile
-pnpm exec jest --testMatch '**/scripts/design-shots.ts' --rootDir .
+pnpm exec jest --testMatch '**/scripts/design-shots.ts' --testPathIgnorePatterns '[]'
 ```
 
 Then serve the folder and open each page at a 440×956 viewport. The harness is a
@@ -101,7 +142,7 @@ TypeScript, JSX and react-native-web aliasing are already configured;
 ## The measured spec, and what we got
 
 Measured in the browser with `getBoundingClientRect` and `getComputedStyle`,
-not by eye.
+not by eye, at 440×956 against the committed `.html` files.
 
 | | Target | Achieved |
 | --- | --- | --- |
@@ -110,37 +151,34 @@ not by eye.
 | Faint surface | `#FAFAFA` | `#FAFAFA` |
 | Body type | 16pt / 24pt line | 16px / 24px |
 | Body side margin | 25pt | 25pt |
-| Explorer row pitch | 36pt | 36pt |
-| Explorer indent step | 16pt | 16pt |
-| Explorer left inset | 37pt | 37pt |
-| Explorer row type | ~15pt | 15.5px |
-| Touch target floor | 44pt everywhere | 44pt — 36pt rows carry 4pt `hitSlop` each edge |
-| Top toolbar | transparent, content under it | transparent, absolutely positioned |
-| Bottom bar width | 336pt (52pt clear each side) | 336pt at six actions |
+| File row pitch | 36pt | 36pt (`FolderView`, the phone's listing) |
+| File row type | ~15pt | 15.5px |
+| Explorer indent step / left inset | 16pt / 37pt | **retired** — those describe a tree, and a phone lists one folder flat |
+| Touch target floor | 44pt everywhere | 44pt — the strip's pills, the account mark and the capsule's buttons all measure 44; 36pt file rows carry 4pt `hitSlop` each edge |
+| Top toolbar | transparent, content under it | transparent, absolutely positioned; the scroller under it is full-bleed 440×897 |
+| Bottom bar width | 336pt at six actions (52pt clear each side) | **392pt at seven** (24pt clear each side) — the seventh key was bought with the inset; see `layout.bottomBarInset` |
+| Bottom bar targets | ≥44pt | 52.4pt each, seven of them |
 | Bottom bar height | 66pt | 66pt |
-| Bottom bar radius | half the height (~33pt) | `radii.pill` |
-| Bottom bar gap below | ~25pt | `max(safe-area, 25)` |
+| Bottom bar radius | half the height (~33pt) | `radii.pill` — resolves to `999px`, so a full pill |
+| Bottom bar gap below | ~25pt | `max(safe-area, 25)` — 34pt in these shots, from a 34pt home indicator |
 | Chrome overlays content | yes | top bar and toolbar absolutely positioned; the scroller is full-bleed and pays for them in content padding at **both** ends, with matching `scrollIndicatorInsets` |
-| Rows of chrome above the note | 1 | 1 — toggle left, one grouped capsule right, nothing between |
+| Rows of chrome above the note | 1 | 1 — account left, context strip in the middle, one grouped capsule right |
 | The note's name | inline title inside the document | inline title, 28/34 bold at `readingMargin`, inside the scroller |
 | Properties, expanded | tinted rounded card, mark + muted key + ink value, `+ Add property` | same, at 15/22 |
 | `visibility` | a Properties row | a Properties row, from the access map rather than the file's own line |
-| Sidebar footer | icon row · vault name + chevron / gear · muted counts line | same, in that order |
+| Sidebar footer | icon row · vault name + chevron / gear · muted counts line | **retired** — there is no sidebar; `storage · index · counts` is the foot of the context root page (`shots/files.png`) |
 
 ## What is deliberately not matched
 
 Recorded here rather than left to be rediscovered as bugs.
 
-- **The drawer clears the top chrome; Obsidian's sidebar covers it.** The
-  reference slides the sidebar over the note and leaves the toggle on the sliver
-  of editor still showing. Ours keeps the toggle in the top-left corner over the
-  panel, so the panel pays for it with `contentInsets.top` of padding and the
-  tree starts about 40pt lower than the reference's. Same reason the bullet
-  below gives for the toolbar: the verbs stay reachable while the tree is open.
-- **The bottom toolbar stays visible over an open file tree.** Obsidian's
-  sidebar covers it. Ours floats above the drawer, which keeps the verbs
-  reachable while the tree is open; the drawer pays for it with bottom padding
-  so nothing is hidden underneath.
+- **There is no file-tree drawer, and Obsidian has one.** This is the largest
+  departure on the page and it is deliberate: navigation moved onto the glass —
+  a scrolling context strip along the top and a seventh key on the bottom row —
+  and folder browsing became the context root page rather than a panel over the
+  note. Two bullets used to live here about how our drawer differed from the
+  reference's sidebar (ours cleared the top chrome, ours kept the toolbar
+  visible over the panel); both described a panel that no longer exists.
 - **`+ Add property` is drawn and inert.** Adding one means *writing*
   frontmatter, and `frontmatter.ts` is a reader with no writer on purpose: a
   reader that misunderstands a line shows it oddly, a writer that misunderstands

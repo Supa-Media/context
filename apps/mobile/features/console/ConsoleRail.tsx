@@ -145,21 +145,37 @@ export function ConsoleRail({
 
         ## Why it is in the rail at all
 
-        `AppFrame` says of this slot that it is "reachable at every density — a
-        column on a pointer layout, a sheet the top bar brings in on a phone"
-        and that it "is not optional and must not become so", because what is
-        reachable through it is reachable through nothing else. That is the
-        whole requirement here: meeting capture shipped with a list screen, a
-        live screen and a working recorder, and **nothing in the app navigated
-        to any of it**.
+        Meeting capture shipped with a list screen, a live screen and a working
+        recorder, and **nothing in the app navigated to any of it**. This is a
+        way in on the densities that have a rail.
 
-        The two other candidates were both refused by their own files. The
-        bottom toolbar's rule is that "navigation is not its job", and it has
-        no room either — at 390pt its pill is 286 wide, 262 inside its padding,
-        which six targets already divide into 43.7pt against a 44pt floor. And
-        the settings pane's "This context, from further out" card is explicitly
-        for things that are *not* "a place you navigate to in order to read a
-        note", which a meeting screen is.
+        The settings pane was refused by its own file and still is: its "This
+        context, from further out" card is explicitly for things that are *not*
+        "a place you navigate to in order to read a note", which a meeting
+        screen is.
+
+        **The bottom toolbar's refusal has expired, and it expired on
+        arithmetic.** This used to read: "the bottom toolbar's rule is that
+        'navigation is not its job', and it has no room either — at 390pt its
+        pill is 286 wide, 262 inside its padding, which six targets already
+        divide into 43.7pt against a 44pt floor. A seventh does not fit." Both
+        halves have moved. `layout.bottomBarInset` went **52 → 24** when the
+        phone lost its left panel, which is what bought the seventh key: the
+        286 in that sentence was `390 − 2 × 52`, and it is `390 − 2 × 24 = 342`
+        now, 318 inside `bottomBarPad` and **317 once the separator has taken
+        its point** — it is a `flexShrink: 0` child of the same flex row, so
+        that point comes off what the targets divide rather than being painted
+        over them — so seven targets are **45.29pt** rather than 37.29 and clear
+        the 44pt floor. `BottomBar`'s own rule was amended in the same change —
+        it carries exactly one destination, last, behind a separator — and
+        `layout.bottomBarInset` carries the arithmetic so no file has to quote
+        it twice.
+
+        So a phone reaches meetings through that seventh key, and this row is
+        the answer for medium and wide, where there is no bottom bar at all
+        (`features/app/frame.ts`: the bottom bar and the status bar are never
+        both present). The two are not a duplicate; they are one destination on
+        the surface each density actually has.
 
         This is not the `App` group coming back. That group held Map and
         Connections — facts *about a context*, which is why they moved into that
@@ -175,11 +191,11 @@ export function ConsoleRail({
 
         At the head rather than beside sign-out because of what floats at the
         other edge. The persistent recording bar is anchored to the bottom of
-        the glass, and while a panel is over the editor the frame publishes a
-        chrome height of zero (`features/app/bottomChrome.ts`), so the bar drops
-        to `floatingStackBottom(insets.bottom, 0)` and lies across the bottom
-        ~100pt of whatever is under it — this sheet included. A destination that
-        the recording it leads to can cover is not a destination.
+        the glass, and where the frame publishes a chrome height of zero
+        (`features/app/bottomChrome.ts`) the bar drops to
+        `floatingStackBottom(insets.bottom, 0)` and lies across the bottom
+        ~100pt of whatever is under it. A destination that the recording it
+        leads to can cover is not a destination.
       */}
       {onOpenMeetings === undefined ? null : (
         <View style={[styles.head, icons && styles.headIcons]} testID="rail-head">
@@ -536,6 +552,20 @@ function RailEntry({
  * Takes plain values and one callback so the rail imports no auth and no
  * router — which is what lets the whole rail be mounted in a test, and what
  * keeps the landing page's copy of it honest.
+ *
+ * ## `compact` is the phone's whole sign-out now, so it is a real target
+ *
+ * The two forms used to differ in weight: the full block is the rail's foot and
+ * the compact one was a mark in a corner, drawn where there was no room for a
+ * name. A phone has no rail at all now (`features/app/frame.ts`), so this
+ * compact form — pinned in `AppFrame`'s `accountSlot` — is **the only sign-out
+ * control on that density**, and it is what `signOutTouch` says of the other
+ * one: the one control somebody reaches for deliberately and must not miss.
+ *
+ * So the pressable is `layout.minTouchTarget` on both axes while the mark
+ * inside it stays 26. That is `accountAvatar`'s own rule — "what a thumb hits
+ * is the pressable around it, and the caller pads to the floor" — actually
+ * applied; it used to pad by 4, which is 34, which is under the floor.
  */
 export function AccountBlock({
   name,
@@ -562,6 +592,7 @@ export function AccountBlock({
         radius={radii.pill}
         style={styles.avatarOnly}
         hoverStyle={styles.entryHover}
+        testID="account-sign-out"
       >
         <Avatar initial={initial} />
       </PressRow>
@@ -715,7 +746,22 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   accountIcons: { paddingHorizontal: space.x2, alignItems: "center" },
   accountRow: { flexDirection: "row", alignItems: "center", gap: space.x2 },
   accountText: { flex: 1, minWidth: 0 },
-  avatarOnly: { padding: 4, borderRadius: radii.pill },
+  /**
+   * The pinned account mark, and the only sign-out a phone has.
+   *
+   * `padding: 4` around a 26pt mark is 34, which is `accountAvatar` and is
+   * **under `minTouchTarget`** — legal for a mark and not for the pressable
+   * around it, which is the distinction that token draws and this style was on
+   * the wrong side of. Square on both axes so the pill radius reads as a
+   * circle rather than as a stadium.
+   */
+  avatarOnly: {
+    width: layout.minTouchTarget,
+    height: layout.minTouchTarget,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radii.pill,
+  },
 
   avatar: {
     width: 26,

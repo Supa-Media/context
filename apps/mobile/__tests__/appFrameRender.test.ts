@@ -72,7 +72,7 @@ interface Mounted {
 function mountFrame(
   width: number,
   children: ReactNode = "the note",
-  options: { explorer?: boolean } = {},
+  options: { explorer?: boolean; accountSlot?: boolean; contextStrip?: boolean } = {},
 ): Mounted {
   // Widening the window in jsdom takes more than it looks like it should, and
   // getting it wrong is silent rather than loud.
@@ -107,7 +107,23 @@ function mountFrame(
     root.render(
       createElement(AppFrame, {
         switcher: createElement("span", { "data-testid": "switcher" }, "@seyi"),
-        switcherLabel: "@seyi, personal",
+        /*
+          The two compact slots, as stubs. `AppFrame` "knows about geometry and
+          nothing else", so what a test needs from them is that they are laid
+          out in the right places and drawn at the right densities — what they
+          contain is `ContextStrip`'s business and `contextStrip.test.ts`'s.
+        */
+        accountSlot:
+          options.accountSlot === false
+            ? undefined
+            : createElement("span", { "data-testid": "account" }, "you"),
+        contextStrip:
+          options.contextStrip === false
+            ? undefined
+            : createElement("span", { "data-testid": "strip" }, "contexts"),
+        // The trailing capsule, which the strip beside it may never push off
+        // the glass — the controls in it act on the note.
+        topTrailing: createElement("span", { "data-testid": "trailing" }, "actions"),
         rail: (mode: "full" | "icons" | "sheet") =>
           createElement("span", { "data-testid": `rail-${mode}` }, "rail"),
         explorer:
@@ -154,20 +170,28 @@ function styleOf(node: HTMLElement, property: string): string {
 }
 
 /**
- * ⌘B, and the vault switcher — reached through the frame's own API.
+ * ⌘B and ⌘⇧E, reached through the frame's own API.
  *
- * Module level because two describes need it. On a phone with a file tree there
- * is no rail control in the top bar any more: it is the vault switcher at the
- * foot of the tree, which `_layout` passes into `Explorer`'s `vault` slot. The
- * explorer is a stub here, so the command is invoked the way that switcher
- * invokes it.
+ * Module level because two describes need it. There is no control in the chrome
+ * that reaches either command on a phone any more — that was the point of the
+ * toggles — so a probe is the only way to press them at that density, and
+ * pressing them is exactly what has to be proven harmless.
  */
-function RailProbe() {
+function TogglesProbe() {
   const frame = useFrame();
   return createElement(
-    "button",
-    { "data-testid": "probe-toggle-rail", onClick: frame.toggleRail },
-    "toggle the rail",
+    "span",
+    null,
+    createElement(
+      "button",
+      { "data-testid": "probe-toggle-rail", onClick: frame.toggleRail },
+      "toggle the rail",
+    ),
+    createElement(
+      "button",
+      { "data-testid": "probe-toggle-explorer", onClick: frame.toggleExplorer },
+      "toggle the explorer",
+    ),
   );
 }
 
@@ -261,12 +285,20 @@ describe("a phone", () => {
    * The pill used to be sized by its own contents and centred, so the inset
    * either side was whatever was left over — a number that changes with how
    * many actions the current route offers. A device measured it at 78pt on a
-   * context the reader is only a member of, where there is no New note, against
-   * the reference's 52.
+   * context the reader is only a member of, where there is no New note.
    *
    * So the slot carries the inset and the bar fills it, and that is why this is
    * asserted here rather than in `bottomBar.test.ts`: the toolbar cannot know
    * how wide the glass is, and the number was never its to hold.
+   *
+   * **The arithmetic that used to sit under this is gone from here on purpose.**
+   * It read `440 − 2 × inset === 336`, pinning the reference's own pill width —
+   * and the inset is 24 now rather than 52, because the sliver of note it
+   * bought is what paid for the bottom row's seventh key. The reason to move it
+   * rather than update it is that it is a claim about *how many targets fit*,
+   * which is the toolbar's, and `bottomBar.test.ts` now computes both rows from
+   * the tokens. What belongs here is only that the frame is the one spending
+   * the number.
    */
   test("the toolbar is inset from the side edges by the frame, not by its contents", () => {
     const app = mountFrame(440);
@@ -274,9 +306,6 @@ describe("a phone", () => {
 
     expect(Number.parseFloat(styleOf(band, "padding-left"))).toBe(layout.bottomBarInset);
     expect(Number.parseFloat(styleOf(band, "padding-right"))).toBe(layout.bottomBarInset);
-    // The reference, on the reference's screen: 52 either side of 440 leaves
-    // the 336pt pill Obsidian draws.
-    expect(440 - layout.bottomBarInset * 2).toBe(336);
     app.unmount();
   });
 
@@ -289,48 +318,192 @@ describe("a phone", () => {
     expect(app.find("rail-full")).toBeNull();
     expect(app.find("rail-icons")).toBeNull();
     // The tree is not merely off-screen — it is not mounted, so it costs
-    // nothing until it is asked for.
+    // nothing. It used to be "until it is asked for"; nothing asks now.
     expect(app.find("explorer")).toBeNull();
 
     app.unmount();
   });
 
-  test("the drawer button brings in the tree and the scrim", () => {
-    const app = mountFrame(390);
+  /* ------------------------------------------------------------------ *
+   * No left panel, at either route.
+   *
+   * A block of tests replaces a longer one, and what it replaced is worth
+   * naming: a drawer the toggle brought in, a rail sheet the switcher brought
+   * in, one scrim they shared, a chevron that turned over, and the rule that
+   * raising one put the other away. All of it worked. What it cost was that
+   * every switch of context was a press to open a panel, a press to choose,
+   * and a scrim over the note in between — and the panel was also the only
+   * route to the app's other places, so one control carried two jobs.
+   *
+   * `features/app/frame.ts` has the argument. These are the assertions that
+   * none of it is drawn any more, which is a different claim from "the flags
+   * are false" and is the one a person would notice.
+   * ------------------------------------------------------------------ */
 
-    expect(app.find("frame-drawer-toggle")).not.toBeNull();
-    app.press("frame-drawer-toggle");
+  test("no drawer, no sheet, no scrim, and no control claiming to open either", () => {
+    for (const explorer of [true, false]) {
+      const app = mountFrame(390, "the note", { explorer });
+      expect(app.find("frame-drawer")).toBeNull();
+      expect(app.find("frame-nav-sheet")).toBeNull();
+      expect(app.find("frame-scrim")).toBeNull();
+      expect(app.find("frame-drawer-toggle")).toBeNull();
+      expect(app.find("frame-nav-toggle")).toBeNull();
+      expect(app.find("rail-sheet")).toBeNull();
+      app.unmount();
+    }
+  });
 
-    expect(app.find("frame-drawer")).not.toBeNull();
-    expect(app.find("explorer")).not.toBeNull();
-    expect(app.find("frame-scrim")).not.toBeNull();
+  /**
+   * **The three branches that can still draw a panel, at every density and both
+   * routes, in one place.**
+   *
+   * The block above and the pointer-layout ones cover most of this between
+   * them, and "most" was the problem: the rail sheet was asserted absent at 390
+   * and at 1440 and not at 1024, so the claim in `frame.ts` — that the drawings
+   * are kept *and* unreachable — was true of a grid nobody had walked.
+   *
+   * It matters because those branches are deliberately kept. `frame.ts` keeps
+   * the `sheet` and `drawer` arms of `Regions`, the `scrim`, and the two panel
+   * flags on `FrameState`, because `AppFrame`'s API is held outside this
+   * feature and retiring the representation is one coordinated change made
+   * where those callers are. Kept code with nothing measuring its
+   * unreachability is how "kept" becomes "back" without anybody deciding.
+   */
+  test.each([390, 1024, 1440])("no panel is drawn over the editor at %ipt", (width) => {
+    for (const explorer of [true, false]) {
+      const app = mountFrame(width, "the note", { explorer });
+      expect(app.find("frame-drawer")).toBeNull();
+      expect(app.find("frame-nav-sheet")).toBeNull();
+      expect(app.find("frame-scrim")).toBeNull();
+      app.unmount();
+    }
+  });
+
+  /**
+   * **Both commands are no-ops here, driven through the frame's own API.**
+   *
+   * `appFrame.test.ts` asserts that `railToggleFor` and `explorerToggleFor`
+   * answer `null` at compact. That is the rule; this is the frame obeying it,
+   * and the two are worth having separately because the frame used to
+   * implement a rule of its own — ⌘⇧E toggled the *rail* on any layout with an
+   * explorer column, a duplicate of ⌘B that never touched the region it is
+   * named after.
+   *
+   * "Does nothing" is asserted as *nothing appears and nothing disappears*,
+   * rather than as a flag staying false: a command that quietly wrote state a
+   * later render read would pass the weaker version.
+   */
+  test("⌘B and ⌘⇧E do nothing at all on a phone", () => {
+    const app = mountFrame(390, createElement(TogglesProbe));
+    const before = app.container.innerHTML;
+
+    app.press("probe-toggle-rail");
+    app.press("probe-toggle-explorer");
+    app.press("probe-toggle-rail");
+
+    expect(app.find("frame-nav-sheet")).toBeNull();
+    expect(app.find("frame-drawer")).toBeNull();
+    expect(app.find("frame-scrim")).toBeNull();
+    expect(app.find("bottom")).not.toBeNull();
+    expect(app.container.innerHTML).toBe(before);
 
     app.unmount();
   });
 
-  test("the scrim closes it again", () => {
-    const app = mountFrame(390);
-    app.press("frame-drawer-toggle");
-    app.press("frame-scrim");
-
+  test("a stale panel flag from an older bundle draws nothing either", () => {
+    // `FrameState` still carries both flags and `panelsClearedFor` still clears
+    // them — see `frame.ts` on why the representation outlived the panels. What
+    // must not happen is a device that had one set coming back to a scrim.
+    const app = mountFrame(390, "the note", { explorer: false });
+    app.resize(1440);
+    app.resize(390);
+    expect(app.find("frame-nav-sheet")).toBeNull();
     expect(app.find("frame-drawer")).toBeNull();
     expect(app.find("frame-scrim")).toBeNull();
+    app.unmount();
+  });
 
+  /* ------------------------------------------------------------------ *
+   * The three slots that replaced them.
+   * ------------------------------------------------------------------ */
+
+  /**
+   * The order is the assertion, and it is asserted as document order rather
+   * than as "all three are present".
+   *
+   * A pinned account mark, then the contexts, then the trailing capsule. Get
+   * the middle one anywhere else and the strip is no longer the thing that
+   * flexes: put it after the capsule and the capsule stops being at the
+   * trailing edge; put the account inside the strip and a long list of contexts
+   * scrolls a person's own identity off the glass.
+   *
+   * SABOTAGE: rendered `contextStrip` before `accountSlot`. Fails here.
+   */
+  test("the top row is an account mark, the contexts, and the trailing group", () => {
+    const app = mountFrame(390);
+    const row = app.find("account")!.parentElement!.parentElement!;
+    const order = [...row.querySelectorAll("[data-testid]")]
+      .map((node) => (node as HTMLElement).dataset.testid)
+      .filter((id) => id === "account" || id === "strip" || id === "trailing");
+    expect(order).toEqual(["account", "strip", "trailing"]);
     app.unmount();
   });
 
   /**
-   * TWO TOOLBARS FOR ONE SURFACE, WHICH IS THE COMPLAINT.
-   *
-   * "Why is the bottom bar showing up when the side menu opens???" — and the
-   * reference agrees: Obsidian draws no bar over its sidebar. The panel has its
-   * own row of verbs at the foot, and every action the toolbar offers — back,
-   * forward, search, new, save — acts on the **note**, which while a panel is
-   * up is the thing behind the panel.
-   *
-   * The same rule the keyboard accessory bar already had, one step out. See
-   * `toolbarHidden` in `AppFrame`.
+   * SABOTAGE: `flexShrink: 1` on `accountLead`. Fails here only.
    */
+  test("the account mark is pinned, and the strip is what gives way", () => {
+    // The mark is the first child of a row whose second child is a list. A
+    // flex child that may shrink is one the list squeezes the moment somebody
+    // joins a fourth workspace.
+    const app = mountFrame(390);
+    const lead = app.find("account")!.parentElement!;
+    expect(styleOf(lead, "flex-shrink")).toBe("0");
+    app.unmount();
+  });
+
+  /**
+   * SABOTAGE: rendered the two slots at every density (`compact ?` → `true ?`).
+   * Fails here and in "the switcher chip is the pointer layout's" — the two
+   * directions of the same swap, which is the right blast radius.
+   */
+  test("neither slot is drawn on a pointer layout", () => {
+    // They are the phone's answer to a rail that is a real column at these
+    // widths. Drawing both would be the contexts listed twice on one screen.
+    for (const width of [1024, 1440]) {
+      const app = mountFrame(width);
+      expect(app.find("account")).toBeNull();
+      expect(app.find("strip")).toBeNull();
+      expect(app.find("rail-full") ?? app.find("rail-icons")).not.toBeNull();
+      app.unmount();
+    }
+  });
+
+  test("and the switcher chip is the pointer layout's, not the phone's", () => {
+    // It used to be drawn at every density, and to be *pressable* on a phone —
+    // it was how the rail sheet came in. The contexts are the strip now, so the
+    // chip has nothing to say here that the strip does not say better.
+    const app = mountFrame(390);
+    expect(app.find("switcher")).toBeNull();
+    app.unmount();
+
+    const desktop = mountFrame(1440);
+    expect(desktop.find("switcher")).not.toBeNull();
+    desktop.unmount();
+  });
+
+  test("a frame given neither slot still draws its row rather than crashing", () => {
+    // The landing page's picture of the console passes neither, and a phone
+    // with exactly one context is given a `ContextStrip` that renders `null`
+    // (see `stripEntries`) — so an absent middle is an ordinary state, not an
+    // error one.
+    const app = mountFrame(390, "the note", { accountSlot: false, contextStrip: false });
+    expect(app.find("app-frame")).not.toBeNull();
+    expect(app.text()).toContain("the note");
+    expect(app.find("bottom")).not.toBeNull();
+    app.unmount();
+  });
+
   /**
    * ANYTHING FLOATING ABOVE THIS FRAME HAS TO KNOW THE TOOLBAR IS THERE.
    *
@@ -341,16 +514,16 @@ describe("a phone", () => {
    * height it would lie on top of the console's toolbar for the length of a
    * meeting. `features/app/bottomChrome.ts` is the seam; this is the assertion
    * that the frame actually publishes through it.
+   *
+   * **The panel half of this test is gone with the panels.** It pressed the
+   * drawer toggle, checked the reservation dropped to zero because the toolbar
+   * is put away under a panel, and checked it came back. `toolbarHidden` still
+   * reads `regions.scrim`, and no density raises one — so what is left is the
+   * publish and the teardown, which is the half a screen after this one
+   * depends on.
    */
   test("the frame publishes the height of its floating toolbar, and takes it back", () => {
     const app = mountFrame(390);
-    expect(bottomChromeHeight()).toBe(layout.bottomBarHeight);
-
-    // Hidden under a panel is not there: the bar it would have to clear is not
-    // on the screen, so nothing is reserved for it.
-    app.press("frame-drawer-toggle");
-    expect(bottomChromeHeight()).toBe(0);
-    app.press("frame-scrim");
     expect(bottomChromeHeight()).toBe(layout.bottomBarHeight);
 
     app.unmount();
@@ -359,271 +532,13 @@ describe("a phone", () => {
     expect(bottomChromeHeight()).toBe(0);
   });
 
-  test("no toolbar under an open panel, and it comes back when the panel goes", () => {
+  test("nothing is inert, because nothing is over the editor", () => {
+    // The sheet used to put the note out of reach of the keyboard and the
+    // screen reader, which was right while there was a sheet. With no panel at
+    // this density, an `inert` editor would be a note nobody can Tab into and
+    // nothing on screen to explain why.
     const app = mountFrame(390);
-    expect(app.find("bottom")).not.toBeNull();
-
-    app.press("frame-drawer-toggle");
-    expect(app.find("frame-drawer")).not.toBeNull();
-    expect(app.find("bottom")).toBeNull();
-
-    // Nobody is stranded: the scrim is one of three ways back, and the bar is
-    // there again the moment the panel is not.
-    app.press("frame-scrim");
-    expect(app.find("bottom")).not.toBeNull();
-
-    app.unmount();
-  });
-
-  test("nor under the rail sheet, which is the same object in another size", () => {
-    const app = mountFrame(390, "the note", { explorer: false });
-    expect(app.find("bottom")).not.toBeNull();
-
-    app.press("frame-nav-toggle");
-    expect(app.find("frame-nav-sheet")).not.toBeNull();
-    expect(app.find("bottom")).toBeNull();
-
-    app.press("frame-scrim");
-    expect(app.find("bottom")).not.toBeNull();
-
-    app.unmount();
-  });
-
-  /**
-   * And the band it left behind goes with it.
-   *
-   * The panel is full height and pays in padding for whatever floats over it.
-   * With the toolbar gone there is nothing at that edge but the home indicator,
-   * and reserving the toolbar's ~110pt anyway would leave a hand's width of
-   * dead panel under the vault line — the same bug's other half: the bar was
-   * drawn there *and* paid for there.
-   */
-  test("and the panel stops reserving room for a toolbar that is not drawn", () => {
-    mockInsets.bottom = 34;
-    const app = mountFrame(390);
-    app.press("frame-drawer-toggle");
-
-    const panel = app.find("frame-drawer")!;
-    const paid = Number.parseFloat(styleOf(panel, "padding-bottom"));
-    expect(paid).toBe(34);
-    // Which is the home indicator, not the toolbar's band.
-    expect(paid).toBeLessThan(layout.bottomBarHeight);
-
-    app.unmount();
-    mockInsets.bottom = 0;
-  });
-
-  test("the switcher opens the rail as a sheet, over a scrim", () => {
-    // The bug: signing in lands on Map, which has no explorer, so the drawer
-    // button is absent — and the rail was never mounted at this width. The
-    // whole screen was one pane and no way off it. Mounted here WITHOUT an
-    // explorer, because that is the pane the bug was reported on.
-    const app = mountFrame(390, "the note", { explorer: false });
-
-    expect(app.find("frame-nav-toggle")).not.toBeNull();
-    expect(app.find("frame-drawer-toggle")).toBeNull();
-    expect(app.find("rail-sheet")).toBeNull();
-
-    app.press("frame-nav-toggle");
-
-    const sheet = app.find("frame-nav-sheet");
-    expect(sheet).not.toBeNull();
-    expect(app.find("frame-scrim")).not.toBeNull();
-
-    // `sheet`, not `full`: same labels, thumb-sized rows. And the rail must be
-    // INSIDE the sheet — asserting only that the node exists somewhere lets a
-    // layout that renders the column *and* the sheet pass.
-    const rail = app.find("rail-sheet");
-    expect(rail).not.toBeNull();
-    expect(sheet!.contains(rail)).toBe(true);
-    expect(app.find("rail-full")).toBeNull();
-    expect(app.find("rail-icons")).toBeNull();
-
-    // ...and exactly one navigation landmark on the screen.
-    expect(app.container.querySelectorAll('[role="navigation"]')).toHaveLength(1);
-
-    app.unmount();
-  });
-
-  test("the toggle is named by what the switcher says, on every platform", () => {
-    // A route with no tree, which is where the chip lives now — see the test
-    // above it and `Regions.navToggle`.
-    const app = mountFrame(390, "the note", { explorer: false });
-    const toggle = app.find("frame-nav-toggle")!;
-
-    // Spelled out rather than derived from the content. On web the content
-    // would do, but `aria-hidden` on a `Text` is dropped on native and
-    // `RCTRecursiveAccessibilityLabel` would fold the chevron into the name —
-    // "@seyi personal black down-pointing small triangle".
-    expect(toggle.getAttribute("aria-label")).toBe("@seyi, personal");
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-
-    app.press("frame-nav-toggle");
-    expect(app.find("frame-nav-toggle")!.getAttribute("aria-expanded")).toBe("true");
-
-    app.unmount();
-  });
-
-  test("the chevron turns over, and is hidden from the name", () => {
-    const app = mountFrame(390, "the note", { explorer: false });
-    /*
-      Read off `data-icon` rather than off text. The chevron is drawn from
-      `View`s now and contributes no text content at all, so the previous
-      form of this assertion — comparing `textContent` to `▾` — would pass
-      against a control that had stopped drawing a chevron entirely. See
-      `design/components/Icon`, which carries the attribute for this reason.
-    */
-    const chevron = () =>
-      app.find("frame-nav-toggle")!.querySelector("[data-icon]")?.getAttribute("data-icon");
-
-    expect(chevron()).toBe("chevronDown");
-    app.press("frame-nav-toggle");
-    expect(chevron()).toBe("chevronUp");
-
-    app.unmount();
-  });
-
-  test("what the sheet covers is out of reach of the keyboard too", () => {
-    // Without this, Tab from the switcher lands in the note the sheet is
-    // covering, and a screen reader walks the whole editor before reaching the
-    // navigation somebody just asked for.
-    const app = mountFrame(390, "the note", { explorer: false });
-    const editor = () => app.find("app-frame")!.querySelector("[inert]");
-
-    expect(editor()).toBeNull();
-    app.press("frame-nav-toggle");
-    expect(editor()).not.toBeNull();
-    expect(editor()!.textContent).toContain("the note");
-
-    app.press("frame-scrim");
-    expect(editor()).toBeNull();
-
-    app.unmount();
-  });
-
-  test("the scrim announces as a control rather than as a mystery tab stop", () => {
-    const app = mountFrame(390, "the note", { explorer: false });
-    app.press("frame-nav-toggle");
-    const scrim = app.find("frame-scrim")!;
-
-    // `Pressable` always takes a tab stop. Focusable and labelled but roleless
-    // is a stop a screen reader cannot describe — and Space would not fire it.
-    expect(scrim.getAttribute("aria-label")).toBe("Close this panel");
-    expect(scrim.tagName.toLowerCase()).toBe("button");
-
-    app.unmount();
-  });
-
-  test("a panel does not come back after a trip through a wider layout", () => {
-    // `navOpen` is never cleared by a resize, and nothing at medium or wide can
-    // clear it — no sheet, no scrim, no toggle, and ⌘B means `railCollapsed`
-    // there. So it waited. Rotate an iPad out of portrait and back and a sheet
-    // you never raised is over your note behind a full-body scrim.
-    const app = mountFrame(390, "the note", { explorer: false });
-
-    app.press("frame-nav-toggle");
-    expect(app.find("frame-nav-sheet")).not.toBeNull();
-
-    app.resize(1440);
-    expect(app.find("frame-nav-sheet")).toBeNull();
-    expect(app.find("rail-full")).not.toBeNull();
-
-    app.resize(390);
-    expect(app.find("frame-nav-sheet")).toBeNull();
-    expect(app.find("frame-scrim")).toBeNull();
-
-    app.unmount();
-  });
-
-  test("and neither does the tree drawer", () => {
-    // Same defect, same fix — asserted separately so a `panelsClearedFor` that
-    // only remembers one of the two fields fails here.
-    const app = mountFrame(390);
-
-    app.press("frame-drawer-toggle");
-    expect(app.find("frame-drawer")).not.toBeNull();
-
-    app.resize(1440);
-    app.resize(390);
-    expect(app.find("frame-drawer")).toBeNull();
-    expect(app.find("frame-scrim")).toBeNull();
-
-    app.unmount();
-  });
-
-  test("the control that opens it is a thumb-sized target", () => {
-    // It is the primary navigation on this surface, and the chip inside it is
-    // about 32pt tall. `BottomBar` holds the bottom row to this floor; a control in
-    // the top bar that every phone session has to hit is not exempt from it.
-    const app = mountFrame(390, "the note", { explorer: false });
-    const toggle = app.find("frame-nav-toggle")!;
-
-    expect(Number.parseFloat(styleOf(toggle, "min-height"))).toBeGreaterThanOrEqual(
-      layout.minTouchTarget,
-    );
-
-    app.unmount();
-  });
-
-  test("the scrim closes the sheet, and so does the switcher again", () => {
-    const app = mountFrame(390, "the note", { explorer: false });
-
-    app.press("frame-nav-toggle");
-    app.press("frame-scrim");
-    expect(app.find("frame-nav-sheet")).toBeNull();
-    expect(app.find("frame-scrim")).toBeNull();
-
-    app.press("frame-nav-toggle");
-    expect(app.find("frame-nav-sheet")).not.toBeNull();
-    app.press("frame-nav-toggle");
-    expect(app.find("frame-nav-sheet")).toBeNull();
-
-    app.unmount();
-  });
-
-  test("raising one panel puts the other away", () => {
-    // They come in from the same edge under the same scrim. Two at once is a
-    // panel hidden behind a panel.
-    //
-    // The rail is raised through `toggleRail` rather than through a top-bar
-    // chip, because on a route *with* a tree there is no chip — the control is
-    // the vault switcher at the foot of that tree, and the tree is a stub here.
-    // See `RailProbe`.
-    const app = mountFrame(390, createElement(RailProbe));
-
-    app.press("probe-toggle-rail");
-    app.press("frame-drawer-toggle");
-    expect(app.find("frame-drawer")).not.toBeNull();
-    expect(app.find("frame-nav-sheet")).toBeNull();
-
-    app.press("probe-toggle-rail");
-    expect(app.find("frame-nav-sheet")).not.toBeNull();
-    expect(app.find("frame-drawer")).toBeNull();
-
-    app.unmount();
-  });
-
-  test("the top bar over a note is a toggle and one group, and nothing between", () => {
-    /*
-      The complaint this whole branch answers, as an assertion.
-
-      Obsidian's reading view spends one transparent row on chrome: a sidebar
-      toggle at the leading edge and one grouped container at the trailing edge.
-      Ours spent two — a row carrying the toggle *and* a context chip, and a
-      breadcrumb row under it. The breadcrumb is gone from the pane; this is the
-      other half, and it is the half that is easy to put back by "just" dropping
-      a control into the middle of the bar.
-
-      On a route with a tree the context chip is the vault switcher at the foot
-      of that tree, so nothing here names the context at all.
-    */
-    const app = mountFrame(390);
-
-    expect(app.find("frame-drawer-toggle")).not.toBeNull();
-    expect(app.find("frame-nav-toggle")).toBeNull();
-    expect(app.find("switcher")).toBeNull();
-    expect(app.find("frame-search")).toBeNull();
-
+    expect(app.find("app-frame")!.querySelector("[inert]")).toBeNull();
     app.unmount();
   });
 
@@ -865,19 +780,6 @@ describe("what toggling the explorer means", () => {
     );
   }
 
-  test("on a phone it pulls the drawer in, and puts it back", () => {
-    const app = mountFrame(390, createElement(CommandProbe));
-
-    app.press("probe-toggle-explorer");
-    expect(app.find("frame-drawer")).not.toBeNull();
-    expect(app.find("frame-scrim")).not.toBeNull();
-
-    app.press("probe-toggle-explorer");
-    expect(app.find("frame-drawer")).toBeNull();
-
-    app.unmount();
-  });
-
   test("on a desktop it does nothing at all, rather than something else", () => {
     // `explorerToggleFor` answers `null` wherever the explorer is a permanent
     // column, and `null` has to mean nothing happened. This used to collapse
@@ -911,7 +813,7 @@ describe("what toggling the explorer means", () => {
   });
 
   test("⌘B still collapses the rail, so the two commands stay distinct", () => {
-    const app = mountFrame(1440, createElement(RailProbe));
+    const app = mountFrame(1440, createElement(TogglesProbe));
 
     app.press("probe-toggle-rail");
     expect(app.find("rail-icons")).not.toBeNull();
@@ -920,63 +822,52 @@ describe("what toggling the explorer means", () => {
     app.unmount();
   });
 
-  test("⌘B on a phone brings the rail in, because there is nothing to collapse", () => {
-    // It used to set `railCollapsed`, which no compact layout reads — so the
-    // one surface with no other way to navigate had a navigation chord that
-    // did nothing at all.
-    const app = mountFrame(390, createElement(RailProbe));
+  /**
+   * **Three tests are replaced here, and what they asserted is worth keeping in
+   * view because each was a real defect once.**
+   *
+   * *⌘B on a phone brings the rail in* — before that, ⌘B set `railCollapsed`,
+   * which no compact layout reads, so the one surface with no other way to
+   * navigate had a navigation chord that did nothing at all.
+   *
+   * *⌘⇧E on a pane with no tree leaves the rail alone* — before that, it
+   * cleared `navOpen` on its way to setting a flag `regionsFor` discards, so on
+   * Map, the pane you sign in to, the keystroke dismissed the only navigation
+   * on the screen and opened nothing.
+   *
+   * *Raising the tree puts the rail away* — the two panels came in from the
+   * same edge under one scrim, and a `toggleRail` that stopped clearing
+   * `drawerOpen` looked right until you closed the sheet and the drawer sprang
+   * open behind it.
+   *
+   * All three are about panels, and there are none at this density. What
+   * survives them is the *shape* of the danger: a command whose density has
+   * nothing for it to do must do **nothing**, not the other command's job. That
+   * is one test now, and it is deliberately the strictest form — the rendered
+   * output is compared before and after, so a command that quietly wrote state
+   * a later render read would fail rather than pass a flag check.
+   */
+  test("on a phone both commands are inert, at either route", () => {
+    for (const explorer of [true, false]) {
+      const app = mountFrame(390, createElement(TogglesProbe), { explorer });
+      const before = app.container.innerHTML;
 
-    app.press("probe-toggle-rail");
-    expect(app.find("frame-nav-sheet")).not.toBeNull();
-    expect(app.find("rail-sheet")).not.toBeNull();
+      app.press("probe-toggle-rail");
+      app.press("probe-toggle-explorer");
+      app.press("probe-toggle-explorer");
+      app.press("probe-toggle-rail");
 
-    app.press("probe-toggle-rail");
-    expect(app.find("frame-nav-sheet")).toBeNull();
+      expect(app.container.innerHTML).toBe(before);
+      expect(app.find("frame-nav-sheet")).toBeNull();
+      expect(app.find("frame-drawer")).toBeNull();
+      expect(app.find("frame-scrim")).toBeNull();
+      // And the navigation that is there is still there: a no-op that took the
+      // strip or the toolbar with it would be the old bug in a new place.
+      expect(app.find("strip")).not.toBeNull();
+      expect(app.find("account")).not.toBeNull();
+      expect(app.find("bottom")).not.toBeNull();
 
-    app.unmount();
-  });
-
-  test("⌘⇧E on a pane with no tree leaves the rail alone", () => {
-    // It used to clear `navOpen` on its way to setting a flag `regionsFor`
-    // discards — so on Map, the pane you sign in to, the keystroke dismissed
-    // the only navigation on the screen and opened nothing. Before the sheet
-    // existed the same key was an inert no-op there, which is what it must go
-    // back to being.
-    const app = mountFrame(390, createElement(CommandProbe), { explorer: false });
-
-    app.press("frame-nav-toggle");
-    expect(app.find("frame-nav-sheet")).not.toBeNull();
-
-    app.press("probe-toggle-explorer");
-
-    expect(app.find("frame-nav-sheet")).not.toBeNull();
-    expect(app.find("frame-drawer")).toBeNull();
-
-    app.unmount();
-  });
-
-  test("raising the tree puts the rail away, and closing it leaves nothing behind", () => {
-    // Both directions, because `regionsFor`'s rail-wins precedence hides a
-    // `toggleRail` that stops clearing `drawerOpen`: the sheet still looks
-    // right, and the drawer springs open the moment you close it.
-    // Both probes: with a tree on the route the rail has no control in the top
-    // bar, so `toggleRail` is reached the way the vault switcher reaches it.
-    const app = mountFrame(
-      390,
-      createElement("div", null, createElement(CommandProbe), createElement(RailProbe)),
-    );
-
-    app.press("probe-toggle-rail");
-    app.press("probe-toggle-explorer");
-    expect(app.find("frame-drawer")).not.toBeNull();
-    expect(app.find("frame-nav-sheet")).toBeNull();
-
-    app.press("probe-toggle-rail");
-    app.press("probe-toggle-rail");
-    expect(app.find("frame-nav-sheet")).toBeNull();
-    expect(app.find("frame-drawer")).toBeNull();
-    expect(app.find("frame-scrim")).toBeNull();
-
-    app.unmount();
+      app.unmount();
+    }
   });
 });

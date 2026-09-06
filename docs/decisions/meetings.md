@@ -667,17 +667,37 @@ replays it on reconnect, and the gateway is built so that replaying is free:
 The third one has a trap that is worth naming, because the obvious
 implementation walks into it. If the bucket path is derived from the title, and
 the human renames the meeting between a failed finalize and its retry, a
-title-derived path produces a *second* note and both look correct. So the path
-carries a stable suffix taken from the session id, and finalize resolves an
-existing note **by that suffix** before it composes a new path — a rename
-rewrites one note, it does not fork one.
+title-derived path produces a *second* note and both look correct.
+
+So **the path is composed once and then remembered.** Finalize's first step is a
+*claim*: it works out the path, writes it into the session record under a
+conditional write, and only then writes the note. Every later finalize —
+a retry after a crash, a duplicate from a client that never saw the first
+answer, a re-finalize under a new title or a different folder — reads that path
+back out of the record and does not compose one. A rename rewrites one note; it
+cannot fork one, because after the claim nothing derives a path from anything.
+
+**This paragraph used to say something else, and it was wrong.** It said the
+path "carries a stable suffix taken from the session id, and finalize resolves
+an existing note **by that suffix** before it composes a new path". The first
+half is true — `meetingNotePath` ends the filename with the tail of the session
+id — and the second half describes a lookup that does not exist and would be a
+worse design: resolving by scanning for a suffix means reading the bucket to
+answer a question the record already answers, and it would find a note in the
+old folder while the retry named a new one. `unclaimedNotePath` is the only
+thing here that looks at an existing key, and its job is the opposite: it
+refuses to overwrite a note somebody else's tooling put at the candidate path.
 
 Every `MeetingEvent` in the contract is idempotent or additive for the same
 reason: replaying the log must land on the same session.
 
-The checks are `finalizing twice writes one note`,
-`re-sending a segment does not duplicate it`, and
-`a re-finalize with a changed title rewrites one note rather than adding a second`.
+The checks are `finalizing twice answers with the note that already exists`,
+`a phone that lost signal and re-sent duplicates nothing`, and
+`a re-finalize with a changed title rewrites one note rather than adding a
+second` — the last of which this section cited for a while before it existed,
+and which now does: it fails a finalize's note write, renames the meeting, and
+asserts the retry lands on the first title's key with no second note in the
+bucket.
 
 ### The human's words are never rewritten, and the generated half is disposable
 
@@ -709,6 +729,159 @@ nothing in the gateway parses a path to find a meeting, because a path that has
 to parse is a path that cannot be moved.
 
 The check is `moving a meeting note does not break reading it`.
+
+**"A default the customer can change" was a sentence for a while and is now a
+field.** A phone can ask a person where a meeting's notes should go, and the
+gateway ignored the answer: `finalizeSession` built the inbox path from
+`MEETINGS_FOLDER` and consulted nothing, so somebody who picked a folder got the
+inbox anyway, in silence. `FinalizeBody.folder` is that answer arriving.
+
+**A destination is a `(context, folder)` pair, and only the folder half is this
+field.** `MeetingDestination` in the app
+(`apps/mobile/features/meetings/destination.ts`) carries a `contextSlug`
+alongside the folder, and **the context half is the one carrying a privacy
+rule**: the first offer on the sheet is always the person's own brain, whatever
+context they happen to be standing in, because somebody reading a note in a
+shared workspace who presses record would otherwise drop a transcript of a
+conversation they have not read yet into a folder their colleagues are watching.
+The current page is the *second* offer, with its audience named on it.
+
+The gateway sees only the folder because the context has already decided *which
+gateway and which bucket* the finalize is addressed to — one workspace is one
+bucket, one storage binding and one privacy manifest
+([non-negotiable 2](../../CLAUDE.md)) — so there is nothing for a `context`
+field on this body to mean that the connection does not already say. Three
+decisions in the folder half, each of which could reasonably have gone the other
+way:
+
+**The chosen folder replaces the whole default, and `YYYY/MM` stays.**
+`MEETINGS_FOLDER` is one concept — where meetings are filed — spelled in two
+segments, so `2-areas/team` gives `2-areas/team/2026/09/<file>` rather than
+`2-areas/team/meetings/2026/09/<file>`. The alternative hands a person a folder
+they did not ask for, and the example this section already used for a customer
+who has changed it has no `meetings` segment in it. The date folders are not
+part of the choice: they are for humans and for Obsidian, one folder holding
+every meeting somebody ever recorded is unusable in a file browser, and nothing
+parses them.
+
+**A folder the gateway will not file into is refused by
+`normalizeMeetingFolder`, which delegates to `normalizeRoot` rather than being a
+third validator.** The structural rules are the same rules — traversal,
+backslashes, separators — and two implementations of "does this escape its
+bucket" is how one of them ends up weaker. `slugifyTitle` is the wrong half of
+the precedent: it *maps* rather than refuses, so `2-areas/team` would come back
+as `2-areas-team` and the note would be filed into a folder nobody named. What a
+folder needs on top of what a root needs is four rules with four reasons: no
+dot-prefixed segment, because `isPlumbing` hides those from every tool at every
+tier including the owner's, so the meeting would be invisible to the person
+whose storage bill it is; no segment that is itself a note; a length bound
+keeping the whole key inside the gateway's own 512-character path limit; and
+**no `..` anywhere inside a segment**, not merely a segment that *is* `..`.
+
+That fourth rule is the one that closed a real defect, and this paragraph said
+"three rules with three reasons" and never mentioned it. `normalizeRoot` refuses
+the traversal *shapes*, which is the right rule for a prefix; the gateway's own
+`normalizePath` is blunter and refuses `..` anywhere in a key at all. So `a..b`
+passed the folder check, the claim wrote `a..b/YYYY/MM/….md` into the session
+record under a conditional write, and the note write then answered 400
+`meeting_invalid` — the code no client retries — for the life of that meeting,
+with nothing to clear the claimed path. Only a `null` from
+`normalizeMeetingFolder` reaches the `folderRejected` fallback, so that class
+walked straight past the safety net the fallback exists to be. The two functions
+have to agree about what a key is, and this one takes the stricter rule: a vault
+with a folder named `a..b` loses it as a meeting destination and is told so,
+where the reverse loses a meeting silently and permanently.
+
+**The empty string is refused as well**, and it is a difference of *meaning*
+from `normalizeRoot` rather than an addition to it: `""` is that function's
+answer for "no prefix at all", which is a legal root and is not a folder. Filing
+there would put a `YYYY/MM` tree of meetings beside `index.md` and
+`privacy.md`, and the on-bucket layout is a stable format rather than an
+internal detail (CLAUDE.md, non-negotiable 3). The phone's destination sheet
+refuses to *offer* the root for the same reason rather than letting the fallback
+absorb it — see `features/meetings/destination.ts`.
+
+The refusal is a `null` rather than a thrown message, because `normalizeRoot`'s
+messages quote what they refused — reasonable for a prefix the customer typed
+into their own binding, a reflection for a value a client sent.
+
+**A refused folder does not lose the meeting: it falls back to the default, and
+the ack says `folderRejected`.** This is the same trade as an unusable flag row
+costing that row rather than the request — `meeting_invalid` is the code a client
+does not retry, so failing the finalize would park somebody's forty minutes over
+one bad string. The *saying so* is the load-bearing half rather than a nicety: a
+fallback nobody is told about is precisely the defect being closed, one layer
+down. The ack carries no copy of what was sent.
+
+**And the folder is an input to the claim, and only to the claim**, which is
+what keeps a client-supplied path component from being a new way to break
+*Ingestion is idempotent by construction*. The claimed path is written into the
+session record under a conditional write and reused by every later finalize, so
+the same session finalizing twice under two folders answers with the note that
+exists. Moving a meeting is `move_note`'s job and stays moved; a second finalize
+is a retry, not a move. The sabotage that proves this is the storage-failure
+retry rather than the obvious double finalize — an already-complete finalize
+returns before the claim, so it forks nothing even with the guard removed, while
+a retry after a failed note write, naming a second folder, writes a second note
+and leaves one meeting in two places.
+
+`isMeetingNotePath` takes the same folder and validates it with the same
+function, so the pair agree by construction rather than by both deriving one
+constant. It stays a shape test relative to a named folder and does not become a
+global "is this a meeting" oracle, and the reason is a narrow one that used to be
+stated too broadly. **The claimed path *is* recorded** — the session record
+carries `notePath`, and the completion receipt keeps it, which is what makes a
+retry land on one note. What no index records is the reverse mapping: there is no
+list of meeting paths to scan, by the decision above, so `list_meetings` has
+nothing to consult and reads the default folder off the bucket instead. Scanning
+the whole bucket for `YYYY/MM/YYYY-MM-DD-*.md` would call somebody's ordinary
+dated note a meeting.
+
+So `list_meetings` does not list a meeting filed elsewhere, which is the
+behaviour a *moved* meeting already has and which this section already calls
+correct — and since that is a real limit rather than an implementation detail,
+**the tool says so to the model in its own description**, because a client that
+is told "the meetings the user recorded" has no reason to look further when one
+is missing. The checks are in `apps/mcp/test/meetings.test.mjs`, on the
+description a real `tools/list` returns.
+
+The checks are `a chosen folder replaces the whole default, and keeps the date
+folders under it`, `the recogniser answers true for every key the builder makes,
+on the same options`, `a folder that tries to leave the bucket does not lose the
+meeting`, `the client is told its folder was not used`, `and is not read its own
+value back`, `finalizing again with a different folder answers with the note that
+already exists`, and the one that matters, `the retry lands on the path the first
+finalize claimed, not the folder it just named`.
+
+**The wedge a tier refusal leaves is closed on the gateway and open on the
+phone**, and that half is written down here rather than fixed, because fixing it
+is a change to what the destination sheet is for.
+
+Gateway side: a folder this connection's tier may not write is a *deterministic*
+refusal, so `releaseClaim` gives the reserved path back on a 400 or a 403. The
+session returns to `finalizing` with no path, "and the next finalize claims one
+from whatever folder it names — the default, when the client sends none". That
+is what stops one bad string turning into a meeting that can be recorded, typed
+into, and never written out.
+
+Client side there is no next folder. `MeetingRecord.destination` is fixed at
+`start()` — deliberately, because a recording outlives the sheet that asked, and
+rewriting it later would be the device claiming somebody chose something they
+were never asked about — and `retrySync` puts a parked record back in the queue
+**unchanged**, which is also deliberate: retry means *try that again*, not *try
+something else*. Nothing between them can hand the finalize a different folder,
+and nothing offers the person one. So from the phone that meeting is still
+unrecoverable: every press of Retry names the folder that was refused, and the
+gateway releases a claim nobody comes back for.
+
+Two ways out, and both are decisions rather than patches. Either the note screen
+offers to re-point a parked meeting — a second place where a destination is
+chosen, which is exactly what `useMeetingFlow` was written to avoid — or
+`retrySync` clears the destination when the rejection was about the folder,
+which makes Retry silently mean "into your inbox instead" and is the class of
+silent redirection this whole seam exists to close. Neither is obviously right,
+so neither is taken. The person's notes are on the device and are not lost; what
+they cannot do is get them into the bucket without discarding and re-recording.
 
 ### What is deliberately not built
 
@@ -785,7 +958,7 @@ covering it`, `leaving the meetings section does not switch transcription off`,
 and `re-configuring mid-meeting keeps the recorder that is holding the
 microphone`.
 
-### The way in is a rail entry, and it navigates rather than records
+### The way in is on the surface each density has, and it navigates rather than records
 
 Everything above is about a recording that is already running. **Nothing in the
 app started one.** `/meetings` had a list screen, a live screen and a working
@@ -795,17 +968,47 @@ meeting?" from a note screen, the honest answer was "type the URL". A feature
 nobody can reach is not shipped, and this is the class of defect that hides
 best: every unit test of it passes.
 
-**It is a pinned row at the head of the console's rail, at every density.**
-`AppFrame` says of that slot that it is "reachable at every density — a column
-on a pointer layout, a sheet the top bar brings in on a phone" and that it "is
-not optional and must not become so", because what is reachable through it is
-reachable through nothing else. The other two candidates are refused by their
-own files: the bottom toolbar's rule is that "navigation is not its job", and it
-has no room either — at 390pt the pill is 286 wide, 262 inside its padding,
-which six targets already divide into 43.7pt against a 44pt floor; and the
-settings pane's *This context, from further out* card is explicitly for things
-that are **not** "a place you navigate to in order to read a note", which a
-meeting screen is.
+**It is a pinned row at the head of the console's rail, and — since the phone
+lost its left panel — the last key on the phone's bottom row.** The settings
+pane is still refused by its own file: its *This context, from further out* card
+is explicitly for things that are **not** "a place you navigate to in order to
+read a note", which a meeting screen is.
+
+**The bottom toolbar's refusal expired, and the arithmetic that carried it is
+corrected here rather than dropped.** This paragraph used to say that the rail
+was the answer "at every density", quoting `AppFrame` on that slot being
+"reachable at every density — a column on a pointer layout, a sheet the top bar
+brings in on a phone", and it refused the toolbar twice: once on its own rule
+that "navigation is not its job", and once on room — "at 390pt the pill is 286
+wide, 262 inside its padding, which six targets already divide into 43.7pt
+against a 44pt floor". Both halves have moved, and neither moved because
+somebody wanted this entry on the bar:
+
+- A phone has **no rail at all** now ([app-and-console](./app-and-console.md);
+  `features/app/frame.ts`), so "at every density" is false about the rail and
+  the premise under the `AppFrame` quotation — reachable through this node and
+  no other — went with the panels.
+- `layout.bottomBarInset` went **52 → 24** in the same change, which is what the
+  seventh key was bought with. The 286 above is `390 − 2 × 52`; the pill is
+  `390 − 2 × 24 = 342` wide now, 318 inside `bottomBarPad`, **317 once the
+  separator has taken its point** — it is a `flexShrink: 0` child of the same
+  flex row, so it is subtracted from what the targets divide rather than painted
+  over them — and **seven targets are 45.29pt** against the same 44pt floor,
+  where at 52 seven were 37.29 and even six were 43.5, under it. So a seventh
+  did not fit and does.
+
+  Every number in that sentence used to be the one before the separator (45.4,
+  37.4, 43.7). The correction was made in `tokens.ts` and `BottomBar.tsx` and
+  did not reach here; see `bottomBarGeometry`, which subtracts the rule
+  explicitly so that no prose has to remember to.
+
+`BottomBar` amended its own rule in that change too, and narrowly: it carries
+exactly **one** destination, in the last position, behind a separator that keeps
+the six note verbs reading as a group. It does not carry the contexts — those
+are a list that grows, and a list belongs on the strip that scrolls. One
+destination on the surface each density actually has is not two entry points to
+maintain; it is the same entry on the two different bars a phone and a desktop
+have.
 
 This is not the `App` group returning ([app-and-console](./app-and-console.md),
 *The rail splits on kind*). That group held Map and Connections — facts *about a
@@ -814,24 +1017,53 @@ headed APP over YOURS over SHARED WITH YOU, which is what made the rail read as
 a second, unrelated left navigation. One pinned row with no heading is not a
 second panel.
 
-**Pinned, and at the head rather than beside sign-out**, and the second half of
-that is about the bar rather than about taste. While a panel is over the editor
-the frame publishes a chrome height of zero, so the recording bar drops to
-`floatingStackBottom(insets.bottom, 0)` and lies across the bottom ~100pt of
-whatever is under it — the rail sheet included. A destination the recording it
+**Pinned, and at the head of the rail rather than beside sign-out**, and the
+second half of that is about the bar rather than about taste. Whenever the
+frame's bottom toolbar is not showing it publishes a chrome height of zero, so
+the recording bar drops to `floatingStackBottom(insets.bottom, 0)` and lies
+across the bottom ~100pt of whatever is under it. A destination the recording it
 leads to can cover is not a destination. (The same arithmetic puts that bar over
 the account block, which is a pre-existing hole in *sign-out* and is not fixed
 here.)
 
+**The trigger for that is not what this paragraph used to name.** It said "while
+a panel is over the editor", because `toolbarHidden` was `accessoryOpen ||
+regions.scrim` and the scrim was a phone's drawer. There is no scrim at any
+density now ([app-and-console](./app-and-console.md)), so the surviving trigger
+is the keyboard accessory bar — which is the more common one anyway, and the
+conclusion is unchanged.
+
 **And it navigates. It does not record.** *Consent is the customer's* says a
 detector that silently started recording "would be the same product with the
-indicator removed"; a rail row that opened the microphone is exactly that, one
-surface over. The record button lives on `/meetings`, beside the sentence
-saying where the audio goes and what is kept — which is the disclosure the
-decision requires, and it cannot be given by a row in a navigation panel. The
-mark is a microphone on a cradle rather than the recording bar's waveform or the
-list's red disc, so no glyph in the product means both "a meeting is being
-recorded right now" and "meetings live here".
+indicator removed"; a control that opened the microphone is exactly that, one
+surface over. The record button lives where the disclosure can be given beside
+it — on `/meetings`, next to the sentence saying where the audio goes and what
+is kept — which a row in a navigation panel cannot do. The mark is a microphone
+on a cradle rather than the recording bar's waveform or the list's red disc, so
+no glyph in the product means both "a meeting is being recorded right now" and
+"meetings live here".
+
+**Both halves of that need amending for the phone's key, and the amendment is
+narrower than it looks.** The seventh key does not navigate to `/meetings` and
+it does not start recording either: it raises a sheet that asks *where this
+meeting is going* — `MeetingDestination`, a context and a folder — and recording
+begins only after somebody has answered. So the disclosure is not left behind on
+a screen the key skipped; it is on the sheet the key opens, which is the surface
+the decision asks for.
+
+**The property that holds is "no press without the disclosure beside it", and
+this paragraph used to state a stronger one that is false.** It said *no single
+press anywhere in this product opens the microphone* — two sentences after
+describing the press that does. `/meetings`' red disc is `onRecord →
+controller.start → recorder.start()`, one press, no dialog, and that screen's
+own header says so in as many words: "it starts a meeting with no dialog in
+front of it: the reference experience is that you open the app and hit record".
+That is a deliberate decision, not an oversight, and it is exactly why the
+weaker claim is the true one: the disc sits on the screen that carries the
+sentence about where the audio goes and what is kept, so the disclosure is
+*there*, in front of the person, rather than behind a dialog. The rail row and
+the seventh key cannot make that claim from where they sit, which is why neither
+of them records.
 
 A way in also needs a way back, and `/meetings` had none: the list screen sits
 outside the console, nothing above it draws chrome, and the live and note
@@ -840,7 +1072,10 @@ does now, and it falls back to the console when there is no history behind it �
 a cold start on a typed URL or a reload on the web, where `router.back()` is a
 press that does nothing.
 
-The checks are `the rail carries it at full / icons / sheet`,
+The checks are `the rail carries it at full / icons` — `sheet` was in that
+enumeration and left it, because `regionsFor` cannot return it at any density
+and a test over a mode nobody can reach is the opposite of what enumerating them
+is for —
 `the collapsed rail keeps the name it cannot draw`,
 `a rail with nowhere to send anybody draws no entry`,
 `the route it names is a route this app actually has`,

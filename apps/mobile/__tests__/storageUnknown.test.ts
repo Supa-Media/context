@@ -63,13 +63,34 @@ const CONNECTED: ConsoleStorage = {
   updatedAt: 0,
 };
 
-/** Just enough console for the pane, with the binding in a named state. */
-function dataWith(storage: ConsoleStorage | null | undefined): ConsoleData {
+/**
+ * Just enough console for the pane, with the binding in a named state.
+ *
+ * `atRoot` gives it the context's own root listing, which is what the pane
+ * needs to draw the **context root page** — the surface that carries
+ * `storage · index · counts` on a phone (`files/contextFoot.ts`). Off by
+ * default, because most of this file is about the banner and an empty
+ * `listings` is the state a cold load is in.
+ */
+function dataWith(
+  storage: ConsoleStorage | null | undefined,
+  { atRoot = false }: { atRoot?: boolean } = {},
+): ConsoleData {
   const files = {
     canEdit: true,
     loading: false,
     busy: false,
-    listings: {},
+    listings: atRoot
+      ? {
+          "": {
+            path: "",
+            folderDefault: "private" as const,
+            truncated: false,
+            manifestUsable: true,
+            entries: [],
+          },
+        }
+      : {},
     expanded: new Set<string>(),
     toggleFolder: () => {},
     collapseAll: () => {},
@@ -104,6 +125,11 @@ function dataWith(storage: ConsoleStorage | null | undefined): ConsoleData {
     ingestionAddress: "seyi@example",
     ingestion: { settings: undefined },
     files,
+    // Required on `ConsoleData`, and read by the context root page's foot for
+    // how much of this context is indexed. `null` is "not answered yet", so no
+    // figure is drawn — `indexProgressSurfaces` is where that is the subject
+    // rather than a fixture detail.
+    fastSearch: { status: null, loading: false },
     members: { rows: [] },
     // The state this bug lived in: the workspace list has landed, and the
     // binding for the selected context has not.
@@ -159,5 +185,43 @@ describe("the pill's label answers for both absences and neither is a claim", ()
 
   test("a connected one does", () => {
     expect(storagePillLabel(CONNECTED)).toBe("R2 · brain");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The same rule, on the phone's own surface for it.
+ *
+ * The line `storage · index · counts` used to be the file tree's footer, and a
+ * phone has no file tree — it is the foot of the context root page now, drawn
+ * by `FolderView` from `contextFootLine`. That line is the **second** caller
+ * that turns `storagePillLabel`'s `null` into the words "no bucket connected",
+ * which is exactly the substitution this whole file exists to keep honest: it
+ * has to know which absence it is holding, because one of them is a claim and
+ * the other is a round trip.
+ *
+ * SABOTAGE: dropping the `storage === undefined` arm from `contextFootLine`, so
+ * an unanswered binding reads as "no bucket connected", measured **zero**
+ * failures across the whole suite (172 suites / 3,282 tests) — the guard was
+ * written and nothing had ever asked it a question. These three are the answer;
+ * with them the same mutant fails the first of them and only it.
+ */
+describe("the phone's context foot is held to the same rule", () => {
+  test("a binding still in flight puts nothing about storage on the line", () => {
+    const text = render(dataWith(undefined, { atRoot: true }));
+    expect(text).toContain("Nothing read yet");
+    expect(text).not.toContain("no bucket connected");
+  });
+
+  test("and a context that really has none says so there", () => {
+    // The control, the same one every case in this file carries: a foot that
+    // simply never mentioned storage would pass the test above, and the phone
+    // has no other route to this fact at all.
+    expect(render(dataWith(null, { atRoot: true }))).toContain("no bucket connected");
+  });
+
+  test("a connected one is named rather than described", () => {
+    expect(render(dataWith(CONNECTED, { atRoot: true }))).toContain("R2 · brain");
   });
 });

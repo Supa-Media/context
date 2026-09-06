@@ -260,11 +260,53 @@ function Transcript({ record }: { record: MeetingRecord }) {
 }
 
 /**
+ * Said under the path when the folder somebody picked was not the one used.
+ *
+ * **It used to say "so this is the default folder", and that is only one of the
+ * two cases.** `folderRejected` means "the folder you named is not where this
+ * note is", which is wider than "the string you sent was malformed": the
+ * gateway also sets it when the folder was perfectly legal and *a different one
+ * had already been claimed* — a second finalize naming somewhere else, or a
+ * retry after a failed write (`folderFlag` in `apps/mcp/src/meetings/ingest.js`,
+ * and the `IngestAck` contract in `packages/meetings/src/protocol.js`). In that
+ * case the note is in the folder the first finalize claimed, which is not the
+ * default and not the one on screen.
+ *
+ * So the sentence says what is true in both: not where you chose, here instead,
+ * move it if you want it elsewhere. The path above is what answers "where",
+ * which is the question somebody actually has — and the notice still names no
+ * folder, because the ack carries no copy of what was sent.
+ */
+export const FOLDER_REJECTED_NOTICE =
+  "Your context did not file this meeting in the folder you chose, so this is where the note is. Move it if you want it elsewhere.";
+
+/**
  * Where the note landed, and nothing where it has not landed.
  *
  * The path is drawn in the monospace face because it is an address in somebody
  * else's storage, and it is the one thing on this screen that is worth reading
  * character by character.
+ *
+ * ## A folder that was not used is said here, under the path
+ *
+ * `IngestAck.folderRejected` reaches the record through the drain, and this is
+ * where it is spent. For a folder the gateway will not file into it falls back
+ * to the default rather than losing a meeting over one bad string —
+ * `meeting_invalid` is the code a client does not retry, so refusing would park
+ * somebody's forty minutes — and that trade is only defensible if the person is
+ * told. A fallback nobody hears about *is* the destination control that appears
+ * to work and does nothing, which is the defect this whole seam exists to close.
+ *
+ * The flag is **wider than that one case**, and the notice's own comment says
+ * how: it is equally set when the folder was legal and the claim had already
+ * reserved another. One sentence covers both because one sentence is true of
+ * both — the note is not where you pointed it, and the path says where it is.
+ *
+ * It sits under `Saved to your bucket` rather than replacing it, because both
+ * are true and the more important one is that the meeting is safe. And it does
+ * not name the folder that was refused: the ack carries no copy of it, on
+ * purpose, so the screen has none either — the path above says where the note
+ * *is*, which is the answer somebody actually needs.
  */
 function Landing({ record }: { record: MeetingRecord }) {
   const styles = useThemedStyles(makeStyles);
@@ -309,6 +351,11 @@ function Landing({ record }: { record: MeetingRecord }) {
         <Text style={styles.path} numberOfLines={1}>
           {session.notePath}
         </Text>
+        {record.folderRejected === true ? (
+          <Text variant="rowSub" testID="meeting-folder-rejected">
+            {FOLDER_REJECTED_NOTICE}
+          </Text>
+        ) : null}
       </View>
     </View>
   );

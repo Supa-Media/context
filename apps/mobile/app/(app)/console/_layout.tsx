@@ -4,14 +4,13 @@ import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { PressRow } from "../../../features/design/components/Button";
 import { Dot } from "../../../features/design/components/Dot";
-import { Icon } from "../../../features/design/components/Icon";
 import { Pill } from "../../../features/design/components/Pill";
 import { Palette } from "../../../features/design/components/Palette";
 import { StatusBar } from "../../../features/design/components/StatusBar";
 import { Text } from "../../../features/design/components/Text";
 import { ToastHost } from "../../../features/design/components/Toast";
-import { layout, radii, space } from "../../../features/design/tokens";
-import { useColors, useThemedStyles, type Colors } from "../../../features/design/theme";
+import { layout, radii } from "../../../features/design/tokens";
+import { useThemedStyles, type Colors } from "../../../features/design/theme";
 import { AppFrame, FrameIconButton, useFrame } from "../../../features/app/AppFrame";
 import { densityFor } from "../../../features/app/frame";
 import { BottomBar } from "../../../features/console/BottomBar";
@@ -50,6 +49,9 @@ import { dirtyCount, isTabDirty } from "../../../features/console/files/tabs";
 import { isDirty } from "../../../features/console/files/editor";
 import { useUnsavedGuard } from "../../../features/console/files/useUnsavedGuard";
 import { atName } from "../../../features/console/format";
+import { ContextStrip } from "../../../features/console/ContextStrip";
+import { useContextHref, useContextPlaces } from "../../../features/console/useLastPlace";
+import { useMeetingFlow } from "../../../features/meetings/useMeetingFlow";
 import {
   hrefFor,
   resolveContextRoute,
@@ -340,6 +342,23 @@ export default function ConsoleLayout() {
       ? selectedEntry
       : null;
 
+  const places = useContextPlaces();
+  const contextHrefFrom = useContextHref(data.contexts);
+  const { startMeetingFlow, sheet: meetingSheet } = useMeetingFlow({
+    contexts: data.contexts,
+    page: insideContext && current
+      ? {
+          contextSlug: current.slug,
+          // The note when one is open, else the folder standing in for it —
+          // the same `targetFolder` rule the `+` key uses, so "this page" and
+          // "new note here" can never mean two different folders.
+          path: data.files.selectedPath ?? "",
+          isNote: selectedEntry?.kind === "file",
+        }
+      : null,
+    onClaimName: data.demo ? undefined : () => router.push(WELCOME_ROUTE),
+  });
+
   /**
    * Where the control is and where a press takes it.
    *
@@ -364,13 +383,18 @@ export default function ConsoleLayout() {
         switcher={
           insideContext ? (
             /*
-              `switcherCompact` takes this chip's own border and fill away on a
-              phone. `AppFrame`'s `navToggleCompact` already draws a shadowed
-              white capsule around it, and a bordered box inside that capsule is
-              two containers for one control — most of what made the phone's top
-              edge read as a toolbar drawn twice.
+              A pointer layout's control, and only a pointer layout's.
+
+              `AppFrame` renders this slot in the `!compact` arm — a phone's top
+              row is the pinned account mark and the context strip — so nothing
+              here is ever on a phone. It used to carry a `phone &&
+              styles.switcherCompact` that took the chip's border and fill away,
+              justified by `AppFrame`'s `navToggleCompact` "already drawing a
+              shadowed white capsule around it". That capsule went with the
+              phone's rail toggle; the style it named had no call sites left,
+              and this override had no render to reach. Both are gone.
             */
-            <View style={[styles.switcher, phone && styles.switcherCompact]}>
+            <View style={styles.switcher}>
               <Dot tone={current?.status ?? "warn"} />
               <Text variant="wsSwitch" numberOfLines={1}>
                 {contextLabel}
@@ -385,7 +409,7 @@ export default function ConsoleLayout() {
             // context" is the aggregate — everything this person can reach —
             // which is exactly what these panes span (see CLAUDE.md,
             // "Vocabulary").
-            <View style={[styles.switcher, phone && styles.switcherCompact]}>
+            <View style={styles.switcher}>
               <Text variant="wsSwitch">Your context</Text>
               {/*
                 No number until the list has arrived. `contexts` is empty on a
@@ -402,24 +426,27 @@ export default function ConsoleLayout() {
           )
         }
         /*
-          The same words the chip draws, as a string. `AppFrame` cannot read
-          them off the node — and on native it could not derive them from the
-          rendered text either; see `switcherLabel`.
+          No `switcherLabel`.
+
+          It was the accessible name of the control that pulled the rail in as
+          a sheet on a phone, and it had to be a string because a *pressable*
+          cannot derive its name from its own content on native. There is no
+          such control now: at compact the panels are gone and the chip is a
+          label again, which reads its own text. The prop went with the reader.
         */
-        switcherLabel={
-          insideContext
-            ? [contextLabel, current?.kind].filter(Boolean).join(", ")
-            : data.loading
-              ? "Your context"
-              : `Your context, ${data.contexts.length} reachable`
-        }
         /*
-          Absent on a phone, where both chips have moved to the foot of the file
-          tree — see `ContextFoot` and `Explorer`'s `vault` slot.
+          Absent on a phone, where both chips have moved to the foot of the
+          context's own page — `features/console/files/contextFoot.ts` composes
+          the line and `FolderView` draws it.
+
+          (This used to cite `ContextFoot` and `Explorer`'s `vault` slot. There
+          is no such component — the module is `files/contextFoot.ts` — and the
+          `vault` slot went with the phone's file tree, so the citation pointed
+          at one name that never existed and one that no longer does.)
 
           They are facts *about the context you are in*: which bucket it is
-          bound to, and what you are allowed to see in it. Beside the context's
-          own name, at the foot of the panel that lists it, they read as a
+          bound to, and what you are allowed to see in it. Under the context's
+          own heading, at the foot of the page that lists it, they read as a
           caption. Floating over the note in the top-right corner of a 390pt
           screen they read as chrome about the note, which is what they were
           being mistaken for — and getting them there cost a bordered pill
@@ -427,8 +454,7 @@ export default function ConsoleLayout() {
 
           The pointer layout keeps them in the bar. It has the width, the bar
           has a surface of its own to sit them on, and the tree's foot there is
-          a 26pt strip at the bottom of a 260pt column rather than the panel's
-          own footer.
+          a 26pt strip at the bottom of a 260pt column rather than a page's.
         */
         topTrailing={
           phone ? (
@@ -515,6 +541,46 @@ export default function ConsoleLayout() {
           )
         }
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
+        /*
+          A phone's navigation, in the one row it always has in front of it.
+
+          The account is pinned so it never scrolls away — it is the only
+          sign-out control in the product, and a control you have to scroll to
+          find is one somebody concludes is missing. The strip flexes beside
+          it and scrolls; the trailing capsule is untouched, because the scope
+          and Share act on what is on screen and were never navigation.
+        */
+        accountSlot={<Account data={data} compact touch />}
+        contextStrip={
+          <ContextStrip
+            contexts={data.contexts}
+            currentSlug={current?.slug ?? null}
+            recent={places}
+            loading={data.loading}
+            /*
+              Resolved at press time, never when the strip rendered: the log
+              moves on every navigation, so an href worked out at render is
+              the answer to where somebody was two contexts ago.
+
+              This is what keeps a switch on the path you had open there
+              rather than dropping you at the root. `contextHrefFrom` falls
+              back to the root on its own when nothing is remembered, when the
+              slug is no longer reachable, or when the path does not resolve.
+            */
+            onOpen={(slug) => router.replace(contextHrefFrom(slug))}
+            onSelect={(next) => {
+              if (!sameRoute(next, route)) router.replace(hrefFor(next));
+            }}
+            onLeaveContext={(id) => {
+              void data.leaveContext?.(id);
+              router.replace("/console");
+            }}
+            onClaimContext={data.demo ? undefined : () => router.push(WELCOME_ROUTE)}
+            onCreateWorkspace={
+              data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE)
+            }
+          />
+        }
         rail={(mode) => <Rail data={data} route={route} mode={mode} />}
         /*
           `browsing`, not `insideContext`.
@@ -532,52 +598,25 @@ export default function ConsoleLayout() {
               files={data.files}
               contextLabel={contextLabel}
               /*
-                Obsidian's vault-switcher slot, and on a phone it is where the
-                two chips from the old top-right pill now live. Absent on a
-                pointer layout, where the top bar still carries them — see
-                `topTrailing`.
-              */
-              vault={
-                phone ? (
-                  <VaultSwitcher
-                    label={contextLabel}
-                    kind={current?.kind ?? ""}
-                    tone={current?.status ?? "warn"}
-                    onOpenSettings={
-                      current === null
-                        ? undefined
-                        : () => router.push(settingsHref(current.slug))
-                    }
-                  />
-                ) : undefined
-              }
-              /*
-                The binding, then how much of the context is in the hosted
-                index, then the counts. `storagePillLabel` is the same function
-                the pointer layout's chip and the status bar read, so the three
-                cannot come to describe one bucket three ways — which is how
-                "dropbox · undefined" got printed once — and
-                `describeIndexProgress` is likewise the same function the
-                settings card and the status bar read.
+                **No `vault` and no `vaultDetail` any more, and the line they
+                composed has not been deleted — it has moved.**
 
-                This line exists on a phone because **the status bar does not**:
-                at `compact` the frame draws a bottom toolbar and no status
-                strip (`features/app/frame.ts`), so without this a phone would
-                only ever learn how far the backfill had got by opening
-                settings. `null` is omitted rather than filled in, which for a
-                member is the owner-only rule doing its work — see
-                `describeIndexProgress`.
+                They were the phone's: the context's name with a chevron and a
+                gear, and under it `binding · index · counts`. The line existed
+                on a phone because **the status bar does not** — at `compact` the
+                frame draws a bottom toolbar and no status strip
+                (`features/app/frame.ts`), so without it the only way to learn
+                how far a backfill had got was to open settings, which is the
+                state that made a stuck backfill and a working one look the same
+                for hours.
+
+                A phone has no file tree now, so that footer has no supplier and
+                the three facts needed a surface that still exists. They are the
+                foot of the context's own page — `features/console/files/contextFoot.ts`
+                composes them and `FolderView` draws them — and this component
+                is a pointer-layout column, where the top bar's chips and the
+                status strip already say all three.
               */
-              vaultDetail={
-                phone && data.storage !== undefined
-                  ? [
-                      storagePillLabel(data.storage) ?? "no bucket connected",
-                      describeIndexProgress(data.fastSearch.status)?.label,
-                    ]
-                      .filter((part): part is string => part !== undefined)
-                      .join(" · ")
-                  : undefined
-              }
               onOpenPinned={(path) => {
                 data.files.select(path);
                 tabs.pin(path);
@@ -597,6 +636,7 @@ export default function ConsoleLayout() {
               onSearch={() => setPaletteOpen(true)}
               onOpenTabs={() => setSwitcherOpen(true)}
               onNewNote={(folder) => setBarDialog({ kind: "newNote", folder })}
+              onStartMeeting={startMeetingFlow}
             />
           ) : undefined
         }
@@ -694,6 +734,13 @@ export default function ConsoleLayout() {
             onDismiss={() => setPaletteOpen(false)}
           />
         ) : null}
+        {/*
+          The meeting sheet, rendered once and inside the frame so it sits over
+          the console the way every other overlay here does. It is `null` until
+          the microphone key is pressed, and it is what opens the microphone —
+          not the key.
+        */}
+        {meetingSheet}
       </AppFrame>
     </ConsoleDataProvider>
   );
@@ -982,6 +1029,7 @@ function ConsoleBottomBar({
   onSearch,
   onOpenTabs,
   onNewNote,
+  onStartMeeting,
 }: {
   data: ConsoleData;
   tabs: ReturnType<typeof useTabs>;
@@ -992,6 +1040,8 @@ function ConsoleBottomBar({
   onOpenTabs: () => void;
   /** Raises the naming dialog for a destination — see the `new` action. */
   onNewNote: (folder: string) => void;
+  /** Opens the meeting destination sheet. It does not start recording. */
+  onStartMeeting: () => void;
 }) {
   const files = data.files;
   // The same rule the explorer's own `+` uses, from the same function: a
@@ -1121,6 +1171,26 @@ function ConsoleBottomBar({
           marker: files.editor.status === "dirty",
           onPress: files.save,
         },
+        /*
+          The seventh key, and the only one here that is not about the note.
+
+          `BottomBar`'s rule was "navigation is not its job", written when the
+          rail was where destinations lived. The rail is gone from a phone, and
+          this row is the one surface a thumb is always on — so exactly one
+          destination sits here, last, behind a separator that says the six
+          before it are a group and this is not.
+
+          It asks before it records. `startMeetingFlow` opens the sheet that
+          names where the notes will land and what happens to the audio; the
+          microphone opens only when somebody confirms there.
+        */
+        {
+          id: "meeting",
+          label: "Record a meeting",
+          icon: "mic" as const,
+          separated: true,
+          onPress: onStartMeeting,
+        },
       ]}
     />
   );
@@ -1181,81 +1251,6 @@ function StorageChip({
     >
       {pill}
     </PressRow>
-  );
-}
-
-/**
- * Obsidian's vault switcher, at the foot of the file tree.
- *
- * One line: which context you are in, a chevron that changes it, and a gear
- * that configures it. It is the block the reference ends its sidebar with, and
- * it is where the `@seyi personal` chip from the top bar has gone.
- *
- * **The chevron is the only way to the rail on a phone with a tree open, and
- * that is deliberate rather than incidental.** The rail carries the other
- * contexts, the app-level panes and sign-out; the top bar used to carry a
- * switcher chip that opened it, and the whole point of this change is that the
- * top bar carries a toggle and one group of actions and nothing else. So the
- * control moved rather than went — it is here, beside the name it changes,
- * which is what a workspace switcher is. `frame.ts` keeps the top bar's chip
- * for the routes that have no tree (Map, Connections), where this footer does
- * not exist.
- *
- * The gear is `StorageChip`'s old press target: a fact you can act on. It opens
- * this context's settings, which is where the bucket is bound.
- */
-function VaultSwitcher({
-  label,
-  kind,
-  tone,
-  onOpenSettings,
-}: {
-  label: string;
-  kind: string;
-  tone: "ok" | "warn" | "crit";
-  /** Absent only while there is no selected context to have settings. */
-  onOpenSettings?: () => void;
-}) {
-  const colors = useColors();
-  const styles = useThemedStyles(makeStyles);
-  const frame = useFrame();
-
-  return (
-    <>
-      <PressRow
-        accessibilityLabel={`${label}, ${kind}. Switch context`}
-        onPress={frame.toggleRail}
-        radius={radii.md}
-        style={styles.vaultName}
-        hoverStyle={styles.storagePressHover}
-        testID="vault-switcher"
-      >
-        <Dot tone={tone} />
-        <Text variant="wsSwitch" numberOfLines={1} style={styles.vaultLabel}>
-          {label}
-        </Text>
-        <Text variant="wsSwitch" style={styles.switcherKind} numberOfLines={1}>
-          {kind}
-        </Text>
-        <Icon
-          name={frame.state.navOpen ? "chevronUp" : "chevronDown"}
-          size={14}
-          color={colors.muted}
-        />
-      </PressRow>
-      {onOpenSettings === undefined ? null : (
-        <PressRow
-          accessibilityLabel="Open storage settings"
-          onPress={onOpenSettings}
-          radius={radii.control}
-          style={styles.vaultGear}
-          hoverStyle={styles.storagePressHover}
-          testID="vault-settings"
-        >
-          <Icon name="gear" size={18} color={colors.text2} />
-        </PressRow>
-      )}
-    </>
   );
 }
 
@@ -1434,26 +1429,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderColor: colors.line,
     backgroundColor: colors.surface,
   },
-  /**
-   * The same chip with no box of its own.
-   *
-   * On a phone `AppFrame` wraps this in `navToggleCompact` — a white capsule
-   * with a shadow — because the bar it sits in is transparent and a control
-   * lying over a note needs a surface. Keeping the border and the 8pt radius
-   * as well drew a rounded rectangle inside a capsule: two edges, two radii and
-   * two fills for one line of type. One container per control.
-   *
-   * The horizontal padding goes with the border for the same reason. The
-   * capsule already provides it, and paying it twice pushed the context name
-   * far enough right that it ellipsised at 390pt.
-   */
-  switcherCompact: {
-    paddingHorizontal: 0,
-    paddingVertical: 0,
-    borderWidth: 0,
-    borderRadius: 0,
-    backgroundColor: "transparent",
-  },
   switcherKind: { color: colors.muted },
 
   /**
@@ -1467,37 +1442,4 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.pill,
   },
   storagePressHover: { backgroundColor: colors.surface3 },
-
-  /**
-   * The vault switcher's name line: it takes the room, the gear takes the end.
-   *
-   * `flexShrink: 1` with `minWidth: 0` is what lets a long context name
-   * ellipsise rather than pushing the gear off the panel — the same rule the
-   * breadcrumb used to need beside Share, and the same failure if it is
-   * dropped.
-   */
-  vaultName: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    flexGrow: 1,
-    flexShrink: 1,
-    minWidth: 0,
-    minHeight: layout.minTouchTarget,
-    paddingHorizontal: space.x1,
-    borderRadius: radii.md,
-  },
-  vaultLabel: { flexShrink: 1, minWidth: 0 },
-  /** The gear, at the trailing edge, at a size a thumb can hit. */
-  vaultGear: {
-    flexGrow: 0,
-    flexShrink: 0,
-    marginLeft: "auto",
-    width: layout.minTouchTarget,
-    height: layout.minTouchTarget,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radii.control,
-  },
-
 });
