@@ -35,6 +35,21 @@ jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => mockInsets,
 }));
 
+/**
+ * The router records nothing here, on purpose — **and that is a limit, not a
+ * convenience.**
+ *
+ * This file is about the chrome: which surfaces exist, what they are called,
+ * how big they are. It presses controls to prove they are reachable and never
+ * asks where a press *went*, so a stub that swallows both methods is honest
+ * about what is being observed. It is also why a whole feature could be deleted
+ * under it: replacing `contextHrefFrom` with a plain root href in `_layout.tsx`
+ * left every assertion below passing, because none of them can see an href.
+ *
+ * `lastPlaceConsole.test.ts` mounts this same layout at this same width with a
+ * **recording** router and asserts the strings. Where a press sends somebody
+ * belongs there; whether it is a target a thumb can hit belongs here.
+ */
 jest.mock("expo-router", () => ({
   Slot: () => null,
   useRouter: () => ({ replace: () => {}, push: () => {} }),
