@@ -240,8 +240,21 @@ function solveBar(bar: HTMLElement, width: number): Solved {
 
 const live: Array<() => void> = [];
 
-afterEach(() => {
+/**
+ * Tear every root down.
+ *
+ * Called at the end of each test that mounts the whole console rather than only
+ * from `afterEach`, because `useMeetingFlow` recalls its remembered destination
+ * asynchronously: a root still mounted when the test body returns sets state
+ * outside `act` and fills the run with React's warning about it. Unmounting
+ * inside the body is what makes that effect's own `live = false` win the race.
+ */
+function drop(): void {
   while (live.length > 0) live.pop()?.();
+}
+
+afterEach(() => {
+  drop();
   document.body.innerHTML = "";
 });
 
@@ -425,9 +438,15 @@ describe("the geometry, before anything is rendered", () => {
 
     // And the row is inside the pill, which is inside the screen. Stated as the
     // identity it is: everything the width is spent on, added up, is the width.
-    const content = (solved.target as number) * KEYS + RULES * layout.bottomBarRule;
-    expect(content).toBeCloseTo(solved.inner as number, 9);
-    expect((solved.inner as number) + solved.pad * 2 + solved.inset * 2).toBeCloseTo(width, 9);
+    // `inner` is what the *targets* divide — the rule's point is already out of
+    // it, which is the term the arithmetic this replaces kept forgetting.
+    expect((solved.target as number) * KEYS).toBeCloseTo(solved.inner as number, 9);
+    const spent =
+      (solved.inner as number) +
+      RULES * layout.bottomBarRule +
+      solved.pad * 2 +
+      solved.inset * 2;
+    expect(spent).toBeCloseTo(width, 9);
   });
 
   /**
@@ -569,6 +588,48 @@ describe("the rendered row, solved", () => {
     }
   });
 
+  /**
+   * **Below 309pt it fails loudly, which is the only honest thing left.**
+   *
+   * Seven targets on the floor and one unshrinkable rule need 309pt. Under
+   * that there is no arrangement: the choices are a target a thumb cannot hit
+   * or a key past the edge of the glass, and both are bugs. The person who can
+   * fix either is a developer, so the row says so where a developer will hear
+   * it rather than shipping one of them in silence — which is exactly what it
+   * did at 375, 360 and 320 for the life of this branch.
+   *
+   * SABOTAGE: dropped the `reportUnfittable` call. Fails here and only here.
+   */
+  test("a width no arrangement fits complains, once, and not again", () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      mount(createElement(BottomBar, { actions: sevenKeys() }), 288);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]?.[0])).toContain("288pt");
+
+      // A re-render, or a second mount at the same width, is the same layout
+      // and not new information: a row that cannot be drawn must not turn into
+      // a console nobody reads.
+      mount(createElement(BottomBar, { actions: sevenKeys() }), 288);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("and a width that fits says nothing at all", () => {
+    // The other direction, so the complaint cannot be "warn on every phone".
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (const { width } of DEVICES) {
+        mount(createElement(BottomBar, { actions: sevenKeys() }), width);
+      }
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   test("the reference width still draws the reference pill", () => {
     // Nothing about the wide case moves: 440 keeps its 52pt… 24pt sliver and
     // its 12pt of padding, which is what the measurement bought.
@@ -615,6 +676,8 @@ describe("the console's own bottom row", () => {
     expect(need(container, "bottom-bar-meeting").getAttribute("aria-label")).toBe(
       "Record a meeting",
     );
+
+    drop();
   });
 
   /**
@@ -633,5 +696,7 @@ describe("the console's own bottom row", () => {
       expect(size).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET - 1e-9);
     }
     expect(solved.content).toBeLessThanOrEqual(solved.room + 1e-9);
+
+    drop();
   });
 });
