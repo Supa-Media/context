@@ -170,6 +170,51 @@ describe("the console's search, out of the projection", () => {
     expect(JSON.stringify(asTeam)).not.toContain("confidential");
   });
 
+  /*
+    AND IT ASKS ONLY THE TEAM TABLE, WHICH THE CHECK ABOVE CANNOT SEE.
+
+    `canSee` is the boundary and it holds: the test above stays green with the
+    tier forced to `private`, because every private row is filtered out before
+    anything leaves. What that filter cannot undo is the SECOND line the table
+    split buys — `docs/decisions/search.md`: "Querying `notes_team_fts` alone
+    computes the statistics over exactly the documents a team-tier caller may
+    read; a single table with a `visibility` column would let private notes
+    reorder a team caller's results." A team caller's ORDERING is an inference
+    channel no `WHERE` clause closes, and it is the reason the tables are split
+    at all.
+
+    Measured: forcing `tier: "private"` in `searchNotes` reddened 0 of 1,790.
+    The gateway's suite catches that same mutation with a check named "asking
+    exactly one table, the team one" — the split is proved on the path that had
+    it first and was proved by nothing on the path added beside it.
+
+    A PAIR, because "no private table was asked" is also true of a search that
+    asked nothing at all: the owner's half asserts the private table IS reached
+    for a caller entitled to it, so no wrong reason satisfies both.
+  */
+  test("and asks only the team table, so private notes cannot reorder the answer", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    const stub = await projected(store);
+    forgetR2Index(store);
+
+    const ftsAsked = (from: number) =>
+      stub.statements.slice(from).filter((sql) => /FROM notes_(private|team)_fts/.test(sql));
+
+    const beforeTeam = stub.statements.length;
+    await searchNotes(store, { query: "wallabyrate", scope: "team" }, stub.client);
+    const team = ftsAsked(beforeTeam);
+    expect(team.length).toBeGreaterThan(0);
+    expect(team.some((sql) => sql.includes("notes_team_fts"))).toBe(true);
+    expect(team.some((sql) => sql.includes("notes_private_fts"))).toBe(false);
+
+    const beforeOwner = stub.statements.length;
+    await searchNotes(store, { query: "wallabyrate", scope: "private" }, stub.client);
+    const owner = ftsAsked(beforeOwner);
+    expect(owner.some((sql) => sql.includes("notes_private_fts"))).toBe(true);
+    expect(owner.some((sql) => sql.includes("notes_team_fts"))).toBe(true);
+  });
+
   test("a miss falls through to the R2 index rather than reporting absence", async () => {
     const store = bucket();
     const stub = await projected(store);
