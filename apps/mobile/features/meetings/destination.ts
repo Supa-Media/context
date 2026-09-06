@@ -342,13 +342,26 @@ const MAX_FOLDER_LENGTH = 128;
  * Not a re-implementation of it — this is the same question asked as a
  * predicate, on a string that has already been through `safeNotePath`, so the
  * traversal and control-character arms are not repeated here. What is left is
- * exactly the four shapes that gate lets through and the gateway does not:
+ * SIX shapes that gate lets through and the gateway does not.
+ *
+ * **This list said "exactly the four shapes" while the gateway had six of
+ * them**, and stayed four through two gateway rules being added beside it. The
+ * count is a checklist against `normalizeMeetingFolder`, not a description —
+ * the test named at the head of this file is what actually holds the two
+ * together, and it only holds the shapes somebody put in its table.
  *
  *  - **`..` anywhere in a segment**, not only a segment that *is* `..`. The
  *    gateway's `normalizePath` refuses `..` anywhere in a key, and a folder
  *    named `a..b` cost a real meeting: the claim wrote `a..b/YYYY/MM/….md` into
  *    the session record and the note write then answered 400 `meeting_invalid`
  *    — the code no client retries — for the life of that meeting.
+ *  - **A segment that percent-DECODES to `.` or `..`.** A different rule
+ *    answering to a different layer: the storage adapter decodes before it
+ *    compares, so `%2e%2e` is a `".."` segment there and at neither of the
+ *    checks above. Equality rather than "anywhere", because the adapter
+ *    compares whole segments and `a%2e%2eb` is a key it accepts — the
+ *    asymmetry with the raw rule is deliberate on the gateway and copied here
+ *    deliberately too.
  *  - **A dot-prefixed segment.** `isPlumbing` hides those from every tool at
  *    every tier, the owner's included, so the meeting would be invisible to the
  *    person paying for the storage. The console's own tree never lists one, so
@@ -357,16 +370,52 @@ const MAX_FOLDER_LENGTH = 128;
  *    is a shape a filesystem-backed store cannot represent.
  *  - **The length bound.** A folder nested deeply enough is a legal path to the
  *    console and not one to the gateway.
+ *  - **Whitespace at either end of what the gateway would JOIN.** Not a rule
+ *    about folders but about the gateway's own function: `normalizeRoot` trims
+ *    the whole string, so a folder whose normalized form the next pass would
+ *    trim again is one it refuses. Only the two ends are unstable, which is why
+ *    this is on the joined result and not on each segment — `2-areas/ team` is
+ *    a folder somebody may legitimately have and both sides accept it.
+ *    `safeNotePath` refuses a LEADING slash and says nothing about a trailing
+ *    one, so `"ok/a /"` really does arrive here.
  */
 function fileableFolder(folder: string): boolean {
   if (folder.length > MAX_FOLDER_LENGTH) return false;
-  return folder.split("/").every((segment) => {
-    if (segment === "") return true; // `normalizeRoot` collapses repeats.
+  /*
+    The gateway's shape, restated: trim the whole string, drop empty segments
+    (repeated separators collapse), then judge the join. Restated rather than
+    imported for the reason `MAX_FOLDER_LENGTH` is — the phone does not bundle
+    that package — and the agreement test is what keeps the restatement true.
+  */
+  const segments = folder.trim().split("/").filter((segment) => segment !== "");
+  const filed = segments.join("/");
+  if (filed !== filed.trim()) return false;
+  return segments.every((segment) => {
     if (segment.includes("..")) return false;
+    const decoded = decodeSegment(segment);
+    if (decoded === "." || decoded === "..") return false;
     if (segment.startsWith(".")) return false;
     if (segment.toLowerCase().endsWith(".md")) return false;
     return segment.toLowerCase() !== "scopes.yml";
   });
+}
+
+/**
+ * `decodeSegment` in `packages/meetings/src/paths.js`, restated.
+ *
+ * A malformed escape is left alone rather than thrown on: `%zz` is a perfectly
+ * legal folder name and the gateway treats it as one, so a `catch` that
+ * returned `false` here would refuse a folder the gateway files into — the
+ * mirror wrong in the other direction, which this module has already been
+ * once.
+ */
+function decodeSegment(segment: string): string {
+  if (!segment.includes("%")) return segment;
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
 
 /**
