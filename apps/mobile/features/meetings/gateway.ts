@@ -78,9 +78,26 @@ import type {
  *    than two is what makes "the folder said one thing and the context another"
  *    unrepresentable rather than merely absent.
  *
- * `null` is a first-class answer and means the connection's own default
- * context: the list screen's one-tap record genuinely chose nothing, and the
- * gateway's default is the right answer for it.
+ * `null` is a first-class answer and means **the recorder's own brain** — the
+ * list screen's one-tap record genuinely chose nothing, and the person's own
+ * personal context is the answer `destination.ts` argues for every capture
+ * nobody filed.
+ *
+ * Each implementation reaches that answer with what it has, and the two are not
+ * the same mechanism, so it is written down here rather than left to each:
+ *
+ *  - **`createHttpGateway`** sends the bare route, and the gateway serves it
+ *    from the connection's own default context. That is one context — the one
+ *    the grant was minted for — so "the connection's default" and "this
+ *    person's brain" are the same bucket by construction.
+ *  - **`createConvexGateway`** holds a control-plane session that reaches
+ *    *every* context this person is a member of, so it has no such default and
+ *    must state the rule: `meetingWorkspaceId(contexts, null)` is
+ *    `ownPersonalContext`, and somebody who owns no brain gets `null` and keeps
+ *    the meeting on the device rather than a fallback into somebody else's.
+ *
+ * Reading `null` as "whatever context this client happens to be pointed at" is
+ * the shape that files a transcript into a shared bucket, and it shipped once.
  *
  * `list()` takes none, deliberately. It answers "what has this connection
  * recorded", which is a question about the connection rather than about any one

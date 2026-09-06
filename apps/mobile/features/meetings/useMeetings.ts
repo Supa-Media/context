@@ -7,6 +7,7 @@ import { useReachability } from "../offline/reachability";
 import { openStore } from "../offline/store";
 import { createRecorder, setTranscriptionClient } from "./capture";
 import { createConvexGateway, writeNoteThrough } from "./convexGateway";
+import { meetingWorkspaceId, type RoutableContext } from "./destination";
 import { type MeetingsGateway } from "./gateway";
 import { meetings, type MeetingsSnapshot } from "./controller";
 
@@ -119,18 +120,26 @@ export function useTranscriptionClient(): void {
  * never was one. Where a meeting's note *lands* is `MeetingRecord.destination`,
  * which addresses every gateway call about that meeting — see `gateway.ts`.
  *
- * That distinction is written down because the two were briefly conflated, in
- * the direction that matters. `defaultContext` filters on `role === "owner"`
- * and nothing else, while the sheet's own "your context" is
- * `ownPersonalContext` — `kind === "personal"` **and** `role === "owner"`. Two
- * notions of the same phrase, and while the write followed neither, whichever
- * one it was read as was wrong: somebody who owns a shared workspace older than
- * their brain has a `defaultContext` that is shared, and a meeting filed by it
- * would land in a shared bucket under a row that said "Only you".
+ * That distinction is written down because the two were conflated, in the
+ * direction that matters, and then conflated again by the fix. `defaultContext`
+ * filters on `role === "owner"` and nothing else, while the sheet's own "your
+ * context" is `ownPersonalContext` — `kind === "personal"` **and**
+ * `role === "owner"`. Two notions of the same phrase, and one of them is wrong
+ * about a bucket: somebody who owns a shared workspace older than their brain
+ * has a `defaultContext` that is shared, so a meeting filed by it lands in a
+ * shared bucket at whatever visibility that folder carries, under a row that
+ * said "Only you" — or, for somebody who owns nothing at all, in `contexts[0]`,
+ * which is another person's context.
  *
- * Nothing here decides that any more, so `defaultContext` stays exactly as
- * `nav.ts` argues it: the rule for which context somebody lands in, which is a
- * question about a first screen and not about a bucket.
+ * **That is exactly what the first fix shipped**: the writer's `null`
+ * destination fell back to `defaultContext(workspaces)`, so a paragraph
+ * arguing that nothing here decides routing sat directly above the line that
+ * did. The rule is now `meetingWorkspaceId` in `destination.ts`, beside every
+ * other rule about where a meeting lands, pure and tested without a renderer.
+ *
+ * `defaultContext` stays exactly as `nav.ts` argues it and is used *only* for
+ * the device key below: the rule for which context somebody lands in, which is
+ * a question about a first screen and not about a bucket.
  *
  * Convex dedupes identical subscriptions, so this adds no round trip the app
  * was not already making.
@@ -215,20 +224,22 @@ export function useMeetingsSetup(
     workspace list re-renders would hand the controller a new gateway during a
     live recording.
   */
-  const directory = useRef<ReadonlyArray<{ slug: string; workspaceId: string }>>([]);
-  directory.current = (workspaces ?? []) as ReadonlyArray<{ slug: string; workspaceId: string }>;
-  const fallbackWorkspaceId = useRef<string | null>(null);
-  fallbackWorkspaceId.current = workspaceId;
+  const directory = useRef<ReadonlyArray<RoutableContext>>([]);
+  directory.current = (workspaces ?? []) as ReadonlyArray<RoutableContext>;
 
-  const resolveWorkspaceId = useCallback((contextSlug: string | null): string | null => {
-    // No destination means "wherever this device is pointed" — the one-tap
-    // record on `/meetings`, which genuinely chose nothing.
-    if (contextSlug === null) return fallbackWorkspaceId.current;
-    const wanted = contextSlug.startsWith("@") ? contextSlug.slice(1) : contextSlug;
-    return (
-      directory.current.find((workspace) => workspace.slug === wanted)?.workspaceId ?? null
-    );
-  }, []);
+  /*
+    The rule itself is in `destination.ts` and not here, which is the point:
+    what this closure does is read the ref. Everything about *which* context a
+    meeting lands in is a pure function a test reaches without a renderer —
+    `console/capabilities.ts`'s measured rule, and the reason it now is one is
+    that the version expressed here was wrong for a year and nothing could
+    fail. See `meetingWorkspaceId`.
+  */
+  const resolveWorkspaceId = useCallback(
+    (contextSlug: string | null): string | null =>
+      meetingWorkspaceId(directory.current, contextSlug),
+    [],
+  );
 
   const gateway = useMemo(
     () =>

@@ -486,6 +486,63 @@ export function describeDestination(destination: MeetingDestination): string {
   return destination.folder === "" ? at : `${at} / ${destination.folder}`;
 }
 
+/* -------------------------------- routing -------------------------------- */
+
+/** A context as the writer needs it: what the sheet needs, plus the id. */
+export interface RoutableContext extends DestinationContext {
+  workspaceId: string;
+}
+
+/**
+ * The workspace a meeting's destination names, or `null` for "not this
+ * account's to write".
+ *
+ * The only translation between a `MeetingDestination`'s `@slug` and the
+ * `workspaceId` `files.writeNote` takes, and it lives here rather than inside
+ * `useMeetingsSetup` for the reason at the top of this file: **a rule about
+ * where somebody's meeting lands must be reachable from a test without a
+ * renderer.** It was not, and the case below is what that cost.
+ *
+ * ## `null` in means the recorder's own brain, and it has to
+ *
+ * A meeting with no destination is the one-tap Record on `/meetings`, which
+ * asks nobody anything. That is not "wherever this device happens to point":
+ * this resolver used to answer `defaultContext`, which filters on
+ * `role === "owner"` **and nothing else**, over a list sorted oldest-first. So
+ * somebody who owns a shared workspace older than their brain had a transcript
+ * written into a bucket their colleagues watch, at whatever visibility that
+ * folder carries, with no sheet ever shown to name the audience — and somebody
+ * who owns no context at all but is an `editor` somewhere fell through to
+ * `contexts[0]`, which is a write into another person's context.
+ *
+ * The rule is `ownPersonalContext` — `kind === "personal"` **and**
+ * `role === "owner"` — because that is the rule this module already argues for
+ * the sheet's first offer, and it is the same question: *where does a capture
+ * nobody filed go?* The answer is the person's own brain, always, whatever
+ * context they are standing in. `defaultContext` stays exactly what `nav.ts`
+ * says it is — which screen somebody lands on — and decides nothing about a
+ * bucket.
+ *
+ * Owning no brain answers `null` rather than falling back to anything. The
+ * writer reads that as `unavailable`, so the meeting is kept on the device and
+ * retried; claiming an @name is what makes the next drain land it. There is no
+ * third option: every fallback available here is somebody else's context.
+ *
+ * ## A named context that is not on the list is `null` too
+ *
+ * Not the brain. A meeting addressed to `@acme` that quietly landed in the
+ * recorder's own bucket would be the destination control appearing to work and
+ * doing something else, which is the defect this whole module exists to close.
+ */
+export function meetingWorkspaceId(
+  contexts: readonly RoutableContext[],
+  contextSlug: string | null,
+): string | null {
+  if (contextSlug === null) return ownPersonalContext(contexts)?.workspaceId ?? null;
+  const wanted = contextSlug.startsWith("@") ? contextSlug.slice(1) : contextSlug;
+  return contexts.find((context) => context.slug === wanted)?.workspaceId ?? null;
+}
+
 /* ----------------------------- on this device ---------------------------- */
 
 /**
