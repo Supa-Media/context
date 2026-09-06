@@ -2,19 +2,16 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { memoryStore, type KeyValueStore } from "../features/offline/memory";
 import { endSession } from "../features/offline/epoch";
 import { ownedKeys } from "../features/offline/keys";
-import { forgetEverything } from "../features/offline/cache";
 import { MeetingsController, findSession, recordElapsedMs } from "../features/meetings/controller";
 import { fakeGateway, type FakeGateway } from "../features/meetings/fakeGateway";
 import { fakeRecorder, fakeSegment, type FakeRecorder } from "../features/meetings/capture/fake";
 import { forgetAllMeetings, loadMeetings } from "../features/meetings/local";
 import {
-  destinationKey,
   meetingKey,
   meetingKeys,
   meetingKeysForWorkspace,
   parseMeetingKey,
 } from "../features/meetings/keys";
-import { rememberDestination } from "../features/meetings/destination";
 import { isSynced } from "../features/meetings/record";
 
 /**
