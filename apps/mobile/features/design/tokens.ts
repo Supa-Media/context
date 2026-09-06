@@ -609,14 +609,18 @@ export const layout = {
   touchRow: 48,
 
   /* ---------------------------------------------------------------------- *
-   * The file tree on a phone, measured off Obsidian on iOS.
+   * A file row on a phone, measured off Obsidian on iOS.
    *
-   * These three numbers are one measurement, not three preferences, and they
-   * were taken from a 1320×2868 screenshot (440×956pt at @3x) rather than
-   * eyeballed: the row pitch, the step between two levels, and where a
-   * top-level name begins. Getting one of them right and the others near is
-   * what makes a tree read as "nearly Obsidian", which is worse than not
-   * trying — a half-matched rhythm reads as a bug rather than as a style.
+   * Taken from a 1320×2868 screenshot (440×956pt at @3x) rather than eyeballed.
+   *
+   * **This was three numbers and is two.** `explorerIndent` (16, one level of
+   * nesting) and `explorerInset` (37, where a top-level name begins) described
+   * a *tree*, and the surface they were measured for — a file-tree drawer on a
+   * phone — does not exist: a phone has no left panel (`features/app/frame.ts`)
+   * and browses through `FolderView`, which lists one folder flat and has no
+   * levels to step between. Their only reader was `FileTree`'s `touch` fork and
+   * they went with it. The pitch below did not, because a flat listing still
+   * has a rhythm and `FolderView` draws it.
    * ---------------------------------------------------------------------- */
 
   /**
@@ -628,10 +632,6 @@ export const layout = {
   explorerRow: 36,
   /** `(minTouchTarget - explorerRow) / 2`, derived so the two cannot drift. */
   explorerRowSlop: (MIN_TOUCH_TARGET - 36) / 2,
-  /** One level of nesting. */
-  explorerIndent: 16,
-  /** Where a top-level row's *name* starts, chevron gutter included. */
-  explorerInset: 37,
 
   /**
    * The note's side margin on a phone, measured off the same reference.

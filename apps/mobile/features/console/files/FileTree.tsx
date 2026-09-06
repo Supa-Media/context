@@ -2,7 +2,7 @@ import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { layout, radii } from "../../design/tokens";
+import { radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { DragModifier } from "./dnd";
 import { useRowInteractions } from "./rowInteractions";
@@ -56,29 +56,24 @@ import type { Visibility } from "./types";
  * so `canDrag` is false for it and the browser refuses the drag outright rather
  * than starting one that `dnd.ts` would have to refuse after the animation.
  *
- * ## `touch` is a different tree, not a bigger one
+ * ## There is one presentation, and it is the pointer's
  *
- * The mockup's row is 13px type in 5pt of padding — about 23pt tall. That is
- * right under a pointer and unusable under a thumb, and the drawer this renders
- * into on a phone is the *only* way to open a note there. So `touch` uses the
- * three measures in `layout` that were taken off Obsidian on iOS —
- * `explorerRow` (36), `explorerIndent` (16) and `explorerInset` (37) — and
- * grows the type to the size the rest of the phone reads at.
+ * **A `touch` prop used to fork every measurement in this file** — a 36pt row
+ * at Obsidian's pitch with `hitSlop` making up the 8pt to the touch floor,
+ * indent guides, a 15.5pt name, a grey full-width selection, and the trailing
+ * marker as a pip rather than a word. It was passed in rather than read from
+ * `useFrame`, on the stated grounds that "the same tree is mounted inside the
+ * landing page's fake console window". Neither half survived: the landing page
+ * mounts no tree, and `<Explorer>` — the only thing that mounts this — is a
+ * region `frame.ts` answers `hidden` for at `compact`, so the prop could only
+ * ever be `false`.
  *
- * **36 is below the 44pt touch floor and that is not a slip.** It is the pitch
- * the reference sets, and it is the difference between a drawer that shows
- * eight rows and one that shows five — on the only surface from which a note
- * can be opened at all. The floor is met by `hitSlop` on the pressable
- * (`layout.explorerRowSlop` on each edge, derived from the two numbers so they
- * cannot drift apart), which is the one legitimate way to draw under it: the
- * *visual* is 36 and the *target* is 44. An earlier pass met the floor by
- * making the row 48 tall, which is how a phone file tree ends up looking like a
- * settings screen.
- *
- * It is passed in rather than read from `useFrame` here for the reason the rest
- * of this file is prop-driven: the same tree is mounted inside the landing
- * page's fake console window, where the frame is a fallback and the density is
- * the *browser's*, not the picture's.
+ * The measurements were not wasted and are not lost. `FolderView` is the
+ * phone's browse surface now and carries them (`layout.explorerRow`,
+ * `layout.explorerRowSlop`, the `treeTouch` type variant) for the rows it
+ * draws; the reference they came off is in `docs/design/obsidian-parity`; and
+ * the removed drawing is in the history. What is gone from here is a fork with
+ * one caller that could not choose it.
  */
 export function FileTree({
   rows,
@@ -89,7 +84,6 @@ export function FileTree({
   onMenu,
   drag,
   dropTarget = null,
-  touch = false,
 }: {
   rows: readonly TreeRow[];
   /**
@@ -108,8 +102,6 @@ export function FileTree({
   drag?: TreeDragHandlers;
   /** The row under a drag, washed to say the drop would land there. */
   dropTarget?: string | null;
-  /** Thumb sizing — see the file comment. */
-  touch?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
@@ -119,11 +111,7 @@ export function FileTree({
           return (
             <View
               key={row.key}
-              style={[
-                styles.node,
-                touch && styles.nodeTouch,
-                { paddingLeft: indentFor(row.depth + 1, touch) },
-              ]}
+              style={[styles.node, { paddingLeft: indentFor(row.depth + 1) }]}
             >
               <Text variant="treeMeta">{row.label}</Text>
             </View>
@@ -141,7 +129,6 @@ export function FileTree({
             onMenu={onMenu}
             drag={drag}
             isDropTarget={dropTarget === row.path}
-            touch={touch}
           />
         );
       })}
@@ -176,7 +163,6 @@ function FileRow({
   onMenu,
   drag,
   isDropTarget,
-  touch,
 }: {
   row: TreeRow;
   /**
@@ -192,7 +178,6 @@ function FileRow({
   onMenu?: (row: TreeRow, anchor: { x: number; y: number }) => void;
   drag?: TreeDragHandlers;
   isDropTarget: boolean;
-  touch: boolean;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -214,39 +199,21 @@ function FileRow({
 
   return (
     <View
-      style={[
-        styles.row,
-        // The selection is the full width of the panel, and it is drawn here
-        // rather than on the pressable because the trailing mark is a sibling
-        // of that pressable — washed there, the pill stopped short of it and
-        // read as a control rather than as the row being open. Obsidian's is
-        // edge to edge.
-        touch && row.selected && styles.rowSelectedTouch,
-        isDropTarget && styles.rowDrop,
-      ]}
+      style={[styles.row, isDropTarget && styles.rowDrop]}
       ref={interactions.ref as never}
     >
-      {touch ? <Guides depth={row.depth} /> : null}
       <PressRow
         accessibilityLabel={describeRow(row)}
         selected={row.selected}
         onPress={() => (row.kind === "folder" ? onToggle(row.path) : onSelect(row.path))}
         radius={radii.sm}
-        /*
-          The 8pt the 36pt row is short of the touch floor, split between its
-          two edges. See the file comment: on a phone the drawn row is
-          `layout.explorerRow` and the target is `layout.minTouchTarget`, and
-          this is the whole of the difference between them.
-        */
-        hitSlop={touch ? { top: ROW_SLOP, bottom: ROW_SLOP } : undefined}
         style={StyleSheet.flatten([
           styles.node,
           styles.nodeGrow,
-          touch && styles.nodeTouch,
-          { paddingLeft: indentFor(row.depth, touch) },
+          { paddingLeft: indentFor(row.depth) },
         ])}
         hoverStyle={styles.nodeHover}
-        selectedStyle={touch ? undefined : styles.nodeSelected}
+        selectedStyle={styles.nodeSelected}
         // Unconditional: `useRowInteractions` already returns nothing to
         // spread when there is no menu, and one copy of that rule is the point
         // — a second one here is the copy that would drift.
@@ -258,19 +225,19 @@ function FileRow({
           with no reserved box would hang its name under its folder's chevron,
           which reads as a second level of indent that is not there.
         */}
-        <View style={[styles.chevron, touch && styles.chevronTouch]}>
+        <View style={styles.chevron}>
           {row.kind === "folder" ? (
             <Icon
               name={row.expanded ? "chevronDown" : "chevronRight"}
-              size={touch ? 15 : 12}
+              size={12}
               color={colors.muted}
             />
           ) : null}
         </View>
         <Text
-          variant={touch ? "treeTouch" : "tree"}
+          variant="tree"
           numberOfLines={1}
-          style={row.selected && !touch ? styles.nodeSelectedLabel : undefined}
+          style={row.selected ? styles.nodeSelectedLabel : undefined}
         >
           {row.label}
         </Text>
@@ -280,74 +247,14 @@ function FileRow({
         row={row}
         canSetVisibility={canSetVisibility}
         onPress={() => onCycleVisibility(row)}
-        touch={touch}
       />
     </View>
   );
 }
 
-
-/**
- * Obsidian's indent guides: a hairline under each ancestor's chevron, running
- * the full height of every row beneath it.
- *
- * Drawn per row rather than as one line down the panel, because a tree is a
- * flat list here — there is no element that spans a folder and its children to
- * hang a line off. Each row draws the segment it covers, and consecutive rows
- * make the line continuous; a row's own level is *not* drawn, so the guide
- * stops at the last child rather than running past it into empty panel.
- *
- * `pointerEvents` is off: a 1pt line that eats a press aimed at the row it sits
- * on is worse than no line.
- *
- * Positioned from `indentFor` rather than from a second copy of the arithmetic,
- * plus half the chevron box, so the line lands under the chevron it belongs to
- * and cannot drift from the indent it is describing.
- */
-function Guides({ depth }: { depth: number }) {
-  const styles = useThemedStyles(makeStyles);
-  if (depth === 0) return null;
-  return (
-    <>
-      {Array.from({ length: depth }, (_, level) => (
-        <View
-          key={level}
-          pointerEvents="none"
-          style={[styles.guide, { left: indentFor(level, true) + CHEVRON_BOX / 2 }]}
-        />
-      ))}
-    </>
-  );
-}
-
-/**
- * The chevron gutter on a phone: the box, plus the gap after it.
- *
- * Named because `indentFor` has to subtract it. `explorerInset` is measured to
- * where a top-level *name* begins, which is the thing the eye actually lines
- * up on, but `paddingLeft` is applied before the chevron — so the padding is
- * the inset minus whatever the chevron occupies. Writing 13 here instead and
- * claiming in a comment that it comes to 37 is the shape of arithmetic this
- * codebase keeps finding has quietly stopped being true.
- */
-const CHEVRON_BOX = 18;
-const CHEVRON_GUTTER = CHEVRON_BOX + 6;
-
-const ROW_SLOP = layout.explorerRowSlop;
-
-/**
- * The indent for a depth, which is not one number times a level.
- *
- * A thumb row is half again as tall as a pointer row, and 13pt of indent that
- * reads clearly against a 23pt row is thin against a 36pt one — the eye judges
- * the step against the height of the thing being stepped. The phone's two
- * numbers are measured off Obsidian on iOS (`layout.explorerIndent`,
- * `layout.explorerInset`) rather than chosen; the pointer layout keeps the
- * mockup's.
- */
-function indentFor(depth: number, touch: boolean): number {
-  if (!touch) return 8 + 13 * depth;
-  return layout.explorerInset - CHEVRON_GUTTER + layout.explorerIndent * depth;
+/** The mockup's indent: 8pt of leading padding, 13pt more per level. */
+function indentFor(depth: number): number {
+  return 8 + 13 * depth;
 }
 
 function noopPath(_path: string): void {}
@@ -358,7 +265,6 @@ function VisibilityControl({
   row,
   canSetVisibility,
   onPress,
-  touch,
 }: {
   row: TreeRow;
   /**
@@ -369,8 +275,6 @@ function VisibilityControl({
    */
   canSetVisibility: boolean;
   onPress: () => void;
-  /** A phone draws the mark as a pip; see `pip`. */
-  touch: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   // `privacy.md` has no visibility of its own — it *is* the visibility — so it
@@ -399,22 +303,16 @@ function VisibilityControl({
   if (row.marker === undefined) return null;
 
   /*
-    A word under a pointer, a pip under a thumb.
+    The word itself. The column beside a document has the width for `team`, and
+    the mockup asks for it there.
 
-    The column beside a document has the width for `team`, and the mockup asks
-    for it there. A 372pt panel over a note does not: on a bucket whose root is
-    private and whose PARA folders are not, *every* top-level row differs from
-    its parent, so the rule "mark only what differs" — which is right — printed
-    the same word down the whole tree. The reference marks nothing at all at
-    this size. A pip keeps the fact and spends 7pt on it, and the accessible
-    name still says the word.
+    A 7pt pip was drawn instead under `touch`, because a 372pt panel over a note
+    does not have that width — on a bucket whose root is private and whose PARA
+    folders are not, *every* top-level row differs from its parent, so the rule
+    "mark only what differs" printed the same word down the whole tree. There is
+    no such panel any more (see the file header), so there is one presentation.
   */
-  const body = touch ? (
-    <View
-      style={[styles.pip, row.marker === "team" ? styles.pipTeam : styles.pipPrivate]}
-      testID="tree-marker-pip"
-    />
-  ) : (
+  const body = (
     <Text variant="treeMeta" style={styles.markerLabel} numberOfLines={1}>
       {row.marker}
     </Text>
@@ -469,26 +367,6 @@ function describeRow(row: TreeRow): string {
 const makeStyles = (colors: Colors) => StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", borderRadius: radii.sm, position: "relative" },
   /**
-   * The selected row on a phone: a grey wash across the whole panel, at
-   * Obsidian's radius.
-   *
-   * The accent wash and accent label are the pointer layout's, from the mockup,
-   * and they are right there — a tree beside a note needs to say which of forty
-   * rows the document on the right belongs to. On a phone the tree is a drawer
-   * that closes the moment you choose something, so the selection is a memory
-   * aid rather than a live correspondence, and a blue-on-blue row is the
-   * loudest thing on the panel for no work done. Obsidian tints it grey.
-   */
-  rowSelectedTouch: { backgroundColor: colors.surface3, borderRadius: radii.xl },
-  /** One ancestor's indent guide. See `Guides`. */
-  guide: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    width: 1,
-    backgroundColor: colors.line,
-  },
-  /**
    * The row a drop would land in.
    *
    * A wash, never an insertion line between rows: a bucket lists
@@ -510,21 +388,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   nodeHover: { backgroundColor: colors.surface3 },
   nodeSelected: { backgroundColor: colors.accentDim },
   nodeSelectedLabel: { color: colors.accentText },
-  /**
-   * The same row, thumb-sized — see the file comment.
-   *
-   * `height` rather than `minHeight`: the pitch is the measurement, and a row
-   * free to grow past it is a tree whose rhythm depends on how long a name is.
-   */
-  nodeTouch: {
-    height: layout.explorerRow,
-    paddingVertical: 0,
-    paddingRight: 12,
-    gap: 6,
-    borderRadius: radii.md,
-  },
   chevron: { width: 12, alignItems: "center", justifyContent: "center" },
-  chevronTouch: { width: 18 },
 
   /**
    * The trailing metadata's box.
@@ -544,23 +408,4 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   markerHover: { backgroundColor: colors.surface3 },
   markerLabel: { color: colors.muted },
-  /**
-   * The exception mark on a phone: a 7pt disc.
-   *
-   * The same rule the word carried — `tree.ts` decides *whether* there is a
-   * mark, and this decides only how loud it is. Its meaning rides on the
-   * control's accessible name, which was already a full sentence.
-   */
-  pip: { width: 6, height: 6, borderRadius: 3 },
-  /**
-   * Quiet, both of them.
-   *
-   * The reference draws *nothing* in this gutter, so an accent disc down the
-   * right of every row is louder than the thing it is marking. Filled for
-   * `team` and an outline for `private` says which without spending any colour
-   * on it — and the two are told apart by fill rather than by hue, which is
-   * also the only way this works for somebody who cannot separate them.
-   */
-  pipTeam: { backgroundColor: colors.muted },
-  pipPrivate: { borderWidth: 1.5, borderColor: colors.muted },
 });
