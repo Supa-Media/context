@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import type { KeyValueStore } from "../features/offline/memory";
+import { destinationKey, meetingKey } from "../features/meetings/keys";
 
 /**
  * `forget.ts`, driven through the failure stance it is written about.
@@ -94,6 +95,47 @@ afterEach(() => {
 });
 
 /* -------------------------------------------------------------------------- */
+
+describe("the meetings namespace", () => {
+  /*
+    Meetings are not in `ownedKeys` — they have their own namespace — so
+    `forgetLocalCopies` has to name them, the way it already names the last
+    place this device was on. `keys.ts` claimed sign-out swept them; its own
+    file header said it did not, and the header was right.
+
+    Seeded here rather than in `SEEDED` because the tests above count what is
+    left, and two extra keys would change every one of those numbers for a
+    reason that has nothing to do with what they assert.
+  */
+  test("a meeting on the device goes with the copies", async () => {
+    const key = meetingKey("ws-1", "mtg_00000000000000000000");
+    mockOpened = store({}, {
+      [key]: JSON.stringify({ id: "mtg_00000000000000000000", title: "Private meeting" }),
+    });
+
+    expect(await forgetLocalCopies()).toEqual({ verdict: "cleared" });
+    expect(await mockOpened.keys()).toEqual([]);
+  });
+
+  test("and so does the destination somebody last chose", async () => {
+    /*
+      The sharper of the two. It holds no note text — a context slug and the
+      name of one of somebody's folders — which is exactly `lastPlace`'s own
+      reason for being cleared by name. On a shared device it would otherwise
+      survive one person's sign-out and preselect a row for the next.
+    */
+    mockOpened = store({}, {
+      [destinationKey()]: JSON.stringify({
+        kind: "currentPage",
+        contextSlug: "field-notes",
+        folder: "1-projects/portal",
+      }),
+    });
+
+    expect(await forgetLocalCopies()).toEqual({ verdict: "cleared" });
+    expect(await mockOpened.get(destinationKey())).toBeNull();
+  });
+});
 
 describe("a store that behaves", () => {
   test("the verdict is cleared, and only this feature's keys go", async () => {

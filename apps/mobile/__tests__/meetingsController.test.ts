@@ -464,49 +464,16 @@ describe("the device's own keys", () => {
     expect(ownedKeys(keys)).toHaveLength(0);
   });
 
-  test("PINNED GAP: sign-out does not clear meetings yet", async () => {
-    /*
-      `forgetEverything` walks `ownedKeys`, which is the offline namespace, and
-      `forgetLocalCopies` additionally clears `console/lastPlace.ts`'s keys by
-      name — the precedent for a feature with its own namespace being *named* in
-      that function rather than swept up by accident.
-
-      Meetings need the same one line, and until it exists a signed-out device
-      keeps meeting notes. This test asserts the gap so it is a red line in a
-      suite rather than a comment nobody reads.
-
-      **When this fails**: `forgetLocalCopies` has learned about meetings. Good.
-      Delete this test and replace it with the opposite assertion — that
-      `forgetAllMeetings` ran and the keys are gone.
-    */
-    const { controller, store } = await harness();
-    await controller.start({ title: "Private meeting" });
-    await rememberDestination(store, {
-      kind: "currentPage",
-      contextSlug: "field-notes",
-      folder: "1-projects/portal",
-      label: "1-projects/portal",
-    });
-    await settle();
-
-    await forgetEverything(store);
-    /*
-      Two keys, and the second is worth naming rather than counting. The
-      remembered destination is a context slug and the name of one of somebody's
-      folders — `console/lastPlace.ts`'s own reason for being cleared — so on a
-      shared device it survives one person's sign-out and preselects a row for
-      the next. `destinationKey`'s comment claimed sign-out took it; it does
-      not, and the claim is corrected there.
-    */
-    expect(meetingKeys(await store.keys())).toHaveLength(2);
-    expect(await store.get(destinationKey())).not.toBeNull();
-
-    // What the missing line would do, exported and ready for it. It is the
-    // whole namespace, so it takes both without a second list.
-    await forgetAllMeetings(store);
-    expect(meetingKeys(await store.keys())).toHaveLength(0);
-    expect(await store.get(destinationKey())).toBeNull();
-  });
+  /*
+    The "PINNED GAP" test that stood here asserted that sign-out did *not*
+    clear this namespace, and carried an instruction: when it fails, the
+    function has learned about meetings, so replace it with the opposite
+    assertion. It has, so it is gone from here rather than inverted in place —
+    `forgetLocalCopies` opens its own store, which this harness does not
+    supply, so a test driving it belongs where that store is mocked.
+    `__tests__/offlineForget.test.ts` holds both halves now: the meeting and
+    the remembered destination.
+  */
 
   test("discarding the meeting that is running releases the microphone", async () => {
     // Without this the device stays open with nothing left to record into —
