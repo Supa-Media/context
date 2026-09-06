@@ -276,14 +276,46 @@ describe("the console is mounted in the application frame", () => {
 });
 
 describe("on a phone", () => {
-  test("the tree is a drawer, and the toolbar replaces the status bar", () => {
+  /**
+   * **This used to be `the tree is a drawer, and the toolbar replaces the
+   * status bar`**, and it asserted a `frame-drawer-toggle`. A phone has no left
+   * panel at all now — no file-tree drawer, no rail sheet, no toggle for either
+   * and no scrim from either (`features/app/frame.ts`) — so that assertion
+   * describes a design that was removed and is replaced rather than deleted.
+   *
+   * It is replaced **positively**, which is the part that matters. "There is no
+   * drawer toggle" is also what a phone renders when its whole top row has
+   * failed to mount, so a rewrite that only checked the old things were absent
+   * would pass on a broken screen. The two surfaces navigation actually moved
+   * to are asserted present, and only then is the retired chrome asserted gone.
+   */
+  test("navigation is a strip along the top and a row along the bottom", () => {
     const app = mountConsole(390);
 
-    expect(app.find("frame-drawer-toggle")).not.toBeNull();
-    // Not merely off-screen — not mounted until it is asked for.
-    expect(app.find("explorer-tree")).toBeNull();
-    expect(app.find("console-status")).toBeNull();
+    // The two things that replaced the panels, and neither is behind a control.
+    expect(app.find("context-strip")).not.toBeNull();
     expect(app.find("bottom-bar")).not.toBeNull();
+    // The seventh key: the one destination on a row of note verbs.
+    expect(app.find("bottom-bar-meeting")).not.toBeNull();
+    expect(app.find("bottom-bar-separator")).not.toBeNull();
+    // And the account, pinned at the leading end of the top row.
+    expect(app.find("account-sign-out")).not.toBeNull();
+
+    // The bottom edge is one of the two, never both — `frame.ts`'s invariant.
+    expect(app.find("console-status")).toBeNull();
+
+    // Nothing of the left panel: not the tree, not a drawer, not a rail sheet,
+    // not a scrim, and no toggle for any of them.
+    for (const gone of [
+      "explorer-tree",
+      "frame-drawer",
+      "frame-drawer-toggle",
+      "frame-nav-sheet",
+      "frame-nav-toggle",
+      "frame-scrim",
+    ]) {
+      expect(app.find(gone)).toBeNull();
+    }
 
     app.unmount();
   });
@@ -302,27 +334,39 @@ describe("on a phone", () => {
     expect(labels).toContain("Search notes");
     expect(labels).toContain("New note");
     // The bar is really on the screen, and not merely a set of labels somewhere
-    // in the tree. It used to be enough to assert the console had rendered *any*
-    // text; it renders none at this width now, because the top bar is a toggle
-    // and one group of icons with nothing in the middle — which is the point.
+    // in the tree. It used to be enough to assert the console had rendered
+    // *any* text — and then it was not, because the top bar became a toggle and
+    // one group of icons with nothing in the middle. The middle has words again
+    // (the context strip), so a text sweep would pass on a screen with no
+    // toolbar at all; the testID is what makes this about the bar.
     expect(app.find("bottom-bar")).not.toBeNull();
 
     app.unmount();
   });
 
-  test("the top bar carries no words at all — a toggle, and nothing beside it", () => {
+  test("the top row is three slots: an account, the contexts, a capsule", () => {
     /*
       The two-rows-of-chrome complaint, at the console level.
+      `appFrameRender.test.ts` pins the frame's own geometry; this pins what the
+      console hands it.
 
-      `appFrameRender.test.ts` pins the frame's own rule; this pins that the
-      console does not hand it something to put in the middle. The context chip
-      that used to sit here is the vault switcher at the foot of the file tree,
-      and the note's name is an inline title inside the document — so on Browse
-      the whole top band is one transparent row with a 44pt circle in it.
+      **What this used to assert was `the top bar carries no words at all — a
+      toggle, and nothing beside it`**, and its reason was that "the context
+      chip that used to sit here is the vault switcher at the foot of the file
+      tree". That footer is gone with the tree, so the chip did not go back to
+      the middle of the bar — the contexts became a scrolling strip that *is*
+      the middle, and the round toggle at the leading edge became the account.
+      One row is still one row; what is in it changed.
     */
     const app = mountConsole(390);
 
-    expect(app.find("frame-drawer-toggle")).not.toBeNull();
+    // Leading: the account. Middle: the contexts. The trailing capsule holds
+    // the note's own actions and is `noteChrome.test.ts`'s.
+    expect(app.find("account-sign-out")).not.toBeNull();
+    expect(app.find("context-strip")).not.toBeNull();
+
+    // The two controls that used to be here, and the chip that never was.
+    expect(app.find("frame-drawer-toggle")).toBeNull();
     expect(app.find("frame-nav-toggle")).toBeNull();
     expect(app.find("storage-pill")).toBeNull();
 
@@ -347,72 +391,115 @@ describe("search", () => {
 /* -------------------------------------------------------------------------- */
 
 /**
- * The way off a pane, on a phone, end to end.
+ * Navigation on a phone, end to end — and it is not a way *off* a panel any
+ * more, because there is no panel.
  *
- * `appFrameRender.test.ts` proves the frame *can* raise and dismiss the sheet;
- * this proves the console actually wires it up. That gap was real and total:
- * deleting `frame.closeNav()` from the rail's `onNavigate` left all 1113 tests
- * in this suite green, and it is the single line that makes the fix a way out
- * rather than a panel you have to dismiss by hand after every choice.
+ * **This block used to be `the phone's way off a pane`**, and its premise was
+ * stated in its own header: "`appFrameRender.test.ts` proves the frame *can*
+ * raise and dismiss the sheet; this proves the console actually wires it up.
+ * That gap was real and total: deleting `frame.closeNav()` from the rail's
+ * `onNavigate` left all 1113 tests in this suite green, and it is the single
+ * line that makes the fix a way out rather than a panel you have to dismiss by
+ * hand after every choice." Every word of that was true and none of it survives
+ * the panels: there is no rail sheet, no drawer, no scrim and no toggle at any
+ * density (`features/app/frame.ts`).
  *
- * Mounted at a phone width against the real layout, the real `ConsoleRail` and
- * the real `AppFrame` — only the data and the router are stubs.
+ * What survives is the *requirement* underneath it, in two halves, and both are
+ * asserted below rather than assumed:
+ *
+ *  - **A destination is reachable without opening anything.** That is now
+ *    stronger than "you can get out of the panel": there is nothing to get out
+ *    of, so the test presses a destination on a console nobody has touched.
+ *  - **Choosing a destination dismisses whatever it was chosen from.** The
+ *    strip is not a panel, so choosing from it raises and leaves nothing — the
+ *    assertion is that the screen is unchanged furniture rather than a sheet
+ *    that has to be dismissed. The one thing a phone still raises over the note
+ *    is the meeting sheet, and it puts itself away: `contextStrip.test.ts`
+ *    holds the strip menu's half by name (`choosing a destination closes the
+ *    menu and reports it once`) and `meetingsFlow.test.ts` holds the sheet's
+ *    (`the meeting that results is the one the sheet described`, which asserts
+ *    the sheet is gone). What is left here is the wiring between them and this
+ *    console, which is exactly what the deleted `closeNav()` mutant proved a
+ *    unit test cannot see.
+ *
+ * Mounted at a phone width against the real layout, the real `ContextStrip`,
+ * the real `BottomBar` and the real `AppFrame` — only the data and the router
+ * are stubs.
+ *
+ * ## Sabotage record
+ *
+ * Against a green baseline of **172 suites / 3,285 tests**
+ * (`npx jest --watchman=false`): returning the pinned account's pressable to
+ * `padding: 4` — a 34pt target around a 34pt mark, which is what it shipped as
+ * — fails **1 test**, `sign-out is reachable, and is a target a thumb can hit`,
+ * and nothing else. That is the whole of the coverage on the only sign-out
+ * control this product has on a phone, which is why it is asserted from
+ * `layout.minTouchTarget` rather than from a literal.
  */
-describe("the phone's way off a pane", () => {
-  test("choosing a destination dismisses the sheet", () => {
+describe("the phone reaches a destination with nothing opened first", () => {
+  test("a context is one press on the strip, and the press raises no panel", () => {
     const app = mountConsole(390);
 
-    expect(app.find("frame-nav-sheet")).toBeNull();
-    /*
-      The route to the rail on a phone with a tree: open the tree, then press
-      the vault switcher at the foot of it. There is no chip in the top bar any
-      more — that band is a toggle and one group of actions, which is the whole
-      of what `Regions.navToggle` now says.
-    */
-    app.press(app.find("frame-drawer-toggle"));
-    app.press(app.find("vault-switcher"));
-    expect(app.find("frame-nav-sheet")).not.toBeNull();
-    // Raising one panel puts the other away, so the tree is gone with it.
-    expect(app.find("frame-drawer")).toBeNull();
-
-    /*
-      A context, because a context is all this sheet holds now. It used to
-      carry Map and Connections under an APP heading, which is what made it a
-      second left navigation rather than the vault switcher — see
-      `ConsoleRail`. Those two live in a context's settings; what the sheet
-      answers is "whose notes am I about to open", and choosing an answer must
-      put it away.
-    */
-    app.press(app.byLabel("Open @seyi"));
+    // Nothing is up before, which is the whole point: this is the resting
+    // state of the screen rather than something a previous press produced.
     expect(app.find("frame-nav-sheet")).toBeNull();
     expect(app.find("frame-scrim")).toBeNull();
+
+    const pill = app.find("context-strip-seyi");
+    expect(pill).not.toBeNull();
+    app.press(pill);
+
+    // Still nothing. A strip is furniture; there is no dismissal to wire up
+    // and therefore none to forget.
+    expect(app.find("frame-nav-sheet")).toBeNull();
+    expect(app.find("frame-scrim")).toBeNull();
+    expect(app.find("context-strip")).not.toBeNull();
 
     app.unmount();
   });
 
-  test("and so does choosing the context you are already in", () => {
-    // The router has nothing to do here — `sameRoute` short-circuits it — and a
-    // sheet that stays put because of that reads as a dead press.
-    mockPathname = "/console/@seyi";
+  test("the app's other place is the last key, and it raises the sheet that asks", () => {
+    /*
+      The seventh key. It opens a sheet and does **not** open the microphone —
+      `docs/decisions/meetings.md` calls a control that silently started
+      recording "the same product with the indicator removed" — and the sheet
+      is a `Modal`, which react-native-web portals outside this container.
+    */
     const app = mountConsole(390);
+    expect(sheetUp()).toBe(false);
 
-    app.press(app.find("frame-drawer-toggle"));
-    app.press(app.find("vault-switcher"));
-    app.press(app.byLabel("Open @seyi"));
-    expect(app.find("frame-nav-sheet")).toBeNull();
+    app.press(app.find("bottom-bar-meeting"));
+    expect(sheetUp()).toBe(true);
+
+    // And it is dismissible from inside itself, which is the property the rail
+    // sheet's `closeNav()` used to carry for the panel it replaced.
+    app.press(document.body.querySelector<HTMLElement>('[data-testid="meeting-destination-cancel"]'));
+    expect(sheetUp()).toBe(false);
 
     app.unmount();
   });
 
   test("sign-out is reachable, and is a target a thumb can hit", () => {
-    // It lives at the foot of the rail and nowhere else, so before the sheet
-    // existed there was no way to sign out on a phone at all.
+    /*
+      **It is the only sign-out control in the product**, and before the panels
+      went it was at the foot of the rail — this test used to press
+      `frame-nav-toggle` to reach it. There is no toggle and no rail on a phone;
+      it lives behind the pinned account slot, in the corner of the glass that
+      is always visible, and is reached with no press at all.
+
+      44pt on both axes, from the token rather than from a literal. The mark
+      inside it is 34 (`layout.accountAvatar`) and that is legal — what a thumb
+      hits is the pressable, and this is the one control here somebody reaches
+      for deliberately and must not miss.
+    */
     mockPathname = "/console";
     const app = mountConsole(390);
-    app.press(app.find("frame-nav-toggle"));
 
-    const signOut = app.find("rail-sign-out");
+    const signOut = app.find("account-sign-out");
     expect(signOut).not.toBeNull();
+    // Named, not just present: an icon carries nothing to a screen reader and
+    // there is no menu and no keymap here to reach it by instead.
+    expect(signOut!.getAttribute("aria-label")).toBe("@seyi — sign out");
 
     const box = window.getComputedStyle(signOut!);
     expect(Number.parseFloat(box.width)).toBeGreaterThanOrEqual(layout.minTouchTarget);
@@ -421,4 +508,19 @@ describe("the phone's way off a pane", () => {
     app.unmount();
     mockPathname = "/console/@seyi";
   });
+
+  test("and a pointer layout still keeps it at the foot of the rail", () => {
+    // The positive control for the move: `rail-sign-out` is not deleted, it is
+    // the other density's answer. A rewrite that lost it would pass every
+    // assertion above.
+    const app = mountConsole(1440);
+    expect(app.find("rail-sign-out")).not.toBeNull();
+    expect(app.find("account-sign-out")).toBeNull();
+    app.unmount();
+  });
 });
+
+/** The meeting sheet is a `Modal`, so it portals outside the container. */
+function sheetUp(): boolean {
+  return document.body.querySelector('[data-testid="meeting-destination-sheet"]') !== null;
+}

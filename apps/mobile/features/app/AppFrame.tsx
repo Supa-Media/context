@@ -335,8 +335,11 @@ export interface AppFrameProps {
    * which is the argument `ConsoleRail` already makes about pinning the account
    * block above a scrolling list — the same rule, one surface over.
    *
-   * `layout.accountAvatar` is the size the geometry is budgeted against; the
-   * frame does not impose it, because what goes in here is the caller's.
+   * `layout.accountAvatar` is the *mark* the geometry is budgeted against and
+   * `layout.minTouchTarget` is the pressable around it; the frame imposes
+   * neither, because what goes in here is the caller's. On a phone this slot
+   * holds the product's only sign-out, so the caller pads to the floor — see
+   * `ConsoleRail.AccountBlock`.
    */
   accountSlot?: ReactNode;
   /**
@@ -356,13 +359,18 @@ export interface AppFrameProps {
    * The geometry it is budgeted against, on a 390pt phone:
    *
    *     390 − 2 × 12 gutters            = 366
-   *     366 − 34 account − 8 gap        = 324
-   *     324 − 92 capsule − 8 gap        ≈ 232pt for the strip
+   *     366 − 44 account − 8 gap        = 314
+   *     314 − 92 capsule − 8 gap        ≈ 214pt for the strip
    *
    * where 92 is the trailing capsule holding two `chromeButton` targets inside
    * `space.x1` of padding. That is the number the strip has to be legible in,
    * and it is written here rather than in the strip because this file is the one
    * that decides it.
+   *
+   * **The account term was 34 and is 44**, and the ten points are not a
+   * revision of taste: 34 is `accountAvatar`, the *mark*, and the slot holds
+   * the *pressable*, which is the phone's only sign-out and has to clear
+   * `minTouchTarget`. See that token for the corrected arithmetic.
    */
   contextStrip?: ReactNode;
   /** Opens the palette. Renders the search field on web, a button on touch. */

@@ -572,16 +572,26 @@ export const layout = {
    *
    * 34, and **below `minTouchTarget` on purpose**, which is legal for the same
    * reason `explorerRow` is: what a thumb hits is the pressable around it, and
-   * the caller pads to the floor. What 34 buys is the budget for the thing
-   * beside it. At 390pt the row is
+   * the caller pads to the floor. The mark is one glyph and is recognised
+   * rather than read, so it is drawn small and pressed large.
+   *
+   * **The budget written beside it treated that padding as free, and it is
+   * not.** This used to continue: "What 34 buys is the budget for the thing
+   * beside it. At 390pt the row is `390 − 2 × 12 gutters = 366`,
+   * `366 − 34 avatar − 8 gap − 92 capsule − 8 gap ≈ 232pt for the strip` …
+   * A 44pt mark takes ten of those points off the one element on the row that
+   * is a *list*." The mark is still 34; what the arithmetic left out is that
+   * the pressable around it has to reach the floor, and on a phone that
+   * pressable is the product's **only** sign-out control
+   * (`ConsoleRail.AccountBlock`). It was padding by 4 — 34 all in, under the
+   * floor — so the row was budgeting for a target that missed. The real budget:
    *
    *     390 − 2 × 12 gutters = 366
-   *     366 − 34 avatar − 8 gap − 92 capsule − 8 gap ≈ 232pt for the strip
+   *     366 − 44 target − 8 gap − 92 capsule − 8 gap ≈ 214pt for the strip
    *
-   * where 92 is the trailing capsule with two targets in it. A 44pt mark takes
-   * ten of those points off the one element on the row that is a *list*, and
-   * the strip is the element that has to hold two or three legible names before
-   * anybody scrolls. The mark is one glyph and is recognised rather than read.
+   * where 92 is the trailing capsule with two targets in it. 214pt still holds
+   * the two or three legible names the strip has to show before anybody
+   * scrolls, and a control somebody misses is not something ten points buy back.
    */
   accountAvatar: 34,
   /**

@@ -549,6 +549,20 @@ function RailEntry({
  * Takes plain values and one callback so the rail imports no auth and no
  * router — which is what lets the whole rail be mounted in a test, and what
  * keeps the landing page's copy of it honest.
+ *
+ * ## `compact` is the phone's whole sign-out now, so it is a real target
+ *
+ * The two forms used to differ in weight: the full block is the rail's foot and
+ * the compact one was a mark in a corner, drawn where there was no room for a
+ * name. A phone has no rail at all now (`features/app/frame.ts`), so this
+ * compact form — pinned in `AppFrame`'s `accountSlot` — is **the only sign-out
+ * control on that density**, and it is what `signOutTouch` says of the other
+ * one: the one control somebody reaches for deliberately and must not miss.
+ *
+ * So the pressable is `layout.minTouchTarget` on both axes while the mark
+ * inside it stays 26. That is `accountAvatar`'s own rule — "what a thumb hits
+ * is the pressable around it, and the caller pads to the floor" — actually
+ * applied; it used to pad by 4, which is 34, which is under the floor.
  */
 export function AccountBlock({
   name,
@@ -575,6 +589,7 @@ export function AccountBlock({
         radius={radii.pill}
         style={styles.avatarOnly}
         hoverStyle={styles.entryHover}
+        testID="account-sign-out"
       >
         <Avatar initial={initial} />
       </PressRow>
@@ -728,7 +743,22 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   accountIcons: { paddingHorizontal: space.x2, alignItems: "center" },
   accountRow: { flexDirection: "row", alignItems: "center", gap: space.x2 },
   accountText: { flex: 1, minWidth: 0 },
-  avatarOnly: { padding: 4, borderRadius: radii.pill },
+  /**
+   * The pinned account mark, and the only sign-out a phone has.
+   *
+   * `padding: 4` around a 26pt mark is 34, which is `accountAvatar` and is
+   * **under `minTouchTarget`** — legal for a mark and not for the pressable
+   * around it, which is the distinction that token draws and this style was on
+   * the wrong side of. Square on both axes so the pill radius reads as a
+   * circle rather than as a stadium.
+   */
+  avatarOnly: {
+    width: layout.minTouchTarget,
+    height: layout.minTouchTarget,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radii.pill,
+  },
 
   avatar: {
     width: 26,
