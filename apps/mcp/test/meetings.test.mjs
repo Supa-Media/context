@@ -227,6 +227,7 @@ const SESSION_WEDGED = idOf("x");
 /** Aimed at a folder with `..` inside a segment: legal to `normalizeRoot`, refused by `normalizePath`. */
 const SESSION_DOTTED = idOf("f");
 const SESSION_ENCODED = idOf("6");
+const SESSION_SPACED = idOf("7");
 /**
  * The id a read-only grant tries to open a session under, and must not.
  *
@@ -1992,6 +1993,38 @@ export async function runMeetingChecks(check) {
     "...with nothing written at the encoded name, and privacy.md untouched",
     ![...recorder.keys()].some((key) => key.includes("%2e")) &&
       !(recorder.get("privacy.md")?.body ?? "").includes("%2e")
+  );
+
+  /*
+    AND A FOLDER THE VALIDATOR ACCEPTED THAT THE BUILDER THEN REFUSED.
+
+    `normalizeMeetingFolder` was not idempotent: `normalizeRoot` trims the whole
+    string but not a segment, so `"/ /"` came back as `" "` and normalizing that
+    again gave `null`. `meetingNotePath` re-normalizes what it is handed, and
+    the gateway hands it this function's own output — inside the claim mutator,
+    so the throw surfaced as **400 `meeting_invalid`, "this session's start time
+    is not a timestamp"**, on a session whose `startedAt` is fine. The `catch`
+    producing that message says "The folder cannot reach here: it was resolved
+    before any of this"; it could, and now it cannot.
+
+    Fixed in `packages/meetings/src/paths.js`, whose suite holds the property
+    (4,680 shapes, 132 non-idempotent and 20 throwing before, 0 and 0 after).
+    This check is the end the person sees: a fallback and a flag, not a refusal
+    that blames the clock.
+  */
+  const spacedBefore = keysIn(recorder, "0-inbox/meetings/").length;
+  await openFor(SESSION_SPACED, "Aimed at a spaced name", "2026-09-06T18:00:00.000Z");
+  const spaced = await meetingRequest(
+    env,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_SPACED}/finalize`,
+    { body: { folder: "/ /" } }
+  );
+  check(
+    "a folder that normalizes to a whitespace segment falls back, and does not blame the clock",
+    spaced.status === 200 &&
+      spaced.body?.folderRejected === true &&
+      keysIn(recorder, "0-inbox/meetings/").length === spacedBefore + 1
   );
 
   /*

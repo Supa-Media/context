@@ -71,6 +71,8 @@
  * separators.
  */
 
+import { readFileSync } from "node:fs";
+
 import {
   MAX_FOLDER_LENGTH,
   MAX_SLUG_LENGTH,
@@ -451,4 +453,154 @@ export function runPathChecks(check) {
     "a folder the builder refuses recognises nothing either",
     !isMeetingNotePath("../etc/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md", { folder: "../etc" })
   );
+
+  /*
+    WHAT THIS FUNCTION RETURNS, IT MUST ALSO ACCEPT.
+
+    `normalizeRoot` trims the whole STRING and collapses repeated separators —
+    it does not trim a SEGMENT. So `"/ /"` came back as `" "`, a folder made of
+    one space, and normalizing that answer again gave `null`. The function was
+    not idempotent, and `meetingNotePath` re-normalizes whatever it is handed,
+    so an accepted folder could make the builder throw.
+
+    Measured through the real worker, `folder: "/ /"` answered **400
+    `meeting_invalid`, "this session's start time is not a timestamp, so it has
+    no note path"** — on a session whose `startedAt` is a perfectly good
+    timestamp. The `catch` producing that message says "The folder cannot reach
+    here: it was resolved before any of this", which was false and is now true.
+
+    THE RULE IS ON THE JOINED RESULT, NOT ON EACH SEGMENT. A first draft
+    refused any segment whose trim differed, and review measured what that
+    cost: **36 folders that are stable, build a path, and are accepted by every
+    layer downstream**. A whole-string trim only removes whitespace at the two
+    ENDS, so only a leading space in the first segment or a trailing space in
+    the last is unstable. **The two INNER-segment accepted checks below —
+    `2-areas/ team` and `ok/a /b` — are that distinction**, and are the whole
+    of what fails, measured 2 red by reverting to it, if somebody "simplifies"
+    this back to a per-segment rule. Every other check in this block, above
+    them and below, stays green under either variant, so it is context rather
+    than part of the pin.
+
+    That sentence has now been wrong twice about its own guard, both times by
+    locating it positionally: "the last three checks" when a check had been
+    inserted, then "the last TWO checks" when the two property checks sit
+    below them. Naming the shapes is the fix — a position moves when somebody
+    adds a check, and the description of a guard that quietly stops describing
+    it is the same defect as the rule this block guards.
+
+    Brute-forced over `a / space tab . % 2 e` to depth 4 — 4,680 shapes: 132
+    non-idempotent and 20 throwing before, 0 and 0 after.
+  */
+  check("a folder that normalizes to a whitespace segment is refused", normalizeMeetingFolder("/ /") === null);
+  check("...as is a leading space on the FIRST segment", normalizeMeetingFolder("/ ok") === null);
+  /*
+    A TRAILING space needs a trailing separator to survive long enough to
+    matter, exactly as the leading one needs a leading separator: `"ok/a "` is
+    trimmed to `"ok/a"` by `normalizeRoot` before any segment exists, so it is
+    a perfectly good folder. `"ok/a /"` keeps the space, because the slash is
+    what the trim finds at the end. The first draft of this check used the
+    former and failed, which is the second time this hour a name outran the
+    shape underneath it — both caught by the check, neither by re-reading.
+  */
+  check("...and a trailing space on the LAST, shielded by a separator", normalizeMeetingFolder("ok/a /") === null);
+  check("...while the same string without that slash is just that folder", normalizeMeetingFolder("ok/a ") === "ok/a");
+  check(
+    "a whole-string edge space is trimmed by `normalizeRoot` and the folder is fine",
+    normalizeMeetingFolder("ok/ ") === "ok"
+  );
+  check(
+    "an inner space is a folder somebody may legitimately have",
+    normalizeMeetingFolder("2-areas/team notes") === "2-areas/team notes"
+  );
+  check(
+    "a LEADING whole-string space is trimmed too, and the folder is fine",
+    normalizeMeetingFolder(" ok") === "ok"
+  );
+  check(
+    "...and so is one with an edge space on an INNER segment, which is stable",
+    normalizeMeetingFolder("2-areas/ team") === "2-areas/ team"
+  );
+  check("...at either edge of it", normalizeMeetingFolder("ok/a /b") === "ok/a /b");
+
+  /*
+    And the property itself, over the alphabet the brute force used. The named
+    examples say what the rule is; this says it has no holes left, and it is
+    what fails if somebody widens `normalizeRoot` instead of touching this.
+  */
+  {
+    const stamp = { id: FIXTURE_ID, title: "T", startedAt: "2026-03-04T09:00:00.000Z" };
+    const alphabet = ["a", "/", " ", "\t", ".", "%", "2", "e"];
+    let unstable = 0;
+    let threw = 0;
+    const walk = (soFar, depth) => {
+      if (depth === 0) {
+        const once = normalizeMeetingFolder(soFar);
+        if (once === null) return;
+        if (normalizeMeetingFolder(once) !== once) unstable += 1;
+        try {
+          meetingNotePath(stamp, { folder: once });
+        } catch {
+          threw += 1;
+        }
+        return;
+      }
+      for (const character of alphabet) walk(soFar + character, depth - 1);
+    };
+    for (let depth = 1; depth <= 4; depth += 1) walk("", depth);
+    check("every folder this accepts, it accepts again — 4,680 shapes", unstable === 0);
+    check("...and every one of them builds a path rather than throwing", threw === 0);
+  }
+
+  /*
+    THE COUNT TRIPWIRE, MEASURED INSTEAD OF WRITTEN DOWN.
+
+    The docblock over `normalizeMeetingFolder` says how many refusals it adds
+    on top of `normalizeRoot`, and `docs/decisions/meetings.md` says the same
+    number in prose. **That number has been wrong four times**: three times
+    because a rule was added below it and the count was not touched, and once
+    because the two lists counted the same code different ways — the doc
+    reached "six" while never mentioning control characters at all, and the
+    docblock reached "six" by pairing control characters with the length bound,
+    so a refusal could go missing from one list and the arithmetic still
+    worked.
+
+    A tripwire only works if somebody looks at it, and for four rounds nobody
+    did. This is the looking. It pins three things to each other: the number
+    the docblock states, the number of bullets the docblock actually lists,
+    and the number the decision doc states.
+
+    WHAT IT DOES NOT CATCH, said plainly rather than left to be assumed: a
+    refusal added to the FUNCTION with no bullet written for it. Counting
+    `return null` branches out of the source would be counting the wrong
+    thing — `typeof folder !== "string"` and the empty-string arm are not
+    "rules a folder needs on top of a root" — and a guard that miscounts is
+    worse than none. So this catches the failure that actually happened, four
+    times, and the reviewer who adds a rule still has to write its bullet.
+  */
+  {
+    const numbers = { three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+    const source = readFileSync(new URL("../src/paths.js", import.meta.url), "utf8");
+    const decision = readFileSync(new URL("../../../docs/decisions/meetings.md", import.meta.url), "utf8");
+
+    const stated = numbers[(/so (\w+) refusals are added/.exec(source) ?? [])[1]];
+    /*
+      Both markers checked, because `indexOf` answers -1 and `slice` reads -1
+      as "one from the end": reword the closing sentence and the docblock
+      becomes everything up to the last character of the FILE, whose bullets
+      today still number seven. The guard would go green by widening rather
+      than red by breaking — the failure mode this whole block exists to stop,
+      reproduced inside it.
+    */
+    const opens = source.indexOf("## What a folder needs on top of what a root needs");
+    const closes = source.indexOf(" * The refusal is a `null` and never a thrown message");
+    const docblock = source.slice(opens, closes);
+    const bullets = (docblock.match(/^ \*  - \*\*/gm) ?? []).length;
+    const inDecision = numbers[(/is (\w+) rules with \1 reasons/.exec(decision) ?? [])[1]];
+
+    check("the docblock section this counts is still found, at both ends", opens !== -1 && closes > opens);
+    check("the docblock states a refusal count at all", stated !== undefined);
+    check("...and lists exactly that many bullets", bullets === stated);
+    check("...and the decision doc states the same number", inDecision === stated);
+    check("...and it is seven, so a change to any of the three shows up here", stated === 7);
+  }
 }
