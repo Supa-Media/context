@@ -720,3 +720,170 @@ mutants that measured **zero** until the fixture was changed to make them
 visible, and the astral-character prefix bug that a lexicographic
 `[prefix, prefix + "￿")` range had been hiding since the module was
 written.
+
+### The descriptor is a sibling of the binding, and the gateway reads it there
+
+The reader above shipped and served **not one search**. `/gateway/binding`
+answers `{binding, searchIndex}` — siblings, and `http.ts` says so: "the storage
+binding, and — only where an owner asked for one and it exists — the index
+credential *beside* it". The gateway's `getStorageBinding` returned
+`parsed.binding` alone, and `storeForSession` then looked for the descriptor at
+`binding.searchIndex`, a key the control plane has never sent. So
+`store.searchIndex` was `null` on every request in production and
+`fastSearchAnswer` returned on its first line, for every caller, always.
+
+**The sibling shape stays and the gateway was fixed**, not the other way round.
+A D1 write credential is not a property of a bucket: nesting it inside the
+binding means adding it to both provider validators and handing it to
+`storeForBinding`, which has no business with it. One route resolving the
+workspace once and answering both questions is the design `openStorageBinding`
+argues for, and it is right.
+
+**Why nothing caught it, which matters more than the fix.** The control plane's
+route tests assert `body.searchIndex` as a sibling, thoroughly — including that
+the whole response contains no such key when a context never opted in. The
+gateway's tests assert what it does with a descriptor it is *given*. Between
+them sat the only question neither asked: can the gateway read what the route
+sends? Every gateway fixture — `controlPlaneStub.mjs`, `credentialShape.test.mjs`,
+`searchProjection.test.mjs` — nested `searchIndex` **inside** the binding,
+because they were written from the gateway's own assumption. A fixture that
+restates one side's guess to the other is not a test of a contract, it is that
+guess with a green tick beside it.
+
+So the fix is three things, and the last is the one that closes the class:
+
+- the gateway returns the envelope and reads the descriptor beside the binding;
+- `controlPlaneStub.mjs` splits the descriptor out at the wire, so no fixture
+  can put it back inside the binding and have the suite agree;
+- `controlPlane.test.ts` takes the **real bytes of a real `/gateway/binding`
+  response** and feeds them to the gateway's **real** `createControlPlane` and
+  `storeForSession`. Nothing in that check is hand-built but the transport.
+  Reverting either half of the fix fails it, and fails 11 checks in the
+  gateway's own suite; before the fixtures were corrected, the same two mutants
+  failed nothing anywhere.
+
+**And `state: "ready"` is the one gate the reader trusts**, so what withholds it
+was measured rather than read. A live context reported "100% indexed, 100 notes"
+while holding more than 160, and 100 is exactly `VERSION_PROBE_CAP` — so a
+census of 250 is now walked through `projectPass`. It clears the cap: forcing
+`windowReachedEnd` true reddens **0**, and forcing `notesPending` to 0 reddens
+3. `sweepComplete` is not the gate; `notesPending === 0` is, and it is
+`census size − COUNT(*)` plus whatever the R2 index says it has not reached.
+A sweep that ends early cannot lie, because the count would not match.
+
+That relocates the question instead of answering it, and the relocation is the
+finding: for a projection to honestly report "100 indexed, 0 pending", its
+**census** must hold 100 — and the census is the R2 index's own docmap, not a
+listing this pass makes. A context whose bucket holds 160 notes and whose
+projection calls itself complete at 100 is a context whose *R2 index* knows
+about 100 and believes it is caught up. That is upstream of every line in the
+projection, needs the live manifest's `freshness` to diagnose, and is not
+fixable from a fixture.
+
+### …and the console asks the same projection, through the same answer
+
+`fileOps.ts`'s `searchNotes` already ran the gateway's `searchIndexedNotes`
+rather than a port of it, because "one search path" is a privacy rule and not a
+tidiness one. The projection needed the same treatment and did not have it: the
+gateway's reader lived inside `fastSearchAnswer` in `apps/mcp/src/index.js`,
+private to that module, so the console could only have got a fast path by
+copying it.
+
+**What would have been copied is the part that must not be.** Everything below
+the D1 query is a boundary: which rows a caller keeps, whether the count is
+taken before or after that filter, and whether an empty result is an answer. A
+second copy of those three decisions is a second place for each to be wrong,
+and the one that matters would be silent — a console counting candidates rather
+than visible notes tells a team member how many notes they may not read match
+their word.
+
+So `answerFromProjection` moved into `search/d1/serve.js` and both surfaces call
+it. `isVisible` is injected exactly as it is into `searchIndexedNotes`: the
+gateway's privacy engine is module-private and the control plane has its own,
+proven identical by `__tests__/privacyEngine.test.ts`, and a third copy inside
+the shared answer is the thing those two exist to avoid.
+
+**A read never writes the row**, and that asymmetry with a projection pass is
+why `runFileOperation` has two blocks rather than one. A pass that cannot reach
+its database must say so — a workspace sitting at "Preparing" with nothing to
+explain why is the bug that path exists to close. A search must do the opposite:
+somebody typed a word, and a deployment whose Cloudflare credential is missing
+must not have their search flip a provisioning row to `failed` as a side effect.
+It falls through to the R2 index, which is what every context without fast
+search does anyway.
+
+**Three of the six guards on this path were proved by nothing** when they were
+first written, and the fixtures had to change before the mutants moved:
+
+- **Removing `canSee` from the shared answer reddened 0.** A team caller queries
+  the team table alone, so a note projected `private` is not in the candidate
+  set and no filter is needed to keep it out. The window the filter actually
+  closes is the other one — a note projected at `team` and then made private,
+  whose team-tier rows survive until the next pass moves them — and no fixture
+  had one.
+- **Counting candidates instead of visible notes reddened 0**, for the same
+  reason: no query matched both a note a team caller could read and one they
+  could not, so the two numbers were never different.
+- **Asking for a `backfilling` row instead of a `ready` one reddened 0.** Every
+  check either handed a client in directly or ran a pass, so the state the
+  barrier asks for was never observed. It is observed now at the action level,
+  where the only thing that can prove it lives: `runFileOperation` must open a
+  projection for a search over a `ready` row and must not over a filling one.
+
+The tests that fail if any of this is reversed: `__tests__/consoleSearch.test.ts`
+(whose projection cases delete the R2 index first, because with both indexes
+present no assertion about paths or counts can say which one answered) and the
+read case in `__tests__/searchBackfill.test.ts`.
+
+### One round trip, and why it cannot be zero
+
+The fast path cost three round trips when it shipped: the manifest, then the
+private tier, then the team tier. It costs one.
+
+**The tiers go out together.** They are independent statements against separate
+tables and awaiting them one at a time bought nothing. The budget is settled for
+every table *before* any query starts, for the reason `walkReserve` exists — a
+reserve taken out of what the previous stage happened to leave is not a reserve
+— and a table the pass cannot afford means `null` for the whole answer rather
+than the rows already gathered. A personal caller's corpus is legitimately both
+tables; answering out of one of them ranks every hit against a corpus half the
+notes are missing from, which is a plausible, quietly wrong order instead of a
+slow correct one.
+
+**The manifest moved behind the response.** The reconcile clock still needs it —
+without a manifest `indexNeedsAPass` reads "no index at all" and re-lists the
+whole bucket behind every fast search — but nothing the caller waits for does.
+So `maintainIndexAfter` now accepts a *function* for `found` and resolves it
+inside the deferred work. The cost is stated rather than hidden: with nothing
+resolved yet it cannot know whether there is anything to do, so it always
+reports `deferred`, and "nothing to do" becomes a `waitUntil` that reads a
+manifest and stops. One read behind the response in place of one in front of it.
+
+What the answer then says about freshness is `indexIncomplete: false`, and it is
+entitled to: the projection is only read at `state: "ready"`, and the control
+plane sets that exactly when `notesPending === 0` — a number that already
+includes whatever the R2 index had not reached. A `ready` projection *is* a
+statement that the index was caught up when the last pass measured it, so
+reading the manifest to re-derive it was work nobody needed.
+
+**And it cannot be zero, because there is no D1 binding to have.** A Worker's
+D1 bindings are declared in `wrangler.toml` and resolved at deploy time; there
+is no runtime call that opens a database by id. Fast search creates one database
+per opted-in workspace at runtime, so binding them would mean a redeploy per
+customer who flips the switch, and then a ceiling — bindings are capped per
+Worker in the low thousands, which is a number of *customers*. The HTTPS request
+is therefore the floor for this architecture rather than an interim step, and
+"a REST backend and a binding backend" is closed as **won't build**, not
+deferred.
+
+The one design that would remove the round trip is a single database for every
+tenant with a `workspaceId` column, and that is refused above for a reason no
+amount of latency outweighs: FTS5 computes corpus statistics over a whole table,
+so one shared table ranks every customer's search against every other
+customer's vocabulary.
+
+What remains on the critical path of a hit is `privacy.md`, which every request
+reads to build the privacy engine, and the D1 queries themselves — asserted in
+`test/searchProjection.test.mjs`, which counts index reads before and after the
+response separately, because a count over the whole fixture cannot tell the two
+apart.

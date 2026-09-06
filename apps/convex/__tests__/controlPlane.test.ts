@@ -1000,6 +1000,90 @@ describe("/gateway/binding — the search index", () => {
     });
   });
 
+  /**
+   * THE HOP, END TO END — REAL RESPONSE BYTES THROUGH REAL GATEWAY CODE.
+   *
+   * Every check above asserts what this route *sends*. `apps/mcp`'s suite
+   * asserts what the gateway does with a descriptor it is *given*. Between
+   * them sat the thing neither looked at: whether the gateway can read what
+   * this route sends. It could not, for the entire life of the feature.
+   *
+   * The route answers `{binding, searchIndex}` as siblings.
+   * `getStorageBinding` returned `parsed.binding` alone and `storeForSession`
+   * then read `binding.searchIndex` — a key this route has never sent. So
+   * `store.searchIndex` was `null` on every request in production,
+   * `fastSearchAnswer` returned on its first line, and fast search served not
+   * one search after its reader shipped. Both files documented their own shape
+   * correctly; neither described the other's.
+   *
+   * Nothing here is hand-built, and that is the whole design of the check. The
+   * bytes are this route's real response, and they are handed to the gateway's
+   * REAL control-plane client and its REAL `storeForSession` — the two
+   * functions the request actually passes through. A fixture cannot restate
+   * one side's assumption to the other, because there is no fixture: the only
+   * stub is the transport.
+   *
+   * Sabotage, measured: reverting either half of the fix — `getStorageBinding`
+   * dropping the sibling, or `storeForSession` reading `binding.searchIndex` —
+   * fails this test and 11 checks in the gateway's own suite. Before the
+   * fixtures were corrected, the same two mutants failed **nothing anywhere**.
+   */
+  test("the gateway reads the descriptor out of the response this route really sends", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    await configureD1(t);
+    await seedSearchIndex(t, {
+      workspaceId: aliceWs,
+      optedInBy: alice,
+      status: "ready",
+      databaseId: "db-alice-contract",
+    });
+
+    const response = await gatewayPost(t, "/gateway/binding", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+    });
+    const wire = await response.text();
+
+    // The gateway's own modules, evaluated here for the same reason
+    // `gatewayFormat.helpers.ts` evaluates `index.js`: a ported copy of either
+    // would be a third opinion about the contract, and three opinions is how
+    // this bug survived two of them.
+    const { createControlPlane } = await import("../../mcp/src/controlPlane.js");
+    const { storeForSession } = await import("../../mcp/src/session.js");
+
+    // The only stub is the transport. Everything it carries is this route's
+    // real bytes, parsed by the gateway's real client.
+    const controlPlane = createControlPlane(
+      { CONTROL_PLANE_URL: "https://control-plane.test", GATEWAY_SECRET: TEST_GATEWAY_SECRET },
+      {
+        fetchImpl: async () =>
+          new Response(wire, { status: 200, headers: { "Content-Type": "application/json" } }),
+      },
+    );
+
+    // `ContextStore` is deliberately the smallest surface the worker uses —
+    // get/put/delete/list and a capability descriptor — so none of what the
+    // REQUEST layer attaches to a store (`actor`, `provider`, `defer`, and
+    // this) is on it. Narrowed here rather than widened there: the adapter
+    // seam staying minimal is the point of that typedef.
+    const store = (await storeForSession(
+      { workspaceId: aliceWs, accessToken: ACCESS_A },
+      {},
+      controlPlane,
+    )) as unknown as {
+      bucket: string;
+      searchIndex: { databaseId: string; accountId: string; state: string } | null;
+    };
+
+    expect(store.searchIndex).not.toBeNull();
+    expect(store.searchIndex?.databaseId).toBe("db-alice-contract");
+    expect(store.searchIndex?.accountId).toBe(FAKE_D1.accountId);
+    expect(store.searchIndex?.state).toBe("ready");
+    // And the binding half still arrives, because the fix must not have been
+    // "read the other key instead".
+    expect(store.bucket).toBe("tenant-a");
+  });
+
   test("a ready index reports ready, so the gateway knows it is not backfilling", async () => {
     const { t, alice, aliceWs } = await twoConnectedTenants();
     await configureD1(t);

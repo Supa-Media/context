@@ -638,13 +638,37 @@ export function createControlPlane(env, options = {}) {
      * so the control plane can refuse a mismatch. It is not a lookup key and
      * the control plane must not treat it as one — see the contract above.
      *
-     * @returns {Promise<object|null>} the binding with its secret opened, or null.
+     * ## The response is TWO things, and reading one of them was the whole bug
+     *
+     * `/gateway/binding` answers `{binding, searchIndex}` — **siblings**, and
+     * `http.ts` says so: "the storage binding, and — only where an owner asked
+     * for one and it exists — the index credential BESIDE it". That shape is
+     * deliberate: a D1 write credential is not a property of a bucket, and
+     * nesting it inside the binding would mean adding it to both provider
+     * validators and handing it to `storeForBinding`, which has no business
+     * with it.
+     *
+     * This returned `parsed.binding` alone, and `session.js` then looked for
+     * the descriptor at `binding.searchIndex` — a key the control plane has
+     * never sent. So `store.searchIndex` was `null` on every request in
+     * production, `fastSearchAnswer` returned on its first line, and fast
+     * search served **not one search** between the reader shipping and this
+     * being found. Both sides' contract comments described their own shape
+     * correctly and neither described the other's, which is exactly why no
+     * test caught it: the gateway's fixtures were written from the gateway's
+     * assumption.
+     *
+     * So the envelope is returned whole. `binding` keeps `required`'s
+     * null-vs-missing discipline — a missing key is a version skew and throws.
+     * `searchIndex` is read with `??`, because ABSENT IS THE NORMAL CASE: it is
+     * `undefined` for every context that never opted in, `JSON.stringify` drops
+     * it, and demanding it would refuse every binding in the product.
+     *
+     * @returns {Promise<{binding: object|null, searchIndex: object|null}>}
      */
     async getStorageBinding(accessToken, expectedWorkspaceId) {
-      return required(
-        await post("/gateway/binding", { accessToken, expectedWorkspaceId }),
-        "binding"
-      );
+      const parsed = await post("/gateway/binding", { accessToken, expectedWorkspaceId });
+      return { binding: required(parsed, "binding"), searchIndex: parsed.searchIndex ?? null };
     },
 
     async registerClient(registration) {
