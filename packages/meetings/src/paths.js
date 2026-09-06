@@ -171,12 +171,13 @@ export function normalizeRoot(root) {
  * ## What a folder needs on top of what a root needs
  *
  * A root is chosen once by the customer, in their own binding. A folder
- * arrives on a request, so five refusals are added and each has a reason a
- * root does not have. (It said three, then four, and the count has been wrong
- * once already for a rule that had been added below it — **a count that stops
- * matching its own list is how the rule underneath it stops being read**, and
- * that tripwire has now fired twice.) A sixth is the empty string, argued at
- * the check rather than here, because there it is a difference of *meaning*
+ * arrives on a request, so six refusals are added and each has a reason a
+ * root does not have. (It said three, then four, then five, and the count has
+ * been wrong twice for a rule that had been added below it — **a count that
+ * stops matching its own list is how the rule underneath it stops being
+ * read**, and that tripwire has now fired three times, the last time in the
+ * commit that wrote this parenthetical.) A seventh is the empty string, argued
+ * at the check rather than here, because there it is a difference of *meaning*
  * from `normalizeRoot` rather than an addition to it: "no prefix at all" is a
  * legal root and is not a folder.
  *
@@ -201,6 +202,12 @@ export function normalizeRoot(root) {
  *    the raw rule is the point rather than an oversight.
  *  - **Control characters, and a length bound.** This string reaches a
  *    listing, an audit row and somebody's file browser.
+ *  - **A result with whitespace at either END.** Not a rule about folders but
+ *    about this function: `normalizeRoot` trims the whole string, so a result
+ *    the next pass would trim is a result this function does not accept back —
+ *    and `meetingNotePath` re-normalizes what it is given. On the joined
+ *    result rather than per segment, because only the two ends are unstable;
+ *    see the check for the 36 folders that distinction saves.
  *
  * The refusal is a `null` and never a thrown message, because `normalizeRoot`'s
  * messages quote what they refused. That is reasonable for a prefix the
@@ -291,29 +298,38 @@ export function normalizeMeetingFolder(folder) {
     if (segment.toLowerCase().endsWith(".md")) return null;
     if (RESERVED_PLUMBING_NAMES.has(segment.toLowerCase())) return null;
     if (CONTROL_CHARACTERS.test(segment)) return null;
-    /*
-      A segment that is not what it would be if this ran again.
 
-      `normalizeRoot` trims the whole STRING and collapses repeated separators;
-      it does not trim a segment. So `"/ /"` came back as `" "` — a folder made
-      of one space — and normalizing that answer gave `null`. **This function
-      has to be idempotent**, because `meetingNotePath` re-normalizes whatever
-      it is handed and the gateway hands it this function's own output, inside
-      the claim mutator. An accepted folder could therefore make the builder
-      throw, and the 400 it produced blamed `startedAt` for a folder's problem.
-
-      Refused rather than trimmed, which is this function's posture everywhere
-      else: it refuses where `slugifyTitle` maps, because a folder quietly
-      trimmed into a different name is a meeting filed somewhere nobody asked
-      for. `" ok"` is a folder somebody could have; it is not one this will file
-      into, and `folderRejected` says so.
-
-      Brute-forced over `a / space tab . % 2 e` to depth 4 — 4,680 shapes: 132
-      non-idempotent and 20 throwing before this line, 0 and 0 after.
-    */
-    if (segment !== segment.trim()) return null;
   }
-  return segments.join("/");
+  /*
+    WHAT THIS RETURNS, IT MUST ALSO ACCEPT.
+
+    `normalizeRoot` trims the whole STRING and collapses repeated separators; it
+    does not trim a SEGMENT. So `"/ /"` came back as `" "` — one space — and
+    normalizing that answer again gave `null`. **This function has to be
+    idempotent**, because `meetingNotePath` re-normalizes whatever it is handed
+    and the gateway hands it this function's own output, inside the claim
+    mutator. An accepted folder could therefore make the builder throw, and the
+    400 it produced blamed `startedAt` for a folder's problem.
+
+    THE RULE IS ON THE JOINED RESULT, NOT ON EACH SEGMENT, and the difference is
+    36 folders. A whole-string trim only ever removes whitespace at the two
+    ENDS, so only a first segment with leading space or a last segment with
+    trailing space is unstable. `2-areas/ team` and `ok/a /b` are stable, build
+    a path, and are accepted by every layer downstream — a per-segment rule
+    refused all of them for nothing. Refusing a folder a vault could have is
+    the same defect as filing into one it could not, pointed the other way.
+
+    Refused rather than trimmed, which is this function's posture everywhere
+    else: it refuses where `slugifyTitle` maps, because a folder quietly
+    trimmed into a different name is a meeting filed somewhere nobody asked for.
+
+    Brute-forced over `a / space tab . % 2 e` to depth 4 — 4,680 shapes: 132
+    non-idempotent and 20 throwing before, 0 and 0 after, with 2,816 accepted
+    against 2,948 before and 2,780 under the per-segment rule.
+  */
+  const joined = segments.join("/");
+  if (joined !== joined.trim()) return null;
+  return joined;
 }
 
 /**

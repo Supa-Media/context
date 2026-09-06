@@ -1989,6 +1989,12 @@ export async function runMeetingChecks(check) {
       keysIn(recorder, "0-inbox/meetings/").length === encodedBefore + 1
   );
   check("...and the client is told", encoded.body?.folderRejected === true);
+  check(
+    "...with nothing written at the encoded name, and privacy.md untouched",
+    ![...recorder.keys()].some((key) => key.includes("%2e")) &&
+      !(recorder.get("privacy.md")?.body ?? "").includes("%2e")
+  );
+
   /*
     AND A FOLDER THE VALIDATOR ACCEPTED THAT THE BUILDER THEN REFUSED.
 
@@ -2019,12 +2025,6 @@ export async function runMeetingChecks(check) {
     spaced.status === 200 &&
       spaced.body?.folderRejected === true &&
       keysIn(recorder, "0-inbox/meetings/").length === spacedBefore + 1
-  );
-
-  check(
-    "...with nothing written at the encoded name, and privacy.md untouched",
-    ![...recorder.keys()].some((key) => key.includes("%2e")) &&
-      !(recorder.get("privacy.md")?.body ?? "").includes("%2e")
   );
 
   /*

@@ -771,15 +771,21 @@ backslashes, separators — and two implementations of "does this escape its
 bucket" is how one of them ends up weaker. `slugifyTitle` is the wrong half of
 the precedent: it *maps* rather than refuses, so `2-areas/team` would come back
 as `2-areas-team` and the note would be filed into a folder nobody named. What a
-folder needs on top of what a root needs is four rules with four reasons: no
+folder needs on top of what a root needs is six rules with six reasons: no
 dot-prefixed segment, because `isPlumbing` hides those from every tool at every
 tier including the owner's, so the meeting would be invisible to the person
 whose storage bill it is; no segment that is itself a note; a length bound
-keeping the whole key inside the gateway's own 512-character path limit; and
-**no `..` anywhere inside a segment**, not merely a segment that *is* `..`.
+keeping the whole key inside the gateway's own 512-character path limit;
+**no `..` anywhere inside a segment**, not merely a segment that *is* `..`;
+**no segment that percent-decodes to `.` or `..`**, because the storage adapter
+decodes before it compares and neither of the two rules above does; and **no
+whitespace at either end of the result**, which is not a rule about folders at
+all but about this function — see below.
 
 That fourth rule is the one that closed a real defect, and this paragraph said
-"three rules with three reasons" and never mentioned it. `normalizeRoot` refuses
+"three rules with three reasons" and never mentioned it. **The count has since
+been wrong twice more**, once per rule added below it, which is the argument
+for reading a count as a checklist rather than as prose. `normalizeRoot` refuses
 the traversal *shapes*, which is the right rule for a prefix; the gateway's own
 `normalizePath` is blunter and refuses `..` anywhere in a key at all. So `a..b`
 passed the folder check, the claim wrote `a..b/YYYY/MM/….md` into the session
@@ -791,6 +797,18 @@ walked straight past the safety net the fallback exists to be. The two functions
 have to agree about what a key is, and this one takes the stricter rule: a vault
 with a folder named `a..b` loses it as a meeting destination and is told so,
 where the reverse loses a meeting silently and permanently.
+
+**The last rule is about idempotence, not about paths.** `normalizeRoot` trims
+the whole string and collapses separators; it does not trim a segment. So
+`"/ /"` came back as `" "` and normalizing *that* gave `null` — the function
+did not accept its own output. `meetingNotePath` re-normalizes whatever it is
+handed and the gateway hands it this function's answer, inside the claim
+mutator, so the throw surfaced as a 400 blaming `startedAt` on a session whose
+timestamp was fine. The rule is on the JOINED result rather than per segment
+because a whole-string trim only reaches the two ends: `2-areas/ team` is
+stable, builds a path, and is accepted everywhere downstream, and a per-segment
+rule refused 36 such folders for nothing. Refusing a folder a vault could have
+is the same defect as filing into one it could not, pointed the other way.
 
 **The empty string is refused as well**, and it is a difference of *meaning*
 from `normalizeRoot` rather than an addition to it: `""` is that function's

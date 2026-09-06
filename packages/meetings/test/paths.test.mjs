@@ -455,49 +455,60 @@ export function runPathChecks(check) {
   /*
     WHAT THIS FUNCTION RETURNS, IT MUST ALSO ACCEPT.
 
-    `normalizeRoot` trims the whole string and collapses repeated separators —
+    `normalizeRoot` trims the whole STRING and collapses repeated separators —
     it does not trim a SEGMENT. So `"/ /"` came back as `" "`, a folder made of
     one space, and normalizing that answer again gave `null`. The function was
     not idempotent, and `meetingNotePath` re-normalizes whatever it is handed,
     so an accepted folder could make the builder throw.
 
-    That is not theoretical: the gateway calls the validator, keeps the answer,
-    and passes it to `meetingNotePath` inside the claim mutator. Measured
-    through the real worker, `folder: "/ /"` answered **400 `meeting_invalid`,
-    "this session's start time is not a timestamp, so it has no note path"** —
-    on a session whose `startedAt` is a perfectly good timestamp. The `catch`
-    that produces that message says "The folder cannot reach here: it was
-    resolved before any of this", which was false.
+    Measured through the real worker, `folder: "/ /"` answered **400
+    `meeting_invalid`, "this session's start time is not a timestamp, so it has
+    no note path"** — on a session whose `startedAt` is a perfectly good
+    timestamp. The `catch` producing that message says "The folder cannot reach
+    here: it was resolved before any of this", which was false and is now true.
 
-    Brute-forced over `a / space tab . % 2 e` to depth 4 — 4,680 shapes: **132
-    were non-idempotent and 20 made the builder throw.** Every one of them is a
-    segment with leading or trailing whitespace.
+    THE RULE IS ON THE JOINED RESULT, NOT ON EACH SEGMENT. A first draft
+    refused any segment whose trim differed, and review measured what that
+    cost: **36 folders that are stable, build a path, and are accepted by every
+    layer downstream**. A whole-string trim only removes whitespace at the two
+    ENDS, so only a leading space in the first segment or a trailing space in
+    the last is unstable. The last three checks are that distinction, and they
+    are what fails if somebody "simplifies" this back to a per-segment rule.
 
-    REFUSED rather than trimmed, which is this function's whole posture: it
-    refuses where `slugifyTitle` maps, because a folder silently trimmed to a
-    different name is a meeting filed somewhere nobody asked for. `" ok"` and
-    `"ok "` are folders somebody could have; they are not folders this will
-    file into, and the client is told so.
+    Brute-forced over `a / space tab . % 2 e` to depth 4 — 4,680 shapes: 132
+    non-idempotent and 20 throwing before, 0 and 0 after.
   */
-  check("a folder segment that is only whitespace is refused", normalizeMeetingFolder("/ /") === null);
-  check("...as is a segment with a leading space", normalizeMeetingFolder("/ ok") === null);
-  check("...and one with a trailing space", normalizeMeetingFolder("ok/a /b") === null);
+  check("a folder that normalizes to a whitespace segment is refused", normalizeMeetingFolder("/ /") === null);
+  check("...as is a leading space on the FIRST segment", normalizeMeetingFolder("/ ok") === null);
   /*
-    `"ok/ "` is NOT that case and the first draft of this block used it: the
-    trailing `/ ` is trimmed off the whole STRING by `normalizeRoot` before any
-    segment exists, so it is accepted as `"ok"` — correctly, and idempotently.
-    The check failed and said so, which is the only reason this comment exists.
+    A TRAILING space needs a trailing separator to survive long enough to
+    matter, exactly as the leading one needs a leading separator: `"ok/a "` is
+    trimmed to `"ok/a"` by `normalizeRoot` before any segment exists, so it is
+    a perfectly good folder. `"ok/a /"` keeps the space, because the slash is
+    what the trim finds at the end. The first draft of this check used the
+    former and failed, which is the second time this hour a name outran the
+    shape underneath it — both caught by the check, neither by re-reading.
   */
-  check("...while a trailing separator and space is just that folder", normalizeMeetingFolder("ok/ ") === "ok");
+  check("...and a trailing space on the LAST, shielded by a separator", normalizeMeetingFolder("ok/a /") === null);
+  check("...while the same string without that slash is just that folder", normalizeMeetingFolder("ok/a ") === "ok/a");
   check(
-    "while an inner space is a folder somebody may legitimately have",
+    "a whole-string edge space is trimmed by `normalizeRoot` and the folder is fine",
+    normalizeMeetingFolder("ok/ ") === "ok"
+  );
+  check(
+    "an inner space is a folder somebody may legitimately have",
     normalizeMeetingFolder("2-areas/team notes") === "2-areas/team notes"
   );
+  check(
+    "...and so is one with an edge space on an INNER segment, which is stable",
+    normalizeMeetingFolder("2-areas/ team") === "2-areas/ team"
+  );
+  check("...at either edge of it", normalizeMeetingFolder("ok/a /b") === "ok/a /b");
 
   /*
-    And the property itself, over the alphabet the brute force used. Named
-    examples above say what the rule is; this says the rule has no holes left,
-    and it is the check that fails if somebody widens `normalizeRoot` instead.
+    And the property itself, over the alphabet the brute force used. The named
+    examples say what the rule is; this says it has no holes left, and it is
+    what fails if somebody widens `normalizeRoot` instead of touching this.
   */
   {
     const stamp = { id: FIXTURE_ID, title: "T", startedAt: "2026-03-04T09:00:00.000Z" };
