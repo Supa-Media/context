@@ -44,6 +44,23 @@ export const MAX_FOLDER_LENGTH = 128;
 /** Characters that are not text: they reach a listing, an audit row and a UI. */
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
+/**
+ * Keys the gateway's `isPlumbing` refuses by name, folded for comparison.
+ *
+ * `privacy.md` is already caught by the "a segment ending in `.md` is a note"
+ * rule; `scopes.yml` — the legacy privacy source of truth — was caught by
+ * nothing, because that rule is `endsWith(".md")` rather than "is a reserved
+ * key". On a filesystem-backed store a file and a directory cannot share a
+ * name, so a meeting filed *into* `scopes.yml` collides with the file that
+ * decides everybody else's access.
+ *
+ * Restated here rather than imported: this package is the contract and the
+ * gateway is one of its consumers, so a dependency in that direction is the
+ * wrong way round. Both names are listed anyway, so a reader of either file
+ * sees the whole rule.
+ */
+const RESERVED_PLUMBING_NAMES = new Set(["privacy.md", "scopes.yml"]);
+
 /** Long enough to stay readable in a file listing, short enough for any OS. */
 export const MAX_SLUG_LENGTH = 48;
 
@@ -145,8 +162,14 @@ export function normalizeRoot(root) {
  *    every tool at every tier, the owner's included, so a meeting filed under
  *    `.meetings/` or `.index/` would be invisible to the person who recorded
  *    it and still on their storage bill.
- *  - **A segment ending in `.md`.** That is a note, not a folder, and a
- *    meeting filed "inside" one is a key that shadows a file.
+ *  - **A segment ending in `.md`, or named `scopes.yml`.** That is a note or
+ *    the legacy privacy manifest, not a folder, and a meeting filed "inside"
+ *    one is a key that shadows a file — which a filesystem-backed store cannot
+ *    even represent.
+ *  - **`..` anywhere in a segment**, not only a segment that *is* `..`. This
+ *    is the gateway's `normalizePath` rule rather than `normalizeRoot`'s, and
+ *    the two have to agree; see the comment at the check for what accepting
+ *    `a..b` cost.
  *  - **Control characters, and a length bound.** This string reaches a
  *    listing, an audit row and somebody's file browser.
  *
@@ -178,7 +201,29 @@ export function normalizeMeetingFolder(folder) {
   const segments = normalized.slice(0, -1).split("/");
   for (const segment of segments) {
     if (segment.startsWith(".")) return null;
+    /*
+      `..` anywhere in a segment, not only a segment that *is* `..`.
+
+      `normalizeRoot` refuses the traversal shapes — a segment equal to `.` or
+      `..` — and that is the right rule for a prefix. It is not the gateway's
+      rule for a key: `normalizePath` refuses `..` anywhere in the string at
+      all. So `a..b` used to pass here, the finalize claimed
+      `a..b/YYYY/MM/….md` into the session record under a conditional write,
+      and the note write then answered 400 `meeting_invalid` — the code a
+      client does not retry — for the life of that meeting, with nothing to
+      clear the claimed path. Only a `null` from this function reaches the
+      `folderRejected` fallback, so that class bypassed the safety net
+      entirely.
+
+      The two functions have to agree about what a key is. This one takes the
+      stricter rule, because the cost of being wrong runs the other way: a
+      vault with a folder named `a..b` loses that folder as a meeting
+      destination and is told so, while the reverse loses a meeting silently
+      and permanently.
+    */
+    if (segment.includes("..")) return null;
     if (segment.toLowerCase().endsWith(".md")) return null;
+    if (RESERVED_PLUMBING_NAMES.has(segment.toLowerCase())) return null;
     if (CONTROL_CHARACTERS.test(segment)) return null;
   }
   return segments.join("/");
