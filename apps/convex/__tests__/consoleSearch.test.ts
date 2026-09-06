@@ -183,6 +183,15 @@ describe("the console's search, out of the projection", () => {
     channel no `WHERE` clause closes, and it is the reason the tables are split
     at all.
 
+    AND IT IS NOT ONLY ORDERING, which is what a first draft of this comment
+    claimed. `searchProjection` sets `truncated` when a table fills its row cap,
+    over CANDIDATES, before the filter — and `answerFromProjection` ships it as
+    `matchCountIsFloor`. Measured directly against the shared answer, private
+    table at the 200-row cap and one visible team hit: at the right tier the
+    caller is told `1`, at the forced tier `1+`. That plus is one bit saying
+    "at least two hundred chunks you cannot read match your word", and both
+    surfaces render it. The count itself stays correct; the floor flag does not.
+
     Measured: forcing `tier: "private"` in `searchNotes` reddened 0 of 1,790.
     The gateway's suite catches that same mutation with a check named "asking
     exactly one table, the team one" — the split is proved on the path that had
