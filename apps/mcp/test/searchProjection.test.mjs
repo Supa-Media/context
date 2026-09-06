@@ -1281,13 +1281,14 @@ async function runEndToEndChecks(check) {
  *   `fastSearchAnswer` counting candidates instead of visible notes       1
  *   `fastSearchAnswer` ignoring `state`, serving a filling projection     1
  *   `searchProjection` never setting `truncated` on a full page           1
+ *   `searchProjection` counting the cap across tables, not per table     1
  *   a `D1Error` on the read path escaping into the response               1
  *   a miss answering "(no matches)" instead of falling through            1
  *   `mergeHits` sliced to the display limit before the privacy filter     1
  *   a snippet mark put back, either side                                  1
  *   the title dropped from the projected row, or from the SELECT          1
  *
- * Five of those are worth their own sentence, because four of them measured
+ * Six of those are worth their own sentence, because five of them measured
  * ZERO on the first run and the fixture had to be changed before they measured
  * anything:
  *
@@ -1323,7 +1324,13 @@ async function runEndToEndChecks(check) {
  * signal in the same family as the count above, so it is worth a fixture; it
  * is not worth 200 notes today.
  *
- * A guard nobody has checked is not a guard, and four of these had not been.
+ *  - **`truncated` reddened nothing either**, and its `1` is the one number in
+ *    this table that does NOT come from a search: tripping the cap needs a
+ *    table to return 200 rows and the largest single-table return in this file
+ *    is 14, so it is driven at `searchProjection` with a stub client and a
+ *    small `chunkCap`. A red there has not been near the gateway.
+ *
+ * A guard nobody has checked is not a guard, and five of these had not been.
  * ====================================================================== */
 
 /**
@@ -1665,19 +1672,39 @@ async function runServeChecks(check) {
       /(^|[^0-9])1 matching note(?!s)/.test(afterFlip.text) &&
         !/(^|[^0-9])2 matching note/.test(afterFlip.text),
     );
+    check(
+      // The three checks above are all true of the R2 answer too — it renders
+      // the same sentence for the same query — so without this they would keep
+      // passing with the fast path switched off entirely, proving nothing
+      // about the `matchCount` in `fastSearchAnswer`. `answerReads` is the
+      // fixture's own idiom for that: the projection quotes itself and fetches
+      // no notes. Measured: switching the fast path off reddens 7 with this
+      // line and 6 without it.
+      "and it was the projection that counted, not the index behind it",
+      afterFlip.answerReads === 0,
+    );
+
     /*
-      `truncated` AT ITS SOURCE, driven directly.
+      `truncated` AT ITS SOURCE, DRIVEN DIRECTLY RATHER THAN THROUGH A SEARCH.
 
       It is the `+` on "12+ matching notes", and it is a one-bit pre-filter
       signal in the same family as the count above: for a team caller the page
       is filled from `notes_team_fts`, which in this very window holds chunks
       of a note they may not read. Never setting it reddened NOTHING through
-      the fixture, because tripping it needs a table to return `CHUNK_FETCH_CAP`
-      rows and no context here is that large.
+      the fixture, because tripping it needs a table to return
+      `CHUNK_FETCH_CAP` rows and no context here is that large — the biggest
+      single-table return anywhere in this file is 14 against a cap of 200.
 
-      So it is asserted on `searchProjection` itself with a small `chunkCap`,
-      which is the parameter that exists for exactly this. A fixture of 200
-      notes would prove the same bit at fifty times the cost.
+      So these two call `searchProjection` with a stub client and a small
+      `chunkCap`, which is the parameter that exists for exactly this. **They
+      are the only checks in this file that do not go through a search**, which
+      is why the record above says so: a red here has not been near the gateway,
+      and a fixture of 200 notes would prove the same bit at fifty times the
+      cost.
+
+      The private tier asks two tables, so the pair also pins the cap as
+      per-table rather than accumulated across them — `rows.length +
+      answered.length >= chunkCap` would otherwise pass.
     */
     const pageOf = (n) =>
       Array.from({ length: n }, (_, i) => ({
@@ -1686,26 +1713,27 @@ async function runServeChecks(check) {
         snippet: "s",
         score: -1 - i,
       }));
-    const askWith = (rows) =>
-      searchProjection(
+    const askWith = async (rows, tier = "team") =>
+      // `?? {}` rather than a bare property read: a `searchProjection` that
+      // returned `null` would otherwise throw out of the whole module and take
+      // every suite after this one with it, instead of reddening by name.
+      (await searchProjection(
         { query: async () => rows },
-        { query: "quoll", tier: "team", chunkCap: 2 },
-      );
-    check("a page that fills its cap reports itself a floor", (await askWith(pageOf(2))).truncated);
+        { query: "quoll", tier, chunkCap: 2 },
+      )) ?? {};
+    check(
+      "a page that fills its cap reports itself a floor",
+      (await askWith(pageOf(2))).truncated === true,
+    );
     check(
       "and one that does not fill it does not",
       (await askWith(pageOf(1))).truncated === false,
     );
-
     check(
-      // Both checks above are true of the R2 answer too — it returns the same
-      // sentence for the same query — so without this they would keep passing
-      // with the fast path switched off entirely, proving nothing about the
-      // `matchCount` in `fastSearchAnswer`. `answerReads` is the fixture's own
-      // idiom for this: the projection quotes itself and fetches no notes.
-      "and it was the projection that counted, not the index behind it",
-      afterFlip.answerReads === 0,
+      "and two short pages do not add up to a full one",
+      (await askWith(pageOf(1), "private")).truncated === false,
     );
+
 
     // -- 5. a refused database is not a failed search ----------------------
     d1.state.fail = 500;
