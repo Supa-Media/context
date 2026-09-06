@@ -541,14 +541,21 @@ describe("the hooks behind it", () => {
  *     and one account's context slugs and note names survive a sign-out in
  *     module memory, to be handed to whoever signs in next on that process.
  *  3. The once-per-session guards in `useContextPlaces`, of which there are
- *     two: the early return that stops a second mount asking the device at
- *     all, and the condition around `publishPlaces` that stops a late answer
- *     landing on top of what this session has since recorded. Drop the second
- *     and a second mount overwrites the session's own log with the device's
- *     older copy. Drop the first and nothing observable changes — the inner
- *     condition still refuses the publish — which is why the third test counts
- *     the reads as well as asserting the value: what the early return buys is
- *     the read, and a guard with nothing measuring it is not a guard.
+ *     three, each with a test of its own below because each fails differently:
+ *
+ *      - the **early return**, which stops a second mount asking the device at
+ *        all. Deleting it changes nothing anybody can see, because the checks
+ *        around the publish still refuse the answer — so what it buys is the
+ *        read, and the test that covers it counts reads as well as asserting
+ *        the value.
+ *      - the **issued-epoch** check, comparing against the epoch captured when
+ *        the read *started* rather than the one the snapshot happens to carry.
+ *        Writing that test is what found the hole it now closes: on a cold
+ *        console there is no snapshot, so `snapshot === null` used to be enough
+ *        to publish the previous person's log behind a completed sign-out.
+ *      - the **session-moved-on** check, which stops a read still in flight
+ *        overwriting a navigation recorded while it flew. The early return
+ *        cannot cover it, because that only fires once a snapshot exists.
  */
 describe("the log is live within a session, and only within one", () => {
   /**
