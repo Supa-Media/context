@@ -42,6 +42,8 @@
  * context at once rather than behind a second switch.
  */
 
+import { MAX_RESULTS } from "../query.js";
+import { SEARCH_RESULT_LIMIT } from "../visible.js";
 import { mergeHits, searchParams, searchSql, tablesForTier, toMatchExpression } from "./query.js";
 
 /**
@@ -117,4 +119,94 @@ export async function searchProjection(
   // a team caller sees depend on how many private notes outranked them, which
   // is a subtraction attack with extra steps.
   return { notes: mergeHits(rows, Number.POSITIVE_INFINITY), truncated };
+}
+
+/**
+ * A whole answer out of the projection, filtered for one caller.
+ *
+ * ## Why this is here and not in a caller
+ *
+ * Two surfaces search a context: the gateway's `search_notes` and the console's
+ * `searchNotes` in `apps/convex/functions/lib/fileOps.ts`. `docs/decisions/search.md`
+ * is emphatic that they are the same question and must not become two
+ * implementations — which is why the console already imports the gateway's
+ * `searchIndexedNotes` rather than porting it.
+ *
+ * The projection needs the same rule. Everything below the query is a privacy
+ * boundary: which rows a caller may keep, whether a count is taken before or
+ * after that filter, and whether an empty result is an answer. A second copy
+ * of those four lines in the control plane would be a second place for each of
+ * them to be wrong, and the one that matters would be silent — a console that
+ * counted candidates instead of visible notes tells a team member how many
+ * notes they cannot see match their word.
+ *
+ * So this is the answer, and a caller supplies only what it alone knows: the
+ * client, the caller's tier, and the caller's own `isVisible`.
+ *
+ * ## `isVisible` is injected, never imported
+ *
+ * The same shape `searchIndexedNotes` uses, for the same reason. The gateway's
+ * privacy engine is module-private in `index.js` and the control plane has its
+ * own, proven identical by `__tests__/privacyEngine.test.ts`. A third copy
+ * living here would be the thing those two exist to avoid.
+ *
+ * It is evaluated against the **live** manifest by both callers. The tier a row
+ * is stored at is `privacy.md` as it was at index time, and a note made private
+ * a minute ago still has team-tier rows until the next backfill pass moves
+ * them. The table split buys ranking; this buys correctness.
+ *
+ * @param {object} client a D1 client — `createD1Client`, or the control
+ *   plane's `ProjectionClient`, which is the same object.
+ * @param {object} options
+ * @param {string} options.query the person's words
+ * @param {string} [options.prefix] folder narrowing, already normalized
+ * @param {"private"|"team"} options.tier the caller's scope
+ * @param {(path: string) => boolean} options.isVisible the caller's own
+ *   privacy engine, bound to the caller's scope.
+ * @param {object} [options.budget] a subrequest budget, where the caller has
+ *   one. The gateway does; a Convex action has no per-invocation subrequest
+ *   cap, so it passes none.
+ * @param {number} [options.reserve] ops the budget must keep back.
+ * @param {(candidates: number, visible: number) => void} [options.onCounts]
+ *   the two counts, for a caller with somewhere to log them. Their difference
+ *   is how many matches this caller may not read — an operator's signal, and
+ *   exactly the subtraction that must never be rendered.
+ * @returns {Promise<{hits: {key: string, title: string, snippets: string[]}[],
+ *   matchCount: number, matchCountIsFloor: boolean}|null>}
+ *   `null` means **not answered** — a miss, a tier this build does not know, a
+ *   budget too small, a query with no usable token. Every caller must fall
+ *   through to the R2 index on `null` and must never report it as no results.
+ */
+export async function answerFromProjection(
+  client,
+  { query, prefix = "", tier, isVisible, budget = null, reserve = 0, onCounts = null } = {}
+) {
+  const result = await searchProjection(client, { query, prefix, tier, budget, reserve });
+  if (!result) return null;
+
+  // The boundary. Nothing below this line has seen a path the caller may not
+  // read, and the count is taken after the filter rather than before it —
+  // slicing or counting first would make the number a caller sees depend on
+  // how many notes they cannot see.
+  const visible = result.notes.filter((note) => isVisible(note.path));
+  if (typeof onCounts === "function") onCounts(result.notes.length, visible.length);
+  // A miss is not an answer. `searchIndexedNotes`' own rule, one layer up: "a
+  // miss may pay for a listing, a hit never does".
+  if (visible.length === 0) return null;
+
+  return {
+    hits: visible.slice(0, SEARCH_RESULT_LIMIT).map((note) => ({
+      key: note.path,
+      title: note.title,
+      // One window rather than up to three whole lines: the projection stores
+      // the chunk, so this is the note's own text as it was copied, and the
+      // array shape is what both surfaces already render.
+      snippets: note.snippet ? [note.snippet] : [],
+    })),
+    matchCount: Math.min(visible.length, MAX_RESULTS),
+    // Two ways this is a floor and both are real: a table that filled its row
+    // cap had more to say, and a count at the reporting cap is the same
+    // "understating is the acceptable direction" rule the R2 answer applies.
+    matchCountIsFloor: result.truncated || visible.length >= MAX_RESULTS,
+  };
 }

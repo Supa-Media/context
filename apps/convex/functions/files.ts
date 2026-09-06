@@ -585,17 +585,44 @@ export const runFileOperation = internalAction({
      * listing per link, forever, for a context with nothing left to copy.
      */
     let projection: ProjectionClient | null = null;
-    if (args.operation.kind === "projectIndex") {
+
+    /**
+     * This context's search database, if the row is in the state the caller
+     * needs and this deployment is configured.
+     *
+     * Two callers now and they want opposite states, which is the whole reason
+     * this is a parameter rather than a constant: a projection pass may only
+     * run against a row that is still `backfilling`, and a search may only
+     * READ one the control plane has called `ready` — the same gate the
+     * gateway applies, because a projection that is still filling answers a
+     * query about a note it has not copied with a silence a reader would take
+     * for a miss.
+     *
+     * `null` for every way of saying no, and they are deliberately
+     * indistinguishable to the caller: not opted in, not provisioned, wrong
+     * state, or a deployment with no Cloudflare credential.
+     */
+    const projectionTarget = async (required: "backfilling" | "ready") => {
       const target = await ctx.runQuery(
         internal.functions.fastSearch.projectionTargetForWorkspace,
         { workspaceId: args.workspaceId },
       );
-      if (target === null || target.state !== "backfilling") return IDLE_PROJECTION;
+      return target === null || target.state !== required ? null : target;
+    };
 
+    /**
+     * The client for a target the caller has already accepted.
+     *
+     * Held apart from the lookup above because the two callers do different
+     * things with `null` from each: a wrong state is an ordinary no for both,
+     * and a missing Cloudflare credential is a reported failure for a pass and
+     * a silent fall-through for a search.
+     */
+    const clientFor = async (
+      target: { databaseId: string; state: string },
+    ): Promise<ProjectionClient | null> => {
       // Ours, not a customer's — `appSecrets` holds this deployment's own
-      // integration credentials. Read here rather than in a helper because
-      // this function is already the enumerated barrier and a second one would
-      // be a second entry in `decryptCapable` for the same job.
+      // integration credentials.
       const apiToken = await ctx.runAction(
         internal.functions.admin.readIntegrationSecret,
         { name: D1_TOKEN_SECRET },
@@ -604,29 +631,49 @@ export const runFileOperation = internalAction({
         internal.functions.admin.readIntegrationSecret,
         { name: D1_ACCOUNT_SECRET },
       );
+      if (
+        typeof apiToken !== "string" ||
+        apiToken.length === 0 ||
+        typeof accountId !== "string" ||
+        accountId.length === 0
+      ) {
+        // Both or neither, as `provisionIndex` reads them: a half-configured
+        // deployment is two error states with one cure.
+        return null;
+      }
+      return createD1Client(
+        { databaseId: target.databaseId, accountId, apiToken, state: target.state },
+        // No `fetchImpl`: the client resolves `globalThis.fetch` per call and
+        // carries its own deadline. Handing it `timeoutFetch` would *replace*
+        // the abort signal it sets with a longer one, quietly disabling the
+        // timeout it thinks it has.
+      ) as ProjectionClient;
+    };
+
+    /*
+     * A SEARCH READS THE PROJECTION AND NEVER WRITES THE ROW.
+     *
+     * The asymmetry with the pass below is deliberate and is the reason these
+     * are two blocks rather than one. A projection pass that cannot reach its
+     * database must SAY so — a workspace sitting at "Preparing" with nothing
+     * to explain why is the bug that whole path exists to close. A search must
+     * do the opposite: somebody typed a word, and a deployment whose
+     * Cloudflare credential is missing must not have their search flip a
+     * provisioning row to `failed` as a side effect. It falls through to the
+     * R2 index, which is what every context without fast search does anyway.
+     */
+    if (args.operation.kind === "search") {
+      const target = await projectionTarget("ready");
+      if (target !== null) projection = await clientFor(target);
+    }
+
+    if (args.operation.kind === "projectIndex") {
+      const target = await projectionTarget("backfilling");
+      if (target === null) return IDLE_PROJECTION;
+
       try {
-        if (
-          typeof apiToken !== "string" ||
-          apiToken.length === 0 ||
-          typeof accountId !== "string" ||
-          accountId.length === 0
-        ) {
-          // Both or neither, as `provisionIndex` reads them: a half-configured
-          // deployment is two error states with one cure.
-          throw new Error("no D1 credential");
-        }
-        projection = createD1Client(
-          {
-            databaseId: target.databaseId,
-            accountId,
-            apiToken,
-            state: target.state,
-          },
-          // No `fetchImpl`: the client resolves `globalThis.fetch` per call
-          // and carries its own deadline. Handing it `timeoutFetch` would
-          // *replace* the abort signal it sets with a longer one, quietly
-          // disabling the timeout it thinks it has.
-        ) as ProjectionClient;
+        projection = await clientFor(target);
+        if (projection === null) throw new Error("no D1 credential");
       } catch {
         // A deployment nobody has configured is an ordinary state, and the row
         // has to say so: left `backfilling`, it is a person watching a counter
@@ -821,8 +868,8 @@ export async function executeOperation(
   operation: FileOperation,
   now: number = Date.now(),
   /**
-   * This context's search database, for a `projectIndex` pass and nothing
-   * else.
+   * This context's search database, for a `projectIndex` pass and for a
+   * `search` to read.
    *
    * Passed in rather than built here for the same reason the store is: the
    * credential it is made from belongs to the barrier above, and this function
@@ -843,11 +890,11 @@ export async function executeOperation(
         return { kind: "file", ...file };
       }
       case "search": {
-        const results = await searchNotes(store, {
-          query: operation.query,
-          prefix: operation.prefix,
-          scope,
-        });
+        const results = await searchNotes(
+          store,
+          { query: operation.query, prefix: operation.prefix, scope },
+          projection,
+        );
         return { kind: "searchResults", ...results };
       }
       case "projectIndex": {

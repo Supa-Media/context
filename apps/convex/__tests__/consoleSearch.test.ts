@@ -25,9 +25,11 @@
 
 import { describe, expect, test } from "vitest";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
+import { stubD1, type StubD1 } from "./searchBackfill.helpers";
 import {
   type FileStore,
   maintainSearchIndex,
+  projectSearchIndex,
   searchNotes,
   setFolderVisibility,
   setVisibility,
@@ -80,6 +82,211 @@ async function settled(
   }
   return searchNotes(store, options);
 }
+
+/**
+ * The bucket, indexed, and then copied into a projection that can answer.
+ *
+ * Both indexes really built: the projection's census is the R2 index's own
+ * docmap, so there is no way to fill one without the other. What the tests
+ * below then do — and it is the whole trick — is DELETE the R2 index
+ * afterwards. A search that still answers can only have been answered by the
+ * projection, which no assertion about paths or counts could establish, because
+ * both indexes hold the same notes and would return the same ones.
+ */
+async function projected(store: MemoryStore & FileStore): Promise<StubD1> {
+  for (let pass = 0; pass < 10; pass += 1) {
+    const maintained = await maintainSearchIndex(store);
+    if (maintained.complete) break;
+  }
+  const stub = stubD1();
+  for (let pass = 0; pass < 10; pass += 1) {
+    const projection = await projectSearchIndex(store, stub.client);
+    if (projection.ready) break;
+  }
+  return stub;
+}
+
+/** Remove the R2 index, so only a projection can answer. */
+function forgetR2Index(store: MemoryStore & FileStore): void {
+  for (const key of Object.keys(store.snapshot())) {
+    if (key.startsWith(".index/")) store.objects.delete(key);
+  }
+}
+
+describe("the console's search, out of the projection", () => {
+  test("answers from the projection when the R2 index is gone", async () => {
+    const store = bucket();
+    const stub = await projected(store);
+
+    // Non-vacuity, and it is the assertion doing the work: with the R2 index
+    // deleted and no projection passed, the console has nothing to answer
+    // from and says so. Anything the next call returns came from D1.
+    forgetR2Index(store);
+    const withoutProjection = await searchNotes(store, {
+      query: "quokkaplan",
+      scope: "private",
+    });
+    expect(withoutProjection.indexMissing).toBe(true);
+    expect(withoutProjection.hits).toEqual([]);
+
+    const fast = await searchNotes(
+      store,
+      { query: "quokkaplan", scope: "private" },
+      stub.client,
+    );
+    expect(fast.indexMissing).toBe(false);
+    expect(fast.hits.map((hit) => hit.path).sort()).toEqual([
+      "1-projects/shared-plan.md",
+      "2-areas/health.md",
+    ]);
+  });
+
+  test("a team caller cannot read a private note through the projection", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    const stub = await projected(store);
+    forgetR2Index(store);
+
+    // The owner finds it, so the projection really holds the word — without
+    // this the assertion below passes against a projection that holds nothing.
+    const asOwner = await searchNotes(
+      store,
+      { query: "wallabyrate", scope: "private" },
+      stub.client,
+    );
+    expect(asOwner.hits.map((hit) => hit.path)).toEqual(["1-projects/pay.md"]);
+
+    const asTeam = await searchNotes(
+      store,
+      { query: "wallabyrate", scope: "team" },
+      stub.client,
+    );
+    expect(asTeam.hits).toEqual([]);
+    // Not a path, not a snippet, and not a count either — the count is taken
+    // after the filter, so it cannot report how many notes a caller may not
+    // see match their word.
+    expect(asTeam.matchCount).toBe(0);
+    expect(JSON.stringify(asTeam)).not.toContain("pay.md");
+    expect(JSON.stringify(asTeam)).not.toContain("confidential");
+  });
+
+  test("a miss falls through to the R2 index rather than reporting absence", async () => {
+    const store = bucket();
+    const stub = await projected(store);
+    // A note that exists and is indexed in R2 but whose row is gone from the
+    // projection — a projection that is behind, was rebuilt, or lost a row.
+    await stub.client.query("DELETE FROM notes_private_fts WHERE path = ?", [
+      "2-areas/health.md",
+    ]);
+    await stub.client.query("DELETE FROM notes_private_fts WHERE path = ?", [
+      "1-projects/shared-plan.md",
+    ]);
+
+    const found = await searchNotes(
+      store,
+      { query: "quokkaplan", scope: "private" },
+      stub.client,
+    );
+    expect(found.indexMissing).toBe(false);
+    expect(found.hits.map((hit) => hit.path).sort()).toEqual([
+      "1-projects/shared-plan.md",
+      "2-areas/health.md",
+    ]);
+  });
+
+  test("a refused projection leaves a working search", async () => {
+    const store = bucket();
+    const stub = await projected(store);
+    stub.fail = "UNAUTHORIZED";
+
+    const found = await searchNotes(
+      store,
+      { query: "quokkaplan", scope: "private" },
+      stub.client,
+    );
+    expect(found.hits.map((hit) => hit.path).sort()).toEqual([
+      "1-projects/shared-plan.md",
+      "2-areas/health.md",
+    ]);
+  });
+
+  /**
+   * THE STALE TIER, WHICH IS THE ONLY THING THE FILTER IS FOR.
+   *
+   * A team caller queries the team table alone, so a note that was projected
+   * `private` is not in the candidate set and no filter is needed to keep it
+   * out — which is why removing `canSee` from the shared answer reddened
+   * NOTHING until this test existed. The window it actually closes is the
+   * other one: a note projected at `team`, then made private, whose team-tier
+   * rows survive until the next backfill pass moves them.
+   *
+   * Two notes carry the word on purpose. One is genuinely visible, so the
+   * answer is not empty and the count is not zero — which is what lets the
+   * same fixture prove the count is taken AFTER the filter. Counting the
+   * candidates would tell a team member that two notes match when they may
+   * read one, and the second is the one they were denied.
+   */
+  test("a note made private since it was projected is not readable, and is not counted", async () => {
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
+    store.seed("index.md", "# Context\n");
+    store.seed("1-projects/README.md", "# Projects\n");
+    store.seed("1-projects/open.md", "# Open\n\nThe quollmemo is shared.\n");
+    store.seed("1-projects/sealed.md", "# Sealed\n\nThe quollmemo is not.\n");
+    await setFolderVisibility(store, {
+      path: "1-projects",
+      visibility: "team",
+      scope: "private",
+    });
+
+    const stub = await projected(store);
+    expect(stub.chunksIn("team", "1-projects/sealed.md")).toBeGreaterThan(0);
+
+    // A team caller sees both while both are team notes — the non-vacuity for
+    // everything below.
+    const before = await searchNotes(
+      store,
+      { query: "quollmemo", scope: "team" },
+      stub.client,
+    );
+    expect(before.hits.map((hit) => hit.path).sort()).toEqual([
+      "1-projects/open.md",
+      "1-projects/sealed.md",
+    ]);
+
+    // Made private in the live manifest, and NOT re-projected: the team-tier
+    // rows are still there, which is the state this is about.
+    await setVisibility(store, {
+      path: "1-projects/sealed.md",
+      visibility: "private",
+      scope: "private",
+    });
+    expect(stub.chunksIn("team", "1-projects/sealed.md")).toBeGreaterThan(0);
+
+    forgetR2Index(store);
+    const after = await searchNotes(
+      store,
+      { query: "quollmemo", scope: "team" },
+      stub.client,
+    );
+    expect(after.hits.map((hit) => hit.path)).toEqual(["1-projects/open.md"]);
+    expect(after.matchCount).toBe(1);
+    expect(JSON.stringify(after)).not.toContain("sealed.md");
+  });
+
+  test("a search never writes to the projection", async () => {
+    const store = bucket();
+    const stub = await projected(store);
+    forgetR2Index(store);
+    stub.writes.length = 0;
+
+    await searchNotes(store, { query: "quokkaplan", scope: "private" }, stub.client);
+    // A read that mutates the projection is a read that can corrupt what the
+    // next search sees, and — one layer up in `runFileOperation` — a search
+    // that can flip a provisioning row to `failed` as a side effect.
+    expect(stub.writes).toEqual([]);
+  });
+});
 
 describe("the console's search", () => {
   test("finds a note by its contents, not by its filename", async () => {

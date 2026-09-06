@@ -69,6 +69,7 @@ import { indexByName, rewriteLinks } from "@context/shared/src/links";
 import { createSearchBudget } from "../../../mcp/src/search/maintain.js";
 import { syncShardedIndex } from "../../../mcp/src/search/shards.js";
 import { searchIndexedNotes } from "../../../mcp/src/search/visible.js";
+import { answerFromProjection } from "../../../mcp/src/search/d1/serve.js";
 // The projection, on the same terms. `projectPass`, `loadCensus` and
 // `progressFrom` take a store, a census, a `visibilityOf` and a budget and
 // know nothing about a gateway request — which is what makes the control
@@ -2781,6 +2782,28 @@ export interface SearchResults {
  * notes it is quoting. `searchContext` schedules `maintainSearchIndex` behind
  * the answer when the answer says the index is behind.
  *
+ * ## And the projection first, where this context has a complete one
+ *
+ * `answerFromProjection` is imported for exactly the reason `searchIndexedNotes`
+ * is, and it is the same rule: everything below the D1 query is a privacy
+ * boundary — which rows a caller keeps, whether the count is taken before or
+ * after that filter, whether an empty result is an answer — and a second copy
+ * of those decisions in this file would be a second place for each of them to
+ * be wrong. What is injected is this runtime's own `canSee`, bound to the
+ * caller's scope, exactly as it is into `searchIndexedNotes` below.
+ *
+ * `null` from it means **not answered** and never "no results": a projection
+ * is a disposable derivative that can be behind, and reporting its silence as
+ * an empty context is the failure this whole surface is built to avoid. So a
+ * miss costs the R2 answer as well and the person waits what they waited
+ * before; only a hit is fast. That is what makes it safe to consult on every
+ * search rather than behind a second switch.
+ *
+ * `projection` is `null` unless the caller opened one, which it does only for
+ * a row the control plane calls `ready` — the same gate the gateway applies,
+ * because a projection that is still filling answers a query about a note it
+ * has not copied with a silence this path would read as a miss.
+ *
  * The one exception is `refreshOnMiss`, and it is the reason a member's search
  * can still cause a write under `.index/` whatever their role — worth saying
  * out loud beside a module whose every other write is gated on `canEdit`. It is
@@ -2793,6 +2816,7 @@ export interface SearchResults {
 export async function searchNotes(
   store: FileStore,
   options: { query: string; prefix?: string; scope: Scope; budget?: number },
+  projection: ProjectionClient | null = null,
 ): Promise<SearchResults> {
   const query = options.query.trim();
   if (query === "") {
@@ -2814,8 +2838,48 @@ export async function searchNotes(
     throw notFound();
   }
 
+  const isVisible = (path: string) =>
+    canSee(path, options.scope, state.rules, state.overrides);
+
+  if (projection !== null) {
+    try {
+      const fast = await answerFromProjection(projection, {
+        query,
+        prefix: folder,
+        tier: options.scope,
+        isVisible,
+      });
+      if (fast) {
+        return {
+          hits: fast.hits.map((hit: { key: string; title: string; snippets: string[] }) => ({
+            path: hit.key,
+            title: hit.title,
+            snippets: hit.snippets,
+          })),
+          matchCount: fast.matchCount,
+          matchCountIsFloor: fast.matchCountIsFloor,
+          // The projection is filled from the R2 index's own docmap, so a note
+          // that index has not reached is a note the projection cannot hold
+          // either. Reading the manifest to say so would cost the object read
+          // this path exists to avoid, and the answer it would give is the one
+          // the caller gets on its next miss anyway — so this reports what it
+          // knows, which is that the answer came from a complete projection.
+          indexIncomplete: false,
+          indexMissing: false,
+        };
+      }
+    } catch {
+      // Every D1 failure is one of `d1/client.js`'s closed-set codes, and none
+      // is a reason to fail a search somebody is watching a spinner for: the
+      // R2 index answers below exactly as it does with fast search off. A bare
+      // catch also swallows a bug in this block, which is the honest cost of
+      // that rule — the alternative is a console search that fails outright
+      // when it had a good answer one call away.
+    }
+  }
+
   const found = await searchIndexedNotes(store as unknown as SearchStore, {
-    isVisible: (path: string) => canSee(path, options.scope, state.rules, state.overrides),
+    isVisible,
     isIndexable: (key: string) => key.endsWith(".md") && !isPlumbing(key),
     query,
     prefix: folder,
