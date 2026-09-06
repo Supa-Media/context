@@ -199,18 +199,26 @@ export function createConvexGateway(options: ConvexGatewayOptions): MeetingsGate
       const workspaceId = options.resolveWorkspaceId(to?.contextSlug ?? null);
       if (workspaceId === null) {
         /*
-          The context this meeting was addressed to is not one this account can
-          reach — a membership that went away, or a list that has not landed
-          yet. `unavailable` rather than `invalid`, so it is retried when the
-          list arrives instead of being parked forever on a race.
+          `unavailable` rather than `invalid` on both branches, so it is retried
+          when the answer changes instead of being parked forever on a race —
+          and on both branches the answer really can change: a workspace list
+          that has not landed yet, a membership restored, an @name claimed.
 
-          It does not quote the slug back. A refusal that echoes what it was
-          sent is a reflection, which is `normalizeMeetingFolder`'s rule one
-          field over.
+          **Two sentences, because they are two situations.** A meeting
+          addressed to a context this account cannot reach is a membership
+          question. A meeting addressed to nothing that resolves to nothing is
+          somebody who has not claimed an @name — there is no context in that
+          story, and naming one tells them about a thing they never chose.
+
+          Neither quotes the slug back. A refusal that echoes what it was sent
+          is a reflection, which is `normalizeMeetingFolder`'s rule one field
+          over.
         */
         throw new MeetingGatewayError(
           ERRORS.unavailable,
-          "This device has not opened the context this meeting is going to, so it is being kept here.",
+          to === null
+            ? MEETING_WRITE_SENTENCES.noBrainYet
+            : MEETING_WRITE_SENTENCES.unknownContext,
         );
       }
 
@@ -260,8 +268,8 @@ export function createConvexGateway(options: ConvexGatewayOptions): MeetingsGate
       }
 
       try {
-        const written = await options.writeNote({ workspaceId, path, text });
-        return finalAck(session, written.path);
+        const landed = await options.writeNote({ workspaceId, path, text });
+        return finalAck(session, landed.path);
       } catch (error) {
         if (toFileError(error).code === "CONFLICT") {
           /*
@@ -365,6 +373,12 @@ function notePathFor(session: MeetingSession, to: MeetingAddress): string {
  */
 export const MEETING_WRITE_SENTENCES = {
   unreachable: "Your context could not be reached, so the meeting is being kept here.",
+  /** The destination named a context this account cannot reach. */
+  unknownContext:
+    "This device has not opened the context this meeting is going to, so it is being kept here.",
+  /** There was no destination, and no brain to fall back to. */
+  noBrainYet:
+    "You have not claimed your @name yet, so there is nowhere for this meeting to go. It is being kept here — claim one and it will be filed.",
   noBucket: "No bucket is connected to that context yet, so the meeting is being kept here.",
   signedOut: "This device is signing back in to your context, so the meeting is being kept here.",
   unreadableFolder:

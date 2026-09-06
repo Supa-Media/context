@@ -321,6 +321,25 @@ describe("a refusal is classified so the queue does the right thing with it", ()
     expect((failure as { message: string }).message).not.toContain("gone");
   });
 
+  test("and somebody with no brain yet is told that, not told about a context", async () => {
+    /*
+      The same `null` from `meetingWorkspaceId` covers two situations and they
+      are not the same sentence. A meeting addressed to `@acme` that this
+      account cannot reach is a membership question. A meeting addressed to
+      *nothing* that resolves to nothing is somebody who has not claimed an
+      @name — there is no context in the story at all, and naming one is telling
+      them about a thing they never chose.
+
+      Both keep the meeting and both retry, which is what makes claiming a name
+      land it on the next drain rather than needing a press.
+    */
+    const { gateway } = writer({}, "");
+    const failure = await gateway.finalize(null, session()).catch((error: unknown) => error);
+    expect((failure as { code: string }).code).toBe(ERRORS.unavailable);
+    expect((failure as { message: string }).message).toBe(MEETING_WRITE_SENTENCES.noBrainYet);
+    expect((failure as { message: string }).message).not.toContain("context this meeting");
+  });
+
   test("a bucket that is not connected keeps the meeting, and says which", async () => {
     const { gateway } = writer({ refuseWith: "STORAGE_NOT_CONNECTED" });
     const failure = await gateway.finalize(null, session()).catch((error: unknown) => error);
