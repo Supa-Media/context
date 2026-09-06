@@ -298,29 +298,73 @@ const INERT = { inert: true } as unknown as { pointerEvents?: undefined };
 /* -------------------------------------------------------------------------- */
 
 export interface AppFrameProps {
-  /** The context switcher, at the leading edge of the top bar. */
-  switcher: ReactNode;
   /**
-   * What the switcher says, as a string — the accessible name of the control
-   * that opens the rail on a phone.
+   * The context switcher, at the leading edge of the top bar. **Pointer
+   * layouts only** — at compact the leading edge is `accountSlot` and the
+   * contexts are `contextStrip`.
    *
-   * Passed rather than derived, because deriving it only works on one of the
-   * two platforms this app ships to. On web the `<button>` takes its name from
-   * its content and the chevron beside it is `aria-hidden`, so "Your context, 3
-   * reachable" is what a screen reader reads. On iOS and Android neither half
-   * holds: `aria-hidden` is destructured by `View` and **not** by `Text`
-   * (`react-native/Libraries/Text/Text.js`), so it is dropped as an unknown
-   * prop, and `RCTRecursiveAccessibilityLabel` concatenates every descendant's
-   * text regardless — VoiceOver would announce "@seyi personal black
-   * down-pointing small triangle".
+   * It used to travel with a `switcherLabel: string`, and that prop is gone
+   * with the control it named. The chip was *pressable* on a phone — it was
+   * how the rail sheet came in — and a pressable's accessible name cannot be
+   * derived from its content on native: `aria-hidden` is destructured by
+   * `View` and not by `Text`, so it is dropped as an unknown prop, and
+   * `RCTRecursiveAccessibilityLabel` concatenates every descendant's text
+   * regardless — VoiceOver announced "@seyi personal black down-pointing small
+   * triangle". Here the chip is not a control at all, so it has no name to
+   * spell out, and a prop nothing reads is a prop that goes.
    *
-   * Every other glyph in this file sits inside a control that carries an
-   * explicit label, which short-circuits that recursion. This is the first one
-   * that relied on content-derived naming, and it is where the trick fails.
+   * **That rule has not expired, it has moved**: every control on the phone's
+   * top row now carries an explicit `accessibilityLabel` of its own, and
+   * `ContextStrip` states it as one of its three drawing rules. If this slot
+   * ever becomes pressable again, the label comes back with it.
    */
-  switcherLabel?: string;
+  switcher: ReactNode;
   /** Storage chip, avatar — the trailing edge of the top bar. */
   topTrailing?: ReactNode;
+  /**
+   * **Compact only.** Pinned at the leading end of the phone's top row.
+   *
+   * The signed-in identity, and whatever it opens. It used to be the account
+   * block at the foot of the rail sheet, which is where every application puts
+   * it and where nothing on a phone can reach any more — so it comes out to the
+   * one corner of the glass that is always visible.
+   *
+   * Pinned rather than scrolled, and that is the whole reason it is a slot of
+   * its own rather than the first thing in `contextStrip`. A strip long enough
+   * to scroll must not be able to push a person's own identity off the screen,
+   * which is the argument `ConsoleRail` already makes about pinning the account
+   * block above a scrolling list — the same rule, one surface over.
+   *
+   * `layout.accountAvatar` is the size the geometry is budgeted against; the
+   * frame does not impose it, because what goes in here is the caller's.
+   */
+  accountSlot?: ReactNode;
+  /**
+   * **Compact only.** The flexible middle of the phone's top row.
+   *
+   * The contexts. It flexes — it takes what `accountSlot` and the trailing
+   * capsule leave, and it is expected to scroll rather than to grow, because
+   * the capsule holds the controls that act on the note and a navigation row is
+   * not allowed to push them off the glass.
+   *
+   * **`AppFrame` does not know what a context is, or what an account is.** It
+   * lays out slots, exactly as it already does for `switcher` and `topTrailing`
+   * — the frame "knows about geometry and nothing else", which is what lets it
+   * be mounted in a test without a Convex subscription behind it. The scrolling,
+   * the ordering, the fade and the pills belong to whatever is passed in.
+   *
+   * The geometry it is budgeted against, on a 390pt phone:
+   *
+   *     390 − 2 × 12 gutters            = 366
+   *     366 − 34 account − 8 gap        = 324
+   *     324 − 92 capsule − 8 gap        ≈ 232pt for the strip
+   *
+   * where 92 is the trailing capsule holding two `chromeButton` targets inside
+   * `space.x1` of padding. That is the number the strip has to be legible in,
+   * and it is written here rather than in the strip because this file is the one
+   * that decides it.
+   */
+  contextStrip?: ReactNode;
   /** Opens the palette. Renders the search field on web, a button on touch. */
   onSearch?: () => void;
   /**
@@ -371,8 +415,9 @@ export interface AppFrameProps {
 
 export function AppFrame({
   switcher,
-  switcherLabel,
   topTrailing,
+  accountSlot,
+  contextStrip,
   onSearch,
   rail,
   explorer,
@@ -380,7 +425,6 @@ export function AppFrame({
   bottomBar,
   children,
 }: AppFrameProps) {
-  const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -630,80 +674,35 @@ export function AppFrame({
             compact && { paddingTop: insets.top, height: contentInsets.top },
           ]}
         >
-          {regions.drawerToggle ? (
-            /*
-              The toggle sits on the note, not on the panel it opened.
-
-              With a panel in, the leading corner of the glass belongs to that
-              panel — a floating button there lies on top of the tree's first
-              row and hides it. Either panel: the brain switcher comes in from
-              the same edge and covers the same corner. The reference puts it on the sliver of
-              note still showing at the trailing edge, which is also where a
-              thumb reaching past an open panel actually is. `marginLeft: auto`
-              rather than a second absolutely-positioned button, so there is
-              one control that moves rather than two that must agree.
-            */
-            <View
-              style={
-                compact && (state.drawerOpen || state.navOpen) ? styles.toggleOnSliver : null
-              }
-            >
-              <FrameIconButton
-                label={state.drawerOpen ? "Close the file tree" : "Open the file tree"}
-                icon="panelLeft"
-                onPress={toggleExplorer}
-                selected={state.drawerOpen}
-                round={compact}
-                testID="frame-drawer-toggle"
-              />
-            </View>
-          ) : null}
-
           {/*
-            The switcher is the way into the rail on a phone.
+            The phone's top row, in three parts: a pinned account mark, the
+            contexts, and the trailing capsule.
 
-            Not a second `☰` beside the tree's: two identical glyphs in a 390px
-            bar opening two different panels is a coin toss, and one of them
-            does not exist on Map or Connections. The chip already names the
-            scope you are in — "Your context", "@you · personal" — which is
-            exactly what a workspace switcher says, so pressing it to change
-            that scope is the behaviour it was already advertising. Its own
-            text is still the accessible name, spelled out through
-            `switcherLabel` because content-derived naming does not survive the
-            crossing to native.
-          */}
-          {/*
-            Nothing in the middle of a phone's top bar.
+            **Two controls used to be here and both are gone with the panels.**
+            A round drawer toggle at the leading edge pulled the file tree in —
+            and crossed to the sliver of note when it did, so it did not lie on
+            the panel it had opened — and the switcher chip pulled the rail in
+            where no file tree was there to carry it at its foot. `frame.ts`
+            answers `false` to both toggles at every density now, so what is
+            left is not a bar with two buttons and a gap: it is a row of slots,
+            and the middle one is a list.
 
-            The switcher chip used to sit here at every density and it is the
-            band this branch exists to empty: `frame.ts` now answers
-            `navToggle: false` wherever there is a file tree, because the
-            switcher has moved to that tree's footer — Obsidian's vault
-            switcher — and the bar is left with a toggle and one group. On Map
-            and Connections there is no tree to carry it, so the chip is still
-            the way in and is still drawn here.
+            At medium and wide the switcher is unchanged and still the leading
+            element of a real bar with a surface and a hairline.
           */}
-          {!regions.navToggle && compact ? null : regions.navToggle ? (
-            <Pressable
-              onPress={toggleRail}
-              role="button"
-              accessibilityLabel={switcherLabel}
-              aria-expanded={state.navOpen}
-              testID="frame-nav-toggle"
-              style={({ pressed }) => [
-                styles.topLead,
-                styles.navToggle,
-                compact && styles.navToggleCompact,
-                pressed && compact && styles.navTogglePressed,
-              ]}
-            >
-              {switcher}
-              <Icon
-                name={state.navOpen ? "chevronUp" : "chevronDown"}
-                size={14}
-                color={colors.muted}
-              />
-            </Pressable>
+          {compact ? (
+            <>
+              {accountSlot == null ? null : (
+                /*
+                  Pinned, and first. It does not scroll with the strip beside
+                  it — see the prop — and it is not inside the strip's own
+                  scroller, so a long list of contexts can never push a
+                  person's identity off the leading edge of the glass.
+                */
+                <View style={styles.accountLead}>{accountSlot}</View>
+              )}
+              {contextStrip}
+            </>
           ) : (
             <View style={styles.topLead}>{switcher}</View>
           )}
@@ -1197,8 +1196,15 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     backgroundColor: "transparent",
   },
   topLead: { flexDirection: "row", alignItems: "center", gap: space.x2, minWidth: 0 },
-  /** See the drawer toggle: the control crosses to the sliver of note. */
-  toggleOnSliver: { marginLeft: "auto" },
+  /**
+   * The account mark, pinned at the leading end of a phone's top row.
+   *
+   * `flexShrink: 0` is the pin: it is the first child of a row whose second
+   * child is a list, and a flex child that may shrink is one the list squeezes
+   * the moment somebody joins a fourth workspace. The strip is what gives way,
+   * because the strip is what scrolls.
+   */
+  accountLead: { flexGrow: 0, flexShrink: 0 },
   topTrail: {
     marginLeft: "auto",
     flexDirection: "row",
