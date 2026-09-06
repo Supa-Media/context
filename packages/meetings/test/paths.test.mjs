@@ -18,8 +18,10 @@
  * - They assert the *whole* key against a literal, so a prefix cannot be added
  *   without a test turning red.
  *
- * The one legitimate prefix is `root` — a folder the customer themselves chose
- * at connect time, passed in by the caller, applied at this boundary only.
+ * Two prefixes are legitimate and neither is derived from anything: `root`, a
+ * folder the customer themselves chose at connect time, and `folder`, the
+ * destination a person picked on the device for *this* meeting. Both are passed
+ * in by the caller and applied at this boundary only.
  *
  * ## Sabotage record
  *
@@ -37,14 +39,44 @@
  * `getFullYear` and `getUTCFullYear` agree and a local-time bug is invisible.
  * The check now moves `process.env.TZ` to UTC+14 and back, which is the only
  * way the assertion means anything on a machine whose clock already agrees.
+ *
+ * ### …and for the folder a person chose
+ *
+ *   a refused folder silently becoming the default inside the builder        17
+ *   the date folders flattened away under the chosen folder                  15
+ *   the chosen folder replacing only the head, so `meetings/` is appended     13
+ *   the dot-prefixed (plumbing) refusal dropped                               4
+ *   `normalizeMeetingFolder` trimming for itself instead of calling
+ *     `normalizeRoot`                                                         3
+ *   `isMeetingNotePath` ignoring the folder, so the pair disagree again       1
+ *   the refusal quoting the folder it was sent                                1
+ *   the length bound dropped                                                  1
+ *
+ * Two of those rows are worth reading rather than counting. The **17** is the
+ * defect this whole change is about arriving one layer down: a builder that
+ * "helpfully" corrects a folder it does not like is the same silent wrong
+ * destination, so the refusal has to be visible to the caller and the caller
+ * decides what a person is told. And the **1** against `isMeetingNotePath` is
+ * the point of that check: only the agreement property notices, because every
+ * other check in the section is about the default folder, which the sabotaged
+ * version still gets right.
+ *
+ * The `normalizeRoot` row is a **3 and not a 7**, and that is honest rather
+ * than weak: with the delegation removed, `../..` is still refused — by the
+ * dot-prefix rule one line down, which `..` also matches. The traversal
+ * refusal is genuinely doubled, and what the 3 measures is the part only
+ * `normalizeRoot` does: backslashes, the empty prefix, and normalizing
+ * separators.
  */
 
 import {
+  MAX_FOLDER_LENGTH,
   MAX_SLUG_LENGTH,
   MEETINGS_FOLDER,
   SLUG_FALLBACK,
   isMeetingNotePath,
   meetingNotePath,
+  normalizeMeetingFolder,
   normalizeRoot,
   shortMeetingId,
   slugifyTitle,
@@ -198,6 +230,122 @@ export function runPathChecks(check) {
   check("a backslash in a root is refused", attempt(() => normalizeRoot("vault\\notes")).threw);
   check("a non-string root is refused", attempt(() => normalizeRoot(42)).threw);
 
+  /* ------------------- the folder the person chose ---------------------- */
+
+  /*
+    A phone can ask where a meeting's notes should go. What arrives is a folder,
+    and the three things it has to be are: honoured, byte-for-byte absent when
+    nobody chose one, and refused when it is not a folder this package will file
+    into.
+  */
+
+  check(
+    "no folder at all is exactly what it was before",
+    meetingNotePath(session(), {}) === meetingNotePath(session()) &&
+      meetingNotePath(session(), { folder: undefined }) === "0-inbox/meetings/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md"
+  );
+  check(
+    "a chosen folder replaces the whole default, and keeps the date folders under it",
+    meetingNotePath(session(), { folder: "2-areas/team" }) ===
+      "2-areas/team/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md"
+  );
+  check(
+    "...so it does not grow a `meetings` segment the person never asked for",
+    !meetingNotePath(session(), { folder: "2-areas/team" }).split("/").includes("meetings")
+  );
+  check(
+    "...and the filename is the same filename, so the same session is the same note",
+    meetingNotePath(session(), { folder: "2-areas/team" }).split("/").pop() ===
+      meetingNotePath(session()).split("/").pop()
+  );
+  check(
+    "the customer's own root still goes in front of a chosen folder",
+    meetingNotePath(session(), { root: "vault", folder: "2-areas" }) ===
+      "vault/2-areas/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md"
+  );
+  check(
+    "a chosen folder is normalized the way a root is",
+    meetingNotePath(session(), { folder: " /2-areas//team/ " }) ===
+      "2-areas/team/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md"
+  );
+  check(
+    "a folder still cannot namespace by tenant, because nothing derives one",
+    meetingNotePath(tenanted, { folder: "2-areas" }) === meetingNotePath(session(), { folder: "2-areas" })
+  );
+
+  /* ------------------- and the folders it will not take ------------------ */
+
+  check("no folder means the default", normalizeMeetingFolder(undefined) === MEETINGS_FOLDER);
+  check("...and so does an explicit null, which is what a JSON body sends", normalizeMeetingFolder(null) === MEETINGS_FOLDER);
+  check("a folder comes back without a trailing slash", normalizeMeetingFolder("2-areas/team/") === "2-areas/team");
+  check("a folder that traverses is refused", normalizeMeetingFolder("../../etc") === null);
+  check("...including in the middle", normalizeMeetingFolder("2-areas/../../etc") === null);
+  check("...and a lone dot segment", normalizeMeetingFolder("2-areas/./team") === null);
+  check("a backslash is refused", normalizeMeetingFolder("2-areas\\team") === null);
+  check("a non-string is refused", normalizeMeetingFolder(42) === null);
+  check("...including one that looks like a folder", normalizeMeetingFolder(["2-areas"]) === null);
+  check(
+    "an empty folder is refused rather than filing a meeting at the bucket root",
+    normalizeMeetingFolder("") === null && normalizeMeetingFolder("   ") === null && normalizeMeetingFolder("/") === null
+  );
+  /*
+    `isPlumbing` in the gateway hides every dot-prefixed segment from every tool
+    at every tier, the owner's included. A meeting filed under one would be
+    invisible to the person who recorded it and still on their storage bill,
+    which is the same shape as the `.meetings/` growth `MAX_SEGMENT_ID_CHARS`
+    was added to close.
+  */
+  check("a dot-prefixed folder is refused, because plumbing is invisible to its owner", normalizeMeetingFolder(".meetings") === null);
+  check("...at any depth", normalizeMeetingFolder("2-areas/.git") === null);
+  check("...including the search index's own home", normalizeMeetingFolder(".index/v2") === null);
+  check("a folder that is a note is refused", normalizeMeetingFolder("2-areas/overview.md") === null);
+  check("...whatever its case", normalizeMeetingFolder("2-areas/overview.MD") === null);
+  check(
+    "a control character is refused, because this string reaches a listing and an audit row",
+    normalizeMeetingFolder("2-areas/te\nam") === null &&
+      normalizeMeetingFolder("2-areas/te\u0000am") === null
+  );
+  /*
+    And a space is NOT refused. An allowlist tight enough to be obviously safe
+    would refuse `2 Areas/Team notes`, which is a folder a real vault has — and a
+    refusal here falls back to the inbox, so an over-tight rule rebuilds the
+    exact defect this change exists to close: a control that appears to work
+    and files the note somewhere else.
+  */
+  check(
+    "a folder a real vault would have is not refused",
+    normalizeMeetingFolder("2 Areas/Team notes") === "2 Areas/Team notes"
+  );
+  check(
+    "...in somebody's own language",
+    normalizeMeetingFolder("2-areas/réunions") === "2-areas/réunions"
+  );
+  check("a folder at the length bound is accepted", normalizeMeetingFolder("a".repeat(MAX_FOLDER_LENGTH)) === "a".repeat(MAX_FOLDER_LENGTH));
+  check("one character over it is refused", normalizeMeetingFolder("a".repeat(MAX_FOLDER_LENGTH + 1)) === null);
+
+  check(
+    "a folder this package will not file into is refused, not quietly corrected",
+    attempt(() => meetingNotePath(session(), { folder: "../../etc" })).threw
+  );
+  /*
+    The refusal never quotes the value. `normalizeRoot` does — reasonably, for a
+    prefix the customer typed into their own binding — but this one arrives from
+    a client, and a message that echoes what was sent is how a refusal becomes a
+    reflection (see `INVALID_CHUNK_ID` in docs/decisions/meetings.md).
+  */
+  check(
+    "...and the refusal does not read the value back to whoever sent it",
+    (() => {
+      const secret = "../../etc/passwd-shaped-thing";
+      const { threw, error } = attempt(() => meetingNotePath(session(), { folder: secret }));
+      return threw && !String(error?.message ?? error).includes("passwd-shaped-thing");
+    })()
+  );
+  check(
+    "...and nothing is filed in the meantime",
+    attempt(() => meetingNotePath(session(), { folder: ".index" })).value === undefined
+  );
+
   /* ---------------------------- recognising ----------------------------- */
 
   check("a key we wrote is recognised", isMeetingNotePath(meetingNotePath(session())));
@@ -206,4 +354,36 @@ export function runPathChecks(check) {
   check("an ordinary note is not a meeting note", !isMeetingNotePath("1-projects/portable/overview.md"));
   check("a file loose in the meetings folder is not one either", !isMeetingNotePath("0-inbox/meetings/notes.md"));
   check("a non-string is not one, and does not throw", !isMeetingNotePath(null));
+
+  /*
+    THE TWO FUNCTIONS MAY NOT DISAGREE.
+
+    `isMeetingNotePath` is what `list_meetings` uses to recognise a meeting off
+    the bucket rather than out of an index. It answers "is this the shape this
+    module writes into *that* folder" — it is not, and cannot be, a global
+    oracle for "is this a meeting", because nothing records which folder a
+    meeting was filed into and a dated note in somebody's own folder is not a
+    meeting. So the property under test is agreement: hand both functions the
+    same options and the recogniser answers true for the builder's own key.
+  */
+  const folders = [undefined, "2-areas/team", "1-projects", "0-inbox/meetings"];
+  const roots = [undefined, "vault"];
+  check(
+    "the recogniser answers true for every key the builder makes, on the same options",
+    folders.every((folder) =>
+      roots.every((root) => isMeetingNotePath(meetingNotePath(session(), { folder, root }), { folder, root }))
+    )
+  );
+  check(
+    "...and does not claim one filed somewhere else",
+    !isMeetingNotePath(meetingNotePath(session(), { folder: "2-areas/team" }))
+  );
+  check(
+    "...nor one under a folder that merely starts the same way",
+    !isMeetingNotePath(meetingNotePath(session(), { folder: "2-areas/team-offsite" }), { folder: "2-areas/team" })
+  );
+  check(
+    "a folder the builder refuses recognises nothing either",
+    !isMeetingNotePath("../etc/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md", { folder: "../etc" })
+  );
 }
