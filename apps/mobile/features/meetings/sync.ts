@@ -126,8 +126,16 @@ async function sendOne(
 
   for (const step of pendingSteps(record)) {
     try {
-      const events = await run(current, step, deps);
+      const { events, folderRejected } = await run(current, step, deps);
       current = ackStep(current, step, deps.now());
+      /*
+        Carried on the record rather than folded as an event, because it is not
+        one: the contract's events are things a client observed about the
+        meeting, and this is the gateway answering a question about the
+        *request*. It sits beside `acked` for the same reason `acked` is there —
+        this device's knowledge of a call it made.
+      */
+      if (folderRejected) current = { ...current, folderRejected: true };
       if (events.length > 0) deps.onEvents?.(current.session.id, events);
     } catch (error) {
       const outcome = classifySyncFailure(asGatewayError(error));
@@ -152,34 +160,46 @@ async function sendOne(
  * something the client did not already know — where the note landed in the
  * customer's bucket. Everything else is an acknowledgement, and inventing an
  * event for it would put the same fact in the log twice.
+ *
+ * `folderRejected` comes back beside them rather than as one of them, because
+ * it is not a fact about the meeting. See `sendOne`.
+ *
+ * **Every call is addressed to the record's own destination**, never to the
+ * device's current preference. They are different things kept in different
+ * places for this reason: a meeting finalized after a later one has been
+ * started must go where *it* was sent, and reading what this device last chose
+ * would file it wherever somebody happened to send the meeting after it.
  */
 async function run(
   record: MeetingRecord,
   step: SyncStep,
   deps: DrainDeps,
-): Promise<MeetingEvent[]> {
+): Promise<{ events: MeetingEvent[]; folderRejected?: boolean }> {
   const id = record.session.id;
+  const to = record.destination;
   if (step.kind === "session") {
-    await deps.gateway.putSession(record.session);
-    return [];
+    await deps.gateway.putSession(to, record.session);
+    return { events: [] };
   }
   if (step.kind === "segments") {
-    await deps.gateway.putSegments(id, step.segments);
-    return [];
+    await deps.gateway.putSegments(to, id, step.segments);
+    return { events: [] };
   }
   if (step.kind === "notes") {
-    await deps.gateway.putNotes(id, step.markdown);
-    return [];
+    await deps.gateway.putNotes(to, id, step.markdown);
+    return { events: [] };
   }
 
+  const ack = await deps.gateway.finalize(to, id);
   /*
-    The **record's** destination, never the device's current preference. They
-    are different things kept in different places for this reason: a meeting
-    finalized after a later one has been started must be filed where *it* was
-    sent, and reading what this device last chose would file it wherever
-    somebody happened to send the meeting after it.
+    `IngestAck.folderRejected` says the folder this meeting named is not where
+    the note is — refused as a key, or already claimed by an earlier finalize.
+    The contract's own note on the field says why reading it is not optional:
+    "without it the destination control would be back to appearing to work and
+    doing nothing". It was set by the gateway and read by nobody, so a person
+    who picked a folder and got the inbox was told nothing at all.
   */
-  const ack = await deps.gateway.finalize(id, record.destination);
+  const folderRejected = ack.folderRejected === true;
   if (ack.notePath === null) {
     /*
       Finalize accepted but no path came back. That is the gateway saying "I
@@ -188,9 +208,9 @@ async function run(
       next drain asks again, and `pendingSteps` will not re-finalize because
       `acked.finalized` is now true, so the answer arrives through the list.
     */
-    return [];
+    return { events: [], folderRejected };
   }
-  return [{ type: "written", notePath: ack.notePath }];
+  return { events: [{ type: "written", notePath: ack.notePath }], folderRejected };
 }
 
 function asGatewayError(error: unknown): { code: string; message: string } {

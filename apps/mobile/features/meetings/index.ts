@@ -105,6 +105,7 @@ export {
   gatewayOriginFrom,
   MeetingGatewayError,
   GATEWAY_TIMEOUT_MS,
+  type MeetingAddress,
   type MeetingsGateway,
 } from "./gateway";
 export { fakeGateway, type FakeGateway } from "./fakeGateway";

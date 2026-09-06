@@ -43,6 +43,16 @@ export interface FakeGateway extends MeetingsGateway {
 export function fakeGateway(
   options: {
     notePathFor?: (session: MeetingSession, destination: MeetingDestination | null) => string;
+    /**
+     * A folder this fake will not file into, so a test can drive the fallback.
+     *
+     * The real gateway's rule is `normalizeMeetingFolder`'s and is not restated
+     * here — a fake with its own copy of it would be a second specification of
+     * a decision this app does not own. What a test needs is the *shape*: a
+     * folder refused, the note filed at the default, and `folderRejected` on
+     * the ack.
+     */
+    refusesFolder?: (folder: string) => boolean;
   } = {},
 ): FakeGateway {
   const held = new Map<string, MeetingSession>();
@@ -97,12 +107,21 @@ export function fakeGateway(
     return session;
   }
 
-  function ack(session: MeetingSession): IngestAck {
+  /** Whether a note this fake wrote sits inside a folder. See `notePathFor`. */
+  function filedUnder(notePath: string | null, folder: string): boolean {
+    if (notePath === null) return false;
+    return folder === "" ? true : notePath.startsWith(`${folder}/`);
+  }
+
+  function ack(session: MeetingSession, folderRejected = false): IngestAck {
     return {
       sessionId: session.id,
       state: session.state,
       segmentCount: segments.get(session.id)?.size ?? 0,
       notePath: session.notePath,
+      // Present only when it happened, exactly as the contract says. A fake
+      // that always sent `false` would let a client that never reads it pass.
+      ...(folderRejected ? { folderRejected: true } : {}),
       /*
         A bucket that honours a conditional write, because that is the ordinary
         case and a fake that reported the degraded one everywhere would make
@@ -147,7 +166,7 @@ export function fakeGateway(
     },
     notesWritten: () => written,
 
-    async putSession(session) {
+    async putSession(_to, session) {
       gate("session");
       /*
         Upsert: the id is the identity, and a second write of the same id is the
@@ -170,7 +189,7 @@ export function fakeGateway(
       return ack(next);
     },
 
-    async putSegments(sessionId, incoming) {
+    async putSegments(_to, sessionId, incoming) {
       gate("segments");
       const session = require(sessionId);
       const bucket = segments.get(sessionId) ?? new Map<string, TranscriptSegment>();
@@ -182,7 +201,7 @@ export function fakeGateway(
       return ack(session);
     },
 
-    async putNotes(sessionId, markdown) {
+    async putNotes(_to, sessionId, markdown) {
       gate("notes");
       const session = require(sessionId);
       const next = { ...session, notes: markdown };
@@ -190,24 +209,28 @@ export function fakeGateway(
       return ack(next);
     },
 
-    async finalize(sessionId, destination) {
+    async finalize(to, sessionId) {
       gate("finalize");
       const session = require(sessionId);
       if (session.state === "complete" && session.notePath !== null) {
         // Already written. The path it already wrote, and no second note.
         // Deliberately before the destination is read: a re-finalize with a
         // different folder rewrites one note, it does not move or fork one.
-        return ack(session);
+        // It still says so when this request named somewhere else, which is
+        // what the real gateway does: `folderRejected` means "the folder you
+        // named is not where this note is", not "your string was malformed".
+        return ack(session, to !== null && !filedUnder(session.notePath, to.folder));
       }
+      const refused = to !== null && (options.refusesFolder?.(to.folder) ?? false);
       written += 1;
       const next: MeetingSession = {
         ...session,
         state: "complete",
-        notePath: notePathFor(session, destination),
+        notePath: notePathFor(session, refused ? null : to),
         enhanced: session.enhanced ?? enhancedFrom(session),
       };
       held.set(sessionId, next);
-      return ack(next);
+      return ack(next, refused);
     },
 
     async list() {

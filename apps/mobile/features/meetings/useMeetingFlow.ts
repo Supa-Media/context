@@ -112,14 +112,27 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
   const [open, setOpen] = useState(false);
   const [remembered, setRemembered] = useState<MeetingDestination | null>(null);
   /**
-   * The row somebody has pressed, or `null` for "whatever the resolver says".
+   * The destination somebody has pressed, or `null` for "whatever the resolver
+   * says".
    *
-   * Two values rather than one number seeded from the resolver, because the
-   * resolver's answer changes while the sheet is open — a context list landing,
-   * a page changing underneath — and a seeded number would silently stop
-   * tracking it the moment the sheet was opened.
+   * **A destination and not an index**, and that is the whole of it. The
+   * resolver recomputes its list on every render, from props that change while
+   * the sheet is open — a context list landing, a page moving underneath, a
+   * grant going away. An index into that list is a reference to a row that may
+   * not be the same row a moment later, or may not exist: press the shared
+   * page's row, lose membership of that context, and `offers[1]` is
+   * `undefined` while the selection still says 1. `confirm` then returned
+   * silently, which is the control that is enabled and does nothing that the
+   * head of this file forbids.
+   *
+   * Holding the destination means the resolver can answer "which row is that
+   * now", and it already knows how: `remembered` is exactly that question, and
+   * a press is fed in through the same argument. So one rule decides both — a
+   * choice that is no longer on offer, or that has gone read-only since it was
+   * pressed, falls back to the inbox, and the row drawn as selected is always
+   * the row Start starts.
    */
-  const [pressed, setPressed] = useState<number | null>(null);
+  const [pressed, setPressed] = useState<MeetingDestination | null>(null);
 
   const store = useMemo(() => input.store ?? openStore(), [input.store]);
 
@@ -146,12 +159,17 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
   }, [store]);
 
   const choice = useMemo(
-    () => resolveDestinations({ contexts, page, remembered }),
-    [contexts, page, remembered],
+    () => resolveDestinations({ contexts, page, remembered: pressed ?? remembered }),
+    [contexts, page, pressed, remembered],
   );
 
-  const selectedIndex =
-    pressed ?? (choice.kind === "choose" ? choice.selectedIndex : 0);
+  /*
+    Always a row this list has, because `resolveDestinations` answers with one:
+    the personal inbox is offer zero and `preselect` falls back to it. That is
+    what makes `confirm`'s `offer === undefined` unreachable rather than
+    reachable-and-silent.
+  */
+  const selectedIndex = choice.kind === "choose" ? choice.selectedIndex : 0;
 
   const startMeetingFlow = useCallback(() => {
     setPressed(null);
@@ -166,7 +184,11 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
   const select = useCallback(
     (index: number) => {
       if (choice.kind !== "choose") return;
-      setPressed(chooseOffer(choice.offers, selectedIndex, index));
+      // `chooseOffer` still decides whether the press lands — a refused row
+      // leaves the selection where it was — and what is stored is the row it
+      // settled on rather than the number naming it.
+      const next = choice.offers[chooseOffer(choice.offers, selectedIndex, index)];
+      setPressed(next?.destination ?? null);
     },
     [choice, selectedIndex],
   );
@@ -176,10 +198,10 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
     const offer = choice.offers[selectedIndex];
     /*
       Checked again here rather than trusted from the selection. `chooseOffer`
-      already refuses a refused row, so this is unreachable today — and it is
-      the last gate before somebody's meeting is pointed at a context they
-      cannot write to, which is not a place to rely on an invariant holding one
-      call site away.
+      refuses a refused row and `preselect` falls back off one, so both halves
+      are unreachable today — and this is the last gate before somebody's
+      meeting is pointed at a context they cannot write to, which is not a
+      place to rely on an invariant holding one call site away.
     */
     if (offer === undefined || offer.refusal !== null) return;
     if (blocked !== null) return;

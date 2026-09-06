@@ -97,6 +97,25 @@
  *     does nothing.
  * 19. **The ack reads the refused folder back to whoever sent it** — 1 check
  *     failed.
+ * 20. **`folderRejected` means only "the string was malformed" again**, rather
+ *     than "the folder you named is not where this note is" — 2 checks failed,
+ *     both of them a client that asked for one folder, got another, and was
+ *     answered 200 with nothing said. That is §18's defect surviving in the one
+ *     shape §18 did not cover.
+ * 21. **A claim is never released** (`releaseClaim` returns immediately) — 3
+ *     checks failed: a team connection that named a folder its tier may not
+ *     write stayed parked on that path, so even `finalize {}` was refused
+ *     forever. That is the wedge `body.folder` introduced.
+ * 22. **A claim is released on every failure, transient included** (both guards
+ *     in `releaseClaim` removed) — 4 checks failed, and they are the crash-retry
+ *     property: the retry after a failed note write stopped landing on the path
+ *     the first finalize claimed and wrote a second note. Removing *only* the
+ *     status check fails 1 — `a 503 refusal keeps the claim` — and removing
+ *     *only* the `instanceof` check fails 0, because a thrown storage error
+ *     carries no status either way. That last row is why the release table
+ *     drives `handleMeetings` directly: the two failure shapes that decide this
+ *     were both unreachable from the worker-level fixtures, and a first draft
+ *     of the fix that released on a `MeetingRefusal(503)` went green.
  */
 
 import worker from "../src/index.js";
@@ -111,6 +130,7 @@ import {
   LIMITS,
   MEETING_PREFIX,
   assertSessionWithinLimits,
+  MeetingRefusal,
   conflictSafeWrites,
   writeSession,
 } from "../src/meetings/state.js";
@@ -168,6 +188,10 @@ const SESSION_TEAM_DEFAULT = idOf("v");
 const SESSION_TEAM_ALLOWED = idOf("w");
 /** The same claim window as `SESSION_RECLAIMED`, with the *title* renamed instead. */
 const SESSION_RETITLED = idOf("y");
+/** A team connection naming a folder its tier may not write, in a context whose default it can. */
+const SESSION_WEDGED = idOf("x");
+/** Aimed at a folder with `..` inside a segment: legal to `normalizeRoot`, refused by `normalizePath`. */
+const SESSION_DOTTED = idOf("f");
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
@@ -1698,6 +1722,17 @@ export async function runMeetingChecks(check) {
   );
   check("...writing nothing at the folder the retry named", keysIn(recorder, "1-projects/somewhere-else/").length === 0);
   check("...so the meeting is still exactly one note", keysIn(recorder, "2-areas/team/").length === 1);
+  /*
+    And it SAYS so. Answering 200 with the first note's path and no flag is
+    correct about the meeting and silent about the request: the client asked for
+    `1-projects/somewhere-else` and got `2-areas/team`, which is the same
+    "appears to work and does nothing" the destination control was built to end,
+    one layer down. `folderRejected` is the field for exactly that sentence, so
+    it means "the folder you named is not where this note is" rather than the
+    narrower "the string you sent was malformed".
+  */
+  check("...and the client is told the folder it named is not where the note is", filedAgain.body?.folderRejected === true);
+  check("...without reading its value back", !filedAgain.text.includes("somewhere-else"));
 
   /*
     And the same property through the path that is not a no-op: a first finalize
@@ -1723,6 +1758,14 @@ export async function runMeetingChecks(check) {
   );
   check("...leaving nothing behind at the second folder", keysIn(recorder, "3-resources/").length === 0);
   check("...and exactly one note at the first", keysIn(recorder, "2-areas/archive/").length === 1);
+  /*
+    A *transient* failure keeps the claim, which is the property the claim
+    exists for — and the client is still told that the folder it named on the
+    retry is not where the note went. The two are not in tension: the claim
+    decides where the note goes, the flag says whether the request got what it
+    asked for.
+  */
+  check("...and the retry is told its folder was not the one used", reclaimed.body?.folderRejected === true);
 
   /*
     THE TRAP THE IDEMPOTENCY SECTION NAMES, WHICH NOTHING WAS CHECKING.
@@ -1807,6 +1850,40 @@ export async function runMeetingChecks(check) {
   );
 
   /*
+    `..` INSIDE a segment, which is a different thing from traversal and used to
+    behave like nothing else in this list.
+
+    `normalizeMeetingFolder` delegated to `normalizeRoot`, which refuses a
+    segment that *equals* `.` or `..`. `normalizePath` — the gateway's own rule
+    for a key — refuses `..` anywhere in the string. So `1-projects/foo..bar`
+    passed validation, the claim wrote `1-projects/foo..bar/2026/09/….md` into
+    the session record under a conditional write, and every finalize from then
+    on answered 400 `meeting_invalid`: the code a client does not retry, on a
+    path nothing clears. Only a `null` from the folder validator reaches the
+    fallback above, so this class bypassed it completely — a meeting parked for
+    good over a folder name a real vault could have.
+  */
+  const dottedBefore = keysIn(recorder, "0-inbox/meetings/").length;
+  await openFor(SESSION_DOTTED, "Aimed at a dotted name", "2026-09-06T16:00:00.000Z");
+  const dotted = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_DOTTED}/finalize`, {
+    body: { folder: "1-projects/foo..bar" },
+  });
+  check(
+    "a folder with `..` inside a segment does not wedge the meeting",
+    dotted.status === 200 && dotted.body?.state === "complete"
+  );
+  check(
+    "...it falls back like every other folder this gateway will not file into",
+    dotted.body?.notePath?.startsWith("0-inbox/meetings/") === true &&
+      keysIn(recorder, "0-inbox/meetings/").length === dottedBefore + 1
+  );
+  check("...and the client is told", dotted.body?.folderRejected === true);
+  check(
+    "...with nothing left anywhere at the name it asked for",
+    ![...recorder.keys()].some((key) => key.includes("foo..bar"))
+  );
+
+  /*
     THE TIER IS THE PATH'S, AND A CLIENT-NAMED FOLDER DOES NOT BUY A WIDER ONE.
     `1-projects` defaults to `team` in this context's manifest, so a folder
     argument is now a way to ask for a destination whose folder rule differs
@@ -1858,13 +1935,24 @@ export async function runMeetingChecks(check) {
   );
   check("...and no note is written when it tries", keysIn(recorder, "2-areas/private-by-default/").length === 0);
   /*
-    A second session, not a retry of that one: the refused finalize above has
-    already *claimed* its path, and a claim is deliberately kept across a retry
-    so a crash lands on one note rather than scattering near-duplicates. A team
-    connection that names a destination its tier may not write therefore parks
-    that session on that path — which is the pre-existing behaviour of this
-    route in a context whose default meetings folder is private, not something
-    the folder argument introduces.
+    A second session rather than a retry of that one, because in *this* context
+    the default meetings folder is private as well — so a retry could only be
+    refused again, for a reason that has nothing to do with the folder it named.
+
+    **The claim that refusal leaves behind is released now, and the sentence
+    that used to stand here is corrected rather than dropped.** It said a team
+    connection naming a destination its tier may not write "parks that session
+    on that path", and called that "the pre-existing behaviour of this route
+    ... not something the folder argument introduces". That was false. Before
+    `body.folder` existed a team connection could only ever aim at
+    `MEETINGS_FOLDER`, so in a context whose default folder is team-visible
+    there was no way to wedge at all, and in one whose default is private the
+    very first finalize failed — nothing was lost that the person could
+    otherwise have had. The folder argument is what made a deterministic
+    post-claim refusal reachable in a context that would otherwise work, and a
+    sticky claim is what made it permanent. `SESSION_WEDGED` below is that
+    case, run in the one context in this file whose default folder a team
+    connection *can* write.
   */
   await meetingRequest(env, TOKEN_EDITOR, "/meetings/sessions", {
     body: {
@@ -1890,6 +1978,117 @@ export async function runMeetingChecks(check) {
       "visibility: team"
     )
   );
+
+  /*
+    A REFUSAL THAT WILL NEVER SUCCEED DOES NOT KEEP THE PATH IT CLAIMED.
+
+    `TOKEN_SHARED` is a team connection in a context whose `0-inbox` default is
+    team-visible, so it can finish a meeting — the mainline shared-workspace
+    flow. Point it at a folder its tier may not write and the finalize is
+    refused at the note write, by which time the claim has already reserved
+    that path in the session record. The claim is deliberately sticky across a
+    retry, so the sequence was: `finalize {folder}` → 403, `finalize {folder}`
+    → 403, **`finalize {}` → 403** — a meeting that could be recorded, could be
+    typed into, and could never be written out, over one string the person
+    picked in a sheet.
+
+    The claim exists so that a *retryable* failure lands on the same note. A
+    refusal that will never succeed has written nothing, so holding the path
+    buys nothing and costs the meeting. So a deterministic refusal from the
+    note write releases the claim, and only a deterministic one: the storage
+    failure two blocks up still keeps it, which is what `the retry lands on the
+    path the first finalize claimed` asserts.
+  */
+  await meetingRequest(env, TOKEN_SHARED, "/meetings/sessions", {
+    body: {
+      id: SESSION_WEDGED,
+      title: "Aimed somewhere its tier cannot reach",
+      startedAt: "2026-09-06T17:00:00.000Z",
+      events: [{ type: "start", at: "2026-09-06T17:00:00.000Z" }],
+    },
+  });
+  const shared = s3.bucketFor("meet-shared");
+  const wedge = await meetingRequest(env, TOKEN_SHARED, `/meetings/sessions/${SESSION_WEDGED}/finalize`, {
+    body: { folder: "2-areas/private-here" },
+  });
+  check(
+    "a team connection naming a folder its tier may not write is still refused",
+    wedge.status === 403 && wedge.body?.error === "meeting_forbidden"
+  );
+  check("...and writes nothing there", keysIn(shared, "2-areas/private-here/").length === 0);
+  const unwedged = await meetingRequest(env, TOKEN_SHARED, `/meetings/sessions/${SESSION_WEDGED}/finalize`, {
+    body: {},
+  });
+  check(
+    "...but the meeting is not parked on the path that refusal claimed",
+    unwedged.status === 200 && unwedged.body?.state === "complete"
+  );
+  check(
+    "...it finalizes into the default folder its tier can write",
+    unwedged.body?.notePath?.startsWith("0-inbox/meetings/") === true
+  );
+  check(
+    "...and the note is really there, with exactly one written for it",
+    typeof shared.get(unwedged.body.notePath)?.body === "string" &&
+      keysIn(shared, "0-inbox/meetings/").filter((key) => key.includes(SESSION_WEDGED.slice(-8))).length === 1
+  );
+
+  /*
+    WHICH FAILURES GIVE THE PATH BACK, as a table rather than as one example.
+
+    The refusal above is a 403 and the storage failure further up is a thrown
+    `Error`, so between them the suite covers two of the four shapes a note
+    write can fail in — and the two it missed are the two that decide whether
+    the crash-retry property survives. Measured: a `releaseClaim` with its
+    status check deleted, which releases on a `MeetingRefusal(503)` too, went
+    green against the whole suite.
+
+    So this drives `handleMeetings` directly with a programmable `publishNote`.
+    The rule being pinned: a refusal that will never succeed (400, 403) gives
+    the claimed path back, and anything that might work next time (503, a
+    thrown storage error) keeps it.
+  */
+  const releaseCases = [
+    { name: "a 400 refusal", error: () => new MeetingRefusal(400, "invalid", "not a note path"), released: true },
+    { name: "a 403 refusal", error: () => new MeetingRefusal(403, "forbidden", "not at this tier"), released: true },
+    { name: "a 503 refusal", error: () => new MeetingRefusal(503, "unavailable", "the manifest could not be read"), released: false },
+    { name: "a storage error", error: () => new Error("the bucket said no"), released: false },
+  ];
+  for (const [index, releaseCase] of releaseCases.entries()) {
+    const store = fakeStore({ conditionalWrite: true });
+    const id = `mtg_${"c".repeat(19)}${index}`;
+    let refuse = true;
+    const publish = async (_store, _scope, { path }) => {
+      if (refuse) throw releaseCase.error();
+      return { path, etag: "e1", visibility: "private" };
+    };
+    const call = (path, body) =>
+      handleMeetings(
+        new Request(`https://mcp.context.test${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+        path,
+        store,
+        { scope: "private", workspaceId: "ws_release" },
+        { publishNote: publish }
+      );
+
+    await call("/meetings/sessions", { id, title: "Claimed once", startedAt: "2026-09-06T18:00:00.000Z" });
+    await call(`/meetings/sessions/${id}/finalize`, { folder: "2-areas/first" });
+    refuse = false;
+    const second = await (await call(`/meetings/sessions/${id}/finalize`, {})).json();
+    const landed = String(second.notePath || "");
+    check(
+      releaseCase.released
+        ? `${releaseCase.name} gives the claimed path back, so a bare finalize still lands`
+        : `${releaseCase.name} keeps the claim, because it might work next time`,
+      releaseCase.released
+        ? landed.startsWith("0-inbox/meetings/")
+        : landed.startsWith("2-areas/first/")
+    );
+  }
 
   /*
     The one consequence worth stating rather than discovering. `list_meetings`

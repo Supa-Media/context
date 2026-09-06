@@ -39,15 +39,20 @@
  * mount after an upgrade, and a meeting that has not reached the bucket is not
  * a disposable copy.
  *
- * **The cost is that `forgetLocalCopies` does not clear these keys yet.** It
- * clears `ownedKeys` (the offline namespace) and, explicitly, the last-place
- * keys from `console/lastPlace.ts` — which is the precedent: a feature with its
- * own namespace is named in that function rather than swept up by accident.
- * Adding `meetingKeys` to the same list is the one line this feature still owes
- * sign-out, and `__tests__/meetingsController.test.ts` pins the gap — see its
- * "PINNED GAP" case — so it is a red line in a suite rather than a comment
- * nobody reads. Until then the barrier
- * that *is* in force is the epoch: every write goes through
+ * **`forgetLocalCopies` clears these keys**, since 2026-09-06. It clears
+ * `ownedKeys` (the offline namespace) and then, explicitly and by name, the
+ * last-place keys from `console/lastPlace.ts` and this namespace — a feature
+ * with its own namespace is named in that function rather than swept up by
+ * accident, and a clear that module does not measure is the silent half-clear
+ * its own "never silently" stance exists to prevent.
+ *
+ * This paragraph used to say the opposite, and a "PINNED GAP" test asserted
+ * the gap so it was a red line rather than a comment nobody reads. That test
+ * carried its own instruction — when it fails, replace it with the opposite
+ * assertion — and `__tests__/offlineForget.test.ts` now holds it, driving the
+ * real `forgetLocalCopies` rather than the namespace sweeper directly.
+ *
+ * The other barrier, unchanged, is the epoch: every write goes through
  * `features/offline/epoch.ts`, so nothing lands after a session has ended.
  */
 
@@ -69,9 +74,17 @@ export function meetingKey(workspaceId: string, meetingId: string): string {
  * Under this feature's namespace and this feature's separator, deliberately:
  * the value is a context slug and the name of one of somebody's folders, which
  * is exactly the kind of thing `console/lastPlace.ts` says must leave a device
- * on sign-out — and `meetingKeys` already names everything under this
- * namespace, so putting it here means sign-out takes it without a second list
- * to keep in step.
+ * on sign-out. `meetingKeys` already names everything under this namespace, so
+ * putting it here means one list rather than two to keep in step.
+ *
+ * **It does not follow that sign-out takes it, and this comment used to say it
+ * did.** `forgetLocalCopies` clears the offline namespace and the last-place
+ * keys by name, and `meetingKeys` is not on that list yet — which the file
+ * header thirty lines up states correctly and this paragraph contradicted. The
+ * On a shared device this would otherwise be a previous person's context slug
+ * and folder name surviving their sign-out and preselecting a row for the next,
+ * which is why `forgetLocalCopies` names this namespace explicitly.
+ * `__tests__/offlineForget.test.ts` holds that, driving the real sign-out.
  *
  * It carries **no workspace segment**, unlike a meeting. A meeting belongs to
  * one context; this is a preference of the person holding the phone, and filing

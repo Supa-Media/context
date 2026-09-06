@@ -2,7 +2,6 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { memoryStore, type KeyValueStore } from "../features/offline/memory";
 import { endSession } from "../features/offline/epoch";
 import { ownedKeys } from "../features/offline/keys";
-import { forgetEverything } from "../features/offline/cache";
 import { MeetingsController, findSession, recordElapsedMs } from "../features/meetings/controller";
 import { fakeGateway, type FakeGateway } from "../features/meetings/fakeGateway";
 import { fakeRecorder, fakeSegment, type FakeRecorder } from "../features/meetings/capture/fake";
@@ -462,32 +461,16 @@ describe("the device's own keys", () => {
     expect(ownedKeys(keys)).toHaveLength(0);
   });
 
-  test("PINNED GAP: sign-out does not clear meetings yet", async () => {
-    /*
-      `forgetEverything` walks `ownedKeys`, which is the offline namespace, and
-      `forgetLocalCopies` additionally clears `console/lastPlace.ts`'s keys by
-      name — the precedent for a feature with its own namespace being *named* in
-      that function rather than swept up by accident.
-
-      Meetings need the same one line, and until it exists a signed-out device
-      keeps meeting notes. This test asserts the gap so it is a red line in a
-      suite rather than a comment nobody reads.
-
-      **When this fails**: `forgetLocalCopies` has learned about meetings. Good.
-      Delete this test and replace it with the opposite assertion — that
-      `forgetAllMeetings` ran and the keys are gone.
-    */
-    const { controller, store } = await harness();
-    await controller.start({ title: "Private meeting" });
-    await settle();
-
-    await forgetEverything(store);
-    expect(meetingKeys(await store.keys())).toHaveLength(1);
-
-    // What the missing line would do, exported and ready for it.
-    await forgetAllMeetings(store);
-    expect(meetingKeys(await store.keys())).toHaveLength(0);
-  });
+  /*
+    The "PINNED GAP" test that stood here asserted that sign-out did *not*
+    clear this namespace, and carried an instruction: when it fails, the
+    function has learned about meetings, so replace it with the opposite
+    assertion. It has, so it is gone from here rather than inverted in place —
+    `forgetLocalCopies` opens its own store, which this harness does not
+    supply, so a test driving it belongs where that store is mocked.
+    `__tests__/offlineForget.test.ts` holds both halves now: the meeting and
+    the remembered destination.
+  */
 
   test("discarding the meeting that is running releases the microphone", async () => {
     // Without this the device stays open with nothing left to record into —

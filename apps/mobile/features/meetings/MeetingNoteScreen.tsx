@@ -259,12 +259,32 @@ function Transcript({ record }: { record: MeetingRecord }) {
   );
 }
 
+/** Said under the path when the folder somebody picked was not the one used. */
+export const FOLDER_REJECTED_NOTICE =
+  "Your context would not file a meeting there, so this is the default folder and not the folder you chose. Move it if you want it elsewhere.";
+
 /**
  * Where the note landed, and nothing where it has not landed.
  *
  * The path is drawn in the monospace face because it is an address in somebody
  * else's storage, and it is the one thing on this screen that is worth reading
  * character by character.
+ *
+ * ## A folder that was not used is said here, under the path
+ *
+ * `IngestAck.folderRejected` reaches the record through the drain, and this is
+ * where it is spent. The gateway falls back to the default rather than losing a
+ * meeting over one bad string — `meeting_invalid` is the code a client does not
+ * retry, so refusing would park somebody's forty minutes — and that trade is
+ * only defensible if the person is told. A fallback nobody hears about *is* the
+ * destination control that appears to work and does nothing, which is the
+ * defect this whole seam exists to close.
+ *
+ * It sits under `Saved to your bucket` rather than replacing it, because both
+ * are true and the more important one is that the meeting is safe. And it does
+ * not name the folder that was refused: the ack carries no copy of it, on
+ * purpose, so the screen has none either — the path above says where the note
+ * *is*, which is the answer somebody actually needs.
  */
 function Landing({ record }: { record: MeetingRecord }) {
   const styles = useThemedStyles(makeStyles);
@@ -309,6 +329,11 @@ function Landing({ record }: { record: MeetingRecord }) {
         <Text style={styles.path} numberOfLines={1}>
           {session.notePath}
         </Text>
+        {record.folderRejected === true ? (
+          <Text variant="rowSub" testID="meeting-folder-rejected">
+            {FOLDER_REJECTED_NOTICE}
+          </Text>
+        ) : null}
       </View>
     </View>
   );

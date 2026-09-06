@@ -60,6 +60,13 @@ import { createRoot } from "react-dom/client";
  *     enabled regardless.
  *     → `a device with no context yet refuses Start rather than throwing`
  *     fails.
+ *  9. The selection is an index into the resolver's live list again, rather
+ *     than the destination it names.
+ *     → 2 fail: `a row that stops being on offer leaves no Start that does
+ *     nothing` and `a row that goes read-only under the sheet falls back
+ *     rather than refusing`. Neither is caught by any of the eight above,
+ *     because every one of them holds the context list still — which is the
+ *     assumption the whole defect lived inside.
  */
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -103,6 +110,7 @@ const IN_A_PROJECT = {
 /* -------------------------------------------------------------------------- */
 
 interface Mounted {
+  rerender: (next: ReactElement) => void;
   unmount: () => void;
 }
 
@@ -114,6 +122,10 @@ function mount(element: ReactElement): Mounted {
     root.render(element);
   });
   return {
+    /** Re-render with different props, for a list that changes under the sheet. */
+    rerender: (next: ReactElement) => {
+      act(() => root.render(next));
+    },
     unmount: () => {
       act(() => root.unmount());
       host.remove();
@@ -461,6 +473,81 @@ describe("confirming is what starts the recording", () => {
       contextSlug: "testagent1",
       folder: "0-inbox",
     });
+    mounted.unmount();
+  });
+
+  test("a row that stops being on offer leaves no Start that does nothing", async () => {
+    /*
+      The selection was an **index** into a list the resolver recomputes on
+      every render, from props that change while the sheet is open. Press the
+      shared page's row, lose membership of that context a moment later — a
+      revoked grant, a colleague removing you — and `offers[1]` is `undefined`
+      while `selectedIndex` is still 1. `confirm` returned silently on that,
+      which `useMeetingFlow`'s own rule forbids twice over: the key may not be a
+      control that quietly does nothing, and the sheet must not draw a selected
+      row it will not act on.
+
+      So what is held is the resolved destination, not its position, and the
+      resolver answers "which row is that now" with the same rule it uses for a
+      remembered choice — including its fallback to the inbox for one that is no
+      longer on offer. Start therefore starts the row that is drawn as selected,
+      always.
+    */
+    const { store } = await configure();
+    const inShared = {
+      contexts: [OWN, SHARED],
+      page: { contextSlug: "field-notes", path: "1-projects/portal", isNote: false },
+      store,
+    };
+    const mounted = mount(createElement(Harness, inShared));
+    await settle();
+
+    press("mic");
+    press("meeting-destination-row-1");
+    expect(shown("meeting-destination-row-1")).toBe(true);
+
+    // The grant goes away underneath the open sheet.
+    mounted.rerender(createElement(Harness, { ...inShared, contexts: [OWN] }));
+    await settle();
+
+    expect(shown("meeting-destination-row-1")).toBe(false);
+    press("meeting-destination-start");
+    await settle();
+
+    const [started] = meetings.getSnapshot().records;
+    expect(started).toBeDefined();
+    expect(started!.destination).toEqual({
+      kind: "personalInbox",
+      contextSlug: "testagent1",
+      folder: "0-inbox",
+    });
+    mounted.unmount();
+  });
+
+  test("a row that goes read-only under the sheet falls back rather than refusing", async () => {
+    // The same rule from the other side: a destination still on offer but no
+    // longer takeable. `preselect` already declines to start on a control whose
+    // only outcome is a refusal, and a press is held to that same rule.
+    const { store } = await configure();
+    const writable = {
+      contexts: [OWN, SHARED],
+      page: { contextSlug: "field-notes", path: "1-projects/portal", isNote: false },
+      store,
+    };
+    const mounted = mount(createElement(Harness, writable));
+    await settle();
+
+    press("mic");
+    press("meeting-destination-row-1");
+    mounted.rerender(createElement(Harness, { ...writable, contexts: [OWN, READ_ONLY] }));
+    await settle();
+
+    press("meeting-destination-start");
+    await settle();
+
+    const [started] = meetings.getSnapshot().records;
+    expect(started).toBeDefined();
+    expect(started!.destination?.kind).toBe("personalInbox");
     mounted.unmount();
   });
 

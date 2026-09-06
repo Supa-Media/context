@@ -251,7 +251,7 @@ describe("a phone in a pocket", () => {
     const gateway = fakeGateway();
     const waiting = record({ transcript: [fakeSegment("s1", 0, "hello")] });
     await drainMeetings([waiting], { gateway, now });
-    const ack = await gateway.putSegments(waiting.session.id, [fakeSegment("s1", 0, "hello")]);
+    const ack = await gateway.putSegments(null, waiting.session.id, [fakeSegment("s1", 0, "hello")]);
     expect(ack.segmentCount).toBe(1);
   });
 });
@@ -393,7 +393,7 @@ describe("the HTTP client refuses rather than sending an unauthenticated request
       }) as unknown as typeof fetch,
     });
 
-    await expect(gateway.putNotes(SEED.id, "hi")).rejects.toMatchObject({
+    await expect(gateway.putNotes(null, SEED.id, "hi")).rejects.toMatchObject({
       code: ERRORS.forbidden,
     });
     expect(called).toBe(false);
@@ -412,7 +412,7 @@ describe("the HTTP client refuses rather than sending an unauthenticated request
       }) as unknown as typeof fetch,
     });
 
-    await gateway.finalize(SEED.id, null);
+    await gateway.finalize(null, SEED.id);
     expect(seen).toEqual([`https://gateway.invalid/meetings/sessions/${SEED.id}/finalize`]);
   });
 

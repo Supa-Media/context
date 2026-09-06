@@ -51,6 +51,8 @@
  *   `isMeetingNotePath` ignoring the folder, so the pair disagree again       1
  *   the refusal quoting the folder it was sent                                1
  *   the length bound dropped                                                  1
+ *   the `..`-inside-a-segment refusal dropped                                 3
+ *   the reserved-plumbing-name refusal dropped (`scopes.yml`)                 2
  *
  * Two of those rows are worth reading rather than counting. The **17** is the
  * defect this whole change is about arriving one layer down: a builder that
@@ -300,6 +302,38 @@ export function runPathChecks(check) {
   check("...including the search index's own home", normalizeMeetingFolder(".index/v2") === null);
   check("a folder that is a note is refused", normalizeMeetingFolder("2-areas/overview.md") === null);
   check("...whatever its case", normalizeMeetingFolder("2-areas/overview.MD") === null);
+  /*
+    `..` INSIDE a segment, which is the one shape this function used to accept
+    and the gateway then refused for good.
+
+    `normalizeRoot` refuses a segment that *equals* `.` or `..`, which is the
+    traversal rule and is correct as far as it goes. The gateway's own
+    `normalizePath` is blunter: it refuses `..` anywhere in the key at all. So
+    `a..b` passed here, the claim wrote `a..b/2026/09/….md` into the session
+    record under a conditional write, and `publishMeetingNote` then answered
+    400 `meeting_invalid` — a code no client retries — for the life of that
+    meeting, with nothing to clear the claimed path. And because only a `null`
+    from this function reaches the `folderRejected` fallback, that class walked
+    straight past the safety net the fallback exists to be.
+
+    The two have to agree about what a key is, so this one adopts the stricter
+    rule rather than the gateway relaxing its. A folder with `..` inside a name
+    is vanishingly rare; a meeting that can never be written out is not a price
+    worth paying for it.
+  */
+  check("a folder with `..` inside a segment is refused, because the gateway refuses the key", normalizeMeetingFolder("a..b") === null);
+  check("...wherever the segment sits", normalizeMeetingFolder("1-projects/foo..bar") === null);
+  check("...and a trailing pair reads the same way", normalizeMeetingFolder("team..") === null);
+  check("a single dot inside a name is still a folder somebody may have", normalizeMeetingFolder("2-areas/v1.2") === "2-areas/v1.2");
+  /*
+    `scopes.yml` is the legacy privacy source of truth and `isPlumbing` refuses
+    it by name, exactly as it refuses `privacy.md`. The `.md` rule already
+    catches the second; nothing caught the first, and on a filesystem-backed
+    store a file and a directory cannot share a name — so a meeting filed
+    "into" it collides with the file that decides everybody else's access.
+  */
+  check("the legacy privacy file's name is refused as a folder", normalizeMeetingFolder("scopes.yml") === null);
+  check("...whatever its case, and wherever it sits", normalizeMeetingFolder("2-areas/Scopes.YML") === null);
   check(
     "a control character is refused, because this string reaches a listing and an audit row",
     normalizeMeetingFolder("2-areas/te\nam") === null &&

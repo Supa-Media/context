@@ -524,6 +524,9 @@ export class MeetingsController {
             attempts: drained.attempts,
             rejection: drained.rejection,
             lastError: drained.lastError,
+            // Sync bookkeeping like the four above it: the gateway's answer
+            // about the request this drain just made, not about the session.
+            ...(drained.folderRejected === true ? { folderRejected: true as const } : {}),
           },
           { immediate: true },
         );
@@ -556,8 +559,11 @@ export class MeetingsController {
       session: after.session,
       // Carried, not re-derived: every event rebuilds this record, and a
       // destination that survived only the first one would be dropped by the
-      // `start` event immediately after it was set.
+      // `start` event immediately after it was set. The same goes for what the
+      // gateway said about it — the `written` event that arrives from a
+      // finalize would otherwise erase the flag that came back with it.
       destination: existing?.destination ?? null,
+      ...(existing?.folderRejected === true ? { folderRejected: true as const } : {}),
       acked: existing?.acked ?? emptyAck(),
       runningSince: after.runningSince,
       updatedAt: config.now?.() ?? Date.now(),

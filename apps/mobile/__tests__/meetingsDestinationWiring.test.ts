@@ -8,7 +8,7 @@ import { destinationKey } from "../features/meetings/keys";
 import { createHttpGateway } from "../features/meetings/gateway";
 import type { MeetingDestination } from "../features/meetings/destination";
 import { memoryStore, type KeyValueStore } from "../features/offline/memory";
-import type { MeetingDevice } from "../features/meetings/protocol";
+import { ERRORS, type MeetingDevice } from "../features/meetings/protocol";
 
 /**
  * The chosen folder, from the press to the note.
@@ -44,9 +44,26 @@ import type { MeetingDevice } from "../features/meetings/protocol";
  *  5. `createHttpGateway` sends a bare `{}` on finalize.
  *     → `the finalize request is where the folder is said` fails.
  *
- * The one that is *not* covered here is the half this app cannot hold: a
- * deployed gateway ignores `folder`, because `FinalizeBody` does not name it.
- * `finalizeBody` in `gateway.ts` says exactly what is missing and where.
+ *  6. `contextRoute` returns the bare route, so nothing is addressed.
+ *     → 3 fail: `a shared context's meeting is not written into the person's
+ *     own brain`, ``Only you` never resolves to a shared workspace`, and `a
+ *     slug this client cannot address is refused rather than sent to the
+ *     default` — the last because a refusal that never happens sends.
+ *  7. `ROUTABLE_SLUG` widened to `/^.*$/`.
+ *     → 1 fails: `a slug this client cannot address is refused rather than sent
+ *     to the default`. Worth the row on its own: with the prefix still applied,
+ *     an unroutable slug falls off the far end and the request is served by the
+ *     connection's default — a meeting written into the wrong tenant with a 200
+ *     in front of it.
+ *  8. `sync.ts` reads `false` instead of `ack.folderRejected`.
+ *     → 1 fails: `the record carries what the ack said`.
+ *
+ * The half that used to be listed here as uncoverable — "a deployed gateway
+ * ignores `folder`, because `FinalizeBody` does not name it" — is **gone**, and
+ * so is the note in `finalizeBody` that named the three upstream edits it was
+ * waiting on. All three landed: the contract names `folder` and
+ * `folderRejected`, `meetingNotePath` takes the folder, and `finalizeSession`
+ * passes it through.
  */
 
 const DEVICE: MeetingDevice = { platform: "ios", name: "a phone" };
@@ -57,6 +74,49 @@ const IN_A_PROJECT: MeetingDestination = {
   folder: "1-projects/portal",
   label: "1-projects/portal",
 };
+
+/** Standing in a shared workspace, filing the meeting where you are standing. */
+const IN_THE_SHARED_ONE: MeetingDestination = {
+  kind: "currentPage",
+  contextSlug: "acme",
+  folder: "finance",
+  label: "finance",
+};
+
+/** The sheet's first offer: the viewer's own brain, whatever they are looking at. */
+const MY_OWN_INBOX: MeetingDestination = {
+  kind: "personalInbox",
+  contextSlug: "me",
+  folder: "0-inbox",
+};
+
+const ORIGIN = "https://gateway.invalid";
+
+/** An http gateway over a `fetch` that records every request and always says yes. */
+function spyGateway(ackFor: (body: unknown) => Record<string, unknown> = () => ({})) {
+  const sent: Array<{ url: string; body: unknown }> = [];
+  const gateway = createHttpGateway({
+    origin: ORIGIN,
+    authorization: async () => "Bearer test",
+    fetchImpl: (async (url: string, init: RequestInit) => {
+      const body = init.body === undefined ? undefined : JSON.parse(String(init.body));
+      sent.push({ url: String(url), body });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          sessionId: "mtg_x",
+          state: "complete",
+          segmentCount: 0,
+          notePath: "0-inbox/meetings/2026/09/a.md",
+          conflictSafe: true,
+          ...ackFor(body),
+        }),
+      } as unknown as Response;
+    }) as unknown as typeof fetch,
+  });
+  return { gateway, sent };
+}
 
 async function harness(options: { store?: KeyValueStore } = {}) {
   const controller = new MeetingsController();
@@ -101,24 +161,12 @@ describe("a meeting is written where it was sent", () => {
       whose answer is the path, so it is the request that has to carry where the
       path should be.
     */
-    const sent: Array<{ route: string; body: unknown }> = [];
-    const gateway = createHttpGateway({
-      origin: "https://gateway.invalid",
-      authorization: async () => "Bearer test",
-      fetchImpl: (async (url: string, init: RequestInit) => {
-        sent.push({ route: String(url), body: JSON.parse(String(init.body)) });
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ sessionId: "mtg_x", state: "complete", notePath: "x.md" }),
-        } as unknown as Response;
-      }) as unknown as typeof fetch,
-    });
+    const { gateway, sent } = spyGateway();
 
-    await gateway.finalize("mtg_x", IN_A_PROJECT);
+    await gateway.finalize(IN_A_PROJECT, "mtg_x");
 
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.route).toContain("/meetings/sessions/mtg_x/finalize");
+    expect(sent[0]!.url).toContain("/meetings/sessions/mtg_x/finalize");
     expect(sent[0]!.body).toEqual({ folder: "1-projects/portal" });
   });
 
@@ -130,22 +178,13 @@ describe("a meeting is written where it was sent", () => {
       rewritten into a guess, and a bare finalize is exactly what the contract
       calls "no fields".
     */
-    const sent: unknown[] = [];
-    const gateway = createHttpGateway({
-      origin: "https://gateway.invalid",
-      authorization: async () => "Bearer test",
-      fetchImpl: (async (_url: string, init: RequestInit) => {
-        sent.push(JSON.parse(String(init.body)));
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ sessionId: "mtg_x", state: "complete", notePath: "x.md" }),
-        } as unknown as Response;
-      }) as unknown as typeof fetch,
-    });
+    const { gateway, sent } = spyGateway();
 
-    await gateway.finalize("mtg_x", null);
-    expect(sent[0]).toEqual({});
+    await gateway.finalize(null, "mtg_x");
+    expect(sent[0]!.body).toEqual({});
+    // ...and it is addressed to the context this connection already defaults
+    // to, which is the whole meaning of "nobody chose".
+    expect(sent[0]!.url).toBe(`${ORIGIN}/meetings/sessions/mtg_x/finalize`);
   });
 
   test("the existing one-tap record still writes into the inbox", async () => {
@@ -217,5 +256,195 @@ describe("the destination is a fact about the meeting, not about the screen", ()
     await settle();
 
     expect(await store.get(destinationKey())).toBeNull();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE CONTEXT, not just the folder.
+ *
+ * `MeetingDestination` has always carried two halves and only one of them
+ * routed. `contextSlug` was produced by the sheet, rendered on the row,
+ * persisted to the device and re-validated coming back off it — and reached
+ * neither call that decides where a note lands. Every request went to the
+ * gateway's bare route, which resolves to whatever context the credential
+ * defaults to, and `finalize` said `{ folder }` and nothing else.
+ *
+ * So a member of `@acme` browsing `@acme/finance` was shown a row reading
+ * `@acme / finance`, *"Visible to the team"* — and the note was going to be
+ * written into whatever bucket the connection happened to open, at `finance/…`.
+ * The disclosure on the row was false, and false in the direction that puts a
+ * conversation somewhere the person did not agree to.
+ *
+ * The fix is that the destination addresses the request. The gateway already
+ * has exactly one way to name another context — the `@name` first path segment
+ * `splitWorkspacePath` reads, which the control plane resolves and clamps to
+ * the caller's role there — so the destination becomes that prefix. It is on
+ * **every** call about the meeting rather than only on finalize, because the
+ * session record lives in the destination's own bucket: a session posted to one
+ * context and finalized against another finds nothing to finalize.
+ */
+describe("a meeting is written into the context it was sent to", () => {
+  async function record(
+    destination: MeetingDestination | null,
+    workspaceId: string,
+  ): Promise<string[]> {
+    const { gateway, sent } = spyGateway();
+    const controller = new MeetingsController();
+    await controller.configure({
+      workspaceId,
+      store: memoryStore(),
+      gateway,
+      recorder: fakeRecorder(),
+      device: DEVICE,
+      persistDebounceMs: 0,
+    });
+    const id = await controller.start({
+      title: "Q3 numbers",
+      ...(destination === null ? {} : { destination }),
+    });
+    controller.setNotes(id, "what we agreed");
+    await controller.end();
+    await settle();
+    return sent.map((request) => request.url);
+  }
+
+  test("a shared context's meeting is not written into the person's own brain", async () => {
+    /*
+      The failure this exists for, exactly. Somebody who is a member of `@acme`
+      and owns `@me` stands in `@acme/finance` and picks "this page". The device
+      is configured against a workspace id chosen by `defaultContext`, which
+      filters on `role === "owner"` and nothing else — so on this account it is
+      `@me`, and every request went there.
+    */
+    const urls = await record(IN_THE_SHARED_ONE, "ws-my-own-brain");
+
+    expect(urls.length).toBeGreaterThan(0);
+    for (const url of urls) expect(url.startsWith(`${ORIGIN}/@acme/meetings/`)).toBe(true);
+  });
+
+  test("...and every call about it goes there, not only the finalize", async () => {
+    // The session record lives in the destination's bucket. A session upserted
+    // into one context and finalized against another is a 404 at the claim.
+    const urls = await record(IN_THE_SHARED_ONE, "ws-my-own-brain");
+
+    expect(urls.some((url) => url.endsWith("/meetings/sessions"))).toBe(true);
+    expect(urls.some((url) => url.endsWith("/notes"))).toBe(true);
+    expect(urls.some((url) => url.endsWith("/finalize"))).toBe(true);
+  });
+
+  test("`Only you` never resolves to a shared workspace", async () => {
+    /*
+      The inverse, and the one that inverts the privacy default rather than
+      merely getting the tenant wrong. `createWorkspace` accepts
+      `kind: "shared"` and makes its caller `owner`, so for somebody whose
+      oldest owned workspace is a shared one, `defaultContext` resolves to it —
+      and the sheet's first row said `@handle / 0-inbox`, "Only you", while the
+      write went into a shared bucket's inbox with nothing said.
+
+      `ownPersonalContext` — `kind === "personal"` *and* `role === "owner"` — is
+      what built the row, and it is now what addresses the request too. The two
+      notions of "your own context" no longer disagree, because only one of them
+      is in this path.
+    */
+    const urls = await record(MY_OWN_INBOX, "ws-a-shared-workspace-i-happen-to-own");
+
+    expect(urls.length).toBeGreaterThan(0);
+    for (const url of urls) expect(url.startsWith(`${ORIGIN}/@me/meetings/`)).toBe(true);
+  });
+
+  test("a meeting nobody was asked about still goes to the connection's own context", async () => {
+    // `null` is honest and stays honest: the list screen's one-tap record chose
+    // nothing, so it addresses nothing and the gateway's default stands.
+    const urls = await record(null, "ws-1");
+
+    expect(urls.length).toBeGreaterThan(0);
+    for (const url of urls) expect(url.startsWith(`${ORIGIN}/meetings/`)).toBe(true);
+  });
+
+  test("a slug this client cannot address is refused rather than sent to the default", async () => {
+    /*
+      The one direction this must not fail in. A destination whose slug the
+      gateway's own selector would not read as a slug — anything outside
+      `[a-z0-9-]{2,32}` — would fall off the front of the path and route to
+      whatever the credential defaults to, which is silently writing a meeting
+      into the wrong tenant. So it refuses to send: the meeting stays on the
+      device with a sentence beside it, which is what an absent capability is
+      supposed to look like here.
+    */
+    const { gateway, sent } = spyGateway();
+    const forged = { ...MY_OWN_INBOX, contextSlug: "Not A Slug" } as MeetingDestination;
+
+    await expect(gateway.finalize(forged, "mtg_x")).rejects.toMatchObject({
+      code: ERRORS.invalid,
+    });
+    expect(sent).toEqual([]);
+  });
+
+  test("...and the refusal does not read the slug back", async () => {
+    const { gateway } = spyGateway();
+    const forged = { ...MY_OWN_INBOX, contextSlug: "Not A Slug" } as MeetingDestination;
+
+    // `normalizeMeetingFolder`'s rule one field over: a message that quotes
+    // what it refused is a reflection of whatever a client sent.
+    const refusal = await gateway.finalize(forged, "mtg_x").catch((error: unknown) => error);
+    expect(String((refusal as Error).message)).not.toContain("Not A Slug");
+  });
+});
+
+/**
+ * A FOLDER THAT WAS NOT USED IS SAID, not dropped.
+ *
+ * `IngestAck.folderRejected` is the contract's own field and its documentation
+ * says why it exists: "without it the destination control would be back to
+ * appearing to work and doing nothing". The gateway set it and the drain read
+ * `ack.notePath` and nothing else, so a refused folder filed to the default and
+ * the phone said not one word about it.
+ */
+describe("a folder the gateway would not file into is not swallowed", () => {
+  test("the record carries what the ack said", async () => {
+    const { gateway } = spyGateway((body) =>
+      (body as { folder?: string })?.folder === undefined ? {} : { folderRejected: true },
+    );
+    const controller = new MeetingsController();
+    await controller.configure({
+      workspaceId: "ws-1",
+      store: memoryStore(),
+      gateway,
+      recorder: fakeRecorder(),
+      device: DEVICE,
+      persistDebounceMs: 0,
+    });
+
+    const id = await controller.start({ title: "Design review", destination: IN_A_PROJECT });
+    await controller.end();
+    await settle();
+
+    const saved = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(saved.folderRejected).toBe(true);
+    // And the meeting is not lost over it: the note is where the gateway put it.
+    expect(saved.session.state).toBe("complete");
+    expect(saved.session.notePath).toBe("0-inbox/meetings/2026/09/a.md");
+  });
+
+  test("a folder that was honoured says nothing", async () => {
+    const { gateway } = spyGateway(() => ({}));
+    const controller = new MeetingsController();
+    await controller.configure({
+      workspaceId: "ws-1",
+      store: memoryStore(),
+      gateway,
+      recorder: fakeRecorder(),
+      device: DEVICE,
+      persistDebounceMs: 0,
+    });
+
+    const id = await controller.start({ title: "Design review", destination: IN_A_PROJECT });
+    await controller.end();
+    await settle();
+
+    expect(controller.getSnapshot().records.find((r) => r.session.id === id)!.folderRejected)
+      .toBeUndefined();
   });
 });
