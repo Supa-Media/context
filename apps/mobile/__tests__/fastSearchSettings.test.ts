@@ -129,6 +129,13 @@ describe("what the copy has to say", () => {
 
   test("on says the delete, off says the bucket keeps working", () => {
     expect(describeFastSearch("on").blurb).toMatch(/deletes that database/);
+    // The other half of the bargain, and it was missing from this file for as
+    // long as it was missing from the product: an owner consents to a copy of
+    // their private notes, and what they get for it is that their searches are
+    // answered from it. Pinned so that removing the gateway's read path cannot
+    // leave the card promising something nothing does.
+    expect(describeFastSearch("on").blurb).toMatch(/searches are answered from/i);
+    expect(describeFastSearch("off").blurb).toMatch(/answers your searches from it/i);
     expect(describeFastSearch("off").blurb).toMatch(/your own bucket/);
   });
 

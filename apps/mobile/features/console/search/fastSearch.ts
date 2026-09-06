@@ -2,6 +2,20 @@
  * Fast search, in a context's settings: the states, the copy, and the guard
  * that decides whether a control is offered at all.
  *
+ * ## One thing this copy could not say until 2026-09-06
+ *
+ * That searches are answered from the copy. They were not: the gateway
+ * provisioned the database, filled it, and reported progress on it, and then
+ * answered every search from the R2 index anyway, because nothing imported
+ * `search/d1/query.js`. The card was scrupulous about the consent and silent
+ * about the benefit, which was the only honest thing it could be — an owner
+ * was consenting to a copy of their private notes in exchange for nothing.
+ *
+ * The reader exists now (`fastSearchAnswer` in the gateway), so the `on` and
+ * `off` blurbs say what the switch buys as well as what it costs. If the read
+ * path is ever removed, these two sentences become false and
+ * `fastSearchSettings.test.ts` is what says so.
+ *
  * The backend contract is
  *
  *   fastSearch.status({ workspaceId })
@@ -186,7 +200,7 @@ export function describeFastSearch(state: FastSearchState): {
       return {
         title: "Fast search is off",
         blurb:
-          "Search reads the index in your own bucket, which is how this product works today. Turn fast search on and Context also keeps a searchable copy of this context's note text — private notes included — in a database Supa Media runs. Your Markdown stays in your bucket either way.",
+          "Search reads the index in your own bucket, which is how this product works today. Turn fast search on and Context also keeps a searchable copy of this context's note text — private notes included — in a database Supa Media runs, and answers your searches from it. Your Markdown stays in your bucket either way.",
       };
     case "preparing":
       return {
@@ -198,7 +212,7 @@ export function describeFastSearch(state: FastSearchState): {
       return {
         title: "Fast search is on",
         blurb:
-          "A searchable copy of this context's note text, private notes included, is held in a database Supa Media runs. Turning it off deletes that database; your Markdown is untouched in your own bucket.",
+          "Your searches are answered from a searchable copy of this context's note text, private notes included, held in a database Supa Media runs. Turning it off deletes that database, and search goes back to the index in your own bucket; your Markdown is untouched there either way.",
       };
     case "failed":
       return {

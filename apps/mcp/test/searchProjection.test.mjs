@@ -796,6 +796,7 @@ export async function runSearchProjectionChecks(check) {
 
   await runSyncReportChecks(check);
   await runEndToEndChecks(check);
+  await runServeChecks(check);
 }
 
 /* ========================================================================
@@ -1079,14 +1080,40 @@ async function runEndToEndChecks(check) {
     );
     controlPlane.calls.length = 0;
     const settledRequests = d1.requests.length;
+    const since = (from) => d1.requests.slice(from);
+    const writes = (from) =>
+      since(from).filter((request) => /^\s*(INSERT|DELETE|UPDATE|REPLACE)/i.test(request.sql));
+    const reads = (from) =>
+      since(from).filter((request) => /FROM notes_(private|team)_fts/i.test(request.sql));
     for (let round = 0; round < 4; round += 1) await search("quokka");
     check(
       "a converged projection copies nothing further",
       d1.rows("SELECT COUNT(*) AS n FROM notes")[0].n === SEEDED_NOTES + 1,
     );
+    /*
+     * This check used to read `d1.requests.length === settledRequests` — "once
+     * the control plane calls it ready, costs nothing at all" — and it was
+     * true, for the worst possible reason: the projection was a write path
+     * with no reader. Every note in the context had been copied into a
+     * database that no search ever opened, and the suite asserted the silence
+     * as if it were the feature.
+     *
+     * So it is split in two. The backfill really must go quiet once the row is
+     * ready, and that is the first half. The second is that a search now
+     * *asks*: a personal connection reads both tiers, so four searches make
+     * eight reads and not one write.
+     */
     check(
-      "and once the control plane calls it ready, costs nothing at all",
-      d1.requests.length === settledRequests,
+      "and the backfill stops writing entirely",
+      writes(settledRequests).length === 0,
+    );
+    check(
+      "while a search now actually asks the projection it filled",
+      reads(settledRequests).length === 8,
+    );
+    check(
+      "and asks it nothing else — no census, no cursor, no listing",
+      since(settledRequests).length === reads(settledRequests).length,
     );
     check("and says nothing it has already said", progressReports().length === 0);
 
@@ -1204,6 +1231,456 @@ async function runEndToEndChecks(check) {
     );
   } finally {
     console.log = realLog;
+    restoreControlPlane();
+    restoreD1();
+    restoreS3();
+    d1.close();
+  }
+}
+
+/* ========================================================================
+ * THE READ: a search actually answered out of the projection.
+ *
+ * Everything above proves notes reach the database. Until this section existed
+ * nothing proved anybody ever read one back — `search/d1/query.js` was
+ * imported by its own test and by nothing in `src/`, so every search in
+ * production was answered by the R2 shard index while the projection filled
+ * beside it and was never opened. "Fast search" was a write path.
+ *
+ * Six questions, and the middle two are the ones that would be a breach:
+ *
+ *  1. Does the fast path answer without touching the bucket? That is the
+ *     latency claim: no shard walk, no note read per hit.
+ *  2. Does it find what the R2 index provably cannot — a term past
+ *     `NOTE_INDEX_CHAR_CAP`? That is the recall claim, and it is the reason
+ *     the projection is worth its cost at all.
+ *  3. **Can a team connection read a private note out of it?** The projection
+ *     holds every note in the context at both tiers. One wrong table in
+ *     `tablesForTier`, or a filter applied to the wrong list, and a team
+ *     member's search returns the owner's private notes.
+ *  4. **Does live `privacy.md` beat the tier a row was stored at?** A note
+ *     made private a minute ago still has team-tier rows until the next
+ *     backfill pass moves them. The table split does not close that window;
+ *     `canSee` does, on every path that leaves.
+ *  5. Does a refused database still leave a working search? It is the reader
+ *     now as well as the writer, so there are two ways to fail a search that
+ *     did not exist before.
+ *  6. Does a miss fall through rather than answering "(no matches)"? A
+ *     projection is a derivative and can be behind; an empty answer from it
+ *     must never be reported as an empty context.
+ *
+ * ## Sabotage record
+ *
+ * Run as temporary local edits and reverted, counts as measured.
+ *
+ *   `indexIsBehind` always answering "no"                                12
+ *   `tablesForTier("team")` also returning the private table              5
+ *   the fast path never consulted at all                                  5
+ *   `fastSearchAnswer` skipping the `canSee` filter                       1
+ *   `fastSearchAnswer` ignoring `state`, serving a filling projection     1
+ *   a `D1Error` on the read path escaping into the response               1
+ *   a miss answering "(no matches)" instead of falling through            1
+ *   `mergeHits` sliced to the display limit before the privacy filter     1
+ *   a snippet mark put back, either side                                  1
+ *   the title dropped from the projected row, or from the SELECT          1
+ *
+ * Four of those are worth their own sentence, because three of them measured
+ * ZERO on the first run and the fixture had to be changed before they measured
+ * anything:
+ *
+ *  - **`canSee` reddens one check and always did**, and it is the right one.
+ *    A team caller never reaches `2-areas/vitals.md` even with the filter
+ *    gone, because a private note's rows are not in the team table for the
+ *    query to return — that is the split doing its job. The single failure is
+ *    the stale-tier window, which is the only thing the filter is for.
+ *  - **The pre-filter slice reddened nothing** until twelve more notes were
+ *    seeded. With two matching notes the display limit and the match count are
+ *    the same number, so slicing before the filter was invisible.
+ *  - **A snippet mark reddened nothing** until the check stopped looking for a
+ *    phrase and started looking the quoted line up in the note it names: the
+ *    mark lands on the matched term, so every phrase after it survives.
+ *  - **Dropping the title reddened nothing** until a note with no body was
+ *    seeded. The title is only rendered when the snippet is empty, so until
+ *    one note had an empty body the column was carried for nobody.
+ *
+ * A guard nobody has checked is not a guard, and three of these had not been.
+ * ====================================================================== */
+
+/**
+ * A *read* of the projection, which a `DELETE FROM notes_team_fts` is not.
+ *
+ * The first draft of this matched `FROM notes_team_fts` and every backfill
+ * delete matched it too, so "a filling projection is not read from" was
+ * asserting that the backfill does not run — which it plainly does. A verb
+ * this loose is how a check ends up green for the wrong reason.
+ */
+const PROJECTION_READ = /^\s*SELECT[\s\S]*FROM notes_(private|team)_fts/i;
+
+const SERVE_TOKEN_OWNER = `cat_serve_own_${"0".repeat(20)}`;
+const SERVE_TOKEN_TEAM = `cat_serve_team_${"0".repeat(19)}`;
+const SERVE_WS = "ws_serve";
+
+/**
+ * A note whose distinctive word is past `NOTE_INDEX_CHAR_CAP`.
+ *
+ * The cap is the R2 index's and is forced by parsing a whole shard into a
+ * 128MB heap; `project.js` has a row per chunk and no such ceiling. So this
+ * note is the difference between the two indexes made into a single word, and
+ * a search for it is the recall claim rather than a description of it.
+ */
+function longNote(term) {
+  return `# A long log\n\n${"filler ".repeat(700)}\n\n${term} appears only down here.\n`;
+}
+
+async function runServeChecks(check) {
+  const s3 = createS3Backend(S3_ENDPOINT);
+  const d1 = createD1Backend();
+  const controlPlane = createControlPlaneStub();
+
+  const restoreS3 = s3.install();
+  const restoreD1 = d1.install();
+  const restoreControlPlane = controlPlane.install();
+  // Last in, so it sees every request first and hands on what it does not
+  // count. The S3 stub records nothing of its own, and "did the answer read a
+  // note out of the bucket" is the whole latency claim.
+  const noteReads = [];
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url.startsWith(S3_ENDPOINT) && (init?.method ?? "GET").toUpperCase() === "GET") {
+      const key = decodeURIComponent(new URL(url).pathname.split("/").slice(2).join("/"));
+      // `privacy.md` is the manifest the privacy engine is built from and is
+      // read once per request whatever answers it — counting it would make
+      // "the answer read no note" false for every search ever made, which is
+      // exactly what it did on the first run of this check.
+      if (key.endsWith(".md") && !key.startsWith(".") && key !== "privacy.md") {
+        noteReads.push(key);
+      }
+    }
+    return previousFetch(input, init);
+  };
+
+  controlPlane.addWorkspace(SERVE_WS, "serve", s3Binding("serve-bucket", DESCRIPTOR));
+  await controlPlane.addGrant({
+    accessToken: SERVE_TOKEN_OWNER,
+    workspaceId: SERVE_WS,
+    role: "owner",
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "mcp_client_serve_owner",
+    userId: "user_serve_owner",
+  });
+  // No `context:private`: a member of the same context, at the team tier. The
+  // isolation question is not about two tenants here — it is about two tiers
+  // of one, which is the boundary the projection's table split exists for.
+  await controlPlane.addGrant({
+    accessToken: SERVE_TOKEN_TEAM,
+    workspaceId: SERVE_WS,
+    role: "member",
+    scopes: ["context:read"],
+    clientId: "mcp_client_serve_team",
+    userId: "user_serve_team",
+  });
+
+  const bucket = s3.bucketFor("serve-bucket");
+  const seed = (path, body, etag) => bucket.set(path, { body, etag });
+  seed("privacy.md", PRIVACY_MANIFEST, "sp0");
+  seed("1-projects/roster.md", "# Roster\n\nThe numbat roster for this quarter.\n", "s1");
+  seed("1-projects/plans.md", "# Plans\n\nMore numbat planning.\n", "s2");
+  /*
+   * Twelve more, so that "numbat" matches more notes than a page of results
+   * shows. Without them the fast path's count and its display limit are the
+   * same number, and `mergeHits` slicing to the display limit BEFORE the
+   * privacy filter — which would make the number of results a caller sees
+   * depend on how many notes they cannot see — is a mistake no check in this
+   * file could observe. Measured: that sabotage reddened nothing until these
+   * existed.
+   */
+  const NUMBAT_NOTES = 14;
+  for (let n = 0; n < NUMBAT_NOTES - 2; n += 1) {
+    const id = String(n).padStart(2, "0");
+    seed(`1-projects/n${id}.md`, `# Numbat ${id}\n\nnumbat sightings, page ${id}.\n`, `sn${id}`);
+  }
+  seed("1-projects/log.md", longNote("pangolin"), "s3");
+  seed("2-areas/vitals.md", "# Vitals\n\nA private wombat diagnosis.\n", "s4");
+  /*
+   * A note that is nothing but its heading. Its body chunk is empty, so
+   * FTS5's `snippet()` over the body column has nothing to quote and the
+   * answer falls back to the title — which is the only reason the projection
+   * carries one. Without this note that fallback is unreachable: dropping the
+   * title from `mergeHits` entirely reddened zero checks.
+   */
+  seed("1-projects/stub.md", "# Pademelon\n", "s7");
+
+  async function search(query, token = SERVE_TOKEN_OWNER, budget = 600, prefix = undefined) {
+    const harness = createWorkerCtx();
+    const readsBefore = noteReads.length;
+    const response = await worker.fetch(
+      new Request("https://gateway.test/mcp", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "search_notes",
+            arguments: prefix === undefined ? { query } : { query, prefix },
+          },
+        }),
+      }),
+      {
+        CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+        GATEWAY_SECRET,
+        SEARCH_SUBREQUEST_BUDGET: String(budget),
+      },
+      harness.ctx,
+    );
+    const body = await response.json();
+    // Measured BEFORE `settle()`, and that is the whole point: the deferred
+    // maintenance pass reads notes out of the bucket too, so a count taken
+    // after it would say every search reads notes and the latency claim would
+    // be untestable. This is what the caller waited for.
+    const answerReads = noteReads.length - readsBefore;
+    await harness.settle();
+    return { response, body, text: JSON.stringify(body), answerReads };
+  }
+
+  const ready = (state) =>
+    controlPlane.bindings.set(SERVE_WS, s3Binding("serve-bucket", { ...DESCRIPTOR, state }));
+
+  try {
+    // Converge both indexes while the row still says `backfilling`, which is
+    // also the assertion that a filling projection is not served from.
+    const duringBackfill = await search("numbat");
+    check(
+      "a projection that is still filling is not read from",
+      d1.requests.every((request) => !PROJECTION_READ.test(request.sql)),
+    );
+    check(
+      "and the search is answered by the R2 index meanwhile",
+      duringBackfill.text.includes("1-projects/") && duringBackfill.answerReads > 0,
+    );
+    for (let round = 0; round < 3; round += 1) await search("numbat");
+    check(
+      "the whole context reaches the projection",
+      d1.rows("SELECT COUNT(*) AS n FROM notes")[0].n === NUMBAT_NOTES + 3,
+    );
+
+    ready("ready");
+
+    // -- 1. answered out of the database, without opening the bucket -------
+    noteReads.length = 0;
+    const fast = await search("numbat");
+    check(
+      "a ready projection answers the search",
+      fast.text.includes("1-projects/") && !fast.body.result?.isError,
+    );
+    check(
+      "without reading a single note out of the customer's bucket",
+      fast.answerReads === 0,
+    );
+    check(
+      "and it really was the projection that was asked",
+      d1.requests.some((request) => PROJECTION_READ.test(request.sql)),
+    );
+    check(
+      "counting every matching note, not just the page of them it shows",
+      fast.text.includes(`${NUMBAT_NOTES} matching notes — the 10 best shown`),
+    );
+    /*
+     * The snippet quotes the note verbatim. FTS5 wraps a hit in whatever
+     * `SNIPPET_OPEN`/`SNIPPET_CLOSE` say, and they are deliberately empty so a
+     * caller cannot tell which index answered — the R2 path prints whole lines
+     * of the note unmarked. Nothing asserted that until this check: putting
+     * the marks back reddened zero.
+     */
+    /*
+     * Not `text.includes("some phrase")`, which was the first version and
+     * caught nothing: setting `SNIPPET_OPEN` back to "<" left every phrase in
+     * the fixture intact, because the mark lands on the matched TERM and the
+     * words after it are unchanged. So the whole quoted line is taken from the
+     * answer and looked up in the note it names — a mark anywhere in it, on
+     * either side, makes it stop being a substring of what the person wrote.
+     */
+    const quoted = fast.body.result.content[0].text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    const hitPath = quoted.find((line) => line.startsWith("1-projects/"));
+    const hitSnippet = quoted[quoted.indexOf(hitPath) + 1].replace(/^…|…$/g, "").trim();
+    check(
+      "and quoting the note as written, with no markup the other path lacks",
+      hitSnippet.length > 0 && bucket.get(hitPath).body.includes(hitSnippet),
+    );
+
+    const bodiless = await search("pademelon");
+    check(
+      "a note with nothing but a heading is found and named by its title",
+      bodiless.text.includes("1-projects/stub.md") && bodiless.text.includes("Pademelon"),
+    );
+
+    // -- 2. the recall the R2 index cannot have ----------------------------
+    const deep = await search("pangolin");
+    check(
+      "a term past the R2 index's per-note cap is found in the projection",
+      deep.text.includes("1-projects/log.md"),
+    );
+
+    // A folder narrowing, through the tool rather than through the SQL that
+    // `searchD1.test.mjs` exercises: the argument has to survive normalization
+    // and reach the projection as the same string the R2 path would compare.
+    const narrowed = await search("numbat", SERVE_TOKEN_OWNER, 600, "2-areas/");
+    check(
+      "a prefixed fast search narrows to the folder asked for",
+      !narrowed.text.includes("1-projects/"),
+    );
+
+    // -- 3. the tier boundary ---------------------------------------------
+    const beforeTeamSearch = d1.requests.length;
+    const teamAsksForPrivate = await search("wombat", SERVE_TOKEN_TEAM);
+    check(
+      "a team connection cannot reach a private note through the projection",
+      !teamAsksForPrivate.text.includes("2-areas/vitals.md"),
+    );
+    /*
+     * Bounded to the requests THIS search made. The first version of this
+     * filtered every request in the fixture — the owner's private-tier queries
+     * included — and then asserted a tautology over them, which is a check
+     * that cannot fail and was worse than no check at all.
+     *
+     * The property is not "the private note was filtered out", it is that a
+     * team caller's query never names the private table: `bm25()` computes its
+     * corpus statistics over the tables it is given, so a private note's terms
+     * in a team caller's scoring move that caller's result ORDERING even when
+     * every private path is filtered from the output. No `WHERE` closes that,
+     * and no output check can see it.
+     */
+    const teamReads = d1.requests
+      .slice(beforeTeamSearch)
+      .filter((request) => PROJECTION_READ.test(request.sql));
+    check(
+      "asking exactly one table, the team one",
+      teamReads.length === 1 &&
+        teamReads[0].sql.includes("notes_team_fts") &&
+        !teamReads[0].sql.includes("notes_private_fts"),
+    );
+    const owner = await search("wombat");
+    check(
+      "while the owner finds their own private note",
+      owner.text.includes("2-areas/vitals.md"),
+    );
+
+    // -- 4. live privacy beats the tier the row was stored at --------------
+    //
+    // The note is published to team, projected at that tier, and then made
+    // private again WITHOUT another backfill pass — so `notes_team_fts` still
+    // holds its rows. This is the window `canSee` exists to close, and the
+    // only check in this file that would go red if the filter were removed
+    // while the table split stayed correct.
+    seed("1-projects/secret.md", "# Secret\n\nA quoll arrangement.\n", "s5");
+    ready("backfilling");
+    for (let round = 0; round < 3; round += 1) await search("quoll");
+    ready("ready");
+    check(
+      "a team note is projected into the team corpus",
+      d1.rows(`SELECT path FROM notes_team_fts WHERE notes_team_fts MATCH ?`, ['"quoll"']).length >
+        0,
+    );
+    const beforeFlip = await search("quoll", SERVE_TOKEN_TEAM);
+    check(
+      "and a team connection can read it while it is a team note",
+      beforeFlip.text.includes("1-projects/secret.md"),
+    );
+    seed(
+      "privacy.md",
+      PRIVACY_MANIFEST.replace(
+        "note_overrides:\n  # none",
+        "note_overrides:\n  1-projects/secret.md: private",
+      ),
+      "sp1",
+    );
+    const afterFlip = await search("quoll", SERVE_TOKEN_TEAM);
+    check(
+      "the row is still in the team corpus, so the split alone would leak it",
+      d1.rows(`SELECT path FROM notes_team_fts WHERE notes_team_fts MATCH ?`, ['"quoll"']).length >
+        0,
+    );
+    check(
+      "and the live privacy manifest is what actually stops the read",
+      !afterFlip.text.includes("1-projects/secret.md"),
+    );
+
+    // -- 5. a refused database is not a failed search ----------------------
+    d1.state.fail = 500;
+    const refused = await search("numbat");
+    d1.state.fail = null;
+    check(
+      "a search database that refuses every read does not fail the search",
+      refused.response.status === 200 && !refused.body.result?.isError,
+    );
+    /*
+     * `answerReads > 0` rather than a path, and that is the check doing real
+     * work: the R2 path fetches every note it quotes so it can cut a snippet
+     * from live text, and the projection path fetches none. So a search that
+     * read notes out of the bucket is a search the shard index answered, and
+     * no assertion about which paths came back could tell the two apart —
+     * both find the same notes, which is the point.
+     */
+    check(
+      "the R2 index answers instead, exactly as it does with fast search off",
+      refused.text.includes("1-projects/") && refused.answerReads > 0,
+    );
+
+    // -- 6. a miss falls through rather than answering "none" --------------
+    //
+    // A note that exists in the bucket and in the R2 index and is deliberately
+    // NOT in the projection: the row is deleted underneath it, which is what a
+    // projection that is behind, was rebuilt, or lost a row looks like.
+    seed("1-projects/bilby.md", "# Bilby\n\nA bilby sighting.\n", "s6");
+    ready("backfilling");
+    for (let round = 0; round < 3; round += 1) await search("bilby");
+    ready("ready");
+    d1.db.exec(`DELETE FROM notes_team_fts WHERE path = '1-projects/bilby.md'`);
+    const missed = await search("bilby");
+    check(
+      "a projection that has lost a row does not report the note as missing",
+      missed.text.includes("1-projects/bilby.md"),
+    );
+
+    // -- the one thing the fast path is worse at ---------------------------
+    //
+    // Asserted rather than left to be discovered. A note deleted from the
+    // bucket by something that is not this gateway — Obsidian, rclone — is
+    // still in the projection until a maintenance pass removes it, and this
+    // path quotes the projection instead of fetching the note, so it is still
+    // an answer. The R2 path drops it only because its snippet read comes back
+    // empty. If this check ever goes green the other way, the invalidation
+    // named in `fastSearchAnswer` was built and this comment is the thing to
+    // delete.
+    bucket.delete("1-projects/stub.md");
+    const stale = await search("pademelon");
+    check(
+      "a note deleted outside the gateway survives in the projection until a pass removes it",
+      stale.text.includes("1-projects/stub.md"),
+    );
+    // The contrast, made by taking the projection away rather than by asking a
+    // different question: same query, same index, and the R2 path drops the
+    // note because the `GET` it makes to quote it comes back empty.
+    d1.state.fail = 500;
+    const viaR2 = await search("pademelon");
+    d1.state.fail = null;
+    check(
+      "while the R2 path notices immediately, because it reads what it quotes",
+      !viaR2.text.includes("1-projects/stub.md"),
+    );
+
+    // -- the credential, on the read path ----------------------------------
+    check(
+      "no read-path response carries the write token",
+      [fast, deep, owner, refused, missed].every((answer) => !answer.text.includes(API_TOKEN)),
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
     restoreControlPlane();
     restoreD1();
     restoreS3();

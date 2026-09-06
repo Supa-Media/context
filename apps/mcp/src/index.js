@@ -100,8 +100,13 @@ import {
   searchIndexedNotes,
   snippetLinesFor,
 } from "./search/visible.js";
-import { syncShardedIndex } from "./search/shards.js";
+import { indexIsBehind, loadIndexManifest, syncShardedIndex } from "./search/shards.js";
+// The rank cap the R2 answer reports its own floor against, imported rather
+// than retyped: two search paths printing "50+" at different thresholds is a
+// rule stated twice with nothing running both.
+import { MAX_RESULTS } from "./search/query.js";
 import { createD1Client } from "./search/d1/client.js";
+import { searchProjection } from "./search/d1/serve.js";
 import {
   D1_PASS_NOTE_CAP,
   censusFromManifest,
@@ -234,6 +239,16 @@ const INTERACTIVE_PROJECT_NOTES = 3;
  * nothing.
  */
 const D1_STANDALONE_FLOOR = 10;
+/**
+ * Ops that must remain before a search asks the projection at all.
+ *
+ * The fast path spends at most two D1 queries (a private caller reads both
+ * tiers) and one manifest read, and it must not leave the invocation unable to
+ * fall through to the R2 index when it misses — that fallback is the whole
+ * reason it is allowed to answer nothing. So the floor covers the fast path
+ * *plus* the ordinary search that may still have to happen after it.
+ */
+const FAST_SEARCH_FLOOR = DEFERRED_SYNC_FLOOR + 3;
 /**
  * Projection passes one invocation may chain.
  *
@@ -4185,6 +4200,126 @@ async function scanVisibleNotes(store, scope, rules, overrides, query, prefix, b
 }
 
 /**
+ * Answer from this context's own search database, or say nothing.
+ *
+ * ## What it replaces, for the searches it can answer
+ *
+ * The R2 path reads a manifest, routes and reads the shards a term could be
+ * in, and then fetches each quoted note out of the customer's bucket to cut a
+ * snippet from it. That is one round trip for the manifest, one per shard, and
+ * one per hit. This is one round trip per tier — two for a personal
+ * connection, one for a team one — because the projection already holds the
+ * chunk, its title and a snippet of it.
+ *
+ * It also has a recall the shard index cannot: `NOTE_INDEX_CHAR_CAP` exists
+ * because a shard is parsed whole into a 128MB heap, so the R2 index knows
+ * only a note's opening characters. `project.js` has a row per chunk and no
+ * such ceiling, which is why a term deep inside a long saved session is
+ * findable here and is not findable there.
+ *
+ * ## The three gates, and why each one is where it is
+ *
+ * **`state === "ready"`.** A projection that is still filling would answer a
+ * query about a note it has not copied yet with silence, and this path treats
+ * silence as "ask the R2 index" — so a backfilling context would pay for a D1
+ * query before every ordinary search and get nothing for it. The control
+ * plane's own word for "the copy is complete" is the right gate, and it is the
+ * same word the settings card renders.
+ *
+ * **The privacy filter, on every path that leaves.** `canSee` is the live
+ * `privacy.md`; the tier a row is stored at is `privacy.md` as it was at index
+ * time. A note made private since the last backfill pass still has team-tier
+ * rows, and this is what stops a team connection reading one. The table split
+ * above it is about *ranking* — see `d1/serve.js` — and the two are not
+ * substitutes for each other.
+ *
+ * **A miss returns `null` and the caller falls through.** Stated once in
+ * `serve.js` and repeated here because it is the property that makes the whole
+ * path safe to switch on: the fast path can only ever be faster, never less
+ * complete, than the search that was already happening.
+ *
+ * ## The one thing it is worse at, named rather than discovered
+ *
+ * **A note deleted outside the gateway can still appear here for up to one
+ * reconcile interval.** The R2 path is accidentally self-correcting about
+ * this: its index holds the deleted note too, but it fetches every note it
+ * quotes in order to cut a live snippet, and a `GET` that comes back empty
+ * drops the hit. This path quotes the projection and fetches nothing, so the
+ * row is the answer until the backfill removes it — which happens behind the
+ * next search whose maintenance pass runs, so it heals itself without anybody
+ * doing anything.
+ *
+ * It is bounded, it is the customer's own note, and `canSee` is evaluated
+ * against the LIVE `privacy.md` rather than the stored tier, so a stale row
+ * cannot become a stale permission. Closing it properly means invalidating the
+ * projection on the gateway's own deletes and moves, which is a change to
+ * every write path rather than to this one. See `docs/decisions/search.md`.
+ *
+ * @returns {Promise<object|null>} an answer in `searchIndexedNotes`' shape, or
+ *   `null` to mean "not answered — ask the index".
+ */
+async function fastSearchAnswer(store, scope, rules, overrides, query, prefix, budget, trace) {
+  const descriptor = store.searchIndex;
+  if (!descriptor || descriptor.state !== "ready") return null;
+  if (budget.remaining < FAST_SEARCH_FLOOR) return null;
+
+  let result;
+  try {
+    const client = createD1Client(descriptor);
+    result = await searchProjection(client, {
+      query,
+      prefix,
+      tier: scope,
+      budget,
+      // Everything the fall-through would need is kept back, so a projection
+      // that answers nothing has not spent the ops the R2 index is about to
+      // want. A fast path that can starve the slow one is not a fast path.
+      reserve: DEFERRED_SYNC_FLOOR,
+    });
+  } catch {
+    // Every D1 failure is one of `client.js`'s closed-set codes and none of
+    // them is a reason to fail a search: the R2 index answers exactly as it
+    // does with fast search off, which `docs/decisions/search.md` calls a
+    // working state rather than a degraded one.
+    //
+    // A bare `catch` also swallows a bug in this file, which is the honest
+    // cost of that rule rather than an oversight — a `TypeError` here would
+    // fail a search that has a perfectly good answer waiting below.
+    // `fastError` in the trace is what stops it being invisible: a deployment
+    // whose fast path is broken says so on every search, and the searches keep
+    // working while somebody reads the logs.
+    trace.set("fastError", true);
+    return null;
+  }
+  if (!result) return null;
+
+  // The boundary. Nothing below this line has seen a path the caller may not
+  // read, and the count is taken after the filter rather than before it.
+  const visible = result.notes.filter((note) => canSee(note.path, scope, rules, overrides));
+  trace.set("fastCandidates", result.notes.length);
+  trace.set("fastVisible", visible.length);
+  // A miss is not an answer. See the header, and `searchIndexedNotes`' own
+  // "a miss may pay for a listing, a hit never does".
+  if (visible.length === 0) return null;
+
+  return {
+    hits: visible.slice(0, SEARCH_RESULT_LIMIT).map((note) => ({
+      key: note.path,
+      title: note.title,
+      // One window rather than up to three whole lines: the projection stores
+      // the chunk, so this is the note's own text as it was copied, and the
+      // array shape is what `toolSearchNotes` already prints.
+      snippets: note.snippet ? [note.snippet] : [],
+    })),
+    matchCount: Math.min(visible.length, MAX_RESULTS),
+    // Two ways this is a floor and both are real: a table that filled its row
+    // cap had more to say, and a count at the reporting cap is the same
+    // "understating is the acceptable direction" rule the R2 answer applies.
+    matchCountIsFloor: result.truncated || visible.length >= MAX_RESULTS,
+  };
+}
+
+/**
  * The one search path, shared by `search_notes` and the ChatGPT-dialect
  * `search`. Splitting it from the formatting is what keeps the two tools
  * incapable of disagreeing about what a query matches — the difference between
@@ -4228,6 +4363,51 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
   trace.set("provider", store.provider);
   trace.set("budget", budget.remaining);
   trace.set("prefixed", Boolean(prefix));
+
+  /*
+   * The projection first, where this context has a complete one.
+   *
+   * It answers or it does not, and "does not" costs at most two D1 queries
+   * that were reserved for out of the fast path's own floor — never an op the
+   * R2 search below was going to need. See `fastSearchAnswer`.
+   */
+  const fastSpan = trace.span("fast");
+  const fast = await fastSearchAnswer(store, scope, rules, overrides, query, prefix, budget, trace);
+  fastSpan();
+  if (fast) {
+    // The freshness record, and nothing else out of the index — one small
+    // object read in place of the shard walk this path just avoided. Two
+    // things need it: the "still catching up" line the answer prints, and
+    // `maintainIndexAfter`'s reconcile clock, which without a manifest would
+    // read as "no index at all" and re-list the whole bucket behind every
+    // fast search. That would hand back the cost this path exists to remove.
+    const manifest = await loadIndexManifest(store, budget, 0);
+    const freshness = manifest
+      ? { index: { listedAt: manifest.freshness.listedAt }, indexIncomplete: indexIsBehind(manifest.freshness) }
+      : null;
+    trace.set("indexed", true);
+    trace.set("fast", true);
+    trace.set("hits", fast.hits.length);
+    trace.set("matches", fast.matchCount);
+    trace.set("matchesIsFloor", Boolean(fast.matchCountIsFloor));
+    trace.set("spent", budget.spent);
+    trace.set(
+      "maintain",
+      await maintainIndexAfter(store, budget, isIndexable, freshness, projectVisibility)
+    );
+    logSearchTrace(trace);
+    return {
+      hits: fast.hits,
+      matchCount: fast.matchCount,
+      matchCountIsFloor: fast.matchCountIsFloor,
+      // The projection is filled from the R2 index's own docmap, so a note the
+      // index has not reached is a note the projection cannot hold either.
+      // The index's freshness is therefore the honest answer for both, and an
+      // unreadable manifest counts as behind.
+      indexIncomplete: freshness ? freshness.indexIncomplete : true,
+      degraded: false,
+    };
+  }
 
   const answered = trace.span("answer");
   const found = await searchIndexedNotes(store, {

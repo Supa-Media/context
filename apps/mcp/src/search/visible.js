@@ -55,6 +55,7 @@ import {
   SHARD_READ_CONCURRENCY,
   decodeShard,
   fetchShardBytes,
+  indexIsBehind,
   loadIndexManifest,
   syncShardedIndex,
 } from "./shards.js";
@@ -561,11 +562,7 @@ async function answerFromIndex(store, options) {
     // unknown reported as complete is the one direction that tells somebody
     // their note is not written down.
     indexIncomplete:
-      manifest.freshness.listedAt === null ||
-      manifest.freshness.pending > 0 ||
-      manifest.freshness.truncated ||
-      shardsUnread ||
-      budgetCannotCoverIndex,
+      indexIsBehind(manifest.freshness) || shardsUnread || budgetCannotCoverIndex,
     // For the trace, and for a caller deciding whether finishing this index is
     // worth a background pass. Never rendered: these count every doc in the
     // bucket, so printing one beside a team connection's visible hits is the

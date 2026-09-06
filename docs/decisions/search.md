@@ -649,3 +649,74 @@ causing the overlap on purpose.
 The tests that fail if any of this is reversed: `__tests__/searchBackfill.test.ts`,
 whose header carries the sabotage record — including the two mutants that
 measured zero until the assertion that could see them was written.
+
+### …and a search reads it, which for a year it did not
+
+Every heading above describes the *write* half, and until 2026-09-06 that was
+all there was. The gateway provisioned a D1 database per opted-in context,
+copied every note into it, split the FTS tables by tier, reported progress, and
+rendered a settings card saying so — and then answered every single search from
+the R2 shard index, because nothing in `apps/mcp/src` imported
+`search/d1/query.js`. It was written, tested against real SQLite, and called by
+its own test file alone. **Fast search was a write path with no reader**, and
+the thing an owner consented to — a copy of their private notes in a database
+we run — bought them nothing at all.
+
+`search/d1/serve.js` and `fastSearchAnswer` are the reader. Four decisions in
+it, and each is load-bearing:
+
+**The projection is asked first, and only when the control plane calls it
+`ready`.** A projection that is still filling would answer a query about a note
+it has not copied with silence, and silence here means "ask the R2 index" — so
+a backfilling context would pay for a D1 query before every ordinary search and
+get nothing back. `ready` is the control plane's own word for "the copy is
+complete", and it is the same word the card renders.
+
+**A miss falls through; only a hit short-circuits.** This is
+`searchIndexedNotes`' rule — "a miss may pay for a listing, a hit never does" —
+applied one layer up. The projection is a disposable derivative: it can be
+behind, it can have been rebuilt, it can have lost a row. An empty answer from
+it must never be reported as an empty context. The consequence is the property
+that let this be switched on for every opted-in context at once rather than
+behind a second switch: **the fast path can be faster, and cannot be less
+complete, than the search that was already happening.**
+
+**The tier split ranks; `canSee` decides.** `tablesForTier` picks which FTS
+tables a caller's query is scored against, so `bm25()`'s corpus statistics are
+computed over documents that caller may read — the inference channel
+`search/CONTRACT.md` argues about, which no `WHERE` clause closes. That is the
+*ranking* half and it is not access control: the tier stored on a row is
+`privacy.md` as it was at index time, so a note made private a minute ago still
+has team-tier rows. Every path returned is filtered through the caller's live
+`canSee` before it leaves. The count is taken after that filter, not before,
+or the number of results a caller sees would depend on how many notes they
+cannot see.
+
+**What it buys, measured in round trips.** The R2 path reads a manifest, the
+shards a term could be in, and then every note it quotes, because its snippets
+are cut from live text. This reads one manifest and one row set per tier — two
+requests for a personal connection, one for a team one — and quotes the chunk
+it already stored. It also has recall the shard index cannot: `NOTE_INDEX_CHAR_CAP`
+exists because a shard is parsed whole into a 128MB heap, so the R2 index knows
+only a note's opening 2,048 characters, and the projection has a row per chunk
+and no such ceiling. A term deep inside a long saved session is findable here
+and is not findable there.
+
+**The residual, named rather than discovered.** A note deleted from the bucket
+by something that is not this gateway — Obsidian, rclone — can still be
+returned by the fast path for up to one reconcile interval. The R2 path is
+accidentally self-correcting about this: it holds the deleted note in its index
+too, but it fetches every note it quotes and drops a hit whose `GET` comes back
+empty. This one fetches nothing. It is bounded, it heals behind the next search
+whose maintenance pass runs, it is the customer's own note, and it cannot
+become a stale *permission* because `canSee` reads the live manifest rather
+than the stored tier. Closing it properly means invalidating the projection on
+the gateway's own deletes and moves — a change to every write path rather than
+to the read one, and a decision with a cost rather than a tidy-up.
+
+The tests that fail if any of this is reversed: `test/searchProjection.test.mjs`,
+whose "THE READ" section carries the sabotage record — including the three
+mutants that measured **zero** until the fixture was changed to make them
+visible, and the astral-character prefix bug that a lexicographic
+`[prefix, prefix + "￿")` range had been hiding since the module was
+written.
