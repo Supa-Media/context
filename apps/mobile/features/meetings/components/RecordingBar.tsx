@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { useRouter } from "expo-router";
+import { usePathname, useRouter } from "expo-router";
 import { fonts, layout, radii } from "../../design/tokens";
 import { floatingStackBottom, useBottomChromeHeight } from "../../app/bottomChrome";
 import { useThemedStyles, type Colors, type Shadows } from "../../design/theme";
@@ -60,6 +60,7 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
   const snapshot = useMeetingsSnapshot();
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
+  const pathname = usePathname();
   const live = snapshot.live;
   const now = useTick(live !== null);
   // Whatever the screen underneath is already floating at this edge, so the two
@@ -70,6 +71,39 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
     if (live === null) return;
     router.push(meetingHref(live.session.id));
   }, [router, live]);
+
+  /**
+   * End the recording, and land on the meeting that just ended.
+   *
+   * `controller.end` touches no router — the controller owns no navigation, by
+   * `controller.ts`'s own rule — and for a while nothing else did either, so
+   * this press left somebody standing on whatever screen they were reading
+   * while their meeting was filed into a list a phone had no route into. That
+   * is the report this fixed: "the note sort of just disappeared… I don't know
+   * if it succeeded, if it failed. Just nothing at all."
+   *
+   * Taking them there is stronger than any list entry, because the meeting
+   * screen is what answers the question they are actually asking:
+   * `MeetingNoteScreen` says whether the note reached the bucket, and on this
+   * build — where the gateway credential is deliberately unwired — the honest
+   * answer is that it has not.
+   *
+   * **After the end resolves, not before.** `/meetings/:id` chooses its screen
+   * off the session's state, so navigating first would show the live screen for
+   * a frame on the way to the note.
+   *
+   * **And not at all when this is already the screen underneath.** The bar is
+   * mounted above every route including that one, and pushing there would put a
+   * second copy of the meeting on the stack for somebody who is looking at it.
+   */
+  const end = useCallback(() => {
+    if (live === null) return;
+    const href = meetingHref(live.session.id);
+    void (async () => {
+      await meetings.end();
+      if (pathname !== href) router.push(href);
+    })();
+  }, [live, pathname, router]);
 
   if (live === null) return null;
 
@@ -109,7 +143,7 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
         </Pressable>
 
         <Pressable
-          onPress={() => void meetings.end()}
+          onPress={end}
           accessibilityRole="button"
           accessibilityLabel="End the recording"
           style={({ pressed }) => [styles.end, pressed && styles.pressed]}

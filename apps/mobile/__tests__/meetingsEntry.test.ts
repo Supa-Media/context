@@ -60,6 +60,8 @@ const mockReplaced: string[] = [];
 let mockBacks = 0;
 /** Whether this navigator has anywhere to go back to. See the round-trip tests. */
 let mockHistory = true;
+/** Where the bar is being drawn. See "ending a meeting takes you to it". */
+let mockPathname = "/console/@seyi";
 jest.mock("expo-router", () => ({
   useRouter: () => ({
     replace: (href: string) => mockReplaced.push(href),
@@ -69,7 +71,7 @@ jest.mock("expo-router", () => ({
     },
     canGoBack: () => mockHistory,
   }),
-  usePathname: () => "/console/@seyi",
+  usePathname: () => mockPathname,
 }));
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -81,6 +83,10 @@ const { MEETINGS_ROUTE } =
   require("../features/meetings/route") as typeof import("../features/meetings/route");
 const { MeetingsListScreen } =
   require("../features/meetings/MeetingsListScreen") as typeof import("../features/meetings/MeetingsListScreen");
+const { MeetingNoteScreen } =
+  require("../features/meetings/MeetingNoteScreen") as typeof import("../features/meetings/MeetingNoteScreen");
+const { meetingHref } =
+  require("../features/meetings/route") as typeof import("../features/meetings/route");
 const { CONSOLE_ROOT } =
   require("../features/console/nav") as typeof import("../features/console/nav");
 const { meetings } =
@@ -158,17 +164,19 @@ function click(node: Element): void {
 }
 
 async function configure() {
+  const gateway = fakeGateway();
   await act(async () => {
     meetings.reset();
     await meetings.configure({
       workspaceId: `ws-${Math.random().toString(36).slice(2)}`,
       store: memoryStore(),
-      gateway: fakeGateway(),
+      gateway,
       recorder: fakeRecorder(),
       device: { platform: "web" },
       persistDebounceMs: 0,
     });
   });
+  return gateway;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -489,5 +497,117 @@ describe("it coexists with a recording that is already running", () => {
     await act(async () => {
       await meetings.end();
     });
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Ending a meeting takes you to the meeting.
+ *
+ * `controller.end` touches no router — deliberately, because the controller
+ * owns no navigation — and for a while nothing else did either. So the bar's
+ * End left somebody standing on whatever screen they happened to be reading,
+ * with their meeting filed into a list a phone had no route into. The owner's
+ * words for that were "the note sort of just disappeared… I don't know if it
+ * succeeded, if it failed. Just nothing at all."
+ *
+ * Taking them to it is the stronger guarantee than any list entry: the thing
+ * they just made is in front of them, saying what state it is in, rather than
+ * somewhere they have to know how to look.
+ *
+ * The live screen's own End needs nothing — `/meetings/:id` is the same route
+ * before and after End, and it swaps `LiveMeetingScreen` for `MeetingNoteScreen`
+ * off the session's state (`app/(app)/meetings/[id].tsx`). That is also why the
+ * bar checks the path first: pressing End *on* the meeting must not push a
+ * second copy of the screen you are already looking at.
+ *
+ * SABOTAGE RECORD, each applied, whole suite run, reverted:
+ *
+ *  1. Dropped the `router.push` from the bar's End, back to `void meetings.end()`.
+ *     → `pressing End lands on the meeting that just ended` failed, alone.
+ *  2. Dropped the `pathname` check, pushing unconditionally.
+ *     → `and does not push a second copy of a screen you are already on`
+ *     failed, alone.
+ *  3. Made `MeetingNoteScreen` skip its `notePath === null` arm, so every
+ *     meeting claims "Saved to your bucket".
+ *     → 2 failed: `and that meeting says plainly it has not reached the bucket`
+ *     here, and `a meeting still on the device does not claim to be saved` in
+ *     `meetingsScreens.test.ts`.
+ */
+describe("ending a meeting takes you to it", () => {
+  test("pressing End lands on the meeting that just ended", async () => {
+    await configure();
+    mockPathname = "/console/@seyi";
+    pushed.length = 0;
+
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Reboot Camp" });
+    });
+
+    const bar = mount(createElement(RecordingBar, { bottomInset: 34 }));
+    click(bar.find("recording-bar-end")!);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(pushed).toEqual([meetingHref(id)]);
+    expect(meetings.getSnapshot().live).toBeNull();
+    bar.unmount();
+  });
+
+  test("and does not push a second copy of a screen you are already on", async () => {
+    await configure();
+    pushed.length = 0;
+
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Reboot Camp" });
+    });
+    // The bar is mounted above every route, this one included.
+    mockPathname = meetingHref(id);
+
+    const bar = mount(createElement(RecordingBar, { bottomInset: 34 }));
+    click(bar.find("recording-bar-end")!);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(pushed).toEqual([]);
+    expect(meetings.getSnapshot().live).toBeNull();
+    bar.unmount();
+    mockPathname = "/console/@seyi";
+  });
+
+  test("and that meeting says plainly it has not reached the bucket", async () => {
+    /*
+      The screen the person lands on has to answer the question they arrived
+      with. The gateway credential is deliberately unwired (`gateway.ts`), so
+      the ordinary outcome of ending a meeting on this build is a note that has
+      not been written anywhere — and *silence* about that is what made this
+      feel like data loss. A green tick would be worse than the silence.
+    */
+    const gateway = await configure();
+    /*
+      The state this build actually ends a meeting in. The gateway credential
+      is deliberately unwired (`gateway.ts`), so nothing reaches the bucket and
+      `notePath` stays `null` — modelled here as a gateway that will not answer
+      rather than as a hand-built record, so the screen is being read off a
+      session the controller really produced.
+    */
+    gateway.offlineFor(50);
+
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Reboot Camp" });
+      await meetings.end();
+    });
+
+    const screen = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    const landing = screen.find("meeting-landing")!;
+    expect(landing.textContent).toContain("Not in your bucket yet");
+    expect(landing.textContent).not.toContain("Saved to your bucket");
+    screen.unmount();
   });
 });
