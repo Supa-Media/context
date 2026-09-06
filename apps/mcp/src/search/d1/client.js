@@ -43,6 +43,34 @@
  * backfill converges.
  */
 
+/**
+ * ## Why this is HTTP and not a native D1 binding
+ *
+ * A Worker's D1 bindings are declared in `wrangler.toml` and resolved at
+ * deploy time. There is no runtime call that opens a database by id, and
+ * `env.SOMETHING.prepare()` needs a name that existed when the Worker was
+ * published.
+ *
+ * Fast search creates **one database per opted-in workspace, at runtime**, so
+ * there is no binding to have. Binding them would mean a redeploy per customer
+ * who flips the switch, and then a ceiling: bindings are capped per Worker, in
+ * the low thousands, which is a number of customers rather than a number of
+ * anything technical. Neither is a thing to build.
+ *
+ * So the cost is real and is paid: every query is an HTTPS request out of the
+ * Worker rather than the same-colo RPC a binding gives. It is the floor for
+ * this architecture, not an interim step, and what has been done about it is
+ * to make the fast path issue **one round trip** instead of three — the tiers
+ * go out together (`serve.js`) and the manifest moved behind the response
+ * (`fastSearchAnswer`).
+ *
+ * The alternative that would remove it is one database for every tenant with
+ * a `workspaceId` column, and that is refused by `docs/decisions/search.md`
+ * for a reason no amount of latency outweighs: FTS5 computes corpus
+ * statistics over a whole table, so one shared table would rank every
+ * customer's search against every other customer's vocabulary.
+ */
+
 /** The provider's API root. The only host this module ever addresses. */
 export const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
 

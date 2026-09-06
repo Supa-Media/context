@@ -4359,16 +4359,26 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
   const fast = await fastSearchAnswer(store, scope, rules, overrides, query, prefix, budget, trace);
   fastSpan();
   if (fast) {
-    // The freshness record, and nothing else out of the index — one small
-    // object read in place of the shard walk this path just avoided. Two
-    // things need it: the "still catching up" line the answer prints, and
-    // `maintainIndexAfter`'s reconcile clock, which without a manifest would
-    // read as "no index at all" and re-list the whole bucket behind every
-    // fast search. That would hand back the cost this path exists to remove.
-    const manifest = await loadIndexManifest(store, budget, 0);
-    const freshness = manifest
-      ? { index: { listedAt: manifest.freshness.listedAt }, indexIncomplete: indexIsBehind(manifest.freshness) }
-      : null;
+    /*
+     * The manifest is read BEHIND the response, not in front of it.
+     *
+     * The reconcile clock still needs it — without a manifest
+     * `indexNeedsAPass` reads "no index at all" and re-lists the whole bucket
+     * behind every fast search, which would hand back the cost this path
+     * exists to remove. But nothing the caller is waiting for needs it, so it
+     * is handed over as a function and `maintainIndexAfter` resolves it inside
+     * the deferred work. One object GET off the critical path of every fast
+     * hit, out of the three round trips the whole path costs.
+     */
+    const freshness = async () => {
+      const manifest = await loadIndexManifest(store, budget, 0);
+      return manifest
+        ? {
+            index: { listedAt: manifest.freshness.listedAt },
+            indexIncomplete: indexIsBehind(manifest.freshness),
+          }
+        : null;
+    };
     trace.set("indexed", true);
     trace.set("fast", true);
     trace.set("hits", fast.hits.length);
@@ -4384,11 +4394,22 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
       hits: fast.hits,
       matchCount: fast.matchCount,
       matchCountIsFloor: fast.matchCountIsFloor,
-      // The projection is filled from the R2 index's own docmap, so a note the
-      // index has not reached is a note the projection cannot hold either.
-      // The index's freshness is therefore the honest answer for both, and an
-      // unreadable manifest counts as behind.
-      indexIncomplete: freshness ? freshness.indexIncomplete : true,
+      /*
+       * `false`, and it is a claim this path is entitled to make.
+       *
+       * The projection is only read at `state: "ready"`, and the control plane
+       * sets that exactly when `notesPending === 0` — a number that already
+       * includes whatever the R2 index itself had not reached
+       * (`projectPass`'s `indexPending`). So a `ready` projection is a
+       * statement that the index was caught up when the last pass measured it,
+       * which is the same freshness the manifest would report and is why
+       * reading the manifest to re-derive it was work nobody needed.
+       *
+       * The residual is one reconcile interval of staleness, identical to the
+       * R2 path's own: `listedAt` is a record of the last listing there too.
+       * The console path says the same thing for the same reason.
+       */
+      indexIncomplete: false,
       degraded: false,
     };
   }
@@ -4532,6 +4553,41 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
  *   can tell "no work left" from "this host cannot defer".
  */
 async function maintainIndexAfter(store, budget, isIndexable, found, visibilityOf) {
+  /*
+   * A `found` THIS CALLER HAS NOT PAID FOR YET.
+   *
+   * The fast path answers without touching the R2 index at all, and the only
+   * thing it still needed from it was the manifest — for the reconcile clock
+   * below, not for the answer. Reading it in the request was one object GET
+   * on the critical path of every fast hit, which is a third of what the whole
+   * path costs, spent on a decision nobody is waiting for.
+   *
+   * So a caller may hand a *function* instead, and it is resolved inside the
+   * deferred work. The cost of that is stated rather than hidden: with nothing
+   * resolved yet this cannot know whether there is anything to do, so it
+   * always reports `deferred` and the "nothing to do" case becomes a
+   * `waitUntil` that reads a manifest and stops. That is one read behind the
+   * response in place of one read in front of it, which is the trade.
+   */
+  if (typeof found === "function") {
+    const resolveThenMaintain = async (options) =>
+      maintainNow(store, budget, isIndexable, await found(), visibilityOf, options);
+    if (typeof store.defer === "function") {
+      try {
+        store.defer(resolveThenMaintain({}));
+        return "deferred";
+      } catch {
+        // A host whose `waitUntil` refuses the work is a host that does not
+        // defer, exactly as below.
+      }
+    }
+    await resolveThenMaintain({
+      backfillOps: INTERACTIVE_BACKFILL_OPS,
+      projectNotes: INTERACTIVE_PROJECT_NOTES,
+    });
+    return "inline";
+  }
+
   const projecting = Boolean(store.searchIndex) && typeof visibilityOf === "function";
   /*
    * **The projection has its own reason to run, and it has to.** Tying it
@@ -4559,30 +4615,7 @@ async function maintainIndexAfter(store, budget, isIndexable, found, visibilityO
   // share of what is left for it — settled *before* the sync spends anything,
   // for the reason `walkReserve` exists: a reserve taken out of what the
   // previous stage happened to leave is not a reserve.
-  const reserve =
-    projecting && syncingIndex
-      ? Math.min(D1_PASS_RESERVE_CAP, Math.floor(budget.remaining / 4))
-      : 0;
-  const run = async (options) => {
-    let synced = null;
-    try {
-      if (syncingIndex) {
-        synced = await syncShardedIndex(store, { budget, isIndexable, reserve, ...options });
-      }
-    } catch {
-      // A storage failure after the answer is already out changes nothing
-      // about the answer. The next search re-diffs from the manifest — and the
-      // projection still gets its turn below, because a failed listing is not
-      // a reason to stop copying the notes that were already indexed.
-    }
-    if (!projecting) return;
-    try {
-      await projectAfterSync(store, budget, synced, visibilityOf, options);
-    } catch {
-      // Same rule, one layer down. `projectPass` already turns every provider
-      // failure into a reported code; this is the belt to that pair of braces.
-    }
-  };
+  const run = async (options) => maintainNow(store, budget, isIndexable, found, visibilityOf, options);
   if (typeof store.defer === "function") {
     try {
       store.defer(run({}));
@@ -4599,6 +4632,50 @@ async function maintainIndexAfter(store, budget, isIndexable, found, visibilityO
   // is what keeps the resulting delay bounded.
   await run({ backfillOps: INTERACTIVE_BACKFILL_OPS, projectNotes: INTERACTIVE_PROJECT_NOTES });
   return "inline";
+}
+
+/**
+ * The work itself, with the deferral decision already made.
+ *
+ * Held apart from `maintainIndexAfter` because there are now two ways in and
+ * one of them resolves its `found` *after* deferring — so the "is there
+ * anything to do" arithmetic has to be reachable from inside the deferred
+ * promise as well as from in front of it. It reads `budget` and `store` and
+ * returns nothing: every caller is behind the response, and neither branch may
+ * throw into one.
+ */
+async function maintainNow(store, budget, isIndexable, found, visibilityOf, options = {}) {
+  const projecting = Boolean(store.searchIndex) && typeof visibilityOf === "function";
+  const syncingIndex = indexNeedsAPass(found) && budget.remaining >= DEFERRED_SYNC_FLOOR;
+  const backfilling = projecting && store.searchIndex.state !== "ready";
+  const projectingAlone = backfilling && !syncingIndex && budget.remaining >= D1_STANDALONE_FLOOR;
+  if (!syncingIndex && !projectingAlone) return;
+  // Where this context has opted into the projection, the sync keeps back a
+  // share of what is left for it — settled *before* the sync spends anything,
+  // for the reason `walkReserve` exists: a reserve taken out of what the
+  // previous stage happened to leave is not a reserve.
+  const reserve =
+    projecting && syncingIndex
+      ? Math.min(D1_PASS_RESERVE_CAP, Math.floor(budget.remaining / 4))
+      : 0;
+  let synced = null;
+  try {
+    if (syncingIndex) {
+      synced = await syncShardedIndex(store, { budget, isIndexable, reserve, ...options });
+    }
+  } catch {
+    // A storage failure after the answer is already out changes nothing about
+    // the answer. The next search re-diffs from the manifest — and the
+    // projection still gets its turn below, because a failed listing is not a
+    // reason to stop copying the notes that were already indexed.
+  }
+  if (!projecting) return;
+  try {
+    await projectAfterSync(store, budget, synced, visibilityOf, options);
+  } catch {
+    // Same rule, one layer down. `projectPass` already turns every provider
+    // failure into a reported code; this is the belt to that pair of braces.
+  }
 }
 
 /**

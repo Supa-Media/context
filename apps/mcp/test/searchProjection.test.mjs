@@ -795,6 +795,7 @@ export async function runSearchProjectionChecks(check) {
     backend.close();
   }
 
+  await runParallelTierChecks(check);
   await runSweepCompletionChecks(check);
   await runSyncReportChecks(check);
   await runEndToEndChecks(check);
@@ -857,6 +858,62 @@ const SYNC_ENDPOINT = "https://s3.example-syncreport.test";
  * `state: "ready"` is the one gate `fastSearchAnswer` trusts — and was proved
  * by nothing before this.
  */
+/**
+ * THE TWO TIERS GO OUT TOGETHER.
+ *
+ * A personal connection reads both FTS tables, and this client talks to D1
+ * over Cloudflare's HTTP API rather than a native binding — the databases are
+ * created per workspace at runtime and a Worker's D1 bindings are fixed at
+ * deploy time, so there is no binding to have. Each tier is therefore a full
+ * HTTPS request, and awaiting them one at a time made the fast path's floor
+ * two round trips when its whole claim is to be one.
+ *
+ * Proved by construction rather than by a stopwatch: the stub below does not
+ * answer the first query until the second has arrived. Serially that is a
+ * deadlock, so a `searchProjection` that awaits in a loop cannot finish this
+ * check — and a timer turns the hang into a failure rather than a stuck suite.
+ */
+async function runParallelTierChecks(check) {
+  const gate = { calls: 0, release: null };
+  const both = new Promise((resolve) => {
+    gate.release = resolve;
+  });
+  const client = {
+    async query() {
+      gate.calls += 1;
+      if (gate.calls >= 2) gate.release();
+      await both;
+      return [];
+    },
+  };
+
+  const answered = await Promise.race([
+    searchProjection(client, { query: "quokka", tier: "private" }).then(() => "answered"),
+    new Promise((resolve) => setTimeout(() => resolve("hung"), 2_000)),
+  ]);
+  check("a personal caller's two tiers are queried together, not one after the other", answered === "answered");
+  check("and both really were asked", gate.calls === 2);
+
+  // The budget is settled for every table before any of them runs, so a pass
+  // that cannot afford the second never issues the first. A reserve taken out
+  // of what the previous stage happened to leave is not a reserve.
+  const spent = [];
+  const counted = {
+    async query() {
+      spent.push(1);
+      return [];
+    },
+  };
+  const budget = createSearchBudget(1);
+  const refused = await searchProjection(counted, {
+    query: "quokka",
+    tier: "private",
+    budget,
+  });
+  check("a budget too small for both tiers answers nothing", refused === null);
+  check("and issues no query at all", spent.length === 0);
+}
+
 async function runSweepCompletionChecks(check) {
   const backend = createD1Backend();
   const client = createD1Client(DESCRIPTOR, { fetchImpl: (u, i) => backend.handle(u, i) });
@@ -1471,11 +1528,16 @@ async function runServeChecks(check) {
   // count. The S3 stub records nothing of its own, and "did the answer read a
   // note out of the bucket" is the whole latency claim.
   const noteReads = [];
+  const indexReads = [];
   const previousFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
     if (url.startsWith(S3_ENDPOINT) && (init?.method ?? "GET").toUpperCase() === "GET") {
       const key = decodeURIComponent(new URL(url).pathname.split("/").slice(2).join("/"));
+      // The manifest and the shards. Counted apart from notes because the
+      // manifest is the one index object a fast hit used to read in front of
+      // the caller, and the claim below is that it no longer does.
+      if (key.startsWith(".index/")) indexReads.push(key);
       // `privacy.md` is the manifest the privacy engine is built from and is
       // read once per request whatever answers it — counting it would make
       // "the answer read no note" false for every search ever made, which is
@@ -1541,6 +1603,7 @@ async function runServeChecks(check) {
   async function search(query, token = SERVE_TOKEN_OWNER, budget = 600, prefix = undefined) {
     const harness = createWorkerCtx();
     const readsBefore = noteReads.length;
+    const indexBefore = indexReads.length;
     const response = await worker.fetch(
       new Request("https://gateway.test/mcp", {
         method: "POST",
@@ -1568,8 +1631,22 @@ async function runServeChecks(check) {
     // after it would say every search reads notes and the latency claim would
     // be untestable. This is what the caller waited for.
     const answerReads = noteReads.length - readsBefore;
+    const answerIndexReads = indexReads.length - indexBefore;
     await harness.settle();
-    return { response, body, text: JSON.stringify(body), answerReads };
+    // What the DEFERRED half read, which is the other side of the same claim:
+    // moving the manifest off the critical path is only an improvement if it
+    // is still read somewhere. A count over the whole fixture cannot say that
+    // — earlier R2 searches read manifests too — so it is measured per call,
+    // between the answer and the end of `settle()`.
+    const deferredIndexReads = indexReads.length - indexBefore - answerIndexReads;
+    return {
+      response,
+      body,
+      text: JSON.stringify(body),
+      answerReads,
+      answerIndexReads,
+      deferredIndexReads,
+    };
   }
 
   const ready = (state) =>
@@ -1605,6 +1682,24 @@ async function runServeChecks(check) {
     check(
       "without reading a single note out of the customer's bucket",
       fast.answerReads === 0,
+    );
+    /*
+     * And without reading the index either. The manifest is still needed — the
+     * reconcile clock reads `listedAt` off it, and without one
+     * `indexNeedsAPass` says "no index at all" and re-lists the whole bucket
+     * behind every fast search — but nothing the caller waits for needs it, so
+     * it is resolved inside the deferred maintenance. That is the last object
+     * GET on the critical path of a hit: what remains is `privacy.md`, which
+     * every request reads to build the privacy engine, and the D1 queries
+     * themselves.
+     */
+    check(
+      "and without reading the index in front of the caller either",
+      fast.answerIndexReads === 0,
+    );
+    check(
+      "the manifest is still read, behind that same response",
+      fast.deferredIndexReads > 0,
     );
     check(
       "and it really was the projection that was asked",
