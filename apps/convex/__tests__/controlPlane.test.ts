@@ -31,7 +31,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { hashToken } from "../functions/lib/crypto";
 import {
@@ -1903,6 +1903,64 @@ describe("/gateway/clients/register and /gateway/clients/get", () => {
       expect((await registerClient(t, `mcp_anon_${i}`)).status).toBe(200);
     }
     expect((await registerClient(t, "mcp_anon_extra")).status).toBe(429);
+  });
+
+  test("a rotating registrant cannot mint unbounded limiter rows either", async () => {
+    /*
+      THE OTHER HALF, AND THE ONE THE FIRST VERSION OF THIS CHANGE GOT WRONG.
+
+      `consumeRateLimit` writes a row per distinct key, and on this route the
+      key belongs to the caller. Keyed on the raw address, a rotating source
+      got a fresh bucket every time — so the limit did not bound growth, it
+      DOUBLED it: measured on that version, 100 registrations left 100 client
+      rows and 100 limiter rows, against the 100 an unlimited endpoint leaves.
+
+      Two things fix it and this asserts the second. The gateway normalises an
+      address to its /64 before hashing, so one customer's 2^64 addresses are
+      one bucket (held in the gateway's own suite). And a closed window is
+      swept, which bounds the table by rate instead of by keyspace.
+    */
+    const t = setupTest();
+    const old = Date.now() - 25 * 60 * 60 * 1000;
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 50; i += 1) {
+        await ctx.db.insert("rateLimits", {
+          key: `oauth.register:rotated-${i}`,
+          windowStartedAt: old,
+          count: 1,
+        });
+      }
+      // A window still open, and somebody's spent budget. Sweeping this would
+      // hand back a limit they have already used, which is the failure the
+      // retention exists to prevent — so it is the positive twin here.
+      await ctx.db.insert("rateLimits", {
+        key: "oauth.register:live",
+        windowStartedAt: Date.now(),
+        count: 20,
+      });
+    });
+
+    const result = await t.mutation(internal.functions.grants.purgeExpiredRateLimits, {});
+    expect(result).toEqual({ deleted: 50, moreRemaining: false });
+
+    const left = await t.run((ctx) => ctx.db.query("rateLimits").collect());
+    expect(left).toHaveLength(1);
+    expect(left[0].key).toBe("oauth.register:live");
+    expect(left[0].count).toBe(20);
+  });
+
+  test("...and the sweep reports when a batch did not finish", async () => {
+    const t = setupTest();
+    const old = Date.now() - 25 * 60 * 60 * 1000;
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 5; i += 1) {
+        await ctx.db.insert("rateLimits", { key: `k-${i}`, windowStartedAt: old, count: 1 });
+      }
+    });
+    expect(await t.mutation(internal.functions.grants.purgeExpiredRateLimits, { limit: 2 })).toEqual({
+      deleted: 2,
+      moreRemaining: true,
+    });
   });
 
   test("is idempotent on clientId, so a redeploy does not orphan grants", async () => {

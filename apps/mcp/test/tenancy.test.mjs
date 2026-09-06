@@ -1043,7 +1043,7 @@ export async function runTenancyChecks(check) {
   */
   const registerFrom = async (address) => {
     const before = controlPlane.calls.length;
-    await worker.fetch(
+    const response = await worker.fetch(
       new Request("https://mcp.context.test/oauth/register", {
         method: "POST",
         headers: address
@@ -1061,12 +1061,22 @@ export async function runTenancyChecks(check) {
     const call = controlPlane.calls
       .slice(before)
       .find((entry) => entry.path === "/gateway/clients/register");
-    return call?.body?.registrantKey;
+    /*
+      THE STATUS, NOT ONLY THE KEY, and the reason is a defect review measured
+      in the first version of this helper: it returned the key alone, so
+      `undefined` was equally true when the control plane had **never been
+      called**. The check below named for "still registers with no header"
+      therefore PASSED under a sabotage that made a missing header refuse the
+      registration outright — what went red was 28 unrelated OAuth tests that
+      happen not to set the header. The property was protected by accident, by
+      neighbours, which is this register's own definition of not a guard.
+    */
+    return { status: response.status, key: call?.body?.registrantKey };
   };
 
-  const keyFromOne = await registerFrom("203.0.113.7");
-  const keyFromOneAgain = await registerFrom("203.0.113.7");
-  const keyFromAnother = await registerFrom("203.0.113.8");
+  const { key: keyFromOne } = await registerFrom("203.0.113.7");
+  const { key: keyFromOneAgain } = await registerFrom("203.0.113.7");
+  const { key: keyFromAnother } = await registerFrom("203.0.113.8");
   check("a registration carries a registrant key", typeof keyFromOne === "string");
   check("...stable for the same address, so a flood lands in one bucket", keyFromOne === keyFromOneAgain);
   check("...and different for another, so it costs its own source", keyFromOne !== keyFromAnother);
@@ -1110,7 +1120,41 @@ export async function runTenancyChecks(check) {
     must still REGISTER, because refusing would break self-hosting, which
     CLAUDE.md names as a supported path.
   */
-  check("a gateway with no address header sends no key", (await registerFrom(null)) === undefined);
+  const withoutHeader = await registerFrom(null);
+  check("a gateway with no address header sends no key", withoutHeader.key === undefined);
+  check("...and the registration still succeeds, because refusing breaks self-hosting", withoutHeader.status === 201);
+
+  /*
+    ONE HOST IS ONE BUCKET, AND ONE NETWORK IS ONE BUCKET.
+
+    A key a stranger can rotate is a write amplification on a table nothing
+    sweeps — this repository argues that at the ingestion limiter, and the
+    first version of this change reproduced exactly what that comment
+    prevents. An IPv6 host routinely holds a whole /64, so keying on the
+    address is 2^64 free buckets and 2^64 permanent limiter rows. Measured on
+    that version: 100 registrations from a rotating address left 100 client
+    rows AND 100 limiter rows, against 100 with no limit at all — the limit
+    made the growth worse.
+
+    So these are the shapes that must agree, and the ones that must not.
+  */
+  const netOf = async (address) => (await registerFrom(address)).key;
+  const canonicalSix = await netOf("2001:db8::1");
+  check("an expanded IPv6 address is the same bucket as its short form",
+    (await netOf("2001:0db8:0000:0000:0000:0000:0000:0001")) === canonicalSix);
+  check("...and so is its upper-case form", (await netOf("2001:DB8::1")) === canonicalSix);
+  check("...and another address in the same /64, which one customer holds",
+    (await netOf("2001:db8::dead:beef")) === canonicalSix);
+  check("...and the same host with a port and brackets",
+    (await netOf("[2001:db8::1]:443")) === canonicalSix);
+  check("a DIFFERENT /64 is a different bucket, so this is not simply constant",
+    (await netOf("2001:db8:0:1::1")) !== canonicalSix);
+  check("an IPv4-mapped address is the same bucket as the IPv4 host it names",
+    (await netOf("::ffff:203.0.113.7")) === keyFromOne);
+  check("...and an IPv4 address with a port is that host, not a second bucket",
+    (await netOf("203.0.113.7:443")) === keyFromOne);
+  check("an unparseable address shares the unattributed bucket rather than minting one",
+    (await netOf("not-an-address")) === undefined);
 
   /*
     And the one answer the gateway has to translate rather than relay. The

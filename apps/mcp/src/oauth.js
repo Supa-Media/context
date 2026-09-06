@@ -99,16 +99,79 @@ function metadataResponse(body) {
 
 /** RFC 6749 §5.2 / RFC 7591 §3.2.2 error body. Always 400 unless stated. */
 /**
+ * The network a registration came from, as the limiter should count it.
+ *
+ * **A key a stranger can rotate is a write amplification on a table nothing
+ * sweeps**, which this repository has already argued once, at the ingestion
+ * limiter: *"anyone able to send mail can mint an unbounded number of rows by
+ * addressing a million invented names"*. An IPv6 host is routinely given a
+ * whole `/64` — standard on a cheap VPS and on residential broadband — so
+ * keying on the address would hand one customer 2^64 free buckets, and each
+ * distinct bucket is its own permanent `rateLimits` row. Measured before this
+ * function existed: 100 registrations from a rotating address produced 100
+ * client rows **and** 100 limiter rows, where an unlimited endpoint produced
+ * 100. The limit made the growth worse.
+ *
+ * So an IPv6 address counts as its /64 and an IPv4 address counts as itself.
+ * That collapses the cheap keyspace to one bucket per network. It does not
+ * make the keyspace *bounded* — somebody holding many networks still holds
+ * many buckets — which is why the sweep in `crons.ts` is the other half of
+ * this and not an optimisation.
+ *
+ * Normalising also fixes three ways of writing one host that were three
+ * buckets: `2001:db8::1`, its expanded form, and its upper-case form; and
+ * `::ffff:203.0.113.7` against `203.0.113.7`.
+ *
+ * Returns `null` for anything it cannot parse, which the caller treats exactly
+ * as a missing header — shared, never unlimited.
+ */
+export function registrantNetwork(rawAddress) {
+  const address = String(rawAddress ?? "").trim().toLowerCase();
+  if (address === "") return null;
+
+  // `[2001:db8::1]:443` and `203.0.113.7:443`. A header should not carry a
+  // port, and one that does must not be a second bucket for the same host.
+  const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(address);
+  const bare = bracketed ? bracketed[1] : address.replace(/^(\d+\.\d+\.\d+\.\d+):\d+$/, "$1");
+
+  if (!bare.includes(":")) return /^\d+\.\d+\.\d+\.\d+$/.test(bare) ? bare : null;
+
+  const halves = bare.split("::");
+  if (halves.length > 2) return null;
+  const [head, tail] = halves;
+  const left = head === "" ? [] : head.split(":");
+  const right = halves.length === 2 ? (tail === "" ? [] : tail.split(":")) : [];
+  const parts = halves.length === 2 ? [...left, ...right] : left;
+
+  // An IPv4-mapped address ends in dotted-quad form. Its /64 is meaningless —
+  // it names one IPv4 host — so it counts as that host, which is also what
+  // makes `::ffff:203.0.113.7` and `203.0.113.7` one bucket rather than two.
+  const last = parts[parts.length - 1];
+  if (last !== undefined && last.includes(".")) {
+    return /^\d+\.\d+\.\d+\.\d+$/.test(last) ? last : null;
+  }
+
+  const filled =
+    halves.length === 2
+      ? [...left, ...Array(8 - left.length - right.length).fill("0"), ...right]
+      : left;
+  if (filled.length !== 8 || filled.some((part) => !/^[0-9a-f]{1,4}$/.test(part))) return null;
+
+  return `${filled.slice(0, 4).map((part) => parseInt(part, 16).toString(16)).join(":")}::/64`;
+}
+
+/**
  * A stable, non-identifying bucket name for whoever is registering.
  *
- * `undefined` when Cloudflare did not set the header, which the control plane
- * reads as "share the unattributed bucket" rather than as "no limit" — see the
- * comment at the call site for why that direction is the only safe one.
+ * `undefined` when Cloudflare did not set a header this can read, which the
+ * control plane treats as "share the unattributed bucket" rather than as "no
+ * limit" — see the comment at the call site for why that direction is the only
+ * safe one.
  */
 async function registrantKey(request) {
-  const address = request.headers.get("CF-Connecting-IP");
-  if (!address) return undefined;
-  return (await sha256Hex(address)).slice(0, 32);
+  const network = registrantNetwork(request.headers.get("CF-Connecting-IP"));
+  if (network === null) return undefined;
+  return (await sha256Hex(network)).slice(0, 32);
 }
 
 function oauthError(error, description, status = 400, extraHeaders = {}) {

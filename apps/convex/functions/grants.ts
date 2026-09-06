@@ -28,7 +28,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { TOKEN_HASH_PATTERN } from "./lib/crypto";
 import { recordAudit } from "./lib/audit";
 import { getMembership, workspaceNotFound } from "./lib/workspaceAuth";
-import { consumeRateLimit } from "./lib/rateLimit";
+import { RATE_LIMIT_RETENTION_MS, consumeRateLimit } from "./lib/rateLimit";
 import {
   clampAccessTokenExpiry,
   clampScopes,
@@ -230,6 +230,42 @@ export const revokeGrant = mutation({
 // ---------------------------------------------------------------------------
 // Internal — the OAuth flow in the gateway drives these.
 // ---------------------------------------------------------------------------
+
+/**
+ * Delete rate-limit counters whose window closed long ago.
+ *
+ * **The counters are the other half of the registration limit, not
+ * housekeeping.** `consumeRateLimit` writes one row per distinct key, and on an
+ * unauthenticated route the key belongs to the caller — so a limit with no
+ * sweep answers "a stranger can mint unbounded client rows" with "a stranger
+ * can mint unbounded client rows AND unbounded counter rows". Measured before
+ * this existed: 100 registrations from a rotating source left 200 permanent
+ * rows against the 100 an unlimited endpoint left.
+ *
+ * A row whose window has closed is garbage rather than state: the next call on
+ * that key resets it anyway (`windowExpired` in `lib/rateLimit.ts`), so
+ * deleting it and letting the next call re-insert are the same behaviour. A
+ * row still inside its window is somebody's spent budget and deleting it hands
+ * that budget back — hence a retention far past the longest window rather than
+ * "expired".
+ *
+ * Batched like every other sweep here, and it reports `moreRemaining` so the
+ * cron can be reasoned about rather than assumed to keep up.
+ */
+export const purgeExpiredRateLimits = internalMutation({
+  args: { limit: v.optional(v.number()) },
+  returns: v.object({ deleted: v.number(), moreRemaining: v.boolean() }),
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit ?? 200, 1), 1000);
+    const cutoff = Date.now() - RATE_LIMIT_RETENTION_MS;
+    const stale = await ctx.db
+      .query("rateLimits")
+      .withIndex("by_windowStartedAt", (q) => q.lt("windowStartedAt", cutoff))
+      .take(limit);
+    for (const row of stale) await ctx.db.delete(row._id);
+    return { deleted: stale.length, moreRemaining: stale.length === limit };
+  },
+});
 
 /**
  * How many clients one registrant may mint per window.

@@ -92,3 +92,14 @@ export async function consumeRateLimit(
 
   await ctx.db.patch(existing._id, { count: existing.count + 1 });
 }
+
+/**
+ * How long a closed window is kept before it is swept.
+ *
+ * Generous against the longest window any caller uses (an hour), because the
+ * only cost of keeping a dead row a while longer is the row, and the cost of
+ * deleting a *live* one is a caller who gets their whole budget back early.
+ * Twenty-four hours is far past every window here and far short of "forever",
+ * which is what this used to be.
+ */
+export const RATE_LIMIT_RETENTION_MS = 24 * 60 * 60 * 1000;
