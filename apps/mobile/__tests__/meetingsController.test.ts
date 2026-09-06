@@ -8,11 +8,13 @@ import { fakeGateway, type FakeGateway } from "../features/meetings/fakeGateway"
 import { fakeRecorder, fakeSegment, type FakeRecorder } from "../features/meetings/capture/fake";
 import { forgetAllMeetings, loadMeetings } from "../features/meetings/local";
 import {
+  destinationKey,
   meetingKey,
   meetingKeys,
   meetingKeysForWorkspace,
   parseMeetingKey,
 } from "../features/meetings/keys";
+import { rememberDestination } from "../features/meetings/destination";
 import { isSynced } from "../features/meetings/record";
 
 /**
@@ -479,14 +481,31 @@ describe("the device's own keys", () => {
     */
     const { controller, store } = await harness();
     await controller.start({ title: "Private meeting" });
+    await rememberDestination(store, {
+      kind: "currentPage",
+      contextSlug: "field-notes",
+      folder: "1-projects/portal",
+      label: "1-projects/portal",
+    });
     await settle();
 
     await forgetEverything(store);
-    expect(meetingKeys(await store.keys())).toHaveLength(1);
+    /*
+      Two keys, and the second is worth naming rather than counting. The
+      remembered destination is a context slug and the name of one of somebody's
+      folders — `console/lastPlace.ts`'s own reason for being cleared — so on a
+      shared device it survives one person's sign-out and preselects a row for
+      the next. `destinationKey`'s comment claimed sign-out took it; it does
+      not, and the claim is corrected there.
+    */
+    expect(meetingKeys(await store.keys())).toHaveLength(2);
+    expect(await store.get(destinationKey())).not.toBeNull();
 
-    // What the missing line would do, exported and ready for it.
+    // What the missing line would do, exported and ready for it. It is the
+    // whole namespace, so it takes both without a second list.
     await forgetAllMeetings(store);
     expect(meetingKeys(await store.keys())).toHaveLength(0);
+    expect(await store.get(destinationKey())).toBeNull();
   });
 
   test("discarding the meeting that is running releases the microphone", async () => {

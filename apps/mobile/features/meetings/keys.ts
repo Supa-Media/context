@@ -69,9 +69,18 @@ export function meetingKey(workspaceId: string, meetingId: string): string {
  * Under this feature's namespace and this feature's separator, deliberately:
  * the value is a context slug and the name of one of somebody's folders, which
  * is exactly the kind of thing `console/lastPlace.ts` says must leave a device
- * on sign-out — and `meetingKeys` already names everything under this
- * namespace, so putting it here means sign-out takes it without a second list
- * to keep in step.
+ * on sign-out. `meetingKeys` already names everything under this namespace, so
+ * putting it here means one list rather than two to keep in step.
+ *
+ * **It does not follow that sign-out takes it, and this comment used to say it
+ * did.** `forgetLocalCopies` clears the offline namespace and the last-place
+ * keys by name, and `meetingKeys` is not on that list yet — which the file
+ * header thirty lines up states correctly and this paragraph contradicted. The
+ * gap is real and is the same one the header describes: on a shared device, a
+ * previous person's context slug and folder name survive their sign-out and
+ * preselect a row for the next. `__tests__/meetingsController.test.ts` pins it
+ * under "PINNED GAP", and closing it is the one line in `features/offline/forget.ts`
+ * this feature still owes sign-out.
  *
  * It carries **no workspace segment**, unlike a meeting. A meeting belongs to
  * one context; this is a preference of the person holding the phone, and filing
