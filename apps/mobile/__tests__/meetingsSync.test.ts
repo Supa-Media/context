@@ -52,6 +52,9 @@ function record(session: Partial<MeetingSession> = {}): MeetingRecord {
     version: 1,
     workspaceId: "ws-1",
     session: { ...seedSession(SEED), ...session },
+    // Nobody was asked, so the gateway's own default stands. See
+    // `MeetingRecord.destination` for why that is `null` and not a guess.
+    destination: null,
     acked: emptyAck(),
     runningSince: null,
     updatedAt: 0,
@@ -409,7 +412,7 @@ describe("the HTTP client refuses rather than sending an unauthenticated request
       }) as unknown as typeof fetch,
     });
 
-    await gateway.finalize(SEED.id);
+    await gateway.finalize(SEED.id, null);
     expect(seen).toEqual([`https://gateway.invalid/meetings/sessions/${SEED.id}/finalize`]);
   });
 

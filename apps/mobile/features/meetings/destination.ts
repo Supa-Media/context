@@ -278,19 +278,36 @@ export async function rememberDestination(
 }
 
 /**
- * What this device chose last, or `null`.
+ * A destination read back off a device, or `null` for anything that is not one.
  *
- * Re-validated on the way out, which is `recallPlace`'s rule verbatim: this
- * process wrote it, but it is a file on a *device* — a restored backup, a
- * rooted browser, another app sharing the store — and both fields end up in a
- * request against the customer's own bucket. The slug shape is the same
- * narrow one `recallPlace` accepts, and the folder goes through
- * `safeNotePath`, which is the gate every externally-supplied path in this app
- * already passes.
+ * **Every destination that has been to storage comes back through here** — the
+ * remembered choice below, and the one on a restored `MeetingRecord`. That is
+ * `recallPlace`'s rule verbatim, and for its reason: this process wrote it, but
+ * it is a file on a *device* — a restored backup, a rooted browser, another app
+ * sharing the store — and both fields end up in a request against the
+ * customer's own bucket.
  *
- * Being narrower than the control plane's naming rule costs at most one
- * preselection, which is the cheapest thing in this feature to lose.
+ * The slug shape is the narrow one `recallPlace` accepts, and the folder goes
+ * through `safeNotePath`, the gate every externally-supplied path in this app
+ * already passes. Being narrower than the control plane's naming rule costs at
+ * most one preselection, which is the cheapest thing in this feature to lose —
+ * and on a record it costs a meeting its folder, never the meeting.
  */
+export function parseDestination(value: unknown): MeetingDestination | null {
+  if (typeof value !== "object" || value === null) return null;
+
+  const { kind, contextSlug, folder, label } = value as Record<string, unknown>;
+  if (kind !== "personalInbox" && kind !== "currentPage") return null;
+  if (typeof contextSlug !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(contextSlug)) return null;
+  if (typeof folder !== "string") return null;
+  if (folder !== "" && safeNotePath(folder) !== folder) return null;
+
+  if (kind === "personalInbox") return { kind, contextSlug, folder };
+  if (typeof label !== "string") return null;
+  return { kind, contextSlug, folder, label };
+}
+
+/** What this device chose last, or `null`. Validated by `parseDestination`. */
 export async function recallDestination(
   store: KeyValueStore,
 ): Promise<MeetingDestination | null> {
@@ -302,21 +319,9 @@ export async function recallDestination(
   }
   if (raw === null) return null;
 
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    return parseDestination(JSON.parse(raw));
   } catch {
     return null;
   }
-  if (typeof parsed !== "object" || parsed === null) return null;
-
-  const { kind, contextSlug, folder, label } = parsed as Record<string, unknown>;
-  if (kind !== "personalInbox" && kind !== "currentPage") return null;
-  if (typeof contextSlug !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(contextSlug)) return null;
-  if (typeof folder !== "string") return null;
-  if (folder !== "" && safeNotePath(folder) !== folder) return null;
-
-  if (kind === "personalInbox") return { kind, contextSlug, folder };
-  if (typeof label !== "string") return null;
-  return { kind, contextSlug, folder, label };
 }

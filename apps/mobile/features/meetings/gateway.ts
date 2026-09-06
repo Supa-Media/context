@@ -1,3 +1,4 @@
+import type { MeetingDestination } from "./destination";
 import { ERRORS, ROUTES } from "./protocol";
 import type {
   IngestAck,
@@ -70,8 +71,16 @@ export interface MeetingsGateway {
   putSegments(sessionId: string, segments: readonly TranscriptSegment[]): Promise<IngestAck>;
   /** Replace the human's Markdown. Wholesale, so it is idempotent by construction. */
   putNotes(sessionId: string, markdown: string): Promise<IngestAck>;
-  /** End, enhance, write to the bucket. Returns the note path it wrote, or already wrote. */
-  finalize(sessionId: string): Promise<IngestAck>;
+  /**
+   * End, enhance, write to the bucket. Returns the note path it wrote, or
+   * already wrote.
+   *
+   * `destination` is where the person said the note should go, or `null` when
+   * nobody was asked — see `MeetingRecord.destination`. It rides on *this* call
+   * because this is the one that turns a session into a note: the request whose
+   * answer is a path is the request that should carry where the path goes.
+   */
+  finalize(sessionId: string, destination: MeetingDestination | null): Promise<IngestAck>;
   /**
    * Recent sessions this workspace holds, newest first.
    *
@@ -165,12 +174,42 @@ export function createHttpGateway(options: HttpGatewayOptions): MeetingsGateway 
     putSegments: (sessionId, segments) =>
       send(ROUTES.segments(sessionId), "POST", { segments }),
     putNotes: (sessionId, markdown) => send(ROUTES.notes(sessionId), "POST", { markdown }),
-    finalize: (sessionId) => send(ROUTES.finalize(sessionId), "POST", {}),
+    finalize: (sessionId, destination) =>
+      send(ROUTES.finalize(sessionId), "POST", finalizeBody(destination)),
     list: async () => {
       const answer = await send<Partial<SessionList>>(ROUTES.sessions, "GET");
       return answer.sessions ?? [];
     },
   };
+}
+
+/**
+ * What a finalize says, which is nothing at all when nobody chose a folder.
+ *
+ * `{}` is the contract's own "no fields", and it is what a meeting with no
+ * destination sends — the gateway's default then stands, which is exactly what
+ * has always happened.
+ *
+ * ## `folder` is ahead of the contract, and this is the note saying so
+ *
+ * `FinalizeBody` in `packages/meetings/src/protocol.js` does not name it, and
+ * the gateway's `foldMetadata` reads a fixed list of fields, so a deployed
+ * gateway **reads this and does nothing with it**: it is not an error, it is
+ * not stored, and `meetingNotePath` still derives `0-inbox/meetings/YYYY/MM/…`
+ * from the session alone. Sending it is therefore inert rather than wrong, and
+ * this client never claims otherwise — `notePath` on a session comes from the
+ * gateway's own `written` answer and is never the folder this device asked for,
+ * so the screens print where the note *is*, not where it was sent.
+ *
+ * Making the ask real is three edits upstream, in one change:
+ * `FinalizeBody` gains `folder`; `meetingNotePath` takes it instead of the
+ * hard-coded `MEETINGS_FOLDER`; and `finalizeSession` passes the body's value
+ * through. That is `packages/meetings` and `apps/mcp`, which is why it is named
+ * here rather than done here — CLAUDE.md's rule is that the contract is not
+ * edited from inside this app.
+ */
+function finalizeBody(destination: MeetingDestination | null): Record<string, string> {
+  return destination === null ? {} : { folder: destination.folder };
 }
 
 /**

@@ -1,3 +1,4 @@
+import type { MeetingDestination } from "./destination";
 import { MeetingGatewayError, type MeetingsGateway } from "./gateway";
 import { ERRORS } from "./protocol";
 import type {
@@ -40,7 +41,9 @@ export interface FakeGateway extends MeetingsGateway {
 }
 
 export function fakeGateway(
-  options: { notePathFor?: (session: MeetingSession) => string } = {},
+  options: {
+    notePathFor?: (session: MeetingSession, destination: MeetingDestination | null) => string;
+  } = {},
 ): FakeGateway {
   const held = new Map<string, MeetingSession>();
   const segments = new Map<string, Map<string, TranscriptSegment>>();
@@ -49,9 +52,26 @@ export function fakeGateway(
   let offlineCalls = 0;
   let written = 0;
 
+  /**
+   * Where this fake writes a note.
+   *
+   * It **honours the folder it is handed**, which is the behaviour the real
+   * gateway will have once `FinalizeBody` carries one (see `finalizeBody` in
+   * `gateway.ts` for what is missing and where). A fake that ignored it could
+   * not tell a client that threads the destination through from one that drops
+   * it on the floor, which is the whole thing worth testing here.
+   *
+   * With no destination it is the gateway's own default, unchanged, so every
+   * test written before this question existed still asserts what it did.
+   */
   const notePathFor =
     options.notePathFor ??
-    ((session: MeetingSession) => `0-inbox/meetings/${session.id}.md`);
+    ((session: MeetingSession, destination: MeetingDestination | null) => {
+      const folder = destination?.folder ?? "0-inbox";
+      return folder === ""
+        ? `meetings/${session.id}.md`
+        : `${folder}/meetings/${session.id}.md`;
+    });
 
   function gate(route: string): void {
     calls.push(route);
@@ -170,18 +190,20 @@ export function fakeGateway(
       return ack(next);
     },
 
-    async finalize(sessionId) {
+    async finalize(sessionId, destination) {
       gate("finalize");
       const session = require(sessionId);
       if (session.state === "complete" && session.notePath !== null) {
         // Already written. The path it already wrote, and no second note.
+        // Deliberately before the destination is read: a re-finalize with a
+        // different folder rewrites one note, it does not move or fork one.
         return ack(session);
       }
       written += 1;
       const next: MeetingSession = {
         ...session,
         state: "complete",
-        notePath: notePathFor(session),
+        notePath: notePathFor(session, destination),
         enhanced: session.enhanced ?? enhancedFrom(session),
       };
       held.set(sessionId, next);

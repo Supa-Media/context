@@ -1,4 +1,5 @@
 import { currentEpoch } from "../offline/epoch";
+import type { MeetingDestination } from "./destination";
 import type { KeyValueStore } from "../offline/memory";
 import type { MeetingRecorder } from "./capture";
 import type { MeetingsGateway } from "./gateway";
@@ -133,6 +134,15 @@ export interface StartInput {
   title: string;
   source?: MeetingSource;
   attendees?: Attendee[];
+  /**
+   * Where this meeting's note should land, from the sheet that asked.
+   *
+   * Optional, and absent stays `null` on the record rather than becoming a
+   * default this layer invents — see `MeetingRecord.destination`. The meetings
+   * list's one-tap record genuinely chose nothing, and the gateway's own
+   * default is the right answer for it.
+   */
+  destination?: MeetingDestination;
 }
 
 /** How long typing waits before it is written to the device. */
@@ -329,6 +339,13 @@ export class MeetingsController {
       version: 1,
       workspaceId: config.workspaceId,
       session: projection.session,
+      /*
+        Written down with the meeting, at the one moment somebody said it, and
+        never read back off a screen afterwards — the same rule `transcription`
+        follows two lines up. Finalize is minutes later and possibly a process
+        later, by which time the sheet that asked is gone.
+      */
+      destination: input.destination ?? null,
       acked: emptyAck(),
       runningSince: null,
       updatedAt: now,
@@ -537,6 +554,10 @@ export class MeetingsController {
       version: 1,
       workspaceId: config.workspaceId,
       session: after.session,
+      // Carried, not re-derived: every event rebuilds this record, and a
+      // destination that survived only the first one would be dropped by the
+      // `start` event immediately after it was set.
+      destination: existing?.destination ?? null,
       acked: existing?.acked ?? emptyAck(),
       runningSince: after.runningSince,
       updatedAt: config.now?.() ?? Date.now(),
