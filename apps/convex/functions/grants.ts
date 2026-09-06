@@ -249,8 +249,12 @@ export const revokeGrant = mutation({
  * that budget back — hence a retention far past the longest window rather than
  * "expired".
  *
- * Batched like every other sweep here, and it reports `moreRemaining` so the
- * cron can be reasoned about rather than assumed to keep up.
+ * Batched like every other sweep here. `moreRemaining` is returned for the
+ * tests and for a future caller that drains in a loop — **no operator sees
+ * it**: the cron discards the value and nothing logs it. Said plainly because
+ * the first version of this sentence claimed it was reported "so the cron can
+ * be reasoned about", which described an operational property it does not
+ * have.
  */
 export const purgeExpiredRateLimits = internalMutation({
   args: { limit: v.optional(v.number()) },

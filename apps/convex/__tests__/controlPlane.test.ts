@@ -30,10 +30,17 @@
  * public.
  */
 
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { hashToken } from "../functions/lib/crypto";
+import {
+  MAX_RATE_LIMIT_WINDOW_MS,
+  RATE_LIMIT_RETENTION_MS,
+} from "../functions/lib/rateLimit";
 import {
   FAKE_D1,
   FAKE_STORAGE,
@@ -1905,6 +1912,58 @@ describe("/gateway/clients/register and /gateway/clients/get", () => {
     expect((await registerClient(t, "mcp_anon_extra")).status).toBe(429);
   });
 
+  test("retention keeps a whole window of margin over the longest one allowed", async () => {
+    /*
+      THE MARGIN IS STRUCTURAL, AND IT USED TO BE ZERO.
+
+      Retention was 24 hours against a docblock claiming the longest window
+      "an hour". `invitationEmail.ts` has a 24-hour window, so retention
+      EQUALLED the longest window and survived only because `consumeRateLimit`
+      compares `>=` while the sweep compares `<` — the two line up exactly at
+      the boundary, so the swept set stays a strict subset of the dead set.
+      One comparison operator from refunding an anti-abuse budget.
+
+      Pinned here rather than trusted to the derivation, so that somebody who
+      "simplifies" `2 *` back to a literal has to come through this test.
+    */
+    expect(RATE_LIMIT_RETENTION_MS).toBe(2 * MAX_RATE_LIMIT_WINDOW_MS);
+    expect(RATE_LIMIT_RETENTION_MS - MAX_RATE_LIMIT_WINDOW_MS).toBeGreaterThanOrEqual(
+      MAX_RATE_LIMIT_WINDOW_MS,
+    );
+  });
+
+  test("no caller uses a window the sweep would delete out from under it", async () => {
+    /*
+      The guard the retention constant cannot give itself. `consumeRateLimit`
+      refuses an over-long window at the call, but a call site that is never
+      exercised in a test would never reach that throw — so this reads the
+      window constants out of the source and checks them directly. It is the
+      only way to notice a NINTH call site added tomorrow with a week-long
+      window.
+    */
+    const dir = fileURLToPath(new URL("../functions", import.meta.url));
+    const sources = readdirSync(dir)
+      .filter((name) => name.endsWith(".ts"))
+      .map((name) => readFileSync(join(dir, name), "utf8"));
+
+    const windows = sources.flatMap((source) =>
+      [...source.matchAll(/_WINDOW_MS\s*=\s*([0-9*\s]+);/g)].map((match) => ({
+        raw: match[1].trim(),
+        ms: match[1]
+          .split("*")
+          .map((part) => Number(part.trim()))
+          .reduce((product, part) => product * part, 1),
+      })),
+    );
+
+    // The positive twin: a regex that matched nothing would pass every
+    // assertion below while checking nothing at all.
+    expect(windows.length).toBeGreaterThanOrEqual(8);
+    for (const window of windows) {
+      expect([window.raw, window.ms <= MAX_RATE_LIMIT_WINDOW_MS]).toEqual([window.raw, true]);
+    }
+  });
+
   test("a rotating registrant cannot mint unbounded limiter rows either", async () => {
     /*
       THE OTHER HALF, AND THE ONE THE FIRST VERSION OF THIS CHANGE GOT WRONG.
@@ -1921,7 +1980,13 @@ describe("/gateway/clients/register and /gateway/clients/get", () => {
       swept, which bounds the table by rate instead of by keyspace.
     */
     const t = setupTest();
-    const old = Date.now() - 25 * 60 * 60 * 1000;
+    /*
+      Relative to the retention rather than a restated number, because the
+      property is "older than retention is swept, inside it is not" — which is
+      defined in terms of that constant. What must NOT drift is the constant's
+      own value, and that is pinned on its own below.
+    */
+    const old = Date.now() - RATE_LIMIT_RETENTION_MS - 60_000;
     await t.run(async (ctx) => {
       for (let i = 0; i < 50; i += 1) {
         await ctx.db.insert("rateLimits", {
@@ -1933,9 +1998,18 @@ describe("/gateway/clients/register and /gateway/clients/get", () => {
       // A window still open, and somebody's spent budget. Sweeping this would
       // hand back a limit they have already used, which is the failure the
       // retention exists to prevent — so it is the positive twin here.
+      /*
+        A minute in, not on the boundary. The first version inserted this at
+        exactly `Date.now()`, so the natural way to sabotage the retention —
+        `cutoff = Date.now()` — made this row's survival depend on whether a
+        millisecond ticked between the test's clock read and the mutation's.
+        Measured: three runs gave 1 red, 0 red, 1 red. The guard written to
+        protect retention was a coin flip against the likeliest way to break
+        it, which is not a guard.
+      */
       await ctx.db.insert("rateLimits", {
         key: "oauth.register:live",
-        windowStartedAt: Date.now(),
+        windowStartedAt: Date.now() - 60_000,
         count: 20,
       });
     });
@@ -1951,7 +2025,7 @@ describe("/gateway/clients/register and /gateway/clients/get", () => {
 
   test("...and the sweep reports when a batch did not finish", async () => {
     const t = setupTest();
-    const old = Date.now() - 25 * 60 * 60 * 1000;
+    const old = Date.now() - RATE_LIMIT_RETENTION_MS - 60_000;
     await t.run(async (ctx) => {
       for (let i = 0; i < 5; i += 1) {
         await ctx.db.insert("rateLimits", { key: `k-${i}`, windowStartedAt: old, count: 1 });

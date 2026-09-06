@@ -125,6 +125,28 @@ function metadataResponse(body) {
  * Returns `null` for anything it cannot parse, which the caller treats exactly
  * as a missing header — shared, never unlimited.
  */
+function ipv4(candidate) {
+  /*
+    ONE HOST, ONE SPELLING. `\d+` per octet accepts unbounded leading zeros, so
+    `203.000.113.007` and `00000000203.0.113.7` were a second and a third
+    bucket for one address — the same rotation the /64 work closes, through the
+    door that had not been normalised. One to three digits, no leading zero
+    unless the octet is zero, and at most 255.
+  */
+  const parts = candidate.split(".");
+  if (parts.length !== 4) return null;
+  const octets = parts.map((part) =>
+    /^(0|[1-9]\d{0,2})$/.test(part) && Number(part) <= 255 ? Number(part) : null
+  );
+  return octets.some((octet) => octet === null) ? null : octets.join(".");
+}
+
+/** The two hextets a dotted quad occupies, for rejoining a /64. */
+function quadAsHextets(quad) {
+  const [a, b, c, d] = quad.split(".").map(Number);
+  return [((a << 8) | b).toString(16), ((c << 8) | d).toString(16)];
+}
+
 export function registrantNetwork(rawAddress) {
   const address = String(rawAddress ?? "").trim().toLowerCase();
   if (address === "") return null;
@@ -134,7 +156,7 @@ export function registrantNetwork(rawAddress) {
   const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(address);
   const bare = bracketed ? bracketed[1] : address.replace(/^(\d+\.\d+\.\d+\.\d+):\d+$/, "$1");
 
-  if (!bare.includes(":")) return /^\d+\.\d+\.\d+\.\d+$/.test(bare) ? bare : null;
+  if (!bare.includes(":")) return ipv4(bare);
 
   const halves = bare.split("::");
   if (halves.length > 2) return null;
@@ -143,21 +165,42 @@ export function registrantNetwork(rawAddress) {
   const right = halves.length === 2 ? (tail === "" ? [] : tail.split(":")) : [];
   const parts = halves.length === 2 ? [...left, ...right] : left;
 
-  // An IPv4-mapped address ends in dotted-quad form. Its /64 is meaningless —
-  // it names one IPv4 host — so it counts as that host, which is also what
-  // makes `::ffff:203.0.113.7` and `203.0.113.7` one bucket rather than two.
+  /*
+    A trailing dotted quad occupies the last TWO hextets, so an address written
+    that way has one fewer text part than one written in hex. Expanded before
+    anything is counted, because otherwise `::ffff:1.2.3.4` and `::ffff:1:2`
+    disagree about how many parts they have.
+  */
   const last = parts[parts.length - 1];
-  if (last !== undefined && last.includes(".")) {
-    return /^\d+\.\d+\.\d+\.\d+$/.test(last) ? last : null;
-  }
+  const trailingQuad = last !== undefined && last.includes(".") ? ipv4(last) : null;
+  if (last !== undefined && last.includes(".") && trailingQuad === null) return null;
+  const width = trailingQuad === null ? 8 : 7;
 
   const filled =
     halves.length === 2
-      ? [...left, ...Array(8 - left.length - right.length).fill("0"), ...right]
+      ? [...left, ...Array(width - left.length - right.length).fill("0"), ...right]
       : left;
-  if (filled.length !== 8 || filled.some((part) => !/^[0-9a-f]{1,4}$/.test(part))) return null;
+  if (filled.length !== width) return null;
+  const hextets = trailingQuad === null ? filled : filled.slice(0, 6);
+  if (hextets.some((part) => !/^[0-9a-f]{1,4}$/.test(part))) return null;
 
-  return `${filled.slice(0, 4).map((part) => parseInt(part, 16).toString(16)).join(":")}::/64`;
+  /*
+    ONLY TWO PREFIXES REALLY NAME AN IPv4 HOST, and taking the quad from any
+    other one lets that network spend the host's budget. `::ffff:0:0/96` is the
+    mapped form and the all-zero prefix is the deprecated compatible form;
+    `64:ff9b::/96` (NAT64) and `::ffff:0:0:0/96` (SIIT) embed the address they
+    are translating *to*, which is a destination and never the source that
+    arrived here.
+  */
+  if (trailingQuad !== null) {
+    const prefix = hextets.map((part) => parseInt(part, 16));
+    const mapped = prefix.slice(0, 5).every((part) => part === 0) && prefix[5] === 0xffff;
+    const compatible = prefix.every((part) => part === 0);
+    if (mapped || compatible) return trailingQuad;
+  }
+
+  const full = trailingQuad === null ? hextets : [...hextets, ...quadAsHextets(trailingQuad)];
+  return `${full.slice(0, 4).map((part) => parseInt(part, 16).toString(16)).join(":")}::/64`;
 }
 
 /**

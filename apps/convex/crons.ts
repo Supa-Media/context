@@ -36,12 +36,15 @@ const crons = cronJobs();
  * a closed window carries no information, so this deletes garbage rather than
  * state.
  *
- * Daily rather than hourly: retention is a day, the rows are three fields, and
- * nothing depends on the deletion being prompt.
+ * Hourly, matching the authorization sweep it is copied from, because the
+ * batch is the same 200 rows and a daily run is a drain ceiling of 200/day.
+ * A source producing more distinct networks than that in a day would out-run
+ * a daily sweep permanently — which is the exact attacker this exists for, so
+ * taking the neighbour's rate costs nothing and removes the question.
  */
 crons.interval(
   "sweep closed rate-limit windows",
-  { hours: 24 },
+  { hours: 1 },
   internal.functions.grants.purgeExpiredRateLimits,
   {},
 );

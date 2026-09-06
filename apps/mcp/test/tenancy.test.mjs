@@ -1157,6 +1157,54 @@ export async function runTenancyChecks(check) {
     (await netOf("not-an-address")) === undefined);
 
   /*
+    A QUAD AT THE END OF AN IPv6 ADDRESS IS NOT ALWAYS AN IPv4 HOST.
+
+    The first version of this took the dotted quad whenever the text ended in
+    one, ignoring what came before it. `2001:db8::203.0.113.7` is a perfectly
+    ordinary address inside `2001:db8::/64`, and it was spending IPv4 host
+    `203.0.113.7`'s budget: one network poisoning another's bucket, which is
+    the worse of the two directions this function can fail in.
+
+    Only two prefixes really name an IPv4 host — `::ffff:0:0/96` (mapped) and
+    the deprecated all-zero compatible form. `64:ff9b::/96` is NAT64 and
+    `::ffff:0:0:0/96` is SIIT: in both the embedded quad is the *destination*
+    being translated to, never the source, so crediting it to that host lets a
+    translator spend an arbitrary stranger's budget.
+  */
+  check("an IPv4-mapped address is still the host it names", (await netOf("::ffff:203.0.113.7")) === keyFromOne);
+  check("...and so is the deprecated all-zero compatible form", (await netOf("::203.0.113.7")) === keyFromOne);
+  check("a NAT64 address is its own network, not the host it translates to",
+    (await netOf("64:ff9b::203.0.113.7")) !== keyFromOne);
+  check("...and an ordinary address that merely ENDS in a quad is its own /64",
+    (await netOf("2001:db8::203.0.113.7")) !== keyFromOne);
+  check("...which is the /64 it belongs to, so it shares with its neighbours",
+    (await netOf("2001:db8::203.0.113.7")) === canonicalSix);
+  check("a SIIT-translated address is not the host either",
+    (await netOf("::ffff:0:203.0.113.7")) !== keyFromOne);
+
+  /*
+    AND ONE IPv4 HOST HAS ONE SPELLING, OR IT HAS UNBOUNDED BUCKETS.
+
+    `\d+` per octet accepts leading zeros without limit, so `203.000.113.007`
+    and `00000000203.0.113.7` were a second and third bucket for one host —
+    the exact rotation the /64 work exists to close, arriving through the
+    branch that had not been normalised. Octets are parsed now: one to three
+    digits, no leading zero unless the octet IS zero, and at most 255.
+
+    REFUSED rather than normalised, which is the opposite of what the first
+    draft of these two checks asserted. A padded octet is ambiguous — it has
+    meant octal — and no legitimate producer emits one, so reading `007` as
+    seven is a guess about what somebody meant. Refusing sends it to the
+    shared bucket, which closes the rotation just as completely (every padded
+    form collapses to one bucket) without deciding what it meant.
+  */
+  check("a padded IPv4 address is not a second bucket for the same host",
+    (await netOf("203.000.113.007")) === undefined);
+  check("...however much padding is on it", (await netOf("00000000203.0.113.7")) === undefined);
+  check("an octet above 255 is not an address at all", (await netOf("999.1.1.1")) === undefined);
+  check("...nor is one with too many parts", (await netOf("203.0.113.7.9")) === undefined);
+
+  /*
     And the one answer the gateway has to translate rather than relay. The
     `/oauth/` catch upstairs turns every control-plane failure into 503
     `server_error`; a client cannot tell "retry in an hour" from "retry now",
