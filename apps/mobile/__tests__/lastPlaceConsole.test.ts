@@ -32,10 +32,21 @@
  *
  * The console mount below is the room the mutant lives in — it is the only
  * place that knows a pill press becomes a `router.replace` of a
- * `contextHrefFrom`. It cannot reach every arm of the rule, because the layout
+ * `contextHrefFrom`, and the only place that knows the strip's order comes from
+ * `recent={places}`. It cannot reach every arm of the rule, because the layout
  * deliberately passes no `resolves` predicate (it has no opinion about another
- * context's tree). The `resolves` arm and the liveness of the log within a
- * session are asserted against the hooks directly, further down.
+ * context's tree). The `resolves` arm, and everything the log does *within* a
+ * session — a navigation moves it now rather than on the next launch, it is
+ * read once per session rather than once per mount, and a sign-out takes it out
+ * of module memory — are asserted against the hooks directly, further down.
+ *
+ * **That last sentence used to be a claim rather than a description.** It said
+ * the liveness of the log within a session was asserted against the hooks
+ * "further down"; it was not. `useRememberPlace` had no test anywhere, so
+ * deleting the `publishPlaces` call inside it — which is the whole of "the
+ * screen is updated first and the device catches up" — left all 3343 tests
+ * green while the strip stopped reordering. The five tests under `the log is
+ * live within a session, and only within one` are what make the sentence true.
  *
  * ## What is not asserted here
  *
@@ -186,8 +197,21 @@ function mockConsoleData(): never {
   } as never;
 }
 
-const { resetPlaceCacheForTests, useContextHref, useContextPlaces } =
+const { resetPlaceCacheForTests, useContextHref, useContextPlaces, useRememberPlace } =
   require("../features/console/useLastPlace") as typeof import("../features/console/useLastPlace");
+
+/**
+ * The real sign-out, not a hand-bumped counter.
+ *
+ * `forgetLocalCopies` is what production calls, and the ordering claim under
+ * test — the epoch is ended *before* anything is removed — is a fact about that
+ * function rather than about `endSession`. Driving the real one is the same
+ * choice `offlineForget.test.ts` makes and for the same reason.
+ */
+const { forgetLocalCopies } =
+  require("../features/offline/forget") as typeof import("../features/offline/forget");
+const { recallPlaces } =
+  require("../features/console/lastPlace") as typeof import("../features/console/lastPlace");
 
 const ConsoleLayout = (
   require("../app/(app)/console/_layout") as { default: () => unknown }
@@ -222,6 +246,8 @@ async function seedLog(places: ReadonlyArray<{ slug: string; note: string | null
 interface Mounted {
   find: (testID: string) => HTMLElement | null;
   press: (testID: string) => void;
+  /** The context pills, in the order the strip drew them. */
+  pills: () => string[];
 }
 
 /**
@@ -269,6 +295,12 @@ async function mountConsole(): Promise<Mounted> {
 
   return {
     find,
+    pills: () =>
+      [...container.querySelectorAll<HTMLElement>('[data-testid^="context-strip-"]')]
+        .map((node) => node.dataset.testid!.slice("context-strip-".length))
+        // The scroller, the claim and create verbs, and the fade share the
+        // prefix and are not contexts.
+        .filter((slug) => ["seyi", "supa", "acme"].includes(slug)),
     press: (testID) => {
       const node = find(testID);
       if (node === null) throw new Error(`no element with testID ${testID}`);
@@ -360,6 +392,43 @@ describe("pressing a context in the strip goes back to where you were in it", ()
    * somebody's bucket. The entry is dropped, not repaired, so the press lands
    * on the root — which is a working switch rather than a refusal.
    */
+  /**
+   * **The log is what the strip is ordered by, and nothing was holding that.**
+   *
+   * SABOTAGE: `recent={places}` → `recent={[]}` in `_layout.tsx` — a one-word
+   * edit that reads as a tidy-up, since the strip is perfectly happy with an
+   * empty list and the pills all still work. MEASURED: this test fails; before
+   * it, all 3343 passed. `contextStrip.test.ts` proves `stripOrder` sorts by
+   * `recent`, about a pure function nothing had to be wired to, which is the
+   * same shape of hole this file was written for.
+   *
+   * The order is `stripOrder`'s: the context on screen is pinned first, then
+   * the visited ones most-recent-first, then the ones this device has never
+   * been in, keeping the control plane's order among themselves. So a log that
+   * puts `@acme` in front of `@supa` has to reverse the two, and only the log
+   * can do that — the control plane's list has them the other way round.
+   */
+  test("the strip is ordered by the log, not by the order the contexts arrived", async () => {
+    await seedLog([
+      { slug: "acme", note: "3-resources/onboarding.md" },
+      { slug: "supa", note: "1-projects/gateway.md" },
+    ]);
+
+    const app = await mountConsole();
+
+    expect(app.pills()).toEqual(["seyi", "acme", "supa"]);
+  });
+
+  test("a context this device has never been in sorts behind every one it has", async () => {
+    // The negative control for the test above: with only `@supa` remembered,
+    // `@acme` falls in behind it rather than staying where it was.
+    await seedLog([{ slug: "supa", note: "1-projects/gateway.md" }]);
+
+    const app = await mountConsole();
+
+    expect(app.pills()).toEqual(["seyi", "supa", "acme"]);
+  });
+
   test("a path the device should not have been holding does not reach the URL", async () => {
     await seedLog([{ slug: "supa", note: "../../etc/passwd" }]);
 
@@ -449,5 +518,279 @@ describe("the hooks behind it", () => {
     const { seen } = probe(() => useContextHref(CONTEXTS));
     await settle();
     expect(seen[seen.length - 1]!("gone")).toBe("/console/@gone");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*              the log within a session, which nothing was holding            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **Three guards that were true of the code and asserted by nothing.**
+ *
+ * `useLastPlace.ts` argues each of them at length in prose. Each was deletable
+ * with the whole suite green, which is what `docs/decisions/testing.md` means
+ * by "a guard nobody has checked is not a guard".
+ *
+ *  1. `publishPlaces(...)` inside `useRememberPlace`. Delete it and the
+ *     per-context memory stops updating on screen — the strip keeps whatever
+ *     order it read at launch and the switcher sends you to the note you had
+ *     open two navigations ago. Nothing noticed. This is the owner's own
+ *     feature.
+ *  2. The `snapshot.epoch === currentEpoch()` half of `currentPlaces`. Drop it
+ *     and one account's context slugs and note names survive a sign-out in
+ *     module memory, to be handed to whoever signs in next on that process.
+ *  3. The once-per-session guards in `useContextPlaces`, of which there are
+ *     two: the early return that stops a second mount asking the device at
+ *     all, and the condition around `publishPlaces` that stops a late answer
+ *     landing on top of what this session has since recorded. Drop the second
+ *     and a second mount overwrites the session's own log with the device's
+ *     older copy. Drop the first and nothing observable changes — the inner
+ *     condition still refuses the publish — which is why the third test counts
+ *     the reads as well as asserting the value: what the early return buys is
+ *     the read, and a guard with nothing measuring it is not a guard.
+ */
+describe("the log is live within a session, and only within one", () => {
+  /**
+   * Record a visit, the way `console/[slug]/index.tsx` does.
+   *
+   * Mounted *after* the strip's own read has landed, which is the order the
+   * console produces: the layout mounts, the device answers, and only then does
+   * anybody navigate. Mounting the two together instead races the write against
+   * the read — the write wins, publishes over an empty log, and the device's
+   * answer is then discarded by the once-per-session guard. That is real
+   * behaviour on a cold launch and it is not what this test is about.
+   */
+  function visit(place: { slug: string; note: string | null }) {
+    function Writer() {
+      useRememberPlace(place);
+      return null;
+    }
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => root.render(createElement(Writer)));
+    live.push(() => {
+      act(() => root.unmount());
+      container.remove();
+    });
+  }
+
+  /**
+   * SABOTAGE: delete the `publishPlaces([...])` call in `useRememberPlace`,
+   * keeping the `rememberPlace` write. MEASURED: this test fails on the screen
+   * assertion and passes on the device one, which is exactly the split the
+   * hook's own comment claims — and before this test, nothing failed at all.
+   */
+  test("a navigation moves the strip's log now, not on the next launch", async () => {
+    await seedLog([
+      { slug: "supa", note: "1-projects/gateway.md" },
+      { slug: "seyi", note: null },
+    ]);
+    const { seen } = probe(useContextPlaces);
+    await settle();
+
+    visit({ slug: "acme", note: "3-resources/onboarding.md" });
+    await settle();
+
+    // The screen: the context just visited is first, and the rest keep their
+    // order behind it. `rememberPlace`'s rule, applied to the copy on screen.
+    expect(seen[seen.length - 1]).toEqual([
+      { slug: "acme", note: "3-resources/onboarding.md" },
+      { slug: "supa", note: "1-projects/gateway.md" },
+      { slug: "seyi", note: null },
+    ]);
+
+    // And the device caught up, which is the copy that survives the process.
+    expect(await recallPlaces(mockStore)).toEqual([
+      { slug: "acme", note: "3-resources/onboarding.md" },
+      { slug: "supa", note: "1-projects/gateway.md" },
+      { slug: "seyi", note: null },
+    ]);
+  });
+
+  /**
+   * SABOTAGE: `currentPlaces` returns `snapshot.places` whenever `snapshot` is
+   * not `null`, dropping the epoch comparison. MEASURED: this test fails with
+   * the previous account's slug and note name in the received value.
+   *
+   * The mount after the sign-out is the whole point: `useSyncExternalStore`
+   * calls `currentPlaces` for its first render, so a stale snapshot is not a
+   * frame of wrong ordering — it is one person's private path names handed
+   * straight to the next person's strip.
+   */
+  test("a sign-out takes the log out of module memory, not only off the device", async () => {
+    await seedLog([{ slug: "supa", note: "1-projects/gateway.md" }]);
+    const first = probe(useContextPlaces);
+    await settle();
+    expect(first.seen[first.seen.length - 1]).toEqual([
+      { slug: "supa", note: "1-projects/gateway.md" },
+    ]);
+
+    await forgetLocalCopies();
+
+    const next = probe(useContextPlaces);
+    // The *first* value, before any effect has run.
+    expect(next.seen[0]).toEqual([]);
+    await settle();
+    expect(next.seen[next.seen.length - 1]).toEqual([]);
+  });
+
+  /**
+   * SABOTAGE, both arms:
+   *
+   *  - delete the `if (snapshot !== null && snapshot.epoch === currentEpoch())
+   *    return;` early return. MEASURED: the read count fails — two mounts, two
+   *    reads. Nothing else moves, because the inner condition still refuses the
+   *    publish; that is the whole reason the count is here.
+   *  - widen the publish to `if (live) publishPlaces(answer)`. MEASURED: the
+   *    value fails — the second mount replaces the session's log with the
+   *    device's.
+   *
+   * The device is made to disagree here rather than raced into disagreeing.
+   * The real shape is a fire-and-forget write that has not landed yet, which no
+   * test can pin deterministically; what both have in common, and what this
+   * asserts, is that a second mount inside one session answers with what the
+   * session knows rather than going back to the device for it.
+   */
+  test("the device is read once per session, not once per mount", async () => {
+    await seedLog([
+      { slug: "supa", note: "1-projects/gateway.md" },
+      { slug: "seyi", note: null },
+    ]);
+
+    const read: string[] = [];
+    const get = mockStore.get.bind(mockStore);
+    const spy = jest
+      .spyOn(mockStore, "get")
+      .mockImplementation(async (key: string) => {
+        read.push(key);
+        return get(key);
+      });
+    live.push(() => spy.mockRestore());
+
+    const first = probe(useContextPlaces);
+    await settle();
+    expect(read).toHaveLength(1);
+
+    // The device is made to say something else, standing in for the copy this
+    // session has already moved past.
+    await seedLog([{ slug: "acme", note: "3-resources/onboarding.md" }]);
+
+    const second = probe(useContextPlaces);
+    await settle();
+
+    expect(second.seen[second.seen.length - 1]).toEqual([
+      { slug: "supa", note: "1-projects/gateway.md" },
+      { slug: "seyi", note: null },
+    ]);
+    // Both mounts are looking at one list, which is what makes it a session's
+    // answer rather than a component's.
+    expect(first.seen[first.seen.length - 1]).toEqual(second.seen[second.seen.length - 1]);
+    // And the second mount never asked. `seedLog` writes rather than reads, so
+    // every entry here is `useContextPlaces` going to the device.
+    expect(read).toHaveLength(1);
+  });
+
+  /**
+   * **An answer that arrives after the session ended does not land.**
+   *
+   * The read is a bridge call on a device and nothing cancels it, which is
+   * `epoch.ts`'s whole argument: a store handle stays perfectly usable after a
+   * sign-out, so a read started before the press can resolve arbitrarily long
+   * after it. Here that answer would be published into module memory *behind*
+   * the clear — one person's context slugs and note names, handed to the strip
+   * the next person sees.
+   *
+   * This is the arm the two tests above cannot reach. Deleting the early return
+   * fails the read count; deleting the epoch comparison in `currentPlaces`
+   * fails the sign-out test; widening the `publishPlaces` condition to
+   * `if (live)` breaks neither, because the early return means the read never
+   * happens on the second mount at all. The only way to reach it is to hold the
+   * device's answer open across the sign-out, which is what the deferred below
+   * does — and it is the real shape rather than a contrivance.
+   *
+   * SABOTAGE: `if (live) publishPlaces(answer)`. MEASURED: this test fails with
+   * the ended session's log in the received value.
+   */
+  test("a device answer that resolves after a sign-out is dropped, not published", async () => {
+    await seedLog([{ slug: "supa", note: "1-projects/gateway.md" }]);
+
+    let release: (() => void) | null = null;
+    const get = mockStore.get.bind(mockStore);
+    const spy = jest.spyOn(mockStore, "get").mockImplementation((key: string) => {
+      // Only the first read is held; see the test below for what holding every
+      // read costs. And the answer is taken *now*, while the session is still
+      // live: a read issued after the clear would answer `null`, and this test
+      // would then pass on an empty log rather than on a dropped one.
+      if (release !== null) return get(key);
+      const answered = get(key);
+      return new Promise<string | null>((resolve) => {
+        release = () => void answered.then(resolve);
+      });
+    });
+    live.push(() => spy.mockRestore());
+
+    const { seen } = probe(useContextPlaces);
+    await settle();
+    // Still in flight: nothing has been published, and the strip is empty.
+    expect(seen[seen.length - 1]).toEqual([]);
+
+    await forgetLocalCopies();
+    spy.mockRestore();
+
+    // ...and now the device answers, with the log of the session that ended.
+    act(() => release!());
+    await settle();
+
+    expect(seen[seen.length - 1]).toEqual([]);
+  });
+
+  /**
+   * **A read still in flight does not undo a navigation made while it flew.**
+   *
+   * The third arm, and the one the early return cannot cover: it only fires
+   * once there *is* a snapshot, and on a cold console there is not one until
+   * the first read lands. So a navigation recorded in between — which publishes
+   * immediately, by design — would be overwritten by the device's older answer
+   * arriving a moment later, and the strip would put the context somebody is
+   * standing in third.
+   *
+   * SABOTAGE: delete `if (snapshot !== null && snapshot.epoch === epoch)
+   * return;`. MEASURED: this test fails; the visit is gone from the log.
+   */
+  test("a navigation made while the device is still answering is not overwritten", async () => {
+    await seedLog([{ slug: "supa", note: "1-projects/gateway.md" }]);
+
+    /*
+      Only the *first* read is held. `rememberPlace` reads the log too, on its
+      way to prepending to it, so a spy that held every read would hand the
+      handle to that one instead and the read under test would never be
+      released — a test that passed because nothing happened.
+    */
+    let release: (() => void) | null = null;
+    const get = mockStore.get.bind(mockStore);
+    const spy = jest.spyOn(mockStore, "get").mockImplementation((key: string) => {
+      if (release !== null) return get(key);
+      const answered = get(key);
+      return new Promise<string | null>((resolve) => {
+        release = () => void answered.then(resolve);
+      });
+    });
+    live.push(() => spy.mockRestore());
+
+    const { seen } = probe(useContextPlaces);
+    await settle();
+
+    // Somebody navigates while the read is still out.
+    visit({ slug: "acme", note: "3-resources/onboarding.md" });
+    await settle();
+    expect(seen[seen.length - 1]).toEqual([{ slug: "acme", note: "3-resources/onboarding.md" }]);
+
+    spy.mockRestore();
+    act(() => release!());
+    await settle();
+
+    expect(seen[seen.length - 1]).toEqual([{ slug: "acme", note: "3-resources/onboarding.md" }]);
   });
 });

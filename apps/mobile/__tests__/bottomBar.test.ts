@@ -290,6 +290,38 @@ describe("a thumb has to be able to hit it", () => {
     expect(layout.bottomBarTarget).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
   });
 
+  /**
+   * **What 52 *is*, which nothing asserted.**
+   *
+   * `layout.bottomBarTarget` had two checks on it and neither could see its
+   * value: `flex-basis` was compared against the token itself, which is true of
+   * any number, and the floor check passes for anything at or above 44. So
+   * `52 → 60` survived the whole suite — a bar whose natural width is 384
+   * where the reference measures 336, drawn on every phone.
+   *
+   * The token's own comment says what it is: *"52 is what six targets plus
+   * `bottomBarPad` either side need to fill the 336pt the reference
+   * measures"* — 440pt of glass with 52pt of note showing each side. That is an
+   * identity between three tokens and one measurement, so it is asserted as
+   * one. It is the *natural* width and not the drawn one: `bottomBarInset` is
+   * 24 now and the pill is wider than 336, which is what a seventh key cost and
+   * is `seven targets clear the touch floor on a 390pt phone` below.
+   *
+   * SABOTAGE: `bottomBarTarget: 52 → 60`. MEASURED: this test fails; before it,
+   * all 3343 passed.
+   */
+  test("a target's natural width is the reference's own bar, divided", () => {
+    /** The pill Obsidian draws on a 440pt screen: x=52.0 to x=387.7. */
+    const REFERENCE_BAR = 336;
+    /** Six note verbs, which is what the reference shows. */
+    const REFERENCE_KEYS = 6;
+
+    expect(REFERENCE_KEYS * layout.bottomBarTarget + 2 * layout.bottomBarPad).toBe(REFERENCE_BAR);
+    // …and 336 is 440 less the sliver of note the measurement is of, which is
+    // the number `bottomBarInset` used to be and the reason it was that.
+    expect(440 - 2 * 52).toBe(REFERENCE_BAR);
+  });
+
   test("the bar fills the slot rather than sizing itself", () => {
     const bar = mountBar(toolbar(), 440);
     const style = window.getComputedStyle(bar.need("bottom-bar"));

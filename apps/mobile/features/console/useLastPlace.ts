@@ -88,6 +88,24 @@ export function resetPlaceCacheForTests(): void {
  * an unknown context as least-recent, so a first paint puts the contexts in the
  * order the control plane sent — the same list, unordered by recency, rather
  * than a strip that is empty for a frame.
+ *
+ * ## The read carries the epoch it was issued under
+ *
+ * `epoch.ts`'s pattern, verbatim: *"`useOfflineNotes` captures the number once
+ * at mount. Everything that mount ever writes carries that capture."* This
+ * effect writes to module memory when the device answers, and nothing cancels a
+ * store read — so the number has to be captured when the read starts rather
+ * than consulted when it lands.
+ *
+ * **It used to be consulted when it landed, and that left the barrier open in
+ * one direction.** The condition asked whether the *snapshot* belonged to the
+ * current session, and on a cold console there is no snapshot at all: read the
+ * device, sign out before it answers, and `snapshot === null` was enough to
+ * publish one person's context slugs and note names into the memory the next
+ * person's strip reads. The clear had already run and had nothing to clear.
+ * `a device answer that resolves after a sign-out is dropped, not published`
+ * in `lastPlaceConsole.test.ts` holds it, by holding the read open across a
+ * real `forgetLocalCopies`.
  */
 export function useContextPlaces(): readonly LastPlace[] {
   const places = useSyncExternalStore(subscribePlaces, currentPlaces, currentPlaces);
@@ -97,12 +115,17 @@ export function useContextPlaces(): readonly LastPlace[] {
     // session already has the answer, and re-reading would overwrite the
     // navigations this session has since recorded with the device's older copy.
     if (snapshot !== null && snapshot.epoch === currentEpoch()) return;
+    const epoch = currentEpoch();
     let live = true;
     void (async () => {
       const answer = await recallPlaces(openStore());
-      if (live && (snapshot === null || snapshot.epoch !== currentEpoch())) {
-        publishPlaces(answer);
-      }
+      if (!live) return;
+      // The session this read belongs to has ended. See the header: nothing
+      // cancels the read, and what it is carrying is the previous person's.
+      if (epoch !== currentEpoch()) return;
+      // ...and this session has already recorded something since.
+      if (snapshot !== null && snapshot.epoch === epoch) return;
+      publishPlaces(answer);
     })();
     return () => {
       live = false;
