@@ -710,6 +710,76 @@ to parse is a path that cannot be moved.
 
 The check is `moving a meeting note does not break reading it`.
 
+**"A default the customer can change" was a sentence for a while and is now a
+field.** A phone can ask a person where a meeting's notes should go, and the
+gateway ignored the answer: `finalizeSession` built the inbox path from
+`MEETINGS_FOLDER` and consulted nothing, so somebody who picked a folder got the
+inbox anyway, in silence. `FinalizeBody.folder` is that answer arriving. Three
+decisions in it, each of which could reasonably have gone the other way:
+
+**The chosen folder replaces the whole default, and `YYYY/MM` stays.**
+`MEETINGS_FOLDER` is one concept — where meetings are filed — spelled in two
+segments, so `2-areas/team` gives `2-areas/team/2026/09/<file>` rather than
+`2-areas/team/meetings/2026/09/<file>`. The alternative hands a person a folder
+they did not ask for, and the example this section already used for a customer
+who has changed it has no `meetings` segment in it. The date folders are not
+part of the choice: they are for humans and for Obsidian, one folder holding
+every meeting somebody ever recorded is unusable in a file browser, and nothing
+parses them.
+
+**A folder the gateway will not file into is refused by
+`normalizeMeetingFolder`, which delegates to `normalizeRoot` rather than being a
+third validator.** The structural rules are the same rules — traversal,
+backslashes, separators — and two implementations of "does this escape its
+bucket" is how one of them ends up weaker. `slugifyTitle` is the wrong half of
+the precedent: it *maps* rather than refuses, so `2-areas/team` would come back
+as `2-areas-team` and the note would be filed into a folder nobody named. What a
+folder needs on top of what a root needs is three rules with three reasons: no
+dot-prefixed segment, because `isPlumbing` hides those from every tool at every
+tier including the owner's, so the meeting would be invisible to the person
+whose storage bill it is; no segment that is itself a note; and a length bound
+keeping the whole key inside the gateway's own 512-character path limit. The
+refusal is a `null` rather than a thrown message, because `normalizeRoot`'s
+messages quote what they refused — reasonable for a prefix the customer typed
+into their own binding, a reflection for a value a client sent.
+
+**A refused folder does not lose the meeting: it falls back to the default, and
+the ack says `folderRejected`.** This is the same trade as an unusable flag row
+costing that row rather than the request — `meeting_invalid` is the code a client
+does not retry, so failing the finalize would park somebody's forty minutes over
+one bad string. The *saying so* is the load-bearing half rather than a nicety: a
+fallback nobody is told about is precisely the defect being closed, one layer
+down. The ack carries no copy of what was sent.
+
+**And the folder is an input to the claim, and only to the claim**, which is
+what keeps a client-supplied path component from being a new way to break
+*Ingestion is idempotent by construction*. The claimed path is written into the
+session record under a conditional write and reused by every later finalize, so
+the same session finalizing twice under two folders answers with the note that
+exists. Moving a meeting is `move_note`'s job and stays moved; a second finalize
+is a retry, not a move. The sabotage that proves this is the storage-failure
+retry rather than the obvious double finalize — an already-complete finalize
+returns before the claim, so it forks nothing even with the guard removed, while
+a retry after a failed note write, naming a second folder, writes a second note
+and leaves one meeting in two places.
+
+`isMeetingNotePath` takes the same folder and validates it with the same
+function, so the pair agree by construction rather than by both deriving one
+constant. It stays a shape test relative to a named folder and does not become a
+global "is this a meeting" oracle: nothing records where a meeting was filed —
+there is no meetings table, by decision above — and a dated note in somebody's
+own folder is not a meeting. So `list_meetings` does not list a meeting filed
+elsewhere, which is the behaviour a *moved* meeting already has and which this
+section already calls correct.
+
+The checks are `a chosen folder replaces the whole default, and keeps the date
+folders under it`, `the recogniser answers true for every key the builder makes,
+on the same options`, `a folder that tries to leave the bucket does not lose the
+meeting`, `the client is told its folder was not used`, `and is not read its own
+value back`, `finalizing again with a different folder answers with the note that
+already exists`, and the one that matters, `the retry lands on the path the first
+finalize claimed, not the folder it just named`.
+
 ### What is deliberately not built
 
 Not built, and none of them foreclosed:

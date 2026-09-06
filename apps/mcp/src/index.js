@@ -5669,6 +5669,14 @@ async function publishMeetingNote(store, scope, { path, markdown, segmentCount }
  * is the correct behaviour for a product whose whole claim is that the files
  * are theirs.
  *
+ * A meeting a person *filed* elsewhere at finalize time (`FinalizeBody.folder`)
+ * is the same case reached a step earlier, and it is why no folder is passed
+ * here. `isMeetingNotePath` answers about the folder it is given; there is no
+ * meetings table recording where any given meeting went, by decision, and
+ * scanning the whole bucket for `YYYY/MM/YYYY-MM-DD-*.md` would call somebody's
+ * ordinary dated note a meeting. So this lists the default folder, and every
+ * other tool reaches the rest.
+ *
  * `canSee` filters before anything is read, so a team connection cannot learn
  * that a private meeting exists by counting.
  */

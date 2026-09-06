@@ -426,6 +426,29 @@ export const ROUTES = Object.freeze({
  * @property {string} [enhanced]     The generated summary. The gateway does not
  *   enhance — it has no model and no key — so this arrives from the client that
  *   did, and a meeting with none gets the note's own placeholder.
+ * @property {string} [folder]       Where this meeting's note goes: the folder
+ *   the person picked on the device, replacing `MEETINGS_FOLDER` whole.
+ *   `paths.js` owns what a legal one is (`normalizeMeetingFolder`) and the
+ *   bound (`MAX_FOLDER_LENGTH`).
+ *
+ *   **Optional is load-bearing.** A body that carries no `folder` gets the
+ *   default path byte for byte, because the meetings list screen's one-tap
+ *   record sends exactly that and a new field must not move where it files.
+ *
+ *   **It is read on the finalize that claims the path, and only then.** The
+ *   note path is written into the session record under a conditional write and
+ *   reused by every retry, so a second finalize naming a different folder
+ *   answers with the note that exists rather than writing a second one. That is
+ *   idempotency, not a special case for this field: a meeting is one note, and
+ *   moving it afterwards is `move_note`'s job, which is also the only way it
+ *   stays moved.
+ *
+ *   **A folder the gateway will not file into does not lose the meeting.** It
+ *   falls back to `MEETINGS_FOLDER`, and the ack says `folderRejected` so the
+ *   client can tell — the same shape as a segment batch's `rejected` count, for
+ *   the same reason: `meeting_invalid` is the code a client does not retry, so
+ *   refusing the request would park a whole meeting over one bad string. The
+ *   refusal never quotes the value back.
  * @property {string} [templateId]
  * @property {MeetingEvent[]} [events]
  * @property {string} [title]
@@ -494,6 +517,11 @@ export const ROUTES = Object.freeze({
  * @property {number} [rejected]       Rows of a segment batch the merge could
  *   not use — no id, no text, a clock that ran backwards. Present only when
  *   some were dropped, so a client can tell forty-nine stored from fifty.
+ * @property {boolean} [folderRejected] The finalize named a `folder` this
+ *   gateway will not file into, so the note went to the default. Present only
+ *   when that happened, and carrying no copy of what was sent. Without it the
+ *   destination control would be back to appearing to work and doing nothing —
+ *   which is the whole reason the field exists rather than a nicety.
  * @property {string} [etag]           Bucket etag of the written note.
  */
 
