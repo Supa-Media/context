@@ -72,6 +72,7 @@ import {
   scopeOf,
 } from "../../../features/console/files/scope";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
+import { MEETINGS_ROUTE } from "../../../features/meetings/route";
 import { WELCOME_ROUTE } from "../../../features/onboarding/route";
 import { NEW_WORKSPACE_ROUTE } from "../../../features/workspace/create";
 
@@ -930,6 +931,26 @@ function Rail({
               // is genuinely abandonable up to the moment the name is claimed,
               // so Back has somewhere real to return to.
               router.push(NEW_WORKSPACE_ROUTE);
+            }
+      }
+      /*
+        Meeting capture, which until now had no way in from anywhere in the app.
+
+        `push`, not `replace`, for `onClaimContext`'s reason and one more: the
+        meetings screens sit outside the console entirely, so the browser's Back
+        — and the phone's — is the way back to the note somebody left. A
+        `replace` would take that away and leave `/meetings` with no route out
+        of it at all.
+
+        Offered in the live console only, like `onCreateWorkspace`: the landing
+        page mounts the rail as a picture and has nowhere to send anybody.
+      */
+      onOpenMeetings={
+        data.demo
+          ? undefined
+          : () => {
+              frame.closeNav();
+              router.push(MEETINGS_ROUTE);
             }
       }
       onLeaveContext={(id) => {

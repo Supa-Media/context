@@ -195,6 +195,19 @@ export const ICON_NAMES = [
    * looser; the world is the picture of who is on the other side.
    */
   "globe",
+  /**
+   * Meeting capture, in the rail.
+   *
+   * A microphone on its cradle rather than a waveform or a red disc, and both
+   * of those were considered. A waveform is what the *recording bar* already
+   * draws while something is running, and reusing it for a destination would
+   * make the mark that means "a meeting is being recorded right now" also mean
+   * "meetings live here". A red disc is the record button on `/meetings`, which
+   * is a verb — this row navigates and starts nothing, and a mark promising
+   * otherwise is the consent problem `docs/decisions/meetings.md` spends a
+   * section on.
+   */
+  "mic",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -449,6 +462,42 @@ function shackle(
         borderRightWidth: w,
         borderTopLeftRadius: ((x1 - x0) / 2) * u,
         borderTopRightRadius: ((x1 - x0) / 2) * u,
+        borderColor: color,
+      }}
+    />
+  );
+}
+
+/**
+ * The mirror of `shackle`: an arch open at the **top**.
+ *
+ * A microphone's cradle, and the one shape the set could not make out of what
+ * it had. It is not a rotated shackle — `transform` is applied after layout, so
+ * a turned box lands somewhere else and the "stays inside its box" check in
+ * `icons.test.ts` is then measuring a box the drawing has left. Three borders
+ * and the two *bottom* radii, positioned where they are declared.
+ */
+function cradle(
+  key: string,
+  u: number,
+  w: number,
+  color: string,
+  { x0, y0, x1, y1 }: { x0: number; y0: number; x1: number; y1: number },
+) {
+  return (
+    <View
+      key={key}
+      style={{
+        position: "absolute",
+        left: x0 * u,
+        top: y0 * u,
+        width: (x1 - x0) * u,
+        height: (y1 - y0) * u,
+        borderBottomWidth: w,
+        borderLeftWidth: w,
+        borderRightWidth: w,
+        borderBottomLeftRadius: ((x1 - x0) / 2) * u,
+        borderBottomRightRadius: ((x1 - x0) / 2) * u,
         borderColor: color,
       }}
     />
@@ -836,6 +885,23 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         bar("l1", u, w, c, { cx: 0.5, cy: 0.26, length: 0.7 }),
         bar("l2", u, w, c, { cx: 0.5, cy: 0.5, length: 0.44 }),
         bar("l3", u, w, c, { cx: 0.5, cy: 0.74, length: 0.2 }),
+      ];
+
+    case "mic":
+      /*
+        A capsule in a cradle, on a stem, on a base.
+
+        The cradle's arms sit outside the capsule's sides (0.22/0.78 against
+        0.34/0.66) rather than crossing it, which is what keeps the two reading
+        as separate objects at 17pt instead of as one blot. The capsule's radius
+        is half its own width, so it is a stadium rather than a rounded box —
+        the same trick `radii.pill` plays on the toolbar, one drawing down.
+      */
+      return [
+        rect("capsule", u, w, c, { x0: 0.34, y0: 0.1, x1: 0.66, y1: 0.6, radius: 0.16 }),
+        cradle("cradle", u, w, c, { x0: 0.22, y0: 0.42, x1: 0.78, y1: 0.72 }),
+        bar("stem", u, w, c, { cx: 0.5, cy: 0.8, length: 0.12, angle: 90 }),
+        bar("base", u, w, c, { cx: 0.5, cy: 0.88, length: 0.3 }),
       ];
   }
 }

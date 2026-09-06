@@ -66,6 +66,7 @@ export function ConsoleRail({
   onClaimContext,
   onCreateWorkspace,
   onLeaveContext,
+  onOpenMeetings,
 }: {
   data: ConsoleData;
   route: ConsoleRoute;
@@ -73,6 +74,21 @@ export function ConsoleRail({
   onNavigate: (route: ConsoleRoute) => void;
   /** The account block. Passed in so the rail never imports auth. */
   account: ReactNode;
+  /**
+   * Open meeting capture.
+   *
+   * A callback rather than a `ConsoleRoute` for `onClaimContext`'s reason:
+   * `/meetings` is outside `/console`, so putting it in that union would mean
+   * `routeForPath` pretending it can parse a URL it never sees. Absent on the
+   * landing page's picture of the rail, which has nowhere to send anybody.
+   *
+   * **It navigates and it does not record.** `docs/decisions/meetings.md` says
+   * the product may never make recording invisible, and a row in a rail that
+   * opened the microphone would be exactly the thing that section refuses. The
+   * record button lives on `/meetings`, beside the sentence saying where the
+   * audio goes.
+   */
+  onOpenMeetings?: () => void;
   /**
    * Start the flow that gives this person a context of their own.
    *
@@ -120,7 +136,66 @@ export function ConsoleRail({
   });
 
   return (
-    <View style={styles.rail}>
+    // The rail's own root, named so a test can assert the *order* of its three
+    // children rather than an entry's relationship to its own parent — which
+    // travels with the entry and proves nothing. See `meetingsEntry.test.ts`.
+    <View style={styles.rail} testID="console-rail">
+      {/*
+        The app's other place, pinned above the contexts.
+
+        ## Why it is in the rail at all
+
+        `AppFrame` says of this slot that it is "reachable at every density — a
+        column on a pointer layout, a sheet the top bar brings in on a phone"
+        and that it "is not optional and must not become so", because what is
+        reachable through it is reachable through nothing else. That is the
+        whole requirement here: meeting capture shipped with a list screen, a
+        live screen and a working recorder, and **nothing in the app navigated
+        to any of it**.
+
+        The two other candidates were both refused by their own files. The
+        bottom toolbar's rule is that "navigation is not its job", and it has
+        no room either — at 390pt its pill is 286 wide, 262 inside its padding,
+        which six targets already divide into 43.7pt against a 44pt floor. And
+        the settings pane's "This context, from further out" card is explicitly
+        for things that are *not* "a place you navigate to in order to read a
+        note", which a meeting screen is.
+
+        This is not the `App` group coming back. That group held Map and
+        Connections — facts *about a context*, which is why they moved into that
+        context's settings — and it was headed APP over YOURS over SHARED WITH
+        YOU, which is what made the rail read as a second, unrelated left
+        navigation. One pinned row with no heading is not a second panel.
+
+        ## Why pinned, and why at the head
+
+        Pinned for the account block's reason, mirrored: a context list long
+        enough to scroll must not be able to push the app's other place off the
+        screen either.
+
+        At the head rather than beside sign-out because of what floats at the
+        other edge. The persistent recording bar is anchored to the bottom of
+        the glass, and while a panel is over the editor the frame publishes a
+        chrome height of zero (`features/app/bottomChrome.ts`), so the bar drops
+        to `floatingStackBottom(insets.bottom, 0)` and lies across the bottom
+        ~100pt of whatever is under it — this sheet included. A destination that
+        the recording it leads to can cover is not a destination.
+      */}
+      {onOpenMeetings === undefined ? null : (
+        <View style={[styles.head, icons && styles.headIcons]} testID="rail-head">
+          <RailEntry
+            label="Meetings"
+            icon="mic"
+            icons={icons}
+            touch={touch}
+            accessibilityLabel="Open meetings"
+            selected={false}
+            onPress={onOpenMeetings}
+            testID="rail-meetings"
+          />
+        </View>
+      )}
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[styles.content, icons && styles.contentIcons]}
@@ -612,6 +687,23 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   entryOnLabel: { color: colors.accentText },
   glyph: { color: colors.text2, fontSize: 14 },
   glyphOn: { color: colors.accentText },
+
+  /**
+   * The head, which is the account block's mirror at the other end.
+   *
+   * A hairline under it rather than a heading over it: the row names itself,
+   * and a one-row group with a `railHead` label above it is two lines of chrome
+   * for one destination — the `App` group's mistake in miniature. The padding
+   * matches `content` so the row lands on the same left edge as every context
+   * below it.
+   */
+  head: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+    paddingVertical: space.x2,
+    paddingHorizontal: space.x3,
+  },
+  headIcons: { paddingHorizontal: space.x2, alignItems: "center" },
 
   /** Pinned: a long context list must not push your identity off the screen. */
   account: {
