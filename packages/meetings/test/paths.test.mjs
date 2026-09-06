@@ -472,8 +472,12 @@ export function runPathChecks(check) {
     cost: **36 folders that are stable, build a path, and are accepted by every
     layer downstream**. A whole-string trim only removes whitespace at the two
     ENDS, so only a leading space in the first segment or a trailing space in
-    the last is unstable. The last three checks are that distinction, and they
-    are what fails if somebody "simplifies" this back to a per-segment rule.
+    the last is unstable. **The last TWO checks are that distinction** and are
+    what fails — measured, 2 red, by reverting to it — if somebody
+    "simplifies" this back to a per-segment rule. Everything above them in this
+    block stays green under either variant, so it is context rather than part
+    of the pin; saying "three" described the guard as wider than it is, which
+    is the same shape of error as the rule it guards.
 
     Brute-forced over `a / space tab . % 2 e` to depth 4 — 4,680 shapes: 132
     non-idempotent and 20 throwing before, 0 and 0 after.
@@ -498,6 +502,10 @@ export function runPathChecks(check) {
   check(
     "an inner space is a folder somebody may legitimately have",
     normalizeMeetingFolder("2-areas/team notes") === "2-areas/team notes"
+  );
+  check(
+    "a LEADING whole-string space is trimmed too, and the folder is fine",
+    normalizeMeetingFolder(" ok") === "ok"
   );
   check(
     "...and so is one with an edge space on an INNER segment, which is stable",

@@ -175,9 +175,10 @@ export function normalizeRoot(root) {
  * root does not have. (It said three, then four, then five, and the count has
  * been wrong twice for a rule that had been added below it — **a count that
  * stops matching its own list is how the rule underneath it stops being
- * read**, and that tripwire has now fired three times, the last time in the
- * commit that wrote this parenthetical.) A seventh is the empty string, argued
- * at the check rather than here, because there it is a difference of *meaning*
+ * read**, and that tripwire has now fired three times — the third being the
+ * commit that added the sixth rule and left the count at five.) A seventh is
+ * the empty string, argued at the check rather than here, because there it is
+ * a difference of *meaning*
  * from `normalizeRoot` rather than an addition to it: "no prefix at all" is a
  * legal root and is not a folder.
  *
@@ -298,7 +299,6 @@ export function normalizeMeetingFolder(folder) {
     if (segment.toLowerCase().endsWith(".md")) return null;
     if (RESERVED_PLUMBING_NAMES.has(segment.toLowerCase())) return null;
     if (CONTROL_CHARACTERS.test(segment)) return null;
-
   }
   /*
     WHAT THIS RETURNS, IT MUST ALSO ACCEPT.
