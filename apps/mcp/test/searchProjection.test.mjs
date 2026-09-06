@@ -1578,6 +1578,11 @@ async function runServeChecks(check) {
     // only check in this file that would go red if the filter were removed
     // while the table split stayed correct.
     seed("1-projects/secret.md", "# Secret\n\nA quoll arrangement.\n", "s5");
+    // A second team note matching the same word, projected in the same pass.
+    // It is what makes the count assertion below possible: after the flip a
+    // team caller has one hit they may read and one they may not, which is the
+    // only arrangement in which a pre-filter count is observable at all.
+    seed("1-projects/roundup.md", "# Roundup\n\nAnother quoll arrangement.\n", "s6");
     ready("backfilling");
     for (let round = 0; round < 3; round += 1) await search("quoll");
     ready("ready");
@@ -1608,6 +1613,32 @@ async function runServeChecks(check) {
     check(
       "and the live privacy manifest is what actually stops the read",
       !afterFlip.text.includes("1-projects/secret.md"),
+    );
+    check(
+      "while the note beside it, still team, is still returned",
+      afterFlip.text.includes("1-projects/roundup.md"),
+    );
+    /*
+      AND THE COUNT IS THE FILTERED ONE.
+
+      `serve.js` names this attack about the *slice* — "slicing before the
+      filter would make the number of results a team caller sees depend on how
+      many private notes outranked them, which is a subtraction attack with
+      extra steps" — and the slice is guarded. The COUNT is the same channel and
+      was guarded by nothing: computing `matchCount` from `result.notes.length`
+      instead of `visible.length` reddened **0 of 1,637**, because no fixture
+      had a query matching both a visible note and a filtered one at once. It
+      does now, and the leak it would print is not subtle: the caller reads
+      "2 matching notes — the 1 best shown", which is a team connection being
+      told how many notes it may not see match its word.
+
+      Asserted on the rendered sentence rather than on a field, because the
+      sentence is what the person reads and `toolSearchNotes` composes the
+      count and the hit list separately.
+    */
+    check(
+      "and the count a team caller is told is the filtered one",
+      afterFlip.text.includes("1 matching note") && !afterFlip.text.includes("2 matching note"),
     );
 
     // -- 5. a refused database is not a failed search ----------------------
