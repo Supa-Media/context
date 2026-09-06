@@ -127,8 +127,16 @@ export interface MeetingsGateway {
    * The folder half of `to` rides on *this* call and only this one: it is the
    * request that turns a session into a note, so the request whose answer is a
    * path is the request that carries where the path goes.
+   *
+   * **It takes the session, not its id**, and that is not symmetry with
+   * `putSession`. `createConvexGateway` composes the note here — it is the
+   * writer, not a client of one — and it cannot hold the session from an
+   * earlier step: `pendingSteps` skips `session` when the metadata is already
+   * acknowledged, so a retry after a restart reaches this call with nothing
+   * behind it. `createHttpGateway` uses `session.id` and ignores the rest,
+   * which is exactly what it did before.
    */
-  finalize(to: MeetingAddress, sessionId: string): Promise<IngestAck>;
+  finalize(to: MeetingAddress, session: MeetingSession): Promise<IngestAck>;
   /**
    * Recent sessions this workspace holds, newest first.
    *
@@ -248,7 +256,7 @@ export function createHttpGateway(options: HttpGatewayOptions): MeetingsGateway 
       send(to, ROUTES.segments(sessionId), "POST", { segments }),
     putNotes: (to, sessionId, markdown) =>
       send(to, ROUTES.notes(sessionId), "POST", { markdown }),
-    finalize: (to, sessionId) => send(to, ROUTES.finalize(sessionId), "POST", finalizeBody(to)),
+    finalize: (to, session) => send(to, ROUTES.finalize(session.id), "POST", finalizeBody(to)),
     list: async () => {
       const answer = await send<Partial<SessionList>>(null, ROUTES.sessions, "GET");
       return answer.sessions ?? [];

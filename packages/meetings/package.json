@@ -9,6 +9,7 @@
     ".": "./src/index.js",
     "./protocol": "./src/protocol.js",
     "./note": "./src/note.js",
+    "./paths": "./src/paths.js",
     "./detect": "./src/detect.js"
   },
   "scripts": {

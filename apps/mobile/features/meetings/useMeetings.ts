@@ -1,17 +1,13 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Platform } from "react-native";
 import { useConvex, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
-import { MCP_ENDPOINT } from "../console/placeholderData";
 import { defaultContext } from "../console/nav";
 import { useReachability } from "../offline/reachability";
 import { openStore } from "../offline/store";
 import { createRecorder, setTranscriptionClient } from "./capture";
-import {
-  createHttpGateway,
-  gatewayOriginFrom,
-  type MeetingsGateway,
-} from "./gateway";
+import { createConvexGateway, writeNoteThrough } from "./convexGateway";
+import { type MeetingsGateway } from "./gateway";
 import { meetings, type MeetingsSnapshot } from "./controller";
 
 /**
@@ -139,13 +135,29 @@ export function useTranscriptionClient(): void {
  * Convex dedupes identical subscriptions, so this adds no round trip the app
  * was not already making.
  *
- * ## Why the gateway may be `null`
+ * ## Which writer a meeting takes, and why it is this one
  *
- * See `gateway.ts`: which credential this app presents to the gateway is not
- * settled, and inventing one here would be guessing about somebody else's auth.
- * With no token the gateway refuses to send, the controller keeps the meeting
- * on the device, and the screens say so. A meeting is never lost by this; what
- * it does not do is reach the bucket.
+ * **This is where the app chose the MCP gateway and got a meeting that never
+ * reached a bucket.** `createHttpGateway` authenticates by per-client OAuth
+ * grant and this app holds none, so `authorization()` answered `null`, the
+ * gateway correctly refused to send, and every meeting stopped on the device.
+ * Meanwhile the editor has been writing notes into the same customer's bucket
+ * on every save, through `files.writeNote`.
+ *
+ * So a meeting takes the note's path: `createConvexGateway`, over the control
+ * plane, with this account's own session. `createHttpGateway` is not deleted —
+ * it is the right answer for a client that *does* hold a grant, which is the
+ * desktop app — and this is the one line in the feature that knows there are
+ * two. See `convexGateway.ts` for what that path gives up (the enhancement
+ * pass, the session record in the bucket, `list()`) and how idempotency is
+ * bought without a claimed path.
+ *
+ * The workspace list is what turns a destination's `@name` into the id
+ * `writeNote` takes. It is read through a ref rather than captured, because it
+ * lands *after* the controller is configured and a meeting can be finalized at
+ * any point after that — a gateway rebuilt on every list change would
+ * reconfigure the controller mid-recording, which is the thing
+ * `configure`'s own recorder guard exists to prevent.
  */
 export function useMeetingsSetup(
   options: {
@@ -195,9 +207,37 @@ export function useMeetingsSetup(
   const reachability = useReachability();
   const snapshot = useMeetingsSnapshot();
 
+  const convex = useConvex();
+
+  /*
+    The list, where the gateway can read it at call time. A ref rather than a
+    dependency: `gateway` is a `configure` input, and rebuilding it whenever the
+    workspace list re-renders would hand the controller a new gateway during a
+    live recording.
+  */
+  const directory = useRef<ReadonlyArray<{ slug: string; workspaceId: string }>>([]);
+  directory.current = (workspaces ?? []) as ReadonlyArray<{ slug: string; workspaceId: string }>;
+  const fallbackWorkspaceId = useRef<string | null>(null);
+  fallbackWorkspaceId.current = workspaceId;
+
+  const resolveWorkspaceId = useCallback((contextSlug: string | null): string | null => {
+    // No destination means "wherever this device is pointed" — the one-tap
+    // record on `/meetings`, which genuinely chose nothing.
+    if (contextSlug === null) return fallbackWorkspaceId.current;
+    const wanted = contextSlug.startsWith("@") ? contextSlug.slice(1) : contextSlug;
+    return (
+      directory.current.find((workspace) => workspace.slug === wanted)?.workspaceId ?? null
+    );
+  }, []);
+
   const gateway = useMemo(
-    () => options.gateway ?? defaultGateway(),
-    [options.gateway],
+    () =>
+      options.gateway ??
+      createConvexGateway({
+        writeNote: writeNoteThrough(convex as never),
+        resolveWorkspaceId,
+      }),
+    [options.gateway, convex, resolveWorkspaceId],
   );
 
   useEffect(() => {
@@ -225,23 +265,4 @@ export function useMeetingsSetup(
     if (snapshot.status !== "ready") return;
     meetings.requestSync();
   }, [reachability, snapshot.status, snapshot.records]);
-}
-
-/**
- * The gateway this build talks to, or one that always refuses.
- *
- * `MCP_ENDPOINT` is the console's own deployment constant — one URL for every
- * customer, overridable so a self-hoster points at their own gateway — and
- * `gatewayOriginFrom` takes its origin, because `ROUTES` are siblings of `/mcp`
- * rather than paths under it.
- *
- * `authorization` answers `null` today. That is the one unfinished seam in this
- * feature and it is deliberately visible: see `gateway.ts`.
- */
-function defaultGateway(): MeetingsGateway {
-  const origin = gatewayOriginFrom(MCP_ENDPOINT);
-  return createHttpGateway({
-    origin: origin ?? "",
-    authorization: async () => null,
-  });
 }
