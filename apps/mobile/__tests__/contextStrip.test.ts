@@ -47,6 +47,8 @@ const { ContextStrip } =
   require("../features/console/ContextStrip") as typeof import("../features/console/ContextStrip");
 const { stripEntries, stripOrder, toneForKind } =
   require("../features/console/strip") as typeof import("../features/console/strip");
+const { layout } =
+  require("../features/design/tokens") as typeof import("../features/design/tokens");
 import type { ConsoleContext } from "../features/console/types";
 import type { ConsoleRoute } from "../features/console/nav";
 
@@ -372,6 +374,44 @@ describe("what is on the strip", () => {
     const strip = mountStrip({ onOpen: (slug) => opened.push(slug) });
     strip.press("context-strip-supa");
     expect(opened).toEqual(["supa"]);
+  });
+
+  /**
+   * A pill is a target a thumb has to hit, and it is the only one for this.
+   *
+   * **This strip is the phone's primary navigation.** A phone has no rail and
+   * no file-tree drawer (`features/app/frame.ts`), so a pill is the whole of
+   * moving between contexts — there is no menu, no keymap and no second control
+   * anywhere that reaches the same place. A target under the floor here is not
+   * a nuisance; it is navigation somebody misses and concludes is broken.
+   *
+   * The other two surfaces on the same glass each kept this guard when the nav
+   * toggle's was deleted with the toggle: `consoleChrome.test.ts` holds the
+   * pinned account slot (`sign-out is reachable, and is a target a thumb can
+   * hit`) and `bottomBar.test.ts` holds the bottom row. The strip had none, so
+   * `layout.chromeButton` — the height every pill takes — had **zero** hits
+   * anywhere in `__tests__`.
+   *
+   * Asserted against `layout.minTouchTarget` and not against `chromeButton`:
+   * reading the same token the style reads would pass for whatever value it
+   * happens to hold, which is exactly the mutant below.
+   *
+   * SABOTAGE: `chromeButton: 36` in `tokens.ts` — the tidy-looking "make the
+   * top row less chunky" edit. MEASURED against a green 172 suites / 3,285: it
+   * fails here, and it fails one other test that is **not** a guard on this —
+   * `safeArea.test.ts`'s `a document pane clears the notch and the floating
+   * toggle`, which recomputes the note's top padding against a literal `44` for
+   * the *frame's* chrome band. That one catches the token moving; it says
+   * nothing about whether a pill is a target, it would pass for a 36pt pill
+   * under a 44pt band, and it is in a different file about a different surface.
+   * The strip's own claim had no test at all before this one.
+   */
+  test("a pill clears the touch floor, because it is how a phone changes context", () => {
+    const strip = mountStrip();
+    for (const testID of ["context-strip-seyi", "context-strip-supa"]) {
+      const height = Number.parseFloat(styleOf(strip.need(testID), "height"));
+      expect(height).toBeGreaterThanOrEqual(layout.minTouchTarget);
+    }
   });
 
   /**
