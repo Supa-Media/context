@@ -99,6 +99,7 @@ import {
   readSearchIndexBinding,
 } from "../src/search/d1/client.js";
 import { CURSOR_KEY, projectPass } from "../src/search/d1/backfill.js";
+import { searchProjection } from "../src/search/d1/serve.js";
 import { syncShardedIndex } from "../src/search/shards.js";
 import { storeForBinding } from "../src/store/factory.js";
 
@@ -1275,24 +1276,35 @@ async function runEndToEndChecks(check) {
  *
  *   `indexIsBehind` always answering "no"                                12
  *   `tablesForTier("team")` also returning the private table              5
- *   the fast path never consulted at all                                  5
- *   `fastSearchAnswer` skipping the `canSee` filter                       1
+ *   the fast path never consulted at all                                  7
+ *   `fastSearchAnswer` skipping the `canSee` filter                       2
+ *   `fastSearchAnswer` counting candidates instead of visible notes       1
  *   `fastSearchAnswer` ignoring `state`, serving a filling projection     1
+ *   `searchProjection` never setting `truncated` on a full page           1
+ *   `searchProjection` counting the cap across tables, not per table      1
  *   a `D1Error` on the read path escaping into the response               1
  *   a miss answering "(no matches)" instead of falling through            1
  *   `mergeHits` sliced to the display limit before the privacy filter     1
  *   a snippet mark put back, either side                                  1
  *   the title dropped from the projected row, or from the SELECT          1
  *
- * Four of those are worth their own sentence, because three of them measured
- * ZERO on the first run and the fixture had to be changed before they measured
- * anything:
+ * Seven of those rows are covered by the six sentences below, because six of
+ * them measured ZERO on the first run and the fixture had to be changed before
+ * they measured anything:
  *
- *  - **`canSee` reddens one check and always did**, and it is the right one.
- *    A team caller never reaches `2-areas/vitals.md` even with the filter
- *    gone, because a private note's rows are not in the team table for the
- *    query to return — that is the split doing its job. The single failure is
- *    the stale-tier window, which is the only thing the filter is for.
+ *  - **`canSee` reddens two checks, and for one of them it always did.** A
+ *    team caller never reaches `2-areas/vitals.md` even with the filter gone,
+ *    because a private note's rows are not in the team table for the query to
+ *    return — that is the split doing its job. What the filter is for is the
+ *    stale-tier window, and both failures are in it: the path, and the count.
+ *  - **The COUNT was the same attack through a different field, and it
+ *    reddened nothing.** `serve.js` names the subtraction attack about the
+ *    slice, and the slice was guarded; `matchCount` computed from
+ *    `result.notes.length` instead of `visible.length` measured ZERO, because
+ *    no query in the fixture matched both a note the caller may read and one
+ *    they may not — so the two numbers were never different. A second team
+ *    note in the stale-tier window is what made it observable, and what it
+ *    prints is `2 matching notes — the 1 best shown`.
  *  - **The pre-filter slice reddened nothing** until twelve more notes were
  *    seeded. With two matching notes the display limit and the match count are
  *    the same number, so slicing before the filter was invisible.
@@ -1303,7 +1315,23 @@ async function runEndToEndChecks(check) {
  *    seeded. The title is only rendered when the snippet is empty, so until
  *    one note had an empty body the column was carried for nobody.
  *
- * A guard nobody has checked is not a guard, and three of these had not been.
+ * **And one is still not proved, said out loud rather than left as a zero.**
+ * `matchCountIsFloor`'s `truncated` half is watched at its source — a full
+ * page setting the flag — but not through `fastSearchAnswer`, which composes
+ * it: dropping `result.truncated` from that expression reddens NOTHING,
+ * because reaching it needs a query returning 200 chunk rows from one table
+ * and no fixture here is that large. `truncated` is a one-bit pre-filter
+ * signal in the same family as the count above, so it is worth a fixture; it
+ * is not worth 200 notes today.
+ *
+ *  - **The two `searchProjection` rows reddened nothing either**, and theirs
+ *    are the only numbers in this table that do NOT come from a search:
+ *    tripping the cap needs a table to return 200 rows and the largest
+ *    single-table return in this file is 14, so both are driven at
+ *    `searchProjection` with a stub client and a small `chunkCap`. A red on
+ *    either has not been near the gateway.
+ *
+ * A guard nobody has checked is not a guard, and six of these had not been.
  * ====================================================================== */
 
 /**
@@ -1578,6 +1606,11 @@ async function runServeChecks(check) {
     // only check in this file that would go red if the filter were removed
     // while the table split stayed correct.
     seed("1-projects/secret.md", "# Secret\n\nA quoll arrangement.\n", "s5");
+    // A second team note matching the same word, projected in the same pass.
+    // It is what makes the count assertion below possible: after the flip a
+    // team caller has one hit they may read and one they may not, which is the
+    // only arrangement in which a pre-filter count is observable at all.
+    seed("1-projects/roundup.md", "# Roundup\n\nAnother quoll arrangement.\n", "s8");
     ready("backfilling");
     for (let round = 0; round < 3; round += 1) await search("quoll");
     ready("ready");
@@ -1608,6 +1641,100 @@ async function runServeChecks(check) {
     check(
       "and the live privacy manifest is what actually stops the read",
       !afterFlip.text.includes("1-projects/secret.md"),
+    );
+    check(
+      "while the note beside it, still team, is still returned",
+      afterFlip.text.includes("1-projects/roundup.md"),
+    );
+    /*
+      AND THE COUNT IS THE FILTERED ONE.
+
+      `serve.js` names this attack about the *slice* — "slicing before the
+      filter would make the number of results a team caller sees depend on how
+      many private notes outranked them, which is a subtraction attack with
+      extra steps" — and the slice is guarded. The COUNT is the same channel and
+      was guarded by nothing: computing `matchCount` from `result.notes.length`
+      instead of `visible.length` reddened **0 of 1,637**, because no fixture
+      had a query matching both a visible note and a filtered one at once. It
+      does now, and the leak it would print is not subtle: the caller reads
+      "2 matching notes — the 1 best shown", which is a team connection being
+      told how many notes it may not see match its word.
+
+      Asserted on the rendered sentence rather than on a field, because the
+      sentence is what the person reads and `toolSearchNotes` composes the
+      count and the hit list separately.
+    */
+    check(
+      "and the count a team caller is told is the filtered one",
+      // Anchored, because `includes("1 matching note")` is also true of
+      // `11 matching notes` — measured: `visible.length + 10` renders exactly
+      // that and slipped past the substring form. A check named for a number
+      // has to be about that number.
+      /(^|[^0-9])1 matching note(?!s)/.test(afterFlip.text) &&
+        !/(^|[^0-9])2 matching note/.test(afterFlip.text),
+    );
+    check(
+      // The three checks above are all true of the R2 answer too — it renders
+      // the same sentence for the same query — so without this they would keep
+      // passing with the fast path switched off entirely, proving nothing
+      // about the `matchCount` in `fastSearchAnswer`. `answerReads` is the
+      // fixture's own idiom for that: the projection quotes itself and fetches
+      // no notes. Measured: switching the fast path off reddens 7 with this
+      // line and 6 without it.
+      "and it was the projection that counted, not the index behind it",
+      afterFlip.answerReads === 0,
+    );
+
+    /*
+      `truncated` AT ITS SOURCE, DRIVEN DIRECTLY RATHER THAN THROUGH A SEARCH.
+
+      It is the `+` on "12+ matching notes", and it is a one-bit pre-filter
+      signal in the same family as the count above: for a team caller the page
+      is filled from `notes_team_fts`, which in this very window holds chunks
+      of a note they may not read. Never setting it reddened NOTHING through
+      the fixture, because tripping it needs a table to return
+      `CHUNK_FETCH_CAP` rows and no context here is that large — the biggest
+      single-table return anywhere in this file is 14 against a cap of 200.
+
+      So these three call `searchProjection` with a stub client and a small
+      `chunkCap`, which is the parameter that exists for exactly this. **They
+      are the only checks in this file that do not go through a search**, which
+      is why the record above says so of both rows they cover: a red here has
+      not been near the gateway, and a fixture of 200 notes would prove the same
+      bit at fifty times the cost.
+
+      The third is a separate guard rather than a third case of the first two.
+      A team caller asks one table, so neither of them can tell a per-table cap
+      from one accumulated across tables; the private tier asks two, and that
+      one check is the whole of what refuses `rows.length + answered.length >=
+      chunkCap`. Measured: it is the only red under that mutation.
+    */
+    const pageOf = (n) =>
+      Array.from({ length: n }, (_, i) => ({
+        path: `1-projects/p${i}.md`,
+        title: `P${i}`,
+        snippet: "s",
+        score: -1 - i,
+      }));
+    const askWith = async (rows, tier = "team") =>
+      // `?? {}` rather than a bare property read: a `searchProjection` that
+      // returned `null` would otherwise throw out of the whole module and take
+      // every suite after this one with it, instead of reddening by name.
+      (await searchProjection(
+        { query: async () => rows },
+        { query: "quoll", tier, chunkCap: 2 },
+      )) ?? {};
+    check(
+      "a page that fills its cap reports itself a floor",
+      (await askWith(pageOf(2))).truncated === true,
+    );
+    check(
+      "and one that does not fill it does not",
+      (await askWith(pageOf(1))).truncated === false,
+    );
+    check(
+      "and two short pages do not add up to a full one",
+      (await askWith(pageOf(1), "private")).truncated === false,
     );
 
     // -- 5. a refused database is not a failed search ----------------------
