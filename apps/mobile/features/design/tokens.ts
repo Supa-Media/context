@@ -467,17 +467,27 @@ export const layout = {
    * than a destination.
    *
    * The arithmetic, on a 390pt phone, which is the narrow case rather than the
-   * reference's 440:
+   * reference's 440 — and **the separator is a term in it**, because the rule
+   * `BottomBar` draws before the seventh key is a `flexShrink: 0` child of the
+   * row and therefore takes its width off the targets rather than out of thin
+   * air:
    *
    *     390 − 2 × 24 = 342          the pill
    *     342 − 2 × 12 = 318          inside `bottomBarPad`
-   *     318 ÷ 7      = 45.4pt       one target — above the 44pt floor
+   *     318 −     1  = 317          less `bottomBarRule`, the separator
+   *     317 ÷ 7      = 45.29pt      one target — above the 44pt floor
    *
    * and at the old 52:
    *
    *     390 − 2 × 52 = 286
    *     286 − 2 × 12 = 262
-   *     262 ÷ 7      = 37.4pt       under the floor; 262 ÷ 6 = 43.7, also under
+   *     262 −     1  = 261
+   *     261 ÷ 7      = 37.29pt      under the floor; 261 ÷ 6 = 43.5, also under
+   *
+   * **That last pt is why the figure is 45.29 and not 45.4.** It read 45.4 in
+   * four places, including the separator's own doc comment — the one that
+   * should have caught it — because the divisor was 318, which is the width
+   * before the rule the same paragraph was describing.
    *
    * So a seventh key does not fit at 52 and does at 24, and 24 still leaves a
    * visible sliver of note either side — reduced, not spent. Six of the seven
@@ -503,11 +513,31 @@ export const layout = {
    * decides the bar's width and the targets share it — so it stands as the size
    * a target wants when there is room, with `minTouchTarget` underneath it as
    * the floor when there is not. Seven targets on a 390pt phone are under it
-   * and land on the floor's side of it at 45.4; see `bottomBarInset`.
+   * and land on the floor's side of it at 45.29; see `bottomBarInset`.
    */
   bottomBarTarget: 52,
-  /** The toolbar's own horizontal padding. See `bottomBarTarget`. */
+  /**
+   * The toolbar's own horizontal padding, where the width allows it.
+   *
+   * See `bottomBarTarget` for what it is worth to the look, and
+   * `bottomBarGeometry` for the order it is spent in: this is the *first*
+   * thing a narrow screen takes back, before the sliver of note either side,
+   * because a target is 44pt wide around a 22pt icon and already carries 11pt
+   * of its own air at each end of the row.
+   */
   bottomBarPad: 12,
+  /**
+   * The hairline between the note's verbs and the key that leaves the note.
+   *
+   * A token rather than a `1` in `BottomBar`'s stylesheet because **it is a
+   * term in the row's width**, not a decoration painted over it: the rule is a
+   * `flexShrink: 0` child of the same flex row as the targets, so every point
+   * it takes is a point the seven targets do not divide. Reading it as free
+   * is what made the arithmetic in this file say 45.4 where it is 45.29, in
+   * four places at once, and `bottomBarGeometry` now subtracts it rather than
+   * a comment claiming it is negligible.
+   */
+  bottomBarRule: 1,
   /**
    * The air a panel leaves between the status bar and its first row.
    *
@@ -710,4 +740,118 @@ export function tracking(fontSize: number, em: number): number {
  */
 export function leading(fontSize: number, multiple: number): number {
   return Math.round(fontSize * multiple * 100) / 100;
+}
+
+/**
+ * Where the compact toolbar's edges are, at a given width, for a given row.
+ *
+ * ## Why this is a function and not two numbers
+ *
+ * It was two numbers — `bottomBarInset` and `bottomBarPad` — and the
+ * arithmetic proving they were enough was done at 390pt and nowhere else. A
+ * seventh key was added to the row and the inset was cut 52 → 24 to pay for
+ * it, which fits at 390 (45.29pt a target) and at the reference's 440 (52.43),
+ * and does not fit anywhere below 381:
+ *
+ *     375   43.14pt   iPhone SE 2/3, 12/13 mini, 8/7/6s
+ *     360   41.00pt   most Android
+ *     320   35.29pt   iPhone SE 1st gen, and any window this narrow
+ *
+ * `minWidth: minTouchTarget` holds each target at 44 rather than letting it
+ * shrink — deliberately, because a row of 41pt targets is a bug nobody can see
+ * — so what happened instead is that the row **spilled past the pill's rounded
+ * edge**: `bar` sets no `overflow` and React Native's default is `visible`.
+ * `compact` is every width under 880, so a browser window is in this range too.
+ *
+ * ## What it spends, and in what order
+ *
+ * The row cannot be narrower than every target on the floor plus the rules
+ * between them, which shrink for nobody. What a narrow screen has to give it is
+ * the two margins either side, and they are **not worth the same**:
+ *
+ *  1. **`bottomBarPad` goes first.** It is air inside the pill, and a 44pt
+ *     target already carries 11pt of its own around a 22pt icon, so the row
+ *     loses almost nothing visible by giving it up.
+ *  2. **`bottomBarInset` goes second, and only once the padding is gone.** It
+ *     is the sliver of note showing either side, and that sliver is a
+ *     measurement — most of what makes the pill read as an object lying on the
+ *     note rather than as an edge with rounded corners. It is spent last
+ *     because it is worth the most.
+ *
+ * A width that never comes near the floor never spends either, so **every
+ * device from 381pt up is untouched**: the reference geometry is what it always
+ * was, and only the phones that were broken move.
+ *
+ * ## 320pt, stated plainly
+ *
+ * Seven targets on the floor plus one rule need 309pt, and there are 320. It
+ * fits, at 44.14pt a target, with the padding gone and 5pt of sliver left. The
+ * claim that seven keys cannot fit at 320 by any choice of inset holds only
+ * while the padding is treated as fixed; it is not, and it is the cheaper half.
+ *
+ * Under 309 there is no arrangement at all, and the two things left to do —
+ * a target under the floor, or a key off the edge — are both bugs. So it
+ * answers `fits: false` rather than picking one silently, and `BottomBar`
+ * complains where a developer will hear it.
+ *
+ * ## The inset is the frame's, and this only ever asks for less of it
+ *
+ * `AppFrame` pads the toolbar's band by `bottomBarInset`, which is why that
+ * token is a constant and this returns a number no larger than it. `BottomBar`
+ * takes back the difference with a negative margin, so the resting case sets a
+ * margin of zero and nothing about the wide layout changes.
+ */
+export interface BottomBarGeometry {
+  /** How much note shows either side of the pill, at this width. */
+  inset: number;
+  /** The pill's own horizontal padding, at this width. */
+  pad: number;
+  /** What the targets and the rules divide. `null` until a width is known. */
+  inner: number | null;
+  /** One target's share of it. `null` until a width is known. */
+  target: number | null;
+  /** Whether every target lands on or above `minTouchTarget`. */
+  fits: boolean;
+}
+
+export function bottomBarGeometry(
+  width: number,
+  targets: number,
+  rules = 0,
+): BottomBarGeometry {
+  const keys = Math.max(0, Math.trunc(targets));
+  const rule = Math.max(0, Math.trunc(rules)) * layout.bottomBarRule;
+
+  /*
+    A width of 0 is react-native-web before it has measured anything, not a
+    screen 0pt wide — the same "absent is not zero" the console applies to
+    every other unanswered measurement. Reading it as a screen would collapse
+    the pill onto the note for one frame on every launch and then expand it.
+  */
+  const measured = Number.isFinite(width) && width >= layout.minTouchTarget;
+  if (!measured || keys === 0) {
+    return {
+      inset: layout.bottomBarInset,
+      pad: layout.bottomBarPad,
+      inner: null,
+      target: null,
+      fits: true,
+    };
+  }
+
+  const need = keys * layout.minTouchTarget + rule;
+  /*
+    What is left for the two margins on each side, floored to a whole point: a
+    fraction here buys nothing and would hand the narrow case a target sitting
+    at exactly 44.000, where a single device-pixel rounding is enough to break
+    the rule it is meant to keep.
+  */
+  const side = Math.max(0, Math.floor((width - need) / 2));
+
+  const inset = Math.min(layout.bottomBarInset, side);
+  const pad = Math.min(layout.bottomBarPad, side - inset);
+  const inner = width - inset * 2 - pad * 2 - rule;
+  const target = inner / keys;
+
+  return { inset, pad, inner, target, fits: target >= layout.minTouchTarget };
 }
