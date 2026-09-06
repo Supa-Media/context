@@ -2,7 +2,12 @@ import { describe, expect, test } from "@jest/globals";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { createConvexGateway } from "../features/meetings/convexGateway";
+import { ConvexError } from "convex/values";
+
+import {
+  MEETING_WRITE_SENTENCES,
+  createConvexGateway,
+} from "../features/meetings/convexGateway";
 import { drainMeetings } from "../features/meetings/sync";
 import { emptyAck, type MeetingRecord } from "../features/meetings/record";
 import { seedSession } from "../features/meetings/session";
@@ -89,20 +94,51 @@ function record(over: Partial<MeetingRecord> = {}): MeetingRecord {
   };
 }
 
-/** A `writeNote` that records what it was asked to write, and can refuse. */
-function spyWriteNote(options: { refuseWith?: string } = {}) {
+/**
+ * A `writeNote` that records what it was asked to write, and can refuse.
+ *
+ * **The refusal is a real `ConvexError` carrying the message Convex really
+ * builds**, and that is the whole of why this double exists in this shape. The
+ * first version threw `new Error("refused")` with a `.data` hand-attached, so
+ * `error.message` was already a clean word and the writer forwarding it looked
+ * correct. On the wire it is
+ * `` `[CONVEX A(functions/files:writeNote)] ${message}\n  Called by client` `` —
+ * a stack-trace-shaped string that was being rendered on a meeting card.
+ *
+ * `throwAs: "plain"` is the other half: a bare `Error` with a `.data` bolted on
+ * is not a server answer, and reading a code off it is the widening
+ * `browser.ts` names and refuses.
+ */
+function spyWriteNote(
+  options: { refuseWith?: string; serverSays?: string; throwAs?: "convex" | "plain" } = {},
+) {
   const calls: Array<{ workspaceId: string; path: string; text: string }> = [];
   const write = async (args: { workspaceId: string; path: string; text: string }) => {
     calls.push(args);
     if (options.refuseWith !== undefined) {
-      const error = new Error("refused") as Error & { data: { code: string } };
-      error.data = { code: options.refuseWith };
+      const data = { code: options.refuseWith, message: options.serverSays ?? "server prose" };
+      if (options.throwAs === "plain") {
+        const error = new Error(WIRE_MESSAGE) as Error & { data: typeof data };
+        error.data = data;
+        throw error;
+      }
+      const error = new ConvexError(data);
+      /*
+        Convex assembles this on the client before the caller ever sees it — the
+        deployment's own function reference and a caller frame, around whatever
+        the server said. It is not something a person may be shown.
+      */
+      error.message = WIRE_MESSAGE;
       throw error;
     }
     return { path: args.path };
   };
   return { calls, write };
 }
+
+/** What `ConvexError`'s `.message` really looks like once it has crossed the wire. */
+const WIRE_MESSAGE =
+  "[CONVEX A(functions/files:writeNote)] Uncaught Error: s3.eu-central-003.example.net refused\n  Called by client";
 
 function writer(options: Parameters<typeof spyWriteNote>[0] = {}, resolves = "ws-1") {
   const spy = spyWriteNote(options);
@@ -257,6 +293,177 @@ describe("a refusal is classified so the queue does the right thing with it", ()
     const { gateway } = writer({ refuseWith: "SOMETHING_NEW" });
     const failure = await gateway.finalize(null, session()).catch((error: unknown) => error);
     expect((failure as { code: string }).code).toBe(ERRORS.invalid);
+  });
+
+  /*
+    THE CODES `files.writeNote` ACTUALLY SENDS.
+
+    The first version of this mapping handled `FORBIDDEN` and `NOT_FOUND`, and
+    that action produces neither: `canSee` refusing is `FILE_NOT_FOUND`
+    (`fileOps.ts`'s deliberate not-found for "not yours to see"), a role failure
+    is `INSUFFICIENT_ROLE`, no membership is `WORKSPACE_NOT_FOUND` and no
+    session is `NOT_AUTHENTICATED`. So the branch was dead and every real
+    refusal fell through to `invalid`, which parks the meeting permanently —
+    including an `editor` in a context whose meetings folder defaults to
+    `private`, a configuration `apps/mcp/test/meetings.test.mjs` names by hand,
+    and including a `NOT_AUTHENTICATED` raised while a token was being
+    refreshed.
+
+    The split that matters is transient versus parked, because a parked meeting
+    waits for a person to press retry.
+  */
+  test.each([
+    ["NOT_AUTHENTICATED", ERRORS.unavailable],
+    ["STORAGE_FAILED", ERRORS.unavailable],
+    ["STORAGE_NOT_CONNECTED", ERRORS.unavailable],
+    ["STORAGE_UNUSABLE", ERRORS.unavailable],
+    ["PRIVACY_MANIFEST_BUSY", ERRORS.unavailable],
+    ["FILE_NOT_FOUND", ERRORS.forbidden],
+    ["INSUFFICIENT_ROLE", ERRORS.forbidden],
+    ["WORKSPACE_NOT_FOUND", ERRORS.forbidden],
+    ["PATH_INVALID", ERRORS.invalid],
+    ["CONTENT_TOO_LARGE", ERRORS.invalid],
+  ])("`%s` is classified %s", async (code, expected) => {
+    const { gateway } = writer({ refuseWith: code });
+    const failure = await gateway.finalize(null, session()).catch((error: unknown) => error);
+    expect(`${code}: ${(failure as { code: string }).code}`).toBe(`${code}: ${expected}`);
+  });
+
+  test("a signed-out moment is retried, not a meeting parked forever", async () => {
+    /*
+      Named on its own because it is the one that costs a meeting for nothing.
+      A token refresh is a window of a second or two in which `getAuthUserId`
+      answers `null`; parking on it means somebody's meeting sits waiting for a
+      press that has nothing to do with anything they did.
+    */
+    const { gateway } = writer({ refuseWith: "NOT_AUTHENTICATED" });
+    const failure = await gateway.finalize(null, session()).catch((error: unknown) => error);
+    expect((failure as { code: string }).code).toBe(ERRORS.unavailable);
+  });
+
+  test("a private meetings folder is refused with a sentence about the folder", async () => {
+    /*
+      `writeFile` calls `canSee` before it writes, and a path the caller's own
+      scope cannot see is `FILE_NOT_FOUND` — "That file does not exist.", which
+      is the right answer to a console and a lie on a meeting card. An `editor`
+      is `team` scope, so a meetings folder defaulted to `private` produces
+      exactly this, forever.
+    */
+    const { gateway } = writer({ refuseWith: "FILE_NOT_FOUND" });
+    const failure = await gateway.finalize(null, session()).catch((error: unknown) => error);
+    expect((failure as { message: string }).message).toBe(MEETING_WRITE_SENTENCES.unreadableFolder);
+    expect((failure as { message: string }).message).not.toContain("does not exist");
+  });
+});
+
+describe("a meeting whose start time will not parse", () => {
+  /**
+   * The list grew a section for this record on the same branch that made the
+   * writer throw a `TypeError` out of `finalize` over it.
+   *
+   * `meetingNotePath` validates `startedAt` before it touches the folder, so
+   * `notePathFor`'s fallback — which exists for a refused *folder* — re-throws.
+   * That escaped the try entirely: `sync.ts` classified it `UNKNOWN`, the
+   * meeting parked, and `TypeError | session.startedAt is not an ISO 8601
+   * timestamp` was the sentence on the card.
+   *
+   * Nothing this app writes produces such a record. `isSession` asks
+   * `startedAt` for a string rather than a date, so a hand-edited one or one
+   * from another build loads perfectly and reaches here.
+   */
+  const unreadable = () => session({ startedAt: "sometime on Tuesday" });
+
+  test("is refused with a sentence, not a TypeError", async () => {
+    const { gateway, calls } = writer();
+    const failure = await gateway.finalize(null, unreadable()).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as { name: string }).name).toBe("MeetingGatewayError");
+    expect((failure as { message: string }).message).toBe(
+      MEETING_WRITE_SENTENCES.noReadableDate,
+    );
+    expect((failure as { message: string }).message).not.toContain("ISO 8601");
+    // And nothing was sent: there was no path to send it to.
+    expect(calls).toHaveLength(0);
+  });
+
+  test("and parks rather than retrying a date that will never parse", async () => {
+    const { gateway } = writer();
+    const failure = await gateway.finalize(null, unreadable()).catch((error: unknown) => error);
+    expect((failure as { code: string }).code).toBe(ERRORS.invalid);
+  });
+
+  test("the drain gives it the sentence rather than a developer's", async () => {
+    /*
+      The end-to-end shape, because the sentence's whole job is to be the one on
+      the card. `asGatewayError` in `sync.ts` forwards a `MeetingGatewayError`'s
+      message and invents one for anything else — so this is the difference
+      between the two paths, measured through the real drain.
+    */
+    const { gateway } = writer();
+    const { records } = await drainMeetings(
+      [record({ session: unreadable() })],
+      { gateway, now: () => 1 },
+    );
+    expect(records[0]!.rejection?.message).toBe(MEETING_WRITE_SENTENCES.noReadableDate);
+  });
+});
+
+describe("what a refusal is allowed to say on somebody's screen", () => {
+  /**
+   * `browser.ts`'s rule, one feature over: **never a raw runtime string as the
+   * headline — that is how a stack trace ends up in a screenshot.** The far
+   * side of this write is a customer-configured storage endpoint reached with a
+   * decrypted credential, and an adapter throw can carry a bucket name, a host,
+   * a signed URL or a provider's raw XML.
+   */
+  test("the wire's own stack-trace message never reaches the record", async () => {
+    const { gateway } = writer({ refuseWith: "STORAGE_FAILED" });
+    const failure = await gateway.finalize(null, session()).catch((error: unknown) => error);
+    const message = (failure as { message: string }).message;
+    expect(message).not.toContain("CONVEX");
+    expect(message).not.toContain("Called by client");
+    expect(message).not.toContain("example.net");
+  });
+
+  test("and neither does the server's own prose, vetted or not", async () => {
+    /*
+      Stronger than "not the stack trace", and deliberately: every sentence a
+      meeting card can show is one of this module's own, so the set of things a
+      person can be shown here is enumerable and readable in one place. The
+      server's messages are written for a file editor — "That file does not
+      exist." over a meeting is worse than useless.
+    */
+    const owned = new Set<string>(Object.values(MEETING_WRITE_SENTENCES));
+    const codes = [
+      "STORAGE_FAILED",
+      "NOT_AUTHENTICATED",
+      "FILE_NOT_FOUND",
+      "INSUFFICIENT_ROLE",
+      "WORKSPACE_NOT_FOUND",
+      "PATH_INVALID",
+      "SOMETHING_NEW",
+    ];
+    for (const code of codes) {
+      const { gateway } = writer({ refuseWith: code, serverSays: "s3://bucket-name/key refused" });
+      const failure = await gateway.finalize(null, session()).catch((error: unknown) => error);
+      const message = (failure as { message: string }).message;
+      expect(`${code}: ${owned.has(message)}`).toBe(`${code}: true`);
+    }
+  });
+
+  test("a code is read off a ConvexError and off nothing else", async () => {
+    /*
+      The widening `browser.ts` names and refuses: reading `.data` off anything
+      would surface the code — and then the classification — of any object that
+      happens to have one. A bare `Error` with a `.data` bolted on is not a
+      server answer, and there is exactly one thing it can honestly be treated
+      as: a throw nobody evaluated, which is the offline case.
+    */
+    const { gateway } = writer({ refuseWith: "PATH_INVALID", throwAs: "plain" });
+    const failure = await gateway.finalize(null, session()).catch((error: unknown) => error);
+    expect((failure as { code: string }).code).toBe(ERRORS.unavailable);
+    expect((failure as { message: string }).message).toBe(MEETING_WRITE_SENTENCES.unreachable);
   });
 });
 

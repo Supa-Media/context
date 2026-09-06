@@ -1,5 +1,6 @@
 import { api } from "@context/convex/_generated/api";
 import { MEETINGS_FOLDER, meetingNotePath } from "@context/meetings/paths";
+import { toFileError } from "../console/files/browser";
 import { MeetingGatewayError, type MeetingAddress, type MeetingsGateway } from "./gateway";
 import { renderMeetingNote } from "./note";
 import { ERRORS } from "./protocol";
@@ -185,15 +186,41 @@ export function createConvexGateway(options: ConvexGatewayOptions): MeetingsGate
         );
       }
 
-      const path = notePathFor(session, to);
-      const text = renderMeetingNote(session, { now: now() });
+      /*
+        Composing the path and rendering the note are **inside** the try, and
+        that is not tidiness.
+
+        `meetingNotePath` validates `startedAt` before it looks at the folder,
+        so its own `TypeError` — "session.startedAt is not an ISO 8601
+        timestamp" — is re-thrown by `notePathFor`'s fallback rather than caught
+        by it. Outside the try it escaped `finalize` entirely, `sync.ts`
+        classified it `UNKNOWN`, the meeting parked, and that developer sentence
+        became the person's whole explanation. This branch added a list section
+        for exactly that record; the list could show it and the writer could not
+        file it.
+      */
+      let path: string;
+      let text: string;
+      try {
+        path = notePathFor(session, to);
+        text = renderMeetingNote(session, { now: now() });
+      } catch {
+        /*
+          `invalid`, so it parks: a `startedAt` this app cannot read will read
+          the same way on every retry, and retrying it forever against
+          somebody's quota is what the allowlist below exists to stop. The
+          sentence points at Copy note, which is the way a meeting gets off the
+          device when nothing can file it. Nothing this app writes produces such
+          a record — a hand-edited one, or one from another build, does.
+        */
+        throw new MeetingGatewayError(ERRORS.invalid, MEETING_WRITE_SENTENCES.noReadableDate);
+      }
 
       try {
         const written = await options.writeNote({ workspaceId, path, text });
         return finalAck(session, written.path);
       } catch (error) {
-        const code = codeOf(error);
-        if (code === "CONFLICT") {
+        if (toFileError(error).code === "CONFLICT") {
           /*
             Something is already at this key, and the key ends with this
             meeting's own id — so it is this meeting's note, from a write whose
@@ -204,7 +231,7 @@ export function createConvexGateway(options: ConvexGatewayOptions): MeetingsGate
           */
           return finalAck(session, path);
         }
-        throw asGatewayError(error, code);
+        throw asGatewayError(error);
       }
     },
 
@@ -257,50 +284,108 @@ function notePathFor(session: MeetingSession, to: MeetingAddress): string {
   }
 }
 
-/** The control plane's own code, when it sent one. */
-function codeOf(error: unknown): string | null {
-  const data = (error as { data?: unknown })?.data;
-  if (typeof data === "object" && data !== null && typeof (data as { code?: unknown }).code === "string") {
-    return (data as { code: string }).code;
-  }
-  return null;
-}
+/**
+ * Every sentence a refused meeting can put in front of a person.
+ *
+ * Exported so the suite can assert that the set is closed — see
+ * `and neither does the server's own prose, vetted or not`. One readable place
+ * for "what can this screen say" is worth more than reusing the server's
+ * wording, and the server's wording is written for a file editor: `canSee`
+ * refusing a write answers *"That file does not exist."*, which is exactly
+ * right in a console and a lie on a meeting card.
+ */
+export const MEETING_WRITE_SENTENCES = {
+  unreachable: "Your context could not be reached, so the meeting is being kept here.",
+  noBucket: "No bucket is connected to that context yet, so the meeting is being kept here.",
+  signedOut: "This device is signing back in to your context, so the meeting is being kept here.",
+  unreadableFolder:
+    "Your context will not take a meeting in that folder at this account's access level. Choose another folder and try again.",
+  readOnly: "You can read that context but not write to it, so a meeting cannot land there.",
+  notAMember: "You are not a member of the context this meeting is addressed to any more.",
+  unwritable: "Your context could not write that note.",
+  noReadableDate:
+    "This meeting's start time is not a date this app can read, so it has no note to be filed under. Copy the note out from this screen.",
+} as const;
 
 /**
  * A control-plane refusal, in the protocol's four codes.
  *
- * The mapping is an **allowlist of the transient ones**, which is
- * `classifySyncFailure`'s rule at the other end of the same wire: anything not
- * recognised parks the meeting with its sentence rather than retrying against
- * somebody's storage quota forever. `STORAGE_FAILED` is the one worth retrying
- * — a bucket that was briefly unreachable — and a transport failure with no
- * code at all is the other, because an action that never answered is exactly
- * the offline case the queue exists for.
+ * ## The unwrapping is `browser.ts`'s funnel, not a second one
+ *
+ * `toFileError` is the single place in this app that decides what a thrown
+ * thing may say, and the two checks it makes are the ones that matter here:
+ * `instanceof ConvexError` **and** a shaped payload. Reading `.data` off
+ * anything — which this file did — surfaces the code of any object that happens
+ * to have one, and then classifies a meeting on it. And `error.message` is not
+ * the server's message at all: on the real wire Convex builds it as
+ * `` `[CONVEX A(functions/files:writeNote)] ${message}\n  Called by client` ``,
+ * so forwarding it puts a stack-trace-shaped string carrying whatever the
+ * storage adapter said — a bucket name, a host, a signed URL, a provider's raw
+ * XML — on a meeting card.
+ *
+ * A throw that is not a `ConvexError` unwraps to `UNKNOWN`, which is what
+ * `features/offline/sync.ts` already treats a dropped socket as. That is the
+ * honest reading: nobody on the far end evaluated this request.
+ *
+ * ## The codes are the ones `files.writeNote` actually sends
+ *
+ * This mapping used to name `FORBIDDEN` and `NOT_FOUND`, and that action
+ * produces neither, so the branch was dead and **every real refusal parked the
+ * meeting permanently.** What it does send: `NOT_AUTHENTICATED` from
+ * `callerId`; `WORKSPACE_NOT_FOUND` / `INSUFFICIENT_ROLE` from
+ * `authorizeFileAccess`; `STORAGE_NOT_CONNECTED` / `STORAGE_UNUSABLE` /
+ * `STORAGE_FAILED` from `runFileOperation`; and `fileOps`' own codes, of which
+ * a write reaches `FILE_NOT_FOUND` (the `canSee` refusal), `PATH_INVALID`,
+ * `CONTENT_TOO_LARGE`, `CONFLICT` (handled above, as this meeting's own note)
+ * and the `PRIVACY_MANIFEST_*` family.
+ *
+ * ## The split is transient versus parked, because parked waits for a person
+ *
+ * Transient is still an allowlist, for `classifySyncFailure`'s reason: a code
+ * this build has not heard of, retried on every reconnection, spends the
+ * customer's quota on a write that was never going to succeed. What is on it:
+ *
+ *  - **`NOT_AUTHENTICATED`** — a token refresh is a second in which
+ *    `getAuthUserId` answers `null`. Parking a meeting on that is losing it to
+ *    a coincidence.
+ *  - **`STORAGE_FAILED`, `PRIVACY_MANIFEST_BUSY`** — a bucket that was briefly
+ *    unreachable, and somebody else mid-CAS on `privacy.md`.
+ *  - **`STORAGE_NOT_CONNECTED`, `STORAGE_UNUSABLE`** — retried, then parked by
+ *    `MAX_SYNC_ATTEMPTS` with a sentence, which is the right shape for
+ *    something a person fixes elsewhere in the app and comes back from.
+ *  - **`UNKNOWN`** — see above.
+ *
+ * `FILE_NOT_FOUND`, `INSUFFICIENT_ROLE` and `WORKSPACE_NOT_FOUND` park as
+ * `forbidden` rather than `invalid`. Both park; the difference is the sentence,
+ * and these three are the ones where a person can actually do something —
+ * change the folder, ask for a role, pick another context — which is what a
+ * parked meeting is waiting for them to do.
  */
-function asGatewayError(error: unknown, code: string | null): MeetingGatewayError {
-  const message = error instanceof Error && error.message !== "" ? error.message : "";
-  if (code === null) {
-    return new MeetingGatewayError(
-      ERRORS.unavailable,
-      message === "" ? "Your context could not be reached." : message,
-    );
+function asGatewayError(error: unknown): MeetingGatewayError {
+  const { code } = toFileError(error);
+
+  if (code === "UNKNOWN") {
+    return new MeetingGatewayError(ERRORS.unavailable, MEETING_WRITE_SENTENCES.unreachable);
+  }
+  if (code === "NOT_AUTHENTICATED") {
+    return new MeetingGatewayError(ERRORS.unavailable, MEETING_WRITE_SENTENCES.signedOut);
   }
   if (code === "STORAGE_FAILED" || code === "PRIVACY_MANIFEST_BUSY") {
-    return new MeetingGatewayError(ERRORS.unavailable, message || "Your context could not be reached.");
+    return new MeetingGatewayError(ERRORS.unavailable, MEETING_WRITE_SENTENCES.unreachable);
   }
   if (code === "STORAGE_NOT_CONNECTED" || code === "STORAGE_UNUSABLE") {
-    return new MeetingGatewayError(
-      ERRORS.unavailable,
-      message || "No bucket is connected to that context yet, so the meeting is being kept here.",
-    );
+    return new MeetingGatewayError(ERRORS.unavailable, MEETING_WRITE_SENTENCES.noBucket);
   }
-  if (code === "FORBIDDEN" || code === "NOT_FOUND") {
-    return new MeetingGatewayError(
-      ERRORS.forbidden,
-      message || "Your context would not accept this meeting from this device.",
-    );
+  if (code === "FILE_NOT_FOUND") {
+    return new MeetingGatewayError(ERRORS.forbidden, MEETING_WRITE_SENTENCES.unreadableFolder);
   }
-  return new MeetingGatewayError(ERRORS.invalid, message || "Your context could not write that note.");
+  if (code === "INSUFFICIENT_ROLE") {
+    return new MeetingGatewayError(ERRORS.forbidden, MEETING_WRITE_SENTENCES.readOnly);
+  }
+  if (code === "WORKSPACE_NOT_FOUND") {
+    return new MeetingGatewayError(ERRORS.forbidden, MEETING_WRITE_SENTENCES.notAMember);
+  }
+  return new MeetingGatewayError(ERRORS.invalid, MEETING_WRITE_SENTENCES.unwritable);
 }
 
 /**
