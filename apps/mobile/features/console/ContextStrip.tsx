@@ -141,8 +141,35 @@ export function ContextStrip({
 
   const menuContext = contexts.find((context) => context.slug === menuSlug) ?? null;
 
+  /*
+    A landmark, because on a phone this is *the* navigation and nothing else is.
+
+    `AppFrame` declares `role="navigation"` on the rail column and on the rail
+    sheet. Neither is rendered at compact — a phone has no rail
+    (`features/app/frame.ts`) — and neither this strip nor `BottomBar` declared
+    one, so a phone-width browser window had **zero** navigation landmarks: a
+    screen-reader user rotoring by landmark, or a browser extension jumping to
+    `<nav>`, found the whole of this console's navigation unreachable that way.
+    Every pill has a real `aria-label`, which is what makes each *control*
+    usable and is not the same capability as being able to find the group.
+
+    `Contexts` rather than the rail's `Console`, because that is what this list
+    is, and because the two are never on screen together — the rail is hidden at
+    compact and this slot is only rendered there — so the names do not have to
+    disambiguate anything, only describe.
+
+    The bottom row keeps `role="toolbar"` and is deliberately not a second
+    landmark: six of its seven keys are verbs about the open note, and calling a
+    row of verbs "navigation" because one destination sits at the end of it
+    behind a separator would make the landmark mean less, not more.
+  */
   return (
-    <View style={styles.strip} testID="context-strip">
+    <View
+      style={styles.strip}
+      role="navigation"
+      aria-label="Contexts"
+      testID="context-strip"
+    >
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}

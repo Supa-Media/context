@@ -990,6 +990,27 @@ that relationship oscillates when more than one thing drives it. A pointer
 layout keeps its empty state, where "choose a note" names a tree that is on the
 screen.
 
+**The navigation landmark moved with them too, and for a while it did not
+arrive.** `AppFrame` declares `role="navigation"` on exactly two things, the
+rail column and the rail sheet, and neither is rendered at `compact`. The
+assertion that a phone had one was written about the sheet and was deleted with
+it, so a phone-width browser window had **zero** `<nav>` landmarks: every pill
+and every key kept a real `aria-label`, and a screen-reader user rotoring by
+landmark — or anything that jumps to `<nav>` — could not find the navigation at
+all. Labelling each control and being able to find the group of them are
+different capabilities, and the second one was lost silently.
+
+The **context strip** carries it: `role="navigation"`, labelled `Contexts`
+rather than the rail's `Console`, which needs no disambiguation because the two
+are never on screen together. The **bottom row deliberately does not** — it
+stays `role="toolbar"`, named `Console actions`. Six of its seven keys are verbs
+about the open note, and calling a row of verbs "navigation" because one
+destination sits at the end of it behind a separator makes the landmark mean
+less rather than more. `contextStrip.test.ts` holds the declaration and
+`consoleChrome.test.ts` counts the landmarks on a mounted phone console —
+exactly one, and not the toolbar — because a component that declares a role
+correctly while the density renders none of it is the failure this replaces.
+
 **Sign-out moved with the panels and had to grow.** It is the only sign-out
 control in the product; it was at the foot of the rail, which a phone can no
 longer reach, and it is now the pinned account slot at the leading end of the

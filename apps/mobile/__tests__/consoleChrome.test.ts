@@ -359,6 +359,47 @@ describe("on a phone", () => {
     app.unmount();
   });
 
+  /**
+   * A phone can be navigated by landmark, and for a while it could not.
+   *
+   * `AppFrame` declares `role="navigation"` on exactly two things — the rail
+   * column and the rail sheet — and **neither is rendered at compact**. When
+   * the panels went, the assertion that a phone had a nav landmark went with
+   * the sheet it was written about, and the two surfaces navigation actually
+   * moved to declared nothing. A phone-width browser window therefore had zero
+   * navigation landmarks: every pill and every key had a good `aria-label`, and
+   * a screen-reader user rotoring by landmark, or anything jumping to `<nav>`,
+   * could not find the navigation at all. Labelling each control is not the
+   * same capability as being able to find the group of them.
+   *
+   * So this counts them at the console level rather than trusting a component:
+   * exactly one, and it is the strip. The bottom row is deliberately **not** a
+   * second one — six of its seven keys are verbs about the open note, and
+   * calling a row of verbs "navigation" because one destination sits at the end
+   * behind a separator makes the landmark mean less rather than more — so it is
+   * asserted to still be the toolbar it says it is.
+   *
+   * SABOTAGE: dropped `role`/`aria-label` from `ContextStrip`'s root. Fails
+   * here and in `contextStrip.test.ts`'s `it is a navigation landmark, and it
+   * says which navigation`.
+   */
+  test("a phone has a navigation landmark, and it is not the toolbar", () => {
+    const app = mountConsole(390);
+
+    const landmarks = Array.from(app.container.querySelectorAll("nav"));
+    expect(landmarks).toHaveLength(1);
+    expect(landmarks[0]!.dataset.testid).toBe("context-strip");
+    expect(landmarks[0]!.getAttribute("aria-label")).toBe("Contexts");
+
+    // The bottom row stays a toolbar, named, and is not a second landmark.
+    const bar = app.find("bottom-bar")!;
+    expect(bar.getAttribute("role")).toBe("toolbar");
+    expect(bar.getAttribute("aria-label")).toBe("Console actions");
+    expect(bar.closest("nav")).toBeNull();
+
+    app.unmount();
+  });
+
   test("the top row is three slots: an account, the contexts, a capsule", () => {
     /*
       The two-rows-of-chrome complaint, at the console level.

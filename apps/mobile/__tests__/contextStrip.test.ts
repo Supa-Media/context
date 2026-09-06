@@ -377,6 +377,31 @@ describe("what is on the strip", () => {
   });
 
   /**
+   * The strip is a landmark, because a phone has no other navigation to be one.
+   *
+   * `AppFrame` declares `role="navigation"` on the rail column and on the rail
+   * sheet, and **neither renders at compact**. This strip and `BottomBar` were
+   * the two surfaces navigation moved to and neither declared anything, so a
+   * phone-width browser window had zero navigation landmarks — the console's
+   * whole navigation unreachable to a screen reader rotoring by landmark, or to
+   * anything that jumps to `<nav>`. The pills' own `aria-label`s make each
+   * *control* usable; they are not the same capability as finding the group.
+   *
+   * react-native-web maps `role="navigation"` to a real `<nav>`, so this is the
+   * element itself rather than an attribute on a `div`.
+   *
+   * SABOTAGE: dropped `role` and `aria-label` from the strip's root. Fails here
+   * and in `consoleChrome.test.ts`'s `a phone has a navigation landmark, and it
+   * is not the toolbar` — the two halves of the claim, in the two rooms.
+   */
+  test("it is a navigation landmark, and it says which navigation", () => {
+    const strip = mountStrip();
+    const band = strip.need("context-strip");
+    expect(band.tagName.toLowerCase()).toBe("nav");
+    expect(band.getAttribute("aria-label")).toBe("Contexts");
+  });
+
+  /**
    * A pill is a target a thumb has to hit, and it is the only one for this.
    *
    * **This strip is the phone's primary navigation.** A phone has no rail and
