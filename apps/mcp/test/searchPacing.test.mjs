@@ -844,6 +844,15 @@ export async function runSearchPacingChecks(check) {
       "event", "workspace", "grant", "client", "provider", "budget", "prefixed",
       "indexed", "hits", "matches", "matchesIsFloor", "index", "spent",
       "maintain", "scannedCount", "totalCount", "ms",
+      // The fast path's four, and every one is a boolean or a count.
+      // `fastCandidates` counts rows the projection returned *before* the
+      // privacy filter and `fastVisible` after it, so their difference is how
+      // many matches this caller may not read — which is the signal an
+      // operator needs to tell "the projection is empty" from "the projection
+      // matched and privacy filtered all of it", and is exactly the
+      // subtraction that must never be RENDERED. `index.docs` is already in
+      // this trace on the same terms (`visible.js`: "Never rendered").
+      "fast", "fastCandidates", "fastVisible", "fastError",
     ]);
     const INDEX_KEYS = new Set([
       "shardCount", "occupiedShards", "shardsRead", "routed", "docs", "pending",
@@ -854,7 +863,7 @@ export async function runSearchPacingChecks(check) {
     // keys are as unbounded as the top level's were. Measured — a field
     // planted inside `ms` passed the whole suite while the two sets below
     // were being called "both levels".
-    const MS_KEYS = new Set(["answer", "scan", "total"]);
+    const MS_KEYS = new Set(["answer", "scan", "fast", "total"]);
     const strayTop = Object.keys(traced[0]).filter((key) => !TRACE_KEYS.has(key));
     const strayIndex = Object.keys(traced[0].index ?? {}).filter((key) => !INDEX_KEYS.has(key));
     const strayMs = Object.keys(traced[0].ms ?? {}).filter((key) => !MS_KEYS.has(key));

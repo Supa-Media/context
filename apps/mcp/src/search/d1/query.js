@@ -41,10 +41,28 @@
  */
 export const COLUMN_WEIGHTS = [0.0, 0.0, 4.0, 2.5, 3.0, 1.0];
 
-/** Snippet width, in tokens, and the marks around a hit. */
+/**
+ * Snippet width in tokens, and the marks around a hit — which are empty, on
+ * purpose.
+ *
+ * FTS5 wraps the matched term in whatever these say, and `‹`/`›` were the
+ * obvious choice while nothing consumed the output. Now that `serve.js` feeds
+ * `toolSearchNotes`, the two search paths print through the same formatter and
+ * **a caller must not be able to tell which index answered**: the R2 path
+ * quotes whole lines of the note verbatim (`snippetLinesFor`), so a marked
+ * snippet would make the projection's answers visibly different from the
+ * index's for no reason a reader could act on.
+ *
+ * Emptying them here rather than stripping them at the boundary is deliberate.
+ * A strip is a rule that has to be applied everywhere the snippet is read, and
+ * it would also eat a `‹` a person actually typed into their note.
+ *
+ * The ellipsis stays: `…` at either end of a window is honest about the
+ * snippet being a window, and is not a mark around anything.
+ */
 export const SNIPPET_TOKENS = 12;
-export const SNIPPET_OPEN = "‹";
-export const SNIPPET_CLOSE = "›";
+export const SNIPPET_OPEN = "";
+export const SNIPPET_CLOSE = "";
 
 /**
  * Turn a person's words into an FTS5 MATCH expression.
@@ -102,12 +120,34 @@ export function searchSql(table, { limit = 25, prefix = null } = {}) {
   const where = [`${table} MATCH ?`];
   if (typeof prefix === "string" && prefix.length > 0) {
     // A folder narrowing. `path` is UNINDEXED, so this is an ordinary string
-    // comparison rather than part of the match expression.
-    where.push(`path >= ? AND path < ?`);
+    // comparison rather than part of the match expression — and it must mean
+    // exactly what `rankedVisibleTo` means by `path.startsWith(prefix)`, or the
+    // same query narrowed to the same folder returns different notes depending
+    // on which index answered it.
+    //
+    // This was the lexicographic range `[prefix, prefix + "\uFFFF")`, which is
+    // the usual way to spell "starts with" and is wrong for a notes product.
+    // U+FFFF is the largest THREE-byte UTF-8 sequence, so a path whose next
+    // character is astral — `1-projects/😀.md`, and every emoji folder
+    // somebody keeps — sorts above the upper bound and is silently dropped
+    // from a prefixed search. Measured against `node:sqlite`: the range
+    // returned two of three notes under `1-projects/` where `startsWith`
+    // returned all three.
+    //
+    // `substr(path, 1, length(?)) = ?` counts characters on both sides in
+    // SQLite, so it is `startsWith` exactly. Nothing is lost by giving up the
+    // range: `path` is UNINDEXED, so neither form could use an index, and this
+    // runs only over the rows `MATCH` has already selected.
+    where.push(`substr(path, 1, length(?)) = ?`);
   }
 
+  // `title` comes off the FTS row rather than out of a join on `notes`. It is
+  // repeated on every chunk by `projectNote` precisely so a hit deep in a long
+  // note still carries it, and a second statement to fetch what is already in
+  // hand would double the request count of a search to re-read a column.
   return `SELECT path,
                  ord,
+                 title,
                  bm25(${table}, ${COLUMN_WEIGHTS.join(", ")}) AS score,
                  snippet(${table}, 5, '${SNIPPET_OPEN}', '${SNIPPET_CLOSE}', '…', ${SNIPPET_TOKENS}) AS snippet
             FROM ${table}
@@ -123,13 +163,14 @@ export function searchSql(table, { limit = 25, prefix = null } = {}) {
  * params array that no longer matches its placeholders is a query that binds a
  * limit where a prefix belongs, and SQLite will happily run it.
  *
- * The prefix range is `[prefix, prefix + "￿")`, which is how a
- * lexicographic range expresses "starts with" without `LIKE` and its escaping.
+ * The prefix is bound twice — once for `length()` and once for the equality —
+ * because `substr(path, 1, length(?)) = ?` is the one spelling of "starts
+ * with" that agrees with the R2 path for every character. See `searchSql`.
  */
 export function searchParams(match, { limit = 25, prefix = null } = {}) {
   const params = [match];
   if (typeof prefix === "string" && prefix.length > 0) {
-    params.push(prefix, `${prefix}￿`);
+    params.push(prefix, prefix);
   }
   params.push(limit);
   return params;
@@ -156,7 +197,12 @@ export function mergeHits(rows, limit = 10) {
     const score = typeof row.score === "number" ? -row.score : 0;
     const existing = best.get(row.path);
     if (existing === undefined || score > existing.score) {
-      best.set(row.path, { path: row.path, score, snippet: row.snippet ?? "" });
+      best.set(row.path, {
+        path: row.path,
+        score,
+        snippet: row.snippet ?? "",
+        title: typeof row.title === "string" ? row.title : "",
+      });
     }
   }
   return [...best.values()]

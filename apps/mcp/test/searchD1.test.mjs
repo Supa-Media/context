@@ -383,6 +383,37 @@ export async function runSearchD1Checks(check) {
   }
 
   {
+    /*
+     * A prefixed search must find the same notes `rankedVisibleTo` would, and
+     * that is `path.startsWith(prefix)` — for every character somebody may put
+     * in a filename, emoji included.
+     *
+     * The narrowing was written as the lexicographic range
+     * `[prefix, prefix + "\uFFFF")`, the usual spelling of "starts with", and
+     * it silently dropped every astral character: U+FFFF is the largest
+     * three-byte UTF-8 sequence, so `1-projects/😀.md` sorts above the upper
+     * bound. A person with an emoji folder searched it and got nothing back
+     * from the fast path — a miss that reads as "the note is not written
+     * down", which is the exact failure the whole search surface is built to
+     * avoid.
+     */
+    const db = freshDb();
+    indexNote(db, "1-projects/plain.md", "# Plain\n\nwallaby notes\n");
+    indexNote(db, "1-projects/\u{1F600} ideas.md", "# Ideas\n\nwallaby notes\n");
+    indexNote(db, "2-areas/other.md", "# Other\n\nwallaby notes\n");
+
+    const all = ["1-projects/plain.md", "1-projects/\u{1F600} ideas.md", "2-areas/other.md"];
+    const expected = all.filter((path) => path.startsWith("1-projects/"));
+    const narrowed = search(db, "team", "wallaby", { prefix: "1-projects/" });
+    check(
+      "a prefixed search agrees with startsWith, astral characters included",
+      narrowed.length === expected.length &&
+        expected.every((path) => narrowed.some((hit) => hit.path === path)),
+    );
+    db.close();
+  }
+
+  {
     // A tier this code does not know must not be guessed at — the safe guess
     // and the useful guess differ, and the useful one publishes private notes.
     let threw = false;

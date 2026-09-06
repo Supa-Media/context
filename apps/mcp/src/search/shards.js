@@ -383,6 +383,33 @@ function emptyFreshness() {
 }
 
 /**
+ * Whether a manifest's own freshness record says the index is behind the
+ * bucket.
+ *
+ * The three terms, and each is load-bearing:
+ *
+ *  - **`listedAt === null`** is an index no pass has recorded freshness for —
+ *    every manifest written before the field existed. It counts as behind:
+ *    an unknown reported as complete is the one direction that tells somebody
+ *    their note is not written down.
+ *  - **`pending > 0`** is the listing having found notes the index has not
+ *    reached.
+ *  - **`truncated`** is the listing itself not having finished.
+ *
+ * Exported because two callers now decide the same thing and they must not
+ * drift: `searchIndexedNotes` ORs it with what its own shard walk could not
+ * read, and the gateway's fast-search path — which does no shard walk at all —
+ * uses it alone to work out whether the response should say the index is still
+ * catching up, and whether a maintenance pass is worth starting. Stated twice
+ * with nothing running both is how the second copy ends up meaning something
+ * slightly different.
+ */
+export function indexIsBehind(freshness) {
+  if (!freshness) return true;
+  return freshness.listedAt === null || freshness.pending > 0 || Boolean(freshness.truncated);
+}
+
+/**
  * A manifest describing `shardCount` empty shards.
  *
  * @param {number} shardCount clamped to [1, MAX_SHARD_COUNT]
