@@ -174,6 +174,21 @@ function toolbar(): BottomBarAction[] {
   ];
 }
 
+/**
+ * The same row plus the seventh key: one destination, in the last position,
+ * behind a separator.
+ *
+ * Named for its shape rather than for what it opens, because `BottomBar` does
+ * not know either — see the file comment there. A fixture that said "meetings"
+ * would be this test file deciding a placement that belongs to the layout.
+ */
+function sevenKeys(): BottomBarAction[] {
+  return [
+    ...toolbar(),
+    action({ id: "elsewhere", label: "Go somewhere else", icon: "mic", separated: true }),
+  ];
+}
+
 function mountBar(actions: BottomBarAction[], width = 390): Mounted {
   return mount(createElement(BottomBar, { actions }), width);
 }
@@ -264,42 +279,80 @@ describe("a thumb has to be able to hit it", () => {
     expect(layout.bottomBarTarget).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
   });
 
-  /**
-   * The reference's own numbers, on the reference's own screen.
-   *
-   * Obsidian's bar runs from 52.0pt to 387.7pt on a 440pt phone: 336pt wide,
-   * with 52pt of note showing on each side.
-   *
-   * **The 52 is what is asserted, because the 52 is what was wrong.** The pass
-   * before this reached the width through the targets — `alignSelf: "center"`
-   * over six fixed boxes — which is only the reference's geometry on a route
-   * that happens to offer six actions. A device found the pill at 78→362 on a
-   * context the reader is a team member of, where there is no New note: same
-   * bar, five targets, 78pt in from an edge the reference puts it 52 from.
-   *
-   * So the inset is the frame's (`AppFrame`'s `bottomBar` slot,
-   * `layout.bottomBarInset`) and the bar stretches into it. The arithmetic that
-   * ties it back to the reference is still here — six targets plus the bar's
-   * padding is 336 — but it is now a statement about how wide the targets want
-   * to be, not about where the bar's edges are.
-   */
-  test("the bar sits 52pt in from each edge, whatever is on it", () => {
+  test("the bar fills the slot rather than sizing itself", () => {
     const bar = mountBar(toolbar(), 440);
     const style = window.getComputedStyle(bar.need("bottom-bar"));
 
-    // It fills the slot rather than sizing itself; the slot's inset is the
-    // frame's, and `appFrameRender.test.ts` is where that number is asserted
-    // against the frame.
+    // The inset is the frame's (`AppFrame`'s `bottomBar` slot,
+    // `layout.bottomBarInset`), and `appFrameRender.test.ts` is where that
+    // number is asserted against the frame. The pass before this reached the
+    // width through the targets — `alignSelf: "center"` over six fixed boxes —
+    // which is only the reference's geometry on a route that happens to offer
+    // six actions: a device found the pill 78pt in from an edge on a context
+    // with no New note.
     expect(style.alignSelf).toBe("stretch");
     expect(px(bar.need("bottom-bar"), "padding-left")).toBe(layout.bottomBarPad);
+  });
 
-    expect(layout.bottomBarInset).toBe(52);
-    // What the reference's inset leaves for the bar, and what six targets at
-    // their natural width come to. They are the same number, which is why 52
-    // and 52 are both in this file.
-    expect(440 - layout.bottomBarInset * 2).toBe(336);
-    expect(toolbar()).toHaveLength(6);
-    expect(toolbar().length * layout.bottomBarTarget + layout.bottomBarPad * 2).toBe(336);
+  /**
+   * **The seventh key fits, and the arithmetic is done here rather than quoted.**
+   *
+   * This test used to pin `layout.bottomBarInset` to 52 and check that six
+   * targets plus the bar's padding came to the reference's 336 on a 440pt
+   * screen. Both halves have moved: the inset is 24, and the row is seven keys
+   * — six verbs and one destination — because a phone has no rail to reach the
+   * app's other places through any more (`features/app/frame.ts`).
+   *
+   * What is asserted is the property rather than the numbers: **on the narrow
+   * phone this app targets, an equal share of the bar is at or above the touch
+   * floor.** Every term comes from `layout`, so changing a token moves the
+   * expectation with it and cannot leave a comment describing a bar that no
+   * longer exists. The `52` case is computed alongside as the control — it is
+   * *under* the floor for six keys and further under it for seven, which is
+   * what "the sliver of note is what bought the seventh key" means as a
+   * measurement rather than as a claim.
+   *
+   * SABOTAGE: `bottomBarInset` back to 52. Fails here, on the seven-key line
+   * and on the six-key one, and nowhere else in this file.
+   */
+  test("seven targets clear the touch floor on a 390pt phone, and at 52 they did not", () => {
+    // The narrow case, which is the one that binds. The reference is 440.
+    const PHONE = 390;
+    const inside = (inset: number) => PHONE - inset * 2 - layout.bottomBarPad * 2;
+
+    // 390 − 2×24 = 342 pill; − 2×12 padding = 318 inside; ÷ 7 = 45.43.
+    expect(PHONE - layout.bottomBarInset * 2).toBe(342);
+    expect(inside(layout.bottomBarInset)).toBe(318);
+    const seven = inside(layout.bottomBarInset) / 7;
+    expect(seven).toBeCloseTo(45.43, 2);
+    expect(seven).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
+
+    // The control: at the inset this replaced, neither row fitted.
+    // 390 − 2×52 = 286; − 24 = 262; ÷ 7 = 37.43, ÷ 6 = 43.67.
+    expect(inside(52)).toBe(262);
+    expect(inside(52) / 7).toBeCloseTo(37.43, 2);
+    expect(inside(52) / 7).toBeLessThan(MIN_TOUCH_TARGET);
+    expect(inside(52) / 6).toBeCloseTo(43.67, 2);
+    expect(inside(52) / 6).toBeLessThan(MIN_TOUCH_TARGET);
+  });
+
+  test("and the reference's own screen still holds seven", () => {
+    // 440 is where every measurement in `BottomBar`'s header was taken. The
+    // narrow case above is what binds, so this is a floor check rather than a
+    // second specification.
+    const inside = 440 - layout.bottomBarInset * 2 - layout.bottomBarPad * 2;
+    expect(inside / 7).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
+  });
+
+  test("a seven-key row draws seven targets, each above the floor", () => {
+    // The arithmetic above is about tokens; this is about what was rendered
+    // with a seventh action actually on the bar.
+    const bar = mountBar(sevenKeys());
+    for (const item of sevenKeys()) {
+      const target = bar.need(`bottom-bar-${item.id}`);
+      expect(px(target, "min-width")).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
+      expect(px(target, "min-height")).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
+    }
   });
 
   /**
@@ -466,5 +519,115 @@ describe("captions", () => {
       { id: "files", label: "Open the file tree", icon: "panelLeft", onPress: () => {} },
     ]);
     expect(bar.find("bottom-bar-files-title")).toBeNull();
+  });
+});
+
+/**
+ * **The row holds two kinds of thing now, and the rule is what says so.**
+ *
+ * Six verbs that act on the note in front of somebody, and — in the last
+ * position — one destination that leaves it. `BottomBar`'s own header amends
+ * "navigation is not its job" and says exactly how far: one key, at the end,
+ * behind a separator, and this file does not know what it opens.
+ */
+describe("the trailing separator", () => {
+  /**
+   * SABOTAGE: dropped the `action.separated &&` condition so no rule was ever
+   * drawn. Fails here and in "it is a hairline".
+   */
+  test("is drawn before the action that asks for it, and only that one", () => {
+    const bar = mountBar(sevenKeys());
+    const rules = bar.container.querySelectorAll('[data-testid="bottom-bar-separator"]');
+    expect(rules).toHaveLength(1);
+  });
+
+  /**
+   * The position is the claim, not the count: a rule anywhere but immediately
+   * before the seventh key groups the wrong things, and a test that only
+   * counted them would pass over that.
+   *
+   * SABOTAGE: drew the separator *after* the flagged action rather than before
+   * it — the off-by-one that reads identically in the source. Fails here.
+   */
+  test("and it lands between the sixth key and the seventh", () => {
+    const bar = mountBar(sevenKeys());
+    const row = [...bar.need("bottom-bar").children] as HTMLElement[];
+    const ids = row.map((node) => node.dataset.testid);
+    expect(ids).toEqual([
+      "bottom-bar-back",
+      "bottom-bar-forward",
+      "bottom-bar-search",
+      "bottom-bar-new",
+      "bottom-bar-tabs",
+      "bottom-bar-menu",
+      "bottom-bar-separator",
+      "bottom-bar-elsewhere",
+    ]);
+  });
+
+  test("it is a hairline between two controls, not a seam across the pill", () => {
+    const bar = mountBar(sevenKeys());
+    const rule = bar.need("bottom-bar-separator");
+    expect(px(rule, "width")).toBe(1);
+    // Shorter than the bar: a rule the full 66pt of a floating pill reads as
+    // the object being split in two rather than as a boundary inside it.
+    expect(px(rule, "height")).toBeLessThan(layout.bottomBarHeight);
+    // And it does not shrink — a hairline that shrinks is a hairline that
+    // disappears on the narrow phone this exists to fit on.
+    expect(px(rule, "flex-shrink")).toBe(0);
+  });
+
+  test("it says nothing to a screen reader", () => {
+    // Every control here is already announced by its own `label`; a decoration
+    // between two of them is noise in a list that is the whole of navigating a
+    // phone. `aria-hidden`, like the icons and the badges.
+    const bar = mountBar(sevenKeys());
+    expect(bar.need("bottom-bar-separator").getAttribute("aria-hidden")).toBe("true");
+  });
+
+  /**
+   * SABOTAGE: removed the `index > 0` guard. Fails here.
+   */
+  test("a flag on the first action draws no rule against the pill's own edge", () => {
+    // A rule in that position is a list somebody reordered, not a boundary
+    // anybody meant. The flag is left alone rather than refused: being first is
+    // not a disagreement with "my group ends here", it is the same statement
+    // with nothing on the other side of it.
+    const bar = mountBar([action({ id: "only", separated: true }), action({ id: "second" })]);
+    expect(bar.find("bottom-bar-separator")).toBeNull();
+    expect(bar.find("bottom-bar-only")).not.toBeNull();
+  });
+
+  test("a row that asks for none has none", () => {
+    const bar = mountBar(toolbar());
+    expect(bar.find("bottom-bar-separator")).toBeNull();
+  });
+
+  test("the seventh key is an ordinary action, named by its own label", () => {
+    // `BottomBar` exposes the capability and does not name the destination —
+    // see its header. What it must still do is treat that key exactly as it
+    // treats the six: a real label, a real target, a real press.
+    const pressed: string[] = [];
+    const bar = mountBar(
+      sevenKeys().map((item) =>
+        item.id === "elsewhere" ? { ...item, onPress: () => pressed.push(item.id) } : item,
+      ),
+    );
+    const key = bar.need("bottom-bar-elsewhere");
+    expect(key.getAttribute("aria-label")).toBe("Go somewhere else");
+    bar.click("bottom-bar-elsewhere");
+    expect(pressed).toEqual(["elsewhere"]);
+  });
+
+  test("and it dims rather than disappearing when it is unavailable", () => {
+    // The rule that governs every position on this bar: people aim by
+    // position, so an item that vanishes moves every item under a thumb
+    // already travelling.
+    const bar = mountBar(
+      sevenKeys().map((item) => (item.id === "elsewhere" ? { ...item, disabled: true } : item)),
+    );
+    const key = bar.need("bottom-bar-elsewhere");
+    expect(key.getAttribute("aria-disabled")).toBe("true");
+    expect(bar.find("bottom-bar-separator")).not.toBeNull();
   });
 });

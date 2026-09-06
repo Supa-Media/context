@@ -1,4 +1,4 @@
-import { useState, type JSX } from "react";
+import { Fragment, useState, type JSX } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { FocusRing } from "../design/components/FocusRing";
 import { Icon, type IconName } from "../design/components/Icon";
@@ -12,14 +12,36 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
  * At `compact` the frame renders a `bottomBar` and **no** status bar — the
  * bottom edge is one or the other, never both (`features/app/frame.ts`). This
  * is what goes in that slot: the phone's answer to the right-click menu and the
- * keyboard chord. **Navigation is not its job** — the top bar's switcher pulls
- * the rail in as a sheet, and that is where the app-level panes, the other
- * contexts and sign-out live (`features/app/frame.ts`). There is no keyboard
- * here and no hover: if a *verb* is not on this strip, on a phone it does not
- * exist. That is why the shape is copied from Obsidian mobile — back, forward,
- * search, new, tab count, menu — rather than invented: it is the arrangement
- * the people most likely to arrive at this product already have muscle memory
- * for.
+ * keyboard chord. There is no keyboard here and no hover: if a *verb* is not on
+ * this strip, on a phone it does not exist. That is why the shape is copied
+ * from Obsidian mobile — back, forward, search, new, tab count, menu — rather
+ * than invented: it is the arrangement the people most likely to arrive at this
+ * product already have muscle memory for.
+ *
+ * ## "Navigation is not its job" is amended, and here is how far
+ *
+ * This file used to say that flatly, and gave its reason: the top bar's
+ * switcher pulled the rail in as a sheet, and the rail was where the app-level
+ * panes, the other contexts and sign-out lived. Both halves of that premise are
+ * gone. There is no sheet and no rail on a phone at all
+ * (`features/app/frame.ts`), the contexts moved to the context strip along the
+ * top, and the app's other places had nowhere left to be reached from.
+ *
+ * So this bar takes **one** of them, and the boundary is worth stating exactly,
+ * because a boundary this vague is one a later change walks through. It does
+ * not carry the contexts: those are a list that grows as somebody joins
+ * workspaces, and a list belongs on a strip that scrolls rather than on a row
+ * whose whole value is that a thumb can aim at a fixed position without
+ * looking. It carries one **destination**, in the last position, behind a
+ * separator — so the note's verbs still read as a group and the seventh key
+ * does not join it.
+ *
+ * **This file does not know what that destination is.** `separated` says where
+ * the group ends and nothing here says what comes after it; which route the
+ * last key opens is decided by whoever builds the list, exactly as every other
+ * action here is. A toolbar that named a feature would be a second place that
+ * feature's placement is decided, and the first one would stop being the only
+ * one.
  *
  * ## It is a pill lying on the note, not a bar ruled off from it
  *
@@ -52,6 +74,15 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
  * a different place on the screen, on a device where it is supposed to be in
  * one. `AppFrame` insets the slot by `layout.bottomBarInset` now and the bar
  * fills it; the targets divide what is inside.
+ *
+ * **And the inset is 24 rather than 52, which is what the seventh key cost.**
+ * The measurement above is still the measurement; what changed is that the
+ * sliver of note it buys is worth less than a destination. On a 390pt phone —
+ * the narrow case, not the reference's 440 — seven targets inside a pill inset
+ * by 52 are 37.4pt wide against a 44pt floor, and six are 43.7, which is under
+ * it too. At 24 they are 45.4. `layout.bottomBarInset` carries the arithmetic
+ * and `bottomBar.test.ts` recomputes both rows from the tokens rather than
+ * quoting either number.
  *
  * That is deliberately **not** the flush, hairline-topped bar an earlier plan
  * called for. The reference is unambiguous on this point — reading view and
@@ -186,14 +217,48 @@ export interface BottomBarAction {
   /** A dot, e.g. unsaved changes. */
   marker?: boolean;
   disabled?: boolean;
+  /**
+   * Draw a hairline immediately **before** this action.
+   *
+   * The row holds two kinds of thing that a person should not have to read the
+   * icons to tell apart: verbs that act on the note in front of them, and — in
+   * the last position — one destination that leaves it. Six of one and one of
+   * the other, undivided, is a seven-icon row where the last one silently does
+   * something categorically different from its neighbours.
+   *
+   * A rule is the cheapest possible answer: no gap (which would cost width the
+   * targets need — see `bottomBarInset`'s arithmetic, where seven targets clear
+   * 44pt by 1.4), no heading, and nothing that has to be announced. It is
+   * `aria-hidden`, because a screen reader is already told each control's whole
+   * name and a decoration between two of them adds nothing but noise.
+   *
+   * Optional, and there is deliberately no "how many groups" model: this row is
+   * seven items wide. One boundary is a rule; two would be a toolbar pretending
+   * to be a menu bar.
+   */
+  separated?: boolean;
 }
 
 export function BottomBar({ actions }: { actions: BottomBarAction[] }): JSX.Element {
   const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.bar} role="toolbar" aria-label="Console actions" testID="bottom-bar">
-      {actions.map((action) => (
-        <BottomBarButton key={action.id} action={action} />
+      {actions.map((action, index) => (
+        <Fragment key={action.id}>
+          {/*
+            A separator before the first action would be a rule against the
+            pill's own leading edge, which is a mistake in a list somebody
+            reordered rather than a boundary anybody meant. It is dropped
+            rather than drawn, and the flag on the action is left alone — the
+            caller said where its group ends and being first is not a
+            disagreement with that, it is the same statement with nothing on
+            the other side of it.
+          */}
+          {action.separated && index > 0 ? (
+            <View style={styles.separator} aria-hidden testID="bottom-bar-separator" />
+          ) : null}
+          <BottomBarButton action={action} />
+        </Fragment>
       ))}
     </View>
   );
@@ -369,6 +434,28 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     borderRadius: radii.control,
   },
   targetPressed: { backgroundColor: colors.chromePressed },
+
+  /**
+   * The rule between the note's verbs and the key that leaves the note.
+   *
+   * A hairline and 1pt of width, so it costs the targets either side almost
+   * nothing: `bottomBarInset`'s arithmetic gives seven targets 45.4pt against a
+   * 44pt floor on a 390pt phone, and there is not a gap's worth of room in
+   * that. `flexShrink: 0` because it is a hairline and a hairline that shrinks
+   * is a hairline that disappears; the targets are what absorb a narrow screen.
+   *
+   * Inset vertically rather than run edge to edge: a rule the full 66pt height
+   * of a floating pill reads as a seam splitting the object in two, and what is
+   * meant is a boundary *between two controls inside* one object.
+   */
+  separator: {
+    flexGrow: 0,
+    flexShrink: 0,
+    width: 1,
+    alignSelf: "center",
+    height: 22,
+    backgroundColor: colors.line,
+  },
   /** Dimmed rather than hidden — the position is load-bearing. */
   targetDisabled: { opacity: 0.38 },
 
