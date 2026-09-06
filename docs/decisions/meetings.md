@@ -784,3 +784,71 @@ it back`, `with the console's toolbar underneath, it clears it rather than
 covering it`, `leaving the meetings section does not switch transcription off`,
 and `re-configuring mid-meeting keeps the recorder that is holding the
 microphone`.
+
+### The way in is a rail entry, and it navigates rather than records
+
+Everything above is about a recording that is already running. **Nothing in the
+app started one.** `/meetings` had a list screen, a live screen and a working
+recorder, and no `href`, no `router.push`, no button and no rail entry anywhere
+outside `features/meetings/` reached any of it. Asked "how do I record a
+meeting?" from a note screen, the honest answer was "type the URL". A feature
+nobody can reach is not shipped, and this is the class of defect that hides
+best: every unit test of it passes.
+
+**It is a pinned row at the head of the console's rail, at every density.**
+`AppFrame` says of that slot that it is "reachable at every density — a column
+on a pointer layout, a sheet the top bar brings in on a phone" and that it "is
+not optional and must not become so", because what is reachable through it is
+reachable through nothing else. The other two candidates are refused by their
+own files: the bottom toolbar's rule is that "navigation is not its job", and it
+has no room either — at 390pt the pill is 286 wide, 262 inside its padding,
+which six targets already divide into 43.7pt against a 44pt floor; and the
+settings pane's *This context, from further out* card is explicitly for things
+that are **not** "a place you navigate to in order to read a note", which a
+meeting screen is.
+
+This is not the `App` group returning ([app-and-console](./app-and-console.md),
+*The rail splits on kind*). That group held Map and Connections — facts *about a
+context*, which is why they moved into that context's settings — and it was
+headed APP over YOURS over SHARED WITH YOU, which is what made the rail read as
+a second, unrelated left navigation. One pinned row with no heading is not a
+second panel.
+
+**Pinned, and at the head rather than beside sign-out**, and the second half of
+that is about the bar rather than about taste. While a panel is over the editor
+the frame publishes a chrome height of zero, so the recording bar drops to
+`floatingStackBottom(insets.bottom, 0)` and lies across the bottom ~100pt of
+whatever is under it — the rail sheet included. A destination the recording it
+leads to can cover is not a destination. (The same arithmetic puts that bar over
+the account block, which is a pre-existing hole in *sign-out* and is not fixed
+here.)
+
+**And it navigates. It does not record.** *Consent is the customer's* says a
+detector that silently started recording "would be the same product with the
+indicator removed"; a rail row that opened the microphone is exactly that, one
+surface over. The record button lives on `/meetings`, beside the sentence
+saying where the audio goes and what is kept — which is the disclosure the
+decision requires, and it cannot be given by a row in a navigation panel. The
+mark is a microphone on a cradle rather than the recording bar's waveform or the
+list's red disc, so no glyph in the product means both "a meeting is being
+recorded right now" and "meetings live here".
+
+A way in also needs a way back, and `/meetings` had none: the list screen sits
+outside the console, nothing above it draws chrome, and the live and note
+screens each carried their own back control while the list carried nothing. It
+does now, and it falls back to the console when there is no history behind it —
+a cold start on a typed URL or a reload on the web, where `router.back()` is a
+press that does nothing.
+
+The checks are `the rail carries it at full / icons / sheet`,
+`the collapsed rail keeps the name it cannot draw`,
+`a rail with nowhere to send anybody draws no entry`,
+`the route it names is a route this app actually has`,
+`the console layout hands the rail somewhere to send them`,
+`pressing it opens no microphone and writes no session`,
+`the entry is at the head of the rail and the bar is against the glass`,
+`the list goes back the way somebody came`, and
+`and to the console when there is no back`. The placement check is the one worth
+knowing about: its first version read the children of the head's *own parent*,
+which travels with the block, so moving the entry down beside sign-out passed
+every test in the file. It is anchored on the rail's root now.
