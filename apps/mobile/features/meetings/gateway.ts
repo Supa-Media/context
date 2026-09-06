@@ -280,7 +280,7 @@ const ROUTABLE_SLUG = /^[a-z0-9-]{2,32}$/;
  * a person sees in their MCP client settings, and a name in a URL that reads as
  * a name is the difference between a path segment and a directory.
  */
-export function contextRoute(to: MeetingAddress, route: string): string | null {
+function contextRoute(to: MeetingAddress, route: string): string | null {
   if (to === null) return route;
   if (!ROUTABLE_SLUG.test(to.contextSlug)) return null;
   return `/@${to.contextSlug}${route}`;
