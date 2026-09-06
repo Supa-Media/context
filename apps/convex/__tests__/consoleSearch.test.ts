@@ -189,8 +189,11 @@ describe("the console's search, out of the projection", () => {
     `matchCountIsFloor`. Measured directly against the shared answer, private
     table at the 200-row cap and one visible team hit: at the right tier the
     caller is told `1`, at the forced tier `1+`. That plus is one bit saying
-    "at least two hundred chunks you cannot read match your word", and both
-    surfaces render it. The count itself stays correct; the floor flag does not.
+    "at least two hundred chunks you cannot read match your word", and it
+    reaches both callers: the gateway PRINTS it — `12+ matching notes` — while
+    the console carries it across the API in `searchResultsValidator` and drops
+    it before the UI, so today it is rendered on one surface and available on
+    the other. The count itself stays correct; the floor flag does not.
 
     Measured: forcing `tier: "private"` in `searchNotes` reddened 0 of 1,790.
     The gateway's suite catches that same mutation with a check named "asking
