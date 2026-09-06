@@ -133,38 +133,26 @@ jobs:
       # status at all. The pull request then goes green having never executed
       # the jobs somebody just wrote, which is this repository's most-repeated
       # failure shape (see 3-resources/engineering/false-green-patterns.md).
-      #
       # It has already happened once: `hook.yml` shipped with an unquoted
-      # `node:` inside a step name, which YAML reads as a mapping value. The
-      # package's whole suite was silently absent from CI.
+      # `node:` inside a step name and that package's whole suite was silently
+      # absent from CI.
       #
-      # This job deliberately lives in a DIFFERENT workflow from the ones it
-      # checks, because a checker inside the broken file cannot run either.
+      # This was thirty lines of inline Python under a comment claiming it
+      # "deliberately lives in a DIFFERENT workflow from the ones it checks,
+      # because a checker inside the broken file cannot run either" — true of
+      # every workflow except this one, the file it was written in. A YAML
+      # break here took the only copy down along with the gateway suite, the
+      # meetings suite and three guard jobs, silently, which is the exact
+      # argument that comment was making.
+      #
+      # So it is a script with a self-test, and `email-worker.yml` runs it too
+      # — the same two-host arrangement, and for the same reason, as the
+      # trigger checker below. One implementation, because two copies of a
+      # guard are two things to drift.
       - name: Every workflow file parses as YAML
         run: |
-          python3 - <<'PY'
-          import glob, sys, yaml
-
-          failed = False
-          for path in sorted(glob.glob(".github/workflows/*.yml") + glob.glob(".github/workflows/*.yaml")):
-              try:
-                  document = yaml.safe_load(open(path))
-              except Exception as error:
-                  print(f"FAIL {path}: {error}")
-                  failed = True
-                  continue
-              if not isinstance(document, dict) or "jobs" not in document:
-                  print(f"FAIL {path}: parsed, but declares no jobs")
-                  failed = True
-                  continue
-              print(f"ok   {path}")
-
-          if failed:
-              print("")
-              print("A workflow that does not parse is ignored by GitHub — no run, no")
-              print("failing check, and a pull request that goes green without it.")
-              sys.exit(1)
-          PY
+          node scripts/check-workflow-yaml.mjs --self-test
+          node scripts/check-workflow-yaml.mjs
 
       # Runs after the parse above, deliberately: a file GitHub cannot parse is
       # ignored entirely, so what its `on:` block says is moot and reporting it

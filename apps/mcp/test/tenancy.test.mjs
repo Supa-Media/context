@@ -117,11 +117,14 @@ function form(fields) {
   return new URLSearchParams(fields).toString();
 }
 
-async function postForm(env, path, fields) {
+async function postForm(env, path, fields, init = {}) {
   const response = await worker.fetch(
     new Request(`https://mcp.context.test${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      // `init.headers` last, so a caller can add an Authorization header —
+      // and, deliberately, override the content type, which is what a test of
+      // a wrong media type would need. It is the caller's to lose.
+      headers: { "Content-Type": "application/x-www-form-urlencoded", ...(init.headers ?? {}) },
       body: form(fields),
     }),
     env,
@@ -1240,6 +1243,118 @@ export async function runTenancyChecks(check) {
     "a token response is never storable by a shared cache",
     exchanged.response.headers.get("Cache-Control") === "no-store"
   );
+
+  /*
+    A CONFIDENTIAL CLIENT, BECAUSE NOTHING ABOVE IS ONE.
+
+    Every exchange above uses the public client registered in section 8, whose
+    `token_endpoint_auth_method` is `"none"` — so `authenticateClient` returns
+    `true` on its first line and the entire secret comparison below it is
+    unreached. MEASURED: replacing that function's body with
+    `if (true) return true;` reddened **0 of 1,713 checks**. The constant-time
+    compare, the HTTP Basic fallback, and the refusal of a wrong secret were
+    the authentication on `/oauth/token` and `/oauth/revoke` and no test
+    presented a secret to either one, right or wrong.
+
+    The code was correct. It was simply not a guard, by this repository's own
+    definition of one.
+  */
+  const confidentialRegistration = await worker.fetch(
+    new Request("https://mcp.context.test/oauth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_name: "Hosted Client",
+        redirect_uris: ["https://hosted.test/callback"],
+        token_endpoint_auth_method: "client_secret_post",
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        application_type: "web",
+      }),
+    }),
+    env,
+    { waitUntil() {} }
+  );
+  const confidential = await confidentialRegistration.json();
+  check("a confidential client is issued a secret", typeof confidential.client_secret === "string");
+
+  const confidentialRecord = {
+    ...authorizationRecord,
+    clientId: confidential.client_id,
+    redirectUri: "https://hosted.test/callback",
+  };
+  const spend = async (code, extra, init) => {
+    controlPlane.issueCode(code, confidentialRecord);
+    return postForm(
+      env,
+      "/oauth/token",
+      {
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: "https://hosted.test/callback",
+        client_id: confidential.client_id,
+        code_verifier: verifier,
+        ...extra,
+      },
+      init
+    );
+  };
+
+  const noSecret = await spend("conf-none", {});
+  check(
+    "a confidential client presenting no secret is refused",
+    noSecret.status === 401 && noSecret.body.error === "invalid_client"
+  );
+  const wrongClientSecret = await spend("conf-wrong", { client_secret: `${confidential.client_secret}x` });
+  check(
+    "...and a wrong one is refused, not merely a missing one",
+    wrongClientSecret.status === 401 && wrongClientSecret.body.error === "invalid_client"
+  );
+  /*
+    The positive twin, and the reason the two refusals above prove anything: a
+    check that only ever asserts "no" passes just as happily on a function that
+    always says no.
+  */
+  const rightSecret = await spend("conf-right", { client_secret: confidential.client_secret });
+  check("...and the correct secret exchanges the code", rightSecret.status === 200);
+
+  /*
+    THERE IS NO SAME-LENGTH CASE TO WRITE, and the first version of this block
+    wrote one anyway with a false reason attached: "the compare short-circuits
+    on length before the constant-time loop, so a longer string proves only
+    that branch." Both operands of that comparison are `sha256Hex` output —
+    64 characters for any plaintext whatsoever — so the length of the secret
+    somebody presents never reaches it. MEASURED: inverting
+    `if (hashed.length !== …) return false;` to `return true` **reddens
+    nothing** — no denominator, deliberately. The claim is that no check
+    anywhere goes red, which says strictly more than a fraction of a total
+    that every unrelated commit moves; a count in prose is the tripwire this
+    branch has already tripped four times, and it tripped again on the first
+    draft of this very sentence, which said "0 of 1,720" in the commit that
+    made the suite 1,719. The branch is unreachable, `conf-wrong` above
+    already goes through
+    the constant-time loop, and the extra check proved nothing it did not.
+
+    Recorded rather than quietly deleted, because the next person to read that
+    line will have the same idea. The guard itself stays: it costs nothing and
+    a stored value that is not a 64-character hash is a thing to refuse rather
+    than to compare.
+  */
+
+  /*
+    HTTP Basic, which `authenticateClient` accepts as a fallback for clients
+    that send it despite registering `client_secret_post`. A whole branch, and
+    the only reason to have written it is clients that use it.
+  */
+  const basic = (secret) => ({
+    headers: {
+      Authorization: `Basic ${btoa(`${confidential.client_id}:${secret}`)}`,
+    },
+  });
+  const basicRight = await spend("conf-basic", {}, basic(confidential.client_secret));
+  check("a secret presented over HTTP Basic is accepted", basicRight.status === 200);
+  const basicWrong = await spend("conf-basic-bad", {}, basic("not-the-secret"));
+  check("...and a wrong one over HTTP Basic is refused", basicWrong.status === 401);
 
   const replay = await postForm(env, "/oauth/token", {
     grant_type: "authorization_code",

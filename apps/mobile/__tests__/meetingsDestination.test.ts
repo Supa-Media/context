@@ -366,6 +366,24 @@ describe("the sheet never offers a folder the gateway would refuse", () => {
     "overview.md",
     "1-projects/overview.MD",
     "scopes.yml",
+    // A segment that percent-DECODES to `..`. The gateway added this rule when
+    // it found that the storage adapter decodes before it compares, so `%2e%2e`
+    // is a `".."` segment there and at no earlier layer. `safeNotePath` does
+    // not decode either, so this reaches the sheet as an ordinary folder name.
+    "%2e%2e",
+    "1-projects/%2E%2E",
+    // A space shielded from `normalizeRoot`'s whole-string trim by a separator.
+    // `safeNotePath` trims and refuses a LEADING slash; it does nothing about a
+    // TRAILING one, and an empty last segment is legal here — so this arrives
+    // intact. The gateway refuses it because normalizing its own answer again
+    // would give something different.
+    "ok/a /",
+    // Legal on both sides. Being on this list does NOT hold that — the two
+    // tests below only look at folders the gateway refuses — so
+    // `STILL_OFFERABLE` under them names these again and asserts it.
+    "2-areas/team notes",
+    "2-areas/ team",
+    "100%",
     // One segment past the gateway's 128-character bound, which nothing on the
     // console's side has an opinion about.
     `${"a".repeat(64)}/${"b".repeat(64)}`,
@@ -398,7 +416,22 @@ describe("the sheet never offers a folder the gateway would refuse", () => {
     const refusedByGateway = REACHABLE_FOLDERS.filter(
       (folder) => normalizeMeetingFolder(folder) === null,
     );
-    expect(refusedByGateway.length).toBeGreaterThan(1);
+    /*
+      An exact count, not a floor. `toBeGreaterThan(1)` against a table holding
+      twelve gateway refusals would not notice eleven of them quietly ceasing
+      to be refusals — and this test's whole job is to prove the table is not
+      passing vacuously. Adding a shape to the table is meant to make you come
+      here and say which side it is on.
+    */
+    expect(refusedByGateway).toHaveLength(12);
+    /*
+      And the table's own size, because the count above is one-directional:
+      MEASURED, deleting `"scopes.yml"` reddens it, and deleting
+      `"2-areas/team/notes"` — an ACCEPTED entry — is silent, so four of the
+      seven accepted shapes could be removed invisibly. Three are held by
+      `STILL_OFFERABLE`; this holds the rest.
+    */
+    expect(REACHABLE_FOLDERS).toHaveLength(19);
 
     for (const folder of refusedByGateway) {
       const choice = offers(
@@ -407,7 +440,70 @@ describe("the sheet never offers a folder the gateway would refuse", () => {
           page: { contextSlug: "field-notes", path: folder, isNote: false },
         }),
       );
-      expect([folder, choice.offers[1]?.refusal ?? null]).not.toEqual([folder, null]);
+      /*
+        NO OFFER IS A REFUSAL, and reading `?.refusal ?? null` said the
+        opposite. `resolveDestinations` drops a context entirely when
+        `safeNotePath` refuses the page's path, so a folder caught one layer
+        earlier arrived here looking unrefused — a false RED, which is the
+        less dangerous direction and still sends somebody to change working
+        code until the test stops complaining. Found by putting `"/ ok"` in
+        the table above: refused by `safeNotePath` for its leading slash, so
+        it never reaches the sheet at all, and it is out of a list whose name
+        claims its members do.
+      */
+      const offer = choice.offers[1];
+      expect([folder, offer === undefined || offer.refusal !== null]).toEqual([folder, true]);
+    }
+  });
+
+
+  /*
+    STRICTER ON THE PHONE IS FINE — UP TO A POINT, AND THIS IS THE POINT.
+
+    The two tests above are one-directional by design: they hold that the sheet
+    never offers what the gateway refuses, and say nothing about the sheet
+    refusing what the gateway accepts. That asymmetry is deliberate — the phone
+    may be conservative — but it is not free, and unbounded it hides the exact
+    mistake this mirror already made once in reverse: `#247` first shipped a
+    per-segment trim rule on the GATEWAY that refused 36 folders a real vault
+    could have, and review measured the cost before it landed.
+
+    MEASURED, and the reason this block exists: with only the two tests above,
+    replacing the decoded rule with "refuse any segment containing a percent"
+    passes 34/34, and replacing the joined trim with a per-segment trim passes
+    34/34. Both are wrong and neither reddened anything. With this block, each
+    reddens.
+
+    These are folders somebody plausibly has, so refusing one costs a real
+    destination on the surface where people actually choose one.
+  */
+  const STILL_OFFERABLE: readonly string[] = [
+    "1-projects/portal",
+    "2-areas/team notes",
+    "2-areas/ team",
+    "100%",
+    "a%2e%2eb",
+  ];
+
+  test("...and it still offers the folders the gateway accepts", () => {
+    for (const folder of STILL_OFFERABLE) {
+      expect([folder, normalizeMeetingFolder(folder)]).not.toEqual([folder, null]);
+      const choice = offers(
+        resolveDestinations({
+          contexts: [OWN, SHARED],
+          page: { contextSlug: "field-notes", path: folder, isNote: false },
+        }),
+      );
+      /*
+        `?? ` CANNOT BE USED HERE, and the first version of this line used it:
+        `refusal: null` IS the success value, so `offers[1]?.refusal ?? "no
+        offer"` reports "no offer" for a folder that was offered perfectly.
+        The assertion could not pass for any input. It failed loudly rather
+        than quietly, which is the only reason it was cheap — the same slip in
+        a `.not.toEqual` would have passed for every input instead.
+      */
+      const offer = choice.offers[1];
+      expect([folder, offer === undefined ? "no offer at all" : offer.refusal]).toEqual([folder, null]);
     }
   });
 
