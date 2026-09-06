@@ -63,6 +63,29 @@ export function meetingKey(workspaceId: string, meetingId: string): string {
   return `${PREFIX}meeting${SEP}${workspaceId}${SEP}${meetingId}`;
 }
 
+/**
+ * The destination this device chose last time the sheet was opened.
+ *
+ * Under this feature's namespace and this feature's separator, deliberately:
+ * the value is a context slug and the name of one of somebody's folders, which
+ * is exactly the kind of thing `console/lastPlace.ts` says must leave a device
+ * on sign-out — and `meetingKeys` already names everything under this
+ * namespace, so putting it here means sign-out takes it without a second list
+ * to keep in step.
+ *
+ * It carries **no workspace segment**, unlike a meeting. A meeting belongs to
+ * one context; this is a preference of the person holding the phone, and filing
+ * it per workspace would mean a choice made in one context silently failing to
+ * apply in the next — which is the opposite of "the last choice is remembered".
+ *
+ * `parseMeetingKey` answers `null` for it, which is what keeps it out of
+ * `loadMeetings`: a key that does not name a meeting is not counted as a
+ * meeting this build could not read.
+ */
+export function destinationKey(): string {
+  return `${PREFIX}destination`;
+}
+
 export interface ParsedMeetingKey {
   workspaceId: string;
   meetingId: string;

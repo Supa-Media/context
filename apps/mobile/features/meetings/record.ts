@@ -1,3 +1,4 @@
+import { parseDestination, type MeetingDestination } from "./destination";
 import { ERRORS } from "./protocol";
 import type { MeetingSession, TranscriptSegment } from "./protocol";
 
@@ -67,6 +68,27 @@ export interface MeetingRecord {
   workspaceId: string;
   session: MeetingSession;
   acked: MeetingAck;
+  /**
+   * Where this meeting is going, or `null` when nobody was asked.
+   *
+   * **Client-local, like `acked`, and for the same reason `acked` is**: it is
+   * this device's knowledge of a request it is going to make, not a property of
+   * the meeting the gateway holds. `MeetingSession` is the contract's shape and
+   * is not widened here (`protocol.ts`: nothing is added on the way through);
+   * the destination reaches the gateway as an argument to `finalize`, which is
+   * the call that turns a session into a note.
+   *
+   * It lives on the *record* rather than in the sheet that asked, because a
+   * recording outlives the screen that started it — the whole reason the
+   * controller is not a provider. Finalize can be minutes and a process later.
+   *
+   * `null` is honest rather than a gap to be filled in. A record restored from
+   * a build before the question existed, and the meetings list's own one-tap
+   * record, both genuinely chose nothing, and the gateway's default is the
+   * right answer for both. Rewriting `null` into a guessed destination would be
+   * this device claiming somebody chose something they were never asked about.
+   */
+  destination: MeetingDestination | null;
   /** ISO timestamp the currently-open recording interval started at. */
   runningSince: string | null;
   /** When anything about this record last changed, for ordering a restore. */
@@ -295,6 +317,16 @@ export function parseRecord(raw: string | null, workspaceId: string): MeetingRec
       record is discarding somebody's meeting to avoid an empty array.
     */
     session: { ...record.session, flags: record.session.flags ?? [] },
+    /*
+      Re-validated rather than trusted, and dropped rather than refused. The
+      folder on a restored record becomes a key in a request against the
+      customer's own bucket, so it goes through the same gate the remembered
+      choice and the `?note=` query do — and a record whose destination will not
+      parse is still somebody's meeting, so it loses its folder and keeps its
+      notes. A record written before this field existed reads as `null`, which
+      is what it was.
+    */
+    destination: parseDestination(record.destination),
     acked,
     runningSince: typeof record.runningSince === "string" ? record.runningSince : null,
     updatedAt: typeof record.updatedAt === "number" ? record.updatedAt : 0,

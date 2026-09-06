@@ -172,7 +172,14 @@ async function run(
     return [];
   }
 
-  const ack = await deps.gateway.finalize(id);
+  /*
+    The **record's** destination, never the device's current preference. They
+    are different things kept in different places for this reason: a meeting
+    finalized after a later one has been started must be filed where *it* was
+    sent, and reading what this device last chose would file it wherever
+    somebody happened to send the meeting after it.
+  */
+  const ack = await deps.gateway.finalize(id, record.destination);
   if (ack.notePath === null) {
     /*
       Finalize accepted but no path came back. That is the gateway saying "I
