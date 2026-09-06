@@ -720,3 +720,62 @@ mutants that measured **zero** until the fixture was changed to make them
 visible, and the astral-character prefix bug that a lexicographic
 `[prefix, prefix + "￿")` range had been hiding since the module was
 written.
+
+### The descriptor is a sibling of the binding, and the gateway reads it there
+
+The reader above shipped and served **not one search**. `/gateway/binding`
+answers `{binding, searchIndex}` — siblings, and `http.ts` says so: "the storage
+binding, and — only where an owner asked for one and it exists — the index
+credential *beside* it". The gateway's `getStorageBinding` returned
+`parsed.binding` alone, and `storeForSession` then looked for the descriptor at
+`binding.searchIndex`, a key the control plane has never sent. So
+`store.searchIndex` was `null` on every request in production and
+`fastSearchAnswer` returned on its first line, for every caller, always.
+
+**The sibling shape stays and the gateway was fixed**, not the other way round.
+A D1 write credential is not a property of a bucket: nesting it inside the
+binding means adding it to both provider validators and handing it to
+`storeForBinding`, which has no business with it. One route resolving the
+workspace once and answering both questions is the design `openStorageBinding`
+argues for, and it is right.
+
+**Why nothing caught it, which matters more than the fix.** The control plane's
+route tests assert `body.searchIndex` as a sibling, thoroughly — including that
+the whole response contains no such key when a context never opted in. The
+gateway's tests assert what it does with a descriptor it is *given*. Between
+them sat the only question neither asked: can the gateway read what the route
+sends? Every gateway fixture — `controlPlaneStub.mjs`, `credentialShape.test.mjs`,
+`searchProjection.test.mjs` — nested `searchIndex` **inside** the binding,
+because they were written from the gateway's own assumption. A fixture that
+restates one side's guess to the other is not a test of a contract, it is that
+guess with a green tick beside it.
+
+So the fix is three things, and the last is the one that closes the class:
+
+- the gateway returns the envelope and reads the descriptor beside the binding;
+- `controlPlaneStub.mjs` splits the descriptor out at the wire, so no fixture
+  can put it back inside the binding and have the suite agree;
+- `controlPlane.test.ts` takes the **real bytes of a real `/gateway/binding`
+  response** and feeds them to the gateway's **real** `createControlPlane` and
+  `storeForSession`. Nothing in that check is hand-built but the transport.
+  Reverting either half of the fix fails it, and fails 11 checks in the
+  gateway's own suite; before the fixtures were corrected, the same two mutants
+  failed nothing anywhere.
+
+**And `state: "ready"` is the one gate the reader trusts**, so what withholds it
+was measured rather than read. A live context reported "100% indexed, 100 notes"
+while holding more than 160, and 100 is exactly `VERSION_PROBE_CAP` — so a
+census of 250 is now walked through `projectPass`. It clears the cap: forcing
+`windowReachedEnd` true reddens **0**, and forcing `notesPending` to 0 reddens
+3. `sweepComplete` is not the gate; `notesPending === 0` is, and it is
+`census size − COUNT(*)` plus whatever the R2 index says it has not reached.
+A sweep that ends early cannot lie, because the count would not match.
+
+That relocates the question instead of answering it, and the relocation is the
+finding: for a projection to honestly report "100 indexed, 0 pending", its
+**census** must hold 100 — and the census is the R2 index's own docmap, not a
+listing this pass makes. A context whose bucket holds 160 notes and whose
+projection calls itself complete at 100 is a context whose *R2 index* knows
+about 100 and believes it is caught up. That is upstream of every line in the
+projection, needs the live manifest's `freshness` to diagnose, and is not
+fixable from a fixture.

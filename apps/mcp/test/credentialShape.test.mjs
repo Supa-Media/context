@@ -40,6 +40,22 @@ const API_TOKEN = "d1-write-token-not-a-real-one";
 const SECRET_KEY = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
 const DROPBOX_TOKEN = "sl.dropbox-access-token-not-a-real-one";
 
+/**
+ * The D1 descriptor, and it is deliberately NOT a property of the binding.
+ *
+ * `/gateway/binding` answers `{binding, searchIndex}` as siblings. This
+ * fixture used to nest the descriptor inside `BINDING`, which is the shape the
+ * gateway *assumed* — so this file proved the store handled a credential it
+ * could never actually be given, while `store.searchIndex` was null on every
+ * production request and fast search served nothing.
+ */
+const SEARCH_INDEX = Object.freeze({
+  databaseId: "d1-database-id",
+  accountId: "cloudflare-account-id",
+  apiToken: API_TOKEN,
+  state: "backfilling",
+});
+
 const BINDING = Object.freeze({
   provider: "s3",
   status: "active",
@@ -52,12 +68,6 @@ const BINDING = Object.freeze({
   secretAccessKey: SECRET_KEY,
   forcePathStyle: true,
   capabilities: { conditionalWrite: true },
-  searchIndex: {
-    databaseId: "d1-database-id",
-    accountId: "cloudflare-account-id",
-    apiToken: API_TOKEN,
-    state: "backfilling",
-  },
 });
 
 const controlPlane = {
@@ -74,8 +84,10 @@ const controlPlane = {
       ],
     };
   },
+  // The envelope, exactly as `getStorageBinding` returns it after unwrapping
+  // the route's two keys — and exactly as the route sends them.
   async getStorageBinding() {
-    return BINDING;
+    return { binding: BINDING, searchIndex: SEARCH_INDEX };
   },
 };
 
@@ -197,7 +209,7 @@ export async function runCredentialShapeChecks(check) {
     The empty string is here because the checks read `!value` as well as the
     type, and an empty `accountId` builds the same `undefined`-shaped URL.
   */
-  const complete = { ...BINDING.searchIndex };
+  const complete = { ...SEARCH_INDEX };
   for (const field of ["databaseId", "accountId", "apiToken"]) {
     check(
       `a descriptor with no ${field} is off, not half-configured`,
