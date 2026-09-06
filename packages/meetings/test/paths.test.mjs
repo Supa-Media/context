@@ -451,4 +451,75 @@ export function runPathChecks(check) {
     "a folder the builder refuses recognises nothing either",
     !isMeetingNotePath("../etc/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md", { folder: "../etc" })
   );
+
+  /*
+    WHAT THIS FUNCTION RETURNS, IT MUST ALSO ACCEPT.
+
+    `normalizeRoot` trims the whole string and collapses repeated separators —
+    it does not trim a SEGMENT. So `"/ /"` came back as `" "`, a folder made of
+    one space, and normalizing that answer again gave `null`. The function was
+    not idempotent, and `meetingNotePath` re-normalizes whatever it is handed,
+    so an accepted folder could make the builder throw.
+
+    That is not theoretical: the gateway calls the validator, keeps the answer,
+    and passes it to `meetingNotePath` inside the claim mutator. Measured
+    through the real worker, `folder: "/ /"` answered **400 `meeting_invalid`,
+    "this session's start time is not a timestamp, so it has no note path"** —
+    on a session whose `startedAt` is a perfectly good timestamp. The `catch`
+    that produces that message says "The folder cannot reach here: it was
+    resolved before any of this", which was false.
+
+    Brute-forced over `a / space tab . % 2 e` to depth 4 — 4,680 shapes: **132
+    were non-idempotent and 20 made the builder throw.** Every one of them is a
+    segment with leading or trailing whitespace.
+
+    REFUSED rather than trimmed, which is this function's whole posture: it
+    refuses where `slugifyTitle` maps, because a folder silently trimmed to a
+    different name is a meeting filed somewhere nobody asked for. `" ok"` and
+    `"ok "` are folders somebody could have; they are not folders this will
+    file into, and the client is told so.
+  */
+  check("a folder segment that is only whitespace is refused", normalizeMeetingFolder("/ /") === null);
+  check("...as is a segment with a leading space", normalizeMeetingFolder("/ ok") === null);
+  check("...and one with a trailing space", normalizeMeetingFolder("ok/a /b") === null);
+  /*
+    `"ok/ "` is NOT that case and the first draft of this block used it: the
+    trailing `/ ` is trimmed off the whole STRING by `normalizeRoot` before any
+    segment exists, so it is accepted as `"ok"` — correctly, and idempotently.
+    The check failed and said so, which is the only reason this comment exists.
+  */
+  check("...while a trailing separator and space is just that folder", normalizeMeetingFolder("ok/ ") === "ok");
+  check(
+    "while an inner space is a folder somebody may legitimately have",
+    normalizeMeetingFolder("2-areas/team notes") === "2-areas/team notes"
+  );
+
+  /*
+    And the property itself, over the alphabet the brute force used. Named
+    examples above say what the rule is; this says the rule has no holes left,
+    and it is the check that fails if somebody widens `normalizeRoot` instead.
+  */
+  {
+    const stamp = { id: FIXTURE_ID, title: "T", startedAt: "2026-03-04T09:00:00.000Z" };
+    const alphabet = ["a", "/", " ", "\t", ".", "%", "2", "e"];
+    let unstable = 0;
+    let threw = 0;
+    const walk = (soFar, depth) => {
+      if (depth === 0) {
+        const once = normalizeMeetingFolder(soFar);
+        if (once === null) return;
+        if (normalizeMeetingFolder(once) !== once) unstable += 1;
+        try {
+          meetingNotePath(stamp, { folder: once });
+        } catch {
+          threw += 1;
+        }
+        return;
+      }
+      for (const character of alphabet) walk(soFar + character, depth - 1);
+    };
+    for (let depth = 1; depth <= 4; depth += 1) walk("", depth);
+    check("every folder this accepts, it accepts again — 4,680 shapes", unstable === 0);
+    check("...and every one of them builds a path rather than throwing", threw === 0);
+  }
 }

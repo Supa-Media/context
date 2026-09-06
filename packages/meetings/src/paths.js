@@ -291,6 +291,27 @@ export function normalizeMeetingFolder(folder) {
     if (segment.toLowerCase().endsWith(".md")) return null;
     if (RESERVED_PLUMBING_NAMES.has(segment.toLowerCase())) return null;
     if (CONTROL_CHARACTERS.test(segment)) return null;
+    /*
+      A segment that is not what it would be if this ran again.
+
+      `normalizeRoot` trims the whole STRING and collapses repeated separators;
+      it does not trim a segment. So `"/ /"` came back as `" "` — a folder made
+      of one space — and normalizing that answer gave `null`. **This function
+      has to be idempotent**, because `meetingNotePath` re-normalizes whatever
+      it is handed and the gateway hands it this function's own output, inside
+      the claim mutator. An accepted folder could therefore make the builder
+      throw, and the 400 it produced blamed `startedAt` for a folder's problem.
+
+      Refused rather than trimmed, which is this function's posture everywhere
+      else: it refuses where `slugifyTitle` maps, because a folder quietly
+      trimmed into a different name is a meeting filed somewhere nobody asked
+      for. `" ok"` is a folder somebody could have; it is not one this will file
+      into, and `folderRejected` says so.
+
+      Brute-forced over `a / space tab . % 2 e` to depth 4 — 4,680 shapes: 132
+      non-idempotent and 20 throwing before this line, 0 and 0 after.
+    */
+    if (segment !== segment.trim()) return null;
   }
   return segments.join("/");
 }
