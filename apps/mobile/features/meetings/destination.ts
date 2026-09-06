@@ -225,6 +225,28 @@ function preselect(
 }
 
 /**
+ * The row a press on `index` leaves selected.
+ *
+ * A refused row cannot be chosen: the selection stays where it was. Here rather
+ * than inside the sheet for the reason at the top of this file — a rule about
+ * what somebody is allowed to pick, expressed inside a component, is the kind
+ * this repo has measured as caught by nothing.
+ *
+ * An index the list does not have answers with the current selection rather
+ * than throwing: the only caller is a list this module produced, so a bad index
+ * is a bug in the caller and not a reason to take a screen down mid-meeting.
+ */
+export function chooseOffer(
+  offers: readonly DestinationOffer[],
+  current: number,
+  index: number,
+): number {
+  const offer = offers[index];
+  if (offer === undefined || offer.refusal !== null) return current;
+  return index;
+}
+
+/**
  * Two destinations name the same folder in the same context.
  *
  * **`kind` is deliberately not compared, and neither is `label`.** Both are

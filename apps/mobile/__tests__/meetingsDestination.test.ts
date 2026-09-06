@@ -2,6 +2,7 @@ import { describe, expect, test } from "@jest/globals";
 
 import {
   INBOX_FOLDER,
+  chooseOffer,
   describeDestination,
   resolveDestinations,
   sameDestination,
@@ -58,6 +59,8 @@ import { memoryStore } from "../features/offline/memory";
  *  8. `recallDestination` returns the parsed JSON without re-validating.
  *     → `a remembered destination is re-validated on the way out of the device`
  *     fails.
+ *  9. `chooseOffer` drops its `refusal !== null` guard.
+ *     → `pressing a refused offer leaves the selection where it was` fails.
  */
 
 const OWN: DestinationContext = { slug: "testagent1", kind: "personal", role: "owner" };
@@ -367,6 +370,44 @@ describe("the last choice is remembered, and remembering it decides nothing else
 
     await forgetAllMeetings(store);
     expect(await recallDestination(store)).toBeNull();
+  });
+});
+
+describe("what a press on a row is allowed to do", () => {
+  const offers = [
+    {
+      destination: { kind: "personalInbox" as const, contextSlug: "testagent1", folder: "0-inbox" },
+      audience: "Only you",
+      tone: "quiet" as const,
+      refusal: null,
+    },
+    {
+      destination: {
+        kind: "currentPage" as const,
+        contextSlug: "field-notes",
+        folder: "1-projects",
+        label: "1-projects",
+      },
+      audience: "Visible to the team",
+      tone: "warn" as const,
+      refusal: "You can read this context but not write to it.",
+    },
+  ];
+
+  test("pressing an offer selects it", () => {
+    expect(chooseOffer([offers[0]!, { ...offers[1]!, refusal: null }], 0, 1)).toBe(1);
+  });
+
+  test("pressing a refused offer leaves the selection where it was", () => {
+    expect(chooseOffer(offers, 0, 1)).toBe(0);
+  });
+
+  test("a row the list does not have leaves the selection where it was", () => {
+    // The only caller is a list this module produced, so an index it does not
+    // have is a bug in the caller — not a reason to take a screen down while
+    // somebody is trying to record.
+    expect(chooseOffer(offers, 0, 7)).toBe(0);
+    expect(chooseOffer(offers, 0, -1)).toBe(0);
   });
 });
 
