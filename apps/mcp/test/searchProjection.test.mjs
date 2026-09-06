@@ -1281,7 +1281,7 @@ async function runEndToEndChecks(check) {
  *   `fastSearchAnswer` counting candidates instead of visible notes       1
  *   `fastSearchAnswer` ignoring `state`, serving a filling projection     1
  *   `searchProjection` never setting `truncated` on a full page           1
- *   `searchProjection` counting the cap across tables, not per table     1
+ *   `searchProjection` counting the cap across tables, not per table    1
  *   a `D1Error` on the read path escaping into the response               1
  *   a miss answering "(no matches)" instead of falling through            1
  *   `mergeHits` sliced to the display limit before the privacy filter     1
@@ -1324,11 +1324,12 @@ async function runEndToEndChecks(check) {
  * signal in the same family as the count above, so it is worth a fixture; it
  * is not worth 200 notes today.
  *
- *  - **`truncated` reddened nothing either**, and its `1` is the one number in
- *    this table that does NOT come from a search: tripping the cap needs a
- *    table to return 200 rows and the largest single-table return in this file
- *    is 14, so it is driven at `searchProjection` with a stub client and a
- *    small `chunkCap`. A red there has not been near the gateway.
+ *  - **The two `searchProjection` rows reddened nothing either**, and theirs
+ *    are the only numbers in this table that do NOT come from a search:
+ *    tripping the cap needs a table to return 200 rows and the largest
+ *    single-table return in this file is 14, so both are driven at
+ *    `searchProjection` with a stub client and a small `chunkCap`. A red on
+ *    either has not been near the gateway.
  *
  * A guard nobody has checked is not a guard, and five of these had not been.
  * ====================================================================== */
@@ -1695,16 +1696,18 @@ async function runServeChecks(check) {
       `CHUNK_FETCH_CAP` rows and no context here is that large — the biggest
       single-table return anywhere in this file is 14 against a cap of 200.
 
-      So these two call `searchProjection` with a stub client and a small
+      So these three call `searchProjection` with a stub client and a small
       `chunkCap`, which is the parameter that exists for exactly this. **They
       are the only checks in this file that do not go through a search**, which
-      is why the record above says so: a red here has not been near the gateway,
-      and a fixture of 200 notes would prove the same bit at fifty times the
-      cost.
+      is why the record above says so of both rows they cover: a red here has
+      not been near the gateway, and a fixture of 200 notes would prove the same
+      bit at fifty times the cost.
 
-      The private tier asks two tables, so the pair also pins the cap as
-      per-table rather than accumulated across them — `rows.length +
-      answered.length >= chunkCap` would otherwise pass.
+      The third is a separate guard rather than a third case of the first two.
+      A team caller asks one table, so neither of them can tell a per-table cap
+      from one accumulated across tables; the private tier asks two, and that
+      one check is the whole of what refuses `rows.length + answered.length >=
+      chunkCap`. Measured: it is the only red under that mutation.
     */
     const pageOf = (n) =>
       Array.from({ length: n }, (_, i) => ({
@@ -1733,7 +1736,6 @@ async function runServeChecks(check) {
       "and two short pages do not add up to a full one",
       (await askWith(pageOf(1), "private")).truncated === false,
     );
-
 
     // -- 5. a refused database is not a failed search ----------------------
     d1.state.fail = 500;
