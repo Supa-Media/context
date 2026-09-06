@@ -771,12 +771,37 @@ backslashes, separators — and two implementations of "does this escape its
 bucket" is how one of them ends up weaker. `slugifyTitle` is the wrong half of
 the precedent: it *maps* rather than refuses, so `2-areas/team` would come back
 as `2-areas-team` and the note would be filed into a folder nobody named. What a
-folder needs on top of what a root needs is three rules with three reasons: no
+folder needs on top of what a root needs is four rules with four reasons: no
 dot-prefixed segment, because `isPlumbing` hides those from every tool at every
 tier including the owner's, so the meeting would be invisible to the person
-whose storage bill it is; no segment that is itself a note; and a length bound
-keeping the whole key inside the gateway's own 512-character path limit. The
-refusal is a `null` rather than a thrown message, because `normalizeRoot`'s
+whose storage bill it is; no segment that is itself a note; a length bound
+keeping the whole key inside the gateway's own 512-character path limit; and
+**no `..` anywhere inside a segment**, not merely a segment that *is* `..`.
+
+That fourth rule is the one that closed a real defect, and this paragraph said
+"three rules with three reasons" and never mentioned it. `normalizeRoot` refuses
+the traversal *shapes*, which is the right rule for a prefix; the gateway's own
+`normalizePath` is blunter and refuses `..` anywhere in a key at all. So `a..b`
+passed the folder check, the claim wrote `a..b/YYYY/MM/….md` into the session
+record under a conditional write, and the note write then answered 400
+`meeting_invalid` — the code no client retries — for the life of that meeting,
+with nothing to clear the claimed path. Only a `null` from
+`normalizeMeetingFolder` reaches the `folderRejected` fallback, so that class
+walked straight past the safety net the fallback exists to be. The two functions
+have to agree about what a key is, and this one takes the stricter rule: a vault
+with a folder named `a..b` loses it as a meeting destination and is told so,
+where the reverse loses a meeting silently and permanently.
+
+**The empty string is refused as well**, and it is a difference of *meaning*
+from `normalizeRoot` rather than an addition to it: `""` is that function's
+answer for "no prefix at all", which is a legal root and is not a folder. Filing
+there would put a `YYYY/MM` tree of meetings beside `index.md` and
+`privacy.md`, and the on-bucket layout is a stable format rather than an
+internal detail (CLAUDE.md, non-negotiable 3). The phone's destination sheet
+refuses to *offer* the root for the same reason rather than letting the fallback
+absorb it — see `features/meetings/destination.ts`.
+
+The refusal is a `null` rather than a thrown message, because `normalizeRoot`'s
 messages quote what they refused — reasonable for a prefix the customer typed
 into their own binding, a reflection for a value a client sent.
 
@@ -986,8 +1011,21 @@ it does not start recording either: it raises a sheet that asks *where this
 meeting is going* — `MeetingDestination`, a context and a folder — and recording
 begins only after somebody has answered. So the disclosure is not left behind on
 a screen the key skipped; it is on the sheet the key opens, which is the surface
-the decision asks for. What is still true, and is the part that matters, is that
-**no single press anywhere in this product opens the microphone**.
+the decision asks for.
+
+**The property that holds is "no press without the disclosure beside it", and
+this paragraph used to state a stronger one that is false.** It said *no single
+press anywhere in this product opens the microphone* — two sentences after
+describing the press that does. `/meetings`' red disc is `onRecord →
+controller.start → recorder.start()`, one press, no dialog, and that screen's
+own header says so in as many words: "it starts a meeting with no dialog in
+front of it: the reference experience is that you open the app and hit record".
+That is a deliberate decision, not an oversight, and it is exactly why the
+weaker claim is the true one: the disc sits on the screen that carries the
+sentence about where the audio goes and what is kept, so the disclosure is
+*there*, in front of the person, rather than behind a dialog. The rail row and
+the seventh key cannot make that claim from where they sit, which is why neither
+of them records.
 
 A way in also needs a way back, and `/meetings` had none: the list screen sits
 outside the console, nothing above it draws chrome, and the live and note

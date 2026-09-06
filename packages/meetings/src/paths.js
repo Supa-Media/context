@@ -155,8 +155,13 @@ export function normalizeRoot(root) {
  * ## What a folder needs on top of what a root needs
  *
  * A root is chosen once by the customer, in their own binding. A folder
- * arrives on a request, so three refusals are added and each has a reason a
- * root does not have:
+ * arrives on a request, so four refusals are added and each has a reason a
+ * root does not have. (It said three, and has listed four since the `..` rule
+ * was added to close a real defect — a count that stops matching its own list
+ * is how the rule underneath it stops being read.) A fifth is the empty string,
+ * argued at the check rather than here, because there it is a difference of
+ * *meaning* from `normalizeRoot` rather than an addition to it: "no prefix at
+ * all" is a legal root and is not a folder.
  *
  *  - **Dot-prefixed segments.** `isPlumbing` hides every dot-segment from
  *    every tool at every tier, the owner's included, so a meeting filed under

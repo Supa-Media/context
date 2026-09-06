@@ -515,10 +515,27 @@ describe("`saved` is said only when there is a path to print", () => {
 
     const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
     expect(mounted.container.textContent).toContain("Saved to your bucket");
-    expect(mounted.container.textContent).toContain("not the folder you chose");
+    expect(mounted.container.textContent).toContain(
+      "did not file this meeting in the folder you chose",
+    );
     // And never the folder it refused: the ack carries no copy of it, so
     // neither can the screen.
     expect(mounted.container.textContent).not.toContain("2-areas/private");
+    /*
+      **And it does not claim this is the default folder**, because that is only
+      one of the two cases `folderRejected` covers. The gateway sets the flag
+      equally when the folder was legal and a *different* one had already been
+      claimed — a second finalize naming somewhere else, or a retry after a
+      failed note write — and the note is then in the claimed folder, which is
+      neither the default nor the one the person picked. See
+      `IngestAck.folderRejected` in `packages/meetings/src/protocol.js`, whose
+      own description said only the first case, and `folderFlag` in
+      `apps/mcp/src/meetings/ingest.js`, which has always set both.
+
+      SABOTAGE: put "so this is the default folder" back into
+      `FOLDER_REJECTED_NOTICE`. MEASURED: this line fails.
+    */
+    expect(mounted.container.textContent).not.toContain("default folder");
     mounted.unmount();
   });
 

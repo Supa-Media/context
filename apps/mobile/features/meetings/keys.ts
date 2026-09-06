@@ -77,14 +77,22 @@ export function meetingKey(workspaceId: string, meetingId: string): string {
  * on sign-out. `meetingKeys` already names everything under this namespace, so
  * putting it here means one list rather than two to keep in step.
  *
- * **It does not follow that sign-out takes it, and this comment used to say it
- * did.** `forgetLocalCopies` clears the offline namespace and the last-place
- * keys by name, and `meetingKeys` is not on that list yet — which the file
- * header thirty lines up states correctly and this paragraph contradicted. The
- * On a shared device this would otherwise be a previous person's context slug
- * and folder name surviving their sign-out and preselecting a row for the next,
- * which is why `forgetLocalCopies` names this namespace explicitly.
- * `__tests__/offlineForget.test.ts` holds that, driving the real sign-out.
+ * **Sign-out takes it.** `forgetLocalCopies` clears the offline namespace, the
+ * last-place keys, and this namespace, each by name — see the file header. On a
+ * shared device this would otherwise be a previous person's context slug and
+ * folder name surviving their sign-out and preselecting a row for the next.
+ * `__tests__/offlineForget.test.ts` holds it, driving the real sign-out rather
+ * than the namespace sweeper.
+ *
+ * **This paragraph has now been wrong twice, in opposite directions, and is
+ * left saying so in a file whose comments are the record.** It first claimed
+ * sign-out took these keys while nothing did. The correction for that landed in
+ * the file header; a second pass then wrote the *opposite* correction here —
+ * "it does not follow that sign-out takes it… `meetingKeys` is not on that list
+ * yet" — on top of half of the first, so one comment asserted a claim and its
+ * negation four lines apart, cited the header as agreeing with the half that
+ * was by then false, and left a sentence severed between them. Two passes each
+ * fixed one half of one paragraph without reading the other half.
  *
  * It carries **no workspace segment**, unlike a meeting. A meeting belongs to
  * one context; this is a preference of the person holding the phone, and filing
@@ -118,10 +126,17 @@ export function parseMeetingKey(key: string): ParsedMeetingKey | null {
 /**
  * Every key this feature owns, current version or not.
  *
- * For sign-out, and for the test that pins what sign-out does not do yet. It is
- * the whole namespace rather than `parseMeetingKey` succeeding, for the reason
- * `ownedKeys` gives: a key from a version this build cannot parse is still this
- * feature's to clear, and leaving it behind leaves note text on the device.
+ * For sign-out — `forgetAllMeetings` removes them and `forgetLocalCopies`
+ * re-lists them afterwards to check that the removals landed, which is that
+ * module's "never silently" stance applied to this namespace. **It used to say
+ * "and for the test that pins what sign-out does not do yet"; there is no such
+ * test, because there is no such gap** — `offlineForget.test.ts` drives the
+ * real sign-out and asserts the keys are gone.
+ *
+ * It is the whole namespace rather than `parseMeetingKey` succeeding, for the
+ * reason `ownedKeys` gives: a key from a version this build cannot parse is
+ * still this feature's to clear, and leaving it behind leaves note text on the
+ * device.
  */
 export function meetingKeys(keys: readonly string[]): string[] {
   return keys.filter((key) => key.startsWith(`${NAMESPACE}${SEP}`));

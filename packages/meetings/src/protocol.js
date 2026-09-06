@@ -517,11 +517,27 @@ export const ROUTES = Object.freeze({
  * @property {number} [rejected]       Rows of a segment batch the merge could
  *   not use — no id, no text, a clock that ran backwards. Present only when
  *   some were dropped, so a client can tell forty-nine stored from fifty.
- * @property {boolean} [folderRejected] The finalize named a `folder` this
- *   gateway will not file into, so the note went to the default. Present only
- *   when that happened, and carrying no copy of what was sent. Without it the
- *   destination control would be back to appearing to work and doing nothing —
- *   which is the whole reason the field exists rather than a nicety.
+ * @property {boolean} [folderRejected] **The folder this finalize named is not
+ *   where this note is.** Two ways that happens, and the contract states both
+ *   because a second client must not have to guess the second: the folder is
+ *   one this gateway will not file into, so the note went to the default; *or*
+ *   the folder was perfectly legal and a different one had already been claimed
+ *   — a second finalize naming somewhere else, or a retry after a failed note
+ *   write — so the note is where the claim put it, which is neither the default
+ *   nor the folder on this request.
+ *
+ *   **This line used to describe only the first case**, while `folderFlag` in
+ *   the gateway has always set the flag for both, and `handleMeetings`' own
+ *   header states the wider rule. A client trusting the narrow version tells
+ *   somebody "this is the default folder" over a note that is nowhere near it,
+ *   which is exactly what the phone's screen said until this was corrected. The
+ *   field *name* stays narrow-sounding and that is fine: "rejected" is what a
+ *   client does about it either way.
+ *
+ *   Present only when it happened, and carrying no copy of what was sent.
+ *   Without it the destination control would be back to appearing to work and
+ *   doing nothing — which is the whole reason the field exists rather than a
+ *   nicety.
  * @property {string} [etag]           Bucket etag of the written note.
  */
 
