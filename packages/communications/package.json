@@ -1,0 +1,21 @@
+{
+  "name": "@context/communications",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Communications core: what a day of one channel becomes in the customer's own bucket — paths, anchors, channel-day notes and contact pages",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./protocol": "./src/protocol.js",
+    "./paths": "./src/paths.js",
+    "./anchors": "./src/anchors.js",
+    "./note": "./src/note.js",
+    "./contacts": "./src/contacts.js"
+  },
+  "scripts": {
+    "test": "node test/test.mjs",
+    "typecheck": "echo \"no typecheck (JSDoc-typed ESM, checked by consumers)\" && exit 0",
+    "lint": "echo \"no lint configured yet\" && exit 0"
+  }
+}
