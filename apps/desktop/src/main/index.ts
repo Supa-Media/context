@@ -17,7 +17,7 @@
  * dropped rather than starting a recording of whatever is happening instead.
  */
 
-import { app, dialog, ipcMain } from "electron";
+import { app, dialog, ipcMain, session } from "electron";
 import type { BrowserWindow } from "electron";
 import { join } from "node:path";
 import { release } from "node:os";
@@ -69,6 +69,8 @@ import { consoleOrigin, consoleUrl } from "../core/shell/console.ts";
 import { darwinMajorFrom, systemAudioCapability } from "../core/shell/capabilities.ts";
 import { createConsoleBridge } from "./consoleBridge.ts";
 import type { ConsoleBridge } from "./consoleBridge.ts";
+import { createConsoleMirror, registerMirrorScheme } from "./consoleMirror.ts";
+import type { ConsoleMirror } from "./consoleMirror.ts";
 import type {
   CaptureStarted,
   CaptureStateUpdate,
@@ -127,6 +129,14 @@ let connecting = false;
  */
 let consoleWindow: BrowserWindow | null = null;
 let consoleBridge: ConsoleBridge | null = null;
+/**
+ * The offline mirror, and the authority on which origin is pinned.
+ *
+ * `null` until a console window is opened, and the bridge reads
+ * `pinnedOrigin()` through a getter for it — a shell serving the mirror trusts
+ * `app://console` *instead of* the live origin, never as well as it.
+ */
+let consoleMirror: ConsoleMirror | null = null;
 
 let connectError: string | null = null;
 
@@ -911,9 +921,26 @@ async function main(): Promise<void> {
       return;
     }
 
+    const origin = consoleOrigin(url);
+    consoleMirror = createConsoleMirror({
+      liveUrl: url,
+      liveOrigin: origin,
+      userDataDir: app.getPath("userData"),
+      appVersion: app.getVersion(),
+      // The console window's own partition, so `app://console` exists for that
+      // window and for nothing else this app ever loads.
+      session: session.fromPartition("persist:console"),
+    });
+
     consoleBridge = createConsoleBridge({
       ipc: ipcMain,
-      pinned: consoleOrigin(url),
+      /*
+        Read on every channel rather than captured once: the pin moves to
+        `app://console` when the network goes and back when it returns, and a
+        bridge holding the origin it was built with would answer the wrong one
+        in both directions.
+      */
+      pinned: () => consoleMirror?.pinnedOrigin() ?? origin,
       window: () => consoleWindow,
       shell: () => ({ app: app.getName(), version: app.getVersion(), platform: "macos" }),
       capabilities: shellCapabilities,
@@ -950,6 +977,9 @@ async function main(): Promise<void> {
     });
 
     consoleWindow = createConsoleWindow(url, RENDERER_DIR);
+    // Before the load can finish or fail: the mirror owns `did-fail-load`, and
+    // a fallback wired after the first load is a fallback that misses it.
+    consoleMirror.attach(consoleWindow);
     consoleWindow.once("ready-to-show", () => consoleWindow?.show());
     consoleWindow.on("closed", () => {
       /*
@@ -963,6 +993,7 @@ async function main(): Promise<void> {
       consoleWindow = null;
       consoleBridge?.dispose();
       consoleBridge = null;
+      consoleMirror = null;
     });
   }
 
@@ -1116,6 +1147,14 @@ async function main(): Promise<void> {
     void endMeeting().then(() => app.quit());
   });
 }
+
+/*
+  Before `whenReady`, because `registerSchemesAsPrivileged` may not be called
+  after it — and without it `app://console` is an opaque origin, which
+  `shouldExposeBridge` refuses (correctly), so the offline console would load
+  with no bridge and nothing to say about the queue.
+*/
+if (CONSOLE_UI) registerMirrorScheme();
 
 app.whenReady().then(main);
 
