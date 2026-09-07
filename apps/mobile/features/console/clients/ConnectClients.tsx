@@ -10,6 +10,7 @@ import { openProviderLink } from "./open";
 import {
   CLIENT_PROVIDERS,
   connectedCountsByProvider,
+  CUSTOMIZATION_INSTRUCTION,
   fieldsCaption,
   type ClientProvider,
 } from "./providers";
@@ -240,6 +241,24 @@ function ProviderRow({
               />
             </View>
           ))}
+
+          {/*
+            The connector grant makes `orient` reachable; it does not make this
+            client call it. This is the sentence that does — pasted somewhere
+            the client re-reads before every answer rather than a tool it might
+            skim, so it survives after the fields above are forgotten.
+          */}
+          <View style={styles.field}>
+            <Text variant="eyebrow">Make it permanent</Text>
+            <CopyField
+              value={CUSTOMIZATION_INSTRUCTION}
+              label={`Copy the customization instruction for ${provider.name}`}
+              testID={`provider-${provider.id}-customization`}
+            />
+            <Text variant="foot" style={styles.caption}>
+              {provider.customization.hint}
+            </Text>
+          </View>
 
           <Text variant="foot" style={styles.after}>
             {AFTER_SENTENCE}
