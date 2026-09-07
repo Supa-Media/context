@@ -75,7 +75,7 @@ import type { Visibility } from "./types";
  * - **The leaf, and the folders, and nothing else.** This is a *position*: the
  *   line answers "where am I" completely, or it does not answer it. See the
  *   header for what deleting the leaf cost, and `crumbs.ts` for the cap that
- *   makes a deep path fit without dragging the row.
+ *   keeps a deep path a bounded row rather than one that grows with the tree.
  * - **No visibility chip.** A note carries it as a Properties row and a folder
  *   states it in a sentence directly beneath. Both are fuller than the brief
  *   chip, and both are already on screen.
@@ -103,11 +103,11 @@ import type { Visibility } from "./types";
  *
  * What the row cannot absorb is **depth**, and that is a different question the
  * same rule was answering badly. The segment that scrolls off the trailing edge
- * is the leaf, which is the one this line exists to state, and somebody who has
- * to drag a row they have no reason to think is draggable in order to read it
- * has the non-answer back with a gesture in front of it. So `crumbs.ts` caps
+ * is the leaf, which is the one this line exists to state. So `crumbs.ts` caps
  * the **count** at `MAX_FOLDER_CRUMBS` and elides the middle to `…`; every
- * label that is drawn is drawn whole.
+ * label that is drawn is drawn whole. The cap bounds the row rather than
+ * guaranteeing a fit — names are the customer's, so no count is a width, and
+ * `crumbs.ts` records what was measured at 390pt and what it actually buys.
  *
  * The scroller is one level up because the context button scrolls **with** these
  * segments: they are one line, and a button that stayed still while its own path

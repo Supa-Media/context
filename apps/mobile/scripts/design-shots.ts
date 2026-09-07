@@ -83,26 +83,57 @@ const WIDE_HEIGHT = 900;
 const OUT = resolve(__dirname, "../../../docs/design/obsidian-parity");
 
 const mockInsets = { top: 59, bottom: 34, left: 0, right: 0 };
-let mockPathname = "/console/@seyi";
+
+/**
+ * The address bar, as mutable state.
+ *
+ * It used to be a constant pathname and a `replace` that did nothing, which was
+ * enough while every shot was of a note already open. It stopped being enough
+ * when the way up became a **control that navigates**: the pill at the head of
+ * the band presses to `/console/@seyi`, and a router that swallowed that left
+ * the file-browsing shot with no way to reach the context's own page. See
+ * `breadcrumb-shots.ts`, which is this pattern's own file.
+ */
+const mockUrl: { pathname: string; note?: string } = { pathname: "/console/@seyi" };
 
 jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => mockInsets,
 }));
 
-jest.mock("expo-router", () => ({
-  Slot: () => {
-    const { createElement: h } =
-      require("react") as typeof import("react");
-    const { BrowsePane } =
-      require("../features/console/panes/BrowsePane") as typeof import("../features/console/panes/BrowsePane");
-    const { useConsoleData } =
-      require("../features/console/ConsoleDataContext") as typeof import("../features/console/ConsoleDataContext");
-    return h(BrowsePane, { data: useConsoleData() });
-  },
-  Redirect: () => null,
-  useRouter: () => ({ replace: () => {}, push: () => {} }),
-  usePathname: () => mockPathname,
-}));
+jest.mock("expo-router", () => {
+  const go = (href: string) => {
+    const [pathname, query] = href.split("?");
+    mockUrl.pathname = pathname ?? "/console";
+    const asked = query?.startsWith("note=") === true ? query.slice(5) : undefined;
+    mockUrl.note = asked === undefined ? undefined : decodeURIComponent(asked);
+  };
+  return {
+    /*
+      The real route, not `BrowsePane` directly. It is what carries
+      `useNoteAddress`, and without it a press that navigates is a press that
+      does nothing here.
+    */
+    Slot: () => {
+      const { createElement: h } = require("react") as typeof import("react");
+      const Route = (
+        require("../app/(app)/console/[slug]/index") as { default: () => unknown }
+      ).default;
+      return h(Route as never);
+    },
+    Redirect: () => null,
+    useRouter: () => ({ replace: go, push: go }),
+    usePathname: () => mockUrl.pathname,
+    useLocalSearchParams: () => ({
+      slug: mockUrl.pathname.replace("/console/", ""),
+      note: mockUrl.note,
+    }),
+    useNavigation: () => ({
+      setParams: ({ note }: { note?: string }) => {
+        mockUrl.note = note;
+      },
+    }),
+  };
+});
 
 jest.mock("@convex-dev/auth/react", () => ({
   useAuthActions: () => ({ signOut: async () => {} }),
@@ -227,19 +258,35 @@ function press(node: Element | null): void {
 
 function shoot(
   name: string,
-  prepare: (container: HTMLElement) => void = () => {},
+  prepare: (container: HTMLElement, settle: () => void) => void = () => {},
   size: { width: number; height: number } = { width: WIDTH, height: HEIGHT },
 ): void {
   stampViewport(size.width, size.height);
+  // Each shot starts at the context's own URL. The router mock is module state
+  // now, so a shot that navigated would otherwise hand its address to the next.
+  mockUrl.pathname = "/console/@seyi";
+  mockUrl.note = undefined;
 
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
 
-  act(() => {
-    root.render(createElement(ConsoleLayout as never));
-  });
-  prepare(container);
+  const render = () => {
+    act(() => {
+      root.render(createElement(ConsoleLayout as never));
+    });
+  };
+  render();
+  /*
+    A navigation here is several commits — the URL, the console selecting the
+    context it names, the browser catching up, the mirror opening or closing the
+    note — and `mockUrl` is not React state, so nothing schedules the next one.
+    A shot that presses something has to say when it is done pressing.
+  */
+  const settle = () => {
+    for (let pass = 0; pass < 6; pass += 1) render();
+  };
+  prepare(container, settle);
 
   /*
     Every stylesheet on the page, not only react-native-web's.
@@ -279,23 +326,6 @@ const find = (container: HTMLElement, testId: string) =>
 function need(container: HTMLElement, testId: string): HTMLElement {
   const node = find(container, testId);
   if (node === null) throw new Error(`no element with testID ${testId}`);
-  return node;
-}
-
-/**
- * A control by its accessible name, and **it throws when there is none.**
- *
- * Three of the shots below used to find a row with `.find(…)` and then
- * `if (row !== undefined) press(row)`. Every one of those predicates had gone
- * stale — the demo console opens on `1-projects/context-lc.md` already, and no
- * row is labelled `overview`, `bandshell-permit` or `context-lc` — so three
- * presses were doing nothing and three pictures were of a screen nobody had
- * asked for, with no way to tell from the output. A missing control is a
- * failure here, not a skip.
- */
-function byLabel(container: HTMLElement, label: string): HTMLElement {
-  const node = container.querySelector<HTMLElement>(`[aria-label="${label}"]`);
-  if (node === null) throw new Error(`no control labelled ${label}`);
   return node;
 }
 
@@ -413,11 +443,21 @@ describe("design shots", () => {
    * exactly the kind of wrong evidence this file exists to avoid producing.
    */
   test("the context root, which is how a phone browses files", () => {
-    shoot("context-files", (container) => {
-      // The note's own path bar is the way up on a phone — there is no
-      // breadcrumb at this density and no tree to go back to. Its leading
-      // segment is the context, and it selects `""`, which is the root.
-      press(byLabel(container, "Open @seyi"));
+    shoot("context-files", (container, settle) => {
+      /*
+        The lit context pill is the way up on a phone — there is no tree to go
+        back to — and pressing it opens the context at its root.
+
+        **It was `byLabel(container, "Open @seyi")`**, a monospace segment at
+        the head of the path, and that segment stopped existing when the context
+        moved into the band as a control. So this threw, and this file was red
+        again in exactly the way its header describes. The pill's press is a
+        `router.replace`, which the router mock here swallows — so the state is
+        set directly and the press is what `navBand.test.ts` and
+        `breadcrumbRoot.test.ts` own.
+      */
+      press(need(container, "nav-context-seyi"));
+      settle();
       need(container, "folder-row");
       need(container, "context-foot");
       // And the chrome it has instead of a panel, so a reader can see that the

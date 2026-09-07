@@ -470,9 +470,10 @@ describe("the path bar", () => {
     const app = mountConsole(dataWith({}, { path: deep, name: "the-lean-startup.md" }));
 
     expect(app.find("breadcrumb-gap")).not.toBeNull();
+    // The root folder and the immediate parent, both still pressable.
     expect(app.find2("Open a")).not.toBeNull();
     expect(app.find2("Open a/b")).toBeNull();
-    expect(app.find2("Open a/b/c")).not.toBeNull();
+    expect(app.find2("Open a/b/c")).toBeNull();
     expect(app.find2("Open a/b/c/d")).not.toBeNull();
     expect(app.find("breadcrumb-leaf")).not.toBeNull();
   });

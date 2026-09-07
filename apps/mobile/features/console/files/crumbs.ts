@@ -30,16 +30,30 @@
  * `ContextStrip`'s rule — nothing truncates, the row gets longer, the scroll
  * absorbs it — is right about *names*: `3-resour…` and `3-resour…` are two
  * folders that look identical on the control whose whole job is telling them
- * apart. It is wrong as an answer for **depth**, because the segment scrolling
- * off the end is the leaf, and the leaf is what the line is for. Somebody who
- * has to drag a row they have no reason to think is draggable in order to learn
- * which note is open has the same non-answer as before, one gesture further
- * away.
+ * apart. It is not an answer for **depth**, because the segment that scrolls
+ * off the trailing edge is the leaf, and the leaf is what the line is for.
  *
- * So the middle folders are elided to `…` past `MAX_FOLDER_CRUMBS`, the first
- * and the last two are kept, and no label is ever shortened. Nothing becomes
- * unreachable: the first folder is drawn and pressing it lists what is under
- * it, which is how anybody got to the hidden ones in the first place.
+ * So past `MAX_FOLDER_CRUMBS` the middle folders are elided to `…`, keeping the
+ * root folder and the immediate parent — the classic breadcrumb shape, and the
+ * tightest one that still says where you are. No label is ever shortened, and
+ * nothing becomes unreachable: the first folder is drawn and pressing it lists
+ * what is under it, which is how anybody reached the hidden ones in the first
+ * place.
+ *
+ * **What the cap does not do is guarantee a fit, and it cannot.** Segment names
+ * are the customer's, so no count is a width; measured in a browser at 390pt,
+ * an ordinary PARA path (one or two folders) puts the leaf comfortably on
+ * screen and `3-resources/…/2026/the-lean-startup` is still about 30pt over.
+ * What the cap buys is a **bounded** row rather than one that grows with the
+ * tree: uncapped, that same path put the leaf 130pt past the edge, and a
+ * six-folder path would put it further.
+ *
+ * The row stays anchored at its leading edge when it does overflow, which is a
+ * choice about what may go off screen. The pill in front of these is a
+ * **control** — the way up, and the thing this whole band was rebuilt for — and
+ * the leaf is a *statement*, which the document under it also makes. A control
+ * you cannot reach is worse than a fact you have to scroll to; `NavBand`'s fade
+ * is what says there is more.
  */
 
 /** One element of the path line. */
@@ -65,10 +79,14 @@ export type Crumb =
 /**
  * How many folder segments a narrow row draws before eliding.
  *
- * Three, on a 390pt screen, beside a context pill and in front of the leaf.
- * Exported so the test asserts the number rather than restating it.
+ * Two — the root folder and the immediate parent — beside a context pill and in
+ * front of the leaf. Three was tried and measured at 390pt: it left the leaf
+ * further off the edge than two did on the same path, and the extra segment it
+ * bought is the *middle* of the path, which is the part a breadcrumb is least
+ * often read for. Exported so the test asserts the number rather than restating
+ * it.
  */
-export const MAX_FOLDER_CRUMBS = 3;
+export const MAX_FOLDER_CRUMBS = 2;
 
 export function crumbsFor(
   path: string,
@@ -116,17 +134,31 @@ export function crumbsFor(
     path: segments.slice(0, index + 1).join("/"),
   }));
 
-  if (maxFolders === null || folders.length <= maxFolders) return [...folders, leaf];
+  /*
+    **The cap is floored at two**, and that is a real guard rather than
+    defensive padding: the elided shape is *first, gap, last*, so it costs two
+    folders by construction. Asked for one, `slice(-0)` is `slice(0)` — the
+    whole array — and the answer to "draw fewer" would have been the entire path
+    with an ellipsis in the middle of it. A cap of one has no shape, so the
+    smallest one that does is what it gets.
+
+    It is floored **before** the comparison below, not after. Floored after, a
+    two-folder path under a cap of one would elide into *first, gap, last* over
+    the same two folders — a gap standing for nothing, which is worse than
+    either answer it is between.
+  */
+  const cap = maxFolders === null ? null : Math.max(2, maxFolders);
+  if (cap === null || folders.length <= cap) return [...folders, leaf];
 
   /*
-    First, gap, last two.
+    First, gap, and the last `cap - 1`.
 
     The first is the PARA bucket — `1-projects`, `3-resources` — which is where
-    somebody goes to start again, and the last two are the immediate parent and
-    its parent, which is where they go to step back. What is dropped is the
-    middle, which is the part a path is least often read for.
+    somebody goes to start again, and the last is the immediate parent, which is
+    where they go to step back. What is dropped is the middle, which is the part
+    a path is least often read for.
   */
-  const kept = folders.slice(-(maxFolders - 1));
+  const kept = folders.slice(-(cap - 1));
   const hidden = folders.slice(1, folders.length - kept.length).map((crumb) => crumb.label);
   return [folders[0]!, { kind: "gap", hidden }, ...kept, leaf];
 }

@@ -96,7 +96,9 @@ describe("the path of the place you are in", () => {
 
   /** What a folder segment presses to: its own listing, not its parent's. */
   test("every folder segment carries the path it opens", () => {
-    const crumbs = crumbsFor("3-resources/books/reading/notes.md");
+    // `maxFolders: null` so this is about the paths rather than about the cap,
+    // which the last block of this file is the subject of.
+    const crumbs = crumbsFor("3-resources/books/reading/notes.md", { maxFolders: null });
     expect(crumbs.map((crumb) => (crumb.kind === "gap" ? null : crumb.path))).toEqual([
       "3-resources",
       "3-resources/books",
@@ -129,26 +131,31 @@ describe("what a title does to the last segment", () => {
 
 describe("fitting a deep path on a 390pt screen", () => {
   /**
-   * The band scrolls, and scrolling is not an answer for the segment that says
+   * The band scrolls, and scrolling is a poor answer for the segment that says
    * *where you are*: it starts off-screen and stays there until somebody thinks
    * to drag a row they have no reason to think is draggable. So the number of
-   * folder segments is capped and the middle ones are elided.
+   * folder segments is capped and the middle ones are elided — the root folder
+   * and the immediate parent kept, which is the classic breadcrumb shape.
    *
    * **No segment's own text is ever truncated** — that is `ContextStrip`'s rule
    * and it is untouched: two folders ellipsised to `3-resour…` are two folders
    * that look identical on the control whose job is telling them apart. What is
    * capped is how many of them are drawn.
    *
+   * The cap does not *guarantee* a fit and cannot — segment names are the
+   * customer's, so no count is a width. `crumbs.ts` records what was measured
+   * in a browser at 390pt and what the cap actually buys.
+   *
    * SABOTAGE: removed the elision. Fails here.
    */
-  test("more than three folders elides the middle, never the last", () => {
-    expect(labels("a/b/c/d/note.md")).toEqual(["a", "…", "c", "d", "note"]);
-    expect(labels("a/b/c/d/e/f/note.md")).toEqual(["a", "…", "e", "f", "note"]);
+  test("more than two folders elides the middle, never the last", () => {
+    expect(labels("a/b/c/note.md")).toEqual(["a", "…", "c", "note"]);
+    expect(labels("a/b/c/d/e/f/note.md")).toEqual(["a", "…", "f", "note"]);
   });
 
-  test("three folders or fewer are drawn whole", () => {
-    expect(MAX_FOLDER_CRUMBS).toBe(3);
-    expect(labels("a/b/c/note.md")).toEqual(["a", "b", "c", "note"]);
+  test("two folders or fewer are drawn whole", () => {
+    expect(MAX_FOLDER_CRUMBS).toBe(2);
+    expect(labels("a/b/note.md")).toEqual(["a", "b", "note"]);
   });
 
   /**
@@ -176,7 +183,64 @@ describe("fitting a deep path on a 390pt screen", () => {
    */
   test("the gap names what it hides", () => {
     const gap = crumbsFor("a/b/c/d/e/note.md").find((crumb) => crumb.kind === "gap");
-    expect(gap).toEqual({ kind: "gap", hidden: ["b", "c"] });
+    expect(gap).toEqual({ kind: "gap", hidden: ["b", "c", "d"] });
+  });
+
+  /**
+   * The root folder is kept as well as the parent, and both are pressable.
+   * That is what stops the elision hiding anything for good: the PARA bucket is
+   * one press away and its listing is how anybody reached the middle folders in
+   * the first place.
+   */
+  test("the two folders kept are the root and the immediate parent, both live", () => {
+    const crumbs = crumbsFor("3-resources/books/reading/notes.md");
+    expect(crumbs.map((crumb) => (crumb.kind === "gap" ? "…" : crumb.path))).toEqual([
+      "3-resources",
+      "…",
+      "3-resources/books/reading",
+      "3-resources/books/reading/notes.md",
+    ]);
+  });
+
+  /**
+   * The cap is a cap, at every depth and every setting — the property the
+   * hand-written cases above are examples of, and the one a future edit to the
+   * slicing would break silently.
+   *
+   * SABOTAGE: `slice(-(maxFolders - 1))` with the floor removed, then
+   * `maxFolders: 1`. Fails here with the *whole* path returned, an ellipsis in
+   * the middle of it — which is what `slice(-0)` means and what the floor in
+   * `crumbsFor` exists to stop.
+   */
+  test("never more folder segments than the cap, whatever it is asked for", () => {
+    for (const cap of [1, 2, 3, 5]) {
+      for (let depth = 0; depth < 10; depth += 1) {
+        const path = `${Array.from({ length: depth }, (_, i) => `f${i}`).join("/")}/note.md`;
+        const folders = crumbsFor(path, { maxFolders: cap }).filter(
+          (crumb) => crumb.kind === "folder",
+        );
+        expect(folders.length).toBeLessThanOrEqual(Math.max(2, cap));
+      }
+    }
+  });
+
+  /**
+   * A gap stands for folders, so a gap standing for none is a mark that means
+   * nothing — worse than either answer it sits between.
+   *
+   * SABOTAGE: floored the cap *after* the "is it short enough" comparison
+   * instead of before it, then `maxFolders: 1`. Fails here on `a/b/note.md`,
+   * which elides two folders into first-gap-last over the same two.
+   */
+  test("a gap always stands for at least one folder", () => {
+    for (const cap of [1, 2, 3]) {
+      for (let depth = 0; depth < 8; depth += 1) {
+        const path = `${Array.from({ length: depth }, (_, i) => `f${i}`).join("/")}/note.md`;
+        for (const crumb of crumbsFor(path, { maxFolders: cap })) {
+          if (crumb.kind === "gap") expect(crumb.hidden.length).toBeGreaterThan(0);
+        }
+      }
+    }
   });
 
   /**

@@ -2057,13 +2057,27 @@ The count of segments is capped and no label is ever shortened, which is
 about **names** — `3-resour…` and `3-resour…` are two folders that look
 identical on the control whose job is telling them apart. It is not an answer
 for **depth**, because the segment that scrolls off the trailing edge is the
-leaf, and somebody who has to drag a row they have no reason to think is
-draggable in order to learn which note is open has the same non-answer with a
-gesture in front of it. Past `MAX_FOLDER_CRUMBS` (three) the middle elides to
-`…`, keeping the first folder — the PARA bucket, where you go to start again —
-and the last two — the parent and its parent, where you go to step back. Nothing
-becomes unreachable: the first folder is drawn and pressing it lists what is
-under it, which is how anybody reached the hidden ones in the first place.
+leaf. Past `MAX_FOLDER_CRUMBS` the middle elides to `…`, keeping the root folder
+— the PARA bucket, where you go to start again — and the immediate parent, where
+you go to step back. Nothing becomes unreachable: both are pressable, and the
+root folder's listing is how anybody reached the hidden ones in the first place.
+
+**Two, not three, and the number came out of a browser rather than out of the
+argument.** Three was written first and then measured at 390pt with Playwright:
+`3-resources/books/reading-notes/2026/the-lean-startup.md` elided to three
+folders still put the leaf 137pt past the edge, and to two put it 27pt past.
+Which is the honest conclusion — **a count cap cannot guarantee a fit**, because
+segment names belong to the customer and no count is a width. What it buys is a
+row that is *bounded* instead of one that grows with the tree, and the segment
+it drops is the middle of the path, which is the part a breadcrumb is least read
+for.
+
+The row stays anchored at its **leading** edge when it does overflow, and that
+is a choice about what may go off screen. The pill is a control — the way up,
+and the thing this whole change is about — while the leaf is a statement the
+document under it also makes. A control you cannot reach is worse than a fact
+you have to scroll to, and `NavBand`'s trailing fade is what says there is
+more.
 
 `crumbs.ts` is one pure function and both renderers map over it, the pointer
 layout passing `maxFolders: null` because it has the width for the whole path
@@ -2107,7 +2121,11 @@ you were there), `noteChrome.test.ts` the rendered band, `linkedNote.test.ts`
 the close against the real `useFileBrowser`, and `settingsClose.test.ts` the
 one href a tidy-up would undo.
 
-**What is not covered here**: the elision was chosen for a 390pt viewport and
-checked in a browser at that size, not on a device. Whether three folder
-segments plus a leaf plus a pill is the right budget on a 320pt phone is a
-number to revisit with one in hand, not an invariant.
+**What is not covered here**: the numbers came from Chromium at 390x844 driving
+the real components against the landing page's demo data, not from a device.
+Whether two folder segments plus a leaf plus a pill is the right budget on a
+320pt phone, and whether the trailing fade reads as "there is more" to somebody
+who has not been told, are questions for a phone in a hand — a number to
+revisit, not an invariant. The screenshots that settled the count are attached
+to the pull request rather than committed: they are evidence for one decision,
+not a fixture anything reads.
