@@ -58,12 +58,12 @@ export type { TranscriptSegment };
  * the **UI** is the half that has to be backward compatible, because it is the
  * half that can be updated in an afternoon.
  */
-export const BRIDGE_VERSION = 3;
+export const BRIDGE_VERSION = 4;
 
 /**
  * The oldest bridge this bundle will still talk to.
  *
- * **Still 1 now that `BRIDGE_VERSION` is 3**, and that is the whole reason it
+ * **Still 1 now that `BRIDGE_VERSION` is 4**, and that is the whole reason it
  * was written as a second constant: raising the ceiling is not the same edit as
  * dropping support for the shells already installed, and a shell somebody
  * installed in March answers `1` and is doing nothing wrong. A version-1 shell
@@ -72,6 +72,12 @@ export const BRIDGE_VERSION = 3;
  * version-2 shell has no `connection.pendingApproval`, so the page never offers
  * to mint its machine grant and that shell keeps approving in its own window,
  * which is what #312 shipped and what still happens whenever this is refused.
+ * A version-3 shell sends no `CaptureStateUpdate.notice` and no
+ * `CaptureSummary.frames`, and both are *absences a normaliser fills in* —
+ * `null` and `0` — rather than members to be guarded. The number moved anyway,
+ * because the ceiling records what a shell can be asked to say, and "this build
+ * cannot tell you why it stopped transcribing" is a fact about a shell that
+ * somebody staring at an empty transcript has to be able to read.
  */
 export const MIN_BRIDGE_VERSION = 1;
 
@@ -211,6 +217,22 @@ export interface CaptureSummary {
   durationMs: number;
   /** How many segments were emitted, so "nothing was heard" can be said out loud. */
   segments: number;
+  /**
+   * How many chunks of audio the recorder produced, which is not `segments`.
+   *
+   * The two answer different questions and the whole value is in the pair.
+   * `frames: 0` is **the microphone never produced anything** — a dead input, a
+   * rotation that never fired. `frames: 3, segments: 0` is **audio was captured
+   * and the far end would not take it**. Different faults, different fixes, and
+   * indistinguishable from this payload until this field existed: the count has
+   * been kept in `main/capture.ts` since the recorder was written and was read
+   * once, for `recordedMs`, then discarded.
+   *
+   * It is what made the `SEGMENT_MS`/`DRAIN_INTERVAL_MS` race diagnosable at
+   * all, and it was only available by patching `fetch` in the main process by
+   * hand. Nobody should have to do that twice.
+   */
+  frames: number;
   /** Writes the shell's queue is still holding for this session. */
   pending: number;
 }

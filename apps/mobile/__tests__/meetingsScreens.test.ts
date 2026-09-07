@@ -397,6 +397,40 @@ describe("the live screen is a notepad with a recorder attached", () => {
     mounted.unmount();
   });
 
+  /**
+   * THE SENTENCE THAT SAYS THE TRANSCRIPT HAS STOPPED IS ON THE GLASS.
+   *
+   * The last link in the chain the desktop bridge's `notice` field opened. The
+   * shell raises `CAPTURE_NOTICES.refused` — "this meeting is not being
+   * transcribed" — `desktop.ts` reports it as a recorder error, the controller
+   * puts it on `captureError`, and *this* is where somebody actually reads it.
+   * A field nothing displayed would repeat the original defect one layer up:
+   * for a whole day the only place an empty transcript announced itself was the
+   * empty transcript.
+   *
+   * The chip outranks "Listening", which is the point — a meeting that is not
+   * being transcribed must not go on claiming that it is.
+   */
+  test("a notice from the recorder replaces the transcript chip", async () => {
+    const { recorder } = await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Reboot Camp" });
+    });
+    const mounted = mount(createElement(LiveMeetingScreen, { meetingId: id }));
+    expect(mounted.container.textContent).toContain("Listening");
+
+    const refused =
+      "This meeting is not being transcribed — the gateway would not accept the audio. Your notes and the meeting still land in your bucket.";
+    act(() => {
+      (recorder as ReturnType<typeof fakeRecorder>).fail({ recoverable: false, message: refused });
+    });
+
+    expect(mounted.container.textContent).toContain("not being transcribed");
+    expect(mounted.container.textContent).not.toContain("Listening");
+    mounted.unmount();
+  });
+
   test("End does not navigate — the same route becomes the note", async () => {
     await configure();
     let id = "";

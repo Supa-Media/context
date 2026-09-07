@@ -35,53 +35,54 @@ const TIMEOUT_MS = 45_000;
 /**
  * Refusals that will answer the same way for every chunk of this meeting.
  *
- * `meeting_forbidden` is the grant, `meeting_invalid` is the request shape, and
- * a 404 is a gateway with no transcription route at all — which is the state
- * every deployment is in until somebody configures one, and precisely the case
- * that must not produce a message every twenty seconds for an hour.
+ * **405 and 501 are the permanent ones, and 404 is deliberately not.** 501 is
+ * this gateway's own documented answer for "no transcription service is
+ * configured here" — `apps/mcp/src/meetings/transcribe.js` throws it by name,
+ * for exactly the reason that a client must not ask again every twenty seconds
+ * for an hour — and 405 is a route that exists and does not take a POST. Both
+ * are stable facts about a deployment.
+ *
+ * `meeting_forbidden` on any other status is the grant, and `meeting_invalid`
+ * is the request shape. Both stay permanent.
  */
 function permanent(status: number, code: string): boolean {
-  // The one answer a single reply cannot settle, and the exception is stated
-  // first so the two functions below cannot drift into disagreeing. See
-  // `sessionUnknown`.
-  if (sessionUnknown(status, code)) return false;
-  if (status === 404 || status === 405 || status === 501) return true;
+  if (status === 405 || status === 501) return true;
+  // A 404 is never settled by one reply. See `notYet`.
+  if (notYet(status)) return false;
   return code === ERRORS.forbidden || code === ERRORS.invalid;
 }
 
 /**
- * THE ONE REFUSAL THAT MEANS "NOT YET" AS OFTEN AS IT MEANS "NEVER".
+ * "I DO NOT KNOW THAT", WHICH ON THIS PATH IS AS OFTEN "NOT YET".
  *
- * `apps/mcp/src/meetings/transcribe.js`'s `sessionGone()` answers **404 with
- * `meeting_forbidden`** for three different worlds and says so in its own
- * comment: another workspace's session, one that never existed, and one that
- * has not been written yet. The third is not an edge case on this path — the
- * session row and the audio are two different requests, sent by two different
- * mechanisms (the outbox and this file), and this client does not control which
- * lands first. It is the shape of a race, not of a permission.
+ * `apps/mcp/src/meetings/transcribe.js`'s `sessionGone()` answers **404** for
+ * three different worlds and says so in its own comment: another workspace's
+ * session, one that never existed, and one that has not been written yet. That
+ * it cannot tell them apart **is the tenant-isolation guarantee, not a defect**
+ * — one code for "not yours" and "not there" is what stops a caller
+ * enumerating another workspace's meetings by watching which id answers
+ * differently. The gateway is right; the ordering belongs on this side.
  *
- * Read as permanent, one such answer discards **the entire meeting's audio**:
- * `gatewayTranscriber` sets `givenUp` and silently drops every remaining chunk,
- * including all the ones that would have succeeded the moment the session
- * arrived. That is what shipped, and with `SEGMENT_MS` (20 s) under
- * `DRAIN_INTERVAL_MS` (30 s) it happened on the first chunk of every recording.
+ * And the third world is the ordinary one here, because the session row and the
+ * audio are two different requests sent by two different mechanisms — the
+ * outbox and this file — and this client does not control which lands first.
+ * That is the shape of a race, not of a permission.
  *
- * So it is **not permanent** — one reply cannot make it so — and it is carried
- * as its own fact besides, so the caller can spend a small budget of them before
- * concluding "never". Both, rather than either: dropping it out of `permanent`
- * alone would leave a genuinely forbidden meeting uploading a full chunk of
- * audio every twenty seconds for its whole length, and carrying only the extra
- * flag would leave `permanent` asserting something a single answer cannot know —
- * which is how the next reader of that bit alone loses a meeting again.
+ * Read as permanent, one such answer discarded **the entire meeting's audio**:
+ * `gatewayTranscriber` set `givenUp` and silently dropped every remaining
+ * chunk, including all the ones that would have succeeded the moment the row
+ * arrived. With `SEGMENT_MS` (20 s) under `DRAIN_INTERVAL_MS` (30 s) that
+ * happened on the first chunk of every recording ever made.
  *
- * Deliberately narrow. A **bare** 404 — no meetings error code — is still
- * permanent and still means "this gateway has no transcription route", which is
- * a different sentence about a different thing. So is a 403 with
- * `meeting_forbidden`, which is the grant being refused rather than the meeting
- * being unknown.
+ * So **every** 404 is provisional, not only the one carrying
+ * `meeting_forbidden`. A bare 404 from a proxy, a gateway too old to have this
+ * route, a captive portal answering plausibly — none of those is worth a
+ * meeting, and 501 is the answer a deployment that genuinely has no
+ * transcription gives. **One unlucky 404 must never discard a meeting.** The
+ * caller bounds it on a clock instead; see `NOT_YET_GRACE_MS`.
  */
-function sessionUnknown(status: number, code: string): boolean {
-  return status === 404 && code === ERRORS.forbidden;
+function notYet(status: number): boolean {
+  return status === 404;
 }
 
 export async function transcribeChunk(
@@ -122,7 +123,7 @@ export async function transcribeChunk(
       throw new TranscribeRefused(
         `the gateway refused a chunk (${response.status})`,
         permanent(response.status, code),
-        sessionUnknown(response.status, code),
+        notYet(response.status),
       );
     }
 

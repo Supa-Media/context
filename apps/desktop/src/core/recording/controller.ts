@@ -69,6 +69,22 @@ export interface SessionView {
   /** True exactly while audio is being captured. Drives the visible indicator. */
   capturing: boolean;
   /**
+   * CHUNKS OF AUDIO THIS MEETING HAS HANDED TO A TRANSCRIBER.
+   *
+   * Counted here and reported separately from `transcript.length` because the
+   * two answer different questions, and telling them apart is what made the
+   * `SEGMENT_MS`/`DRAIN_INTERVAL_MS` race diagnosable at all. Frames 0 is "the
+   * microphone never produced anything" — a dead input, a rotation that never
+   * fired. Frames many with an empty transcript is "audio was captured and the
+   * far end would not take it", which is an entirely different fault with an
+   * entirely different fix, and for a whole day nothing on this device could
+   * distinguish them.
+   *
+   * `main/capture.ts` has always counted this and `RecorderSummary` has always
+   * carried it; it was read once, for `recordedMs`, and the count thrown away.
+   */
+  frames: number;
+  /**
    * Whether this meeting opened a microphone at all.
    *
    * False is a **typed meeting**, which is a first-class outcome rather than a
@@ -188,6 +204,8 @@ export class MeetingController {
   #view: SessionView | null = null;
   #stream: TranscriptionStream | null = null;
   #segments = 0;
+  /** See `SessionView.frames`. Live, so it is readable during the meeting. */
+  #frames = 0;
   #startedAtMs = 0;
   /** See `BeginInput.queueWrites`. True for every meeting this shell starts. */
   #queues = true;
@@ -270,6 +288,7 @@ export class MeetingController {
     this.#queues = input.queueWrites ?? true;
     this.#startedAtMs = startedAt.getTime();
     this.#segments = 0;
+    this.#frames = 0;
 
     this.#view = {
       id,
@@ -288,6 +307,7 @@ export class MeetingController {
       transcriptionLabel: audio ? this.#deps.transcriber.label : "typed",
       audioLeavesDevice: audio ? this.#deps.transcriber.audioLeavesDevice : false,
       capturing: false,
+      frames: 0,
       audio,
       notice: input.notice ?? null,
       notePath: null,
@@ -310,7 +330,21 @@ export class MeetingController {
         await this.#deps.recorder.start({
           channels,
           sampleRate: this.#deps.sampleRate ?? 16_000,
-          onFrame: (frame) => this.#stream?.push(frame),
+          /*
+            Counted on the way past, not inferred afterwards.
+
+            The recorder's own `frames` only exists once `stop()` has been
+            called, and "how much audio has this meeting produced" is a question
+            worth being able to answer *during* the meeting — it is the one that
+            separates a dead microphone from a gateway refusing the audio, and
+            nothing could answer it while a recording was in progress.
+            `end()` reconciles this against the recorder's authoritative count.
+          */
+          onFrame: (frame) => {
+            this.#frames += 1;
+            this.#update({ frames: this.#frames });
+            this.#stream?.push(frame);
+          },
         });
       } catch (error) {
         this.#update({ state: "failed", failureReason: describe(error), capturing: false });
@@ -435,7 +469,18 @@ export class MeetingController {
     this.#stream = null;
 
     const endedAt = this.#deps.now().toISOString();
-    this.#update({ recordedMs: summary.recordedMs, capturing: false });
+    /*
+      The recorder's count wins at the end, and this is the only place the two
+      can disagree.
+
+      `#frames` counts what reached the transcriber's sink; `summary.frames`
+      counts what the recorder produced. They are the same number today —
+      `main/capture.ts` increments and calls the sink in one place — and if a
+      future recorder ever drops a frame between the two, the honest answer to
+      "how much audio did this meeting produce" is the recorder's.
+    */
+    this.#frames = summary.frames;
+    this.#update({ recordedMs: summary.recordedMs, frames: summary.frames, capturing: false });
     this.#queue("session", { ...this.#sessionBody(), state: "finalizing", endedAt, recordedMs: summary.recordedMs });
     this.#queue("finalize", {
       sessionId: view.id,

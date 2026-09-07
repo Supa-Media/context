@@ -29,21 +29,39 @@
  *
  * ## Sabotage record
  *
- * Run as temporary local edits and reverted:
+ * Run as temporary local edits and reverted. Counts are for **this file only**;
+ * most of these redden checks elsewhere too, and `transcriber.test.mjs`,
+ * `transcribeRequest.test.mjs`, `controller.test.mjs` and
+ * `consoleBridge.test.mjs` carry their own rows.
  *
- *   `requestDrain` never called from `begin()` (the shipped defect)             5
- *   `drainUrgency("session")` returning "timer" (the same defect, stated)       6
- *   404 + `meeting_forbidden` read as permanent again                           4
- *   `UNKNOWN_SESSION_GRACE` reduced to 1                                        3
- *   the unknown-session budget spent on the first answer                        4
- *   the drain hung off `#queue` instead of `begin()` (a request per keystroke)  1
+ *   the race
+ *     `requestDrain` never called from `begin()` (the shipped defect)          6
+ *     `drainUrgency("session")` returning "timer"                             7
+ *     the drain hung off `#queue` (one request per keystroke of the title)     1
+ *     the console path no longer draining a session write                      1
+ *     the shell no longer handing the controller a drain                       1
  *
- * Counts for this file only; several of those redden checks elsewhere too, and
- * `transcriber.test.mjs` and `transcribeRequest.test.mjs` carry their own rows.
- * The rows fail on different checks on purpose — the first two are the race, the
- * next three are the meeting surviving one, and the last is the regression that
- * the obvious placement of the first fix would have introduced — which is what
- * says these are separate properties rather than one written six times.
+ *   the 404
+ *     any 404 read as permanent again (the shipped defect)                     6
+ *     the `notYet` deadline believed on the first answer                       6
+ *     the deadline removed entirely (audio uploaded all meeting)               4
+ *
+ *   the payloads
+ *     the notice zeroed in `captureStateUpdate`                                1
+ *     `frames` zeroed in `stopFromConsole`                                     1
+ *     `captureStateUpdate` renamed, so the text guard cannot find it           1
+ *
+ * They fail on different checks on purpose: the first group is the race, the
+ * second is a meeting surviving one, the third is anybody being able to see
+ * either — which is what says these are separate properties rather than one
+ * written eleven times.
+ *
+ * Two of those rows are worth reading twice. **The drain hung off `#queue`** is
+ * the regression the obvious placement of the first fix would have introduced,
+ * found in review rather than in a test. And the notice row read **0** until
+ * the text guard was scoped to the function: a bare search for
+ * `notice: view.notice` over the whole file is satisfied by the renderer
+ * panel's `UiState`, which sets the same field a few hundred lines up.
  */
 
 import { SEGMENT_MS } from "@context/meetings/chunks";
@@ -53,13 +71,14 @@ import { fakePermissionBroker } from "../src/core/capture/permissions.ts";
 import { fakeRecorder } from "../src/core/capture/recorder.ts";
 import {
   CAPTURE_NOTICES,
-  UNKNOWN_SESSION_GRACE,
+  NOT_YET_GRACE_MS,
   gatewayTranscriber,
 } from "../src/core/capture/gatewayTranscriber.ts";
 import { transcribeChunk } from "../src/main/transcribe.ts";
 import { emptyOutbox, reconcileDrain } from "../src/core/sync/outbox.ts";
 import { DRAIN_INTERVAL_MS, drainOnce, drainUrgency } from "../src/core/sync/drain.ts";
 import { fakeClock } from "./fakes.mjs";
+import { readFileSync } from "node:fs";
 
 const BASE_URL = "https://gateway.example.test";
 const TOKEN = "fake-grant-token-not-a-real-one";
@@ -153,6 +172,9 @@ function shell(impl, { drainOnStart = true } = {}) {
   const controller = new MeetingController({
     recorder,
     transcriber: gatewayTranscriber({
+      // The same clock the queue and the controller read, so "two drain periods"
+      // is a real duration in this harness rather than a number of calls.
+      now: () => clock.ms(),
       send: (request) =>
         transcribeChunk({ token: async () => TOKEN, baseUrl: () => BASE_URL }, request, impl),
     }),
@@ -199,10 +221,39 @@ async function record(app) {
   });
 }
 
-/** One rotation of the recorder, and the round trip it starts. */
+/**
+ * One rotation of the recorder, the round trip it starts, and the wall clock
+ * moving by the length of the chunk that was just cut. A test that stepped the
+ * recorder without moving time would spend a deadline measured in seconds
+ * without any seconds passing.
+ */
 async function rotate(app) {
   app.recorder.step(SEGMENT_MS);
   await app.settle();
+  app.clock.advance(SEGMENT_MS);
+}
+
+/**
+ * One named function's source, from `function <name>` to the next line that is
+ * a closing brace in column two.
+ *
+ * Crude on purpose, and it is the whole of what makes the text checks below
+ * mean anything: these files are read as bytes because the suite cannot load
+ * them, and a search over a whole file finds whatever else happens to spell the
+ * same thing — the first version of this searched the file and passed with the
+ * function it was guarding zeroed out.
+ *
+ * A name it cannot find answers the empty string rather than throwing, so a
+ * renamed function reddens the two checks that read it and **nothing else**. A
+ * throw here would kill every check after it in the whole suite, which is the
+ * failure `endQuietly` exists for in `controller.test.mjs`: a guard that takes
+ * the file down tells you less than one that goes red.
+ */
+function bodyOf(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  if (start === -1) return "";
+  const end = source.indexOf("\n  }", start);
+  return end === -1 ? "" : source.slice(start, end);
 }
 
 export async function runSessionOrderChecks(check) {
@@ -211,6 +262,7 @@ export async function runSessionOrderChecks(check) {
     const impl = fakeGateway();
     const app = shell(impl);
 
+    const startedAt = app.clock.ms();
     const begun = await record(app);
     check("the meeting started", begun.ok === true);
     await app.settle();
@@ -220,6 +272,11 @@ export async function runSessionOrderChecks(check) {
       "THE SESSION ROW GOES OUT WHEN THE MEETING STARTS, not when the timer next fires",
       beforeAudio.length === 1 && beforeAudio[0] === ROUTES.sessions,
     );
+    check(
+      "...and it did so without a single millisecond of the drain interval passing",
+      app.clock.ms() - startedAt === 0 && DRAIN_INTERVAL_MS > 0,
+    );
+    check("...and the queue is empty, so it was sent rather than merely queued", app.outbox().entries.length === 0);
 
     await rotate(app);
     const transcribeAt = impl.calls.indexOf(ROUTES.transcribe(SESSION));
@@ -279,49 +336,153 @@ export async function runSessionOrderChecks(check) {
     );
   }
 
-  // -- the second half, which holds on its own ------------------------------
+  // -- THE REAL TRACE, REPLAYED --------------------------------------------
   //
-  // Even with the row sent early, a slow session write still loses a meeting if
-  // one 404 is final. So: no early drain, the row lands on the timer, and the
-  // meeting has to survive the chunks that raced it.
+  // The centre of this change. A gateway that answers 404 for a session it has
+  // not received and 200 once the session write lands — which is exactly what
+  // the owner's own 27-second recording hit — and the property that must hold
+  // is that **every chunk of audio is attempted, and none is silently
+  // skipped.** A chunk refused by a 404 loses its words, and that is by design
+  // (audio is never queued, so there is nothing to retry); what must never
+  // happen is `givenUp` swallowing the chunks *after* it, which is what turned
+  // one unlucky reply into a whole meeting of silence.
+  //
+  // Driven with the early drain withheld, so the row lands on the timer and the
+  // race is real rather than arranged away.
   {
     const impl = fakeGateway();
     const app = shell(impl, { drainOnStart: false });
     await record(app);
-    await rotate(app);
-    check(
-      "a chunk refused for an unknown session does not end the meeting's transcript",
-      app.segments.length === 0 && app.notices[0] === CAPTURE_NOTICES.failed,
-    );
 
-    // The timer fires and the row lands, exactly as it would at thirty seconds.
-    await app.drain();
+    // Two chunks race the row, exactly as they did on the hardware.
+    await rotate(app);
     await rotate(app);
     check(
-      "...and once the session row lands, the very next chunk is transcribed",
-      app.segments.length === 1,
+      "both chunks that raced the session row were attempted",
+      impl.calls.filter((path) => path === ROUTES.transcribe(SESSION)).length === 2,
+    );
+    check("...and neither produced words, because the gateway did not know the meeting", app.segments.length === 0);
+    check("...and the meeting was told, recoverably", app.notices[0] === CAPTURE_NOTICES.failed);
+
+    // The timer fires. This is t≈30s in the trace, where the row finally lands.
+    await app.drain();
+
+    // Six more chunks — two minutes of meeting, well past the deadline had the
+    // clock kept running.
+    for (let i = 0; i < 6; i += 1) await rotate(app);
+
+    const attempts = impl.calls.filter((path) => path === ROUTES.transcribe(SESSION)).length;
+    check("EVERY CHUNK OF AUDIO REACHED THE GATEWAY — none was skipped", attempts === 8);
+    check(
+      "...and every chunk after the session row landed came back as words",
+      app.segments.length === 6,
     );
     check(
-      "...which is a whole meeting that used to be thrown away on its first chunk",
+      "...so the meeting was never given up on",
       !app.notices.includes(CAPTURE_NOTICES.refused),
     );
   }
 
-  // -- but "not yet" is not "never", and the difference is bounded ----------
+  // -- and the deadline is real, because "never" is a real state ------------
+  //
+  // A gateway that will never accept the session row: the 404s never stop. This
+  // must end, or the app uploads a full chunk of audio every twenty seconds for
+  // the length of a meeting to something refusing every one.
   {
     const impl = fakeGateway({ acceptSessions: false });
     const app = shell(impl, { drainOnStart: false });
     await record(app);
-    for (let i = 0; i < UNKNOWN_SESSION_GRACE + 3; i += 1) await rotate(app);
+    const startedAt = app.clock.ms();
+
+    /*
+      Measured as a *duration*, and deliberately against `DRAIN_INTERVAL_MS`
+      rather than against `NOT_YET_GRACE_MS`.
+
+      A check that divides the grace by the chunk length agrees with any value
+      the grace is given, including a wrong one — it restates the constant
+      instead of asserting anything about it. What has to be true is that a
+      meeting keeps trying for **two full drain periods**, because that is how
+      long the thing it is waiting for can take, so that is the number here.
+    */
+    let gaveUpAfterMs = null;
+    for (let i = 0; i < 10; i += 1) {
+      const before = impl.calls.length;
+      await rotate(app);
+      if (impl.calls.length === before && gaveUpAfterMs === null) {
+        gaveUpAfterMs = app.clock.ms() - startedAt - SEGMENT_MS;
+      }
+    }
 
     const attempts = impl.calls.filter((path) => path === ROUTES.transcribe(SESSION)).length;
     check(
-      "a session the gateway will never know stops the sending, rather than uploading audio all meeting",
-      attempts === UNKNOWN_SESSION_GRACE,
+      "a meeting the gateway will never know stops the sending rather than uploading all meeting",
+      attempts < 10 && gaveUpAfterMs !== null,
+    );
+    check(
+      "...AND NOT BEFORE TWO FULL DRAIN PERIODS OF TRYING",
+      (gaveUpAfterMs ?? -1) >= 2 * DRAIN_INTERVAL_MS,
+    );
+    check(
+      "...which is what the constant says, derived rather than typed out",
+      NOT_YET_GRACE_MS === 2 * DRAIN_INTERVAL_MS,
     );
     check(
       "...and says so once, in the sentence that tells a person their notes still land",
       app.notices[app.notices.length - 1] === CAPTURE_NOTICES.refused,
+    );
+  }
+
+  // -- the console's half of the same rule, read as text --------------------
+  //
+  // `main/index.ts` imports Electron at the top level and this suite cannot
+  // load it, so the *other* writer — `writeMeetingFromConsole`, the path a
+  // meeting the page started takes — is reachable only as bytes. Everything
+  // above drives `MeetingController`, and withholding the console's own drain
+  // reddens **nothing** in this file. That gap is why this is here.
+  //
+  // **It is for the accident, not the adversary**, in the same sense as
+  // `consoleBridge.test.mjs`'s census, and it is a lower bound: it proves the
+  // rule is consulted and that all three of its answers are acted on, not that
+  // they are acted on correctly. What it catches is somebody deleting a branch,
+  // which is the way this would actually regress.
+  {
+    const source = readFileSync(new URL("../src/main/index.ts", import.meta.url), "utf8");
+    check(
+      "the console's write path asks `drainUrgency` rather than naming kinds itself",
+      /drainUrgency\(write\.kind\)/.test(source),
+    );
+    check(
+      "...and acts on all three answers, so a session is not quietly left to the timer",
+      /=== "await"\) await drain\(\)/.test(source) && /=== "now"\) void drain\(\)/.test(source),
+    );
+    check(
+      "...and the shell hands the controller a drain to call",
+      /requestDrain: \(\) => void drain\(\)/.test(source),
+    );
+    check(
+      "...and the timer is still the floor under both of them",
+      /setInterval\(\(\) => void drain\(\), DRAIN_INTERVAL_MS\)/.test(source),
+    );
+    /*
+      The same gap, for the two payload fields this change added. Both are
+      filled in `main/index.ts` — `captureStateUpdate` and `stopFromConsole` —
+      and both were the *point*: a notice nothing sends and a frame count
+      nothing carries are the defect this whole change is about, one layer up.
+      Zeroing either reddens nothing that can be loaded, so it is read here.
+
+      **Scoped to the function, and the first version of this was not.** A bare
+      search for `notice: view.notice` over the whole file is satisfied by the
+      renderer panel's `UiState`, which sets the same field a few hundred lines
+      up — so the guard passed with `captureStateUpdate` zeroed out, which is a
+      lower bound wearing an equals sign. Measured: 0 red before the scoping.
+    */
+    check(
+      "the shell puts its own notice on the capture state, rather than a null",
+      /notice: view\.notice,/.test(bodyOf(source, "captureStateUpdate")),
+    );
+    check(
+      "...and the finished summary carries the frames the recorder counted",
+      /frames: finished\.frames,/.test(bodyOf(source, "stopFromConsole")),
     );
   }
 

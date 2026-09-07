@@ -1348,6 +1348,7 @@ async function main(): Promise<void> {
     endedAtMs: 0,
     durationMs: 0,
     segments: 0,
+    frames: 0,
     pending: 0,
   };
 
@@ -1359,6 +1360,17 @@ async function main(): Promise<void> {
       endedAtMs: Date.now(),
       durationMs: finished.recordedMs,
       segments: finished.transcript.length,
+      /*
+        Reported beside `segments` rather than folded into it, because the pair
+        is the diagnosis and either alone is not.
+
+        `frames: 0` is a microphone that produced nothing. `frames: 2,
+        segments: 0` is two chunks of real audio the gateway would not take —
+        which is what every desktop recording did, and which took a hand-patched
+        `fetch` in this process to find out, because this payload could not say
+        it. See `CaptureSummary.frames`.
+      */
+      frames: finished.frames,
       // What the queue is *still* holding for this meeting after the drain
       // `endMeeting` already ran. The page reads it to say "queued" rather than
       // "saved", which is the rule `docs/decisions/app-and-console.md` states.

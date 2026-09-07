@@ -2397,25 +2397,54 @@ costs, stated: on a long queue the new session entry is at the back of
 `nextDrain`'s ordering and may not make it into this pass, in which case it goes
 out on the timer as before — which is the case the second fix exists for.
 
-**A 404 is not a permission.** `sessionGone()`'s own comment says it answers the
-same way for "another workspace's", "never existed" **and** "not written yet",
-so no single reply can settle it — and a client that concluded "never" from one
-of them discarded a whole meeting's audio. `sessionUnknown(status, code)` now
-names that case narrowly (404 **and** `meeting_forbidden`; a bare 404 is still a
-gateway with no transcription route, and a 403 is still the grant being refused),
-`permanent` answers false for it, and `gatewayTranscriber` spends
-`UNKNOWN_SESSION_GRACE = 3` of them — a minute of audio, longer than a full
-`DRAIN_INTERVAL_MS` — before giving up.
+**A 404 is not a permission, and the gateway is not where this gets fixed.**
+`sessionGone()` answers the same way for "another workspace's", "never existed"
+and "not written yet", and **that is the tenant-isolation guarantee rather than
+a defect**: one code for "not yours" and "not there" is what stops a caller
+enumerating another workspace's meetings by watching which id answers
+differently. `apps/mcp` is untouched by this change and must stay that way. The
+ordering belongs on the client, which is the side that knows it sent two
+requests.
 
-Both, rather than either: taking it out of `permanent` alone leaves a genuinely
-forbidden meeting uploading audio all meeting, and carrying only the extra flag
-leaves `permanent` asserting something a single answer cannot know, which is how
-the next reader of that bit alone loses a meeting again.
+So: **405 and 501 stay permanent** — 501 is the gateway's own documented "no
+transcription service is configured here" and 405 is a route that does not take
+a POST, both stable facts about a deployment — and **every 404 is provisional**,
+not only the one carrying `meeting_forbidden`. A bare 404 from a proxy, a
+gateway too old to have the route, a captive portal answering plausibly: none of
+those is worth a meeting when 501 is the answer a deployment without
+transcription actually gives. **One unlucky 404 must never discard a meeting.**
 
-The budget is a bound rather than an absence on purpose. "The meeting really is
-another workspace's" is a real state, and without a ceiling this would upload a
-full 300 kB chunk every twenty seconds for the length of a meeting to a gateway
-refusing every one. Three is about a megabyte before it stops.
+`permanent()` therefore answers false for a 404 and `notYet` carries it as its
+own fact, so `gatewayTranscriber` can put it on a clock:
+`NOT_YET_GRACE_MS = 2 * DRAIN_INTERVAL_MS`, armed by the first such refusal and
+**reset by any success**, so an intermittent 404 in a healthy meeting never
+accumulates toward it.
+
+**A clock, and not a count of refusals**, which was the first version. A count
+is a proxy for time that stops being one the moment anything moves: lengthen
+`SEGMENT_MS` and the same count is four minutes, drop chunks at
+`MAX_INFLIGHT_CHUNKS` and it is spent with no time passing at all. Two drain
+periods is the quantity that actually matters — *long enough that the outbox has
+certainly had its turn, twice* — and it is derived from `DRAIN_INTERVAL_MS`
+rather than typed out, so it stays true when either number moves.
+
+**What was rejected: "permanent once the session write is known flushed."** It
+was the other candidate and it is worse exactly where a bound is needed. It
+wants the queue's state inside the recorder — a coupling from `core/capture` to
+`core/sync/outbox` that does not exist — and, having paid for it, it is
+**unbounded in the case that matters**: a session write that is *parked* (a
+grant that cannot file meetings privately, which `postEntry` refuses before the
+network) never becomes flushed, so a meeting that will never be known would go
+on uploading a full chunk every twenty seconds for its whole length. The case it
+would protect — a machine offline long enough for the row not to land — is
+already covered, because an offline machine's chunks fail as **network** errors
+rather than 404s, and those have never counted against anything.
+
+The bound is a bound rather than an absence for the same reason: "the meeting
+really is another workspace's" is a real state, and without a ceiling this
+uploads about a minute of audio — three chunks, roughly a megabyte — before it
+stops. That is the price of never discarding a meeting on one unlucky reply, and
+it is the right way round.
 
 The two fixes are independent by construction, and the checks show it: the
 arithmetic fix makes the row *early*, the 404 fix makes a late row *survivable*,
@@ -2433,11 +2462,57 @@ surfaced was an empty transcript, afterwards, and it survived a day of use.
 
 The field is now `notice: string | null`, which is the shell's own
 `SessionView.notice` — the same value the panel and the tray have always read,
-rather than a second one. A plain string and not a second `CaptureFault`: the
-recoverable bit would be the only other thing to carry, nothing in `apps/mobile`
-reads it, and each of these sentences already says what it means for the rest of
-the meeting. Additive, so `MIN_BRIDGE_VERSION` does not move — an older shell
-answers without the field and `captureStateFrom` reads that as `null`.
+rather than a second one. **All four sentences cross, not only the refusal**:
+the transcriber's `dropped`, `failed` and `refused`, and `capturePlan`'s own
+about system audio. They are one field on the shell's `SessionView`, so a field
+that carried only the worst of them would be a second decision about which
+sentences matter, taken in the wrong process.
+
+A plain string and not a second `CaptureFault`: the recoverable bit would be the
+only other thing to carry, nothing in `apps/mobile` reads it, and each of these
+sentences already says what it means for the rest of the meeting.
+
+**And it is rendered.** `capture/desktop.ts` reports it once per change — the
+shell pushes state on every segment, so reporting it every time would rebuild
+the app's snapshot for a sentence that has not moved — the controller puts it on
+`captureError`, and `LiveMeetingScreen` draws it as the transcript chip, where it
+outranks "Listening". A field nothing displays would repeat this defect one
+layer up, so the last link is a check of its own:
+`meetingsScreens.test.ts`'s *"a notice from the recorder replaces the transcript
+chip"*.
+
+**`BRIDGE_VERSION` moves 3 → 4; `MIN_BRIDGE_VERSION` stays 1.** Both new fields
+are absences a normaliser fills in — `null` and `0` — so nothing would break
+without the bump, and rows 1–3 of the required-members table are untouched, as
+they must be: a shell in somebody's Applications folder answers the number that
+was true when it shipped. The number moves anyway because **the ceiling records
+what a shell can be asked to say**, and "this build cannot tell you why it
+stopped transcribing" is a fact about a shell that somebody staring at an empty
+transcript has to be able to read.
+
+#### And the second number, which is what made any of this findable
+
+`RecorderSummary.frames` has been counted in `main/capture.ts` since the
+recorder was written. It was read once, for `recordedMs`, and thrown away — so
+`CaptureSummary` answered `segments` and nothing else, and **`segments: 0` had
+two entirely different meanings with the same shape**: a microphone that
+produced nothing, and audio the far end would not take. Different faults,
+different fixes, and the only way to tell them apart was patching `globalThis`
+`fetch` in the main process by hand. That is how this defect was found, and
+nobody should have to do it twice.
+
+So `CaptureSummary` carries `frames` beside `segments`, and the controller
+counts them **while the meeting runs** rather than only at `stop()` — the
+question "has this produced any audio" is worth being answerable during a
+recording, which is when somebody is looking. `end()` reconciles against the
+recorder's own count, which wins, because if a future recorder ever drops a
+frame between its counter and the sink then the recorder is the one that knows.
+
+What it deliberately does not do is put a sentence on a screen. `frames: 2,
+segments: 0` is a diagnosis, and turning it into copy — "audio was recorded but
+nothing was transcribed" — is a new user-facing claim in a closed set of
+sentences, which is a decision rather than plumbing. The pair is on the payload;
+the sentence, if it is wanted, is a separate change.
 
 #### What no existing check could have caught, and the one that now does
 
@@ -2458,6 +2533,35 @@ part is what makes an ordering assertion mean something rather than express a
 preference. It also runs the same harness with the fix withheld, so "20 < 30" is
 a recorded observation in the suite rather than a claim in this file.
 
+Its centre is the owner's own trace, replayed: a gateway that answers 404 until
+the session write lands and 200 afterwards, with the early drain **withheld** so
+the race is real rather than arranged away. The property asserted is not "the
+transcript is complete" — a chunk refused by a 404 loses its words, and that is
+by design, since audio is never queued and there is nothing to retry — it is
+that **every chunk reaches the gateway and none is silently skipped.** Skipping
+is what `givenUp` did, and it is what turned one unlucky reply into a whole
+meeting of silence.
+
+**One gap, stated rather than left implicit.** `writeMeetingFromConsole` — the
+*other* writer, the path a meeting the page started takes — lives in
+`main/index.ts`, which imports Electron at the top level and which this suite
+cannot load. Withholding its drain reddens nothing that can be run. So four
+narrow text checks read that file as bytes: that the console path asks
+`drainUrgency` rather than naming kinds itself, that all three answers are acted
+on, that the shell hands the controller a drain, and that the timer is still the
+floor under both. **This is a guard for the accident, not the adversary**, in
+the same sense as `consoleBridge.test.mjs`'s census, and it proves the rule is
+consulted rather than that it is consulted correctly.
+
+The first version of it was worse than that and is worth recording: a bare
+search for `notice: view.notice` over the whole file **passed with
+`captureStateUpdate` zeroed out**, because the renderer panel's `UiState` sets
+the same field a few hundred lines up. Measured at 0 red. Scoping each check to
+the body of the function it is about — `bodyOf`, which answers the empty string
+for a name it cannot find rather than throwing, so a rename reddens two checks
+and does not take the file down — is what makes them lower bounds instead of
+decoration.
+
 And one check holds the comparison itself, because the whole defect is one:
 
 ```js
@@ -2467,14 +2571,24 @@ SEGMENT_MS >= DRAIN_INTERVAL_MS || drainUrgency("session") !== "timer"
 Lengthen a chunk, shorten the timer, or decide a session write can wait like the
 other three, and it reddens. **The tests that fail if this is reversed** are that
 line and `THE SESSION ROW REACHED THE GATEWAY BEFORE THE FIRST CHUNK OF AUDIO`.
-Sabotage, measured, counting `sessionOrder.test.mjs` alone: withholding
-`requestDrain` reddens **5**, `drainUrgency("session") === "timer"` **6**,
-reading 404 + `meeting_forbidden` as permanent again **4**, cutting the grace to
-one **3**, spending the whole budget on the first answer **4**, and moving the
-drain from `begin()` into `#queue` **1**. Dropping the notice at its consumer
-reddens **1** in `meetingsDesktop.test.ts`. Each is a different set of checks,
-which is what says these are separate properties rather than one written six
-times.
+Sabotage, measured, per file. **The race**, in `sessionOrder.test.mjs`:
+withholding `requestDrain` reddens **6**, `drainUrgency("session") === "timer"`
+**7**, moving the drain from `begin()` into `#queue` **1**, dropping the console
+path's own drain **1**, and not handing the controller one **1**. **The 404**:
+reading any 404 as permanent again reddens **6** there and **4** in
+`transcribeRequest.test.mjs`; believing the deadline on the first answer **6**
+and **5** in `transcriber.test.mjs`; removing the deadline entirely **4** and
+**2**; not resetting it on a success **1**; taking 405/501 out of `permanent`
+**2**; widening `notYet` to 501 **1**. **The payloads**: zeroing the notice in
+`captureStateUpdate` **1**, zeroing `frames` in `stopFromConsole` **1**, renaming
+`captureStateUpdate` so the text guard cannot find it **1**, dropping `notice`
+from the normaliser **2** and `frames` **1** in `consoleBridge.test.mjs`,
+dropping the controller's frame count **1** in `controller.test.mjs`, leaving
+`BRIDGE_VERSION` at 3 **1** in the bridge package, and dropping the notice at its
+consumer **1** in `meetingsDesktop.test.ts`.
+
+Each is a different set of checks, which is what says these are separate
+properties rather than one written many times.
 
 `DRAIN_INTERVAL_MS` moved out of `main/index.ts` and into `core/sync/drain.ts` to
 make any of that possible: the suite cannot load a file that imports Electron, so
@@ -2485,8 +2599,10 @@ file the suite cannot read.**
 **What is not verified, and cannot be from here.** Nobody has recorded a meeting
 on a signed build with these changes. The end-to-end proof needs a person and a
 Mac, and the specific thing to watch for is the first `POST /meetings/sessions`
-preceding the first `POST …/transcribe` in the patched-`fetch` log, followed by
-segments actually arriving and a `## Transcript` in the note. Everything above is
+preceding the first `POST …/transcribe`, followed by segments actually arriving
+and a `## Transcript` in the note. It should no longer need a hand-patched
+`fetch`: `CaptureSummary` now answers `frames` and `segments` separately, so
+"two chunks, no words" is readable from the stopped payload. Everything above is
 the suite and a typecheck, which is exactly the class of evidence that was green
 while this shipped.
 
