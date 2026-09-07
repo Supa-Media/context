@@ -46,9 +46,16 @@
  *   a system-audio failure failing the whole capture instead of degrading      2
  *   a stop's partial length assumed to be `SEGMENT_MS` instead of measured     2
  *   the `durationMs <= 0` guard dropped (a chunk of nothing handed over)       1
+ *   `getDisplayMedia` asked with `video: true` again (the shipped bug)        1
+ *   `video: false` dropped from the request, leaving `{ audio: true }`        1
+ *   `answerDisplayMedia` answering the loopback tap unconditionally           2
+ *   the handler's try/catch removed, so Electron's throw goes unhandled       1
  */
 
+import { readFileSync } from "node:fs";
+
 import { SEGMENT_MS } from "@context/meetings/chunks";
+import { answerDisplayMedia } from "../src/core/capture/displayMedia.ts";
 
 /** Every recorder the module has ever constructed, in order. */
 const recorders = [];
@@ -56,6 +63,8 @@ const recorders = [];
 const chunks = [];
 /** Tracks handed out, so "was it stopped" is answerable. */
 const tracks = [];
+/** Every constraint object `getDisplayMedia` was called with, in order. */
+const displayMediaAsks = [];
 
 let rotate = null;
 let handlers = {};
@@ -141,7 +150,12 @@ function installBrowser() {
     writable: true,
     value: {
       getUserMedia: async () => stream(["audio"]),
-      getDisplayMedia: async () => stream(["audio", "video"]),
+      // The constraints are recorded, because the shape of the request is the
+      // bug: see `displayMediaAsks` below and the measurement it cites.
+      getDisplayMedia: async (constraints) => {
+        displayMediaAsks.push(constraints);
+        return stream(["audio", "video"]);
+      },
     },
   });
   globalThis.window = {
@@ -242,11 +256,44 @@ export async function runCaptureWindowChecks(check) {
 
   // -- system audio degrades, and the microphone does not ---------------------
   const before = chunks.length;
-  globalThis.navigator.mediaDevices.getDisplayMedia = async () => stream(["video"]);
+  globalThis.navigator.mediaDevices.getDisplayMedia = async (constraints) => {
+    displayMediaAsks.push(constraints);
+    return stream(["video"]);
+  };
   ready = null;
   failure = null;
   await handlers.start({ channels: ["mic", "system"], sampleRate: 48_000 });
   await settle();
+
+  /*
+    THE SHAPE OF THE REQUEST IS THE BUG, SO THE SHAPE IS WHAT IS ASSERTED.
+
+    Measured in the live hidden capture window of the signed installed build
+    (Chrome/130.0.6723.191, macOS 26.4.1), with the shell answering
+    `{ audio: "loopback" }`:
+
+      { audio: true, video: false }  -> RESOLVED  audio=1 video=0
+      { audio: true }                -> REJECTED  AbortError
+      { audio: true, video: true }   -> REJECTED  AbortError
+
+    The third is what shipped. So `getDisplayMedia` had never once resolved on
+    that machine, every meeting silently degraded to mic-only, and on a video
+    call nobody else was ever recorded. Nothing in the suite could see it: the
+    fake `getDisplayMedia` resolved whatever it was asked for, so the shape was
+    the one thing this file did not check.
+
+    `video: false` is asserted **present and false** rather than merely falsy,
+    because omitting it is shape B — a different request, and one that also
+    fails.
+  */
+  check(
+    "SYSTEM AUDIO IS ASKED FOR AS AUDIO-ONLY, which is the only shape that resolves",
+    displayMediaAsks.length === 1 &&
+      displayMediaAsks[0]?.audio === true &&
+      "video" in (displayMediaAsks[0] ?? {}) &&
+      displayMediaAsks[0]?.video === false,
+  );
+
   check("a build macOS will not give system audio to still records", ready !== null && failure === null);
   check("...and says which channel it did not get", Array.isArray(ready) && ready.includes("system"));
   await rotate();
@@ -280,6 +327,64 @@ export async function runCaptureWindowChecks(check) {
   await settle();
   check("A MICROPHONE THAT WILL NOT OPEN FAILS THE CAPTURE rather than recording silence",
     failure !== null && ready === null);
+
+  /* --- the shell's half of the same rule ----------------------------------- */
+  //
+  // `main/capture.ts` cannot be imported here — it imports Electron — so the
+  // decision it makes lives in `core/capture/displayMedia.ts` and is checked
+  // directly. It is the guard that makes the renderer's shape unforgeable from
+  // the other side: the handler answered `{ audio: "loopback" }` to every
+  // request, including the one that asked for video, and Chromium threw *"Video
+  // was requested, but no video stream was provided"* back into a callback
+  // nothing was catching — two `UnhandledPromiseRejectionWarning` lines on
+  // stderr on every single press of Record.
+  {
+    const audioOnly = answerDisplayMedia({ videoRequested: false, audioRequested: true });
+    check(
+      "an audio-only request is answered with the loopback tap",
+      audioOnly.kind === "loopback" && audioOnly.streams.audio === "loopback",
+    );
+
+    const withVideo = answerDisplayMedia({ videoRequested: true, audioRequested: true });
+    check(
+      "A REQUEST THAT ASKED FOR VIDEO IS REFUSED, never handed a shape it did not ask for",
+      withVideo.kind === "refuse",
+    );
+    check(
+      "...and says why, in words a log can carry",
+      withVideo.kind === "refuse" && withVideo.reason.includes("video"),
+    );
+
+    const neither = answerDisplayMedia({ videoRequested: false, audioRequested: false });
+    check(
+      "a request for nothing at all is refused rather than answered with a tap",
+      neither.kind === "refuse",
+    );
+
+    /*
+      And the handler really asks it, and really catches. Read as text — with
+      block comments stripped, the same technique `appShell.test.mjs` uses and
+      for the same reason — because `main/capture.ts` imports Electron and
+      cannot be run here. The `catch` is not decoration: `callback` throws
+      *synchronously from inside Electron*, from a handler Electron calls in an
+      async context, which is exactly how the shipped throw became an unhandled
+      rejection rather than a stack anybody owned.
+    */
+    const handler = readFileSync(new URL("../src/main/capture.ts", import.meta.url), "utf8").replace(
+      /\/\*[\s\S]*?\*\//g,
+      "",
+    );
+    check(
+      "THE SHELL'S HANDLER ASKS THE RULE rather than answering every request the same way",
+      /const answer = answerDisplayMedia\(\{\s*videoRequested: request\.videoRequested === true,\s*audioRequested: request\.audioRequested === true,\s*\}\);/.test(
+        handler,
+      ),
+    );
+    check(
+      "...AND ITS CALLBACK CANNOT RAISE AN UNHANDLED REJECTION, whatever Electron throws into it",
+      /try \{[\s\S]*?callback\(answer\.streams\);\s*\} catch \(error\) \{\s*console\.error\(/.test(handler),
+    );
+  }
 
   globalThis.setInterval = realSetInterval;
   globalThis.clearInterval = realClearInterval;
