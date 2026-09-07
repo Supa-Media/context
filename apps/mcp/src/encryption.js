@@ -294,12 +294,33 @@ export function renderEncryptedNote(envelope) {
  * exactly as hard as a good one.
  */
 export function isEncryptedNote(text) {
-  if (typeof text !== "string" || !text.startsWith("---")) return false;
-  const end = text.indexOf("\n---", 3);
+  const body = withoutBom(text);
+  if (body === null || !body.startsWith("---")) return false;
+  const end = body.indexOf("\n---", 3);
   if (end < 0) return false;
   return new RegExp(`^\\s*${MARKER_KEY}\\s*:\\s*v?\\d+\\s*$`, "m").test(
-    text.slice(3, end),
+    body.slice(3, end),
   );
+}
+
+/**
+ * The text with a leading byte-order mark removed, or `null` if it is not text.
+ *
+ * A BOM is the one thing that can sit in front of `---` and still be
+ * frontmatter to every tool that reads it: editors on Windows add one on save,
+ * Obsidian parses through it, and YAML's own spec allows it. Without this a
+ * BOM'd envelope answers `false` here — and then the write path stores
+ * plaintext over it and the link rewriter runs a regex through it, which is
+ * this feature's one unrecoverable failure arriving from a text editor.
+ *
+ * A leading *newline* is deliberately not tolerated: frontmatter that does not
+ * start at the first byte is not frontmatter, to Obsidian or to anything else,
+ * and treating it as such would start recognising markers in the middle of
+ * ordinary notes.
+ */
+function withoutBom(text) {
+  if (typeof text !== "string") return null;
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 }
 
 /**
@@ -379,8 +400,9 @@ export async function generatedNoteBytes(text, storedText, seal) {
  */
 export function encryptedNoteKeyId(text) {
   if (!isEncryptedNote(text)) return null;
-  const end = text.indexOf("\n---", 3);
-  const match = text
+  const body = withoutBom(text);
+  const end = body.indexOf("\n---", 3);
+  const match = body
     .slice(3, end)
     .match(new RegExp(`^\\s*${KEY_MARKER_KEY}\\s*:\\s*ws:([A-Za-z0-9_-]{1,32})\\s*$`, "m"));
   return match ? match[1] : null;
@@ -394,6 +416,9 @@ export function encryptedNoteKeyId(text) {
  */
 export function parseEncryptedNote(text) {
   if (!isEncryptedNote(text)) return null;
+  // The same normalization the predicate made, so the offsets below are
+  // offsets into the same string it answered about.
+  text = withoutBom(text);
 
   const fence = "```" + FENCE_LANGUAGE;
   const start = text.indexOf(fence);

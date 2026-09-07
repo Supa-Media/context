@@ -52,6 +52,18 @@ export interface OpenNote {
   inherited: Visibility;
   exception: boolean;
   readOnly: boolean;
+  /**
+   * The note is stored encrypted, and `text` is its ciphertext.
+   *
+   * Optional, and absent means "not encrypted" — which is the honest default
+   * for the landing page's demo notes and for anything a build older than the
+   * field produced. The *protection* does not ride on this: the control plane
+   * forces `readOnly` true for an encrypted note, so a console that ignores
+   * this field still refuses to edit one. What this adds is the explanation,
+   * because "read-only" is the wrong sentence for a note whose content is
+   * simply not here. See `docs/decisions/encryption.md`.
+   */
+  encrypted?: boolean;
 }
 
 /** How a save's conflict check was performed. See `WriteResult` in fileOps.ts. */

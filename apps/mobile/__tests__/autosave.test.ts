@@ -491,6 +491,48 @@ describe("the button stops asking for something", () => {
     expect(saveButton(cached).label).toBe("Save");
   });
 
+  /**
+   * AN ENCRYPTED NOTE IS NOT "READ-ONLY", AND THE DIFFERENCE IS THE COPY.
+   *
+   * Both flags are true for one — the control plane forces `readOnly`, which is
+   * what actually holds the editor shut and what an older console honours. This
+   * is the sentence: `privacy.md` is read-only because this product generates
+   * it, and an encrypted note is shut because the console has no key. Telling
+   * somebody their own note is "read-only" would send them looking for the
+   * setting that unlocks it.
+   *
+   * See `docs/decisions/encryption.md`.
+   */
+  test("an encrypted note says what it is, and neither flag alone would say it", () => {
+    const encrypted = editorReducer(emptyEditor, {
+      type: "opened",
+      note: { ...NOTE, readOnly: true, encrypted: true },
+    });
+    expect(saveButton(encrypted)).toEqual({ label: "Encrypted", disabled: true });
+    // The other half of the pair, so this is a distinction rather than a
+    // relabelling of every locked note.
+    const manifest = editorReducer(emptyEditor, {
+      type: "opened",
+      note: { ...NOTE, readOnly: true },
+    });
+    expect(saveButton(manifest)).toEqual({ label: "Read-only", disabled: true });
+    // And an ordinary note is neither, so the flag is not always on.
+    expect(opened().encrypted).toBe(false);
+  });
+
+  test("...and typing into one changes nothing, through the flag that already existed", () => {
+    const encrypted = editorReducer(emptyEditor, {
+      type: "opened",
+      note: { ...NOTE, readOnly: true, encrypted: true },
+    });
+    const typed = editorReducer(encrypted, { type: "edited", text: "# plaintext now\n" });
+    // `readOnly` is what the reducer checks, and it is forced true by the
+    // server for an encrypted note — so the protection does not depend on any
+    // client having heard of `encrypted`.
+    expect(typed.draft).toBe(NOTE.text);
+    expect(typed).toBe(encrypted);
+  });
+
   test("the manual route stays for the two states autosave refuses", () => {
     const failed = editorReducer(dirty(), {
       type: "saveFailed",
