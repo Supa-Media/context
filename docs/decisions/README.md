@@ -190,6 +190,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The signing keychain belongs to the workflow, not to electron-builder
 - What step 3 did not do, and what has since been done about it
 - One meeting is one credential, and on a Mac it is the machine's
+- The microphone is asked for just-in-time, and never a dialog that points at the wrong place
 - What is deliberately not built
 
 ## [Obsidian plugins](./obsidian-plugins.md)

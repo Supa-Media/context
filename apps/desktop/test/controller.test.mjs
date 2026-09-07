@@ -27,6 +27,16 @@
  *   `queueWrites: false` ignored, so the console path queues twice            1
  *   `onSegment` fired from `#update` rather than once per segment             1
  *
+ * Three more, run against `src/core/capture/permissions.ts`'s
+ * `ensureCapturePermissions` rather than against this file — the owner's
+ * first recording on real hardware found the panel's notice pointing at the
+ * wrong place, and these checks are what pin the behaviour that notice's own
+ * instruction ("record again") depends on:
+ *
+ *   the `request` call dropped entirely, so a refused mic is never asked      6
+ *   `request` called but its result never awaited                            4
+ *   `request` called unconditionally, even when already `granted`            5
+ *
  * The second one had to be *added* to this file: the original checks looked at
  * the recorder after `end()` resolved, which is green whichever order those two
  * lines are in. It is observed from inside `stop()` now. It also throws on the
@@ -114,6 +124,27 @@ export async function runControllerChecks(check) {
     check("a denied permission names what is missing", (result.missing ?? []).includes("microphone"));
     check("a denied permission is not asked for again", denied.calls.filter((call) => call === "request:microphone").length === 0);
     check("nothing is capturing after a refusal", recorder.capturing === false);
+  }
+
+  // -- an already-granted permission is never re-prompted -------------------
+  //
+  // `ensureCapturePermissions` re-checks `status()` fresh on every `begin()`,
+  // which is what lets a person grant a permission in System Settings and
+  // press Record again with no second dialog. The other half of that promise
+  // is this one: a permission already granted before this session ever
+  // started must not raise a dialog either — only `not-determined` (or an
+  // unreadable `unknown`) may ever call `request`.
+  {
+    const granted = fakePermissionBroker({ microphone: "granted", screen: "granted" });
+    const { controller, recorder } = harness({ permissions: granted });
+    const result = await controller.begin({ source, title: "x", grantedEpisode: "e" });
+    check("an already-granted permission starts the recording", result.ok === true);
+    check("...with the microphone actually open", recorder.capturing === true);
+    check(
+      "NO DIALOG IS RAISED FOR A PERMISSION THAT WAS ALREADY GRANTED",
+      granted.calls.every((call) => call.startsWith("status:")),
+    );
+    check("...both permissions were still checked", granted.calls.includes("status:microphone") && granted.calls.includes("status:screen"));
   }
 
   // -- the indicator ---------------------------------------------------------

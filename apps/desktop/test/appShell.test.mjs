@@ -55,6 +55,7 @@
  *   `EFFECTIVE_SMOKE_DEADLINE_MS` collapsed back to `SMOKE_DEADLINE_MS`     1
  *   the fallback navigation never awaited before reading the window's URL   1
  *   `mirrorServed` hardcoded rather than asked of the window's own URL      1
+ *   `CONSOLE_NOTICES.permissions` reverted to "Open the menu bar to grant it" 3
  *
  * **The guard row is the one worth reading twice.** `smokeLoadFailure`'s call
  * has to live *inside* `if (SMOKE_LOAD)`, because plain `--smoke` is what the
@@ -307,6 +308,52 @@ export function runAppShellChecks(check) {
     check(
       "...and that function is imported from the one place the rule is stated",
       /import \{ smokeLoadFailure, wasMirrorServed \} from "\.\.\/core\/shell\/mirror\.ts";/.test(source),
+    );
+  }
+
+  /* --- a permission notice can never point at the menu bar ----------------- */
+
+  /*
+    THE DEFECT: the owner's first recording on real hardware granted the
+    microphone mid-session, capture still could not open an input, and the
+    session degraded to an empty typed note — while the panel told them to
+    "open the menu bar to grant it". The menu bar cannot grant a TCC
+    permission; only System Settings can, and a sentence that sends somebody
+    to the wrong place is worse than no sentence, because it looks like an
+    instruction that was followed.
+
+    Checked against the CLOSED SET itself rather than against one call site:
+    `CONSOLE_NOTICES` is exactly the object `explain()` is required to read
+    from (see `trayOnly.test.mjs`, "EVERY SENTENCE THE TRAY EXPLAINS COMES
+    FROM THE CLOSED SET"), so a permission-shaped key added here next year is
+    covered by the same regex without anybody having to remember to extend a
+    second list.
+  */
+  {
+    const notices = source.match(/const CONSOLE_NOTICES = Object\.freeze\(\{[\s\S]*?\n\}\);/)?.[0] ?? "";
+    check("THE CLOSED SET OF CONSOLE NOTICES IS FOUND AT ALL", notices !== "");
+
+    // Every key that talks about a permission macOS gates behind TCC —
+    // matched by name so a future `screenPermissions` or `micPermissions` is
+    // caught without this file being edited to know it exists.
+    const permissionEntries = [
+      ...notices.matchAll(/(\w*[Pp]ermission\w*):\s*\n?\s*"((?:[^"\\]|\\.)*)"/g),
+    ];
+    check(
+      "THE SUITE ACTUALLY FOUND A PERMISSION NOTICE TO CHECK",
+      permissionEntries.length > 0,
+    );
+    check(
+      "NO PERMISSION NOTICE EVER SENDS SOMEBODY TO THE MENU BAR — it cannot grant a TCC permission",
+      permissionEntries.every(([, , text]) => !/menu[\s-]?bar/i.test(text)),
+    );
+    check(
+      "...it sends them to System Settings, which is the only place that can",
+      permissionEntries.every(([, , text]) => /System Settings/.test(text)),
+    );
+    check(
+      "...and it tells them to record again, which is the one instruction that actually recovers the session",
+      permissionEntries.every(([, , text]) => /record again/i.test(text)),
     );
   }
 }

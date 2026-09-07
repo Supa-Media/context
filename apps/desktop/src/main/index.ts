@@ -360,7 +360,7 @@ const CONSOLE_NOTICES = Object.freeze({
   blocked:
     "You asked this app never to record the app you are in, so it did not start. Change that in the menu bar if you meant to.",
   permissions:
-    "macOS has not granted this app the microphone yet, so nothing was recorded. Open the menu bar to grant it.",
+    "macOS has not granted this app the microphone yet, so nothing was recorded. Open System Settings → Privacy & Security → Microphone, enable Context, and record again.",
   captureFailed:
     "The Context app on this machine could not open an input, so this meeting is typed. Your notes still land in your bucket.",
   nothingToOpen:

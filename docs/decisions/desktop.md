@@ -2025,6 +2025,74 @@ or when no window was created at all. The release gate still runs plain
 bug — reddens exactly one check, `test/mirror.test.mjs`'s `OFFLINE WITH A
 USABLE MIRROR IS ALSO A PASS`.
 
+### The microphone is asked for just-in-time, and never a dialog that points at the wrong place
+
+Found on the owner's first desktop recording, on hardware: macOS granted the
+microphone mid-session, capture still could not open an input, and the session
+degraded to an empty typed note. The panel's explanation was *"Open the menu
+bar to grant it."* The menu bar cannot grant a TCC permission — only System
+Settings can — so the one sentence this app showed about the failure sent the
+person somewhere that does nothing, and a wrong instruction that looks like an
+instruction is worse than none: it reads as followed.
+
+**The just-in-time half of this was already correct**, and is worth stating
+rather than re-deriving, because the fix here is narrower than it first looks.
+Every real way to start a recording — the tray's Record, the panel's "Take
+notes", and the console's `startCapture` — folds through one function,
+`beginMeeting`, which calls `MeetingController.begin()`, which calls
+`ensureCapturePermissions` and **awaits** it before either the transcriber or
+the recorder is ever started (`core/capture/permissions.ts`,
+`core/recording/controller.ts`). `not-determined` or an unreadable `unknown`
+raises the system dialog and waits for the answer; `granted` proceeds;
+`denied` or `restricted` refuses outright, with no dialog, because macOS
+ignores a second prompt to a permission it already refused. The state only
+ever moves to `recording` — the tray's red dot, the always-on indicator —
+*after* that promise resolves and the recorder has actually opened, so there
+is no window in which the indicator is on before the input is. A typed
+meeting (`capturePlan` answered no channels) asks for nothing at all, which is
+the other half of "never start a session that will silently produce an empty
+note": a typed meeting is an honest, first-class outcome, never a fallback a
+failed capture quietly lands on.
+
+**The actual defect was one string.** `CONSOLE_NOTICES.permissions` in
+`main/index.ts` — the sentence `explain()` shows in a message box when
+`beginMeeting` reports `why: "permissions"`, and the one `startFromConsole`
+throws for the page to render — read *"Open the menu bar to grant it."* It now
+reads *"Open System Settings → Privacy & Security → Microphone, enable
+Context, and record again."* The last three words are load-bearing rather than
+decoration: `ensureCapturePermissions` re-checks `status()` fresh on every
+`begin()`, so a person who grants it in System Settings and presses Record
+again is not re-asked and is not told to restart the app — the sentence's own
+instruction is what actually recovers the session, and `controller.test.mjs`
+now checks the other direction of that promise as well: a permission already
+`granted` before a session starts raises no dialog either, only
+`not-determined` (or `unknown`) ever calls `request`.
+
+Never assembled at the call site, like every sentence in `CONSOLE_NOTICES` and
+`PLAN_NOTICES` — both are frozen closed sets for exactly this reason, stated in
+`main/index.ts`'s own comment beside them: *"none is assembled here, for the
+reason those sets exist."* A message box is exactly where a channel name or a
+fragment of a payload ends up if a sentence is built rather than looked up.
+`appShell.test.mjs` reads the frozen object as text and checks every key whose
+name contains "permission": none may mention the menu bar, all must name
+System Settings, all must say "record again". A key added next year for
+Screen Recording specifically is covered by the same regex without this file
+being edited to know it exists.
+
+**The Mac confirmation**, for the one thing no offline suite can check: a real
+TCC prompt, raised at the right moment, on real hardware.
+
+```
+tccutil reset Microphone lc.context.desktop
+```
+
+then launch the app and press Record. The system dialog must appear before the
+tray's dot turns red — never after, and never silently skipped — and answering
+it must be what decides whether the dot turns red at all. A build that shows
+the red indicator, or reports `recording`, before that dialog has been
+answered is the defect this section exists to close, whatever the panel's
+copy says.
+
 ### What is deliberately not built
 
 Not built, and none of them foreclosed:
