@@ -117,14 +117,20 @@
   // CI runner rejects a compatibility_date that resolves to the future.
   "compatibility_date": "2026-07-01",
 
-  "vars": {
-    // The Convex HTTP-actions origin: https://<deployment>.convex.site — the
-    // `.site` host, NOT the `.cloud` one the client library uses.
-    //
-    // Public information (it is in every web client's network tab), so it is
-    // fine in a public repository.
-    "CONTROL_PLANE_URL": "https://clean-ptarmigan-116.convex.site",
+  // CONTROL_PLANE_URL — the Convex HTTP-actions origin: https://<deployment>.
+  // convex.site, the `.site` host, NOT the `.cloud` one the client library
+  // uses — used to be a plaintext var here. It names which Convex deployment
+  // this Worker calls, an account identifier a public, MIT-licensed repo does
+  // not commit (CLAUDE.md: "no internal hostnames, no account identifiers").
+  //
+  // It is a `wrangler secret` instead, set from the `CONTROL_PLANE_URL`
+  // secret (`scripts/secrets-allowlist.json`) by `deploy-email-worker.yml` —
+  // the same secret and the same pattern apps/mcp already uses for this exact
+  // value (apps/mcp/wrangler.toml). A Worker reads a secret through
+  // `env.CONTROL_PLANE_URL` exactly like a var, so `src/controlPlane.ts`
+  // needed no change.
 
+  "vars": {
     // The apex we accept mail for. A recipient on any other domain is refused
     // before anything else happens.
     "INGEST_DOMAIN": "context.lc",

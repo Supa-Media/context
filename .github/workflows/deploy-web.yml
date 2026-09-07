@@ -39,6 +39,10 @@ jobs:
       # `undefined` and the app cannot reach the control plane at all, which
       # is why the preflight below refuses to continue without it.
       EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      # Read by app.config.js to resolve extra.eas.projectId. An account
+      # identifier, not committed (CLAUDE.md: "no internal hostnames, no
+      # account identifiers") — see apps/mobile/app.config.js.
+      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
     steps:
       - uses: actions/checkout@v5
 
@@ -50,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for var in EXPO_TOKEN EXPO_PUBLIC_CONVEX_URL; do
+          for var in EXPO_TOKEN EXPO_PUBLIC_CONVEX_URL EAS_PROJECT_ID; do
             if [ -z "${!var:-}" ]; then
               echo "ERROR: missing required secret '$var' in the 'production' environment."
               missing=1
@@ -60,8 +64,9 @@ jobs:
           echo "OK — every required secret is present."
 
       # `eas deploy` resolves the project from app.config.js's
-      # extra.eas.projectId. The template ships a placeholder there, and with it
-      # still in place the deploy dies with an opaque project-not-found error
+      # extra.eas.projectId. Without EAS_PROJECT_ID set, app.config.js falls
+      # back to the same placeholder the template used to ship there, and with
+      # it in place the deploy dies with an opaque project-not-found error
       # after a full install and bundle export. Say so up front instead.
       - name: Verify the EAS project is linked
         run: |
@@ -72,9 +77,9 @@ jobs:
           ')
           case "$id" in
             ""|YOUR_EAS_PROJECT_ID)
-              echo "ERROR: apps/mobile/app.config.js still has the placeholder EAS project id ('${id:-<empty>}')."
-              echo "Run 'eas init' in apps/mobile to create the project, then commit the real"
-              echo "projectId (and the matching updates.url) before deploying."
+              echo "ERROR: EAS_PROJECT_ID is not set (app.config.js fell back to the placeholder '${id:-<empty>}')."
+              echo "Set the EAS_PROJECT_ID secret — scripts/secrets-allowlist.json, synced from the"
+              echo "'Context' 1Password vault — to the id 'eas init' printed when the project was created."
               exit 1
               ;;
           esac
@@ -87,16 +92,23 @@ jobs:
       # the moment the frontend's deployment lost an env var the real one had.
       # Nothing anywhere reported it; the site simply said "Server Error".
       #
-      # The router already records which deployment is production, so compare
-      # against that rather than against a second copy of the answer.
-      - name: Verify the frontend and the router name the same Convex deployment
+      # The router's `CONVEX_ORIGIN` used to be a literal in
+      # infra/router/wrangler.jsonc, read straight from that committed file —
+      # which is also why that comparison used to be meaningful: the two
+      # could drift independently. Both `CONVEX_ORIGIN` and `CONTROL_PLANE_URL`
+      # (the email worker's name for the same origin) are now set from this
+      # one `CONTROL_PLANE_URL` secret via `wrangler secret put` at deploy time
+      # (deploy-router.yml, deploy-email-worker.yml) rather than committed, so
+      # this compares against the secret directly.
+      - name: Verify the frontend and the control plane name the same Convex deployment
+        env:
+          CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
         run: |
           set -euo pipefail
           router=$(node -e '
-            const fs = require("fs");
-            const raw = fs.readFileSync("infra/router/wrangler.jsonc", "utf8");
-            const m = raw.match(/"CONVEX_ORIGIN"\s*:\s*"https:\/\/([a-z0-9-]+)\.convex\.(?:site|cloud)"/);
-            if (!m) { console.error("No CONVEX_ORIGIN in infra/router/wrangler.jsonc."); process.exit(1); }
+            const url = process.env.CONTROL_PLANE_URL || "";
+            const m = url.match(/^https:\/\/([a-z0-9-]+)\.convex\.(?:site|cloud)\/?$/);
+            if (!m) { console.error(`CONTROL_PLANE_URL is not a Convex URL: "${url}"`); process.exit(1); }
             process.stdout.write(m[1]);
           ')
           front=$(node -e '
@@ -108,8 +120,8 @@ jobs:
           if [ "$router" != "$front" ]; then
             echo "ERROR: the web bundle would talk to '$front' while the router and the"
             echo "backend deploy target '$router'. Those must be the same deployment."
-            echo "Fix the EXPO_PUBLIC_CONVEX_URL secret, or CONVEX_ORIGIN in"
-            echo "infra/router/wrangler.jsonc — whichever is wrong."
+            echo "Fix the EXPO_PUBLIC_CONVEX_URL secret, or CONTROL_PLANE_URL —"
+            echo "whichever is wrong."
             exit 1
           fi
           echo "OK — frontend and router both use '$router'."

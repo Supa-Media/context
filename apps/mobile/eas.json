@@ -8,14 +8,16 @@
       "distribution": "internal",
       "env": {
         "APP_ENV": "development",
-        "EXPO_PUBLIC_CONVEX_URL": "https://clean-ptarmigan-116.convex.cloud"
+        "EXPO_PUBLIC_CONVEX_URL": "REPLACED_BY_CI",
+        "EAS_PROJECT_ID": "REPLACED_BY_CI"
       }
     },
     "staging": {
       "distribution": "internal",
       "env": {
         "APP_ENV": "staging",
-        "EXPO_PUBLIC_CONVEX_URL": "https://clean-ptarmigan-116.convex.cloud"
+        "EXPO_PUBLIC_CONVEX_URL": "REPLACED_BY_CI",
+        "EAS_PROJECT_ID": "REPLACED_BY_CI"
       },
       "channel": "staging",
       "ios": {
@@ -25,7 +27,8 @@
     "production": {
       "env": {
         "APP_ENV": "production",
-        "EXPO_PUBLIC_CONVEX_URL": "https://clean-ptarmigan-116.convex.cloud"
+        "EXPO_PUBLIC_CONVEX_URL": "REPLACED_BY_CI",
+        "EAS_PROJECT_ID": "REPLACED_BY_CI"
       },
       "channel": "production",
       "autoIncrement": true
@@ -33,9 +36,7 @@
   },
   "submit": {
     "production": {
-      "ios": {
-        "appleTeamId": "647N4W6575"
-      }
+      "ios": {}
     }
   }
 }
