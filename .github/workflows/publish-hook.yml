@@ -18,16 +18,19 @@
 # stricter meaning elsewhere in this repo (a deploy pushes infrastructure this
 # account owns; this hands a tarball to a public registry once).
 #
-# ## Auth: NPM_TOKEN, not token-less trusted publishing — for now
+# ## Auth: NPMJS_SECRET, not token-less trusted publishing — for now
 #
 # npm's OIDC "trusted publishing" needs a package that already exists on the
 # registry before a trusted publisher can be attached to it in the npmjs.com
 # UI — there is no pending-publisher flow for a name that has never been
 # published, unlike PyPI. `@supa-media/context-hook` has never been published, so that
 # door is not open yet. This mirrors `supa-framework`'s own `release.yml`
-# (`@supa-media/*`), which also authenticates with `NPM_TOKEN` rather than
-# trusted publishing, so this is the org's existing pattern rather than a
-# regression from a better one.
+# (`@supa-media/*`), which authenticates with an npm automation token
+# (`NPM_TOKEN` in its own GitHub Environment) rather than trusted publishing,
+# so a long-lived token here is the org's existing pattern rather than a
+# regression from a better one — this repo's `Context` 1Password vault just
+# happens to hold that token under a different item name, `NPMJS_SECRET` (see
+# below), so the GitHub secret this workflow reads is named to match.
 #
 # What this DOES do already: `--provenance` with `permissions.id-token: write`
 # attaches a Sigstore-signed build provenance attestation to the published
@@ -35,7 +38,7 @@
 # for, trusted publishing later. Once this package has a first published
 # version, an operator can add "Supa-Media/context" + this workflow's filename
 # as a trusted publisher on the package's npmjs.com settings page, and
-# `NPM_TOKEN` can be dropped from a later revision of this file.
+# `NPMJS_SECRET` can be dropped from a later revision of this file.
 #
 # ## The one thing an operator must do before this can succeed
 #
@@ -45,13 +48,14 @@
 # `@supa-media/*` from `supa-framework` (type "Automation", exempt from 2FA on
 # publish; an account with publish rights on the `@supa-media` npm org).
 #
-# 1Password: create (or copy the value into) an `NPM_TOKEN` item in the
-# `Context` vault — same secret NAME as every other app vault uses for this
-# token, same VALUE as whatever 1Password item backs `supa-framework`'s own
-# `NPM_TOKEN` GitHub secret, one copy per app vault per the "one vault per
-# app" model in `supa-framework`'s `docs/SECRETS.md`.
+# 1Password: the `Context` vault holds that token value under the item name
+# `NPMJS_SECRET` (not `NPM_TOKEN` — that is `supa-framework`'s own vault's item
+# name for the same kind of token; each app vault names its items
+# independently per `supa-framework`'s "one vault per app" model in
+# `docs/SECRETS.md`, and the sync allowlist below follows whatever the vault
+# actually calls it).
 #
-# `NPM_TOKEN` is already listed in `scripts/secrets-allowlist.json` as
+# `NPMJS_SECRET` is already listed in `scripts/secrets-allowlist.json` as
 # optional, so once the value exists in the `Context` vault,
 # `sync-secrets.yml` (workflow_dispatch, environment: production) carries it
 # into this repo's `production` GitHub Environment — the same way `EXPO_TOKEN`
@@ -128,11 +132,11 @@ jobs:
       - name: Publish
         if: ${{ inputs.dry_run != true }}
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPMJS_SECRET }}
         run: |
           set -euo pipefail
           if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "ERROR: missing required secret 'NPM_TOKEN' in the 'production' environment."
+            echo "ERROR: missing required secret 'NPMJS_SECRET' in the 'production' environment."
             echo "It is in scripts/secrets-allowlist.json; see this file's header for the one-time setup."
             exit 1
           fi
