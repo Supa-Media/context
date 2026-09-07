@@ -324,6 +324,23 @@ export async function runPackagingChecks(check) {
     "the notarisation key is judged before the build too, not after twenty-six seconds of signing",
     keyCheck !== undefined && steps.indexOf(keyCheck) < steps.indexOf(buildStep),
   );
+  /*
+    electron-builder's own `MacPackager.doSign()` logs `identityName=Developer
+    ID Application: <company> (<team id>) identityHash=<sha1>` at "info" level
+    on every signed build, unconditionally — proven on a runner, where a
+    successful sign printed exactly that line to this public repository's
+    Actions log. It is not one of this workflow's own `echo`s, so the
+    certificate-subject checks above (which read the *preflight*'s shell) do
+    not see it; this reads the Build step itself.
+  */
+  check(
+    "ELECTRON-BUILDER'S OWN SIGNING LOG IS REDACTED — identityName carries the company name and Apple team id",
+    buildStep !== undefined && /identityName=/.test(buildStep) && /sed -E/.test(buildStep),
+  );
+  check(
+    "...and a failure inside that redacted pipe still fails the step",
+    buildStep !== undefined && /pipefail/.test(buildStep),
+  );
   check(
     "nothing about a branch triggers this workflow, signing or no signing",
     /^on:\n  workflow_dispatch:/m.test(WORKFLOW) && !/^\s*(push|pull_request):/m.test(WORKFLOW),

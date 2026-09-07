@@ -283,6 +283,14 @@ jobs:
       # presence is what makes electron-builder build its own keychain and fail.
       # `build/notarize.cjs` reads the three ASC values, and treats absent as
       # "do the unsigned thing" rather than as an error.
+      # electron-builder itself prints the signing identity at "info" level on
+      # every signed build — `MacPackager.doSign()` in app-builder-lib logs
+      # `identityName=Developer ID Application: <company> (<team id>) identityHash=<sha1>`
+      # unconditionally, with no flag to quiet it. That is the same subject the
+      # preflight above reads and refuses to print, arriving anyway through a
+      # dependency's own log line, so it is redacted here instead — on the way
+      # to the log, not before electron-builder ever sees it, and with
+      # `pipefail` so a redacted failure still fails the step.
       - name: Build
         working-directory: apps/desktop
         env:
@@ -290,8 +298,10 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
+          set -o pipefail
           pnpm run build
-          pnpm exec electron-builder --mac --config electron-builder.yml
+          pnpm exec electron-builder --mac --config electron-builder.yml 2>&1 \
+            | sed -E 's/(identityName=)[^\n]*( identityHash=)[0-9A-Fa-f]+/\1[redacted]\2[redacted]/'
 
       - name: What was produced
         working-directory: apps/desktop
