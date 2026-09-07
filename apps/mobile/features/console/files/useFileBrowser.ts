@@ -413,6 +413,32 @@ export function useFileBrowser(options: {
     [readNote, workspaceId],
   );
 
+  /**
+   * `readRaw` on `FileBrowser`: a note's text and etag, for a view reading
+   * several notes at once that are not "the open note" — see `browser.ts`.
+   *
+   * Bounded by `raceTimeout`, for the reason `run`'s own comment gives:
+   * `readNote` is a Convex action with no client-side timeout, and offline it
+   * neither resolves nor rejects. `null` covers every way this can fail to
+   * answer — a refusal, a genuinely missing path, and a wait that timed out —
+   * because a caller here has no "cached copy" to fall back to the way
+   * `openNote` does, and the honest answer in all three cases is the same one
+   * `read_channel_day` gives a caller who cannot see the path: not found.
+   */
+  const readRaw = useCallback(
+    async (path: string): Promise<{ text: string; etag: string } | null> => {
+      if (workspaceId === null) return null;
+      const settled = await raceTimeout(readNote({ workspaceId, path }), {
+        ms: OPERATION_TIMEOUT_MS,
+        schedule: (fn, ms) => setTimeout(fn, ms),
+        cancel: (handle) => clearTimeout(handle),
+      });
+      if (settled.kind !== "value") return null;
+      return { text: settled.value.text, etag: settled.value.etag };
+    },
+    [readNote, workspaceId],
+  );
+
   const conflict = useConflictReview({
     editor,
     fetchNote,
@@ -519,6 +545,21 @@ export function useFileBrowser(options: {
   const reportRefreshFailure = useCallback((error: unknown) => {
     setNotice(toFileError(error).message);
   }, []);
+
+  /**
+   * `ensureListing` on `FileBrowser`: fetch a folder's listing into the cache
+   * without selecting it — see `browser.ts`. A no-op once it is there, and
+   * fire-and-forget like every other background refresh in this file: the
+   * result lands in `listings` on its own next render.
+   */
+  const ensureListing = useCallback(
+    (path: string) => {
+      if (workspaceId === null) return;
+      if (listings[path] !== undefined) return;
+      void refresh([path]).catch(reportRefreshFailure);
+    },
+    [listings, refresh, reportRefreshFailure, workspaceId],
+  );
 
   /**
    * The context the state below actually belongs to.
@@ -2233,6 +2274,8 @@ export function useFileBrowser(options: {
       share,
       revokeShare,
       setSharePreviewTitle,
+      ensureListing,
+      readRaw,
     }),
     [
       archive,
@@ -2290,6 +2333,8 @@ export function useFileBrowser(options: {
       toggleFolder,
       collapseAll,
       useTheirs,
+      ensureListing,
+      readRaw,
     ],
   );
 }

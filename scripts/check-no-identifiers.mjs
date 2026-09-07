@@ -14,8 +14,9 @@
  * that stops the next one from landing the same way: silently, in a file
  * nobody thought to grep.
  *
- * Four rules. The first three are identifier shapes; the fourth is a pointer
- * into a document this repository does not contain:
+ * Five rules. The first three are identifier shapes; the fourth is a pointer
+ * into a document this repository does not contain; the fifth is a character
+ * a reviewer cannot see:
  *
  *   1. A 10-character uppercase-alphanumeric string next to `appleTeamId` or
  *      `teamId` — the shape of an Apple Developer Team ID.
@@ -34,6 +35,10 @@
  *      register named outright, or a bare two-or-more-digit `row N` /
  *      `entry N` ordinal, which is what one is left as once somebody deletes
  *      the lead-in that named it.
+ *   5. A literal invisible or directional character — a bidi override, a
+ *      zero-width space, a soft hyphen — anywhere in the tracked tree. The
+ *      escape spelling is ASCII and is therefore always legal; see
+ *      `findInvisibleCharacters` for why there is no opt-out.
  *
  * Rule 4 is here because the class recurred twice. Two test files carried a
  * "Row N of the security register" lead-in into this public tree; the round
@@ -151,6 +156,66 @@ export function findConvexHosts(path, text) {
   return found;
 }
 
+/**
+ * Rule 5's character class: every invisible or directional format character
+ * that can sit in a source file and change what a reader sees without
+ * changing what the parser sees.
+ *
+ *   U+00AD          soft hyphen
+ *   U+061C          Arabic letter mark
+ *   U+180E          Mongolian vowel separator
+ *   U+200B - U+200F zero-width space/joiners, LRM, RLM
+ *   U+202A - U+202E the bidi embeddings and the two OVERRIDES
+ *   U+2060 - U+2064 word joiner and the invisible operators
+ *   U+2066 - U+2069 the bidi isolates
+ *   U+FEFF          zero-width no-break space, mid-file
+ *   U+FFF9 - U+FFFB the interlinear annotation characters
+ *
+ * A leading U+FEFF is a byte-order mark and is skipped: it is a file-encoding
+ * artefact, not a character somebody typed into a line.
+ */
+const INVISIBLE_CHAR_RE = new RegExp(
+  "[\\u00ad\\u061c\\u180e\\u200b-\\u200f\\u202a-\u202e\\u2060-\\u2064\\u2066-\\u2069\\ufeff\\ufff9-\\ufffb]",
+  "g",
+);
+
+/**
+ * Rule 5: a literal invisible or directional character in the tracked tree.
+ *
+ * The class this exists for recurred three times inside one session: writing
+ * a test fixture for bidi handling by typing the actual U+202E into the
+ * source, three separate times, in a repository whose whole argument about
+ * these characters is that a reader cannot see them. A fixture written that
+ * way is a fixture nobody can review — the reviewer sees `"ab.pdf"` and has
+ * to take on faith which invisible character is in the middle of it, which is
+ * exactly the confusion the code under test exists to prevent — and a single
+ * stray one, pasted in from somewhere, would look like nothing at all.
+ *
+ * **The escape sequence is the supported spelling and needs no exemption**,
+ * because `\u202e` is six ASCII characters and this rule never sees it. So
+ * there is no allowlist and no opt-out marker: a test that needs the
+ * character builds it (`String.fromCharCode(0x202e)`, or a `\u202e` in a
+ * string literal), which also states in the source which character it means.
+ *
+ * `docs/decisions/testing.md`: a class that has recurred gets a checker in
+ * the same change that cleans it up, not a promise to look harder.
+ */
+export function findInvisibleCharacters(path, text) {
+  const body = text.startsWith("\ufeff") ? text.slice(1) : text;
+  const found = [];
+  const lines = body.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    for (const match of lines[index].matchAll(INVISIBLE_CHAR_RE)) {
+      found.push({
+        path,
+        value: `U+${match[0].charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}`,
+        line: index + 1,
+      });
+    }
+  }
+  return found;
+}
+
 /** Rule 4: a pointer into the private security register, in either spelling. */
 export function findRegisterPointers(path, text) {
   if (REGISTER_POINTER_ALLOWLIST.has(path)) return [];
@@ -210,15 +275,22 @@ function main() {
           `    If this number means a table in this repository, allowlist the file and say which.`,
       );
     }
+    for (const { path: p, value, line } of findInvisibleCharacters(path, text)) {
+      problems.push(
+        `${p}:${line}: a literal ${value} — an invisible or directional character — is committed.\n` +
+          `    Write it as an escape (\\u202e) or build it (String.fromCharCode(0x202e)) instead,\n` +
+          `    so the source says which character it means and a reviewer can see it at all.`,
+      );
+    }
   }
 
   if (problems.length > 0) {
-    console.error("Account identifiers or private-register pointers found in the tracked tree:\n");
+    console.error("Account identifiers, private-register pointers, or invisible characters found in the tracked tree:\n");
     for (const problem of problems) console.error(`  - ${problem}\n`);
     process.exit(1);
   }
   console.log(
-    "OK — no Apple team id, EAS project id, Convex hostname, or register pointer in the tracked tree.",
+    "OK — no Apple team id, EAS project id, Convex hostname, register pointer, or invisible character in the tracked tree.",
   );
 }
 
@@ -323,6 +395,47 @@ function selfTest() {
     "honours the allowlist for a table that really is in this repository",
     findRegisterPointers("scripts/check-no-identifiers.mjs", "row 4716").length === 0 ||
       !REGISTER_POINTER_ALLOWLIST.has("scripts/check-no-identifiers.mjs"),
+  );
+
+  // Rule 5. Every fixture here builds its character from a code point, which
+  // is the same spelling the rule tells a caller to use — a self-test that
+  // pasted the literal byte would be the very thing it is testing for.
+  const character = (code) => String.fromCharCode(code);
+  expect(
+    "catches the right-to-left override, the one that recurred",
+    findInvisibleCharacters("x.test.ts", `const name = "a${character(0x202e)}b.pdf";`).length === 1,
+  );
+  expect(
+    "catches a zero-width space, a soft hyphen and an Arabic letter mark",
+    [0x200b, 0x00ad, 0x061c].every(
+      (code) => findInvisibleCharacters("y.ts", `x${character(code)}y`).length === 1,
+    ),
+  );
+  expect(
+    "catches every bidi isolate and embedding, not only the override",
+    [0x202a, 0x202b, 0x202c, 0x202d, 0x2066, 0x2067, 0x2068, 0x2069].every(
+      (code) => findInvisibleCharacters("z.md", `a${character(code)}b`).length === 1,
+    ),
+  );
+  expect(
+    "reports the line, so a hit in a long file is findable",
+    findInvisibleCharacters("a.ts", `one\ntwo\nthree${character(0x200f)}`)[0].line === 3,
+  );
+  expect(
+    "leaves the escape spelling alone — that is the supported way to write one",
+    findInvisibleCharacters("b.ts", 'const rlo = "\\u202e"; const zwsp = "\\u200b";').length === 0,
+  );
+  expect(
+    "leaves ordinary non-ASCII prose alone — an em dash and an accent are not invisible",
+    findInvisibleCharacters("c.md", "a fixture — héllo, wörld → done").length === 0,
+  );
+  expect(
+    "does not fire on a leading byte-order mark, which is an encoding artefact",
+    findInvisibleCharacters("d.json", `${character(0xfeff)}{"a":1}`).length === 0,
+  );
+  expect(
+    "...but does fire on one in the middle of a line",
+    findInvisibleCharacters("e.json", `{"a":${character(0xfeff)}1}`).length === 1,
   );
 
   if (failures.length > 0) {

@@ -60,6 +60,7 @@ import {
   type DesktopCapabilities,
   type DesktopShell,
   type DetectionView,
+  type ImessageStatus,
   type MachineApprovalResult,
   type MeetingWrite,
   type MeetingWriteAck,
@@ -219,6 +220,21 @@ function outboxFrom(payload: unknown): OutboxStatus {
   return {
     pending: count(source.pending),
     parked: count(source.parked),
+    lastError: sentence(source.lastError),
+  };
+}
+
+const IMESSAGE_PERMISSIONS: readonly ImessageStatus["permission"][] = ["granted", "denied", "unknown"];
+
+function imessageStatusFrom(payload: unknown): ImessageStatus {
+  const source = record(payload);
+  const permission = source.permission;
+  return {
+    enabled: source.enabled === true,
+    permission: IMESSAGE_PERMISSIONS.includes(permission as ImessageStatus["permission"])
+      ? (permission as ImessageStatus["permission"])
+      : "unknown",
+    lastSyncedAt: typeof source.lastSyncedAt === "number" && Number.isFinite(source.lastSyncedAt) ? source.lastSyncedAt : null,
     lastError: sentence(source.lastError),
   };
 }
@@ -525,6 +541,15 @@ export function desktopBridge(ipc: PreloadIpc): DesktopBridge {
           writeAckFrom(value, asked.sessionId),
         );
       },
+    }),
+
+    imessage: Object.freeze({
+      status: (): Promise<ImessageStatus> =>
+        ask(ipc, BRIDGE_CHANNELS.imessageStatus, undefined, imessageStatusFrom),
+      setEnabled: (enabled: boolean): Promise<void> =>
+        ask(ipc, BRIDGE_CHANNELS.imessageSetEnabled, { enabled: enabled === true }, () => undefined),
+      onChange: (handler: (status: ImessageStatus) => void): Unsubscribe =>
+        subscribe(ipc, BRIDGE_CHANNELS.imessageChange, imessageStatusFrom, handler),
     }),
   });
 }

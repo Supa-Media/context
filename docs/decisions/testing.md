@@ -37,6 +37,33 @@ that removed the pointers put one in its own message. And the rule matches the
 noun, so prose *about* the rule trips it; the first thing it caught was a comment
 in `ci.yml` describing it.
 
+### An invisible character in source is a fixture nobody can review
+
+Rule 5 of the same checker is the second application of the paragraph above,
+to a class that recurred three times inside one session: writing a test fixture
+for bidi handling by typing the literal U+202E into the source. The tests were
+right and the spelling was not. A reviewer reading
+`expect(named).not.toContain("...")` sees an empty-looking string and has to
+take on faith which character is in it — in a repository whose whole argument
+about these characters is that a reader cannot see them — and a single stray
+one, pasted in from anywhere, looks like nothing at all. Eleven of them were
+sitting in three test files when the rule was written, all pre-existing, all
+found by it, all converted in the same change.
+
+**The escape spelling needs no exemption, which is why there is no allowlist.**
+`\u202e` is six ASCII characters; the rule never sees it. A test that needs the
+character builds it — `String.fromCharCode(0x202e)`, or an escape in a string
+literal — which has the side benefit of saying in the source which character it
+means. There is no opt-out marker, for the reason rule 4 gives: a marker is a
+thing a real occurrence can also carry. The self-test's own fixtures are built
+from code points for the same reason, since a self-test that pasted the literal
+byte would be the thing it is testing for.
+
+What it does not cover: the same two limits as rule 4 (commit messages and PR
+bodies are outside `git ls-files`), plus ordinary non-ASCII prose, which is
+deliberately legal — an em dash and an accented word are visible characters and
+this rule is about invisible ones.
+
 ### WebKit in CI proves the JavaScript engine, not the OS gesture recogniser
 
 Every iOS-only editor bug in `docs/decisions/app-and-console.md`'s "A long

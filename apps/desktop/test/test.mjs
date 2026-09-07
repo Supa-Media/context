@@ -40,6 +40,16 @@ import { runConsoleBridgeChecks } from "./consoleBridge.test.mjs";
 import { runPackagingChecks } from "./packaging.test.mjs";
 import { runUpdatePolicyChecks } from "./updatePolicy.test.mjs";
 import { runAppShellChecks } from "./appShell.test.mjs";
+import { runImessageAppleTimeChecks } from "./imessageAppleTime.test.mjs";
+import { runImessageAttributedBodyChecks } from "./imessageAttributedBody.test.mjs";
+import { runImessagePathsChecks } from "./imessagePaths.test.mjs";
+import { runImessagePermissionChecks } from "./imessagePermission.test.mjs";
+import { runImessageCursorChecks } from "./imessageCursor.test.mjs";
+import { runImessageReaderChecks } from "./imessageReader.test.mjs";
+import { runImessageGatewayNotesChecks } from "./imessageGatewayNotes.test.mjs";
+import { runImessageSyncChecks } from "./imessageSync.test.mjs";
+import { runImessageSqliteChecks } from "./imessageSqlite.test.mjs";
+import { runImessageServiceChecks } from "./imessageService.test.mjs";
 
 let failures = 0;
 let skipped = 0;
@@ -89,6 +99,16 @@ await runConsoleBridgeChecks(check);
 await runContractChecks(check, skip);
 await runPackagingChecks(check);
 runAppShellChecks(check);
+runImessageAppleTimeChecks(check);
+runImessageAttributedBodyChecks(check);
+runImessagePathsChecks(check);
+await runImessagePermissionChecks(check);
+runImessageCursorChecks(check);
+runImessageReaderChecks(check);
+await runImessageGatewayNotesChecks(check);
+await runImessageSyncChecks(check);
+await runImessageSqliteChecks(check, skip);
+await runImessageServiceChecks(check, skip);
 
 console.log(
   failures
