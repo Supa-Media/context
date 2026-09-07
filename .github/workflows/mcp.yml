@@ -50,6 +50,9 @@ on:
       # normal path; this closes the direct-push one rather than leaving an
       # asterisk on the sentence above.
       - "packages/meetings/**"
+      # And the communications core, for the same reason one line up: `Test
+      # Communications Core` below is its only CI anywhere.
+      - "packages/communications/**"
       # And the desktop app, for exactly the same reason: `Test Desktop` below
       # is its only CI anywhere, so a direct push that skipped it would leave
       # the app with none on `main`.
@@ -123,6 +126,32 @@ jobs:
       # package has no dependencies either.
       - name: Run test suite
         working-directory: packages/meetings
+        run: node test/test.mjs
+
+  communications:
+    name: Test Communications Core
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      # Beside `Test Meetings Core` and for the reason written there in full:
+      # a package whose suite no job runs has local-only checks, and this one
+      # decides what a stranger's mail looks like in a customer's bucket — the
+      # frontmatter escaping, the untrusted fence, and the slug that keeps a
+      # mailbox from becoming a hidden folder.
+      #
+      # The gateway's suite is not a substitute for the same measured reason:
+      # a consumer's suite sees the behaviour it happens to exercise, and the
+      # owning package's suite is the contract. Bare node with no install,
+      # because this package has no dependencies either.
+      - name: Run test suite
+        working-directory: packages/communications
         run: node test/test.mjs
 
   desktop:
