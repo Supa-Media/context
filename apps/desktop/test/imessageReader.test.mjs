@@ -10,7 +10,13 @@
  *
  * Measured by actually editing `src/core/imessage/reader.ts` and reverting:
  *
- *   `isReactionRow` made to always return `false`                       6 FAIL
+ *   `isReactionRow` made to always return `false`                       7 FAIL
+ *   the fold's `target.threadId !== row.chat_guid` check removed          2 FAIL
+ *
+ * The second row is the one this file was extended for. Folding on the target
+ * GUID alone let a reaction row filed under one chat append a line to a
+ * message in another — see `docs/decisions/communications.md`, *And a tapback
+ * may only annotate a message in its own conversation*.
  */
 
 import { IMESSAGE_ACCOUNT, isReactionRow, readChatDbWindow, targetMessageGuid } from "../src/core/imessage/reader.ts";
@@ -150,6 +156,104 @@ export function runImessageReaderChecks(check) {
   check(
     "a message sent from this device lists the other participants as recipients",
     unnamedGroup.to.map((entry) => entry.address).sort().join(",") === "+15550000001,+15550000002",
+  );
+
+  // -- a tapback may never reach out of its own conversation -----------------
+  //
+  // `associated_message_guid` is bytes the *reacting* device chose, and a
+  // message GUID is unique across the whole database rather than per chat. So
+  // a row filed under one chat naming a GUID that belongs to another must be
+  // dropped, not folded: somebody who has ever messaged this Mac knows the
+  // GUIDs of the messages they sent, and folding on GUID alone lets them write
+  // a line naming themselves into a conversation they were never in.
+  const crossConversation = readChatDbWindow(
+    [
+      row({ guid: "private-msg", chat_guid: "chat-private", text: "the private one" }),
+      row({
+        rowid: "2",
+        guid: "outsider-reaction",
+        chat_guid: "chat-somewhere-else",
+        text: null,
+        associated_message_type: 2000,
+        associated_message_guid: "bp:private-msg",
+        sender_address: "+15550001111",
+      }),
+    ],
+    [],
+    [],
+  );
+  check(
+    "A TAPBACK FROM ANOTHER CONVERSATION IS NOT FOLDED onto a message it names by guid",
+    crossConversation.length === 1 && crossConversation[0].body === "the private one",
+  );
+  check(
+    "...so the outsider's handle never appears anywhere in the conversation they were not in",
+    !JSON.stringify(crossConversation).includes("+15550001111"),
+  );
+
+  const sameConversation = readChatDbWindow(
+    [
+      row({ guid: "kept-msg", chat_guid: "chat-private", text: "the private one" }),
+      row({
+        rowid: "2",
+        guid: "insider-reaction",
+        chat_guid: "chat-private",
+        text: null,
+        associated_message_type: 2000,
+        associated_message_guid: "bp:kept-msg",
+        sender_address: "+15550001111",
+      }),
+    ],
+    [],
+    [],
+  );
+  check(
+    "...while a tapback in the SAME conversation still folds, so the check is not simply refusing everything",
+    sameConversation.length === 1 && sameConversation[0].body.includes("+15550001111 loved this message."),
+  );
+
+  // -- a renamed group, and a participant who left ---------------------------
+  //
+  // `chat.display_name` is whatever the group was last renamed to, and
+  // `chat_handle_join` is who is in it *now* — a member who left is simply
+  // absent from the join. Neither is history: a message that person sent
+  // before leaving still carries their handle as its sender, and the day it
+  // landed on still renders it. What must not happen is the subject silently
+  // becoming a different group's, or a departed member's messages losing their
+  // sender.
+  const renamedGroupParticipants = [
+    { chat_guid: "group-2", address: "+15550000001" },
+    { chat_guid: "group-2", address: "+15550000002" },
+    // +15550000003 left the group: no row here at all any more.
+  ];
+  const renamed = readChatDbWindow(
+    [
+      row({ guid: "r1", chat_guid: "group-2", chat_display_name: "Trip 2027", chat_identifier: "chat987654", sender_address: "+15550000003" }),
+      row({ rowid: "2", guid: "r2", chat_guid: "group-2", chat_display_name: "Trip 2027", chat_identifier: "chat987654", sender_address: "+15550000001", text: "still here" }),
+    ],
+    [],
+    renamedGroupParticipants,
+  );
+  check(
+    "a renamed group uses the name it carries NOW, for every message of the day alike",
+    renamed.length === 2 && renamed.every((event) => event.subject === "Trip 2027"),
+  );
+  check(
+    "a message from a participant who has since left still carries that sender's own address",
+    renamed[0].from.address === "+15550000003",
+  );
+  const departedUnnamed = readChatDbWindow(
+    [row({ guid: "r3", chat_guid: "group-2", chat_display_name: null, chat_identifier: "chat987654", is_from_me: 1, sender_address: null })],
+    [],
+    renamedGroupParticipants,
+  );
+  check(
+    "an unnamed group's synthesized subject lists who is in it now, and never invents a departed member back into it",
+    departedUnnamed[0].subject === "+15550000001, +15550000002",
+  );
+  check(
+    "...and a message sent from this device is addressed to the current members only",
+    departedUnnamed[0].to.map((entry) => entry.address).join(",") === "+15550000001,+15550000002",
   );
 
   const [oneOnOne] = readChatDbWindow(

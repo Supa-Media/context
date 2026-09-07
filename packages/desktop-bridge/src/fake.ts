@@ -119,7 +119,16 @@ export interface FakeBridgeOptions {
   /** The status `imessage.status()` and the initial push answer. */
   imessage?: ImessageStatus;
   /**
-   * Answer no `imessage` member at all — a shell older than **version 4**.
+   * Answer no `imessage` member at all — a shell older than **version 5**,
+   * which is every shell in anybody's Applications folder today.
+   *
+   * The version it answers is **4**, not 3: the shell this stages is the one
+   * that shipped complete just before iMessage import existed, and tagging it
+   * with the highest version that legitimately has no `imessage` is what makes
+   * it that shell rather than an older one that also happens to lack the
+   * member. (Rows 3 and 4 of the required-member table are the identical list,
+   * so 3 would validate too — it would just be staging a different shell than
+   * the name says.)
    *
    * The same reason `noMeetings` and `noMachineApproval` exist: a page must
    * notice the member is missing rather than call it and get a `TypeError` a
@@ -186,7 +195,7 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
         : options.noMachineApproval === true
           ? 2
           : options.noImessage === true
-            ? 3
+            ? 4
             : BRIDGE_VERSION),
     shell:
       options.shell === undefined
@@ -323,7 +332,7 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
     /*
       Absent entirely under `noImessage`, rather than present and answering
       nothing — the same rule `meetings` and the machine-approval trio follow,
-      and for the same reason: a shell older than version 4 does not have this
+      and for the same reason: a shell older than version 5 does not have this
       member, and a fake that had it and refused would let a page pass by
       catching an error it should never have been in a position to throw.
     */

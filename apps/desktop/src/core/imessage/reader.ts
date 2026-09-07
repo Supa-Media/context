@@ -226,6 +226,19 @@ export function readChatDbWindow(
     if (targetGuid === null) continue;
     const target = eventByGuid.get(targetGuid);
     if (target === undefined) continue; // outside this window; see the header
+    // A tapback may only annotate a message in **its own conversation**.
+    //
+    // `associated_message_guid` is a value the reacting device chose the bytes
+    // of, and message GUIDs are unique across the whole database rather than
+    // per chat — so without this line a row filed under one chat can append
+    // "<their handle> loved this message." to the body of a message in a
+    // *different* one. Somebody who has ever messaged this Mac knows the GUIDs
+    // of the messages they sent, and that is enough to write a line naming
+    // themselves into a conversation they were never part of, inside the
+    // fence, presented as something that happened there. The check is cheap
+    // and the real case never needs it: macOS files a tapback in the same chat
+    // as the message it reacts to, always.
+    if (target.threadId !== row.chat_guid) continue;
     const line = tapbackLine(row, participantName);
     const base = bodies.get(targetGuid) ?? "";
     const next = base ? `${base}\n\n${line}` : line;

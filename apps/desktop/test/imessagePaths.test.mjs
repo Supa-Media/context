@@ -5,9 +5,12 @@
  *
  * Measured by actually editing `src/core/imessage/paths.ts` and reverting:
  *
- *   `isAllowedChatDbPath` weakened to accept any string                7 FAIL
- *     (6 here, plus 1 more in `imessageSqlite.test.mjs` — the refusal message
- *     `queryChatDb` throws before it ever spawns `sqlite3`)
+ *   `isAllowedChatDbPath` weakened to accept any string               11 FAIL
+ *     (6 here; 3 in `imessageSqlite.test.mjs`, which refuses a readable
+ *     database outside the folder and one reached by traversing out of it;
+ *     and 2 in `imessageService.test.mjs`, where the service is handed a
+ *     `chatDbPath` naming somebody else's database and must read nothing
+ *     from it)
  */
 
 import { defaultChatDbPath, isAllowedChatDbPath } from "../src/core/imessage/paths.ts";

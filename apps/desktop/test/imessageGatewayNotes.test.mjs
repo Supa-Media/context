@@ -12,9 +12,11 @@
  * reverting:
  *
  *   the tier check (`grantCoversMeetings`) skipped before the request is sent  3 FAIL
+ *   the gateway's own refusal text forwarded as `message` instead of one of
+ *     `NOTES_REFUSAL`'s fixed sentences                                       4 FAIL
  */
 
-import { readNote, writeNote, NOTES_TIER_REFUSAL } from "../src/core/imessage/gatewayNotes.ts";
+import { readNote, writeNote, NOTES_REFUSAL, NOTES_TIER_REFUSAL } from "../src/core/imessage/gatewayNotes.ts";
 import { fakeFetch } from "./fakes.mjs";
 
 const GRANT = "context:write context:private";
@@ -125,4 +127,76 @@ export async function runImessageGatewayNotesChecks(check) {
     null,
   );
   check("a 200 that is not JSON (a captive portal) is retryable, never treated as a successful write", !notJson.ok && notJson.retryable === true);
+
+  // -- a refusal's `message` is this app's sentence, never the gateway's ----
+  //
+  // `message` travels: `sync.ts` -> `DayOutcome` -> `ImessageStatus.lastError`
+  // -> the bridge -> the console page and the tray. It is a string a person
+  // reads, on the one path in this app carrying a day of somebody's messages.
+  // A gateway that quoted the note it refused would put a fragment of that day
+  // on a screen through an error nobody was watching, so the tool's own text
+  // is read to *classify* and then dropped.
+  const NOTE = [
+    "---",
+    'type: "channel-day"',
+    "---",
+    "<!-- context:untrusted-communication begin abc123 -->",
+    "the secret body of a private message",
+    "<!-- context:untrusted-communication end abc123 -->",
+  ].join("\n");
+
+  const quotingWrite = await writeNote(
+    config(fakeFetch([{ body: textResult(`refused: cannot write this note: ${NOTE}`, true) }])),
+    "0-inbox/imessage/2026-09-07.md",
+    NOTE,
+    null,
+  );
+  check(
+    "A WRITE REFUSAL THAT QUOTES THE NOTE BACK DOES NOT FORWARD A BYTE OF IT",
+    !quotingWrite.ok && quotingWrite.message === NOTES_REFUSAL.write,
+  );
+  check(
+    "...so no message body, fence marker or frontmatter is anywhere in what a person is shown",
+    !quotingWrite.message.includes("secret body") &&
+      !quotingWrite.message.includes("context:untrusted-communication") &&
+      !quotingWrite.message.includes("channel-day"),
+  );
+
+  const quotingRead = await readNote(
+    config(fakeFetch([{ body: textResult(`refused: cannot read this note: ${NOTE}`, true) }])),
+    "0-inbox/imessage/2026-09-07.md",
+  );
+  check(
+    "a read refusal is the same — classified, then answered in this app's own words",
+    !quotingRead.ok && quotingRead.message === NOTES_REFUSAL.read && !quotingRead.message.includes("secret body"),
+  );
+
+  const conflicting = await writeNote(
+    config(fakeFetch([{ body: textResult(`conflict: note changed since you read it (current etag e9). ${NOTE}`, true) }])),
+    "0-inbox/imessage/2026-09-07.md",
+    NOTE,
+    "e1",
+  );
+  check(
+    "a conflict is still RECOGNISED as one — the tool's prefix is read, which is what drives the one retry",
+    !conflicting.ok && conflicting.conflict === true,
+  );
+  check(
+    "...and still answered with a fixed sentence rather than the conflict's own text",
+    conflicting.message === NOTES_REFUSAL.conflict && !conflicting.message.includes("secret body"),
+  );
+
+  const jsonRpcError = await writeNote(
+    config(fakeFetch([{ body: { jsonrpc: "2.0", id: "x", error: { code: -32000, message: `bad request: ${NOTE}` } } }])),
+    "0-inbox/imessage/2026-09-07.md",
+    NOTE,
+    null,
+  );
+  check(
+    "a JSON-RPC error object's own message is not forwarded either — that string is written by the other end too",
+    !jsonRpcError.ok && jsonRpcError.message === NOTES_REFUSAL.request && !jsonRpcError.message.includes("secret body"),
+  );
+
+  const stillFound = await readNote(config(fakeFetch([{ body: textResult("not found", true) }])), "0-inbox/imessage/2026-09-07.md");
+  check("...while `not found` is still classified as 'no note yet' rather than an error", stillFound.ok === true && stillFound.found === false);
 }

@@ -690,11 +690,27 @@ target is outside the day being rendered (a reaction added later, to a
 message from a previous sync) is silently dropped rather than attached to
 nothing — the day is the only place this function can look. The check is `a
 tapback never becomes an event of its own`, sabotaged by making
-`isReactionRow` always answer `false` — 6 checks fail, none of them about
+`isReactionRow` always answer `false` — 7 checks fail, none of them about
 tapbacks specifically, because the folded rows fall back to being read as
 ordinary (empty) messages and are dropped by the no-content rule instead,
 which is itself a second finding worth naming: a broken fold degrades to
 silently losing the reaction rather than corrupting a note.
+
+**And a tapback may only annotate a message in its own conversation.** This
+was found in adversarial review of the fold above, which matched on the target
+GUID alone. `associated_message_guid` is bytes the *reacting* device chose,
+and a `message.guid` is unique across the whole database rather than per chat
+— so a reaction row filed under one conversation naming a GUID from another
+was folded onto it, appending `+1555… loved this message.` to a message body
+in a conversation that handle was never in. Anybody who has ever messaged this
+Mac knows the GUIDs of the messages they sent, which is the whole of what the
+attack needs: a line naming themselves, inside the fence, in a thread they
+were not part of, in a document presented as a record of what happened there.
+macOS files a tapback in the same chat as its target, always, so the fix costs
+nothing real: the fold requires `target.threadId === row.chat_guid` and drops
+the row otherwise, exactly as it already drops one whose target is outside the
+window. The check is `A TAPBACK FROM ANOTHER CONVERSATION IS NOT FOLDED onto a
+message it names by guid`; removing the comparison fails 2.
 
 **Full Disk Access is attempted, never requested — there is nothing to
 request.** Unlike the microphone or Screen Recording
@@ -736,6 +752,29 @@ the next sync rather than needing a backfill tool of its own, and it is what
 "regenerating only affected days" in the scoping note actually means: bounded
 to the days that changed, not bounded to appending onto what was last
 written.
+
+**Which means a day that *shrinks* has to lose its extra parts too.** An
+oversized day splits by rendered bytes (see the split decision above), so a day
+that loses messages — somebody deleted them in Messages.app — can render into
+fewer parts than it did last time, and the parts past the new last one are
+simply never re-rendered. Left alone, `2026-09-07-part-2.md` keeps the deleted
+messages in the bucket forever: the one outcome a person who deleted a message
+is entitled not to get, reached through the gap between "the day is
+regenerated whole" and "the day is a set of files". So `retireOrphanParts`
+walks upward from the day's new last part until it finds one that is not
+there, and rewrites each it does find with the same day rendered with **no
+events** — `messages: 0`, `_(no messages)_`, the day's own fence nonce. The
+file itself stays, because this app writes into somebody's own bucket through
+`write_note` and does not remove their notes; what it guarantees is that no
+message body survives in one. A `read_note` that *fails* during that walk
+stops it and is reported as an error rather than read as "no more parts", so a
+transport blip is never the reason a stale part is left standing. The check is
+`A DELETED MESSAGE DOES NOT SURVIVE IN THE ORPHANED PART`; skipping the walk
+fails 3, and the fixture deliberately gives the two messages different
+timestamps so the split is deterministic — with a shared timestamp the tie
+breaks on an anchor hash and the deleted message can land in part 1, where the
+ordinary rewrite removes it and the check passes without exercising an orphan
+at all.
 
 **Idempotent upsert is a real property of the bytes, and two things had to be
 true for it to hold.** Re-running a sync with nothing new must write nothing —
@@ -784,6 +823,25 @@ no new route and no new test requirement here): the alternative, a bespoke
 `/imessage/...` REST surface mirroring the meetings one, was rejected as a
 protocol invented for one client where a protocol every MCP client already
 speaks would do.
+
+**A gateway refusal's own words never reach a person, only this app's.** Also
+found in adversarial review. A failed `read_note`/`write_note` used to answer
+with the tool's own error text, and that string travels: `sync.ts` puts it in a
+`DayOutcome`, `main/imessage.ts` puts that in `ImessageStatus.lastError`, and
+the bridge pushes it to the console page and the tray. It is a string somebody
+*reads*, on the one path in this app carrying a day of their messages — so a
+gateway that quoted the note it refused (a validation error naming the
+offending line, a proxy echoing the request body) would put a fragment of that
+day on a screen through an error nobody was watching. The tool's text is now
+read to **classify** — `not found` is how `toolReadNote` says a path does not
+exist yet, the `conflict:` prefix is what drives the one re-read-and-retry —
+and then dropped for one of four fixed sentences in `NOTES_REFUSAL`. It costs
+the ability to see the gateway's exact complaint, which was never in a log
+anyway (this feature writes none), and it makes true of the network path what
+`exec.ts`'s `run` already makes true of the process path and `sqlite.ts` of
+the database path: the same rule, in the third and last place it has to hold.
+The check is `A WRITE REFUSAL THAT QUOTES THE NOTE BACK DOES NOT FORWARD A
+BYTE OF IT`; forwarding the text again fails 4.
 
 **"The read is refused when the grant is missing" means the message content
 never leaves the database, not merely that it is never sent.** The Full Disk

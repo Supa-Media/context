@@ -24,7 +24,13 @@
  *     deliberately ignores. A day with no new content produces **zero**
  *     `writeNote` calls, which is the whole of what "idempotent upsert: re-
  *     running changes no bytes" asks for.
- *  4. The cursor advances past every row this pass saw **only if every
+ *  4. A day that *shrank* — enough messages deleted on the Mac that it no
+ *     longer splits into as many parts — has every part past its new last one
+ *     **emptied**, so a message somebody deleted does not survive in an
+ *     orphaned `-part-N.md` nobody re-renders. The file itself stays (this app
+ *     does not delete a customer's notes) but its content does not; see
+ *     `retireOrphanParts`.
+ *  5. The cursor advances past every row this pass saw **only if every
  *     affected day wrote clean**. A day that failed keeps the old cursor in
  *     place, so the whole pass — not just the failed day — is retried next
  *     time; that costs a handful of redundant re-reads of days that already
@@ -33,7 +39,7 @@
  *     bucket.
  */
 
-import { channelDayNotePath, planChannelDay, type CommunicationEvent } from "@context/communications";
+import { channelDayNotePath, planChannelDay, renderChannelDayNote, type CommunicationEvent } from "@context/communications";
 import type { ChannelDayPart } from "@context/communications/protocol";
 import { appleNsRangeForUtcDate, appleEpochNsToIso, utcDateOf } from "./appleTime.ts";
 import { advanceCursor, type ImessageCursor } from "./cursor.ts";
@@ -72,6 +78,19 @@ export interface SyncReport {
 
 /** The exact line `renderChannelDayNote` writes for the fence's begin marker, with the nonce captured. */
 const FENCE_BEGIN = /<!-- context:untrusted-communication begin (\S+) -->/;
+
+/**
+ * How far past a day's current last part `retireOrphanParts` will look.
+ *
+ * The scan stops at the first part that is not there, so on real data it costs
+ * exactly one extra `read_note` per affected day. This bound exists for the
+ * case where that stopping condition never arrives — a gateway answering
+ * `found` for every path it is asked about — because an unbounded loop reading
+ * a remote is a hang, and a hang is worse than the stale part it is trying to
+ * clear. 64 parts past the living ones is roughly 32 MB of message text in one
+ * day beyond what the day now renders, which no real day has ever lost.
+ */
+const MAX_ORPHAN_PARTS_SCANNED = 64;
 
 /** The nonce a previously-written day used, so regenerating it reuses the same one. `null` for a day that never existed. */
 export function existingNonce(content: string): string | null {
@@ -183,10 +202,65 @@ async function syncDay(
   );
 
   const outcomes = await Promise.all(parts.map((part) => upsertPart(deps, part)));
-  const errored = outcomes.find((outcome) => outcome.status === "error");
+  const retired = await retireOrphanParts(deps, date, parts.length, nonce);
+  const errored = [...outcomes, ...retired].find((outcome) => outcome.status === "error");
   if (errored) return { date, status: "error", parts: parts.length, message: errored.message };
-  const status = outcomes.some((outcome) => outcome.status === "written") ? "written" : "unchanged";
+  const status = [...outcomes, ...retired].some((outcome) => outcome.status === "written") ? "written" : "unchanged";
   return { date, status, parts: parts.length };
+}
+
+/**
+ * Empty every part of a day past the last one it now renders into.
+ *
+ * A day splits into parts by rendered byte size, so a day that *loses*
+ * messages — somebody deleted them in Messages.app — can render into fewer
+ * parts than it did last time. Without this, `-part-3.md` would simply never
+ * be re-rendered and would keep the deleted messages in the bucket forever,
+ * which is the one outcome a person who deleted a message is entitled not to
+ * get. Re-deriving a day from `chat.db` has to mean the *whole* day, and a
+ * part nobody rewrites is not part of the day being re-derived.
+ *
+ * The note is **emptied, not deleted**: this app writes into somebody's own
+ * bucket through `write_note` and does not remove their files. What it can
+ * guarantee is that no message body survives in one, and an emptied part
+ * renders as the same header with `messages: 0` and `_(no messages)_`.
+ *
+ * Parts are contiguous — part `n` is only ever written when parts `1..n-1`
+ * were — so the scan stops at the first part that is not there, and a
+ * `readNote` that *fails* stops it too rather than being read as "no more
+ * parts": a transport error must not be the reason a stale part is left
+ * standing, so it is reported as an error and holds the cursor back. It also
+ * stops unconditionally after `MAX_ORPHAN_PARTS_SCANNED`; see that constant.
+ */
+async function retireOrphanParts(
+  deps: ImessageSyncDeps,
+  date: string,
+  livingParts: number,
+  nonce: string,
+): Promise<Array<{ status: "written" | "unchanged" | "error"; message?: string }>> {
+  const outcomes: Array<{ status: "written" | "unchanged" | "error"; message?: string }> = [];
+  const ceiling = livingParts + MAX_ORPHAN_PARTS_SCANNED;
+  for (let part = livingParts + 1; part <= ceiling; part += 1) {
+    const path = channelDayNotePath({ channel: "imessage", date, part });
+    const existing = await deps.readNote(path);
+    if (!existing.ok) {
+      outcomes.push({ status: "error", message: existing.message });
+      return outcomes;
+    }
+    if (!existing.found) return outcomes;
+    const text = renderChannelDayNote({
+      channel: "imessage",
+      date,
+      events: [],
+      part,
+      parts: part,
+      nonce,
+      now: deps.now(),
+      origin: "desktop-imessage-sync",
+    });
+    outcomes.push(await upsertPart(deps, { part, parts: part, events: [], path, text }));
+  }
+  return outcomes;
 }
 
 /** One incremental sync pass. See the header for the shape. */

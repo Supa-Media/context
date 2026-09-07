@@ -65,4 +65,49 @@ export function runImessageAppleTimeChecks(check) {
   check("a date missing entirely is refused", appleNsRangeForUtcDate(undefined) === null);
 
   check("utcDateOf reads the calendar day off an ISO instant", utcDateOf("2026-09-07T23:59:59.999Z") === "2026-09-07");
+
+  // -- known instants, hand-computed, on both sides of the hazards ----------
+  //
+  // Written as literal digit strings rather than through `nsFor`, so a bug in
+  // this file's own helper cannot cancel out a bug in the function under test.
+  check(
+    "iMessage's own first year (2011) decodes exactly",
+    appleEpochNsToIso("340070400000000000") === "2011-10-12T00:00:00.000Z",
+  );
+  check(
+    "the 32-bit Unix rollover instant (2038-01-19T03:14:08Z) decodes exactly — nothing here is a 32-bit counter",
+    appleEpochNsToIso("1169176448000000000") === "2038-01-19T03:14:08.000Z",
+  );
+  check(
+    "a leap day well past 2038 decodes exactly",
+    appleEpochNsToIso("1235822400000000000") === "2040-02-29T12:00:00.000Z",
+  );
+  check(
+    "and a range for a post-2038 day is computed in BigInt, not float, so it round-trips",
+    appleEpochNsToIso(appleNsRangeForUtcDate("2040-02-29").startNs) === "2040-02-29T00:00:00.000Z",
+  );
+
+  // A *pre-2001* `message.date` is a negative integer in Apple's epoch. It
+  // cannot be a real iMessage (the service is a decade younger than the epoch)
+  // and `CAST(... AS TEXT)` prints it with a leading `-`, so it is refused —
+  // and refusal is the whole point: `reader.ts` drops a row whose timestamp
+  // does not decode, which is the safe direction. Silently reading `-1e9` as
+  // an unsigned value would file a 2000 message under 2001-01-01.
+  check(
+    "a pre-2001 (negative) Apple date is refused, never read as its unsigned self",
+    appleEpochNsToIso("-1000000000") === null,
+  );
+  check(
+    "...and the second before the epoch is refused for the same reason, not rounded to the epoch",
+    appleEpochNsToIso("-1") === null,
+  );
+
+  // A `date` far enough out that Unix milliseconds leave the safe-integer
+  // range is refused rather than decoded to a wrong instant — this is the
+  // upper bound of what a `Date` can carry at all, and answering `null` sends
+  // the row down `reader.ts`'s "cannot be filed under a day" path.
+  check(
+    "a date past what a JS Date can represent is refused, not silently wrapped",
+    appleEpochNsToIso("9".repeat(25)) === null,
+  );
 }

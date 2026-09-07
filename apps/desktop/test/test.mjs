@@ -49,6 +49,7 @@ import { runImessageReaderChecks } from "./imessageReader.test.mjs";
 import { runImessageGatewayNotesChecks } from "./imessageGatewayNotes.test.mjs";
 import { runImessageSyncChecks } from "./imessageSync.test.mjs";
 import { runImessageSqliteChecks } from "./imessageSqlite.test.mjs";
+import { runImessageServiceChecks } from "./imessageService.test.mjs";
 
 let failures = 0;
 let skipped = 0;
@@ -107,6 +108,7 @@ runImessageReaderChecks(check);
 await runImessageGatewayNotesChecks(check);
 await runImessageSyncChecks(check);
 await runImessageSqliteChecks(check, skip);
+await runImessageServiceChecks(check, skip);
 
 console.log(
   failures

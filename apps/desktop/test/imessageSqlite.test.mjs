@@ -26,9 +26,13 @@
  *
  *   `schema.ts` selecting `attributedBody` raw instead of `hex(...)`          1 (the row becomes unusable mush, caught by this file's own decode check)
  *   `schema.ts` selecting `date` without `CAST(... AS TEXT)`                  1 (the timestamp silently loses precision — caught by the exact-instant check below)
+ *   `exec.ts`'s `run` rejecting with the underlying error rather than
+ *     `${command} failed`                                                    3 (the sqlite3 error text carries the failing query straight into a
+ *                                                                               `ChatDbUnreadable` message — caught by the redaction checks below)
  */
 
-import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -105,6 +109,57 @@ function buildFixtureDb(dbPath) {
     INSERT INTO message_attachment_join (message_id, attachment_id) VALUES (2, 1);
   `;
   execFileSync(SQLITE3_BINARY, [dbPath, seed]);
+}
+
+/**
+ * The bytes a hostile sender gets to choose, in every column that carries any:
+ * a handle, a group's name, a message body and an attachment's filename.
+ *
+ * Shell metacharacters, SQL string terminators, command substitution in both
+ * spellings, and a newline — the four things that would matter if any of these
+ * values were ever concatenated into a command line or into SQL text. Nothing
+ * in this app builds either from a column, and this fixture is what says so
+ * rather than the comment that claims it.
+ */
+const HOSTILE = Object.freeze({
+  handle: "+1555'; DROP TABLE message; --",
+  groupName: "Trip $(touch OWNED-BY-GROUP-NAME) `touch OWNED-BY-BACKTICK` ; rm -rf .",
+  body: "line one\nline two \"quoted\" 'single' $(touch OWNED-BY-BODY) `touch OWNED-BY-BODY2` | tee /dev/null",
+  filename: "photo'; DROP TABLE attachment; --$(touch OWNED-BY-FILENAME).heic",
+});
+
+/** A SQL string literal — the one way this test file itself gets hostile bytes into the fixture. */
+function sqlLiteral(value) {
+  return `'${String(value).split("'").join("''")}'`;
+}
+
+function seedHostileRows(dbPath) {
+  const seed = `
+    INSERT INTO handle (ROWID, id, service) VALUES (2, ${sqlLiteral(HOSTILE.handle)}, 'iMessage');
+    INSERT INTO chat (ROWID, guid, chat_identifier, display_name, service_name)
+      VALUES (2, 'chat-guid-hostile', 'chat9999', ${sqlLiteral(HOSTILE.groupName)}, 'iMessage');
+    INSERT INTO chat_handle_join (chat_id, handle_id) VALUES (2, 2);
+    INSERT INTO message (ROWID, guid, text, handle_id, date, is_from_me, associated_message_type, associated_message_guid, attributedBody)
+      VALUES (10, 'msg-hostile-1', ${sqlLiteral(HOSTILE.body)}, 2, 810433020000000000, 0, 0, NULL, NULL);
+    INSERT INTO chat_message_join (chat_id, message_id) VALUES (2, 10);
+    INSERT INTO attachment (ROWID, filename, mime_type, total_bytes, transfer_name)
+      VALUES (2, ${sqlLiteral(HOSTILE.filename)}, 'image/heic', 512, 'x.heic');
+    INSERT INTO message_attachment_join (message_id, attachment_id) VALUES (10, 2);
+  `;
+  execFileSync(SQLITE3_BINARY, [dbPath, seed]);
+}
+
+/** Everything in a directory, and the sha256 of one file in it — the facts a read must not change. */
+async function fingerprint(dir, file) {
+  const entries = (await readdir(dir)).sort();
+  const bytes = await readFile(file);
+  const info = await stat(file);
+  return {
+    entries: entries.join(","),
+    digest: createHash("sha256").update(bytes).digest("hex"),
+    size: info.size,
+    mtimeMs: info.mtimeMs,
+  };
 }
 
 export async function runImessageSqliteChecks(check, skip) {
@@ -185,6 +240,144 @@ export async function runImessageSqliteChecks(check, skip) {
     check(
       "a path that is not this Mac's own chat.db is refused BEFORE sqlite3 is even spawned — not merely that a read of it later failed",
       refused === "refused: not this Mac's own chat.db",
+    );
+
+    // A path outside `~/Library/Messages` that IS a perfectly good SQLite
+    // database — the case the refusal actually has to hold for, since a
+    // nonexistent file would have failed anyway.
+    const decoyDb = join(tempHome, "decoy.db");
+    execFileSync(SQLITE3_BINARY, [
+      decoyDb,
+      "CREATE TABLE handle (ROWID INTEGER, id TEXT); INSERT INTO handle VALUES (1, 'decoy');",
+    ]);
+    const decoyOutcome = await queryChatDb(decoyDb, schema.selectParticipantsSql()).then(
+      (rows) => `read ${rows.length} rows`,
+      (error) => error.message,
+    );
+    check(
+      "A READABLE SQLITE DATABASE OUTSIDE ~/Library/Messages IS STILL REFUSED — the guard is the path, not whether the file happens to open",
+      decoyOutcome === "refused: not this Mac's own chat.db",
+    );
+    const traversal = join(messagesDir, "..", "..", "decoy.db");
+    const traversalOutcome = await queryChatDb(traversal, schema.selectParticipantsSql()).then(
+      () => "read",
+      (error) => error.message,
+    );
+    check(
+      "...and so is one reached by traversing out of the Messages folder and back down",
+      traversalOutcome === "refused: not this Mac's own chat.db",
+    );
+    check(
+      "...while the one allowed file reached THROUGH a `..` still resolves to itself",
+      paths.isAllowedChatDbPath(join(messagesDir, "..", "Messages", "chat.db")),
+    );
+
+    // -- the read never writes, and never copies ---------------------------
+    //
+    // `-readonly` and `?mode=ro` are two claims in a comment until something
+    // measures them. The digest, the size, the mtime and the whole directory
+    // listing are taken either side of a full read cycle: a rollback journal,
+    // a `-wal`, a `-shm`, a temp copy or a single changed byte all show here.
+    const beforeRead = await fingerprint(messagesDir, dbPath);
+    const homeBefore = (await readdir(tempHome)).sort().join(",");
+    await queryChatDb(dbPath, schema.selectMessagesSql({ kind: "since", afterRowId: 0 }));
+    await queryChatDb(dbPath, schema.selectAttachmentsSql({ kind: "since", afterRowId: 0 }));
+    await queryChatDb(dbPath, schema.selectParticipantsSql());
+    await queryChatDb(dbPath, schema.selectMaxRowIdSql());
+    const afterRead = await fingerprint(messagesDir, dbPath);
+    check(
+      "THE DATABASE'S BYTES ARE UNCHANGED by a full read cycle",
+      beforeRead.digest === afterRead.digest && beforeRead.size === afterRead.size,
+    );
+    check(
+      "...and its modification time is untouched, so nothing ever opened it for writing",
+      beforeRead.mtimeMs === afterRead.mtimeMs,
+    );
+    check(
+      "...and no journal, -wal, -shm or temp copy was left beside it",
+      beforeRead.entries === afterRead.entries && afterRead.entries === "chat.db",
+    );
+    check(
+      "...and nothing was copied anywhere else under the home directory either",
+      homeBefore === (await readdir(tempHome)).sort().join(","),
+    );
+
+    // -- a sender's own bytes, through every column that carries any -------
+    //
+    // Nothing here is spliced into a command line (`exec.ts` runs `execFile`
+    // with `shell: false` and an argv array) or into SQL text (`schema.ts`
+    // interpolates validated digit strings and nothing else). This measures
+    // both at once: the values survive verbatim, the tables they tried to drop
+    // are still there, and none of the four `touch` commands ran.
+    seedHostileRows(dbPath);
+    const hostileMessages = await queryChatDb(dbPath, schema.selectMessagesSql({ kind: "since", afterRowId: 9 }));
+    const hostileAttachments = await queryChatDb(dbPath, schema.selectAttachmentsSql({ kind: "since", afterRowId: 9 }));
+    const hostileParticipants = await queryChatDb(dbPath, schema.selectParticipantsSql());
+    const hostileRow = hostileMessages.find((row) => row.guid === "msg-hostile-1");
+    check("a message body full of shell metacharacters comes back byte-for-byte", hostileRow?.text === HOSTILE.body);
+    check(
+      "a group display name containing $( ), backticks and a semicolon comes back byte-for-byte",
+      hostileRow?.chat_display_name === HOSTILE.groupName,
+    );
+    check("a handle carrying a SQL string terminator comes back byte-for-byte", hostileRow?.sender_address === HOSTILE.handle);
+    check(
+      "an attachment filename carrying the same comes back byte-for-byte",
+      hostileAttachments.some((row) => row.filename === HOSTILE.filename),
+    );
+    const survivingMessages = await queryChatDb(dbPath, schema.selectMessagesSql({ kind: "since", afterRowId: 0 }));
+    const survivingAttachments = await queryChatDb(dbPath, schema.selectAttachmentsSql({ kind: "since", afterRowId: 0 }));
+    check(
+      "the tables those values tried to drop are all still there, with every row",
+      survivingMessages.length === 4 && survivingAttachments.length === 2,
+    );
+    const spawned = [...(await readdir(tempHome)), ...(await readdir(messagesDir)), ...(await readdir(process.cwd()))];
+    check(
+      "NOT ONE OF THE FOUR COMMAND-SUBSTITUTION PAYLOADS RAN — there is no shell anywhere on this path",
+      !spawned.some((name) => name.startsWith("OWNED-BY-")),
+    );
+    const hostileEvents = reader.readChatDbWindow(hostileMessages, hostileAttachments, hostileParticipants, {});
+    check(
+      "...and the hostile row still becomes an ordinary event, carrying its own bytes",
+      hostileEvents.length === 1 && hostileEvents[0].body === HOSTILE.body && hostileEvents[0].subject === HOSTILE.groupName,
+    );
+
+    // -- a failing query says nothing about what it was asked -------------
+    //
+    // `run` replaces the underlying error with `${command} failed`, and the
+    // whole reason it does is that a `sqlite3` failure message echoes the
+    // failing statement — which here is a query over a database of somebody's
+    // messages. `queryChatDb` passes that message straight into a
+    // `ChatDbUnreadable`, so this is where the redaction is load-bearing
+    // rather than where it is merely written down.
+    const failure = await queryChatDb(dbPath, "SELECT no_such_column FROM message WHERE text LIKE '%needle%';").then(
+      () => "did not throw",
+      (error) => error.message,
+    );
+    check("a failing query throws a fixed sentence naming only the binary", failure === "/usr/bin/sqlite3 failed");
+    check(
+      "...which carries no fragment of the SQL it was asked to run",
+      !failure.includes("no_such_column") && !failure.includes("needle"),
+    );
+    check("...and no fragment of the database path either", !failure.includes(dbPath) && !failure.includes("Messages"));
+
+    // -- the ROWID cursor cannot skip a row -------------------------------
+    //
+    // The whole incremental design rests on one property of Apple's schema:
+    // `message.ROWID` is `INTEGER PRIMARY KEY AUTOINCREMENT`, so a ROWID is
+    // never reused. Were it reused, removing the newest message and receiving
+    // a new one would hand that new message a ROWID at or below the stored
+    // cursor, and it would never be read again. Measured against the real
+    // engine rather than assumed from the schema text.
+    const highestBefore = (await queryChatDb(dbPath, schema.selectMaxRowIdSql()))[0].rowid;
+    execFileSync(SQLITE3_BINARY, [dbPath, `DELETE FROM message WHERE ROWID = ${highestBefore};`]);
+    execFileSync(SQLITE3_BINARY, [
+      dbPath,
+      "INSERT INTO message (guid, text, handle_id, date, is_from_me) VALUES ('msg-after-delete', 'arrived later', 1, 810433080000000000, 0);",
+    ]);
+    const highestAfter = (await queryChatDb(dbPath, schema.selectMaxRowIdSql()))[0].rowid;
+    check(
+      "A ROWID IS NEVER REUSED after the highest row is removed — the cursor cannot skip the message that replaces it",
+      Number(highestAfter) > Number(highestBefore),
     );
   } finally {
     process.env.HOME = originalHome;

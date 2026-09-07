@@ -94,7 +94,6 @@ export function runImessageAttributedBodyChecks(check) {
     extractAttributedBodyText(concat(encoder.encode("NSString"), new Uint8Array([0x03]), encoder.encode("a\x00b"))) === null,
   );
 
-  const surrounding = fixture("wrapped");
   check(
     "leading and trailing whitespace in the recovered string is trimmed",
     extractAttributedBodyText(fixture("  padded with spaces  ")) === "padded with spaces",
@@ -109,4 +108,50 @@ export function runImessageAttributedBodyChecks(check) {
   check("attributedBodyFromHex refuses an odd-length string", attributedBodyFromHex("abc") === null);
   check("attributedBodyFromHex refuses non-hex characters", attributedBodyFromHex("zz00") === null);
   check("attributedBodyFromHex is case-insensitive, as sqlite3's hex() output always is uppercase", attributedBodyFromHex(hex.toUpperCase()) === "via hex");
+
+  // -- the shapes it CANNOT decode must degrade to nothing, never to garbage --
+  //
+  // The heuristic's own doc promises "an empty body, never a wrong one". These
+  // are the three ways a real blob defeats it, and each must answer `null`
+  // rather than a run of archiver structure that happens to decode.
+  const bplistClassesOnly = concat(
+    encoder.encode("bplist00"),
+    new Uint8Array([0xd4, 0x01, 0x02, 0x03, 0x04]),
+    encoder.encode("$classesNSMutableAttributedString"),
+    encoder.encode("NSString"),
+    // An `NSKeyedArchiver` offset table: the string itself lives elsewhere in
+    // `$objects`, reachable only by resolving UIDs, which this app does not do.
+    new Uint8Array([0xa2, 0x0b, 0x0c, 0x80, 0x02, 0x00, 0x08, 0x11, 0x1a, 0x23, 0x2d, 0x32, 0x37, 0x40]),
+    new Uint8Array(30),
+  );
+  check(
+    "a bplist blob whose NSString is only a CLASS NAME answers null — no text, rather than a slice of the offset table",
+    extractAttributedBodyText(bplistClassesOnly) === null,
+  );
+  check(
+    "a length byte naming more bytes than the blob actually holds answers null, never a truncated read past the end",
+    extractAttributedBodyText(concat(encoder.encode("NSString"), new Uint8Array(3), new Uint8Array([200]), encoder.encode("short"))) === null,
+  );
+  check(
+    "bytes that are not valid UTF-8 answer null rather than replacement characters",
+    extractAttributedBodyText(concat(encoder.encode("NSString"), new Uint8Array([0, 0, 0, 5, 0xff, 0xfe, 0xfd, 0xfc, 0xfb]))) === null,
+  );
+
+  // THE failure mode that would matter: a blob this cannot read must never
+  // come back carrying the text of the blob decoded just before it. The
+  // function holds no state between calls and this is what says so — decoding
+  // a good blob, then a bad one, then the good one again.
+  const good = fixture("the previous message's own words");
+  const first = extractAttributedBodyText(good);
+  const undecodable = extractAttributedBodyText(bplistClassesOnly);
+  const again = extractAttributedBodyText(good);
+  check(
+    "AN UNDECODABLE BLOB NEVER INHERITS THE PREVIOUS ONE'S TEXT — no state survives a call",
+    first === "the previous message's own words" && undecodable === null && again === first,
+  );
+  check(
+    "...and the same holds through the hex entry point the rows actually use",
+    attributedBodyFromHex(Buffer.from(good).toString("hex")) === first &&
+      attributedBodyFromHex(Buffer.from(bplistClassesOnly).toString("hex")) === null,
+  );
 }

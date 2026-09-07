@@ -23,6 +23,24 @@
  * write; this decides how one `tools/call` reaches the gateway and how its
  * answer is turned into something `sync.ts` can act on without knowing the
  * MCP wire format exists.
+ *
+ * ## Every `message` here is this app's own sentence, never the gateway's
+ *
+ * A failure's `message` travels: `sync.ts` puts it in a `DayOutcome`,
+ * `main/imessage.ts` puts that in `ImessageStatus.lastError`, and the bridge
+ * pushes it to the console page and the tray. So it is a string a person
+ * *reads*, on a path carrying a day of somebody's messages — and a tool
+ * refusal from the other end is text this app did not write and cannot bound.
+ * A gateway that quoted the note it refused (a validation error naming the
+ * offending line, a proxy echoing the request body) would put a fragment of
+ * somebody's iMessage history on a screen through an error path nobody was
+ * looking at.
+ *
+ * So the gateway's own words are used for **classification only** — `not
+ * found`, the `conflict:` prefix — and never forwarded. `sqlite.ts` states the
+ * same rule for the same reason one layer down, and `exec.ts`'s `run` states
+ * it for the process it spawns; this is the third place the rule has to hold,
+ * and the only one where the text comes off the network.
  */
 
 import { grantCoversMeetings } from "../sync/connection.ts";
@@ -51,6 +69,19 @@ export type ReadNoteResult =
 export type WriteNoteResult =
   | { ok: true; etag: string }
   | { ok: false; conflict: boolean; retryable: boolean; message: string };
+
+/**
+ * What a person is told when the gateway refused a read or a write.
+ *
+ * Fixed sentences, chosen by *which* call was refused — never the refusal's
+ * own text. See the header: this string reaches a screen.
+ */
+export const NOTES_REFUSAL = Object.freeze({
+  read: "this machine's context refused to read that day's iMessage note",
+  write: "this machine's context refused to write that day's iMessage note",
+  conflict: "that day's iMessage note changed while it was being written",
+  request: "the gateway refused this request",
+});
 
 /** The sentence held rather than sent when this machine's grant cannot file privately. Mirrors `MEETING_TIER_REFUSAL`. */
 export const NOTES_TIER_REFUSAL =
@@ -172,8 +203,9 @@ async function callTool(
 
   const envelope = payload as { result?: unknown; error?: { message?: unknown } };
   if (envelope.error) {
-    const message = typeof envelope.error.message === "string" ? envelope.error.message : "the gateway refused this request";
-    return { ok: false, retryable: false, message };
+    // Not `envelope.error.message`: see the header. A JSON-RPC error object is
+    // written by the other end, and this string is read by a person.
+    return { ok: false, retryable: false, message: NOTES_REFUSAL.request };
   }
 
   const result = envelope.result as { isError?: unknown } | undefined;
@@ -187,8 +219,10 @@ export async function readNote(config: NotesGatewayConfig, path: string): Promis
   const outcome = await callTool(config, "read_note", { path });
   if (!outcome.ok) return outcome;
   if (outcome.isError) {
+    // The tool's own text is read to *classify* — `not found` is how
+    // `toolReadNote` says a path does not exist yet — and then dropped.
     if (outcome.text === NOT_FOUND_TEXT) return { ok: true, found: false };
-    return { ok: false, retryable: false, message: outcome.text ?? "read_note was refused" };
+    return { ok: false, retryable: false, message: NOTES_REFUSAL.read };
   }
   const text = outcome.text ?? "";
   const { headers, body } = splitInfoBlock(text);
@@ -210,8 +244,16 @@ export async function writeNote(
   const outcome = await callTool(config, "write_note", args);
   if (!outcome.ok) return { ok: false, conflict: false, retryable: outcome.retryable, message: outcome.message };
   if (outcome.isError) {
-    const message = outcome.text ?? "write_note was refused";
-    return { ok: false, conflict: message.startsWith("conflict:"), retryable: false, message };
+    // Classified on the tool's own `conflict:` prefix — which is what drives
+    // `sync.ts`'s one re-read-and-retry — and then answered with this app's
+    // own sentence rather than the tool's.
+    const conflict = (outcome.text ?? "").startsWith("conflict:");
+    return {
+      ok: false,
+      conflict,
+      retryable: false,
+      message: conflict ? NOTES_REFUSAL.conflict : NOTES_REFUSAL.write,
+    };
   }
   const match = WRITTEN_PATTERN.exec(outcome.text ?? "");
   if (!match?.[1]) return { ok: false, conflict: false, retryable: true, message: "write_note answered with no etag" };

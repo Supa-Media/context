@@ -166,7 +166,7 @@ export interface ConsoleBridgeDeps {
   writeMeeting: (write: MeetingWrite) => Promise<MeetingWriteAck>;
   /**
    * Whether this machine imports iMessage history, and what it knows about
-   * Full Disk Access. The version-4 addition — see `packages/desktop-bridge`'s
+   * Full Disk Access. The version-5 addition — see `packages/desktop-bridge`'s
    * `imessage` member for the reasoning behind its shape.
    */
   imessage: () => ImessageStatus;
