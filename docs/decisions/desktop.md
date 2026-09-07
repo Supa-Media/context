@@ -869,11 +869,15 @@ exists to close.
 **What is refused is a closed set, and `/api` is in it.** A different origin, a
 non-`GET`, a non-`200`, anything under `/api`, anything carrying `Set-Cookie`,
 `Authorization` or `WWW-Authenticate`, anything whose `Cache-Control` says
-`no-store` or `private`, anything whose `Vary` says `Cookie` or `Authorization`,
-anything over 8 MB, and any content type the console is not made of. A mirror
-that took `/api` would be a copy of somebody's notes in an unencrypted directory
-*and* a stale answer to a question nobody asked; the note store and the outbox
-are where data offline lives, and they already work.
+`no-store`, anything whose `Vary` says `Cookie` or `Authorization`, anything
+over 8 MB, and any content type the console is not made of. A mirror that took
+`/api` would be a copy of somebody's notes in an unencrypted directory *and* a
+stale answer to a question nobody asked; the note store and the outbox are
+where data offline lives, and they already work. **`Cache-Control: private` is
+deliberately not on this list** — see "The mirror was refusing the console
+itself" below, which is the one correction this section needed after a real
+Mac showed that `https://context.lc/console` is served with exactly that
+header, refusing the console's own document on every load.
 
 **The mirrored page gets the bridge, and that is a moved pin rather than a wider
 one.** Without it the offline console cannot tell a person the one thing they
@@ -1650,6 +1654,145 @@ takes exactly one check red — `"THE CRASH-STRING CHECK IS UNCONDITIONAL"`.
 Neither sabotage moves any other check, which is itself the point: the two
 legs' behaviour is independent enough that breaking one leg's guarantee does
 not accidentally also fail on the other leg's already-broken state.
+
+### The mirror was refusing the console itself, and `--smoke` never noticed
+
+Verified on the owner's Mac against the installed signed app, with the app's
+own networking blackholed via `--proxy-server` so nothing but this shell's own
+requests could be watched: `https://context.lc/console` is served with
+`content-type: text/html` and `cache-control: must-revalidate, private,
+max-age=0`. `shouldMirror` refused every response whose `Cache-Control`
+contained `private`, so **the console document was refused on every single
+load** — only the Expo JS bundle, served cacheably, ever survived. Then
+`MirrorStore.save`'s `index ??= key` made the index whichever response was
+stored *first*, with no check that it was a document at all, so the live
+manifest held exactly one entry: `index path
+/_expo/static/js/web/entry-….js`, `index type application/javascript`, 3.5 MB.
+`mirrorIsUsable` answered `true` for it — nothing in that function asked what
+the index actually *was* — and offline, the window rendered raw minified
+JavaScript in a `<pre>`. Two independent bugs, and either one alone would have
+been enough: the first starved the mirror of the one file it needed, the
+second turned that starvation into a manifest that lied about being usable.
+
+**`Cache-Control: private` is not a reason to refuse a mirror on one person's
+own disk, and it never should have been.** `private` is HTTP's own permission
+for a *single-user* cache to keep a response — which is exactly what this
+mirror is, one Mac's own `userData` directory, never shared and never synced.
+`no-store` is the header that means "do not keep this at all," and it is the
+only one of the two that still refuses anything.  **The test that fails if
+this is reversed**: `mirror.test.mjs`'s `"THE REAL context.lc/console HEADERS
+ARE MIRRORED, not refused"` calls `shouldMirror` with the real, measured header
+set — `must-revalidate, private, max-age=0` — and asserts it is accepted;
+re-adding `cacheControl.includes("private")` to the refusal takes that check
+and one other red (`2`), and takes nothing else red, because nothing else in
+the suite had ever exercised the header that was actually shipping.
+
+**`MirrorStore.save` no longer *discovers* its index — it *decides* it, by
+path, never by position.** The caller passes `documentPath` — `pathname +
+search` of the URL `webContents.getURL()` actually reports, computed in
+`consoleMirror.ts` independently of the resource list — and `save` finds the
+document in `files` by matching it, not by reading `files[0]`. The review that
+merged this asked the sharper version of the original bug's question: `files`
+is built from `mirrorSnapshotUrls`, whose list comes from the page's own
+`performance.getEntriesByType('resource')` — attacker-controlled the moment a
+page can run script — so could a compromised console reorder that list and
+make some other same-origin response stand in for the document? No: the
+document's URL is `consider`ed **before** the loop over `resources` even
+starts, unconditionally, so its position in `mirrorSnapshotUrls`'s own output
+is fixed regardless of what the page reports (`mirror.test.mjs`'s "the document
+itself is always the first thing mirrored" already covered this). What was
+still positional was the one step after that — `save` trusting whichever
+`MirrorFile` happened to land at index 0 — and that step runs entirely inside
+this shell's own trusted code, but a future change to the fetch loop (batching
+it, say) could silently stop preserving order without any test noticing. Path
+equality removes the coupling instead of documenting it more carefully. It has
+to be `text/html` or the whole snapshot is discarded — no manifest written,
+one `console.error` line, and the mirror already on disk is left exactly as it
+was. A snapshot whose document didn't survive `shouldMirror` today is a
+snapshot with nothing worth calling an index tomorrow either; the fix is to
+refuse the whole thing rather than let some other file stand in for a page it
+is not. The same rule catches a document too large for the mirror's own byte
+budget — `fitsInBudget` skipping the first file it is offered is
+indistinguishable, from `save`'s point of view, from `shouldMirror` refusing
+it, so both are checked by asking one question after the loop: is the
+document's own key actually in `entries`. **The tests**: a JS-only snapshot
+(`3`, per the header comment in `mirror.test.mjs`), a document over
+`MIRROR_LIMITS.entryBytes` (`2`), a `text/html` file at some *other* path
+standing in for the real one (`1`), and a `files` array with the document
+listed *second*, after a decoy `text/html` entry, which still saves with the
+decoy's own path never matching `documentPath` (proving the document is found
+by name, not by finishing the fetch loop first) — each either saves `null` or
+correctly names the real document, and the previous mirror stands untouched
+whenever the answer is `null`.
+
+**`mirrorIsUsable` closes the other half: a manifest already on disk whose
+index is not `text/html` is exactly as unusable as one with the wrong app
+version or the wrong origin — deleted on load, not patched.** This is the
+check that would have caught the poisoned mirror already sitting in the
+owner's `~/Library/Application Support/Context/mirror/v1/current` the day this
+fix shipped: without it, a person who had already hit the bug would need a
+fresh install or a `store.clear()` to recover, because nothing in the running
+app would ever notice its own mirror was bad. **The test**: an index whose
+`contentType` is `application/javascript` fails `mirrorIsUsable` (`1`).
+
+**`--smoke` was never wrong, and it could not have caught this either way.**
+Its whole contract is that a window was *created*, deliberately checked with no
+network so the release gate runs the same on every pull request; whether the
+page *loaded* was out of scope by design, stated in its own docblock. What was
+missing was a second, opt-in flag for a person with a real network connection
+to ask the harder question — which is `--smoke-load`.
+
+- **`loaded` is now a field on every `[smoke]` line**, plain `--smoke`
+  included. On plain `--smoke` it is simply `!consoleWindow.webContents.isLoading()`
+  read once, honestly — almost always `false`, because a remote console is
+  nowhere near finished by the time `main()` reaches its last line, and that is
+  the truth rather than a placeholder that used to not exist at all.
+- **`--smoke-load` waits.** It races the console window's first navigation —
+  `did-finish-load` against a main-frame `did-fail-load` — against a
+  thirty-second deadline (`SMOKE_LOAD_DEADLINE_MS`), then awaits the mirror's
+  own in-flight snapshot (`ConsoleMirror.awaitSnapshot()`, new in this change)
+  before asking `ConsoleMirror.currentManifest()` whether the index it holds is
+  `text/html`. Both facts land in the `[smoke]` JSON — `loaded` and
+  `snapshotIsHtmlDocument` — so a person reading the line offline sees
+  `loaded:false, snapshotIsHtmlDocument:true` (the live console is down, and a
+  good mirror is standing in for it — correct) rather than a single ambiguous
+  verdict.
+- **Both `--smoke-load` verdicts live inside `if (SMOKE_LOAD)`, and plain
+  `--smoke` enforces neither.** `EFFECTIVE_SMOKE_DEADLINE_MS` — the deadline
+  actually armed — is `SMOKE_DEADLINE_MS` on plain `--smoke` and
+  `SMOKE_DEADLINE_MS + SMOKE_LOAD_DEADLINE_MS` on `--smoke-load`, so the wait
+  is layered on top of the ordinary hang guard rather than racing it. **The
+  release gate keeps using plain `--smoke`.** A runner's own network reachability
+  is not part of what that gate promises — `--smoke`'s docblock already argues
+  this at length for the ordinary case — and a `--smoke-load` run failing
+  because a CI runner has no route to `context.lc` would be exactly the false
+  alarm `SMOKE_DEADLINE_MS`'s own widening exists to prevent, one layer
+  further out. `--smoke-load` is for a person, on a real machine: run once
+  online (`loaded:true, snapshotIsHtmlDocument:true` is the pass), then again
+  offline against the same profile (`loaded:false` is expected there; what
+  matters is whether `snapshotIsHtmlDocument` is still `true`).
+
+Both fixes were verified against a real, unpackaged Electron process — not
+only the offline suite — using a local server that reproduces the exact
+measured header set (`must-revalidate, private, max-age=0`) on a `text/html`
+document plus one JS asset. Before the fix: `shouldMirror` refusing `private`
+again reproduces the original bug exactly — `loaded:true`,
+`snapshotIsHtmlDocument:null`, no `mirror/` directory ever created, exit `1`.
+After: `loaded:true`, `snapshotIsHtmlDocument:true`, the manifest's `index`
+names the `text/html` entry, exit `0`.
+
+**The tests that fail if any of this is reversed**, run as temporary local
+edits and reverted: `shouldMirror` refusing `Cache-Control: private` again
+(`2`), `mirrorIsUsable` no longer checking the index's own content type (`1`),
+`MirrorStore.save` trusting the first response as the index regardless of type
+(`3`), `MirrorStore.save` writing an index that never fit its own budget
+(`2`), `MirrorStore.save` going back to reading `input.files[0]` instead of
+matching `documentPath` (`4` — the two tests that name this directly, plus the
+JS-only-snapshot pair above, which a positional read also happens to pass for
+the wrong reason), both `--smoke-load` verdicts moved outside their `if (SMOKE_LOAD)` guard
+(`2`), `[smoke]`'s `loaded` field hardcoded to `false` (`1`), `--smoke-load`
+reading the mirror before `awaitSnapshot` resolves (`1`), and
+`EFFECTIVE_SMOKE_DEADLINE_MS` collapsed back to `SMOKE_DEADLINE_MS` (`1`).
 
 ### What is deliberately not built
 
