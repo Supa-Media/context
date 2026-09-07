@@ -57,6 +57,7 @@ import { fakeDesktopBridge, type FakeDesktopBridge } from "@context/desktop-brid
  *   the mic-only report dropped when the shell grants less than was asked     1
  *   `resume` allowed after a stop                                             1
  *   the controller not passing the meeting id to `start`                      1
+ *   the `ending` flag dropped, so every End reports a failure                 1
  *
  * Two of those numbers are large for a reason worth reading. **20** and **18**
  * are not this file being thorough: they are the rest of the suite falling over
@@ -317,6 +318,47 @@ describe("inside the shell, the shell records", () => {
       confidence: null,
     });
     expect(heard).toEqual([]);
+  });
+
+  /**
+   * Ending a meeting is not a failure, and must not be reported as one.
+   *
+   * The shell pushes a final `{ state: "stopped", capturing: false }` on its
+   * way out, which is byte-identical to the shell giving up on its own. Read
+   * without knowing who asked, every single End produced "The Context app
+   * stopped recording" — the kind of noise that teaches somebody to ignore the
+   * one time it is true. The stop is not awaited before the event so that the
+   * event lands where a real one does: inside the stop, before the recorder has
+   * detached.
+   */
+  test("a normal End reports nothing", async () => {
+    const shell = fakeDesktopBridge({ capabilities: { mic: true } });
+    installShell(shell);
+    const recorder = await resolveRecorder("web");
+    const errors: string[] = [];
+    recorder.onError((error) => errors.push(error.message));
+
+    await recorder.start({ sessionId: "mtg_desktop", systemAudio: false });
+    const stopping = recorder.stop();
+    shell.emitCaptureState({ state: "stopped", capturing: false, fault: null });
+    await stopping;
+
+    expect(errors).toEqual([]);
+  });
+
+  /** ...and a shell that gives up on its own still says so. */
+  test("a shell that stops by itself is reported", async () => {
+    const shell = fakeDesktopBridge({ capabilities: { mic: true } });
+    installShell(shell);
+    const recorder = await resolveRecorder("web");
+    const errors: string[] = [];
+    recorder.onError((error) => errors.push(error.message));
+
+    await recorder.start({ sessionId: "mtg_desktop", systemAudio: false });
+    shell.emitCaptureState({ state: "stopped", capturing: false, fault: null });
+
+    expect(errors).toEqual([DESKTOP_MESSAGES.lost]);
+    await recorder.stop();
   });
 
   /** The rule the lifted state machine holds, once, for five recorders. */

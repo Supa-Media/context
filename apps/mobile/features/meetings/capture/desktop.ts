@@ -85,6 +85,17 @@ export function desktopRecorder(
   let state: RecorderState = "idle";
   /** Detach the shell's streams when this recorder is not recording. */
   let detach: (() => void) | null = null;
+  /**
+   * True from the moment `stop()` is entered.
+   *
+   * Without it, ending a meeting normally reported a failure: the shell pushes
+   * a final `{ state: "stopped", capturing: false }` on its way out, which is
+   * indistinguishable from the shell giving up on its own unless the recorder
+   * remembers that it was the one who asked. "The Context app stopped
+   * recording" on every single End is worse than saying nothing at all — it is
+   * the kind of noise that teaches somebody to ignore the one time it is true.
+   */
+  let ending = false;
 
   function report(error: RecorderError): void {
     for (const listener of errorListeners) {
@@ -125,7 +136,7 @@ export function desktopRecorder(
         */
         state = update.state;
         if (update.fault !== null) report(update.fault);
-        else if (state === "stopped" && !update.capturing) {
+        else if (!ending && state === "stopped" && !update.capturing) {
           report({ recoverable: false, message: DESKTOP_MESSAGES.lost });
         }
       }),
@@ -165,6 +176,7 @@ export function desktopRecorder(
         return;
       }
 
+      ending = false;
       attach();
       const wanted = options?.systemAudio ?? capabilities.systemAudio;
       let started;
@@ -227,6 +239,7 @@ export function desktopRecorder(
     },
 
     async stop() {
+      ending = true;
       state = nextRecorderState(state, "stop");
       await call(() => bridge.stopCapture());
       /*
