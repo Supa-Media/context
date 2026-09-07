@@ -528,10 +528,15 @@ async function main(): Promise<void> {
         log: (message) => console.log(message),
       });
       await connection.connect(record);
-      // Kept in settings as well, so the panel can name where meetings go
-      // without unlocking anything. Not a credential, and never one.
       /*
-        Capture is switched on here, and this is the only place it is.
+        Two settings move, and both are consequences of the same yes.
+
+        `gatewayBaseUrl` is kept here as well as with the credential so the
+        panel can name where meetings go without unlocking anything — it is not
+        a credential and never one; the value the requests use is the one stored
+        beside the token.
+
+        `captureEnabled` is switched on, and this is the only place it is.
 
         Two things happened in the same breath: a person approved this machine
         against their own context, in a dialog that says it is for meetings, and
