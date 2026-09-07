@@ -1169,6 +1169,15 @@ Four things about it are decisions:
 - **The reader checks the workspace.** One device is signed into several
   contexts and `useFileBrowser` is mounted for one of them; the same folder path
   is a different folder in a different bucket.
+- **It refreshes the parent and every ancestor already held, not the parent
+  alone.** A write into a folder that did not exist changes its *grandparent*
+  too, and that is the ordinary case rather than the exotic one: the first
+  meeting anybody records creates `0-inbox/meetings` under the `0-inbox` they
+  are looking at, so a parent-only refresh fixed the second meeting and none of
+  the first — the same symptom one level up. Held rather than all, because a
+  refresh of a folder nothing has asked for is a request whose answer nothing
+  draws; and the root is prepended by hand, because `ancestorsOf` starts at the
+  first segment and never yields it.
 - **It announces after the write resolves.** An announcement of a write that
   then failed makes every listener reload a folder to learn nothing, and raises
   the console's own "the file list did not reload" notice about an operation

@@ -202,6 +202,85 @@ describe("the console listening to it", () => {
   });
 
   /**
+   * The first meeting anybody records, now that the default destination is
+   * `0-inbox/meetings`: the folder does not exist, so the write creates it, and
+   * the listing the person is looking at is the one *above* it.
+   *
+   * The parent-only version of this effect fixed the second meeting and none of
+   * the first, which is the same symptom one level up.
+   *
+   * SABOTAGE: `["", ...ancestorsOf(write.path)]` → `[parent]`. Fails here.
+   */
+  test("a meeting creating its folder refreshes the folder above it too", async () => {
+    onDisk = { "": listing("", []), "0-inbox": listing("0-inbox", []) };
+    unmount = mount();
+    await settle();
+
+    // The person is standing in `0-inbox`, which has nothing in it.
+    await act(async () => {
+      browser.select("0-inbox");
+    });
+    await settle();
+    expect(drawn("0-inbox")).toEqual([]);
+
+    // The meeting lands in a folder that did not exist until this write.
+    onDisk["0-inbox"] = listing("0-inbox", ["meetings"]);
+    onDisk["0-inbox/meetings"] = listing("0-inbox/meetings", [
+      "2026-09-07-standup-a1b2c3d4.md",
+    ]);
+    await act(async () => {
+      announceBucketWrite({ workspaceId: WORKSPACE, path: MEETING });
+    });
+    await settle();
+
+    expect(drawn("0-inbox")).toEqual(["meetings"]);
+  });
+
+  test("...and the root, when the new folder is a top-level one", async () => {
+    // `ancestorsOf` never yields `""`, so the root is the ancestor a plain
+    // walk misses — and it is the listing a phone lands on.
+    onDisk = { "": listing("", []) };
+    unmount = mount();
+    await settle();
+    expect(drawn("")).toEqual([]);
+
+    onDisk[""] = listing("", ["meetings"]);
+    await act(async () => {
+      announceBucketWrite({ workspaceId: WORKSPACE, path: "meetings/2026-09-07-standup-a1b2c3d4.md" });
+    });
+    await settle();
+
+    expect(drawn("")).toEqual(["meetings"]);
+  });
+
+  test("an ancestor nobody is holding is not fetched for nothing", async () => {
+    // `refresh` on a folder no surface has asked for is a request whose answer
+    // nothing draws. The parent is the exception: it is the folder that
+    // certainly changed.
+    const asked: string[] = [];
+    actions[name("listFiles")] = async (args: never) => {
+      const { path } = args as unknown as { path: string };
+      asked.push(path);
+      return onDisk[path] ?? listing(path, []);
+    };
+    unmount = mount();
+    await settle();
+
+    asked.length = 0;
+    await act(async () => {
+      announceBucketWrite({
+        workspaceId: WORKSPACE,
+        path: "1-projects/deep/nested/2026-09-07-standup-a1b2c3d4.md",
+      });
+    });
+    await settle();
+
+    // The root is held (the browser loads it on mount) and the parent is
+    // unconditional. `1-projects` and `1-projects/deep` are neither.
+    expect([...new Set(asked)].sort()).toEqual(["", "1-projects/deep/nested"]);
+  });
+
+  /**
    * SABOTAGE: drop the `write.workspaceId !== workspaceId` guard. Fails here.
    */
   test("a write to another context refreshes nothing here", async () => {

@@ -136,6 +136,46 @@ describe("the default is the person's own brain, wherever they are standing", ()
     expect(INBOX_FOLDER).toBe("0-inbox/meetings");
   });
 
+  test("a device that remembered the old default gets the new one, not the old row", async () => {
+    /*
+      The trap in moving a default. A remembered `0-inbox` no longer matches the
+      inbox row — but it does match the *page* row for somebody standing in
+      their own `0-inbox`, so without this the sheet would open preselected on
+      the row that files the meeting loose in the inbox, silently, on every
+      device that had recorded one meeting before the change.
+    */
+    const store = memoryStore();
+    await store.set(
+      destinationKey(),
+      JSON.stringify({ kind: "personalInbox", contextSlug: "testagent1", folder: "0-inbox" }),
+    );
+    expect(await recallDestination(store)).toBeNull();
+
+    const choice = offers(
+      resolveDestinations({
+        contexts: [OWN],
+        page: { contextSlug: "testagent1", path: "0-inbox", isNote: false },
+        remembered: await recallDestination(store),
+      }),
+    );
+    expect(choice.offers[choice.selectedIndex]!.destination.folder).toBe(INBOX_FOLDER);
+  });
+
+  test("...but a folder somebody actually navigated to is still remembered", async () => {
+    // `personalInbox` + `0-inbox` was the old default and had no second row to
+    // press. A `currentPage` choice is a decision about a folder somebody went
+    // to, `0-inbox` included, and survives.
+    const store = memoryStore();
+    const chosen = {
+      kind: "currentPage" as const,
+      contextSlug: "testagent1",
+      folder: "0-inbox",
+      label: "0-inbox",
+    };
+    await store.set(destinationKey(), JSON.stringify(chosen));
+    expect(await recallDestination(store)).toEqual(chosen);
+  });
+
   test("the offered default is exactly what the gateway files into when nobody chooses", () => {
     // The real package, not a copy of its constant: this is the assertion that
     // lets `INBOX_FOLDER` be spelled here rather than imported.

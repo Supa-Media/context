@@ -78,6 +78,16 @@ export function useNavBand(): ReactNode {
  * Renders nothing at all when it has neither, rather than an empty view with a
  * gap in it — a band of chrome that appears on a screen with nothing in it is
  * the second row of pills `ContextStrip` refuses to grow.
+ *
+ * **That guard catches a pointer layout and not a one-context phone**, which is
+ * worth stating because the second case looks like it should reach it. The
+ * provider's node is a `<ContextStrip>` *element* whenever the console layout
+ * built one, and an element is never `null` however little the component
+ * renders — `stripEntries` answering `null` for a person with one context is a
+ * decision taken inside it, one level down from here. So on that phone this
+ * draws a view of zero height, with nothing in it and nothing under it, which
+ * is invisible and costs nothing. Reaching into the child to find out would be
+ * this component knowing what a context is.
  */
 export function NavBand({ gutter = 0, path }: { gutter?: number; path?: ReactNode }) {
   const contexts = useNavBand();

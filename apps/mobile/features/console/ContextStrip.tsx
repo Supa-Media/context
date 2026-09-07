@@ -359,21 +359,26 @@ function Pill({
 
 const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   /**
-   * The band, which is the flexible middle of the phone's top row.
+   * The band, which is the first row of the navigation band.
    *
-   * **`flex: 1` is the whole of it, and that is worth saying because the obvious
-   * second half is a no-op here.** In CSS a flex child's automatic minimum size
-   * is its content, so the reflex is `minWidth: 0` to stop a strip holding six
-   * long names from pushing the trailing capsule off the glass. That line was
-   * written, and sabotaging it changed nothing: react-native-web puts
-   * `min-width: 0` (and `min-height: 0`) in the **base style of every `View`**,
-   * and Yoga has no `min-width: auto` to begin with, so there is nothing on
-   * either platform for it to override. It is gone, along with the assertion
-   * that was passing over its absence.
+   * **It was the flexible middle of the phone's top row, and `flex: 1` was the
+   * whole of it.** That is where the two paragraphs below come from, and both
+   * are kept because each records a measurement rather than a preference.
    *
-   * What kept the capsule safe while this lived in the top bar was `flex: 1` —
-   * the strip took what the pinned account mark and the trailing capsule left,
-   * and no more. **There is no capsule beside it any more**: the strip is the
+   * The first: the obvious second half of `flex: 1` is a no-op here. In CSS a
+   * flex child's automatic minimum size is its content, so the reflex is
+   * `minWidth: 0` to stop a strip holding six long names from pushing the
+   * trailing capsule off the glass. That line was written, and sabotaging it
+   * changed nothing: react-native-web puts `min-width: 0` (and
+   * `min-height: 0`) in the **base style of every `View`**, and Yoga has no
+   * `min-width: auto` to begin with, so there is nothing on either platform for
+   * it to override. It is gone, along with the assertion that was passing over
+   * its absence.
+   *
+   * The second: what kept the capsule safe while this lived in the top bar was
+   * that `flex: 1` — the strip took what the pinned account mark and the
+   * trailing capsule left, and no more. **There is no capsule beside it any
+   * more**: the strip is the
    * first row of `NavBand`, inside the scroller, where the only thing along
    * that axis is the width of the surface. So the width rule is `stretch` and
    * the height is the pills', and a `flex: 1` here would now be a child of a

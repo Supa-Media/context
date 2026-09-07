@@ -5724,6 +5724,11 @@ async function publishMeetingNote(store, scope, { path, markdown, segmentCount }
   return { path: notePath, etag: put.etag, visibility };
 }
 
+/** The last segment of a key: `…/2026-03-04-sync-8h9jkmnp.md` → the filename. */
+function meetingFileName(key) {
+  return key.slice(key.lastIndexOf("/") + 1);
+}
+
 /**
  * The meetings this connection can see, newest first.
  *
@@ -5745,11 +5750,6 @@ async function publishMeetingNote(store, scope, { path, markdown, segmentCount }
  * `canSee` filters before anything is read, so a team connection cannot learn
  * that a private meeting exists by counting.
  */
-/** The last segment of a key: `…/2026-03-04-sync-8h9jkmnp.md` → the filename. */
-function meetingFileName(key) {
-  return key.slice(key.lastIndexOf("/") + 1);
-}
-
 async function toolListMeetings(store, scope, rules, overrides, limitArg) {
   const limit = Number.isInteger(limitArg) ? limitArg : 10;
   if (limit < 1 || limit > 25) return toolError("limit must be between 1 and 25");

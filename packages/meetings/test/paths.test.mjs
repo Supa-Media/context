@@ -463,6 +463,31 @@ export function runPathChecks(check) {
   );
 
   /*
+    THE SLUG IS ONE SEGMENT, AND `.` MATCHES A SEPARATOR.
+
+    The pattern's tail was `.+\.md`, which ate any number of path segments: a
+    note inside a folder somebody had named after a date answered true and was
+    listed, read and summarized as a meeting. `[^/]+` is the fix, and the second
+    case is the one that was already wrong before the flat shape existed — the
+    dated branch had the same hole, so this pair is a latent defect and the one
+    that widened it, pinned together.
+  */
+  check(
+    "a note inside a date-named folder is not a meeting",
+    !isMeetingNotePath("0-inbox/meetings/2026-03-04-offsite/agenda.md")
+  );
+  check(
+    "...nor one inside a date-named folder under the old date tree",
+    !isMeetingNotePath("0-inbox/meetings/2026/03/2026-03-04-offsite/agenda.md")
+  );
+  check(
+    "...and a slug with dots in it is still a meeting",
+    // `[^/]+` refuses separators and nothing else: the slug can hold anything
+    // `slugifyTitle` produces and anything a person renamed a file to.
+    isMeetingNotePath("0-inbox/meetings/2026-03-04-v1.2-release-8h9jkmnp.md")
+  );
+
+  /*
     THE TWO FUNCTIONS MAY NOT DISAGREE.
 
     `isMeetingNotePath` is what `list_meetings` uses to recognise a meeting off

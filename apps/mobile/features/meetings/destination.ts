@@ -25,8 +25,9 @@ import { destinationKey } from "./keys";
  * convenience. Somebody reading a note in a shared workspace who presses record
  * is, on any "current context" default, dropping a transcript of a conversation
  * they have not read yet into a folder their colleagues are watching. So the
- * first offer is always `@their-handle / 0-inbox`, it is always the fallback,
- * and the current page is the *second* offer with the audience named on it.
+ * first offer is always `@their-handle / 0-inbox/meetings`, it is always the
+ * fallback, and the current page is the *second* offer with the audience named
+ * on it.
  *
  * "Their own" is `ownPersonalContext` — `kind === "personal"` **and**
  * `role === "owner"` — and the second half is load-bearing rather than
@@ -475,11 +476,17 @@ export function chooseOffer(
  *
  * **`kind` is deliberately not compared, and neither is `label`.** Both are
  * facts about how somebody arrived at a folder, and the note cannot tell the
- * difference: standing in your own `0-inbox` and pressing record offers the
- * page and the inbox as one row, not the same row twice, and a choice
- * remembered as one reads as the other next time. Comparing the discriminator
- * would make the sheet draw a duplicate and make a remembered choice miss its
- * own row.
+ * difference: a folder that is both the default and the page you are standing
+ * on is one row, not the same row twice, and a choice remembered as one reads
+ * as the other next time. Comparing the discriminator would make the sheet draw
+ * a duplicate and make a remembered choice miss its own row.
+ *
+ * The example this used to give was standing in your own `0-inbox`, and the
+ * default has moved out from under it: the inbox row is `0-inbox/meetings` now,
+ * so that page and that default are genuinely two destinations and are drawn as
+ * two rows. Standing in `0-inbox/meetings` is the same case the sentence always
+ * described. What the move *does* strand is a device that remembered the old
+ * default — see `forgetRetiredDefault`.
  */
 export function sameDestination(a: MeetingDestination, b: MeetingDestination): boolean {
   return a.contextSlug === b.contextSlug && a.folder === b.folder;
@@ -610,6 +617,48 @@ export function parseDestination(value: unknown): MeetingDestination | null {
   return { kind, contextSlug, folder, label };
 }
 
+/**
+ * The inbox folder this module offered until the default moved into
+ * `0-inbox/meetings`, and which a device may still have written down.
+ *
+ * See `forgetRetiredDefault`. Named rather than inlined so the two things it
+ * has to stay equal to — the old constant, and nothing else — are one string.
+ */
+const RETIRED_INBOX_FOLDER = "0-inbox";
+
+/**
+ * A remembered choice that is really the *old default* is not a choice.
+ *
+ * Moving the default from `0-inbox` to `0-inbox/meetings` would otherwise not
+ * reach anybody who had already recorded a meeting, and would reach them in the
+ * worst available way: the remembered `0-inbox` no longer matches the inbox
+ * row, but it *does* match the current-page row for somebody standing in their
+ * own `0-inbox` — so `preselect` opens the sheet on the row that files the
+ * meeting loose in the inbox, selected, with nothing saying why. A default that
+ * moves for new devices and silently persists on old ones is two products.
+ *
+ * **`personalInbox` only, and that is what makes this a default rather than a
+ * decision.** Until this change the inbox row and the page row deduped whenever
+ * they named the same folder (`sameDestination`), so standing in `0-inbox` and
+ * pressing record offered exactly one row — this one. There was no separate,
+ * deliberate "file it loose in the inbox" to preserve, because there was no
+ * second row to press. A `currentPage` choice is a real decision about a folder
+ * somebody navigated to and is kept, `0-inbox` included.
+ *
+ * Forgetting is a one-way door and it costs one press: a person who does want
+ * the bare inbox picks it once and it is remembered again, this time as the
+ * page they were standing on.
+ */
+function forgetRetiredDefault(
+  destination: MeetingDestination | null,
+): MeetingDestination | null {
+  if (destination === null) return null;
+  if (destination.kind === "personalInbox" && destination.folder === RETIRED_INBOX_FOLDER) {
+    return null;
+  }
+  return destination;
+}
+
 /** What this device chose last, or `null`. Validated by `parseDestination`. */
 export async function recallDestination(
   store: KeyValueStore,
@@ -623,7 +672,7 @@ export async function recallDestination(
   if (raw === null) return null;
 
   try {
-    return parseDestination(JSON.parse(raw));
+    return forgetRetiredDefault(parseDestination(JSON.parse(raw)));
   } catch {
     return null;
   }

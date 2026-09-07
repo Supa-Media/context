@@ -341,12 +341,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * hold Share; there is no button here — the phone's actions are in the top
    * bar's group — so the row is type on both counts and the floor comes off.
    * The touch targets are the segments' own, widened by `segment`.
+   *
+   * **And no horizontal padding**: `NavBand` pays it for both of its rows, so
+   * the pills above this line and the segments on it start at the same
+   * character. Paying it here as well would indent the path by a second reading
+   * margin.
    */
-  /*
-    No horizontal padding: `NavBand` pays it for both of its rows, so that the
-    pills above this line and the segments on it start at the same character.
-    Paying it here as well would indent the path by a second reading margin.
-  */
   barPath: { paddingTop: 0, paddingBottom: space.x2, paddingHorizontal: 0, minHeight: 0 },
   context: { color: colors.text2, fontSize: 11 },
   separator: { color: colors.heroDim, fontSize: 11 },

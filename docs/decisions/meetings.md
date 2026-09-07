@@ -744,7 +744,17 @@ directions. `meetingNotePath` writes `<folder>/<file>` and nothing between.
 `isMeetingNotePath` reads **both** shapes, permanently: `list_meetings` is built
 out of it and out of no index, so a recogniser that read only the flat shape
 would not migrate anybody's bucket, it would silently stop calling their
-existing meetings meetings while the files sat there untouched. `list_meetings`
+existing meetings meetings while the files sat there untouched.
+
+**And the slug in that pattern is one segment.** It was `.+`, which matches a
+separator, so accepting the flat shape also accepted
+`0-inbox/meetings/2026-03-04-offsite/agenda.md` — an ordinary note, inside a
+folder somebody happened to name after a date, listed and read as a meeting. The
+dated branch had the same hole before the flat one existed, so `[^/]+` closes a
+latent case as well as the one this change opened. It is the same claim the
+folder rule makes from the other side: a meeting is one file directly in the
+folder it was filed into, and the point of no longer nesting is that there is
+nothing under it. `list_meetings`
 also sorts on the *filename* rather than the whole key for the same reason —
 `/` sorts above `-`, so whole-key order put every dated-folder meeting ahead of
 every flat one regardless of date. The checks are
@@ -799,6 +809,22 @@ arrives there is sorted by what it *is* — `0-inbox/meetings`,
 `the offered default is exactly what the gateway files into when nobody chooses`
 imports the real `MEETINGS_FOLDER` so the phone's spelling cannot drift from the
 gateway's.
+
+**Moving a default has to reach the devices that already recorded a meeting, and
+this one would have reached them the worst way.** A remembered `0-inbox` no
+longer matches the inbox row — but it *does* match the current-page row for
+somebody standing in their own `0-inbox`, so the sheet would open preselected on
+the row that files the meeting loose in the inbox, silently, exactly where the
+old default used to be. A default that moves for new devices and persists on old
+ones is two products. `recallDestination` therefore forgets a remembered
+`personalInbox` naming the old folder, and only that: until this change the
+inbox row and the page row deduped whenever they named the same folder, so
+standing in `0-inbox` and pressing record offered *one* row — there was no
+separate deliberate choice to preserve. A `currentPage` choice is a decision
+about a folder somebody navigated to and survives, `0-inbox` included. The
+checks are `a device that remembered the old default gets the new one, not the
+old row` and `...but a folder somebody actually navigated to is still
+remembered`.
 
 **A folder the gateway will not file into is refused by
 `normalizeMeetingFolder`, which delegates to `normalizeRoot` rather than being a

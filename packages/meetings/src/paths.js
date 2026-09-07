@@ -404,8 +404,18 @@ export function meetingNotePath(session, options = {}) {
  * `YYYY-MM-DD-<slug>-<shortId>.md` is what `meetingNotePath` writes today; the
  * optional `YYYY/MM/` in front of it is what it wrote until the date folders
  * were dropped, and is read for the reason `isMeetingNotePath` gives.
+ *
+ * **`[^/]+` and never `.+`, because `.` matches a separator.** This was `.+`,
+ * and the slug therefore ate any number of path segments: with the flat shape
+ * accepted, `0-inbox/meetings/2026-03-04-offsite/agenda.md` answered true —
+ * somebody's ordinary note, inside a folder they happened to name after a date,
+ * listed and read as a meeting. The dated branch had the same hole before the
+ * flat one existed (`…/2026/03/2026-03-04-offsite/agenda.md`), so this closes a
+ * latent case as well as the one it opened. A meeting is one file directly in
+ * the folder it was filed into; the whole point of `meetingNotePath` no longer
+ * nesting is that there is nothing under it.
  */
-const MEETING_FILE = /^(?:\d{4}\/\d{2}\/)?\d{4}-\d{2}-\d{2}-.+\.md$/;
+const MEETING_FILE = /^(?:\d{4}\/\d{2}\/)?\d{4}-\d{2}-\d{2}-[^/]+\.md$/;
 
 /**
  * Is this key the shape this module writes into that folder?
