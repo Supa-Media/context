@@ -45,6 +45,15 @@ export {
   WATCH_FLAG_LABEL_MAX,
 } from "@context/meetings/protocol";
 
+/**
+ * The pure rule behind "a meeting stuck on Finalizing for two hours" — see
+ * `packages/meetings/src/recovery.js`. `outbox.ts` is the only caller: it asks
+ * this of a stale `finalize` entry's age and turns the answer into a queued
+ * retry or a queued `fail` event, never a clock read inline.
+ */
+export { FINALIZE_TIMEOUT_MS, checkFinalizeTimeout } from "@context/meetings/recovery";
+export type { FinalizeRecoveryAction } from "@context/meetings/recovery";
+
 export type {
   Attendee,
   CalendarEvent,

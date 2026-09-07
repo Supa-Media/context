@@ -22,6 +22,7 @@ import { runEnhanceChecks } from "./enhance.test.mjs";
 import { runNoteChecks } from "./note.test.mjs";
 import { runPathChecks } from "./paths.test.mjs";
 import { runRecorderChecks } from "./recorder.test.mjs";
+import { runRecoveryChecks } from "./recovery.test.mjs";
 import { runSessionChecks } from "./session.test.mjs";
 import { runTranscriptChecks } from "./transcript.test.mjs";
 
@@ -79,10 +80,15 @@ check(
   !CLIENT_EVENT_TYPES.includes("written") && GATEWAY_EVENT_TYPES.includes("written")
 );
 check(
+  "`empty` is the gateway's own event too — a client's claim would not be checked",
+  !CLIENT_EVENT_TYPES.includes("empty") && GATEWAY_EVENT_TYPES.includes("empty")
+);
+check(
   "...and the two lists together are the whole union, so nothing is unclassified",
   [...CLIENT_EVENT_TYPES, ...GATEWAY_EVENT_TYPES].sort().join(",") ===
     [
       "attendee",
+      "empty",
       "end",
       "enhanced",
       "fail",
@@ -262,6 +268,9 @@ for (const name of [
   "PROTOCOL_VERSION",
   "MEETING_TRANSITIONS",
   "ROUTES",
+  "hasNothingCaptured",
+  "checkFinalizeTimeout",
+  "FINALIZE_TIMEOUT_MS",
 ]) {
   check(`index re-exports ${name}`, index[name] !== undefined);
 }
@@ -279,6 +288,7 @@ runDetectChecks(check);
 runRecorderChecks(check);
 runEnhanceChecks(check);
 runChunkChecks(check);
+runRecoveryChecks(check);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);

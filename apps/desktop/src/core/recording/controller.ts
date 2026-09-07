@@ -49,6 +49,7 @@ import type { AudioRecorder } from "../capture/recorder.ts";
 import type { Transcriber, TranscriptionStream } from "../capture/transcriber.ts";
 import { queueWrite } from "../sync/outbox.ts";
 import type { Outbox } from "../sync/outbox.ts";
+import { drainUrgency } from "../sync/drain.ts";
 
 /** What the notepad and the tray render. No audio, no credentials. */
 export interface SessionView {
@@ -67,6 +68,22 @@ export interface SessionView {
   audioLeavesDevice: boolean;
   /** True exactly while audio is being captured. Drives the visible indicator. */
   capturing: boolean;
+  /**
+   * CHUNKS OF AUDIO THIS MEETING HAS HANDED TO A TRANSCRIBER.
+   *
+   * Counted here and reported separately from `transcript.length` because the
+   * two answer different questions, and telling them apart is what made the
+   * `SEGMENT_MS`/`DRAIN_INTERVAL_MS` race diagnosable at all. Frames 0 is "the
+   * microphone never produced anything" — a dead input, a rotation that never
+   * fired. Frames many with an empty transcript is "audio was captured and the
+   * far end would not take it", which is an entirely different fault with an
+   * entirely different fix, and for a whole day nothing on this device could
+   * distinguish them.
+   *
+   * `main/capture.ts` has always counted this and `RecorderSummary` has always
+   * carried it; it was read once, for `recordedMs`, and the count thrown away.
+   */
+  frames: number;
   /**
    * Whether this meeting opened a microphone at all.
    *
@@ -97,6 +114,21 @@ export interface ControllerDeps {
   /** Read and written whole; the caller persists it. */
   outbox: () => Outbox;
   setOutbox: (outbox: Outbox) => void;
+  /**
+   * Send what was just queued, without waiting for the caller's timer.
+   *
+   * Called for exactly one kind — `session` — and `drainUrgency` is what says
+   * so, in one place both this object and the console's write path read. The
+   * reason is arithmetic and it is written out there: chunks of audio rotate
+   * faster than the outbox timer fires, so a session row that waits for the
+   * timer always arrives *after* the first chunk that needs it, and the gateway
+   * answers that chunk with a 404 for a meeting it has never heard of.
+   *
+   * Deliberately synchronous and returning nothing: this is on the path that
+   * opens a microphone, and a round trip awaited here would be a Record button
+   * that waits for somebody's gateway before it records anything.
+   */
+  requestDrain?: () => void;
   now: () => Date;
   onChange?: (view: SessionView) => void;
   /**
@@ -172,6 +204,8 @@ export class MeetingController {
   #view: SessionView | null = null;
   #stream: TranscriptionStream | null = null;
   #segments = 0;
+  /** See `SessionView.frames`. Live, so it is readable during the meeting. */
+  #frames = 0;
   #startedAtMs = 0;
   /** See `BeginInput.queueWrites`. True for every meeting this shell starts. */
   #queues = true;
@@ -254,6 +288,7 @@ export class MeetingController {
     this.#queues = input.queueWrites ?? true;
     this.#startedAtMs = startedAt.getTime();
     this.#segments = 0;
+    this.#frames = 0;
 
     this.#view = {
       id,
@@ -272,6 +307,7 @@ export class MeetingController {
       transcriptionLabel: audio ? this.#deps.transcriber.label : "typed",
       audioLeavesDevice: audio ? this.#deps.transcriber.audioLeavesDevice : false,
       capturing: false,
+      frames: 0,
       audio,
       notice: input.notice ?? null,
       notePath: null,
@@ -294,7 +330,21 @@ export class MeetingController {
         await this.#deps.recorder.start({
           channels,
           sampleRate: this.#deps.sampleRate ?? 16_000,
-          onFrame: (frame) => this.#stream?.push(frame),
+          /*
+            Counted on the way past, not inferred afterwards.
+
+            The recorder's own `frames` only exists once `stop()` has been
+            called, and "how much audio has this meeting produced" is a question
+            worth being able to answer *during* the meeting — it is the one that
+            separates a dead microphone from a gateway refusing the audio, and
+            nothing could answer it while a recording was in progress.
+            `end()` reconciles this against the recorder's authoritative count.
+          */
+          onFrame: (frame) => {
+            this.#frames += 1;
+            this.#update({ frames: this.#frames });
+            this.#stream?.push(frame);
+          },
         });
       } catch (error) {
         this.#update({ state: "failed", failureReason: describe(error), capturing: false });
@@ -326,6 +376,22 @@ export class MeetingController {
     // before any segment references it — and so a meeting that crashes the app
     // ten seconds in is still a meeting somebody can find.
     this.#queue("session", this.#sessionBody());
+    /*
+      And it is *sent* first, rather than queued first and sent whenever.
+
+      Here rather than inside `#queue`, and that placement is the whole of the
+      care in this line. `#queue("session", …)` also runs from `title()` — which
+      the notepad calls on every keystroke of the title field — and from `end()`,
+      which drains on its own path anyway. A drain hung off the queue call would
+      be one HTTP request per keystroke, which is the failure `SYNC_THROTTLE_MS`
+      and `reconcileDrain` both exist to avoid, introduced while fixing a
+      different one. What races the first chunk of audio is the **first** session
+      write of a meeting, and this is the only place that happens.
+
+      `drainUrgency` is asked rather than assumed, so this and
+      `writeMeetingFromConsole` cannot drift on which kinds are urgent.
+    */
+    if (this.#queues && drainUrgency("session") === "now") this.#deps.requestDrain?.();
     return { ok: true, view: this.#view };
   }
 
@@ -403,7 +469,18 @@ export class MeetingController {
     this.#stream = null;
 
     const endedAt = this.#deps.now().toISOString();
-    this.#update({ recordedMs: summary.recordedMs, capturing: false });
+    /*
+      The recorder's count wins at the end, and this is the only place the two
+      can disagree.
+
+      `#frames` counts what reached the transcriber's sink; `summary.frames`
+      counts what the recorder produced. They are the same number today —
+      `main/capture.ts` increments and calls the sink in one place — and if a
+      future recorder ever drops a frame between the two, the honest answer to
+      "how much audio did this meeting produce" is the recorder's.
+    */
+    this.#frames = summary.frames;
+    this.#update({ recordedMs: summary.recordedMs, frames: summary.frames, capturing: false });
     this.#queue("session", { ...this.#sessionBody(), state: "finalizing", endedAt, recordedMs: summary.recordedMs });
     this.#queue("finalize", {
       sessionId: view.id,

@@ -63,11 +63,8 @@ export function MeetingRow({
       {badge === null ? (
         <Icon name="chevronRight" size={16} color={colors.heroDim} />
       ) : (
-        <View style={[styles.badge, badge.tone === "crit" ? styles.badgeCrit : styles.badgeWarn]}>
-          <Text
-            variant="pill"
-            style={badge.tone === "crit" ? styles.badgeCritText : styles.badgeWarnText}
-          >
+        <View style={[styles.badge, badgeStyle(styles, badge.tone)]}>
+          <Text variant="pill" style={badgeTextStyle(styles, badge.tone)} numberOfLines={1}>
             {badge.label}
           </Text>
         </View>
@@ -108,11 +105,35 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    flexShrink: 0,
+    // Shrinks rather than pushing the row wider, and truncates with `Text`'s
+    // own `numberOfLines={1}` — a "Failed — <reason>" badge carries a reason a
+    // client chose the words for, and this row is not the place to wrap it.
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: 168,
   },
   badgeWarn: { backgroundColor: colors.warnWash, borderColor: colors.warnBorder },
   badgeWarnText: { color: colors.warnText },
   badgeCrit: { backgroundColor: colors.critWash, borderColor: colors.critBorder },
   badgeCritText: { color: colors.critText },
+  // A session that captured nothing is not an error — no `warn`, no `crit`,
+  // the same neutral chip `Pill`'s own `neutral` tone uses.
+  badgeNeutral: { backgroundColor: colors.surface3, borderColor: colors.line },
+  badgeNeutralText: { color: colors.text2 },
   divider: { height: 1, backgroundColor: colors.line, marginLeft: 67 },
 });
+
+type Tone = "warn" | "crit" | "neutral";
+type RowStyles = ReturnType<typeof makeStyles>;
+
+function badgeStyle(styles: RowStyles, tone: Tone) {
+  if (tone === "crit") return styles.badgeCrit;
+  if (tone === "neutral") return styles.badgeNeutral;
+  return styles.badgeWarn;
+}
+
+function badgeTextStyle(styles: RowStyles, tone: Tone) {
+  if (tone === "crit") return styles.badgeCritText;
+  if (tone === "neutral") return styles.badgeNeutralText;
+  return styles.badgeWarnText;
+}
