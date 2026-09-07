@@ -592,17 +592,63 @@ and not the shell's. The end-to-end check that exists today is
 the gateway the app configures"*: the shell records, the app's gateway writes
 one note, and the test says which is which.
 
-**The preload still answers three members, so no real shell passes the
-validator yet.** `preload/console.ts` exposes `version`, `shell` and
-`capabilities()` — step 1's surface — and `getDesktopBridge()` refuses that as
-`surface-incomplete`, which is the right refusal and means the console inside
-the shell behaves exactly as a browser today. Wiring it is not mechanical: it is
-twelve channels, `ipcMain.handle` for each with the sender check this document
-already specifies, and the main process's capture, connection and outbox
-plumbing pointed at the console window rather than at the old renderer's
-`UiState`. It is its own pull request, and it belongs with step 4 — flipping the
-default before the bridge is answered would ship a console that silently
-degrades on every Mac.
+**The preload answered three members, and now answers the contract.** This was
+the second of the two things step 3 deferred, and it is done: `preload/console.ts`
+is four statements over `core/shell/bridge.ts`, which builds the whole
+version-1 surface over an injected `ipcRenderer`, and `main/consoleBridge.ts`
+answers the twelve channels `BRIDGE_CHANNELS` names with the sender check this
+document specifies. `getDesktopBridge()` accepts the real object rather than
+refusing it as `surface-incomplete`, and the suite asserts exactly that — the
+shell's own bridge, run through the package's validator, with no Electron in
+the room.
+
+Four things about that wiring are decisions rather than plumbing, and each is
+recorded where it lives:
+
+- **The sender check is two halves, and they refuse two different attacks.**
+  `isConsoleFrame` is identity and top-frame — it refuses *another window in
+  this app*, including the hidden capture window that holds a live microphone —
+  and `isBridgeSender` adds the origin comparison, which refuses *this window on
+  a page it should not be on*. Sabotaging either goes red on its own; the counts
+  are in `test/consoleBridge.test.mjs`. The origin comparison is written out
+  there rather than delegated to `shouldExposeBridge`, because the two guards
+  have to be able to fail independently or the sabotage that proves they are not
+  one check written twice cannot be run.
+- **The two synchronous channels are guarded on identity only, and that is not
+  an oversight.** The preload calls them to find out *what* the pinned origin
+  is, so asking "are you at the pinned origin" to answer it is circular, and a
+  frame url that has not settled would fail closed and leave the window with no
+  bridge at all. Both values are public — the origin is in the window's own URL
+  bar — and the decision they feed is still made in the renderer against
+  `location.origin`, which the renderer knows exactly.
+- **A refusal travels as data, not as a rejected promise.** A throw inside
+  `ipcMain.handle` reaches the page as `Error: Error invoking remote method
+  '<channel>': …`, and `capture/desktop.ts` renders that string at a person. So
+  every handled channel answers `{ ok: true, value }` or `{ ok: false, message }`
+  with a sentence `plan.ts` owns, and the preload rethrows only the sentence. A
+  **refused sender** is the one exception and does throw, because it is an attack
+  rather than a state and there is nobody legitimate waiting for an answer.
+- **Every payload is rebuilt from the keys the contract declares**, in both
+  directions, so a field added to `UiState` is not silently published to whatever
+  `CONTEXT_DESKTOP_UI_URL` points at, and a field added to a `startCapture`
+  request is not forwarded into the shell. That is what turns *"nothing
+  credential-shaped crosses"* from a property of the code we wrote into a
+  property of the payloads that can arrive.
+
+`capabilities().systemAudio` is the real probe: `systemAudioCapability` answers
+`false` off macOS, `false` on an unpackaged build, `false` below macOS 13, and
+otherwise the guess — which the first meeting's actual attempt overrules, in
+either direction, because the probe is the only fact and everything above it is
+inference about what macOS is likely to do. `mic` is false under
+`--fake-signals`, so a development run cannot put a Record button over a
+recorder that produces scripted text.
+
+The console's `startCapture` drives the *same* path as the tray's Record — the
+master switch, the blocklist, the consent gate, `capturePlan` — with one
+addition: it carries the **id the page minted**, so one meeting is one note
+rather than two ids nothing on the device could reconcile. A notes-only plan is
+refused with the plan's own sentence rather than begun as a recording of
+nothing.
 
 What *was* mechanical and is done: `apps/desktop/src/core/shell/console.ts` no
 longer declares `BRIDGE_VERSION`, `DesktopCapabilities` and `NO_CAPABILITIES`

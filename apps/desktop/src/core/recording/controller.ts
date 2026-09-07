@@ -99,11 +99,33 @@ export interface ControllerDeps {
   setOutbox: (outbox: Outbox) => void;
   now: () => Date;
   onChange?: (view: SessionView) => void;
+  /**
+   * One finished segment, as it arrives. Fired before `onChange`.
+   *
+   * Separate from `onChange` because it is an *event* and `onChange` is a
+   * state: the view carries the whole transcript on every keystroke, and a
+   * subscriber that had to diff two arrays to find the new words would be a
+   * second implementation of what this class already knows. The desktop bridge
+   * is the caller — `docs/decisions/desktop.md`'s `onSegment` — and a page
+   * cannot be handed the transcript array itself.
+   */
+  onSegment?: (segment: TranscriptSegment) => void;
   newId?: () => string;
   sampleRate?: number;
 }
 
 export interface BeginInput {
+  /**
+   * The id this meeting is filed under, when somebody else already minted one.
+   *
+   * Absent everywhere the shell starts a meeting itself — the tray, the panel —
+   * and present when the **console** started it: the page mints the id, its own
+   * record is keyed on it, and the outbox files every write for this session
+   * under it. Two ids for one meeting would be two notes in somebody's bucket
+   * that nothing on this device could ever reconcile, so this is passed rather
+   * than the shell answering back with an id the page then has to adopt.
+   */
+  id?: string;
   source: MeetingSource;
   title: string;
   attendees?: Attendee[];
@@ -202,7 +224,7 @@ export class MeetingController {
     if (!outcome.ok) return { ok: false, why: "permissions", missing: outcome.missing };
 
     const startedAt = this.#deps.now();
-    const id = (this.#deps.newId ?? newMeetingId)();
+    const id = input.id ?? (this.#deps.newId ?? newMeetingId)();
     this.#startedAtMs = startedAt.getTime();
     this.#segments = 0;
 
@@ -277,6 +299,7 @@ export class MeetingController {
     const view = this.#view;
     if (!view) return;
     this.#segments += 1;
+    this.#deps.onSegment?.(segment);
     this.#update({ transcript: [...view.transcript, segment] });
     // Queued one at a time; `queueWrite` collapses them into a single pending
     // entry keyed on segment id, so a two-hour meeting is one request rather
