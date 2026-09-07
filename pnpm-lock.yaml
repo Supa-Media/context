@@ -62,6 +62,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@context-lc/hook':
+        specifier: workspace:*
+        version: link:../../packages/hook
       '@context/meetings':
         specifier: workspace:*
         version: link:../../packages/meetings
