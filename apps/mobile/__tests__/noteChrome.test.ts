@@ -193,6 +193,7 @@ function dataWith(
     setVisibility: () => {},
     setScope: () => {},
     openLinkPaths: new Set<string>(),
+    linkPaths: [],
     resetPrivacy: () => {},
     canResetPrivacy: false,
     canSetVisibility: true,

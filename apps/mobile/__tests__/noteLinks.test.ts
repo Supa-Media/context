@@ -6,7 +6,7 @@ import {
   noteLinkAt,
   noteLinksIn,
 } from "../features/console/files/noteLinks";
-import { knownNotePaths } from "../features/console/files/paths";
+import { knownNotePaths, mergeLinkPaths } from "../features/console/files/paths";
 
 /**
  * A LINK TO ANOTHER NOTE IS A LINK YOU CAN FOLLOW.
@@ -213,5 +213,55 @@ describe("the paths this surface happens to know", () => {
     // the whole list every time a folder collapsed.
     const listings = { "": { entries: [{ kind: "file", path: "b.md" }] }, x: { entries: [{ kind: "file", path: "a.md" }] } };
     expect(knownNotePaths(listings)).toEqual(knownNotePaths({ x: listings.x, "": listings[""] }));
+  });
+});
+
+/**
+ * THE MERGED LINK INDEX — "L1" in `docs/decisions/app-and-console.md`.
+ *
+ * `knownNotePaths` alone answers only for a folder somebody has expanded,
+ * which on a phone (no file tree at all) is close to nothing. `mergeLinkPaths`
+ * is the union with the search index's own docmap — complete, but a
+ * disposable derivative that can be behind or entirely absent.
+ */
+describe("mergeLinkPaths", () => {
+  const listings = {
+    "": {
+      entries: [
+        { kind: "folder", path: "1-projects" },
+        { kind: "file", path: "index.md" },
+      ],
+    },
+  };
+
+  test("with no index at all, falls back to exactly what the tree has loaded", () => {
+    expect(mergeLinkPaths(listings, null)).toEqual(knownNotePaths(listings));
+  });
+
+  test("a note the index knows and the tree has not loaded is still offered", () => {
+    // The whole point: a phone draws no file tree, so almost every note is in
+    // this position, and before the index existed it was simply unreachable.
+    expect(mergeLinkPaths(listings, ["3-resources/deep/hidden.md"])).toContain(
+      "3-resources/deep/hidden.md",
+    );
+  });
+
+  test("a note freshly created in an expanded folder is offered even before the index catches up", () => {
+    // The union direction that matters most: the tree is always current, the
+    // index can be behind, and "prefer the index" would hide a note somebody
+    // just made until the next maintenance pass.
+    const fresh = {
+      "": { entries: [{ kind: "file", path: "index.md" }, { kind: "file", path: "new.md" }] },
+    };
+    expect(mergeLinkPaths(fresh, [])).toContain("new.md");
+  });
+
+  test("a path in both sources is not duplicated", () => {
+    expect(mergeLinkPaths(listings, ["index.md"])).toEqual(["index.md"]);
+  });
+
+  test("sorted, so a caller that hands this across the WebView bridge gets a stable reference", () => {
+    const result = mergeLinkPaths(listings, ["b.md", "a.md"]);
+    expect(result).toEqual([...result].sort());
   });
 });
