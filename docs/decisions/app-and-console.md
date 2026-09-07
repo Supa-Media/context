@@ -899,26 +899,29 @@ minus what a phone already says:
   heading, so a trailing segment is the same words twice.
 - **No visibility chip.** A note carries it as a Properties row and a folder
   states it in a sentence directly beneath, both fuller than the brief chip.
-- **No context segment, and this is the half that changed back.** It was here,
-  pressable, on the argument that it is not a label but the way *up* — without
-  it the bar bottoms out one level short of home — and that the duplication it
-  cost was refunded by the leaf and the chip being gone. That was true while the
-  contexts were a slot in the frame's top bar, two rows away. They are the row
-  directly above this one now (see *The contexts moved into the scroller*
-  below), so the segment was `@seyi` said twice in consecutive lines, on the
-  surface with the least room to say anything once. The way up went with it and
-  is the lit pill, which opens its own context at its root rather than at the
-  place the device last had open there.
+- **The context is not a segment, it is the button in front of them.** It was a
+  monospace segment, pressable, on the argument that it is not a label but the
+  way *up* — without it the bar bottoms out one level short of home. That
+  argument survives; what carries it changed.
+
+  **This shipped wrong once and the record of that is the point.** The first
+  answer was to *delete* the segment, on the reasoning that the strip above
+  already named the context. That removed the duplication and the way up
+  together: a top-level folder has no ancestors, so the path row was empty and
+  nothing on the screen led back to the root of your own context. A thing that
+  is in two places is moved to one, not removed from both — see *The context you
+  are in moved to the breadcrumb* below.
 - **And it scrolls horizontally.** `3-resources/books/reading-notes/…` is wider
   than 390pt within three segments; wrapping makes the band a variable number of
   rows and ellipsising leaves the segment you are standing next to unreadable.
   `ContextStrip`'s rule, one row down: nothing truncates, the row gets longer,
   the scroll absorbs it.
 
-A top-level folder therefore draws no path row at all — its ancestors are empty
-and the pill above says where it is — rather than a band holding one word.
-`FolderView` still takes a `contextLabel` for the root, which is the one folder
-with no name of its own: a context's root folder *is* the context.
+A top-level folder therefore draws no *segments* — its ancestors are empty — and
+the row is the context button alone, which is exactly right: that button is the
+folder above it. `FolderView` still takes a `contextLabel` for the root, which
+is the one folder with no name of its own: a context's root folder *is* the
+context.
 
 **It is built once and handed to two surfaces**, because a note and a folder
 scroll in different containers on a phone: `NoteEditor` owns its own scroller so
@@ -970,12 +973,35 @@ lit pill, and the path below starts at the first folder.
 
 Three consequences that are decisions rather than placement:
 
-- **The lit pill is the way up.** Dropping the context segment took the route
-  from a top-level folder back to the root with it. Pressing the current
-  context's pill carries that now — it resolves to `browseHref` rather than to
-  `contextHrefFrom`, which is the one press on the strip that used to do nothing
-  you could see, since "where you last were" in the context you are standing in
-  is where you are.
+- **The context you are in moved to the breadcrumb, and the strip is what you
+  can switch *to*.** `stripOrder` drops the current context; `CurrentContextPill`
+  draws it at the head of the path row, as the same pill object, and pressing it
+  opens the context's **root** (`browseHref`, never `contextHrefFrom` — "where
+  you last were" in the context you are standing in is where you are). One name,
+  one place, and the press does something.
+
+  The owner's description is the specification, and it is quoted in `NavBand`
+  because the first implementation got it backwards: *"the button for that
+  workspace should essentially move to the breadcrumb… that workspace button
+  removes from the workspace column, but is put in the breadcrumbs column. So
+  I'm still able to get to the root."*
+
+  Three consequences. The strip has no lit pill and nothing on it is
+  `aria-selected`, because every pill goes somewhere you are not. `stripEntries`
+  draws the row at one entry rather than two, since none of them is a label any
+  more — and somebody with one brain and no workspaces now gets **no** strip and
+  their name at the head of the path, which is the better trade. And the
+  long-press menu moved with the pill: context Settings is reached on a phone
+  through that menu and nowhere else, so leaving it behind would have taken
+  `/console/[slug]/settings` off the phone entirely.
+- **Row two is one scroller.** The button and the segments are one line — *this
+  context, then this folder* — and two scrollers would let the button sit still
+  while its own path slid out from under it. So `NavBand` owns the `ScrollView`
+  and `Breadcrumb.pathOnly` returns bare segments into it. It carries the
+  strip's falloff for the strip's reason, and that was found in a browser rather
+  than by a test: a deep path overflows this row far more often than the
+  contexts overflow the one above, so the row that needed the fade most was the
+  one that shipped without it.
 - **The strip is built by the layout and passed down, not rebuilt at the leaf.**
   It needs the context list, the recently-visited log and the router, and it has
   to be drawn two levels below. A second one assembled where it is drawn is two
