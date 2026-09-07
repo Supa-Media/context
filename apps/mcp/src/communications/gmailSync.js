@@ -257,6 +257,16 @@ export function sanitizeAttachmentFilename(name) {
     // make the raw markdown source read as something other than its actual
     // bytes.
     .replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, "")
+    // AND the invisible characters `singleLine` does NOT strip, because a
+    // storage key is a stricter context than prose. `singleLine` leaves the
+    // bidi *marks* (U+200E/U+200F, U+061C) and the zero-width joiners alone, and
+    // in a sentence they are at worst confusing. In a key they are worse than
+    // that: two attachments named `invoice.pdf` and `inv<U+200F>oice.pdf` are
+    // indistinguishable in every listing, in the console, and in the raw
+    // Markdown of the wikilink this path becomes, while being two different
+    // objects on the customer's storage bill. A filename is a place where
+    // "reads as what it is" has to be literal.
+    .replace(/[\u00ad\u061c\u200b-\u200f\u2060-\u2064\ufeff\ufff9-\ufffb]/g, "")
     .replace(/^[a-zA-Z]:/, "")
     .split(/[\\/]/)
     .pop();
@@ -400,16 +410,58 @@ export async function resolveDayAttachments(options) {
       }
 
       if (options.attachmentMode !== "store") continue;
+      // The DECLARED size decides whether to spend the fetch at all. It is
+      // Gmail's own accounting and is usually right, so checking it first is
+      // what keeps a 30 MB attachment from being pulled through the Worker
+      // only to be thrown away.
       const declaredSize = Number.isFinite(attachment.size) ? attachment.size : 0;
       if (declaredSize > GMAIL_ATTACHMENT_MAX_BYTES) continue;
       if (declaredSize > remaining) continue;
 
-      const bytes = await getAttachmentBytes({
-        fetchImpl: options.fetchImpl,
-        accessToken: options.accessToken,
-        messageId: event.messageId,
-        attachmentId: attachment.attachmentId,
-      });
+      let bytes;
+      try {
+        bytes = await getAttachmentBytes({
+          fetchImpl: options.fetchImpl,
+          accessToken: options.accessToken,
+          messageId: event.messageId,
+          attachmentId: attachment.attachmentId,
+        });
+      } catch (error) {
+        // An attachment Gmail no longer has (a 404 on `attachments.get`, which
+        // happens for a message deleted between listing and fetching) leaves
+        // this one attachment metadata-only. It must NOT abort the day: the
+        // note describing the message is worth more than the picture in it,
+        // and `resolved` is deliberately not written, so a later pass tries
+        // again if the attachment comes back.
+        // Excluded by type rather than absorbed by inheritance, for the reason
+        // `getMessageOrNull` spells out: a history-gap error can only come
+        // from `listHistoryPage`, and catching it here would hide a
+        // re-widening of `gmailFetch` from every test.
+        if (error instanceof GmailHistoryExpiredError) throw error;
+        if (error instanceof GmailApiError && error.status === 404) continue;
+        // A body that is not decodable base64 (`atob` throws) is the same
+        // shape of problem one field over: this one attachment cannot be
+        // written, and the note describing the message still can. The rule is
+        // the same throughout — an attachment costs the file, never the note.
+        if (error instanceof Error && error.name === "InvalidCharacterError") continue;
+        throw error;
+      }
+
+      // AND THE ACTUAL BYTES DECIDE WHETHER THEY ARE WRITTEN. The check above
+      // is an optimisation, not the enforcement: `attachment.size` is absent
+      // whenever Gmail omits `body.size` for a part, and `extractBody` maps
+      // that to `undefined`, which lands here as a declared size of ZERO —
+      // passing both bounds regardless of how large the part really is. Left
+      // at that, a part with no declared size fetched and wrote 30 MB into a
+      // customer's bucket with the connection's quota at zero, defeating both
+      // the 25 MB cap and the quota with a field Gmail simply did not send.
+      // So both bounds are re-checked against `bytes.length` BEFORE the write,
+      // and — as everywhere else in this loop — a refusal is not recorded in
+      // `resolved`, so a later pass with more room tries again rather than
+      // remembering a skip forever.
+      if (bytes.length > GMAIL_ATTACHMENT_MAX_BYTES) continue;
+      if (bytes.length > remaining) continue;
+
       const contentHash = await sha256Hex(bytes);
 
       let file = manifest.files[contentHash];
@@ -474,10 +526,20 @@ export async function sweepExpiredAttachments(options) {
   const expiredHashes = [];
   const dates = new Set();
 
+  // The one prefix this sweep is allowed to delete inside. The manifest is a
+  // JSON file in a bucket the customer also syncs to Obsidian and rclone, so
+  // it is OUR bookkeeping in THEIR storage — which means its contents are read
+  // back as data, not as instructions about which objects to delete. Without
+  // this line, "deletes only files this sync wrote" is a property of the code
+  // that writes the manifest; with it, it is a property of the code that acts
+  // on it, and a manifest entry naming `privacy.md` deletes nothing.
+  const ownPrefix = `0-inbox/email/${options.mailboxSlug}/attachments/`;
+
   for (const [hash, file] of Object.entries(manifest.files)) {
     if (file.expired) continue;
     if (file.expiresAt === null || file.expiresAt === undefined) continue; // "forever"
     if (Date.parse(file.expiresAt) > nowMs) continue;
+    if (typeof file.path !== "string" || !file.path.startsWith(ownPrefix)) continue;
     await options.store.delete(file.path);
     file.expired = true;
     expiredHashes.push(hash);
@@ -548,7 +610,16 @@ async function gmailFetch(fetchImpl, accessToken, path, params) {
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
   });
   if (!response.ok) {
-    if (response.status === 404) throw new GmailHistoryExpiredError();
+    // A 404 IS NOT UNIVERSALLY A HISTORY GAP, and this used to say it was.
+    // `history.list` answering 404 means the cursor expired and the only
+    // correct answer is a full reconcile; `messages.get` answering 404 means
+    // one message was deleted between being listed and being fetched, which
+    // is an ordinary Tuesday in a live mailbox, and `attachments.get`
+    // answering 404 means one file is gone. Mapping all three to
+    // `GmailHistoryExpiredError` made a deleted message either abort the whole
+    // sync or — if a caller reacted to the type the way the class name tells
+    // it to — trigger a needless 90-day reconcile, once per deletion, forever.
+    // Only `listHistoryPage` promotes a 404 now, at its own call site.
     // Never includes the response body: it could echo the query string, and
     // the query string never carries a secret, but the access token rides in
     // the header of the *request* this failed response is answering — a
@@ -593,6 +664,33 @@ export async function getMessage({ fetchImpl, accessToken, id }) {
   });
 }
 
+/**
+ * One message, or `null` if Gmail no longer has it.
+ *
+ * Every other failure still throws. A 404 here is the mailbox having moved on
+ * between a list and a fetch — a message deleted, or moved to Trash, in the
+ * seconds between — and it is the single most common transient a sync of a
+ * live mailbox meets. It is **not** an expired history cursor, and the two
+ * were the same exception until a review pointed the difference out: see
+ * `gmailFetch`.
+ */
+export async function getMessageOrNull({ fetchImpl, accessToken, id }) {
+  try {
+    return await getMessage({ fetchImpl, accessToken, id });
+  } catch (error) {
+    // `GmailHistoryExpiredError` is EXCLUDED rather than caught by inheritance
+    // — it extends `GmailApiError` with status 404, so a plain
+    // `instanceof GmailApiError && status === 404` would swallow it. It cannot
+    // arise here (only `listHistoryPage` raises one), and swallowing an
+    // impossible error is how a narrowing like this stops being provable: with
+    // it caught, re-widening `gmailFetch` to promote every 404 again failed no
+    // test at all, because this handler absorbed the difference.
+    if (error instanceof GmailHistoryExpiredError) throw error;
+    if (error instanceof GmailApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
 /** The mailbox's current `historyId` — the cursor a fresh backfill or reconcile starts from. */
 export async function getProfileHistoryId({ fetchImpl, accessToken }) {
   const body = await gmailFetch(fetchImpl, accessToken, "/gmail/v1/users/me/profile", {});
@@ -606,11 +704,20 @@ export async function getProfileHistoryId({ fetchImpl, accessToken }) {
  * a full reconcile.
  */
 export async function listHistoryPage({ fetchImpl, accessToken, startHistoryId, pageToken }) {
-  const body = await gmailFetch(fetchImpl, accessToken, "/gmail/v1/users/me/history", {
-    startHistoryId,
-    historyTypes: "messageAdded",
-    pageToken,
-  });
+  let body;
+  try {
+    body = await gmailFetch(fetchImpl, accessToken, "/gmail/v1/users/me/history", {
+      startHistoryId,
+      historyTypes: "messageAdded",
+      pageToken,
+    });
+  } catch (error) {
+    // THIS is the one call site where a 404 means the cursor expired, so this
+    // is the one place that promotes it. See `gmailFetch` for why that is not
+    // done there any more.
+    if (error instanceof GmailApiError && error.status === 404) throw new GmailHistoryExpiredError();
+    throw error;
+  }
   const ids = new Set();
   for (const record of body.history ?? []) {
     for (const added of record.messagesAdded ?? []) {
@@ -843,7 +950,17 @@ export async function syncDayFromGmail(options) {
   const ids = await listAllMessageIds({ fetchImpl: options.fetchImpl, accessToken: options.accessToken, query });
   const events = [];
   for (const id of ids) {
-    const message = await getMessage({ fetchImpl: options.fetchImpl, accessToken: options.accessToken, id });
+    // A message listed a moment ago and gone by the time it is fetched is
+    // ordinary in a live mailbox — the owner deleted it, or a filter moved it
+    // to Trash, between the two calls. The day is regenerated from whatever
+    // Gmail still has, which is exactly what "the day is always the complete,
+    // current query result" means; it is not a reason to abandon the day.
+    const message = await getMessageOrNull({
+      fetchImpl: options.fetchImpl,
+      accessToken: options.accessToken,
+      id,
+    });
+    if (message === null) continue;
     events.push(gmailMessageToEvent(message, { mailboxSlug: options.mailboxSlug }));
   }
   return syncOneDay({
@@ -954,7 +1071,16 @@ export async function runIncrementalSync(options) {
   // the messages history happened to name.
   const affectedDates = new Set();
   for (const id of history.messageIds) {
-    const message = await getMessage({ fetchImpl: options.fetchImpl, accessToken: options.accessToken, id });
+    // Added and then deleted before this pass ran: history still names it, and
+    // `messages.get` answers 404. Skipping it is right — there is no day to
+    // learn from a message that no longer exists — and it must not be mistaken
+    // for the cursor having expired.
+    const message = await getMessageOrNull({
+      fetchImpl: options.fetchImpl,
+      accessToken: options.accessToken,
+      id,
+    });
+    if (message === null) continue;
     affectedDates.add(dateKeyOf(gmailMessageToEvent(message, { mailboxSlug: options.mailboxSlug })));
   }
 

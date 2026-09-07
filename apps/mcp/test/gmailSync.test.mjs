@@ -21,6 +21,7 @@
 
 import {
   GMAIL_ATTACHMENT_MAX_BYTES,
+  GmailApiError,
   GmailHistoryExpiredError,
   attachmentPath,
   buildDayQuery,
@@ -964,4 +965,541 @@ export async function runGmailSyncChecks(check) {
       .split("/")
       .some((segment) => segment.startsWith(".")),
   );
+
+  /* ------------------------------------------------------------------------ */
+  /* ADVERSARIAL REVIEW, 2026-09-07: every check below was written by trying   */
+  /* the attack first and watching it succeed. Three of them did.             */
+  /* ------------------------------------------------------------------------ */
+
+  // -- a hostile filename, the rounds the first pass did not try ---------------
+
+  // Percent-encoding is the traversal that survives a basename split: `%2f`
+  // is not `/` to `String.prototype.split`, and a segment decoding to
+  // `../../x` is not the literal `..` that `describeKeyProblem` rejects. What
+  // closes it is one layer further down — `S3Store` encodes each segment with
+  // `encodeRfc3986`, so a literal `%` in a key goes on the wire as `%25` and
+  // S3 stores the key with the percent signs in it, exactly as written. This
+  // check pins that: the escape stays inert text in one path segment, and
+  // never becomes a separator.
+  check(
+    "a percent-encoded traversal in a filename stays one inert path segment",
+    (() => {
+      const path = attachmentPath({
+        mailboxSlug: "p-at-example-invalid",
+        date: "2026-09-07",
+        contentHash: "h",
+        filename: "%2e%2e%2f%2e%2e%2fprivacy.md",
+      });
+      assertSafeKey(path);
+      const segments = path.split("/");
+      return (
+        segments.length === 6 &&
+        segments[0] === "0-inbox" &&
+        decodeURIComponent(segments[5]).includes("../../privacy.md") === true &&
+        path.startsWith("0-inbox/email/p-at-example-invalid/attachments/2026-09-07/")
+      );
+    })(),
+  );
+
+  // Dropbox folds case and R2 does not, so two attachments whose names differ
+  // only in case are one object on one backend and two on another. It cannot
+  // become an overwrite of somebody else's file regardless, and the reason is
+  // structural rather than lucky: the key is `<sha256>-<name>`, so colliding
+  // the key requires colliding the hash, which requires the same bytes — and
+  // the same bytes are the same file, which is the dedup path, not a clobber.
+  check(
+    "two files whose names differ only by case cannot overwrite each other on a case-folding store",
+    (() => {
+      const upper = attachmentPath({ mailboxSlug: "m", date: "2026-09-07", contentHash: "aaa", filename: "Invoice.PDF" });
+      const lower = attachmentPath({ mailboxSlug: "m", date: "2026-09-07", contentHash: "bbb", filename: "invoice.pdf" });
+      // Different bytes give different hashes, so the keys differ in a
+      // position that survives case folding.
+      return upper.toLowerCase() !== lower.toLowerCase();
+    })(),
+  );
+
+  check(
+    "a filename that tries to BE the manifest cannot land on the manifest's key",
+    (() => {
+      const manifest = manifestPath("m");
+      return [".manifest.json", "..manifest.json", "../.manifest.json", "..%2f.manifest.json"].every(
+        (filename) =>
+          attachmentPath({ mailboxSlug: "m", date: "2026-09-07", contentHash: "h", filename }) !== manifest,
+      );
+    })(),
+  );
+
+  check(
+    "a filename thousands of characters long is bounded, and stays one segment",
+    (() => {
+      const path = attachmentPath({
+        mailboxSlug: "m",
+        date: "2026-09-07",
+        contentHash: "h",
+        filename: `${"A".repeat(5000)}.pdf`,
+      });
+      assertSafeKey(path);
+      return sanitizeAttachmentFilename(`${"A".repeat(5000)}.pdf`).length === 150 && path.split("/").length === 6;
+    })(),
+  );
+
+  // The bidi OVERRIDES were already stripped; the bidi MARKS, the Arabic
+  // letter mark and the zero-width family were not, and they reached the
+  // storage key. Two objects named `invoice.pdf` and `inv<U+200F>oice.pdf`
+  // are indistinguishable in every listing a person or an agent ever reads,
+  // while being two files on the customer's bill and two different wikilink
+  // targets in the raw Markdown.
+  check(
+    "no invisible or directional character survives into an attachment key",
+    (() => {
+      // Spelled as code points on purpose. A test fixture for an invisible
+      // character written as the literal byte is a test nobody can read, and
+      // is the class `scripts/check-no-identifiers.mjs` rule 5 now refuses.
+      const invisible = [
+        0x00ad, 0x061c, 0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e,
+        0x2060, 0x2066, 0x2069, 0xfeff,
+      ].map((code) => String.fromCharCode(code));
+      const pattern = new RegExp(
+        "[\\u00ad\\u061c\\u180e\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2064\\u2066-\\u206f\\ufeff]",
+      );
+      return invisible.every((character) => {
+        const safe = sanitizeAttachmentFilename(`inv${character}oice.pdf`);
+        return safe === "invoice.pdf" && !pattern.test(safe);
+      });
+    })(),
+  );
+
+  // -- the 25 MB cap and the quota are enforced on the ACTUAL bytes ------------
+  //
+  // THE HOLE THIS FOUND. `extractBody` maps a part with no `body.size` to
+  // `size: undefined`, and `resolveDayAttachments` mapped that to a declared
+  // size of ZERO — which passes `> GMAIL_ATTACHMENT_MAX_BYTES` and
+  // `> remaining` no matter how large the part really is. Before the fix,
+  // running this block fetched and wrote 30 MB into the store with the
+  // connection's quota set to nothing at all.
+
+  function createSizedAttachmentGmail(byteCount) {
+    let attachmentCalls = 0;
+    const content = "A".repeat(byteCount);
+    const fetchImpl = async (url) => {
+      if (url.includes("/attachments/")) {
+        attachmentCalls += 1;
+        return jsonResponse({ size: content.length, data: base64Url(content) });
+      }
+      return jsonResponse({});
+    };
+    return { fetchImpl, attachmentCalls: () => attachmentCalls };
+  }
+
+  async function resolveOneUndeclaredAttachment({ byteCount, remainingQuotaBytes }) {
+    const written = [];
+    const store = {
+      capabilities: { conditionalWrite: true },
+      async get() {
+        return null;
+      },
+      async put(path, bytes) {
+        written.push({ path, size: bytes.length });
+        return { etag: "e" };
+      },
+      async delete() {},
+    };
+    const gmail = createSizedAttachmentGmail(byteCount);
+    const events = [
+      {
+        messageId: "m1",
+        // NO `size` — exactly what `extractBody` produces when Gmail omits
+        // `body.size` for a part.
+        attachments: [{ filename: "mystery.bin", contentType: "application/octet-stream", attachmentId: "A1" }],
+      },
+    ];
+    const result = await resolveDayAttachments({
+      store,
+      fetchImpl: gmail.fetchImpl,
+      accessToken: "tok",
+      mailboxSlug: "m",
+      date: "2026-09-07",
+      events,
+      attachmentMode: "store",
+      retentionDays: 90,
+      now: new Date().toISOString(),
+      remainingQuotaBytes,
+      manifest: { version: 1, resolved: {}, files: {} },
+    });
+    return { written, result, events };
+  }
+
+  const undeclaredOverCap = await resolveOneUndeclaredAttachment({
+    byteCount: GMAIL_ATTACHMENT_MAX_BYTES + 1,
+    remainingQuotaBytes: 10 * GMAIL_ATTACHMENT_MAX_BYTES,
+  });
+  check(
+    "AN ATTACHMENT WITH NO DECLARED SIZE IS STILL BOUND BY THE 25MB CAP — the actual bytes decide, not Gmail's word",
+    undeclaredOverCap.written.length === 0 && undeclaredOverCap.result.bytesWritten === 0,
+  );
+  check(
+    "...and it is not recorded as resolved, so a later pass can try again rather than remembering a skip",
+    Object.keys(undeclaredOverCap.result.manifest.resolved).length === 0,
+  );
+  check(
+    "...and the message's note still describes it, metadata-only",
+    undeclaredOverCap.events[0].attachments[0].path === undefined,
+  );
+
+  const undeclaredOverQuota = await resolveOneUndeclaredAttachment({
+    byteCount: 4096,
+    remainingQuotaBytes: 0,
+  });
+  check(
+    "AN ATTACHMENT WITH NO DECLARED SIZE CANNOT SPEND QUOTA THE CONNECTION DOES NOT HAVE",
+    undeclaredOverQuota.written.length === 0 && undeclaredOverQuota.result.bytesWritten === 0,
+  );
+
+  const undeclaredWithinBounds = await resolveOneUndeclaredAttachment({
+    byteCount: 4096,
+    remainingQuotaBytes: 1_000_000,
+  });
+  check(
+    "...while one that fits is still fetched and written — the fix is a bound, not a refusal",
+    undeclaredWithinBounds.written.length === 1 && undeclaredWithinBounds.result.bytesWritten === 4096,
+  );
+
+  // -- a 404 is not universally an expired history cursor ----------------------
+  //
+  // THE SECOND HOLE. `gmailFetch` promoted every 404 to
+  // `GmailHistoryExpiredError`, so a message deleted between being listed and
+  // being fetched — the single most ordinary transient in a live mailbox —
+  // came back to the caller wearing the name of the one error whose documented
+  // answer is a full 90-day reconcile.
+
+  // Pinned at the type, not only at the behaviour. Both call sites that skip a
+  // vanished message exclude `GmailHistoryExpiredError` explicitly rather than
+  // letting `instanceof GmailApiError` swallow it (it is a subclass with the
+  // same 404), precisely so that re-widening `gmailFetch` to promote every 404
+  // fails HERE rather than being absorbed downstream and failing nothing.
+  const notFoundFetch = async () => jsonResponse({ error: { code: 404 } }, 404);
+  let messageGetError = null;
+  try {
+    await getMessage({ fetchImpl: notFoundFetch, accessToken: "tok", id: "gone" });
+  } catch (error) {
+    messageGetError = error;
+  }
+  check(
+    "a 404 from messages.get is a plain GmailApiError, NOT the history-gap type",
+    messageGetError instanceof GmailApiError &&
+      !(messageGetError instanceof GmailHistoryExpiredError) &&
+      messageGetError.status === 404,
+  );
+  let historyPageError = null;
+  try {
+    await listAllHistory({ fetchImpl: notFoundFetch, accessToken: "tok", startHistoryId: "1" });
+  } catch (error) {
+    historyPageError = error;
+  }
+  check(
+    "...while the same 404 from history.list still IS the history-gap type",
+    historyPageError instanceof GmailHistoryExpiredError,
+  );
+
+  const vanishingMessages = [
+    fixtureMessage({
+      id: "stays",
+      threadId: "t1",
+      date: "2026-09-07T09:00:00.000Z",
+      from: "a@example.invalid",
+      to: "p@example.invalid",
+      subject: "Still here",
+      text: "Present.",
+    }),
+  ];
+  const vanishingGmail = createFixtureGmail({ messages: vanishingMessages });
+  // `messages.list` is answered from `config.messages`, so injecting an id the
+  // map does not hold is exactly "listed a moment ago, gone now".
+  const listedThenGone = {
+    fetchImpl: async (url) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === "/gmail/v1/users/me/messages") {
+        return jsonResponse({
+          messages: [{ id: "stays", threadId: "t1" }, { id: "deleted-since", threadId: "t2" }],
+          resultSizeEstimate: 2,
+        });
+      }
+      return vanishingGmail.fetchImpl(url);
+    },
+  };
+  const vanishingStore = createMemoryStore();
+  let vanishingThrew = null;
+  let vanishingResult = null;
+  try {
+    vanishingResult = await syncDayFromGmail({
+      store: vanishingStore,
+      fetchImpl: listedThenGone.fetchImpl,
+      accessToken: "tok",
+      mailboxSlug: "p-at-example-invalid",
+      address: "p@example.invalid",
+      folders: ["inbox", "sent"],
+      date: "2026-09-07",
+      nonce: "n",
+      remainingQuotaBytes: 1_000_000,
+    });
+  } catch (error) {
+    vanishingThrew = error;
+  }
+  check(
+    "A MESSAGE DELETED BETWEEN LIST AND FETCH DOES NOT ABORT THE DAY",
+    vanishingThrew === null && vanishingResult !== null && vanishingResult.partsWritten === 1,
+  );
+  const vanishingNote = await (
+    await vanishingStore.get("0-inbox/email/p-at-example-invalid/2026-09-07.md")
+  ).text();
+  check(
+    "...and the day is written from what Gmail still has",
+    parseChannelDayNote(vanishingNote).messages.length === 1,
+  );
+
+  const historyThenGone = {
+    fetchImpl: async (url) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === "/gmail/v1/users/me/history") {
+        return jsonResponse({
+          history: [{ messagesAdded: [{ message: { id: "deleted-since" } }] }],
+          historyId: "3000",
+        });
+      }
+      if (parsed.pathname === "/gmail/v1/users/me/messages") {
+        return jsonResponse({ messages: [], resultSizeEstimate: 0 });
+      }
+      // Every messages.get 404s: the one id history named is gone.
+      return jsonResponse({ error: { code: 404 } }, 404);
+    },
+  };
+  let historyGoneThrew = null;
+  let historyGoneResult = null;
+  try {
+    historyGoneResult = await runIncrementalSync({
+      store: createMemoryStore(),
+      fetchImpl: historyThenGone.fetchImpl,
+      accessToken: "tok",
+      mailboxSlug: "p-at-example-invalid",
+      address: "p@example.invalid",
+      folders: ["inbox", "sent"],
+      startHistoryId: "1",
+      nonce: "n",
+      quotaBytes: 1_000_000,
+    });
+  } catch (error) {
+    historyGoneThrew = error;
+  }
+  check(
+    "A MESSAGE HISTORY NAMED AND GMAIL NO LONGER HAS IS NOT AN EXPIRED CURSOR",
+    historyGoneThrew === null &&
+      historyGoneResult !== null &&
+      historyGoneResult.gapDetected === false &&
+      historyGoneResult.daysTouched.length === 0,
+  );
+  check(
+    "...and the cursor still advances, so the same dead id is not re-walked forever",
+    historyGoneResult !== null && historyGoneResult.historyId === "3000",
+  );
+  check(
+    "an EXPIRED CURSOR is still the one 404 that means a gap — the narrowing did not silence it",
+    (
+      await runIncrementalSync({
+        store: createMemoryStore(),
+        fetchImpl: createFixtureGmail({ messages: [], history: { expired: true } }).fetchImpl,
+        accessToken: "tok",
+        mailboxSlug: "p-at-example-invalid",
+        address: "p@example.invalid",
+        folders: ["inbox"],
+        startHistoryId: "1",
+        nonce: "n",
+        quotaBytes: 1_000_000,
+      })
+    ).gapDetected === true,
+  );
+
+  // An attachment Gmail no longer holds must cost the picture, not the note.
+  const goneAttachmentMessages = [
+    fixtureMessage({
+      id: "ga1",
+      threadId: "t1",
+      date: "2026-09-07T09:00:00.000Z",
+      from: "a@example.invalid",
+      to: "p@example.invalid",
+      subject: "It was here a minute ago",
+      text: "See attached.",
+      attachments: [{ filename: "gone.pdf", contentType: "application/pdf", size: 9, attachmentId: "ATT-GONE" }],
+    }),
+  ];
+  // `attachmentContents` is empty, so the fixture 404s `attachments.get`.
+  const goneAttachmentGmail = createFixtureGmail({ messages: goneAttachmentMessages, attachmentContents: {} });
+  const goneAttachmentStore = createMemoryStore();
+  let goneAttachmentThrew = null;
+  let goneAttachmentResult = null;
+  try {
+    goneAttachmentResult = await syncDayFromGmail({
+      store: goneAttachmentStore,
+      fetchImpl: goneAttachmentGmail.fetchImpl,
+      accessToken: "tok",
+      mailboxSlug: "p-at-example-invalid",
+      address: "p@example.invalid",
+      folders: ["inbox", "sent"],
+      date: "2026-09-07",
+      nonce: "n",
+      remainingQuotaBytes: 1_000_000,
+      attachmentMode: "store",
+      attachmentRetentionDays: 90,
+    });
+  } catch (error) {
+    goneAttachmentThrew = error;
+  }
+  check(
+    "AN ATTACHMENT GMAIL NO LONGER HAS COSTS THE FILE, NEVER THE NOTE",
+    goneAttachmentThrew === null && goneAttachmentResult !== null && goneAttachmentResult.partsWritten === 1,
+  );
+  check(
+    "...and it is not recorded as resolved, so it is retried if it comes back",
+    Object.keys((await readManifest(goneAttachmentStore, "p-at-example-invalid")).resolved).length === 0,
+  );
+
+  // The same rule for a body that is not decodable base64 at all: one
+  // attachment lost, the note kept.
+  const undecodableStore = createMemoryStore();
+  let undecodableThrew = null;
+  let undecodableResult = null;
+  try {
+    undecodableResult = await syncDayFromGmail({
+      store: undecodableStore,
+      fetchImpl: async (url) => {
+        const parsed = new URL(url);
+        if (parsed.pathname.includes("/attachments/")) return jsonResponse({ data: "!!! not base64 !!!" });
+        return createFixtureGmail({ messages: goneAttachmentMessages }).fetchImpl(url);
+      },
+      accessToken: "tok",
+      mailboxSlug: "p-at-example-invalid",
+      address: "p@example.invalid",
+      folders: ["inbox", "sent"],
+      date: "2026-09-07",
+      nonce: "n",
+      remainingQuotaBytes: 1_000_000,
+      attachmentMode: "store",
+      attachmentRetentionDays: 90,
+    });
+  } catch (error) {
+    undecodableThrew = error;
+  }
+  check(
+    "an undecodable attachment body costs the file, never the note",
+    undecodableThrew === null && undecodableResult !== null && undecodableResult.partsWritten === 1,
+  );
+
+  // -- the sweep acts on the manifest as DATA, not as instructions -------------
+  //
+  // The manifest is our bookkeeping inside a bucket the customer also syncs to
+  // Obsidian and rclone. "Deletes only files this sync wrote" has to be a
+  // property of the code that reads it, not only of the code that writes it.
+  const hostileManifestStore = createMemoryStore();
+  await hostileManifestStore.put("privacy.md", "# privacy");
+  await hostileManifestStore.put("0-inbox/email/p-at-example-invalid/attachments/2026-09-07/h-real.pdf", "bytes");
+  await hostileManifestStore.put(
+    manifestPath("p-at-example-invalid"),
+    JSON.stringify({
+      version: 1,
+      resolved: {},
+      files: {
+        outside: { path: "privacy.md", size: 9, writtenAt: "2026-09-07T00:00:00.000Z", expiresAt: "2026-09-08T00:00:00.000Z", expired: false },
+        elsewhere: { path: "0-inbox/email/other-at-example-invalid/attachments/2026-09-07/h-x.pdf", size: 9, writtenAt: "2026-09-07T00:00:00.000Z", expiresAt: "2026-09-08T00:00:00.000Z", expired: false },
+        real: { path: "0-inbox/email/p-at-example-invalid/attachments/2026-09-07/h-real.pdf", size: 5, writtenAt: "2026-09-07T00:00:00.000Z", expiresAt: "2026-09-08T00:00:00.000Z", expired: false },
+      },
+    }),
+  );
+  const hostileSweep = await sweepExpiredAttachments({
+    store: hostileManifestStore,
+    mailboxSlug: "p-at-example-invalid",
+    now: "2026-09-09T00:00:00.000Z",
+  });
+  check(
+    "A MANIFEST ENTRY POINTING OUTSIDE THE MAILBOX'S OWN FOLDER DELETES NOTHING",
+    (await hostileManifestStore.get("privacy.md")) !== null,
+  );
+  check(
+    "...not even another mailbox's attachments folder in the same bucket",
+    hostileSweep.expiredHashes.includes("elsewhere") === false,
+  );
+  check(
+    "...while the entry that IS this mailbox's own is still swept",
+    hostileSweep.expiredHashes.includes("real") &&
+      (await hostileManifestStore.get("0-inbox/email/p-at-example-invalid/attachments/2026-09-07/h-real.pdf")) ===
+        null,
+  );
+
+  // -- an inline image is an attachment, per the owner's brief ------------------
+  //
+  // Gmail gives an inline image a `filename` and a `body.attachmentId` exactly
+  // like a "real" attachment, differing only in `Content-Disposition: inline`
+  // and a `Content-ID` header this module never reads. The claim in the module
+  // comment was unproven until here.
+  const inlineMessage = {
+    id: "inline1",
+    threadId: "t1",
+    internalDate: String(Date.parse("2026-09-07T09:00:00.000Z")),
+    payload: {
+      mimeType: "multipart/related",
+      headers: [
+        { name: "From", value: "a@example.invalid" },
+        { name: "To", value: "p@example.invalid" },
+        { name: "Subject", value: "Signature image" },
+      ],
+      parts: [
+        { mimeType: "text/html", body: { size: 30, data: base64Url("<p>See <img src=\"cid:sig\"></p>") } },
+        {
+          partId: "1",
+          mimeType: "image/png",
+          filename: "signature.png",
+          headers: [
+            { name: "Content-Disposition", value: 'inline; filename="signature.png"' },
+            { name: "Content-ID", value: "<sig>" },
+          ],
+          body: { size: 8, attachmentId: "ATT-INLINE" },
+        },
+      ],
+    },
+  };
+  check(
+    "an INLINE image is parsed as an attachment, not skipped as body decoration",
+    (() => {
+      const parsed = extractBody(inlineMessage.payload);
+      return (
+        parsed.attachments.length === 1 &&
+        parsed.attachments[0].filename === "signature.png" &&
+        parsed.attachments[0].attachmentId === "ATT-INLINE"
+      );
+    })(),
+  );
+  const inlineGmail = createFixtureGmail({
+    messages: [inlineMessage],
+    attachmentContents: { "inline1/ATT-INLINE": "PNGBYTES" },
+  });
+  const inlineStore = createMemoryStore();
+  await syncDayFromGmail({
+    store: inlineStore,
+    fetchImpl: inlineGmail.fetchImpl,
+    accessToken: "tok",
+    mailboxSlug: "p-at-example-invalid",
+    address: "p@example.invalid",
+    folders: ["inbox", "sent"],
+    date: "2026-09-07",
+    nonce: "n",
+    remainingQuotaBytes: 1_000_000,
+    attachmentMode: "store",
+    attachmentRetentionDays: 90,
+  });
+  const inlineHash = await sha256Hex(new TextEncoder().encode("PNGBYTES"));
+  check(
+    "...and its bytes are fetched into the bucket like any other attachment",
+    (await inlineStore.get(
+      `0-inbox/email/p-at-example-invalid/attachments/2026-09-07/${inlineHash}-signature.png`,
+    )) !== null,
+  );
+
 }

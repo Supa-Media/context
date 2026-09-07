@@ -600,8 +600,37 @@ export const applyGmailConnectionBinding = internalMutation({
         historyId: existing?.gmail?.historyId,
         lastSyncedAt: existing?.gmail?.lastSyncedAt,
       },
-      calendar: existing?.calendar,
-      chat: existing?.chat,
+      // EVERY product's scope slice is recomputed from the ONE verbatim grant
+      // this connect just received, never carried forward.
+      //
+      // The schema states the rule — "two views of one fact, never two facts"
+      // — and carrying `existing.calendar` through untouched breaks it the
+      // moment a second product exists: a Gmail-only reconnect replaces the
+      // top-level `scopes` with the new grant's list while `calendar.scopes`
+      // goes on claiming scopes that grant may no longer carry, and the
+      // console would report a Calendar connection as healthy on the strength
+      // of a record of a consent that has been replaced. The settings and the
+      // cursor are the product's own and are kept; the scopes are a view of
+      // the account's grant and are derived.
+      //
+      // NOTE FOR THE CALENDAR AND CHAT WORK LANDING ON THIS ROW: this makes
+      // the row honest, it does not make an incremental connect correct.
+      // Google returns a grant covering exactly what was REQUESTED, so a
+      // later "add Calendar" that asks for `scopesForProducts(["calendar"])`
+      // alone comes back with a refresh token that no longer covers Gmail —
+      // and this mutation would then write a `gmail.scopes` of `[]` next to a
+      // `products` still listing `gmail`, which is the honest record of a
+      // real regression rather than a hidden one. The fix belongs in the
+      // connect that adds a product: request the union of every product
+      // already on the row plus the new one (`scopesForProducts` already
+      // takes an arbitrary list), or set `include_granted_scopes=true` on the
+      // authorize URL. Not decided here, because no such flow exists yet.
+      calendar: existing?.calendar
+        ? { ...existing.calendar, scopes: grantedScopesFor("calendar", args.scopes) }
+        : undefined,
+      chat: existing?.chat
+        ? { ...existing.chat, scopes: grantedScopesFor("chat", args.scopes) }
+        : undefined,
       health: "backfilling" as const,
       lastError: undefined,
       errorCode: undefined,

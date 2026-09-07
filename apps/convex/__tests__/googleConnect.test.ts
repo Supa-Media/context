@@ -20,6 +20,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import {
+  addMember,
   asUser,
   captureError,
   createUser,
@@ -160,8 +161,8 @@ describe("only a personal context may connect a Google account", () => {
     expect(errorCode(error)).toBe("NOT_PERSONAL_OWNER");
   });
 
-  /** Sabotage: drop the `membership?.role === "owner"` half. */
-  test("a member who is not the owner of their own personal context cannot connect one either", async () => {
+  /** A stranger with no membership row at all — the outer ring. */
+  test("somebody with no membership in a personal context cannot connect one", async () => {
     enableMailConnect();
     const { t, workspaceId } = await personalScenario();
     const outsider = await createUser(t, "outsider@example.invalid");
@@ -172,6 +173,65 @@ describe("only a personal context may connect a Google account", () => {
       }),
     );
     expect(errorCode(error)).toBe("NOT_PERSONAL_OWNER");
+  });
+
+  /**
+   * Sabotage: relax `membership?.role === "owner"` to `membership !== null`.
+   *
+   * THIS is the case that proves the role half, and until this test existed
+   * nothing did: the check above passes with the role comparison gone,
+   * because a stranger has no membership row to relax the comparison on.
+   * Measured, that sabotage failed **zero** checks. Somebody the owner
+   * granted read or write access to their brain is a real, common shape —
+   * and attaching a Google account to a context is not a permission that
+   * comes with editing notes in it.
+   */
+  test.each(["editor", "member"] as const)(
+    "an %s of somebody else's personal context cannot connect a Google account to it",
+    async (role) => {
+      enableMailConnect();
+      const { t, workspaceId } = await personalScenario();
+      const guest = await createUser(t, `${role}@example.invalid`);
+      await addMember(t, workspaceId, guest, role);
+      const error = await captureError(() =>
+        asUser(t, guest).action(api.functions.googleConnect.startGmailConnect, {
+          workspaceId,
+          redirectUri: REDIRECT,
+        }),
+      );
+      expect(errorCode(error)).toBe("NOT_PERSONAL_OWNER");
+      expect(await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect())).toHaveLength(0);
+    },
+  );
+
+  /** And the same for disconnecting — read access is never write access. */
+  test("an editor of somebody else's personal context cannot disconnect its Google account", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+    const connection = await t.run((ctx) =>
+      ctx.db
+        .query("googleConnections")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique(),
+    );
+    const editor = await createUser(t, "editor2@example.invalid");
+    await addMember(t, workspaceId, editor, "editor");
+    const error = await captureError(() =>
+      asUser(t, editor).mutation(api.functions.googleConnect.disconnectGoogleConnection, {
+        workspaceId,
+        connectionId: connection!._id,
+      }),
+    );
+    expect(errorCode(error)).toBe("NOT_OWNER");
+    expect((await t.run((ctx) => ctx.db.get(connection!._id)))!.disconnectedAt).toBeUndefined();
   });
 
   test("the owner of their own personal context gets past that check", async () => {
@@ -595,6 +655,73 @@ describe("the row shape: products and the nested gmail object", () => {
     expect(row?.calendar?.syncToken).toBe("cal-token");
   });
 
+  /**
+   * "Two views of one fact, never two facts" — the schema's own rule about
+   * `scopes` and the per-product slices, applied to the reconnect that can
+   * break it.
+   *
+   * A Gmail-only reconnect replaces the top-level `scopes` with whatever
+   * Google granted THIS time. Carrying `calendar.scopes` through untouched
+   * would leave the row asserting a Calendar consent out of a grant that no
+   * longer carries one — a health screen reporting Calendar as connected on
+   * the strength of a record of a consent that has been replaced. Every
+   * product's slice is recomputed from the one verbatim grant instead, so a
+   * regression shows up in the row rather than hiding in it.
+   *
+   * Sabotage: restore `calendar: existing?.calendar` and this fails.
+   */
+  test("a reconnect recomputes every product's scope slice from the one verbatim grant", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const address = "person@example.invalid";
+    const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly";
+    const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+
+    await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({ address, scopes: [GMAIL_SCOPE, CALENDAR_SCOPE] }),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("googleConnections")
+        .withIndex("by_workspace_address", (q) => q.eq("workspaceId", workspaceId).eq("address", address))
+        .unique();
+      await ctx.db.patch(row!._id, {
+        products: [...row!.products, "calendar"],
+        calendar: { scopes: [CALENDAR_SCOPE], syncToken: "cal-token" },
+      });
+    });
+
+    // The person re-consents and unchecks Calendar this time.
+    await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({ address, scopes: [GMAIL_SCOPE] }),
+      encryptedRefreshToken: await encryptSecret("refresh-2", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-2", keyset, context),
+    });
+
+    const row = await t.run((ctx) =>
+      ctx.db
+        .query("googleConnections")
+        .withIndex("by_workspace_address", (q) => q.eq("workspaceId", workspaceId).eq("address", address))
+        .unique(),
+    );
+    expect(row?.scopes).toEqual([GMAIL_SCOPE]);
+    // The slice is empty because the grant no longer carries it — not stale.
+    expect(row?.calendar?.scopes).toEqual([]);
+    // The cursor and the settings are the product's own and survive.
+    expect(row?.calendar?.syncToken).toBe("cal-token");
+    // And no product object claims a scope the account's own list does not.
+    for (const slice of [row?.gmail?.scopes ?? [], row?.calendar?.scopes ?? [], row?.chat?.scopes ?? []]) {
+      for (const scope of slice) expect(row?.scopes).toContain(scope);
+    }
+  });
+
   test("two different addresses in one context each get their own row", async () => {
     const { t, owner, workspaceId } = await personalScenario();
     const keyset = requireKeyset();
@@ -697,9 +824,20 @@ describe("disconnect: revoke the WHOLE grant at Google, delete the token, keep t
    * workspaceId — must not disconnect somebody else's account and must not
    * confirm one exists there either.
    */
+  /**
+   * BOTH WORKSPACES LIVE IN ONE DATABASE, and that is the whole test.
+   *
+   * An earlier version of this built Bob in a second `setupTest()`, so Alice's
+   * connection id did not exist in Bob's database at all — `ctx.db.get`
+   * answered `null` and the refusal came from the null branch, not from the
+   * tenancy check. It passed with `connection.workspaceId !== args.workspaceId`
+   * deleted outright, which is the guard it claims to be about: measured, the
+   * sabotage failed **zero** checks. Isolation has to be proved against a
+   * database that really holds the other tenant's row, or it is proving that
+   * one test fixture cannot see another.
+   */
   test("a connection id belonging to another workspace is not found, not disconnected", async () => {
-    const { connectionId: alicesConnectionId } = await connected();
-    const t = setupTest();
+    const { t, workspaceId: aliceWorkspace, connectionId: alicesConnectionId } = await connected();
     const bobOwner = await createUser(t, "bob-owner@example.invalid");
     const bobWorkspace = await createWorkspace(t, bobOwner, "bob-ctx");
 
@@ -710,6 +848,55 @@ describe("disconnect: revoke the WHOLE grant at Google, delete the token, keep t
       }),
     );
     expect(errorCode(error)).toBe("NOT_FOUND");
+
+    // Alice's connection is untouched: still live, still holding its envelope.
+    const alices = await t.run((ctx) => ctx.db.get(alicesConnectionId));
+    expect(alices!.workspaceId).toBe(aliceWorkspace);
+    expect(alices!.disconnectedAt).toBeUndefined();
+    expect(alices!.encryptedRefreshToken.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * The other half of the same attack: naming the VICTIM's workspace instead
+   * of your own. This is refused one check earlier — Bob has no membership row
+   * in Alice's workspace — and the two together are what make the pair of ids
+   * unusable in either combination.
+   */
+  test("naming the other workspace's id does not disconnect it either", async () => {
+    const { t, workspaceId: aliceWorkspace, connectionId: alicesConnectionId } = await connected();
+    const bobOwner = await createUser(t, "bob-owner@example.invalid");
+    await createWorkspace(t, bobOwner, "bob-ctx");
+
+    const error = await captureError(() =>
+      asUser(t, bobOwner).mutation(api.functions.googleConnect.disconnectGoogleConnection, {
+        workspaceId: aliceWorkspace,
+        connectionId: alicesConnectionId,
+      }),
+    );
+    expect(errorCode(error)).toBe("NOT_OWNER");
+    expect((await t.run((ctx) => ctx.db.get(alicesConnectionId)))!.disconnectedAt).toBeUndefined();
+  });
+
+  /**
+   * And the same pair of ids against `startGmailConnect`, the other route that
+   * accepts a `workspaceId` from the caller: a Google account cannot be
+   * attached to somebody else's context by naming it.
+   */
+  test("a caller cannot start a connect against a workspace they are not the owner of", async () => {
+    const { t, workspaceId: aliceWorkspace } = await connected();
+    const bobOwner = await createUser(t, "bob-owner@example.invalid");
+    await createWorkspace(t, bobOwner, "bob-ctx");
+
+    enableMailConnect();
+    vi.stubEnv("APP_ORIGIN", APP);
+    const error = await captureError(() =>
+      asUser(t, bobOwner).action(api.functions.googleConnect.startGmailConnect, {
+        workspaceId: aliceWorkspace,
+        redirectUri: REDIRECT,
+      }),
+    );
+    expect(errorCode(error)).toBe("NOT_PERSONAL_OWNER");
+    expect(await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect())).toHaveLength(0);
   });
 
   test("disconnecting clears the token and marks the connection disconnected, keeping the row", async () => {

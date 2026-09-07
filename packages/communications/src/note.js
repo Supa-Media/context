@@ -247,15 +247,20 @@ function renderMessage(event, nonce) {
       const name = defangOutsideFence(singleLine(attachment?.filename)) || "(unnamed)";
       const type = singleLine(attachment?.contentType) || "application/octet-stream";
       const size = Number.isFinite(attachment?.size) ? `${Math.trunc(attachment.size)} bytes` : "unknown size";
+      // `[[path|label]]` — the sender-chosen filename is the LABEL, going
+      // through the same defang every other sender string outside a fence
+      // does. The PATH half is supposed to be ours: built from a content hash
+      // and a filename the gateway's `sanitizeAttachmentFilename` already
+      // stripped of `[`, `]`, `|` and `#`. **This renderer does not take that
+      // on trust**, because it is a pure function in a package with several
+      // callers and one of them getting its sanitiser wrong should cost a
+      // broken-looking link, not a second wikilink a stranger chose in a note
+      // presented as the owner's own. A path that still carries link syntax
+      // after that is not defanged into something odd-looking — a storage key
+      // that contains `]]` was never a key this product wrote, so it is
+      // refused outright and the attachment renders as unstored.
       const path = singleLine(attachment?.path);
-      if (path) {
-        // `[[path|label]]` — the sender-chosen filename is the LABEL, going
-        // through the same defang every other sender string outside a fence
-        // does. `path` is never sender-controlled text: it is built from a
-        // content hash and a filename this package's own `sanitizeAttachmentFilename`
-        // (in the gateway's sync module) already stripped of `[`, `]`, `|`
-        // and `#` before it ever became part of a key, so it cannot itself
-        // break the link it appears inside of.
+      if (path && !/[[\]|#]/.test(path)) {
         lines.push(`- [[${path}|${name}]] — ${type}, ${size}`);
       } else {
         lines.push(`- ${name} — ${type}, ${size} (not stored)`);

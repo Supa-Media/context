@@ -620,9 +620,28 @@ including the ones proving a hand-edited note is not displaced.
   as text in the note (`**Attachments**: name — type, size`), metadata a
   reader sees, never a header a transport trusts.
 
-  **Each Gmail attachment part is capped at Gmail's own 25MB limit**,
-  checked against the *declared* size already present in the message
-  resource — no fetch is spent learning that an attachment is too large.
+  **Each Gmail attachment part is capped at Gmail's own 25MB limit, and the
+  cap is enforced on the bytes rather than on Gmail's word for them.** The
+  *declared* size already present in the message resource is checked first,
+  so no fetch is spent learning that an attachment is too large; that is an
+  optimisation. The enforcement is the second check, on `bytes.length`,
+  before the write. Adversarial review found why both are needed: Gmail
+  omits `body.size` on some parts, `extractBody` maps a missing size to
+  `undefined`, and `undefined` landed in the comparison as **zero** — which
+  is smaller than every bound there is. A part with no declared size fetched
+  and wrote 30MB into a bucket with the connection's quota at nothing at
+  all, defeating the 25MB cap and the quota together with a field Google
+  simply had not sent. The same applies to the quota: `remaining` is checked
+  against the declared size to skip the fetch and against the real length to
+  permit the write. **A bound that trusts a provider-supplied number is not
+  a bound**, and the direction this now fails is "the attachment stays
+  metadata-only," which costs a link and never the customer's storage bill.
+  A refusal is not written to the manifest's `resolved` index either, so a
+  later pass with more room tries again rather than remembering a skip
+  forever. The checks are
+  `an attachment with no declared size is still bound by the 25MB cap` and
+  `an attachment with no declared size cannot spend quota the connection
+  does not have`.
   **Retention is per-connection, 90 days by default, and "keep forever" is a
   real value, not a very large number**: `attachmentRetentionDays` is
   `number | "forever"` end to end, from the connect-time choice through the
@@ -653,6 +672,40 @@ including the ones proving a hand-edited note is not displaced.
   Gmail gives an inline image the same `filename` + `body.attachmentId`
   shape as a "real" attachment, and this pipeline reads the shape, not a
   disposition header.
+
+  **The sweep reads the manifest as data, never as instructions.** It is our
+  bookkeeping inside a bucket the customer also syncs to Obsidian and rclone,
+  so "deletes only files this sync wrote" cannot rest on the code that
+  *writes* the manifest being the only thing that ever does. The sweep
+  refuses any entry whose path is not under this mailbox's own
+  `attachments/` prefix — another mailbox's folder in the same bucket
+  included — so a manifest naming `privacy.md` deletes nothing. The check is
+  `a manifest entry pointing outside the mailbox's own folder deletes
+  nothing`.
+
+  **A filename is sanitised for a storage key, which is stricter than the
+  rule for prose.** `sanitizeAttachmentFilename` strips what `singleLine`
+  strips — the C0/C1 range, the line separators, the bidi overrides and
+  isolates — and then strips what `singleLine` deliberately leaves alone:
+  the bidi *marks* (U+200E, U+200F, U+061C) and the zero-width family
+  (U+200B–U+200D, U+FEFF, U+00AD). In a sentence those are at worst
+  confusing; in a key they are two objects that are indistinguishable in
+  every listing a person or an agent will ever read, on the customer's
+  storage bill, and two different wikilink targets in the raw Markdown of
+  the note. A percent-encoded traversal is closed one layer further down and
+  is now pinned by a test rather than assumed: `S3Store` encodes each key
+  segment with `encodeRfc3986`, so a literal `%` goes on the wire as `%25`
+  and `%2f` is stored as the four characters it is, never a separator.
+
+  **And the renderer does not trust its caller's path either.** The label
+  half of `[[path|label]]` is sender-chosen and defanged; the path half is
+  supposed to be ours, built from a content hash and an already-stripped
+  filename. `packages/communications` is a pure package with several
+  callers, so it re-checks: a path still carrying `[`, `]` or `|` renders as
+  an unstored attachment instead of a link. A storage key containing `]]`
+  was never a key this product wrote, so refusing it outright costs nothing
+  real and closes the case where one caller's sanitiser regresses and a
+  stranger gets a second wikilink inside a note the owner reads as their own.
 
   The check is `a hostile filename cannot escape the attachments folder or
   break the wikilink it is embedded in`, `a re-sync after expiry does not
@@ -793,6 +846,35 @@ sync extends this row rather than inventing a second table, and
 `lib/googleOAuth.ts`'s `scopesForProducts` / `grantedScopesFor` already
 generalize the scope handling both would need.
 
+**A product's `scopes` is a view of the account's one grant, recomputed on
+every connect, never carried forward — and adding a product later is a
+UNION, which is the one thing that shape does not do for free.** Two halves,
+found by adversarial review before Calendar or Chat existed to trip over
+them. The first is now closed: a Gmail-only reconnect replaces the row's
+top-level `scopes` with whatever Google granted this time, and it recomputes
+every present product's slice from that same list rather than copying the
+old `calendar.scopes` across — otherwise the row asserts a Calendar consent
+out of a grant that may no longer carry one, and a health screen reports a
+product as connected on the strength of a record of a consent that has been
+replaced. The settings and the cursor on each product object are its own and
+survive; only the scopes are derived. The check is `a reconnect recomputes
+every product's scope slice from the one verbatim grant`.
+
+The second half is **not** closed here and is named so the sibling work does
+not discover it as a bug: **Google returns a grant covering exactly what was
+requested.** An "add Calendar to my existing connection" flow that asks for
+`scopesForProducts(["calendar"])` alone gets back a refresh token that no
+longer covers Gmail, and — because the row's scopes are honestly recomputed
+— records a `gmail.scopes` of `[]` beside a `products` still listing
+`gmail`. That is the true state written down rather than hidden, which is
+the point, but it is still a broken Gmail sync. The flow that adds a product
+must request the **union** of every product already on the row plus the new
+one (`scopesForProducts` already takes an arbitrary list, which is why this
+is an extension and not a migration), or set `include_granted_scopes=true`
+on the authorize URL. `googleAuthorizeUrl` does not set it today and should
+not start doing so silently: which of the two mechanisms is used is a
+decision for the change that first needs one.
+
 **Disconnecting ends every product on the account, because it is one
 grant.** There is no "disconnect just Gmail while keeping Calendar" — Google's
 revoke endpoint takes one token and ends the whole authorization, so
@@ -885,7 +967,27 @@ A gap — `history.list` answering 404 because `startHistoryId` expired — come
 back as a typed `gapDetected: true` rather than a thrown error, and the
 documented recovery is calling `runBackfill` over the connection's window
 again: since a day is always rebuilt from live state, redoing the whole
-window is a correct reconcile, not merely a plausible-looking one. Deletions
+window is a correct reconcile, not merely a plausible-looking one.
+
+**And a 404 is a gap only from `history.list`.** The first implementation
+promoted *every* 404 the Gmail client saw into `GmailHistoryExpiredError`,
+in the one shared `fetch` wrapper. That is wrong in the most ordinary case
+there is: a message deleted between being listed and being fetched — the
+owner archiving something mid-sync, a filter moving one to Trash — makes
+`messages.get` answer 404, and the sync then either died or, for a caller
+reacting to the type the way the class name tells it to, reran a 90-day
+reconcile. Once per deletion. Forever. So the promotion now happens at
+`listHistoryPage`'s own call site and nowhere else; a message Gmail no
+longer has is skipped and the day is written from what Gmail still holds,
+which is precisely what "the day is always the complete, current query
+result" already meant, and an attachment Gmail no longer has leaves that one
+attachment metadata-only rather than abandoning the note describing it. The
+checks are `a message deleted between list and fetch does not abort the
+day`, `a message history named and Gmail no longer has is not an expired
+cursor`, and — so the narrowing cannot silently disable the real signal —
+`an expired cursor is still the one 404 that means a gap`.
+
+Deletions
 are not reconciled: a message Gmail later deletes stays in the day it was
 captured on, because v1 is a read-only mirror of what arrived and "a record
 of what was received, not a statement by the owner" — named here as future

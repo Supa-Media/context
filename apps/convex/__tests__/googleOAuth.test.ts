@@ -378,6 +378,55 @@ describe("exchanging a code", () => {
       expect(serialized).not.toContain(secret);
     }
   });
+
+  /**
+   * THE OTHER FIELD, and the one `PROVIDER_ERROR_SLUG` actually guards.
+   *
+   * The check above puts its free text in `error_description`, which this
+   * module never reads at all — so it passes with the slug pattern deleted
+   * entirely. Measured: relaxing `PROVIDER_ERROR_SLUG.test(rawSlug)` to
+   * `typeof rawSlug === "string"` failed **zero** checks. `error` is the
+   * field that IS read and IS kept, on `providerErrorCode`, and a provider
+   * error body is not a trusted shape — a proxy, an interception, or a future
+   * Google change can put anything in it, and `providerErrorCode` is the
+   * value a caller is most likely to put in a structured log. It is
+   * `^[a-z][a-z0-9_]{0,63}$` or it is dropped: a closed alphabet and a length
+   * bound, not a sanitiser that has to be right about what is dangerous.
+   */
+  test.each([
+    ["free text with spaces", "invalid request: the code 12345 was already used"],
+    ["a newline, which would forge a second log line", "invalid_grant\nlevel=info secret=leaked"],
+    ["a JSON fragment", '{"nested":"object"}'],
+    ["over the length bound", `a${"b".repeat(200)}`],
+    ["an uppercase spelling outside the alphabet", "INVALID_GRANT"],
+  ])("a provider error code that is %s is dropped, never carried", async (_label, hostile) => {
+    const { impl } = stubFetch(400, { error: hostile });
+    const error = await exchangeGoogleCode({
+      clientId: FAKE_CLIENT_ID,
+      clientSecret: FAKE_CLIENT_SECRET,
+      code: FAKE_CODE,
+      verifier: FAKE_VERIFIER,
+      redirectUri: FAKE_REDIRECT_URI,
+      fetchImpl: impl,
+    }).catch((e) => e);
+    expect(error).toBeInstanceOf(GoogleOAuthError);
+    expect((error as GoogleOAuthError).providerErrorCode).toBeUndefined();
+    expect(JSON.stringify({ message: (error as Error).message, ...error })).not.toContain(
+      hostile.slice(0, 20),
+    );
+  });
+
+  test("a well-formed provider error code IS kept — the bound is a filter, not a blanket drop", async () => {
+    const { impl } = stubFetch(400, { error: "invalid_grant" });
+    const error = await exchangeGoogleCode({
+      clientId: FAKE_CLIENT_ID,
+      code: FAKE_CODE,
+      verifier: FAKE_VERIFIER,
+      redirectUri: FAKE_REDIRECT_URI,
+      fetchImpl: impl,
+    }).catch((e) => e);
+    expect((error as GoogleOAuthError).providerErrorCode).toBe("invalid_grant");
+  });
 });
 
 describe("refreshing", () => {
