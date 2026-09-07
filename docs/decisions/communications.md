@@ -816,3 +816,13 @@ the same toggle is follow-up UI work); attachment bytes (metadata only,
 exactly as email attachments are, per the retention decision above); and
 group-chat participant names resolved against contacts (a participant is
 rendered as their raw address, the same simplification as the sender).
+
+**`readChatDbWindow`'s `selfAddresses` option exists and is not yet wired to
+a real value.** `chat.db` does not reliably carry "which of these handles is
+this Mac's own" — that lives in Messages' separate account configuration, not
+in the tables this reader reads — so `main/imessage.ts` passes none today. The
+one visible cost is cosmetic and stated rather than hidden: an unnamed group's
+synthesized subject can include the owner's own address alongside everyone
+else's, where a resolved identity would have excluded it. Nothing about
+content, folding, or privacy depends on this value; it is read only to build
+a heading string.

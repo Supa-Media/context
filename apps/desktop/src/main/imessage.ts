@@ -160,6 +160,10 @@ export class ImessageSyncService {
       writeNote: (notePath, content, expectedEtag) => writeNote(notesConfig, notePath, content, expectedEtag),
       now: () => new Date(now()).toISOString(),
       mintNonce: () => mintNonce(),
+      // No `selfAddresses`: `chat.db` does not reliably carry which handle is
+      // this Mac's own — see `docs/decisions/communications.md`. The only
+      // effect is cosmetic: an unnamed group's subject can list the owner's
+      // own address alongside everyone else's.
     };
 
     try {
