@@ -397,7 +397,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     form: "connector",
     note: "Installs it for you — Cursor opens with the server filled in and asks you to confirm.",
     customization: {
-      hint: "Paste it into User Rules under Cursor Settings → Rules, or a .cursor/rules file per project.",
+      hint: "Paste it into User Rules under Cursor Settings → Rules, or a new .mdc file in a project's .cursor/rules/ directory.",
     },
     link: (endpoint) => ({
       kind: "install",
