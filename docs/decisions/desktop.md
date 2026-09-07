@@ -2676,6 +2676,71 @@ from the first chunk after the network returns. And an outage longer than
 is not a 404 and never arms it — which is the property the clock buys over a
 count, checked rather than assumed.
 
+#### The residual closes: the session row jumps the queue, and the table above no longer applies
+
+The paragraph above named its own fix and declined to build it: *"closing it is
+a different change: the session row has to **jump** the queue rather than ride
+a pass, which is `nextDrain`'s ordering contract and belongs in its own PR with
+its own argument."* This is that PR. The 74/75 table measured a **selection**
+defect — `nextDrain` had no opinion beyond `queuedAt`, so a `session` or
+`finalize` head queued after a deep backlog of other sessions' `segments`/
+`notes` wrote its position in that backlog rather than in front of it — and a
+selection defect has a selection fix: `selectionRank` in `core/sync/outbox.ts`
+sorts a `session` or `finalize` head ahead of every `segments`/`notes` head,
+before it ever reads `queuedAt`, regardless of how many of the latter are
+queued. Nothing is reordered on disk; `nextDrain` simply stops treating the two
+tiers as one list.
+
+**The table is retired rather than amended, because there is no threshold left
+to put in it.** The old table's whole shape — a queue depth on the left, a
+transcript outcome on the right — assumed the delay was a function of position
+in a FIFO list, which is exactly what stopped being true. Driven at the depth
+that failed and an order of magnitude past it (`sessionOrder.test.mjs`, "A
+MEETING BEGUN BEHIND A QUEUE THAT IS ALREADY DEEP"): a session row queued
+behind a 120-entry backlog is still the first HTTP request the pass makes, and
+so is one queued behind 750. The meeting transcribes from its first chunk with
+no race and no notice, at both depths, because the row is no longer competing
+for a place in the pass — it is simply asked for before the backlog is.
+
+**Two guarantees the jump must not cost, both checked rather than assumed.**
+First, that it is a priority over what is *ready*, never a reason to wait on
+what is not: a `session` write this gateway will never accept parks (or backs
+off) exactly as before, drops out of `nextDrain`'s ready set the moment it
+does, and a lower-priority write behind it goes out on the very next request
+rather than waiting on a slot the stuck entry keeps winning — driven in
+`outbox.test.mjs` at the reducer level and again in `sessionOrder.test.mjs`
+against a real `drainOnce`, both directions (parked and merely backed off).
+Second, that the jump is a selection rule and never a reorder: a session's own
+`session → segments → notes → finalize` order is untouched, because
+`selectionRank` only ever picks among different sessions' *heads* — the
+per-session ordering `KIND_ORDER` already enforced never changes — and two
+meetings whose writes are woven through each other and through a hundred-entry
+backlog each still drain in their own contract order, independent of the
+other, independent of the backlog (`sessionOrder.test.mjs`, "TWO MEETINGS BEGIN
+WHILE A HUNDRED-ENTRY BACKLOG IS STILL DRAINING").
+
+**Sabotage, measured.** Reverting `nextDrain`'s sort to plain `queuedAt` —
+equivalently, making `selectionRank` return the same rank for every kind —
+reddens **10** across `outbox.test.mjs` and `sessionOrder.test.mjs`. Removing
+only the backoff arm of the readiness filter (`nextAttemptAt <= now`) reddens
+**4**: two pre-existing (`outbox.test.mjs`'s own backoff check and
+`gateway.test.mjs`'s "a session that cannot send its head does not send its
+tail") and two new (the backed-off-entry starvation checks in
+`outbox.test.mjs` and `sessionOrder.test.mjs`) — proof the new guard is pinned
+by more than this change's own tests. Removing only the parked arm
+(`state === "pending"`) reddens **3**: two pre-existing (`outbox.test.mjs`'s
+own parking checks) and one new (the parked-entry starvation check). Each
+sabotage reddens a different, disjoint set, which is what says the priority,
+the backoff exclusion and the park exclusion are three properties rather than
+one written three times.
+
+**What this does not change.** `drainUrgency`, `NOT_YET_GRACE_MS` and the 404
+grace are exactly as this section already argued — the grace still exists for
+the case the jump cannot fix, a gateway that will never accept a session no
+matter how promptly it is asked. The jump means the ordinary case (a deep
+backlog, an otherwise healthy gateway) no longer needs the grace at all; it
+does not shrink the grace or make it redundant for the case it was built for.
+
 ### What is deliberately not built
 
 Not built, and none of them foreclosed:

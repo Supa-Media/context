@@ -42,6 +42,16 @@
  *
  *   the `retry` branch removed (every stale sighting goes straight to fail)   4
  *   the stale finalize entry not dropped after a `fail` is queued for it      1
+ *
+ * `selectionRank`'s own sabotage — a `session`/`finalize` head jumping a deep
+ * backlog rather than riding `nextDrain`'s plain `queuedAt` order, the fix for
+ * the residual `docs/decisions/desktop.md` measured at 74/75 queued entries.
+ * Counts are whole-suite, because `sessionOrder.test.mjs` carries the driven
+ * half of the same guard and both move together:
+ *
+ *   `nextDrain` sorting by `queuedAt` alone again (no priority)              10
+ *   the backoff arm of the readiness filter removed                          4
+ *   the parked arm of the readiness filter removed                           3
  */
 
 import { ERRORS } from "@context/meetings/protocol";
@@ -185,6 +195,150 @@ export function runOutboxChecks(check) {
     outbox = applyDrain(outbox, stuck.id, { ok: false, code: ERRORS.forbidden, message: "no", retryable: false }, 10);
     const next = nextDrain(outbox, 10);
     check("a parked session does not block another session", next !== null && next.sessionId === other);
+  }
+
+  // -- a session or finalize jumps the queue, at any depth --------------------
+  //
+  // The residual an adversarial review measured against the arithmetic fix
+  // alone (`drainUrgency("session") === "now"`): a pass carries at most 25
+  // entries, so a `session` write queued behind a backlog deeper than that
+  // still rode `nextDrain`'s plain `queuedAt` order and missed the pass it
+  // needed. `docs/decisions/desktop.md`'s table measured a transcript through
+  // 74 queued entries ahead of it and none at 75. This is the fix the reviewer
+  // named: the selection `nextDrain` makes, not the persisted order of the
+  // queue — nothing here is moved, only picked first.
+  {
+    let outbox = emptyOutbox();
+    for (let i = 0; i < 120; i += 1) {
+      outbox = queueWrite(outbox, {
+        sessionId: `mtg_backlog${i}`,
+        kind: "notes",
+        body: { notes: "an earlier, unrelated meeting" },
+        now: i,
+      });
+    }
+    // Queued strictly after all 120 lower-urgency heads above, so an ordering
+    // that fell back to `queuedAt` would put it dead last.
+    outbox = queueWrite(outbox, { sessionId, kind: "session", body: { id: sessionId }, now: 1000 });
+
+    check(
+      "A SESSION ROW JUMPS A QUEUE OF ANY DEPTH — not merely one deeper than the reviewer measured",
+      nextDrain(outbox, 1000)?.id === `${sessionId}:session`,
+    );
+
+    // The jump moves nothing: once it drains, the backlog resumes exactly
+    // where it left off.
+    outbox = applyDrain(outbox, `${sessionId}:session`, { ok: true }, 1000);
+    check(
+      "...and the backlog is untouched by the jump — the oldest entry is still next",
+      nextDrain(outbox, 1000)?.id === "mtg_backlog0:notes",
+    );
+  }
+
+  {
+    let outbox = emptyOutbox();
+    for (let i = 0; i < 120; i += 1) {
+      outbox = queueWrite(outbox, {
+        sessionId: `mtg_backlog2_${i}`,
+        kind: "segments",
+        body: { sessionId: `mtg_backlog2_${i}`, segments: [] },
+        now: i,
+      });
+    }
+    outbox = queueWrite(outbox, {
+      sessionId,
+      kind: "finalize",
+      body: { sessionId, endedAt: new Date(2000).toISOString() },
+      now: 2000,
+    });
+    check(
+      "A FINALIZE JUMPS THE QUEUE THE SAME WAY A SESSION ROW DOES — it is already awaited by its caller",
+      nextDrain(outbox, 2000)?.id === `${sessionId}:finalize`,
+    );
+  }
+
+  // The jump is a selection rule, never a reorder: a session's own writes
+  // still come out in contract order, even threaded through a hundred-entry
+  // backlog of *other* sessions that are free to interleave between them —
+  // only `session` and `finalize` outrank that backlog, so this session's own
+  // `segments` legitimately waits its turn behind older `notes` heads exactly
+  // as it would have before this change. What must not happen is this
+  // session's own three entries arriving out of their own relative order.
+  {
+    let outbox = emptyOutbox();
+    for (let i = 0; i < 100; i += 1) {
+      outbox = queueWrite(outbox, { sessionId: `mtg_other${i}`, kind: "notes", body: { notes: "x" }, now: i });
+    }
+    outbox = queueWrite(outbox, { sessionId, kind: "finalize", body: { sessionId }, now: 500 });
+    outbox = queueWrite(outbox, {
+      sessionId,
+      kind: "segments",
+      body: { sessionId, segments: [seg("s1", 0, "one")] },
+      now: 500,
+    });
+    outbox = queueWrite(outbox, { sessionId, kind: "session", body: { id: sessionId }, now: 500 });
+
+    const order = [];
+    let cursor = outbox;
+    for (let i = 0; i < 103; i += 1) {
+      const entry = nextDrain(cursor, 500);
+      if (entry === null) break;
+      if (entry.sessionId === sessionId) order.push(entry.kind);
+      cursor = applyDrain(cursor, entry.id, { ok: true }, 500);
+    }
+    check(
+      "JUMPING THE QUEUE DOES NOT REORDER A SESSION'S OWN WRITES — session, then segments, then finalize",
+      order.join(",") === "session,segments,finalize",
+    );
+    check(
+      "...and the session row still jumped ahead of every one of the hundred older backlog heads",
+      order[0] === "session",
+    );
+  }
+
+  // -- a permanently failing high-urgency entry does not starve the rest -----
+  //
+  // The jump must not become a new way to get stuck. A parked or backed-off
+  // head is excluded from `nextDrain`'s ready set the same way any other head
+  // is — the priority is over *what is ready*, never a reason to wait on
+  // something that is not.
+  {
+    let outbox = queueWrite(emptyOutbox(), {
+      sessionId,
+      kind: "notes",
+      body: { notes: "behind a permanently refused session" },
+      now: 0,
+    });
+    outbox = queueWrite(outbox, { sessionId: "mtg_stuck", kind: "session", body: { id: "mtg_stuck" }, now: 1 });
+    outbox = applyDrain(
+      outbox,
+      "mtg_stuck:session",
+      { ok: false, code: ERRORS.forbidden, message: "no", retryable: false },
+      1,
+    );
+    check(
+      "A PARKED HIGH-URGENCY ENTRY DOES NOT BLOCK A LOWER-URGENCY ONE FOREVER",
+      nextDrain(outbox, 1)?.id === `${sessionId}:notes`,
+    );
+  }
+  {
+    let outbox = queueWrite(emptyOutbox(), {
+      sessionId,
+      kind: "notes",
+      body: { notes: "behind a session that is retrying" },
+      now: 0,
+    });
+    outbox = queueWrite(outbox, { sessionId: "mtg_retrying", kind: "session", body: { id: "mtg_retrying" }, now: 1 });
+    outbox = applyDrain(
+      outbox,
+      "mtg_retrying:session",
+      { ok: false, code: ERRORS.unavailable, message: "down", retryable: true },
+      1,
+    );
+    check(
+      "A BACKED-OFF HIGH-URGENCY ENTRY DOES NOT BLOCK A LOWER-URGENCY ONE EITHER",
+      nextDrain(outbox, 1)?.id === `${sessionId}:notes`,
+    );
   }
 
   // -- a drain does not freeze the queue --------------------------------------
