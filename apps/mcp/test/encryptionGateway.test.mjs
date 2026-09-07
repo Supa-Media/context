@@ -81,7 +81,12 @@
 
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
-import { indexableText, isEncryptedNote, parseEncryptedNote } from "../src/encryption.js";
+import {
+  FENCE_LANGUAGE,
+  indexableText,
+  isEncryptedNote,
+  parseEncryptedNote,
+} from "../src/encryption.js";
 import { parseLinks } from "../src/links.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { readFileSync } from "node:fs";
@@ -602,6 +607,44 @@ export async function runEncryptionGatewayChecks(check) {
     check(
       "an encrypted note reaches both indexes as the empty string",
       indexableText(ciphertextBefore) === "" && indexableText(SECRET_BODY) === SECRET_BODY,
+    );
+
+    /*
+     * AND THE INDEX THAT WAS ACTUALLY BUILT HOLDS NONE OF IT.
+     *
+     * The line above is a unit assertion about `indexableText`, and it was the
+     * whole of the evidence for "nothing of an encrypted note reaches the
+     * index". MEASURED: it was not true. `syncShardedIndex` — the pass every
+     * search and every scheduled sweep actually runs — read note bodies with a
+     * bare `object.text()`, so an envelope's own terms (`a256gcm`,
+     * `context-encrypted`, the callout's words, the base64url of `ct`) were
+     * tokenised into `.index/v2/shard-*.json`, an object that lives **in the
+     * customer's own bucket under the same credential as the note**. The
+     * `indexableText` call the decision file points at lived in `syncIndex`,
+     * which nothing has called since the v2 index landed.
+     *
+     * That is not a plaintext leak — the terms come from the ciphertext the
+     * bucket already holds — and it is exactly the shape `testing.md` calls a
+     * guard nobody has checked: the assertion above passes for an
+     * implementation that never calls the function it asserts about.
+     *
+     * So this asks the index itself, in both directions, because an assertion
+     * that only checks for absence passes just as well against an index that
+     * was never built.
+     */
+    const indexObjects = [...a.objects.keys()]
+      .filter((key) => key.startsWith(".index/"))
+      .map((key) => new TextDecoder().decode(a.objects.get(key).bytes))
+      .join("\n");
+    check(
+      "the index that was really built holds the plaintext notes it should",
+      indexObjects.length > 0 && indexObjects.includes("pointer"),
+    );
+    check(
+      "...and not one term of an encrypted note's envelope",
+      !/a256gcm/i.test(indexObjects) &&
+        !indexObjects.includes(FENCE_LANGUAGE) &&
+        !indexObjects.includes(parseEncryptedNote(ciphertextBefore).ct.slice(0, 24)),
     );
 
     /*

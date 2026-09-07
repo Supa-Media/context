@@ -44,6 +44,7 @@
  *   owner-only to prevent.
  */
 
+import { indexableText } from "../encryption.js";
 import { buildTermFilter } from "./filter.js";
 import { addDoc, emptyIndex, removeDoc } from "./indexer.js";
 import {
@@ -1623,7 +1624,23 @@ export async function syncShardedIndex(
               return null;
             }
             if (!object) return { path, gone: true };
-            const full = await object.text();
+            /*
+              `indexableText` first, and the cap after it. An encrypted note
+              becomes the empty string here, so its *version* is still recorded
+              — the diff converges and the note stops looking stale forever —
+              while nothing of it reaches the index. This index lives in the
+              customer's own bucket under the same credential as the note, so
+              tokenising an envelope would hand a leaked bucket key the note's
+              terms back out of a second object; and for a passphrase-locked
+              note nothing that can read the index is a reader of the note at
+              all. See `docs/decisions/encryption.md`, "What search does".
+
+              MEASURED: this pass is the one every search and every scheduled
+              sweep runs, and it read the body raw. The `indexableText` call the
+              decision file pointed at was in `maintain.js`'s `syncIndex`, which
+              nothing has called since this index replaced it.
+            */
+            const full = indexableText(await object.text());
             const content =
               full.length > NOTE_INDEX_CHAR_CAP ? full.slice(0, NOTE_INDEX_CHAR_CAP) : full;
             // Record the token the *next* listing will report, or the diff

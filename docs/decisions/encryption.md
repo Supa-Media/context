@@ -407,6 +407,20 @@ caller anyway. `indexableText` in `apps/mcp/src/encryption.js` is the one
 function both index paths call, so this is a single rule rather than two checks
 that can drift.
 
+**And "both index paths call it" has to be checked rather than stated, because
+for a while it was false.** The R2 half of that sentence pointed at
+`maintain.js`'s `syncIndex`, which nothing has called since the sharded index
+replaced it; the pass every search and every scheduled sweep actually runs —
+`syncShardedIndex` in `apps/mcp/src/search/shards.js` — read note bodies raw, so
+an envelope's own terms were tokenised into a shard object sitting in the
+customer's bucket beside the note. No plaintext ever reached it, because the
+gateway had none to give: the leak was the ciphertext's own terms plus the
+callout's words. It was found by asking the built index rather than the helper,
+and the check that now owns it (`encryptionGateway.test.mjs`, "...and not one
+term of an encrypted note's envelope") reads the shard objects the pass wrote —
+a unit assertion about `indexableText` passes just as happily for a caller that
+never calls it.
+
 **The R2 shard index gets the same default, and the reason is sharper.** That
 index lives *inside the customer's own bucket*, so plaintext in it is not a copy
 we hold — `search/CONTRACT.md` already says that is acceptable where it lives.
@@ -437,7 +451,9 @@ customer who wanted a faster search inside their own bucket hand us the
 plaintext of the notes they encrypted specifically so that we would not have it.
 
 **The tests that fail if this is reversed.** `indexableText` answers `""` for an
-encrypted note and its own text for every other; the literal scan does not match
+encrypted note and its own text for every other; the shard objects a real
+indexing pass wrote carry the plaintext notes' terms and not one term of an
+encrypted note's envelope; the literal scan does not match
 an encrypted note's own envelope (asked with `A256GCM` — a string in every
 envelope and in nobody's note — on the first search in a fresh context, so that
 it falls to the scan rather than to an index); and the ChatGPT `fetch` dialect
