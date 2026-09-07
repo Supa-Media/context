@@ -241,6 +241,26 @@ const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // one back: it has `listSecrets`, which returns a fingerprint, and there is
   // deliberately no `getSecret`. If one is ever added, this suite fails.
   "functions/admin.ts",
+  // THE FIFTH, AND THE ONLY ONE THAT OPENS A KEY TO NOTE *CONTENT*.
+  //
+  // Every importer above opens a credential for reaching something — a bucket,
+  // an account, an integration. This one opens the workspace data key, which
+  // reads one context's encrypted notes directly. That is a different kind of
+  // reach and it is written down here rather than folded into `storage.ts`, for
+  // the reason the fourth entry gives about the fourth: a workspace data key
+  // outlives the binding beside it, so a customer who moves their bucket keeps
+  // the key that opens the notes they moved. One module per thing that is
+  // sealed to a different lifetime.
+  //
+  // What bounds it: every export in `functions/encryptionKeys.ts` is
+  // `internal*`, so nothing holding a session token or an OAuth grant can route
+  // to one; there is no update path for the sealed column, so a second key
+  // cannot be written over the first and strand every note under it; and
+  // `datakey` is in `PLAINTEXT_CREDENTIAL_FIELDS` above, so a public function
+  // returning one by name fails this suite rather than being reviewed.
+  //
+  // See `docs/decisions/encryption.md`.
+  "functions/encryptionKeys.ts",
 ]);
 
 /** An import of `decryptSecret`, in code rather than in prose. */
@@ -358,6 +378,14 @@ const PLAINTEXT_CREDENTIAL_FIELDS = [
   // appears as a schema column, because at rest it is one `appSecrets` row's
   // `encryptedValue` and the bare token exists only in flight.
   "apitoken",
+  // THE WORKSPACE DATA KEY, which `/gateway/binding` now returns beside the
+  // bucket key as `encryptionKey.dataKey`. It opens every encrypted note in one
+  // context, which puts it in the same class as `secretaccesskey` rather than a
+  // lesser one. At rest it is `workspaceDataKeys.encryptedDataKey` — a column
+  // the derivation above already finds — and the bare `dataKey` exists only in
+  // flight, so it is named here for the same reason `accesstoken` is: the
+  // schema-derived list can only know the shapes that sit still.
+  "datakey",
 ];
 
 const PUBLIC_FORBIDDEN_FIELDS = [
@@ -853,6 +881,25 @@ describe("no public function can reach a storage secret", () => {
       // the gateway. internalAction; the only thing that reaches it is the
       // route below.
       "functions.controlPlane.openStorageBinding",
+      // THE KEY TO NOTE CONTENT, rather than a credential for reaching it.
+      //
+      // Opens one workspace's data key so the gateway can decrypt that
+      // context's encrypted notes for the length of one request. It is here
+      // because there is no other place decryption can happen: every consumer
+      // that exists — MCP clients, the console, link rewriting — reads through
+      // the gateway, and `docs/decisions/encryption.md` says out loud that this
+      // is encryption at rest against the storage provider and a leaked bucket
+      // credential, and not against us.
+      //
+      // internalAction, reached only by `openStorageBinding` above, which has
+      // already spent both proofs and passes the workspace id it read off the
+      // resolved row. It is *not* a barrier: taint propagates through it
+      // exactly as it does through `getBindingForGateway`, which is why
+      // `http.gatewayBinding` is still in this list and why nothing new was
+      // added to `CREDENTIAL_HTTP_ROUTES` — the route that reaches it was
+      // already enumerated as an internet-facing path to a credential, and this
+      // does not add a second one.
+      "functions.encryptionKeys.openWorkspaceDataKey",
       // The ingest analogue. Spends a single-use ticket the control plane
       // minted, reads the workspace off THAT ticket's row, and opens its
       // credential for the Email Worker. internalAction; the only thing that
@@ -1056,6 +1103,12 @@ describe("no public function can reach a storage secret", () => {
     expect(BARRIER_FORBIDDEN_FIELDS).toContain("accesstoken");
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("apitoken");
     expect(BARRIER_FORBIDDEN_FIELDS).toContain("apitoken");
+    // The workspace data key, both halves: the envelope the schema declares,
+    // found by the derivation, and the opened key that only ever exists in
+    // flight and therefore has to be named.
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encrypteddatakey");
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain("datakey");
+    expect(BARRIER_FORBIDDEN_FIELDS).toContain("datakey");
   });
 
   test("no public function declares a credential field in its return validator", () => {

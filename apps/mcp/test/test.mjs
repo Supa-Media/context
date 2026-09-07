@@ -22,6 +22,8 @@ import { runMeetingChecks } from "./meetings.test.mjs";
 import { runSearchD1Checks } from "./searchD1.test.mjs";
 import { runSearchProjectionChecks } from "./searchProjection.test.mjs";
 import { runCredentialShapeChecks } from "./credentialShape.test.mjs";
+import { runEncryptionChecks } from "./encryption.test.mjs";
+import { runEncryptionGatewayChecks } from "./encryptionGateway.test.mjs";
 import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
@@ -413,8 +415,10 @@ const tools = await rpc("priv-token", "tools/list");
 // has to ask for it. 26 with `list_channel_days` and `read_channel_day`, which
 // are the same pair one layer over: a day of somebody's mail is an ordinary
 // note too, and these are the two reads that know the bodies are appended to
-// one and that a model has to ask for them.
-check("26 tools listed", tools.result?.tools.length === 26);
+// one and that a model has to ask for them. 27 with `set_encryption`, which is
+// a write over one note's own bytes and, like `set_visibility` beside it, a
+// personal connection's.
+check("27 tools listed", tools.result?.tools.length === 27);
 
 // -- list_plugins through the worker
 //
@@ -1193,7 +1197,7 @@ check(
 );
 
 const modernList = await modernFetch({ method: "tools/list" });
-check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 26);
+check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 27);
 check(
   "modern tools/list carries the required freshness hints",
   typeof modernList.body.result?.ttlMs === "number" &&
@@ -1419,7 +1423,7 @@ for (const verb of ["GET", "DELETE"]) {
 // --- and now the half that must not have moved: legacy clients ---
 check(
   "a legacy client sending no version header still works",
-  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 26
+  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 27
 );
 async function legacyWithVersionHeader(version) {
   return worker.fetch(
@@ -3926,6 +3930,8 @@ await runSearchD1Checks(check);
 // above still owns that global.
 await runSearchProjectionChecks(check);
 await runCredentialShapeChecks(check);
+await runEncryptionChecks(check);
+await runEncryptionGatewayChecks(check);
 
 // Meeting ingestion: the routes a phone and a desktop app send a meeting to,
 // the one note it becomes, and the neighbour who knows its session id. Its own

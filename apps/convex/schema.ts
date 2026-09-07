@@ -735,6 +735,45 @@ const schema = defineSchema({
   }).index("by_workspace", ["workspaceId"]),
 
   /**
+   * THE KEY THAT OPENS ONE CONTEXT'S ENCRYPTED NOTES.
+   *
+   * See `docs/decisions/encryption.md`. One row per workspace, holding the
+   * workspace data key as a `v2:` envelope from `functions/lib/crypto.ts` —
+   * the same scheme, the same keyset, the same AAD binding and the same
+   * rotation pass as the bucket credential beside it. Never in the clear here,
+   * never in Markdown, never in the customer's bucket, never in a log.
+   *
+   * **Its own table rather than a column on `storageBindings`, and that is not
+   * tidiness.** A customer who rebinds storage — a new bucket, a new provider,
+   * a reconnected Dropbox — replaces their binding row. A key living on it
+   * would take every note they had already encrypted with it, silently, in the
+   * one flow whose entire purpose is that the notes come with them. The key
+   * that opens a context outlives the storage those notes happen to sit in.
+   *
+   * `generation` is the label a note's own frontmatter carries
+   * (`context_encryption_key: ws:k1`) and each envelope recipient's `id`. It
+   * exists so a future key rotation is a resumable re-wrap — a listing finds
+   * what is still on the old generation — rather than a re-encrypt of every
+   * note in somebody's bucket. Nothing in this codebase advances it yet, and a
+   * bump without the re-wrap pass that goes with it would strand every note
+   * written under the old one.
+   *
+   * **Nothing may write different key material into this column.** A second key
+   * over the first makes every note already encrypted under it unreadable, and
+   * it would look exactly like a fix for "the key was missing". The one write
+   * that exists is `applyDataKeyRekey`, which re-seals the *same* material under
+   * a new envelope key, conditional on the exact bytes it read — the rotation
+   * pass, which must reach this column, because an envelope left behind on a
+   * retired key is that same unrecoverable loss arriving from the other side.
+   */
+  workspaceDataKeys: defineTable({
+    workspaceId: v.id("workspaces"),
+    generation: v.string(),
+    encryptedDataKey: v.string(),
+    createdAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
    * ONE IN-FLIGHT ATTEMPT TO CREATE A BUCKET IN SOMEBODY ELSE'S CLOUD ACCOUNT.
    *
    * A person who has a Cloudflare account but no bucket hands us one credential

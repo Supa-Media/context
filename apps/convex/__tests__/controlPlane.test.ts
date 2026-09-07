@@ -1410,6 +1410,178 @@ describe("/gateway/binding — the search index", () => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* 3b-ii. /gateway/binding — the encryption key                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE THIRD SIBLING, AND THE ONE THAT OPENS NOTE CONTENT.
+ *
+ * `docs/decisions/encryption.md`. The workspace data key travels beside the
+ * binding, on the route that was already enumerated as an internet-facing path
+ * to a credential — so this adds no new door, and `structure.test.ts` is what
+ * says so.
+ *
+ * Three properties, and the first two are the ones a "simplification" would
+ * take:
+ *
+ *  - **Absent for a context that has never encrypted anything**, which is every
+ *    context today. Not a `null` and not an empty object: the key is missing
+ *    from the response entirely, exactly as `searchIndex` is, so nothing is
+ *    created as a side effect of somebody reading their own notes.
+ *  - **Never another tenant's.** Naming somebody else's workspace answers the
+ *    same `{binding: null}` as it always did, and the assertion is on the bytes
+ *    of the whole response rather than on one field, for the reason the index
+ *    block's cross-tenant test gives: the mutant that matters leaves the
+ *    binding half correct and rides the other tenant's key out beside it.
+ *  - **Present for a context that has one**, so the two refusals above are not
+ *    passing because the feature never returns anything.
+ */
+describe("/gateway/binding — the encryption key", () => {
+  async function seedDataKey(t: TestConvex, workspaceId: Id<"workspaces">) {
+    const opened = await t.action(
+      internal.functions.encryptionKeys.openWorkspaceDataKey,
+      { workspaceId, create: true },
+    );
+    return opened!.dataKey;
+  }
+
+  test("a context that has never encrypted anything has no encryptionKey key at all", async () => {
+    const { t, aliceWs } = await twoConnectedTenants();
+
+    const response = await gatewayPost(t, "/gateway/binding", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+    });
+    const text = await response.text();
+    expect(response.status).toBe(200);
+    expect(text).not.toContain("encryptionKey");
+    expect(Object.keys(JSON.parse(text) as Record<string, unknown>)).toEqual(["binding"]);
+  });
+
+  test("...and asking for the binding did not create one", async () => {
+    const { t, aliceWs } = await twoConnectedTenants();
+    await gatewayPost(t, "/gateway/binding", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+    });
+
+    // The check the test above cannot make: no row, in the database, after a
+    // read. A read that quietly minted a key would still answer without the
+    // sibling on the *first* request and would be a row this control plane is
+    // now holding for somebody who never asked.
+    const rows = await t.run((ctx) => ctx.db.query("workspaceDataKeys").collect());
+    expect(rows).toEqual([]);
+  });
+
+  test("a context that has a key gets it beside its binding", async () => {
+    const { t, aliceWs } = await twoConnectedTenants();
+    const dataKey = await seedDataKey(t, aliceWs);
+
+    const body = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: aliceWs,
+      }),
+    );
+    // The binding is untouched by any of this, the same way the index is an
+    // upgrade beside it rather than a condition of it.
+    expect((body.binding as { bucket: string }).bucket).toBe("tenant-a");
+    expect(body.encryptionKey).toEqual({ generation: "k1", dataKey });
+  });
+
+  test("a caller cannot obtain another tenant's encryption key by naming it", async () => {
+    const { t, alice, aliceWs, bobWs } = await twoConnectedTenants();
+    const aliceKey = await seedDataKey(t, aliceWs);
+    const bobKey = await seedDataKey(t, bobWs);
+    expect(aliceKey).not.toBe(bobKey);
+
+    const text = await (
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: bobWs,
+      })
+    ).text();
+    expect(JSON.parse(text)).toEqual({ binding: null });
+    // The bytes, not the field. A key selected by the caller's own argument
+    // instead of by the id the grant resolved to leaves the binding half a
+    // correct `null` and leaks beside it.
+    expect(text).not.toContain(bobKey);
+    expect(text).not.toContain("encryptionKey");
+
+    // Non-vacuity, and the membership half in one: alice joining bob's context
+    // is answered with bob's key, because the key belongs to the context and
+    // not to the caller's role in it — the same as the bucket credential.
+    await addMember(t, bobWs, alice, "member");
+    const joined = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: bobWs,
+      }),
+    );
+    expect((joined.encryptionKey as { dataKey: string }).dataKey).toBe(bobKey);
+  });
+
+  test("...and the refusal is byte-identical to a context that never existed", async () => {
+    const { t, aliceWs, bobWs } = await twoConnectedTenants();
+    // Both tenants hold a key. The block above compares a forbidden answer
+    // against a parsed shape, which a response carrying a *shorter* or
+    // *longer* body would still satisfy; and the byte-identical test in the
+    // binding block runs over a world where no key exists at all, so it cannot
+    // see a length that moves only when one does. This is the composition of
+    // the two, and it is the one an owner of a real context would attack.
+    await seedDataKey(t, aliceWs);
+    await seedDataKey(t, bobWs);
+    const dangling = await danglingWorkspaceId(t);
+
+    const forbidden = await responseFingerprint(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: bobWs,
+      }),
+    );
+    const nonexistent = await responseFingerprint(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: dangling,
+      }),
+    );
+    const nonsense = await responseFingerprint(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: "not-even-an-id",
+      }),
+    );
+
+    expect(forbidden).toBe(nonexistent);
+    expect(forbidden).toBe(nonsense);
+  });
+
+  test("a key this deployment cannot open costs the sibling, never the binding", async () => {
+    const { t, aliceWs } = await twoConnectedTenants();
+    await seedDataKey(t, aliceWs);
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("workspaceDataKeys")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", aliceWs))
+        .unique();
+      await ctx.db.patch(row!._id, { encryptedDataKey: "v2:k1:AAAAAAAAAAAAAAAA:AAAA" });
+    });
+
+    const response = await gatewayPost(t, "/gateway/binding", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+    });
+    const text = await response.text();
+    // The notes are what the request is waiting on; the key is what decides
+    // whether the encrypted ones among them are readable. A key we cannot open
+    // must cost a locked note, never somebody's whole context.
+    expect(response.status).toBe(200);
+    expect((JSON.parse(text).binding as { bucket: string }).bucket).toBe("tenant-a");
+    expect(text).not.toContain("encryptionKey");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /* 3c. /gateway/search-index/progress — the backfill reporting back          */
 /* -------------------------------------------------------------------------- */
 

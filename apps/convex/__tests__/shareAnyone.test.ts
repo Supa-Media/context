@@ -134,6 +134,30 @@ async function fixture(): Promise<Fixture> {
   return { t, owner, member, lk, workspaceId, backend };
 }
 
+
+/**
+ * An encrypted note, in the shape the gateway stores one.
+ *
+ * The bytes matter here rather than the crypto: the control plane holds no note
+ * key and never decrypts, so everything it does about an encrypted note it does
+ * from the marker in the frontmatter. `noteEncryptionParity.test.ts` is what
+ * keeps this shape and the gateway's agreeing.
+ */
+const ENCRYPTED_NOTE = [
+  "---",
+  "context_encryption: v1",
+  "context_encryption_key: ws:k1",
+  "---",
+  "",
+  "> [!NOTE] This note is encrypted.",
+  "> Its content is stored as ciphertext and cannot be read here.",
+  "",
+  "```context-encrypted",
+  '{"v":1,"alg":"A256GCM","iv":"AAAAAAAAAAAAAAAA","ct":"AAAA","aad":"context-note-v1:ws","recipients":[{"kind":"workspace","id":"k1","alg":"A256GCM","iv":"AAAAAAAAAAAAAAAA","wrapped":"AAAA"}]}',
+  "```",
+  "",
+].join("\n");
+
 /** Mint an unlisted link over `path`. */
 async function unlisted(f: Fixture, path: string = ENTRY): Promise<string> {
   const { token } = await asUser(f.t, f.owner).action(
@@ -761,5 +785,92 @@ describe("an anonymous reader is told about an outage, not about their session",
     const error = await captureError(() => readAnonymously(f, token));
     expect(errorCode(error)).not.toBe("NOT_AUTHENTICATED");
     expect(errorCode(error)).toMatch(/^STORAGE_/);
+  });
+});
+
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * AN UNLISTED LINK OVER AN ENCRYPTED NOTE IS REFUSED, IN BOTH DIRECTIONS.
+ *
+ * `docs/decisions/encryption.md`, "Sharing". Both features are defensible; the
+ * composition is not. This is the single path in the product with no identified
+ * reader, and an encrypted note is one the owner was told is stored unreadable.
+ *
+ * Two halves, and the second is the one that matters: minting is refused, and a
+ * link minted *before* the note was encrypted stops resolving, because the read
+ * re-derives from the live bucket every time and nothing on the share row can
+ * disagree with it. A test that only covered minting would pass for a build
+ * that served the envelope to everybody holding an older link.
+ */
+describe("an unlisted link over an encrypted note", () => {
+  test("cannot be minted", async () => {
+    const f = await fixture();
+    f.backend.seed(ENTRY, ENCRYPTED_NOTE);
+
+    const error = await captureError(() => unlisted(f));
+    expect(errorCode(error)).toBe("PATH_ENCRYPTED");
+  });
+
+  test("...and that is a different answer from a note the team cannot read", async () => {
+    const f = await fixture();
+    // Distinguishable *to the owner*, who is past owner clearance and reading a
+    // fact about their own note. "Publish it first" and "this note is
+    // deliberately unreadable" send somebody to two different places.
+    const privateRefusal = await captureError(() => unlisted(f, PRIVATE_NOTE));
+    expect(errorCode(privateRefusal)).toBe("PATH_NOT_TEAM_VISIBLE");
+
+    f.backend.seed(ENTRY, ENCRYPTED_NOTE);
+    const encryptedRefusal = await captureError(() => unlisted(f));
+    expect(errorCode(encryptedRefusal)).toBe("PATH_ENCRYPTED");
+  });
+
+  test("stops resolving when the note is encrypted after the link was minted", async () => {
+    const f = await fixture();
+    const token = await unlisted(f);
+    // It worked a moment ago. Without this the test below would pass for a
+    // link that never resolved at all.
+    expect((await readAnonymously(f, token)).text).toContain("# Chapter transition");
+
+    f.backend.seed(ENTRY, ENCRYPTED_NOTE);
+
+    const error = await captureError(() => readAnonymously(f, token));
+    expect(errorCode(error)).toBe("NOT_AUTHENTICATED");
+    // And nothing of the envelope came back with it.
+    expect(JSON.stringify(error)).not.toContain("context-encrypted");
+    expect(JSON.stringify(error)).not.toContain("A256GCM");
+  });
+
+  test("...byte-identical to a link that was never minted", async () => {
+    const f = await fixture();
+    const token = await unlisted(f);
+    f.backend.seed(ENTRY, ENCRYPTED_NOTE);
+
+    const encrypted = await captureError(() => readAnonymously(f, token));
+    const invented = await captureError(() =>
+      readAnonymously(f, "a".repeat(64)),
+    );
+    // The whole payload, not the code: a holder who could tell an encrypted
+    // note from a token nobody minted would learn that the note exists and
+    // that its owner encrypted it.
+    expect(errorShape(encrypted)).toBe(errorShape(invented));
+  });
+
+  test("and a linked note encrypted after the fact is refused too, not just the entry", async () => {
+    const f = await fixture();
+    const token = await unlisted(f);
+    expect((await readAnonymously(f, token, LINKED)).text).toContain("# Proposal");
+
+    f.backend.seed(LINKED, ENCRYPTED_NOTE);
+
+    const error = await captureError(() => readAnonymously(f, token, LINKED));
+    expect(errorShape(error)).toBe(
+      errorShape(await captureError(() => readAnonymously(f, "a".repeat(64)))),
+    );
+    // The entry note is unaffected: encryption is per note, and refusing the
+    // whole share because one link target is encrypted would be a wider
+    // failure than the decision asks for.
+    expect((await readAnonymously(f, token)).text).toContain("# Chapter transition");
   });
 });
