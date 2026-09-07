@@ -147,6 +147,14 @@ jobs:
             }
           ' "$resp"
 
+      # DEPLOY BEFORE SECRETS, deliberately — the step below says why.
+      - name: Deploy context-router
+        working-directory: infra/router
+        run: pnpm exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       # CONVEX_ORIGIN names which Convex deployment production talks to — an
       # account identifier, so infra/router/wrangler.jsonc no longer commits
       # it as a plaintext var (CLAUDE.md: "no internal hostnames, no account
@@ -154,25 +162,77 @@ jobs:
       # `CONTROL_PLANE_URL` secret the email worker and the MCP gateway read
       # under that name — one Convex deployment origin, three Workers.
       #
-      # Skipped, not failed, when the secret is unset: infra/router's own
-      # comment on CONVEX_ORIGIN documents that state as a real one — the
-      # Worker fails CLOSED on /api/auth/* rather than guessing — for a fresh
-      # self-hosted deploy that has not set up Convex yet.
+      # ── WHY THIS RUNS AFTER `wrangler deploy` AND NOT BEFORE ──────────────
+      #
+      # `wrangler deploy` is the only thing that reconciles the Worker's
+      # BINDING SHAPE; `wrangler secret put` only fills a value in. Until #275
+      # this name was a plaintext var in wrangler.jsonc, so the live Worker
+      # still carries a `CONVEX_ORIGIN` var from the last deploy before that
+      # change — and Cloudflare refuses to create a secret whose name collides
+      # with an existing var:
+      #
+      #   Binding name 'CONVEX_ORIGIN' already in use. [code: 10053]
+      #
+      # The deploy is what drops the stale var, so under the old ordering the
+      # step that fixes the problem sat behind the step the problem breaks:
+      # self-healing in principle, permanently stuck in practice. That is not
+      # hypothetical — deploy-email-worker.yml hit exactly this on
+      # `CONTROL_PLANE_URL`, which #275 moved the same way on the same day, and
+      # both workflows are reordered the same way.
+      #
+      # The cost is a window of seconds after the deploy in which the Worker
+      # has no CONVEX_ORIGIN at all. That state is already handled and already
+      # documented: `originFor` in src/index.ts resolves the origin per
+      # upstream, so /api/auth/* answers a 503 naming the variable while the
+      # Expo app and the OpenGraph card are untouched (a share card falls back
+      # to the frozen one). Narrow and fail-closed for seconds beats a deploy
+      # that cannot run at all.
+      #
+      # ── AND WHY THE "UNSET" TEST IS IN THE SHELL, NOT IN `if:` ────────────
+      #
+      # It was `if: ${{ secrets.CONTROL_PLANE_URL != '' }}`, and the `secrets`
+      # context is available in NO `if:` — not a step's, not a job's. GitHub
+      # rejects the whole FILE for that ("Unrecognized named-value: 'secrets'"),
+      # which is worse than a failing step: an unparseable workflow cannot be
+      # dispatched or triggered, so it produces no run, no error and no status.
+      # This deploy was silently unrunnable from #275 until this commit, with
+      # nothing red to notice. `scripts/check-workflow-yaml.mjs` now rejects
+      # any context an `if:` may not use, so it cannot recur.
+      #
+      # Testing the value in the shell preserves the intent — SKIPPED, NOT
+      # FAILED, when the secret is unset, because infra/router's own comment on
+      # CONVEX_ORIGIN documents that as a real state for a fresh self-hosted
+      # deploy with no Convex behind it yet — and it is the shape
+      # deploy-mcp.yml already uses for its optional transcription pair. It
+      # also keeps the value in one step's environment; the job-level `env:`
+      # that `if: env.…` would require puts it in every step's.
       - name: Set CONVEX_ORIGIN secret (Convex HTTP-actions origin)
-        if: ${{ secrets.CONTROL_PLANE_URL != '' }}
         working-directory: infra/router
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
-        run: printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONVEX_ORIGIN
-
-      - name: Deploy context-router
-        working-directory: infra/router
-        run: pnpm exec wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CONTROL_PLANE_URL:-}" ]; then
+            echo "OK — CONTROL_PLANE_URL is unset, so CONVEX_ORIGIN is left unset."
+            echo "     The Worker fails closed: /api/auth/* answers 503 naming the"
+            echo "     variable and the rest of the site is unaffected. Set the secret"
+            echo "     and re-run to point the sign-in flow at a Convex deployment."
+            exit 0
+          fi
+          if ! printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONVEX_ORIGIN; then
+            echo ""
+            echo "If that failed with \"Binding name 'CONVEX_ORIGIN' already in use\""
+            echo "[code: 10053], the live Worker still carries CONVEX_ORIGIN as a"
+            echo "PLAINTEXT VAR from a deploy predating #275. The deploy step above is"
+            echo "what removes it, which is why it now runs first, so a re-run should"
+            echo "clear this. If it does not, delete that variable on context-router in"
+            echo "the Cloudflare dashboard (Settings -> Variables and Secrets) and"
+            echo "re-run."
+            exit 1
+          fi
+          echo "OK — CONVEX_ORIGIN is set as a secret on context-router."
 
       - name: Summary
         if: always()

@@ -205,15 +205,70 @@ jobs:
       - name: Install
         run: pnpm install --filter "./infra/email-worker..." --frozen-lockfile
 
-      # Push the Worker's secret from GitHub on every deploy, so the live Worker
-      # is reproducible from this repository rather than from whatever somebody
-      # once typed at a terminal. `wrangler secret put` is idempotent and reads
-      # the value from STDIN, so it is never placed on a command line, in the
-      # process table, or in a log.
+      # DEPLOY BEFORE SECRETS, deliberately — the step after it says why.
+      - name: Deploy context-email
+        working-directory: infra/email-worker
+        run: pnpm exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # There used to be a step here comparing infra/router/wrangler.jsonc's
+      # CONVEX_ORIGIN against this worker's own CONTROL_PLANE_URL, both
+      # committed literals that could drift independently. Both are now the
+      # identical `CONTROL_PLANE_URL` secret (set below and in
+      # deploy-router.yml), so they cannot drift from each other — only "Verify
+      # required secrets" above can still fail, if the secret itself is unset.
       #
-      # It must be the same value the control plane holds — it is what proves
-      # "this caller is the email worker" — so it lives in one place, GitHub,
-      # and is pushed from there.
+      # Push the Worker's secrets from GitHub on every deploy, so the live
+      # Worker is reproducible from this repository rather than from whatever
+      # somebody once typed at a terminal. `wrangler secret put` is idempotent
+      # and reads the value from STDIN, so it is never placed on a command
+      # line, in the process table, or in a log.
+      #
+      # EMAIL_WORKER_SECRET must be the same value the control plane holds — it
+      # is what proves "this caller is the email worker" — so it lives in one
+      # place, GitHub, and is pushed from there.
+      #
+      # ── WHY THIS RUNS AFTER `wrangler deploy` AND NOT BEFORE ──────────────
+      #
+      # It ran before, and that ordering deadlocked this deploy:
+      #
+      #   A request to the Cloudflare API (/…/workers/scripts/context-email/
+      #   secrets) failed. Binding name 'CONTROL_PLANE_URL' already in use.
+      #   [code: 10053]
+      #
+      # `wrangler deploy` is the only thing that reconciles the Worker's
+      # BINDING SHAPE; `wrangler secret put` only fills a value in. Until #275
+      # CONTROL_PLANE_URL was a plaintext var in wrangler.jsonc, so the live
+      # Worker still carried it as a var, and Cloudflare refuses to create a
+      # secret whose name collides with an existing var. The deploy is what
+      # drops the stale var — so the step that fixes the problem sat behind the
+      # step the problem breaks: self-healing in principle, permanently stuck
+      # in practice, and never reached by a re-run.
+      #
+      # Deleting the stale binding out of band would fix it once; this fixes
+      # the class, needs no extra credential or API call, and is a no-op on a
+      # fresh account where there is nothing stale to drop. deploy-router.yml
+      # is reordered the same way for the same reason — #275 moved CONVEX_ORIGIN
+      # there on the same day and it would have hit 10053 the moment it could
+      # run again.
+      #
+      # The cost is a window of seconds, and only on a Worker whose secrets are
+      # not already set — a fresh install, or this one repair run — in which
+      # the deployed code has no CONTROL_PLANE_URL yet. `requireConfig` in
+      # src/controlPlane.ts is evaluated per call rather than at construction,
+      # and throws `ControlPlaneError("not configured")`, which reaches the one
+      # branch in src/index.ts allowed to RETHROW rather than `setReject`:
+      # resolution failure is recipient-independent, so it leaks nothing and is
+      # deliberately left to the runtime's own handling. Mail arriving in that
+      # window is therefore not permanently refused.
+      #
+      # Every later run has no window at all, because the secrets are already
+      # on the Worker and `wrangler deploy` preserves them. That is not an
+      # assumption: under the previous ordering this workflow set the secret
+      # and then, AFTER deploying, asserted it was still bound (verification 2
+      # below). Every green run was that assertion passing.
       - name: Sync the Worker's secrets
         working-directory: infra/email-worker
         env:
@@ -223,27 +278,26 @@ jobs:
           CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
         run: |
           set -euo pipefail
+          # No 10053 runbook on this one: EMAIL_WORKER_SECRET has never been a
+          # var in wrangler.jsonc, so a binding collision here would be a new
+          # fact and wrangler's own error is the honest thing to read.
           printf '%s' "$EMAIL_WORKER_SECRET" | pnpm exec wrangler secret put EMAIL_WORKER_SECRET
           # CONTROL_PLANE_URL used to be a plaintext var in this file's
           # wrangler.jsonc, naming an account identifier (which Convex
           # deployment) a public repo does not commit. Same secret and pattern
-          # apps/mcp already uses for this value.
-          printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONTROL_PLANE_URL
+          # apps/mcp already uses for this value — and apps/mcp never hit the
+          # collision below because it never declared it as a var.
+          if ! printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONTROL_PLANE_URL; then
+            echo ""
+            echo "If that failed with \"Binding name 'CONTROL_PLANE_URL' already in use\""
+            echo "[code: 10053], the live Worker still carries it as a PLAINTEXT VAR from"
+            echo "a deploy predating #275. The deploy step above is what removes it,"
+            echo "which is why it now runs first, so a re-run should clear this. If it"
+            echo "does not, delete that variable on context-email in the Cloudflare"
+            echo "dashboard (Settings -> Variables and Secrets) and re-run."
+            exit 1
+          fi
           echo "OK — the Worker's secrets match this repository's."
-
-      # This used to compare infra/router/wrangler.jsonc's CONVEX_ORIGIN
-      # against this worker's own CONTROL_PLANE_URL, both committed literals
-      # that could drift independently. Now that both are the identical
-      # `CONTROL_PLANE_URL` secret (set above and in deploy-router.yml), they
-      # cannot drift from each other — only "Verify required secrets" above
-      # can still fail, if the secret itself is unset.
-
-      - name: Deploy context-email
-        working-directory: infra/email-worker
-        run: pnpm exec wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       # ── Verification 1: something was actually deployed, by this run. ──────
       #
@@ -282,12 +336,19 @@ jobs:
             console.log("[ok] " + name + " was modified " + Math.round(age) + " minute(s) ago.");
           ' "$resp" "$WORKER_NAME"
 
-      # ── Verification 2: the secret is bound, not merely uploaded. ──────────
+      # ── Verification 2: the secrets are bound, not merely uploaded. ────────
       #
-      # Only the NAME and type are read. The value is never fetched, printed, or
-      # compared — the API does not return it, and this step must never become
-      # the reason someone wishes it did.
-      - name: Verify EMAIL_WORKER_SECRET is bound to the Worker
+      # Only NAMES and types are read. Values are never fetched, printed, or
+      # compared — the API does not return them, and this step must never
+      # become the reason someone wishes it did.
+      #
+      # CONTROL_PLANE_URL is checked here as well as EMAIL_WORKER_SECRET, and
+      # that second name is doing more work than it looks: this endpoint lists
+      # SECRET bindings only. Seeing it here is therefore proof that the
+      # plaintext var of the same name — the one that made `wrangler secret
+      # put` fail with 10053 until the deploy was moved ahead of it — is really
+      # gone, rather than merely believed to be.
+      - name: Verify the Worker's secrets are bound
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -309,7 +370,18 @@ jobs:
               console.error("       every message is refused.");
               process.exit(1);
             }
-            console.log("[ok] EMAIL_WORKER_SECRET is bound.");
+            if (!names.includes("CONTROL_PLANE_URL")) {
+              console.error("[FAIL] CONTROL_PLANE_URL is not bound to this Worker AS A SECRET.");
+              console.error("       Bound secrets: " + (names.join(", ") || "(none)"));
+              console.error("       If the Worker still carries it as a plaintext VAR from a");
+              console.error("       deploy predating #275, the secret could not be created:");
+              console.error("       \"Binding name ... already in use\" [code: 10053]. The deploy");
+              console.error("       step drops that var, which is why it runs first now.");
+              console.error("       Without this value the Worker cannot reach the control");
+              console.error("       plane and every message is left to the runtime to retry.");
+              process.exit(1);
+            }
+            console.log("[ok] EMAIL_WORKER_SECRET and CONTROL_PLANE_URL are bound as secrets.");
           ' "$resp"
 
       # ── Verification 3: mail can actually REACH the Worker. ────────────────

@@ -199,7 +199,7 @@ jobs:
       # — the same two-host arrangement, and for the same reason, as the
       # trigger checker below. One implementation, because two copies of a
       # guard are two things to drift.
-      - name: Every workflow file parses as YAML
+      - name: Every workflow file is one GitHub will load
         run: |
           node scripts/check-workflow-yaml.mjs --self-test
           node scripts/check-workflow-yaml.mjs
