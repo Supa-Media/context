@@ -951,6 +951,14 @@ fan-out passes false. Nothing is lost from the honesty the rule bought: a source
 whose index is behind still reports itself `indexing` per source, and the page
 draws that beside the results rather than folding it into "no matches".
 
+**A source that failed makes the blended total a floor**, which is the rule at
+the top of this file applied to a fan-out: a walk cut short stops the count
+claiming to be exact. It is worth stating separately because the shape of this
+answer makes it easy to lose — nine contexts answered, the tenth threw, and
+summing the nine into `matchCount` with `matchCountIsFloor: false` prints a
+confident number over a scope that was only half searched, on the one page whose
+whole promise is "everything you can reach".
+
 **Nor does it schedule maintenance.** The single-context search does, because
 somebody searching one context is the cheapest possible trigger for catching
 that context up. Multiplying it by the width of a scope would put a bucket

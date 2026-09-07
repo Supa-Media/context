@@ -1457,6 +1457,16 @@ export const searchContexts = action({
         // screen, and deliberately: what a person can do about each is press
         // retry on that row. The reason is not carried because it would be a
         // provider's sentence about somebody else's bucket.
+        //
+        // **And the blended total stops claiming to be exact.** A source that
+        // was never read is a walk cut short, which is the condition under
+        // which every other count in this system reports itself as a floor —
+        // `search/CONTRACT.md`'s rule, and the census's own language. Summing
+        // the sources that answered and calling the result a total would be a
+        // confident number over a scope only half searched, and the one place
+        // that understatement matters most is the page whose whole promise is
+        // "everything you can reach".
+        matchCountIsFloor = true;
         rows.push({
           workspaceId: context.workspaceId as Id<"workspaces">,
           slug: context.slug,
