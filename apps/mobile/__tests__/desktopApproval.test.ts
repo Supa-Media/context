@@ -35,7 +35,14 @@ import { describeMachine } from "../features/meetings/thisMachine";
  *  2. no session means the console's own sign-in, carrying the request, so the
  *     flow resumes on the same request afterwards;
  *  3. the loopback redirect the shell listens on is one this screen is willing
- *     to navigate to, and a non-loopback `http` one still is not.
+ *     to navigate to, and a non-loopback `http` one still is not;
+ *  4. the tier control opens on the tier this machine asked for. That one was
+ *     asserted the other way when the approval first moved into the window, and
+ *     it was the privacy defect rather than the caution it read as: the Mac's
+ *     grant tier is what a meeting is *filed as*, so approving the defaults
+ *     published every meeting it recorded to everybody its owner shares a
+ *     folder with. `docs/decisions/identity-and-access.md` carries the
+ *     amendment.
  *
  * ## Sabotage record
  *
@@ -47,6 +54,8 @@ import { describeMachine } from "../features/meetings/thisMachine";
  *   `isSafeRedirect` refusing `http://127.0.0.1`                          2
  *   ...accepting any `http` host                                          2
  *   the "Connecting" sentence back to "a browser window is open"          1
+ *   `defaultTierFor` back to always `team`                                3
+ *   ...to always `private`                                               11
  *
  * The first two rows are large because those two functions are load-bearing far
  * beyond this feature — which is the point of measuring rather than guessing:
@@ -110,14 +119,35 @@ describe("approving this machine inside the desktop shell's window", () => {
     /*
       `context:private` is not a row: it is the **tier**, and this screen shows
       it as one control with the whole context's visibility on it rather than as
-      a tick box among the operations. An owner is offered it and the default is
-      `team` — which is this screen's rule for every client and is deliberately
-      not changed by moving where the approval is shown. It is worth an
-      assertion here because the desktop scope asks for private and a reader of
-      `DESKTOP_SCOPE` would otherwise expect a second row.
+      a tick box among the operations. It is worth asserting here because a
+      reader of `DESKTOP_SCOPE` would otherwise expect a second tick box.
+
+      **And the control opens on what the machine asked for.** This assertion
+      read `"team"` when the approval first moved into the window, and that was
+      the privacy defect rather than a caution: a person pressing Approve on the
+      defaults granted `context:write` at team tier, and the desktop's tier is
+      not about reading — `publishMeetingNote` files a meeting at the grant's
+      tier, so every meeting that Mac recorded was published to everybody its
+      owner shares a folder with, having been approved on a screen that said
+      nothing about it. `defaultTierFor` is the rule and
+      `docs/decisions/identity-and-access.md` records the amendment; the person
+      still moves it in one tap, and `apps/desktop` refuses to file a meeting at
+      all if they do.
     */
-    expect(view.tier.selected).toBe("team");
+    expect(view.tier.selected).toBe("private");
     expect(view.tier.options.map((option) => option.value)).toContain("private");
+    expect(view.tier.isAChoice).toBe(true);
+    expect(view.grantedScopes).toEqual(["context:write", "context:private"]);
+  });
+
+  test("...and choosing team is a real choice, not a refusal to draw one", () => {
+    // The default is a default. A person who wants this Mac at team tier says
+    // so and gets exactly that — and the desktop then holds its meetings rather
+    // than filing them at a visibility that screen did not promise, which is
+    // `grantCoversMeetings` in `apps/desktop/src/core/sync/connection.ts`.
+    const view = resolveConsentView(inputs({ chosenTier: "team" }));
+    if (view.kind !== "ready") throw new Error("expected the approve screen");
+    expect(view.tier.selected).toBe("team");
     expect(view.grantedScopes).toEqual(["context:write"]);
   });
 

@@ -49,7 +49,11 @@ import { emptyOutbox, queueWrite, reconcileDrain } from "../core/sync/outbox.ts"
 import type { Outbox } from "../core/sync/outbox.ts";
 import { drainOnce } from "../core/sync/drain.ts";
 import { memoryTokenStore } from "../core/sync/tokenStore.ts";
-import { GatewayConnection } from "../core/sync/connection.ts";
+import {
+  GatewayConnection,
+  MEETING_TIER_REFUSAL,
+  grantCoversMeetings,
+} from "../core/sync/connection.ts";
 import { keychainTokenStore } from "./tokenStore.ts";
 import { browserlessRefresher, connectMachine, openInSystemBrowser } from "./connect.ts";
 import { transcribeChunk } from "./transcribe.ts";
@@ -689,7 +693,21 @@ async function main(): Promise<void> {
         // app ask to be connected after every restart is owed the reason.
         encrypted: tokens.encrypted,
         connecting,
-        error: connectError,
+        /*
+          The last attempt's failure, or the standing one: a machine connected
+          at the narrower tier is a machine holding its meetings, and the reason
+          has to be readable *whenever* that is true rather than only in the
+          seconds after the connect that caused it. So it is derived from the
+          grant on every push rather than latched into `connectError` once —
+          a restart, a refresh, or a grant that predates the tier existing all
+          reach this line and all say the same thing. `connectError` still wins
+          when there is one: it is newer and more specific.
+        */
+        error:
+          connectError ??
+          (connection.state() === "connected" && !grantCoversMeetings(connection.scope())
+            ? MEETING_TIER_REFUSAL
+            : null),
       },
       pending: new Set(outbox.entries.map((entry) => entry.sessionId)).size,
       missingPermissions,
@@ -961,7 +979,14 @@ async function main(): Promise<void> {
     const before = outbox;
     const report = await drainOnce(
       before,
-      { baseUrl, token: () => connection.token() },
+      {
+        baseUrl,
+        token: () => connection.token(),
+        // Not the scope this app asked for: the one the grant came back with.
+        // `postEntry` holds a meeting rather than let the gateway file it at a
+        // visibility the person did not choose. See `grantCoversMeetings`.
+        scope: () => connection.scope(),
+      },
       () => Date.now(),
     );
     outbox = reconcileDrain(before, report.outbox, outbox);

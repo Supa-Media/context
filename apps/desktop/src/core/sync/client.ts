@@ -25,12 +25,24 @@ import { ERRORS, ROUTES } from "../contract.ts";
 import type { OutboxEntry } from "./outbox.ts";
 import type { DrainResult } from "./outbox.ts";
 import { UNROUTABLE, isRetryable, routableContext } from "./outbox.ts";
+import { MEETING_TIER_REFUSAL, grantCoversMeetings } from "./connection.ts";
 
 export interface GatewayConfig {
   /** Origin plus any fixed path, no trailing slash. See `acceptableGatewayUrl`. */
   baseUrl: string;
   /** Read at request time, so a re-connect takes effect without a restart. */
   token: () => Promise<string | null>;
+  /**
+   * What the grant this machine holds actually carries. Read per request, for
+   * the same reason `token` is: a re-connect must take effect without one.
+   *
+   * **Required rather than optional**, because an optional guard is one a later
+   * caller drops by forgetting it, and what it stops is a person's meeting
+   * notes being published to everybody they have ever shared a folder with. A
+   * caller with nothing to say answers `null`, which is refused rather than
+   * waved through.
+   */
+  scope: () => string | null;
   fetch?: typeof fetch;
   /** Milliseconds before a request is abandoned. A hung socket must not wedge a drain. */
   timeoutMs?: number;
@@ -110,6 +122,43 @@ export async function postEntry(config: GatewayConfig, entry: OutboxEntry): Prom
     // waits in the queue until somebody connects it, which is the whole point
     // of the queue.
     return retryable(ERRORS.unavailable, "this machine is not connected to a context yet");
+  }
+
+  /*
+    The grant is read as well as spent, and a meeting is not sent on one that
+    cannot file it privately.
+
+    `DESKTOP_SCOPE` asks for `context:private` because the tier decides what a
+    meeting is *filed as*, and the person approving may hand over less. Sending
+    anyway is the failure this check exists for: the gateway would accept the
+    write and publish the note team-visible — readable by everybody the owner
+    has shared that folder with, and recorded as such in their own `privacy.md`
+    — or refuse it with a sentence about a destination, which is a true fact
+    about the wrong thing. So the entry is refused before a request is built,
+    and the meeting is held rather than degraded.
+
+    **Held, deliberately, and not parked.** Everything about this reads like a
+    park — it is a refusal retrying cannot fix, which is the sentence `park`
+    exists for — and parking it would be wrong for one reason: nothing in this
+    app un-parks. A parked entry stays parked (`applyDrain`, and the comment
+    above `mergeEntry` saying so), so parking here would mean a person who
+    reconnects at the tier they meant still never sees the meetings that were
+    recorded before they noticed. The condition is not a rejected write; it is
+    a machine connected at the wrong tier, in the same family as "not connected
+    yet" one branch above — and that one waits, too. It costs nothing to wait:
+    this refusal never reaches the network, so a retry is one local comparison
+    a minute, and the queue drains itself the moment the grant is right.
+
+    The reason is visible either way, which is the part that must not be lost:
+    `lastError` carries this sentence to the outbox status the tray and the
+    console both read, and `uiState` puts it on the "This machine" card for as
+    long as the grant is short.
+  */
+  if (!grantCoversMeetings(config.scope())) {
+    // `unavailable` rather than `forbidden`, so the code and the retryability
+    // agree: `isRetryable` reads `forbidden` as final, and a result whose flag
+    // disagreed with its own code is the next reader's bug.
+    return retryable(ERRORS.unavailable, MEETING_TIER_REFUSAL);
   }
 
   const doFetch = config.fetch ?? globalThis.fetch;

@@ -109,6 +109,16 @@ export interface ConnectOptions {
    * in the main process, and the opener is handed a URL and nothing else.
    */
   openBrowser?: (href: string) => Promise<void>;
+  /**
+   * How long the loopback listener waits for the approval, in milliseconds.
+   *
+   * `packages/hook`'s own window when it is absent, which is what the app
+   * passes. It is injectable because the timeout is a **guard**: it is what
+   * closes a listening socket, and with it the console window's loopback
+   * allowance, for a person who walked away from the approve screen. A guard
+   * whose only test would take that long is a guard nobody has checked.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -141,7 +151,9 @@ export async function connectMachine(options: ConnectOptions): Promise<Connectio
     fetchImpl,
   });
 
-  const listener = await listenForCode();
+  const listener = await listenForCode(
+    options.timeoutMs === undefined ? undefined : { timeoutMs: options.timeoutMs },
+  );
   const pkce = createPkce();
   const state = randomBytes(24).toString("base64url");
   const href = authorizeUrl(discovery, {
@@ -200,7 +212,18 @@ export async function connectMachine(options: ConnectOptions): Promise<Connectio
     refreshToken: tokens.refreshToken,
     accessToken: tokens.accessToken,
     expiresAt: tokens.expiresAt,
-    scope: tokens.scope || DESKTOP_SCOPE,
+    /*
+      What the server said, verbatim, and **never what this app asked for**.
+
+      `tokens.scope || DESKTOP_SCOPE` stood here, and it is the one line that
+      could make `grantCoversMeetings` answer for the request instead of the
+      grant: a token endpoint that omits `scope` would have had this record
+      claim the private tier it never granted, and every meeting after it would
+      have been filed team-visible by a machine that believed otherwise. An
+      empty string is the honest record of "the server did not say", and
+      `grantCoversMeetings` refuses it in the safe direction.
+    */
+    scope: tokens.scope,
   };
 }
 

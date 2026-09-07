@@ -881,11 +881,52 @@ So the flow is untouched: PKCE with S256, dynamic registration, a **single-use
 exchanged in the main process. The page holds a URL for as long as it takes to
 navigate away from it, exactly as the browser held one.
 
+#### Asking for the tier is not getting it, and the machine checks
+
+Found reviewing this change rather than while writing it, and it is the reason
+this section is longer than "the window moved". `DESKTOP_SCOPE` is
+`context:write context:private`, and *One meeting is one credential* explains
+the second half: the tier is not about reading here, it is what
+`publishMeetingNote` **files a meeting as**. A grant without it makes the
+gateway write the note team-visible and record that visibility in the
+customer's own `privacy.md`, or refuse the write outright when the meetings
+folder is private — a sentence about a destination, which is a true fact about
+the wrong thing.
+
+The consent screen defaulted the tier to `team` for every client. So the
+shortest path through this whole feature — press Connect, read the approve
+screen, press Approve — connected a Mac that filed every meeting its owner
+recorded to everybody they share a folder with. Nothing lied, and nothing said
+anything: the screen showed the tier as a control the person left where it was,
+and the shell believed it had asked for private and got it.
+
+Two halves, because either alone still fails:
+
+- **The screen's default follows the request.** A client that names
+  `context:private` opens on `private`; one that does not still opens on `team`,
+  which is every silent client and most named ones.
+  `docs/decisions/identity-and-access.md` carries the amendment and what it
+  costs, because it reverses a word in a decision recorded there.
+- **The machine verifies rather than assumes.** `connectMachine` records the
+  scope the token endpoint returned **verbatim** — `tokens.scope ||
+  DESKTOP_SCOPE` stood there, which made the record repeat the app's own
+  request whenever a server answered without a `scope`, on the one field the
+  check then reads — and `postEntry` refuses to send a meeting on a grant
+  `grantCoversMeetings` does not accept. The meeting is held with its reason on
+  the "This machine" card and in the outbox status, and it drains itself the
+  moment the machine is reconnected at the tier the person meant.
+
+Held rather than **parked**, and the distinction is deliberate: this reads
+exactly like a park — a refusal retrying cannot fix — but nothing in this app
+un-parks, so parking would mean a person who fixes the tier never sees the
+meetings recorded before they noticed. It costs nothing to hold: the refusal
+never reaches the network.
+
 #### The one new address, and the three bounds on it
 
 The approve screen ends by navigating to the client's redirect URI, and for a
 native client that is `http://127.0.0.1:<port>/…`. The console window's
-`will-navigate` guard refuses everything but the pinned origin and the offline
+navigation guard refuses everything but the pinned origin and the offline
 mirror, so that navigation has to be allowed — and it is allowed only:
 
 1. **while a connect is in flight.** `createApprovalRoute()` in
@@ -903,6 +944,33 @@ mirror, so that navigation has to be allowed — and it is allowed only:
    which is a name somebody else's DNS can answer. The authorize URL itself must
    be `https`, or loopback for a self-hoster's local gateway, which is
    `credentialUrlOk`'s rule applied to a navigation.
+
+**And the rule is asked on both events that can move this window, which it was
+not.** `will-navigate` reports what a *page* starts — a link, a form,
+`location.assign`. A `Location:` header part way through a navigation that was
+already allowed is `will-redirect`, and that one was unguarded, from before this
+change: an open redirect on the pinned origin, or an authorize page answering
+`302 Location: https://attacker.example/`, moved this preloaded window to a
+foreign origin without the rule ever being consulted. It was pre-existing and it
+is not theoretical *here*, because this feature deliberately walks the window to
+an authorization server and back — console origin → loopback is exactly the
+server-started chain `will-redirect` reports. Both events now call one
+`mayNavigate`, so the pin cannot be enforced against one kind of navigation and
+not the other, and the allowance above is the only widening either of them has.
+The check is that both are wired to the same function, because the failure mode
+is a third one added later that quietly does not ask.
+
+**What that costs, named rather than discovered.** The gateway's
+`/oauth/authorize` answers `302 Location:` the control plane's consent screen,
+and that hop is now checked like any other: it is allowed because the consent
+screen is `APP_ORIGIN` + `/authorize`, the same origin the console window is
+pinned to — `CONTEXT_DESKTOP_UI_URL` defaults to `<that origin>/console` and the
+two are routes of one Expo app. A self-hoster who deliberately split them onto
+different origins would have the in-window approval refuse that redirect and end
+at the listener's timeout with a message on the machine card, where before it
+would have moved the pinned window to their other origin. That is the right
+direction to fail in — a pin a server can move is not a pin — and it is written
+here so the next person meets it as a decision rather than as a bug.
 
 Two properties fall out and are worth stating because they read as omissions.
 **While the window sits on the gateway's authorize page the pin is nothing**:
@@ -930,17 +998,33 @@ exchanged for it, and a replayed callback lands on a closed socket.
 
 Sabotage, measured as FAIL lines across the desktop suite: comparing the
 callback by host rather than by origin **2**; by origin without the path **1**;
-`end()` not clearing the allowance **1**; the allowance open from construction
+`end()` not clearing the allowance **2**; the allowance open from construction
 **1**; `approvalTargetFor` accepting a non-loopback `redirect_uri` **1** or an
 `http` authorize URL off loopback **1**; `mayNavigateConsoleWindow` dropping
 `isAllowedConsoleNavigation` **1**; `returnAfterApproval` trusting the URL the
 window was on **2**; `windows.ts` reverted to the two-argument origin guard
-**1**; and `stateMatches` swapped for `true` **5**. On the console's side,
-`apps/mobile/__tests__/desktopApproval.test.ts` holds the three things the
-desktop flow leans on the page for — a session renders the approve screen rather
-than a second sign-in, no session gets the console's own sign-in carrying the
-request id, and the loopback redirect is one the screen will hand the window
-back to while cleartext anywhere else still is not.
+**1**; dropping the `will-redirect` handler **1**; and `stateMatches` swapped for
+`true` **5**. For the tier: `grantCoversMeetings` answering `true` **7**, or
+`write || tier` instead of both **5**; `postEntry`'s check removed **5**; and
+`scope: tokens.scope || DESKTOP_SCOPE` put back **1** — small because it is one
+fact, and the fact is that the record must say what the *server* said.
+
+`end()`'s row moved from 1 to 2 with the timeout check, which is the row that
+was missing: the person who walks away from the approve screen is the ordinary
+way this ends with no grant, and it is the only path where nothing arrives to
+close the allowance. It is driven with a listener window of milliseconds — hence
+`timeoutMs` on `ConnectOptions` — because a guard whose only test takes five
+minutes is a guard nobody runs.
+
+On the console's side, `apps/mobile/__tests__/desktopApproval.test.ts` holds what
+the desktop flow leans on the page for — a session renders the approve screen
+rather than a second sign-in, no session gets the console's own sign-in carrying
+the request id, the loopback redirect is one the screen will hand the window back
+to while cleartext anywhere else still is not, and the tier control opens on the
+tier this machine asked for. Sabotage there, as failing tests across
+`apps/mobile`: `defaultTierFor` back to always `team` **3**, and always
+`private` **11** — the second is larger because defaulting private for a client
+that asked for nothing is the older, wider bug.
 
 ### Offline is what the outbox was always for, plus a tray that needs no page
 

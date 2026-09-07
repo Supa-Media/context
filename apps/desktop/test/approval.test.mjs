@@ -28,21 +28,35 @@
  *
  *   `isApprovalCallback` comparing origin only, not the path              1
  *   ...comparing host only, so any port on this machine is a target       2
- *   `createApprovalRoute().end()` not clearing the callback               1
+ *   `createApprovalRoute().end()` not clearing the callback               2
  *   the allowance open from construction rather than from `begin()`       1
  *   `approvalTargetFor` accepting a non-loopback `redirect_uri`           1
  *   `approvalTargetFor` accepting an `http` authorize URL off loopback    1
  *   `mayNavigateConsoleWindow` dropping `isAllowedConsoleNavigation`      1
  *   `returnAfterApproval` trusting the URL the window was on              2
  *   `windows.ts` back to the two-argument origin guard                    1
+ *   the `will-redirect` handler removed from `windows.ts`                 1
  *   `stateMatches` swapped for `true`                                     5
+ *   `scope: tokens.scope || DESKTOP_SCOPE` put back in `connect.ts`       1
  *
  * The small numbers are the point rather than a weakness: each row is a
  * different arm of the same guard, and several assertions are written as one
  * `&&` line because a person reading a failure wants the sentence, not five of
  * them. The row that would be alarming is a zero, and there is not one — the
- * last row is five because the whole flow, including the window opener here,
- * runs through the state check that `connect.test.mjs` already guards.
+ * `stateMatches` row is five because the whole flow, including the window
+ * opener here, runs through the state check that `connect.test.mjs` already
+ * guards.
+ *
+ * Two rows are new and one moved, and each names something that was not being
+ * asked. `end()` went from 1 to 2 with the timeout block: an approval nobody
+ * finishes is the ordinary way this ends without a grant, and it was the one
+ * path where nothing arrived to close the allowance. `will-redirect` was a
+ * guard that did not exist — the rule was asked about navigations a *page*
+ * starts and not about the ones a **server** starts with a `Location:` header,
+ * which is the shape this very flow walks. And the last row is one fact rather
+ * than a weak check: the record must say what the *server* said, because
+ * `grantCoversMeetings` reads that field to decide whether this machine may
+ * send a meeting at all.
  */
 
 import { readFileSync } from "node:fs";
@@ -55,6 +69,7 @@ import {
   returnAfterApproval,
 } from "../src/core/shell/approval.ts";
 import { MIRROR_ORIGIN } from "../src/core/shell/mirror.ts";
+import { grantCoversMeetings } from "../src/core/sync/connection.ts";
 import { connectMachine, DESKTOP_SCOPE } from "../src/main/connect.ts";
 
 const LIVE = "https://context.lc";
@@ -209,8 +224,37 @@ export async function runApprovalChecks(check) {
     "utf8",
   );
   check(
-    "`will-navigate` asks the composed rule, so the loopback allowance cannot become a second guard",
-    /will-navigate[\s\S]{0,1600}mayNavigateConsoleWindow\(target, origin, callback\)/.test(windows),
+    "the window's navigation rule is one function, so the loopback allowance cannot become a second guard",
+    /const mayNavigate = \(target: string\): boolean => \{[\s\S]{0,1400}return mayNavigateConsoleWindow\(target, origin, callback\);/.test(
+      windows,
+    ),
+  );
+  /*
+    The guard applies to a redirect a **server** started, not only to a
+    navigation the page started.
+
+    `will-navigate` fires for a link, a form, `location.assign`. A `Location:`
+    header part way through an already-allowed navigation is `will-redirect`,
+    and it was unguarded — so an open redirect on the pinned origin, or an
+    authorize page answering `302 Location: https://attacker.example/`, moved
+    this preloaded window to a foreign origin without the rule ever being
+    asked. That is not hypothetical now that this flow deliberately walks the
+    window to an authorization server and back: the console-origin → loopback
+    chain the approval performs is exactly the shape `will-redirect` reports.
+
+    Checked as source, because both are Electron events and the rule they share
+    is already checked as a function above. What this pins is that they *share*
+    it: the failure here is one of the two being wired to something looser, or
+    added later and quietly not asking at all.
+  */
+  check(
+    "A SERVER-STARTED REDIRECT IS GUARDED TOO, BY THE SAME RULE",
+    /win\.webContents\.on\("will-navigate", \(event, target\) => \{\s*if \(!mayNavigate\(target\)\) event\.preventDefault\(\);/.test(
+      windows,
+    ) &&
+      /win\.webContents\.on\("will-redirect", \(event, target\) => \{\s*if \(!mayNavigate\(target\)\) event\.preventDefault\(\);/.test(
+        windows,
+      ),
   );
   check(
     "...and the callback reaches it as a getter read per navigation, never a captured value",
@@ -292,6 +336,121 @@ export async function runApprovalChecks(check) {
     "THE LOOPBACK LISTENER IS GONE ONCE THE GRANT IS IN, so a replayed callback lands nowhere",
     replayed === "refused",
   );
+
+  // --- the same rule, applied to a redirect the *server* started ------------
+  //
+  // The approve screen may end the flow with `location.assign` or with a 302,
+  // and which one it is is not this shell's choice — a `Location:` header
+  // reaches the window as `will-redirect` rather than `will-navigate`. So the
+  // chain is walked here the way a redirect chain arrives: every hop asked, and
+  // the hop that leaves the pin cancelled, wherever in the chain it is.
+
+  {
+    const route = createApprovalRoute();
+    const callbackHref = "http://127.0.0.1:53411/context-hook/callback";
+    route.begin({ authorize: `${GATEWAY}/oauth/authorize?x=1`, callback: callbackHref }, CONSOLE);
+    const hop = (target) => mayNavigateConsoleWindow(target, LIVE, route.callback());
+
+    check(
+      "THE APPROVAL'S OWN REDIRECT CHAIN IS ALLOWED HOP BY HOP",
+      [`${LIVE}/authorize?request_id=r1`, `${callbackHref}?code=abc&state=xyz`].every(hop),
+    );
+    check(
+      "AN OPEN REDIRECT OFF THE PINNED ORIGIN IS CANCELLED MID-CHAIN",
+      // The shape: the console origin answers 302 to somewhere else. The first
+      // hop is fine and the second is not, and only a guard on `will-redirect`
+      // is ever asked about the second.
+      hop(`${LIVE}/go?to=https://attacker.invalid/`) === true &&
+        hop("https://attacker.invalid/harvest") === false,
+    );
+    check(
+      "...and so is a redirect from the authorize page to a socket that is not this flow's",
+      hop("http://127.0.0.1:9999/context-hook/callback") === false &&
+        hop("http://127.0.0.1:53411/admin") === false,
+    );
+    route.end();
+  }
+
+  // --- the allowance closes when nobody ever approves -----------------------
+  //
+  // A person who walks away from the approve screen is the ordinary way this
+  // ends without a grant, and it is the one path where nothing arrives to close
+  // the allowance — no callback, no refusal, no error from the server. What
+  // closes it is the listener's own timeout ending `connectMachine`, and
+  // `connectThisMachine`'s `finally` calling `end()` on the way out, which the
+  // source check above pins. Driven here with a listener window of milliseconds
+  // rather than the flow's real one, because a guard whose only test takes five
+  // minutes is a guard nobody runs.
+
+  {
+    const server = authorizationServer();
+    const route = createApprovalRoute();
+    const abandoned = await connectMachine({
+      endpoint: ENDPOINT,
+      fetchImpl: server.fetchImpl,
+      timeoutMs: 40,
+      openBrowser: async (href) => {
+        const target = approvalTargetFor(href);
+        route.begin(target, CONSOLE);
+        // And then nothing: the window sits on the approve screen.
+      },
+    })
+      .then(() => null, (error) => error)
+      .finally(() => route.end());
+
+    check(
+      "AN APPROVAL NOBODY FINISHES TIMES OUT RATHER THAN WAITING FOREVER",
+      abandoned !== null && /timed out/.test(abandoned.message),
+    );
+    check(
+      "...AND THE LOOPBACK ALLOWANCE CLOSES WITH IT, so an abandoned connect leaves no opening",
+      route.callback() === null &&
+        mayNavigateConsoleWindow(
+          "http://127.0.0.1:53411/context-hook/callback?code=abc",
+          LIVE,
+          route.callback(),
+        ) === false,
+    );
+    check(
+      "...and no code was exchanged for a connect nobody approved",
+      server.calls.filter((call) => call.url.endsWith("/oauth/token")).length === 0,
+    );
+  }
+
+  // --- what the record says was granted ------------------------------------
+  //
+  // The tier is not a detail of the credential: `DESKTOP_SCOPE` asks for
+  // `context:private` because it decides what a meeting is **filed as**, and
+  // the person approving may hand over less. `tokens.scope || DESKTOP_SCOPE`
+  // stood in `connect.ts` and would have had the record repeat the request
+  // whenever a server answered without a `scope` — the app asserting what it
+  // asked for as though it were what it got, on the one field
+  // `grantCoversMeetings` then reads to decide whether to send a meeting.
+
+  {
+    const narrowed = authorizationServer({ scope: "context:write" });
+    const record = await connectMachine({
+      endpoint: ENDPOINT,
+      fetchImpl: narrowed.fetchImpl,
+      openBrowser: consoleWindowOpener().open,
+    });
+    check(
+      "A GRANT NARROWER THAN THE REQUEST IS RECORDED AS THE NARROWER ONE",
+      record.scope === "context:write" && grantCoversMeetings(record.scope) === false,
+    );
+  }
+  {
+    const silent = authorizationServer({ scope: null });
+    const record = await connectMachine({
+      endpoint: ENDPOINT,
+      fetchImpl: silent.fetchImpl,
+      openBrowser: consoleWindowOpener().open,
+    });
+    check(
+      "...and a server that says nothing about scope does not get the request read back to it",
+      record.scope === "" && grantCoversMeetings(record.scope) === false,
+    );
+  }
 }
 
 /**
@@ -331,8 +490,15 @@ function consoleWindowOpener({ state: override, code = "an-authorization-code" }
   };
 }
 
-/** A conformant authorization server. The same shape `connect.test.mjs` uses. */
-function authorizationServer() {
+/**
+ * A conformant authorization server. The same shape `connect.test.mjs` uses.
+ *
+ * `scope` is what the **token endpoint** answers with, which is not always what
+ * was asked for: the person approving narrows it, and a server is permitted to
+ * omit it entirely (`null` here). Both are cases this app has to record
+ * honestly rather than assume its own request back.
+ */
+function authorizationServer({ scope = DESKTOP_SCOPE } = {}) {
   const calls = [];
   const fetchImpl = async (input, init = {}) => {
     const url = typeof input === "string" ? input : String(input);
@@ -354,7 +520,7 @@ function authorizationServer() {
         access_token: "fake-access-token-not-a-real-one",
         refresh_token: "fake-refresh-token-not-a-real-one",
         expires_in: 3600,
-        scope: DESKTOP_SCOPE,
+        ...(scope === null ? {} : { scope }),
       });
     }
     return new Response("{}", { status: 404, headers: { "Content-Type": "application/json" } });
