@@ -83,6 +83,27 @@ jobs:
           node scripts/check-workflow-cloudflare-preflight.mjs --self-test
           node scripts/check-workflow-cloudflare-preflight.mjs
 
+      # `wrangler secret put` before `wrangler deploy` collided with a stale
+      # plaintext var on every run of deploy-router.yml (#302) because the
+      # secret push acts on whatever version is currently live — see the
+      # script's header. mcp.yml runs it too, same two-host reasoning as the
+      # checkers above.
+      - name: No deploy workflow pushes a secret before deploying
+        run: |
+          node scripts/check-workflow-secret-order.mjs --self-test
+          node scripts/check-workflow-secret-order.mjs
+
+      # The other half of #302: `infra/router/wrangler.jsonc` once committed
+      # `CONVEX_ORIGIN` as a plaintext var, which is what the ordering above
+      # collided with. This proves no Wrangler config — this worker's
+      # included — carries a secret it also pushes via `wrangler secret put`
+      # as a `vars` entry. mcp.yml runs it too, same two-host reasoning as the
+      # checkers above.
+      - name: No Wrangler config commits a pushed secret as a var
+        run: |
+          node scripts/check-wrangler-vars-not-secrets.mjs --self-test
+          node scripts/check-wrangler-vars-not-secrets.mjs
+
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v5
