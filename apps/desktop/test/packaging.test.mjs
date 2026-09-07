@@ -243,6 +243,10 @@ export async function runPackagingChecks(check) {
   check("...and it builds the bundle first, because the dmg ships `dist/`", manifest.scripts.package.includes("scripts/build.mjs"));
   check("electron-builder is a devDependency, not something a build downloads", "electron-builder" in manifest.devDependencies);
   check("...as is the notarisation tool the hook requires", "@electron/notarize" in manifest.devDependencies);
+  check(
+    "A LOCAL `pnpm package` NEVER PUBLISHES — electron-builder's own default for a config carrying a `publish` block is not something to trust a developer's ambient GH_TOKEN against",
+    /--publish\s+never/.test(manifest.scripts.package),
+  );
   /*
     What ends up inside the asar, checked as a rule rather than as a list.
 
