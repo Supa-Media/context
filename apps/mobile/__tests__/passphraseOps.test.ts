@@ -27,12 +27,12 @@
  * Run as temporary local edits and reverted; counts are failing tests in this
  * file.
  *
- *   `protectNote` writing the plaintext instead of the document               3
- *   `changePassphrase` re-encrypting the body instead of rewrapping           2
- *   `changePassphrase` keeping the old salt for the new passphrase            1
+ *   `protectNote` writing the plaintext instead of the document               4
  *   `sessionReducer`'s idle sweep comparing against the wrong timestamp       2
+ *   the minimum passphrase length dropped to nothing                          2
+ *   `changePassphrase` keeping the old salt for the new passphrase            1
  *   `serializable` returning the state it was given                           1
- *   `removePassphrase` writing before it could decrypt                        1
+ *   `lock` keeping the key bytes it dropped                                   1
  */
 
 import { describe, expect, it } from "@jest/globals";

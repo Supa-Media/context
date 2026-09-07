@@ -32,11 +32,18 @@
  *
  * Run as temporary local edits and reverted; counts are failing tests here.
  *
- *   the "if you lose this passphrase" point removed from the list             2
+ *   the "if you lose this passphrase" point removed from the list        0 -> 1
  *   the confirm button armed without the typed acknowledgement                1
- *   the second passphrase field's value ignored in `ready`                    1
- *   the unsupported branch rendering the form with a disabled button          2
- *   "we can recover it for you" added to the hint                             1
+ *   the unsupported branch rendering the form instead of the reason           1
+ *
+ * **The first row measured zero, and it is the reason the assertions below are
+ * written out rather than looped.** The first version of this test iterated
+ * `ACKNOWLEDGEMENT_POINTS` and checked each one was on the screen — which is a
+ * loop over the thing under test, and passes exactly as happily when the list
+ * is empty. Deleting the sentence that says a lost passphrase is permanent
+ * failed nothing at all. The four claims are now spelled out here, and the loop
+ * is kept beside them so a fifth point added later cannot live in the constant
+ * alone.
  */
 
 import { describe, expect, it } from "@jest/globals";
@@ -113,11 +120,25 @@ describe("the screen that locks a note", () => {
   it("says every consequence out loud", () => {
     withSubtle(true);
     const screen = render({ path: "1-projects/a.md", onLock: noop, onClose: noop });
-    const text = screen.html().replace(/<[^>]+>/g, " ");
+    const text = screen.html().replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+    // The four claims, spelled out here rather than looped over
+    // `ACKNOWLEDGEMENT_POINTS` — a loop over the list is a loop over the thing
+    // under test, and it passes just as happily for an empty list. Measured:
+    // deleting the permanence sentence failed nothing until these lines
+    // existed.
+    expect(text).toMatch(/this note is gone/i);
+    expect(text).toMatch(/not stored anywhere/i);
+    expect(text).toMatch(/there is no reset/i);
+    expect(text).toMatch(/title, its folder/i);
+    expect(text).toMatch(/no assistant/i);
+    expect(text).toMatch(/not appear in search/i);
+    expect(text).toMatch(/does not share its passphrase/i);
+
+    // And whatever else the list holds is on the screen too, so a fifth point
+    // added later cannot be added to the constant alone.
     for (const point of ACKNOWLEDGEMENT_POINTS) {
-      // Rendered React collapses nothing, but the markup interleaves tags, so
-      // the comparison is on a normalised copy of both sides.
-      expect(text.replace(/\s+/g, " ")).toContain(point.replace(/\s+/g, " "));
+      expect(text).toContain(point.replace(/\s+/g, " "));
     }
     expect(text).toContain("1-projects/a.md");
   });

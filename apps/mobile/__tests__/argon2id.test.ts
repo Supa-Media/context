@@ -27,14 +27,24 @@
  * Run as temporary local edits and reverted; counts are failing tests in this
  * file plus `passphraseEnvelope.test.ts`.
  *
- *   the `fma` doubling dropped (`2*x*y` becoming `x*y`)                      6
- *   the column pass of the compression permuting rows twice instead          6
- *   `hashPrime` keeping 64 bytes per chain step rather than 32               6
- *   Argon2id's data-independent first half made data-dependent               5
- *   the passphrase normalised to NFD instead of NFC                          1
+ *   the `fma` doubling dropped (`2*x*y` becoming `x*y`)                      2
+ *   the column pass of the compression permuting rows twice instead          2
+ *   `hashPrime` keeping 64 bytes per chain step rather than 32               2
+ *   Argon2id's data-independent first half made data-dependent               2
+ *   a KDF this build does not implement substituted rather than refused      1
+ *   the passphrase normalised to NFD instead of NFC                     0 -> 1
  *
  * The first four are the reason a vector is not optional: every one of them
- * produces a perfectly plausible 32 bytes, on every input, forever.
+ * produces a perfectly plausible 32 bytes, on every input, forever, and none
+ * of them is visible to anything but a vector. Two each rather than more,
+ * because two vectors is exactly what owns them — the RFC's and the pinned
+ * fixture's.
+ *
+ * **The normalisation row measured zero on its first run and changed this
+ * file.** Asserting that the composed and decomposed forms derive the same key
+ * proves only that *some* normalisation happens: both agree under NFD as
+ * happily as under NFC. The form itself is what a second implementation has to
+ * reproduce, so it is now pinned against bytes normalised explicitly.
  */
 
 import { describe, expect, it } from "@jest/globals";
@@ -42,7 +52,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { blake2b } from "../features/console/encryption/blake2b";
 import { argon2id } from "../features/console/encryption/argon2id";
-import { derivePassphraseKey, kdfSupport } from "../features/console/encryption/kdf";
+import {
+  derivePassphraseKey,
+  fromBase64Url,
+  kdfSupport,
+} from "../features/console/encryption/kdf";
 
 const VECTOR = JSON.parse(
   readFileSync(
@@ -167,6 +181,20 @@ describe("the shipped derivation", () => {
     expect(hex(derivePassphraseKey(composed, cheap))).toBe(
       hex(derivePassphraseKey(decomposed, cheap)),
     );
+
+    // And it is NFC specifically, not merely "some normalisation". Both forms
+    // agree under either rule, so agreement alone cannot pin the one a second
+    // implementation has to reproduce — and picking the other one silently
+    // changes the key for every passphrase with an accent in it.
+    const composedBytes = argon2id({
+      password: new TextEncoder().encode(composed.normalize("NFC")),
+      salt: fromBase64Url(cheap.salt),
+      memory: cheap.m,
+      iterations: cheap.t,
+      parallelism: cheap.p,
+      tagLength: 32,
+    });
+    expect(hex(derivePassphraseKey(decomposed, cheap))).toBe(hex(composedBytes));
   });
 });
 

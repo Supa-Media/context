@@ -36,17 +36,30 @@
  * Run as temporary local edits and reverted. Counts are FAIL lines across the
  * whole gateway suite; the table in the pull request carries the same numbers.
  *
+ *   the write path sealing over a note it cannot open                        5
+ *   `replacingRecipient` skipping `assertRecipientShape`                     9
+ *   `assertKdfDescriptor` accepting any `m`                                  3
  *   `unwrapNoteKey` reporting an unwrap failure differently from a
  *     content failure (the guessing oracle)                                  1
- *   `assertKdfDescriptor` accepting any `m`                                  4
- *   `replacingRecipient` skipping `assertRecipientShape`                     3
- *   `decryptNoteWithPassphrase` accepting a workspace recipient              2
- *   the write path sealing over a note it cannot open                        4
+ *   `decryptNoteWithPassphrase` accepting a workspace recipient         0 -> 1
+ *   `decryptNoteWithPassphrase` ignoring the `aad` check                0 -> 1
  *
- * The last row is the one that matters most and it is worth reading twice: with
- * it, an MCP client that wrote to a passphrase-locked note would have replaced
- * it with a note encrypted for the *workspace* — the lock silently removed, the
- * old ciphertext gone, and the write reported as a success.
+ * The first row is the one that matters most and it is worth reading twice:
+ * without that guard, an MCP client writing to a passphrase-locked note
+ * replaced it with a note encrypted for the *workspace* — the lock silently
+ * removed, the old ciphertext gone, and the write reported as a success.
+ *
+ * **The last two rows measured zero on their first run, and both changed this
+ * file rather than the source.** A passphrase path that reached for a
+ * *workspace* recipient fails too, on the unwrap, with the wrong key — so "it
+ * threw" could not tell it from a wrong passphrase, and the difference is the
+ * whole answer: one is "this note is not passphrase-protected" and the other is
+ * "you typed it wrong". Same shape for the `aad` check: GCM refuses a
+ * relabelled envelope on the content either way, so the guard only changes the
+ * *message*, from "this note's contents could not be read" — which sends
+ * somebody hunting for corruption — to "this envelope belongs to another
+ * context", which is a restore gone wrong. Both are now asserted on the
+ * message, which is what they were always worth.
  */
 
 import { readFileSync } from "node:fs";
@@ -357,11 +370,22 @@ export async function runEncryptionPassphraseChecks(check) {
     workspaceKey,
     keyId: "k1",
   });
+  const atRestRefusal = await threw(() =>
+    decryptNoteWithPassphrase(atRest, { workspaceId: WORKSPACE, kek: kekA }),
+  );
   check(
-    "a workspace note has no passphrase to open, and says so",
-    (await threw(() =>
-      decryptNoteWithPassphrase(atRest, { workspaceId: WORKSPACE, kek: kekA }),
-    )) instanceof NoteCryptoError,
+    "a workspace note has no passphrase to open",
+    atRestRefusal instanceof NoteCryptoError,
+  );
+  check(
+    "...and it says that, rather than reporting a wrong passphrase for a note that has none",
+    // The message is the whole check. A passphrase path that reached for a
+    // *workspace* recipient would fail too — on the unwrap, with the wrong key
+    // — so "it threw" cannot tell the two apart, and the difference matters:
+    // one is "this note is not passphrase-protected" and the other is "you
+    // typed it wrong". Only one of those is true here.
+    atRestRefusal instanceof NoteCryptoError &&
+      atRestRefusal.message.includes("no passphrase recipient"),
   );
   check(
     "...and phase 1's at-rest mode is untouched by any of this",
@@ -420,16 +444,29 @@ export async function runEncryptionPassphraseChecks(check) {
       }),
     )) instanceof NoteCryptoError,
   );
+  const relabelled = editEnvelope(document, (envelope) => {
+    envelope.aad = "context-note-v1:ws_bbbbbbbbbbbbbbbbbbbbbbbb";
+  });
   check(
     "...and relabelling the envelope does not help, because the wrap is bound too",
     (await threw(() =>
-      decryptNoteWithPassphrase(
-        editEnvelope(document, (envelope) => {
-          envelope.aad = "context-note-v1:ws_bbbbbbbbbbbbbbbbbbbbbbbb";
-        }),
-        { workspaceId: "ws_bbbbbbbbbbbbbbbbbbbbbbbb", kek: kekA },
-      ),
+      decryptNoteWithPassphrase(relabelled, {
+        workspaceId: "ws_bbbbbbbbbbbbbbbbbbbbbbbb",
+        kek: kekA,
+      }),
     )) instanceof NoteCryptoError,
+  );
+  const misbound = await threw(() =>
+    decryptNoteWithPassphrase(relabelled, { workspaceId: WORKSPACE, kek: kekA }),
+  );
+  check(
+    "...and a relabelled envelope read in its own context is named, not merely refused",
+    // GCM refuses this either way, on the content. The explicit check is what
+    // turns "this note's contents could not be read" — which sends somebody
+    // hunting for corruption — into "this envelope belongs to another context",
+    // which is a restore or a copy gone wrong and is a different day's work.
+    misbound instanceof NoteCryptoError &&
+      misbound.message.includes("bound to a different context"),
   );
 
   /* ------------------------------ key shapes ------------------------------ */
