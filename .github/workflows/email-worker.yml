@@ -44,8 +44,16 @@ jobs:
       # Runs before install: it needs only bash and node, and a workflow whose
       # shell does not parse is worth failing fast on. See the script's header
       # for the apostrophe that made this necessary.
+      #
+      # `--self-test` first, same reason every sibling checker below runs one:
+      # this script used to read `process.argv` nowhere at all, so passing
+      # `--self-test` here did nothing — it silently fell through to the
+      # ordinary scan and printed OK, verifying none of the cases the header
+      # claims it catches. See the script's `resolveMode`.
       - name: Workflow run blocks parse as shell
-        run: node scripts/check-workflow-shell.mjs
+        run: |
+          node scripts/check-workflow-shell.mjs --self-test
+          node scripts/check-workflow-shell.mjs
 
       # The third of the same family, and this file is its second host for the
       # same reason it is the trigger checker's: a workflow that does not parse
@@ -74,6 +82,27 @@ jobs:
         run: |
           node scripts/check-workflow-cloudflare-preflight.mjs --self-test
           node scripts/check-workflow-cloudflare-preflight.mjs
+
+      # `wrangler secret put` before `wrangler deploy` collided with a stale
+      # plaintext var on every run of deploy-router.yml (#302) because the
+      # secret push acts on whatever version is currently live — see the
+      # script's header. mcp.yml runs it too, same two-host reasoning as the
+      # checkers above.
+      - name: No deploy workflow pushes a secret before deploying
+        run: |
+          node scripts/check-workflow-secret-order.mjs --self-test
+          node scripts/check-workflow-secret-order.mjs
+
+      # The other half of #302: `infra/router/wrangler.jsonc` once committed
+      # `CONVEX_ORIGIN` as a plaintext var, which is what the ordering above
+      # collided with. This proves no Wrangler config — this worker's
+      # included — carries a secret it also pushes via `wrangler secret put`
+      # as a `vars` entry. mcp.yml runs it too, same two-host reasoning as the
+      # checkers above.
+      - name: No Wrangler config commits a pushed secret as a var
+        run: |
+          node scripts/check-wrangler-vars-not-secrets.mjs --self-test
+          node scripts/check-wrangler-vars-not-secrets.mjs
 
       - uses: pnpm/action-setup@v4
 
