@@ -881,24 +881,87 @@ item, and a plan that budgets CASA against Gmail alone under-budgets it. So
 verification lands, for the same reason: v1 runs on fixtures precisely because
 a restricted scope cannot reach real user data before Google grants it.
 
-### Chat sync is built against an injected client, never against Convex directly
+### Chat sync is built against an injected client, and now attaches to the one shared row
 
 The account that authorizes Chat calls — one OAuth grant per Google account,
 sealed refresh token, per-product scopes, sync cursors — is the control
-plane's, and it is being built as one shared row across Gmail, Calendar and
-Chat rather than three parallel connection tables (`docs/decisions/storage-and-credentials.md`
-already argues why credentials get one seal and one owner, not three). This
-package and the Chat sync module in `apps/mcp` are written *against that
-shape* without importing it: every function that needs a token, a cursor, or
-a per-space setting takes it as a parameter or an injected `{listSpaces,
-listMessages}` client, so the whole transform-and-render path is tested end to
-end on fixtures today and the only code still to land once the shared
-connection ships is the few lines that read a token and a cursor out of it and
-hand them in. Building a second, competing connection table here to unblock
-testing sooner was rejected: two tables that both claim to own "the Google
-account's grant" is the exact drift the shared-row decision exists to
-prevent, and a merge conflict between them would be resolved by deleting one —
-better to never write it.
+plane's, and it is one shared row across Gmail, Calendar and Chat, never
+three parallel connection tables (`docs/decisions/storage-and-credentials.md`
+already argues why credentials get one seal and one owner, not three). The
+Chat sync module in `apps/mcp` is written *against that shape* without
+importing it: every function that needs a token, a cursor, or a per-space
+setting takes it as a parameter or an injected `{listSpaces, listMessages}`
+client, so the whole transform-and-render path is tested end to end on
+fixtures, independent of how the control plane happens to store the
+credential that will eventually be handed to it.
+
+**On the control-plane side, `functions/chatProduct.ts` attaches Chat to the
+same `googleConnections` row Gmail already writes** (2026-09-07) — no second
+table. A first draft of this file built exactly that: `chatConnections` and
+`chatConnectAttempts`, a full parallel copy of `googleConnect.ts`'s PKCE
+shape, on the reasoning that Chat's connect flow could not wait for the
+shared-row generalization Gmail's own review was still arguing out. Once that
+generalization landed — the schema already stating `products`, one token pair
+at the row's top level, one nested settings object per enabled product — the
+duplicate tables were dropped rather than migrated (nothing had synced through
+them yet) and `chatProduct.ts` was rewritten as thin sibling of
+`googleConnect.ts`: it reuses `disconnectGoogleConnection`,
+`revokeGoogleGrant`, `mintGoogleAccessToken` and the rotation walk verbatim
+(all already product-agnostic, operating only on the row's top-level token
+fields), and adds only what Chat actually needs beyond Gmail's own connect
+flow — `startChatConnect`/`completeChatConnect` requesting Chat's scopes,
+`applyChatConnectionBinding` writing the nested `chat` object
+(`spaceSettings`, `cursors`, `nonceSeed`), and the two mutations a console
+needs afterward, `setChatSpaceState` and `recordChatCursors`, which have no
+Gmail or Calendar analogue because neither product has a per-item sync policy
+the way Chat's per-space include/exclude/pause is. Building a second,
+competing connection table to unblock testing sooner was the wrong call even
+temporarily — two tables that both claim to own "the Google account's grant"
+is the exact drift the shared-row decision exists to prevent — and the
+correction is recorded here rather than only in the diff that made it, so a
+future reader who finds an old branch or a stale comment referencing
+`chatConnections` knows it was superseded, not merely renamed.
+
+### Adding a product must not silently drop another one
+
+The gap named above ("The second half is not closed here") when the shared
+`googleConnections` row was first generalized: Google's OAuth grants exactly
+what one authorization request asks for, so an "add Chat" request naming only
+Chat's scopes, sent to an account that already has Gmail connected, gets back
+a refresh token that no longer covers Gmail — and the row's own rule that a
+product's scope slice is *recomputed* from the verbatim grant on every
+connect, never carried forward (the previous section), means that narrower
+token then correctly, and disastrously, reports Gmail as having no scopes at
+all. Closed by Chat's own reconciliation (2026-09-07), two mechanisms
+together rather than either alone:
+
+1. **`googleAuthorizeUrl` always sets `include_granted_scopes=true`.** This is
+   Google's own mechanism for incremental authorization: the token a call gets
+   back carries every scope this OAuth client already held for the
+   account, unioned with whatever this request newly adds — regardless of
+   which existing connection, if any, the caller knew about when it built the
+   request. That "regardless" is what makes it the mechanism of record: an
+   ordinary connect screen does not know in advance which Google account the
+   person is about to pick in the browser, so it cannot always supply a
+   `connectionId` to union against.
+2. **`startChatConnect` additionally accepts an optional `connectionId`** and,
+   given one, folds that connection's own `products` into the scope request
+   before asking Google for anything — belt and suspenders for the one case
+   where the caller genuinely does know in advance which account it is
+   extending (a console screen showing "person@example.invalid (Gmail) — Add
+   Chat" next to a specific row), so the request itself already asks for the
+   union rather than relying solely on Google's behavior.
+
+`googleOAuth.test.ts` pins the first mechanism directly on the authorize-URL
+builder; `chatProduct.test.ts` pins the second at the call site, and proves
+the consequence at the row level twice — once showing that a grant built the
+way `include_granted_scopes=true` would produce (both products' scopes
+together) leaves Gmail's recorded scopes intact, and once, named as a
+sabotage case in the test itself, showing the grant Google would have
+returned *without* either fix — Chat's scopes alone — correctly and visibly
+empties `gmail.scopes`. The second test exists so a regression that
+reintroduces the bug is a known, named test going red, not a support ticket
+about mail sync stopping for no visible reason.
 
 ### The five open decisions, and who settles them
 
@@ -991,20 +1054,9 @@ replaced. The settings and the cursor on each product object are its own and
 survive; only the scopes are derived. The check is `a reconnect recomputes
 every product's scope slice from the one verbatim grant`.
 
-The second half is **not** closed here and is named so the sibling work does
-not discover it as a bug: **Google returns a grant covering exactly what was
-requested.** An "add Calendar to my existing connection" flow that asks for
-`scopesForProducts(["calendar"])` alone gets back a refresh token that no
-longer covers Gmail, and — because the row's scopes are honestly recomputed
-— records a `gmail.scopes` of `[]` beside a `products` still listing
-`gmail`. That is the true state written down rather than hidden, which is
-the point, but it is still a broken Gmail sync. The flow that adds a product
-must request the **union** of every product already on the row plus the new
-one (`scopesForProducts` already takes an arbitrary list, which is why this
-is an extension and not a migration), or set `include_granted_scopes=true`
-on the authorize URL. `googleAuthorizeUrl` does not set it today and should
-not start doing so silently: which of the two mechanisms is used is a
-decision for the change that first needs one.
+The second half is closed too, by Chat's own reconciliation onto this row
+(2026-09-07) — see "Adding a product must not silently drop another one"
+below for the two-part fix and the tests that pin it.
 
 **Disconnecting ends every product on the account, because it is one
 grant.** There is no "disconnect just Gmail while keeping Calendar" — Google's
