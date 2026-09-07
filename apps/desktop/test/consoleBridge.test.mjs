@@ -389,21 +389,39 @@ export async function runConsoleBridgeChecks(check) {
     had appeared beside them — and this app grew its IPC surface three times in
     a day.
 
-    THE FIRST VERSION OF THIS READ THREE FILES AND ONE SYNTAX, and claimed a new
-    ungated channel "appearing anywhere" would redden it. Measured, three forms
-    grew the surface at 784 PASS / 0 FAIL: a registration in `main/windows.ts`,
-    a file it did not read; `ipcMain` split across lines before `.on`; and
-    `const evilOn = ipcMain.on.bind(ipcMain)`. The last is the one that matters
-    — a scan that can be stepped around by aliasing is a lower bound wearing an
-    equals sign.
+    THIS IS THE THIRD SHAPE OF IT, and each earlier one was a lower bound
+    wearing an equals sign.
 
-    So this does not look for registrations. It accounts for **every mention of
-    the identifier**, in every `.ts` file under `src/main`, comments stripped,
-    and requires each to be a form it recognises: the import, a registration it
-    counts, or a `removeAllListeners` teardown. A `.bind`, an assignment, a line
-    break inside the member access, or `ipcMain` passed as an argument is an
-    unrecognised mention and reddens — without anybody having predicted its
-    shape.
+    The first read three files and one syntax. Measured, three forms grew the
+    surface at 784 PASS / 0 FAIL: a registration in a file it did not read,
+    `ipcMain` split across lines before `.on`, and `ipcMain.on.bind(ipcMain)`.
+
+    The second accounted for every mention of the identifier, but classified
+    "followed by `,` or `}`" as an import specifier — so `register(ipcMain, ch)`,
+    `{ ipc: ipcMain }` and `Reflect.get(ipcMain, "on")` were all read as imports
+    and passed at 905 / 0. `index.ts` already contains such a mention. It also
+    stripped comments with a regex that a `//` inside a string literal fooled
+    into eating the registration on the same line — a stripper whose failure
+    direction is "delete the evidence" rather than "flag it".
+
+    So: strings are removed before comments (a lexer, not a regex, because the
+    two mislead each other), imports are removed as whole clauses rather than
+    guessed at from punctuation, and every `ipcMain` that survives must be a
+    form named here — a registration, a teardown, or the single hand-off to
+    `createConsoleBridge`, which is itself counted so it cannot become two.
+    Everything else reddens, including forms nobody predicted. MEASURED at
+    baseline 906: a plain new `ipcMain.on` reddens 2, a registration in a new
+    subdirectory with a new extension 2, a `//`-inside-a-string hiding place 2,
+    and each of `.bind`, an argument, an object property and `Reflect.get`
+    reddens 1 — with the offending mention named in the failure, because a
+    census that says only "the number moved" leaves somebody grepping.
+
+    A legitimate `import { ipcMain as … }` rename reddens nothing. The previous
+    shape reddened 3 on it, which is the other way a scan is wrong.
+
+    Recursive, and over every extension the bundler will load, because "under
+    `src/main`" is what the sentence says and a non-recursive `.ts`-only scan is
+    not that.
 
     What it is honest about: the fifteen `ipcMain` registrations are ungated,
     and they are safe because every window whose preload can send them loads
@@ -413,36 +431,86 @@ export async function runConsoleBridgeChecks(check) {
   */
   {
     const mainDir = new URL("../src/main/", import.meta.url);
-    /* Comments only. A string containing `ipcMain` becomes an unrecognised
-       mention and reddens, which is the safe direction for a scan like this. */
-    const strip = (text) =>
-      text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+
+    /*
+      Strings out first, then comments. A regex that strips comments before
+      strings reads the `//` in a URL literal as a comment and deletes the rest
+      of the line; a regex that strips strings first reads the `"` in a comment
+      as a string. Only tracking both at once gets either right.
+    */
+    const code = (text) => {
+      let out = "";
+      let mode = "code";
+      for (let i = 0; i < text.length; i += 1) {
+        const c = text[i];
+        const next = text[i + 1];
+        if (mode === "code") {
+          if (c === "/" && next === "/") { mode = "line"; i += 1; continue; }
+          if (c === "/" && next === "*") { mode = "block"; i += 1; continue; }
+          if (c === '"' || c === "'" || c === "`") { mode = c; out += " "; continue; }
+          out += c;
+        } else if (mode === "line") {
+          if (c === "\n") { mode = "code"; out += c; }
+        } else if (mode === "block") {
+          if (c === "*" && next === "/") { mode = "code"; i += 1; }
+        } else {
+          // inside a string: a backslash escapes the next character
+          if (c === "\\") { i += 1; continue; }
+          if (c === mode) mode = "code";
+        }
+      }
+      return out;
+    };
+
+    const walk = (dir) =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+        entry.isDirectory()
+          ? walk(new URL(`${entry.name}/`, dir))
+          : [new URL(entry.name, dir)],
+      );
 
     let registrations = 0;
+    let handoffs = 0;
     const unrecognised = [];
-    for (const name of readdirSync(mainDir).filter((n) => n.endsWith(".ts"))) {
-      const text = strip(readFileSync(new URL(name, mainDir), "utf8"));
+    for (const file of walk(mainDir)) {
+      // Every extension the bundler will load, not just the ones in the tree today.
+      if (!/\.(?:[cm]?[jt]sx?)$/.test(file.pathname)) continue;
+      // Import clauses whole, so `ipcMain` inside one is never guessed at from
+      // the punctuation that happens to follow it.
+      const text = code(
+        // Import clauses go BEFORE the lexer, while their module specifier is
+        // still a quoted string — the lexer replaces it with a space, and a
+        // regex written for the stripped form would be matching a shape that
+        // only exists after its own input has been mangled.
+        readFileSync(file, "utf8").replace(/\bimport\s[^;]*?\sfrom\s*["'`][^"'`]*["'`]\s*;/g, " "),
+      );
       for (const match of text.matchAll(/\bipcMain\b/g)) {
+        const before = text.slice(Math.max(0, match.index - 12), match.index);
         const after = text.slice(match.index + "ipcMain".length, match.index + 40);
-        if (/^\s*[,}]/.test(after)) continue; // an import specifier
-        if (/^\.removeAllListeners\(/.test(after)) continue; // teardown
-        if (/^\.(?:on|once|handle)\(/.test(after)) {
-          registrations += 1;
-          continue;
-        }
-        unrecognised.push(`${name}: ipcMain${after.split("\n")[0]}`);
+        if (/^\.removeAllListeners\(/.test(after)) continue;
+        if (/^\.(?:on|once|handle)\(/.test(after)) { registrations += 1; continue; }
+        // The one hand-off: `createConsoleBridge({ ipc: ipcMain, … })`.
+        if (/\bipc:\s*$/.test(before) && /^\s*,/.test(after)) { handoffs += 1; continue; }
+        unrecognised.push(`${file.pathname.split("/").pop()}: ipcMain${after.split("\n")[0]}`);
       }
     }
 
-    const bridge = strip(readFileSync(new URL("consoleBridge.ts", mainDir), "utf8"));
+    const bridge = code(readFileSync(new URL("consoleBridge.ts", mainDir), "utf8"));
     const bridgeCalls = (bridge.match(/deps\.ipc\.(?:on|once|handle)\(/g) ?? []).length;
     const gatedAsync = (bridge.match(/\n {2}handle\(BRIDGE_CHANNELS\./g) ?? []).length;
     const gatedSync = (bridge.match(/\n {2}answerSync\(BRIDGE_CHANNELS\./g) ?? []).length;
 
-    check("EVERY `ipcMain` UNDER src/main IS A FORM THIS CENSUS RECOGNISES", unrecognised.length === 0);
+    check(
+      `EVERY \`ipcMain\` UNDER src/main IS A FORM THIS CENSUS RECOGNISES${unrecognised.length ? ` — ${unrecognised[0]}` : ""}`,
+      unrecognised.length === 0,
+    );
     check(
       "THE UNGATED SURFACE HAS NOT GROWN — twelve commands and three capture channels",
       registrations === 15,
+    );
+    check(
+      "ipcMain is handed to exactly one thing, and that thing is the guarded bridge",
+      handoffs === 1,
     );
     check(
       "the bridge reaches ipc through exactly its two guarded helpers, and nowhere else",

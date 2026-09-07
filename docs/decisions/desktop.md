@@ -450,9 +450,17 @@ three independent guards rather than one:
    real Electron 33.4.11 binary: `senderFrame.origin` is readable at preload
    time, so unreadability was never the objection — but a second `BrowserWindow`
    opened at the same address reports the same origin as the console, so an
-   origin comparison *alone* admits any other window this app opens there,
-   including the hidden capture window that holds a live microphone. Identity
-   refuses it. `parent === null` rather than an identity comparison between
+   origin comparison *alone* admits any other window this app opens at that
+   address. Identity refuses it.
+
+   The hidden capture window is **not** that example, and naming it here was
+   wrong: it is a `loadFile` of `capture.html`, so its origin is `file://` and
+   never the pin — measured, `THE HIDDEN CAPTURE WINDOW IS REFUSED ON EVERY
+   CHANNEL` still passes with the identity arm deleted, and
+   `consoleBridge.test.mjs` says so in its own words. The window identity arm
+   earns its place against a *second window at the live origin*, which is what
+   the offline mirror and a future second console make ordinary rather than
+   hypothetical. `parent === null` rather than an identity comparison between
    `WebFrameMain` instances, because Electron's own typings caution that
    distinct instances may refer to one frame; both were measured to work and
    only one of them is documented behaviour.
@@ -486,8 +494,12 @@ The tests, and they are in two files. `test/shell.test.mjs` drives
 no Electron in sight. `test/consoleBridge.test.mjs` drives the answering side
 against a fake `ipcMain`: a foreign `webContents`, a page we did not pin, a
 subframe, the hidden capture window, and a disposed frame. Sabotage, measured,
-totals pinned at 786 — dropping the identity arm reddens **4**, the top-frame
-arm **2**, the origin comparison **2**, and opening the guard entirely **6**.
+totals pinned at 906 — dropping the identity arm reddens **4**, the top-frame
+arm **2**, the origin comparison **4**, and opening the guard entirely **9**.
+(The origin arm and the whole guard were 2 and 6 before `#281`; its three mirror
+checks are the difference. **Numbers in prose go stale on somebody else's merge**
+— these are re-measured on the head that carries them, and that is the third
+time on this branch that sentence has had to be written.)
 Each arm is a different set of checks, which is what proves they are not one
 check written three times.
 
@@ -507,10 +519,23 @@ it — measured false three ways, all at 784 PASS / 0 FAIL: a registration in
 lower bound wearing an equals sign**, which is the same defect as a documented
 guard nobody built, one level down.
 
-Measured against the version here, baseline 786: a plain new `ipcMain.on`
-reddens 2, one in `main/windows.ts` reddens 2, a line break inside the member
-access reddens 1, `.bind` reddens 1, and an ungated `deps.ipc.handle` inside
-`consoleBridge.ts` itself reddens 2.
+That was the second shape, and it was a lower bound too. It classified
+"followed by `,` or `}`" as an import specifier, so `register(ipcMain, ch)`,
+`{ ipc: ipcMain }` and `Reflect.get(ipcMain, "on")` all read as imports — and
+`main/index.ts` already contains such a mention. Its comment-stripping regex
+also let a `//` inside a string literal eat the registration on the same line,
+a stripper whose failure direction is "delete the evidence".
+
+The version here removes strings and comments with a lexer rather than a regex
+(each misleads the other), removes import clauses whole rather than guessing
+from punctuation, counts the single hand-off to `createConsoleBridge` explicitly
+so it cannot become two, and walks `src/main` recursively over every extension
+the bundler loads. Measured, baseline 906: a plain new `ipcMain.on` reddens 2, a
+registration in a new subdirectory with a new extension 2, a `//`-in-a-string
+hiding place 2, and each of `.bind`, an argument, an object property and
+`Reflect.get` reddens 1 — naming the offending mention in the failure. A
+legitimate `import { ipcMain as … }` rename reddens nothing, which the previous
+shape got wrong in the other direction.
 
 That check is the answer to how this section came to describe a layer nobody had
 built. A guard tells you about the code it is pointed at; nothing was pointed at

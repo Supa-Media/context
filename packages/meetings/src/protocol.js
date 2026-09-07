@@ -401,9 +401,11 @@ export function isMeetingId(value) {
  * outright, so the claim and the code agree.
  *
  * `DOT_SEGMENT` is refused rather than escaped because **escaping it does not
- * work**. WHATWG URL decodes the percent-form *before* it removes dot segments,
- * so `/meetings/sessions/%2E%2E/finalize` resolves to `/meetings/finalize`
- * exactly as `..` does — measured, and asserted by the test beside this one.
+ * work**. WHATWG URL's path-removal step treats the percent-encoded spellings
+ * of a dot segment as dot segments — `%2e` and `%2E` specifically, not
+ * percent-encoding in general (`/x/a%2Fb/y` keeps its `%2F`) — so
+ * `/meetings/sessions/%2E%2E/finalize` resolves to `/meetings/finalize` exactly
+ * as `..` does. Measured, and asserted by the test beside this one.
  * An earlier draft of this paragraph said `%2E%2E` would survive as a segment
  * no route matches, which would have been a silent 404; it is a traversal, and
  * the test written in the same commit already said so. Refusing is the only
