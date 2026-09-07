@@ -107,6 +107,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The rail's "New workspace" entry is a verb, and the claim entry is a gap
 - The rail splits on kind, and ownership is a mark on one row
 - The URL is a mirror of the open note, and the phone's copy of it is a pointer
+- A URL is a context and a note, and half of one is not an instruction
 - A note link is a path with a keyword in front, because a scheme has a host
 - A reference follows the note it points at, and a link is something you follow
 - The console autosaves, and the prompt that is left is about a decision

@@ -154,6 +154,29 @@ export function noteHref(slug: string, path: string): string {
 }
 
 /**
+ * The context a `@slug` in a URL names, or `null` if this account has no such
+ * context.
+ *
+ * `null` is deliberately both "not yours" and "the list has not landed": both
+ * mean *this URL does not name a context we can act on yet*, which is the only
+ * question the callers ask. Telling them apart is `resolveContextRoute`'s job,
+ * and it is the one place that decides whether a dead link redirects.
+ *
+ * It exists because a console URL is **a context and a note**, and reading one
+ * half of it against state that holds the other half is the switch bug
+ * `noteAddress.ts` records: the address moves to `@supa` a commit or two before
+ * the console selects it, so anything that pairs the new URL's `?note=` with
+ * the old context's open note is comparing two different places.
+ */
+export function contextIdForSlug(
+  contexts: ReadonlyArray<{ id: string; slug: string }>,
+  slug: string | null,
+): string | null {
+  if (slug === null) return null;
+  return contexts.find((context) => context.slug === slug)?.id ?? null;
+}
+
+/**
  * The note a console URL is asking to open, or `null`.
  *
  * Read from the query rather than from `routeForPath`, which deliberately

@@ -3,7 +3,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
-import { act, createElement, useState, type ReactNode } from "react";
+import { ConvexError } from "convex/values";
+import { act, createElement, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type { FileBrowser } from "../features/console/files/browser";
 import type { FolderListing, OpenNote } from "../features/console/files/types";
@@ -55,6 +56,16 @@ import type { FolderListing, OpenNote } from "../features/console/files/types";
  * correct in isolation does not prove the wiring settles. Every test below
  * therefore asserts the count of URL writes, not only the final value: one
  * write per real change, and none at rest.
+ *
+ * ## And a third suite, for the commit where the two contexts disagree
+ *
+ * Both suites above drive one context, so neither could see what a **switch**
+ * does: the URL moves to `@supa` a commit or two before the console selects it
+ * and the browser resets under it, and the mirror was reconciling the new
+ * address against the old context's open note. `switchTo` moves the URL's two
+ * halves together, which is what a navigation does and what this harness could
+ * not express — `setContext` alone is the workspace list landing, not somebody
+ * pressing a workspace.
  */
 
 const actions: Record<string, (args: never) => Promise<unknown>> = {};
@@ -115,9 +126,20 @@ function name(fn: string): string {
 }
 
 let browser: FileBrowser;
+/** The workspace list lands, or a navigation moves the URL to another context. */
 let setContext: (id: string | null) => void;
 /** Change the URL from outside the app — a pasted address, a followed link. */
 let setUrl: (note: string | null) => void;
+/**
+ * Press another context: the URL's two halves move in one commit.
+ *
+ * Which is what a navigation is, and what nothing here could express before.
+ * The rail replaces the address with `/console/@supa` (no note); the phone's
+ * strip replaces it with `/console/@supa?note=<the path that context was last
+ * left at>`. Both land while the console is still selecting the *previous*
+ * context and the browser is still holding its tree.
+ */
+let switchTo: (contextId: string | null, note: string | null) => void;
 /** What the URL says right now, and every value it has been set to. */
 let url: string | null = null;
 let addressed: (string | null)[] = [];
@@ -147,24 +169,42 @@ function mount(note: string | null): () => void {
   function Route({
     files,
     contextId,
+    urlContextId,
     note: inUrl,
     onAddress,
   }: {
     files: FileBrowser;
     contextId: string | null;
+    urlContextId: string | null;
     note: string | null;
     onAddress: (next: string | null) => void;
   }): ReactNode {
-    useNoteAddress(files, inUrl, contextId, onAddress);
+    useNoteAddress(files, { contextId: urlContextId, note: inUrl }, contextId, onAddress);
     return null;
   }
 
   function Layout(): ReactNode {
-    const [contextId, setId] = useState<string | null>(null);
+    /** The URL: a context and a note, and a navigation moves both at once. */
+    const [urlContextId, setUrlContextId] = useState<string | null>(null);
     const [inUrl, setInUrl] = useState<string | null>(note);
-    setContext = setId;
+    /** What the console has selected, which follows the URL. */
+    const [contextId, setId] = useState<string | null>(null);
+    setContext = setUrlContextId;
     setUrl = setInUrl;
+    switchTo = (nextContext, nextNote) => {
+      setUrlContextId(nextContext);
+      setInUrl(nextNote);
+    };
     url = inUrl;
+    /*
+      The layout's own rule: `resolveContextRoute` reads the URL and selects
+      the context it names. It is the *parent's* effect, so React runs it after
+      the route's — the ordering this whole file exists for, and the reason a
+      switch is three commits rather than one.
+    */
+    useEffect(() => {
+      setId(urlContextId);
+    }, [urlContextId]);
     const files = useFileBrowser({
       workspaceId: contextId as never,
       tier: "private",
@@ -175,6 +215,7 @@ function mount(note: string | null): () => void {
     return createElement(Route, {
       files,
       contextId,
+      urlContextId,
       note: inUrl,
       onAddress: (next: string | null) => {
         addressed.push(next);
@@ -461,5 +502,158 @@ describe("the URL follows the note that is open", () => {
     await settle();
 
     expect(addressed.length).toBe(afterLanding);
+  });
+});
+
+/**
+ * **"I'll change between workspaces and it will say file not found."**
+ *
+ * Reported by the owner against the shipped feature, and the two suites above
+ * could not see it: both drive one context. A switch moves the URL first and
+ * the console after it, so for a commit or two the address names `@supa` while
+ * the file browser is still holding `@seyi`'s tree with `@seyi`'s note open —
+ * and the rule was reading the note out of the new address and the context out
+ * of the old state.
+ *
+ * What that did on the web is write the old note back onto the new context's
+ * URL (`?note=` is a mirror, and the mirror was pointed at the wrong screen);
+ * what it did on a phone is worse, because the strip restores the path the new
+ * context was last left at, so the stale commit `select`ed one context's path
+ * against the other's bucket. Both end on "That file does not exist", which is
+ * the sentence somebody gets for pressing a workspace.
+ */
+describe("switching context leaves the other context's note behind", () => {
+  let unmount: (() => void) | null = null;
+
+  /** A note that exists in `w2` and has never existed in `w1`. */
+  const THEIRS = "1-projects/gateway.md";
+
+  beforeEach(() => {
+    calls.length = 0;
+    addressed = [];
+    url = null;
+    actions[name("listFiles")] = async (args: never) => {
+      const path = (args as { path: string }).path;
+      return path === "" ? ROOT : { ...ROOT, path, entries: [entry(NOTE, "file")] };
+    };
+    // Echoes the path, so a body cannot stand in for a note it is not.
+    actions[name("readNote")] = async (args: never) => ({
+      ...NOTE_BODY,
+      path: (args as { path: string }).path,
+    });
+  });
+
+  afterEach(() => {
+    unmount?.();
+    unmount = null;
+  });
+
+  /** Every `readNote` as it was actually sent: which bucket, which path. */
+  const reads = () =>
+    calls
+      .filter((c) => c.name === name("readNote"))
+      .map((c) => c.args as { workspaceId: string; path: string });
+
+  test("the rail's switch does not carry the open note into the new context", async () => {
+    unmount = mount(NOTE);
+    await settle();
+    await act(async () => setContext("w1"));
+    await settle();
+    expect(url).toBe(NOTE);
+
+    // `router.replace(hrefFor(next))` — `/console/@supa`, and nothing else.
+    await act(async () => switchTo("w2", null));
+    await settle();
+
+    expect(browser.contextId).toBe("w2");
+    // The bug: the URL was re-addressed with the note from the context that
+    // had just been left, and the console then opened it as a link.
+    expect(url).toBeNull();
+    expect(addressed).toEqual([]);
+    expect(browser.selectedPath).toBeNull();
+    expect(browser.notice).toBeNull();
+    expect(reads()).toEqual([{ workspaceId: "w1", path: NOTE }]);
+  });
+
+  test("the phone's switch opens the new context's own note, in the new context", async () => {
+    unmount = mount(NOTE);
+    await settle();
+    await act(async () => setContext("w1"));
+    await settle();
+
+    /*
+      `contextHrefFrom(slug)` — the path `@supa` was last left at. A note link
+      followed from outside (`/note/@supa/…`, which redirects to the canonical
+      console URL) arrives in exactly this shape, and must keep working: it is
+      an *address*, not a switch, and the difference is whose context the note
+      in it belongs to rather than whether the context changed.
+    */
+    await act(async () => switchTo("w2", THEIRS));
+    await settle();
+
+    expect(browser.selectedPath).toBe(THEIRS);
+    expect(browser.editor.path).toBe(THEIRS);
+    // One read, against the bucket the URL names. Before the fix the stale
+    // commit read `@supa`'s path out of `@seyi`'s workspace first.
+    expect(reads()).toEqual([
+      { workspaceId: "w1", path: NOTE },
+      { workspaceId: "w2", path: THEIRS },
+    ]);
+  });
+
+  test("a note that really is gone still says so, once", async () => {
+    /*
+      The other half of the requirement, and the reason this is a wait rather
+      than a rule about paths: a `?note=` naming a file the context does not
+      have must still land on the editor's own refusal — which is where a stale
+      link, a note deleted from another device and a hand-typed URL all land.
+      What it must not do is retry, oscillate, or clear the address it refused.
+    */
+    actions[name("readNote")] = async () => {
+      throw new ConvexError({ code: "FILE_NOT_FOUND", message: "That file does not exist." });
+    };
+
+    unmount = mount(null);
+    await settle();
+    await act(async () => setContext("w1"));
+    await settle();
+
+    await act(async () => switchTo("w2", THEIRS));
+    await settle();
+    await settle();
+
+    expect(browser.notice).toBe("That file does not exist.");
+    expect(browser.editor.path).toBeNull();
+    // The URL still names what was asked for, and was not written to on the
+    // way to the refusal: a person can correct it, or press Back.
+    expect(url).toBe(THEIRS);
+    expect(reads()).toEqual([{ workspaceId: "w2", path: THEIRS }]);
+  });
+
+  test("a switch back is a switch, not a link", async () => {
+    // Two contexts, three navigations, and the guard against a fix that simply
+    // never writes the URL again: `@seyi` is re-entered at its root, and
+    // tapping a note there still addresses it.
+    unmount = mount(NOTE);
+    await settle();
+    await act(async () => setContext("w1"));
+    await settle();
+
+    await act(async () => switchTo("w2", null));
+    await settle();
+    await act(async () => switchTo("w1", null));
+    await settle();
+
+    expect(browser.contextId).toBe("w1");
+    expect(browser.selectedPath).toBeNull();
+    expect(url).toBeNull();
+
+    await act(async () => {
+      browser.select(NOTE);
+    });
+    await settle();
+
+    expect(url).toBe(NOTE);
+    expect(addressed).toEqual([NOTE]);
   });
 });
