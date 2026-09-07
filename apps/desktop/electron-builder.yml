@@ -75,6 +75,19 @@ asar: true
 
 mac:
   category: public.app-category.productivity
+  # Stated, though `build/icon.icns` is also where electron-builder looks by
+  # default, because that implicit lookup is exactly what shipped Electron's
+  # own atom icon to the owner. With no icon configured and no file at the
+  # default path, electron-builder does not warn: it bundles its bundled
+  # `electron.icns` and writes that into `CFBundleIconFile`. The build passes,
+  # the dmg installs, Gatekeeper is happy, and the first anybody knows is the
+  # Dock — which is where it was found. Named here, a missing or misspelled
+  # file is a build failure instead of a wrong icon.
+  #
+  # Generated from `apps/mobile/assets/source/desktop-icon.svg` by the
+  # `generate.sh` beside it, which is the one command that regenerates every
+  # app asset. Edit the vector, never the .icns.
+  icon: build/icon.icns
   # `distribution`, not `development`: it decides which certificate
   # electron-builder looks for and which provisioning rules apply. It says
   # nothing about the Dock or the menu bar in either direction.
