@@ -1529,6 +1529,77 @@ exact flash `/console` stopped being the Map to remove.
 `consoleLanding.test.ts`'s "the Map is never mounted on the way through" is the
 test that fails.
 
+### A URL is a context and a note, and half of one is not an instruction
+
+"I'll change between workspaces and it will say file not found." Reported from a
+phone against the feature above, a week after it shipped, and the mirror was
+doing exactly what it was written to do.
+
+**A switch moves the URL first.** The rail replaces the address with
+`/console/@supa`, the phone's strip with `/console/@supa?note=<the path that
+context was last left at>`, and only then does the console layout select the
+context the URL names, and only then does `useFileBrowser` reset under it —
+parent effects after the route's, which is the same ordering `FileBrowser.contextId`
+already exists for. For those commits the console holds two honest values about
+two different places: the note comes from the **new** address and the open note
+belongs to the **old** context.
+
+`nextAddressStep` was given only the first of those, and paired it with the
+context out of the console's own state. So the rule reached its last clause —
+"a URL that merely lost its note is stale, and is re-addressed" — and wrote
+`@seyi`'s note onto `/console/@supa`. That URL then read back as a link into a
+context that has never had that file, `select` opened it, and the editor said
+*That file does not exist* to somebody who had pressed a workspace. On a phone
+it was worse than a wrong address: the strip carries the *new* context's note,
+so the same commit called `select` on one context's path while the browser was
+still pointed at the other's bucket.
+
+**And it did not stop at the address bar.** `/console/@:slug` records where
+somebody is so that a cold relaunch and the strip can come back to it, and it
+builds that record out of the URL. Handed a URL that had just been given the
+wrong note, it filed `@seyi`'s path under `@supa`'s slug — on the device, where
+the next navigation does not correct it. Every later switch to `@supa` restored
+a path `@supa` has never had. That is why the complaint was about switching
+*between* workspaces rather than about one bad navigation.
+
+So `urlContextId` is an input to the rule, and nothing is reconciled until the
+URL, the console and the file browser all name the same context. Three things
+about that are decisions:
+
+- **The URL's context, resolved against the list, and not the slug.** The rule
+  compares ids because that is what the other two sides are; `contextIdForSlug`
+  answers `null` for a slug the account cannot reach *and* for one whose list
+  has not landed, because both mean *do not act on this address yet* — and
+  telling them apart is `resolveContextRoute`'s job, which is the one place that
+  decides whether a dead link redirects.
+- **A deep link is not a switch.** `/console/@supa?note=…` typed, pasted, or
+  redirected from `/note/@supa/…` names `@supa` from its first commit, so it is
+  never the mismatched pair: it waits for the console to catch up and then opens
+  exactly what it names. The distinction is not "did the context change" — it is
+  *whose* context the note in this address belongs to.
+- **The record needs no second guard, because both halves come from the URL.**
+  `placeFor` takes the addressed note rather than the browser's selection, and
+  the slug beside it comes from the same address in the same commit, so the pair
+  cannot name two places unless the address itself is wrong. Adding an "and the
+  browser has arrived" flag was tried and reverted: measured, it changed nothing
+  a test could observe (the write it suppresses is repeated a commit later with
+  the same values), and a guard nobody has checked is not a guard.
+
+`v3` of the log's key is the other half of the fix and is a purge rather than a
+shape change. A poisoned entry cannot be told from a good one without a round
+trip to somebody's bucket — it is a real path under a real slug, and the only
+thing wrong with it is which context it names — so devices that already carry
+one are given a fresh file. It costs one navigation per context, which is what
+losing this record has always cost.
+
+`noteAddress.test.ts` drives the rule and `linkedNote.test.ts` the wiring
+against the real `useFileBrowser`; `contextSwitchRecord.test.ts` mounts the
+route and asserts the device, and reversing the rule puts `@seyi`'s note in
+`@supa`'s entry there — the reported bug, in a store, in a test. What still
+happens on purpose: a `?note=` naming a file the context genuinely does not have
+lands on the editor's own refusal and stays there, which is where a stale link,
+a note deleted from another device, and a hand-typed path all land.
+
 ### A note link is a path with a keyword in front, because a scheme has a host
 
 `context://note/@supa/1-projects/context-lc-file-page-persistence/overview.md`
@@ -1803,6 +1874,110 @@ console screen; neither is worth guessing at from a phone recording. What is
 already true is that content scrolls *under* the bar rather than being pushed by
 it, which is the reference's own behaviour — so what is being asked for is a
 hide-on-scroll, and it wants its own decision.
+
+### The palette is a navigator, the search page is a place, and one row joins them
+
+The command palette answers *"take me to that note"*: ten rows, no scrolling,
+gone the moment you press Enter. It is very good at that and it is the wrong
+shape for the other question people bring to a set of notes — *"what do we know
+about the review cycle"* — where the reader has no destination in mind, needs to
+read several results next to each other, will narrow the scope halfway through,
+and will open one, read it, and come back. Every one of those wants a URL, and
+none of them survives an overlay that closes on the first press.
+
+So `/console/search` exists and the overlay keeps its ten rows. What joins them
+is one row at the bottom of the palette's own list.
+
+**A row, not a button in the chrome.** The chrome is not on the path a keyboard
+takes: a "See all results" button beside the input is reachable by a mouse and
+invisible to the arrows, which is the same defect as a control drawn where a
+phone cannot see it. As the last row it is in the one flat list that `selected`,
+the wrap-around and the scroll arithmetic all walk — ↑ from the top reaches it
+in one keystroke, and with nothing matching it is the only row there is, which
+is exactly when "Enter opens the search page" is unambiguously what somebody
+meant. **Enter elsewhere still opens the highlighted note.** The obvious wrong
+implementation makes Enter always open the page; it looks correct until somebody
+presses ↓, which is why `paletteRender.test.ts` moves the highlight before it
+presses Enter.
+
+The synthetic row is intercepted inside the palette rather than handed to
+`onChoose`. A palette that leaked its own sentinel id to callers would have
+every caller writing the same guard, and the one that forgot would try to open a
+note named after it.
+
+**The handoff carries the query and deliberately not the scope.** The palette
+searched the context you are standing in; the page defaults to every context you
+can reach, because that is the question the page is for. Narrowing back to one
+is a chip away and lands in the URL when you do it.
+
+### The search page's state is its URL, and that is a trade taken on purpose
+
+`/console/search?q=review%20cycle&in=seyi,lk`. The route holds no state of its
+own: the pane reads the query and the scope as props and writes them back
+through the router. Typing `replace`s and changing the scope `push`es — pushing
+a history entry per keystroke would make Back a way to delete letters, while
+going back to the previous scope is a real thing to want.
+
+The cost is that the words somebody typed are in browser history, in anything
+they paste, and in any referrer a link from the page sends. It is worth it: a
+search page that cannot be reloaded, linked, or returned to after opening a
+result is a modal wearing a URL, and those are three of the four things people
+do with one. What makes the trade defensible is that it is bounded to text a
+person deliberately typed into a visible field — the *cursor* beside it carries
+a fingerprint of the query and never the query, because nobody reads a cursor
+and nobody chose to put one anywhere. See `docs/decisions/search.md`.
+
+**The scope is slugs and never workspace ids.** `?in=seyi,lk` is the console's
+own public addressing, the same as `/console/@seyi`, and a URL somebody may
+paste into a chat should not carry database identifiers. It also degrades
+usefully: a slug the recipient cannot reach resolves to nothing on their side,
+exactly as the server drops an id they cannot search, so a shared link narrows
+to whatever the reader can actually see rather than erroring.
+
+### Four ways to have no results, and each is a different sentence
+
+A page that spans several contexts has more ways to be empty than a palette
+does, and collapsing them is how a search tells somebody their notes are not
+there when nothing looked:
+
+- **Nothing is searchable** — no context this person can reach has fast search
+  on. `eligibleCount: 0` comes back from the server for exactly this, and it
+  outranks even "type something to search", because there is nothing to type
+  into. The copy points at the setting.
+- **The scope was narrowed** to contexts that had nothing. Widening is one press
+  away and the sentence says so.
+- **Everything was searched and nothing matched** — the only case where "no
+  matches" is true.
+- **Part of it could not be reached** — results from four contexts and a timeout
+  on the fifth, which is neither "no matches" nor a failed search. It is a
+  partial answer with a retry beside the row that failed, and the retry is the
+  same blended call narrowed to that one context, so it goes through the same
+  authorization and the same filter.
+
+A context whose index is still catching up gets its own line for the same reason
+the palette has an `indexing` state: a blended list is where "this context said
+nothing" is most easily misread as an answer, because the other contexts
+answering makes the silence look like a result.
+
+They are one enum in `features/console/search/results.ts` rather than a chain of
+ternaries in the pane, so each case is named, tested, and a fifth cannot fall
+silently into the "no matches" arm.
+
+### Search is in the app's navigation, and it disappears only on a measured zero
+
+It is app level rather than a context's, because the question spans contexts — a
+Search *inside* a context would default its scope to that one, which is the
+search that already lives behind the palette.
+
+The row is drawn only where something would answer it: a person whose contexts
+all have fast search off has a destination that can only apologise. But
+`appSectionsFor(undefined)` **draws** the row, and that asymmetry is the rule.
+The eligible count arrives from a Convex query a beat after the first paint, so
+treating absence as zero would make Search flicker into existence on every load,
+and a navigation item that appears late is one people learn not to look for. It
+also keeps the demo console and the reachability registry honest: neither has a
+live query behind it, and neither should have to fake one to draw the app's own
+navigation.
 
 ### The console autosaves, and the prompt that is left is about a decision
 

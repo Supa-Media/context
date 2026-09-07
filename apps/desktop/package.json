@@ -11,14 +11,18 @@
     "build": "node scripts/build.mjs",
     "test": "node --experimental-strip-types test/test.mjs",
     "typecheck": "tsc --noEmit",
-    "lint": "echo \"no lint configured yet\" && exit 0"
+    "lint": "echo \"no lint configured yet\" && exit 0",
+    "package": "node scripts/build.mjs && electron-builder --mac --config electron-builder.yml"
   },
   "dependencies": {
+    "@supa-media/context-hook": "workspace:*",
     "@context/meetings": "workspace:*"
   },
   "devDependencies": {
+    "@electron/notarize": "^3.0.0",
     "@types/node": "^22.0.0",
     "electron": "^33.2.0",
+    "electron-builder": "^26.0.0",
     "esbuild": "^0.24.0",
     "typescript": "~5.9.2"
   },

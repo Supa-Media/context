@@ -59,6 +59,35 @@ import { mergeHits, searchParams, searchSql, tablesForTier, toMatchExpression } 
 export const CHUNK_FETCH_CAP = 200;
 
 /**
+ * How far down a ranked list one answer may read.
+ *
+ * Ten is a palette and fifty is the whole list, and the number in between is
+ * whichever page a dedicated search page has scrolled to. Both callers share
+ * this clamp rather than each writing `Math.min` at its own call site, because
+ * the ceiling is not a rendering preference: `MAX_RESULTS` is where the *rank*
+ * is cut in `query.js`, so a caller asking for more than that would be handed a
+ * shorter list than it asked for and would reasonably read the shortfall as
+ * "there were no more matches". Asking for a deeper page than the ranking
+ * exists to fill is a bug in the caller, and this is where it stops being one.
+ *
+ * A page is deliberately a deeper slice of the SAME ranked list rather than a
+ * second query with an offset. `searchProjection` already merges every chunk
+ * row it fetched into one ordered list of notes, so reading further into it
+ * costs nothing — no second round trip, and no chance of the second page being
+ * ranked against a different corpus than the first.
+ *
+ * Anything that is not a positive number is the default rather than an error:
+ * every caller of this arrives from a wire, and a page size that failed to
+ * parse should draw ten results rather than none.
+ */
+export function pageDepth(limit) {
+  if (typeof limit !== "number" || !Number.isFinite(limit)) return SEARCH_RESULT_LIMIT;
+  const asked = Math.floor(limit);
+  if (asked < 1) return SEARCH_RESULT_LIMIT;
+  return Math.min(asked, MAX_RESULTS);
+}
+
+/**
  * Ask one context's projection.
  *
  * Returns `null` — never an empty result — for every case where the projection
@@ -195,6 +224,10 @@ export async function searchProjection(
  *   the two counts, for a caller with somewhere to log them. Their difference
  *   is how many matches this caller may not read — an operator's signal, and
  *   exactly the subtraction that must never be rendered.
+ * @param {number} [options.limit] how far down the caller wants to read, in
+ *   notes, clamped by `pageDepth`. Ten by default, which is every caller that
+ *   renders a palette. A dedicated search page reading a second page asks for
+ *   more of the SAME ranked list rather than a different one — see `pageDepth`.
  * @returns {Promise<{hits: {key: string, title: string, snippets: string[]}[],
  *   matchCount: number, matchCountIsFloor: boolean}|null>}
  *   `null` means **not answered** — a miss, a tier this build does not know, a
@@ -203,8 +236,18 @@ export async function searchProjection(
  */
 export async function answerFromProjection(
   client,
-  { query, prefix = "", tier, isVisible, budget = null, reserve = 0, onCounts = null } = {}
+  {
+    query,
+    prefix = "",
+    tier,
+    isVisible,
+    budget = null,
+    reserve = 0,
+    onCounts = null,
+    limit = SEARCH_RESULT_LIMIT,
+  } = {}
 ) {
+  const depth = pageDepth(limit);
   const result = await searchProjection(client, { query, prefix, tier, budget, reserve });
   if (!result) return null;
 
@@ -219,7 +262,7 @@ export async function answerFromProjection(
   if (visible.length === 0) return null;
 
   return {
-    hits: visible.slice(0, SEARCH_RESULT_LIMIT).map((note) => ({
+    hits: visible.slice(0, depth).map((note) => ({
       key: note.path,
       title: note.title,
       // One window rather than up to three whole lines: the projection stores

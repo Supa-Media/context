@@ -58,7 +58,7 @@ beforeEach(() => {
  * the two tests that say so.
  */
 async function storedLog(from: KeyValueStore): Promise<{ slug: string; note: string | null }[]> {
-  const raw = await from.get("context.lc.place.v2.visits");
+  const raw = await from.get("context.lc.place.v3.visits");
   return raw === null ? [] : JSON.parse(raw);
 }
 
@@ -119,30 +119,65 @@ describe("a record read back off a device is not trusted", () => {
     somebody's bucket, so it goes through `safeNotePath` on the way out exactly
     as a URL does.
   */
-  const KEY = "context.lc.place.v1.last";
+
+  /**
+   * The key the module actually reads, and one entry in the shape it holds.
+   *
+   * **This block used to write `context.lc.place.v1.last`,** the single-record
+   * key from before the log — so every case below set a key nothing reads and
+   * asserted `null`, which an empty store answers on its own. Five refusals,
+   * all green, none of them exercised: exactly the "a guard nobody has checked
+   * is not a guard" failure, and it survived a version bump because the
+   * constant was copied rather than imported. It is written through the same
+   * helper as the rest of the file now, so the next bump takes it too.
+   */
+  const seed = (record: unknown) =>
+    store.set("context.lc.place.v3.visits", JSON.stringify([record]));
 
   test("a traversal path is refused rather than repaired", async () => {
-    await store.set(KEY, JSON.stringify({ slug: "supa", note: "../../etc/passwd" }));
+    await seed({ slug: "supa", note: "../../etc/passwd" });
     expect(await recallPlace(store)).toBeNull();
   });
 
   test("a rooted path is refused", async () => {
-    await store.set(KEY, JSON.stringify({ slug: "supa", note: "/1-projects/a.md" }));
+    await seed({ slug: "supa", note: "/1-projects/a.md" });
     expect(await recallPlace(store)).toBeNull();
   });
 
   test("a slug that would build a different URL than it names is refused", async () => {
     for (const slug of ["../seyi", "supa/settings", "a?b", "@supa", "", "sup a"]) {
-      await store.set(KEY, JSON.stringify({ slug, note: null }));
+      await seed({ slug, note: null });
       expect(await recallPlace(store)).toBeNull();
     }
   });
 
   test("a record that is not a record is refused", async () => {
     for (const raw of ["", "null", "[]", "{", '"supa"', '{"note":"a.md"}', '{"slug":7}']) {
-      await store.set(KEY, raw);
+      await store.set("context.lc.place.v3.visits", raw);
       expect(await recallPlace(store)).toBeNull();
     }
+  });
+
+  test("a log written by the version before this one is not read at all", async () => {
+    /**
+     * The version segment doing the job it was bumped for. `v2` was written by
+     * a console that recorded the note open in the context being *left* under
+     * the slug of the one being switched to (`placeFor`), and nothing here can
+     * tell such an entry from a good one — it is a real path under a real slug,
+     * and the only thing wrong with it is which context it names. So the file
+     * is orphaned rather than parsed.
+     *
+     * Sign-out still takes it: `placeKeys` matches the namespace and not the
+     * version, because an orphaned record is still the name of one of
+     * somebody's notes sitting on a device.
+     */
+    await store.set(
+      "context.lc.place.v2.visits",
+      JSON.stringify([{ slug: "supa", note: "1-projects/a.md" }]),
+    );
+    expect(await recallPlaces(store)).toEqual([]);
+    expect(await recallPlace(store)).toBeNull();
+    expect(placeKeys(await store.keys())).toEqual(["context.lc.place.v2.visits"]);
   });
 
   test("a store that throws is a device that knows nothing", async () => {
@@ -401,7 +436,7 @@ describe("the log is ordered by recency, and it is the strip's order", () => {
       slug: `ctx-${index}`,
       note: null,
     }));
-    await store.set("context.lc.place.v2.visits", JSON.stringify(oversized));
+    await store.set("context.lc.place.v3.visits", JSON.stringify(oversized));
     expect(await recallPlaces(store)).toHaveLength(MAX_REMEMBERED_CONTEXTS);
   });
 
@@ -414,7 +449,7 @@ describe("the log is ordered by recency, and it is the strip's order", () => {
     // was the whole answer because the record was the whole store. Here that
     // would cost somebody the order of every context they have.
     await store.set(
-      "context.lc.place.v2.visits",
+      "context.lc.place.v3.visits",
       JSON.stringify([
         { slug: "good", note: "a.md" },
         { slug: "../etc", note: "b.md" },
@@ -428,7 +463,7 @@ describe("the log is ordered by recency, and it is the strip's order", () => {
   });
 
   test("a file that is not a list answers empty rather than guessing", async () => {
-    await store.set("context.lc.place.v2.visits", JSON.stringify({ slug: "seyi", note: null }));
+    await store.set("context.lc.place.v3.visits", JSON.stringify({ slug: "seyi", note: null }));
     expect(await recallPlaces(store)).toEqual([]);
     expect(await recallPlace(store)).toBeNull();
   });
@@ -449,7 +484,7 @@ describe("the log is ordered by recency, and it is the strip's order", () => {
     // press — so a traversal path parked in second place is a path that
     // reaches a request to somebody's bucket.
     await store.set(
-      "context.lc.place.v2.visits",
+      "context.lc.place.v3.visits",
       JSON.stringify([
         { slug: "seyi", note: "a.md" },
         { slug: "supa", note: "../../etc/passwd" },

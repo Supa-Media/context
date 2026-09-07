@@ -1,7 +1,7 @@
 /**
  * The whole surface a window has.
  *
- * Nine functions and one subscription, frozen. There is no generic `invoke`, no
+ * Twelve functions and one subscription, frozen. There is no generic `invoke`, no
  * `require`, no filesystem, and — the one that matters — no way to read the
  * gateway credential. A renderer in this app displays state and sends verbs;
  * everything else happens in the main process.
@@ -21,6 +21,7 @@ const api = {
     ipcRenderer.on(CHANNELS.state, (_event, state: UiState) => handler(state));
   },
   accept: (episode: string): void => ipcRenderer.send(COMMANDS.accept, episode),
+  record: (): void => ipcRenderer.send(COMMANDS.record),
   decline: (episode: string): void => ipcRenderer.send(COMMANDS.decline, episode),
   pause: (): void => ipcRenderer.send(COMMANDS.pause),
   resume: (): void => ipcRenderer.send(COMMANDS.resume),
@@ -30,6 +31,13 @@ const api = {
   setAskBeforeEveryMeeting: (value: boolean): void =>
     ipcRenderer.send(COMMANDS.setAskBeforeEveryMeeting, value),
   setBlocklist: (list: string[]): void => ipcRenderer.send(COMMANDS.setBlocklist, list),
+  /*
+    Connecting is a verb a window may send, and the credential is still not a
+    thing a window may see: this starts the flow in the main process and the
+    token never crosses back. There is no `getToken` here and there must not be.
+  */
+  connect: (): void => ipcRenderer.send(COMMANDS.connect),
+  disconnect: (): void => ipcRenderer.send(COMMANDS.disconnect),
 };
 
 export type ContextApi = typeof api;

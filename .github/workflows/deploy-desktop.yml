@@ -1,0 +1,152 @@
+name: Deploy Desktop (build the Mac app)
+
+# A `.dmg` of the meeting recorder, built on a Mac runner — signed and notarised
+# when the credentials exist, and honestly unsigned when they do not.
+#
+# ## Why nothing about a branch triggers it
+#
+# `workflow_dispatch` only, and the same reason `deploy-mobile-native.yml` gives:
+# this produces a **binary somebody installs**. A merge to `main` deploys the
+# Convex functions, the gateway and an OTA bundle because those are reversible
+# by the next merge; a build that a person downloads and runs is not, and
+# shipping one is a decision somebody takes. CLAUDE.md says it in as many words:
+# "a native build, a store submission, rotating a secret" are what a merge
+# cannot do on its own.
+#
+# The consequence, stated rather than discovered: **merging a desktop change
+# ships nothing.** Dispatch this when there is a build worth having.
+#
+# ## Signed or not, and what the difference costs
+#
+# Everything in this file works with no signing credentials at all, and that is
+# deliberate: the certificate and the App Store Connect key do not exist yet, and
+# a workflow that cannot run until they do is a workflow nobody tests. So the
+# unsigned path produces a real `.dmg` you can install on the machine that built
+# it — enough to prove the app opens, the tray appears, and the microphone path
+# works.
+#
+# What an unsigned build does **not** get, and this is the whole reason the
+# signed path matters:
+#
+#  - Gatekeeper refuses it on any other Mac.
+#  - macOS does not grant a hardened-runtime app TCC permissions it has not
+#    verified, so **system audio does not work** — the app degrades to mic-only
+#    and says so, which is the honest behaviour and not the intended one.
+#
+# The moment `CSC_LINK`, `CSC_KEY_PASSWORD`, `ASC_API_KEY_P8`, `ASC_KEY_ID` and
+# `ASC_ISSUER_ID` are in the `production` environment, the same dispatch signs,
+# notarises and staples with no change here: electron-builder reads the first
+# two itself, and `build/notarize.cjs` reads the other three and skips cleanly
+# without them.
+#
+# ## What this cannot check
+#
+# That the signature is trusted on somebody else's Mac, that notarisation
+# actually granted TCC, or that ScreenCaptureKit hands over system audio. All
+# three need a person, a Mac and a meeting. The artifact is what they need to do
+# that with.
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why this build exists — it goes in the run's title"
+        required: false
+        default: "a build to try on a Mac"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-desktop
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the Mac app
+    # macOS, and not optional: codesign, notarytool and dmg creation are all
+    # Apple's own tools. A Linux runner can produce a directory that looks like
+    # an app and nothing that installs.
+    runs-on: macos-latest
+    timeout-minutes: 45
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Scoped to the app and what it depends on. The desktop app has one
+      # runtime dependency (`@context/meetings`, bundled by esbuild) and its
+      # build tools; the rest of the workspace is not this build's business.
+      - name: Install
+        run: pnpm install --filter "./apps/desktop..." --frozen-lockfile
+
+      # Before anything is built. A `.dmg` of a broken app is worse than no
+      # `.dmg`, because somebody installs it.
+      - name: Test
+        working-directory: apps/desktop
+        run: node --experimental-strip-types test/test.mjs
+
+      - name: Typecheck
+        working-directory: apps/desktop
+        run: pnpm exec tsc --noEmit
+
+      - name: Say whether this build will be signed
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          if [ -n "${CSC_LINK:-}" ] && [ -n "${ASC_API_KEY_P8:-}" ]; then
+            echo "This build will be signed and notarised."
+          else
+            echo "::warning::No signing credentials — this build is UNSIGNED."
+            echo "It installs on the machine that built it and nowhere else, and"
+            echo "macOS will not give it system audio. Mic-only is expected."
+          fi
+
+      # electron-builder reads CSC_LINK / CSC_KEY_PASSWORD itself, and
+      # build/notarize.cjs reads the three ASC values. Every one of them is
+      # absent on a first run, and every consumer treats absent as "do the
+      # unsigned thing" rather than as an error.
+      - name: Build
+        working-directory: apps/desktop
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          # Without a certificate, electron-builder would otherwise try to find
+          # one in the runner's keychain and fail on a machine that has none.
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' }}
+        run: |
+          pnpm run build
+          pnpm exec electron-builder --mac --config electron-builder.yml
+
+      - name: What was produced
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          ls -la release/*.dmg
+          # `spctl` says whether Gatekeeper would accept this on another Mac. It
+          # is expected to refuse an unsigned build, so this reports rather than
+          # gates: a red X on an unsigned build is the truth, not a failure.
+          for dmg in release/*.dmg; do
+            echo "— $dmg"
+            spctl --assess --type open --context context:primary-signature -v "$dmg" 2>&1 || true
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: context-desktop-dmg
+          path: apps/desktop/release/*.dmg
+          if-no-files-found: error
+          # A build to try, not a release to keep. Long retention on an unsigned
+          # binary is how somebody installs last month's app.
+          retention-days: 14

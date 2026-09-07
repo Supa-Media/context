@@ -107,6 +107,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The rail's "New workspace" entry is a verb, and the claim entry is a gap
 - The rail splits on kind, and ownership is a mark on one row
 - The URL is a mirror of the open note, and the phone's copy of it is a pointer
+- A URL is a context and a note, and half of one is not an instruction
 - A note link is a path with a keyword in front, because a scheme has a host
 - A reference follows the note it points at, and a link is something you follow
 - The console autosaves, and the prompt that is left is about a decision
@@ -118,6 +119,11 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Nothing joins the call
 - Transcription is cloud on the paid tier and on-device on the free tier, and that seam is disclosed, not glossed
 - The cloud path knows _who_ is asking, opaquely, and the ceiling is the control plane's
+- The desktop is an OAuth client of the gateway, and it asks for the tier its meetings are filed at
+- A recorder that holds a grant transcribes at the gateway, and the meeting's own record is the ceiling
+- Pressing Record is the same yes, and the blocklist sees less of it
+- A microphone is never opened for a meeting nothing will transcribe
+- A chunk of audio is a whole file, and every recorder cuts on the same clock
 - A client-supplied id is bounded where it enters, not where it lands
 - The recorder is one interface with two implementations, and nothing above it knows which
 - The watch is a remote control, never a recorder
@@ -129,8 +135,21 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Ingestion is idempotent by construction, because losing signal is the normal case
 - The human's words are never rewritten, and the generated half is disposable
 - A meeting lands at an ordinary path, and nothing about it is namespaced
+- The Mac app is signed by a workflow nobody's branch can start, and builds honestly unsigned until then
 - What is deliberately not built
 - Consent is the customer's, and the product may never make recording invisible
+
+## [The desktop shell](./desktop.md)
+
+- The shell loads the hosted console, and keeps a mirror of the last good load
+- Sign-in stays in the page, the grant stays in the main process, and they are not the same credential
+- The bridge is a package, it is versioned, and the gateway may never import it
+- The main process survives whole; the renderer is what is deleted
+- The shell updates itself with `electron-updater`, and never during a meeting
+- Nothing that can start a recording may come from an origin we did not pin
+- Offline is what the outbox was always for, plus a tray that needs no page
+- The order is seven pull requests, and the first one changes nothing by default
+- What is deliberately not built
 
 ## [Obsidian plugins](./obsidian-plugins.md)
 

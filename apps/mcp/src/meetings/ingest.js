@@ -49,6 +49,7 @@ import {
 } from "../../../../packages/meetings/src/paths.js";
 import { normalizeFlag, normalizeTranscription } from "../../../../packages/meetings/src/session.js";
 import { SCOPE_READ, SCOPE_WRITE, hasScope } from "../session.js";
+import { transcribeChunk } from "./transcribe.js";
 import {
   LIMITS,
   MeetingRefusal,
@@ -90,6 +91,7 @@ const SUB_ROUTES = new Map([
   [suffixOf(ROUTES.segments), "segments"],
   [suffixOf(ROUTES.notes), "notes"],
   [suffixOf(ROUTES.finalize), "finalize"],
+  [suffixOf(ROUTES.transcribe), "transcribe"],
 ]);
 
 /**
@@ -349,7 +351,7 @@ function notesFrom(body) {
  * privacy bugs are made of. This module decides *what* Markdown to write and
  * where; `index.js` decides what writing it means.
  */
-export async function handleMeetings(request, path, store, session, { publishNote }) {
+export async function handleMeetings(request, path, store, session, { publishNote, transcribe = null }) {
   const route = matchMeetingRoute(path);
   if (!route) return json({ error: ERRORS.invalid, error_description: "no such meeting route" }, 404);
 
@@ -376,6 +378,15 @@ export async function handleMeetings(request, path, store, session, { publishNot
     if (request.method !== "POST") return methodNotAllowed();
     if (route.kind === "segments") return await appendSegments(request, store, route.id, tier);
     if (route.kind === "notes") return await replaceNotes(request, store, route.id, tier);
+    if (route.kind === "transcribe") {
+      /*
+        The one route whose request carries audio and whose answer is not an
+        `IngestAck`. The forwarder is injected exactly the way `publishNote` is,
+        and for the same reason: what it needs is a configured transcription
+        service, which belongs to the environment, and this module reads none.
+      */
+      return json(await transcribeChunk(request, store, session, route.id, transcribe));
+    }
     return await finalizeSession(request, store, session, route.id, publishNote);
   } catch (error) {
     if (error instanceof MeetingRefusal) return refusal(error);

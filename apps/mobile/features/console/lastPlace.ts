@@ -62,12 +62,25 @@ import { browseHref, landingHref, noteHref, safeNotePath } from "./nav";
  *
  * ## The version segment
  *
- * `v2`, for the reason `offline/keys.ts` argues at length: a shape change makes
+ * `v3`, for the reason `offline/keys.ts` argues at length: a shape change makes
  * old records unreachable rather than feeding them to a parser that no longer
  * understands them. This one is cheap to orphan — losing it costs one
  * navigation, not somebody's typing — so a bump here needs no ceremony beyond
- * changing the string. `v1` held the single record this log's head replaces;
- * `placeKeys` still matches it, so sign-out takes it and nothing reads it.
+ * changing the string. `v1` held the single record this log's head replaces
+ * and `v2` the log itself; `placeKeys` still matches both, so sign-out takes
+ * them and nothing reads them.
+ *
+ * **`v3` is a purge rather than a shape change, and that is the other thing the
+ * segment is good for.** `v2` was written while a switch could put the note
+ * from the context being *left* into the address of the one being entered
+ * (`noteAddress.ts`), and `placeFor` then recorded that address faithfully
+ * — so an entry from it can name one context and carry another's path. A
+ * poisoned entry cannot be told from a good one without a round trip to
+ * somebody's bucket: it is a well-formed path under a real slug, and the only
+ * thing wrong with it is that that context has never had that file. So the
+ * file is orphaned instead. It costs one navigation per context — the same
+ * thing losing this record has always cost — and it stops a shipped bug from
+ * outliving its fix on every device it already reached.
  *
  * The namespace is deliberately **not** `context.lc.offline`. That namespace's
  * `sweep()` deletes every key under it whose version segment is not current,
@@ -75,7 +88,7 @@ import { browseHref, landingHref, noteHref, safeNotePath } from "./nav";
  */
 
 const NAMESPACE = "context.lc.place";
-const VERSION = "v2";
+const VERSION = "v3";
 const KEY = `${NAMESPACE}.${VERSION}.visits`;
 
 /**
@@ -261,6 +274,19 @@ export async function forgetPlace(store: KeyValueStore): Promise<void> {
  * start puts them at the top of their first context instead of back in the note
  * they had open before the detour. The console redirects away from that URL a
  * moment later anyway, so what would be stored is a screen nobody was on.
+ *
+ * **Both halves come from the URL, and that is what keeps one context's path
+ * out of another's entry.** The slug and the note are read from one address in
+ * one commit, so they cannot name two different places — which is exactly what
+ * went wrong when something *else* wrote a stale note into that address:
+ * `?note=` was re-addressed with the note from the context being left, and this
+ * function then faithfully filed it under the slug of the one being switched
+ * to. Unlike the URL, which the next navigation corrects, the entry sits on the
+ * device: every later switch to `@supa` restored a path `@supa` has never had,
+ * and the console said "That file does not exist" for pressing a workspace.
+ * `noteAddress.ts` is where that is fixed and `contextSwitchRecord.test.ts` is
+ * what holds it here — pairing this with the browser's own selection instead
+ * would be the same bug from the other end.
  */
 export function placeFor(
   contexts: ReadonlyArray<{ slug: string }>,

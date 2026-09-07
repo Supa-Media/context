@@ -3,33 +3,71 @@
  *
  * Two streams, kept separate all the way to the transcript:
  *
- *  - **system audio** through `getDisplayMedia`, which the main process
- *    answers with `audio: "loopback"` — ScreenCaptureKit's system tap. The
- *    video track it is obliged to hand over is stopped immediately and never
- *    read: no frame is decoded, encoded, or written anywhere.
- *  - **the microphone** through `getUserMedia`.
+ *  - **the microphone** through `getUserMedia`. This is the one that works on
+ *    an unsigned development build, and it is the one the MVP is built on.
+ *  - **system audio** through `getDisplayMedia`, which the main process answers
+ *    with `audio: "loopback"` — Electron's binding for ScreenCaptureKit's
+ *    system tap. The video track it is obliged to hand over is stopped
+ *    immediately and never read: no frame is decoded, encoded, or written.
  *
- * Chunks go straight back to the main process and are never written to disk
- * here. There is no audio file: the note is the artefact.
+ * ## Rotation, not timeslicing — the bug this file used to have
  *
- * ## What is missing, precisely
+ * `MediaRecorder.start(TIMESLICE)` emits a blob every interval, and **only the
+ * first one carries the container's headers**. Every chunk after it is a
+ * fragment that no decoder and no transcription engine can read. This window
+ * did exactly that, streaming one-second fragments to a transcriber that did
+ * not exist yet — so nothing had ever tried to decode them. It would have
+ * transcribed the first second of every meeting and silence thereafter.
  *
- * This runs, and on a signed build with Screen Recording granted it produces
- * two streams of Opus chunks. What it does *not* have is anywhere for those
- * chunks to go — `core/capture/transcriber.ts` has no engine behind it yet. So
- * this file is honest wiring in front of a hole, and `README.md` says which.
+ * So a chunk is a whole recording: stop the recorder, collect its blobs, start
+ * a new one, hand the closed file over. The gap between the two is a few
+ * milliseconds of somebody still talking, which is the smaller cost and the
+ * same trade the phone and the web recorder already make (`SEGMENT_MS` and the
+ * argument for it live in `@context/meetings/chunks`, shared by all three).
+ *
+ * ## Nothing is written to disk, and the indicator cannot outlive the capture
+ *
+ * Chunks go straight back to the main process as bytes. There is no file, no
+ * object URL, and nothing in storage the browser keeps — "audio is transient"
+ * is satisfied by there being nothing to delete. On every exit path, including
+ * `beforeunload`, every track is stopped as well as every recorder: a stopped
+ * `MediaRecorder` over a live track is still a microphone macOS shows as in
+ * use, and this app must never be the orange dot that will not go away.
+ *
+ * ## System audio degrades, out loud
+ *
+ * An unsigned build asks macOS for the loopback tap and is given a stream with
+ * no audio track, or refused outright. That is a first-class outcome rather
+ * than a failure: the window reports it with `degraded`, keeps the microphone,
+ * and the panel says the far side of a call on headphones will not be in the
+ * transcript. It only fails the whole start when the *microphone* could not be
+ * opened, because that is a meeting with nothing in it.
  */
 
+import { SEGMENT_MS } from "@context/meetings/chunks";
 
-/** One chunk every this often. Small enough that a transcriber can stream. */
-const TIMESLICE_MS = 1_000;
+/** What we ask for, best first. The browser's own answer is what gets sent. */
+const MIME_CANDIDATES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+const FALLBACK_MIME = "audio/webm";
 
-const recorders: MediaRecorder[] = [];
-const streams: MediaStream[] = [];
-let startedAt = 0;
+interface Channel {
+  name: "mic" | "system";
+  stream: MediaStream;
+  recorder: MediaRecorder | null;
+  parts: Blob[];
+  /** Session time at the start of the open chunk. Arithmetic, never a clock. */
+  offsetMs: number;
+  /** Wall clock at the start of the open chunk, for a partial one at the end. */
+  startedAtMs: number;
+}
 
-async function open(channel: "mic" | "system"): Promise<MediaStream> {
-  if (channel === "mic") {
+const channels: Channel[] = [];
+let rotation: ReturnType<typeof setInterval> | null = null;
+/** One chain per window, so a rotation tick never overlaps itself. */
+let pending: Promise<void> = Promise.resolve();
+
+async function openStream(name: "mic" | "system"): Promise<MediaStream> {
+  if (name === "mic") {
     return navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     });
@@ -42,43 +80,148 @@ async function open(channel: "mic" | "system"): Promise<MediaStream> {
     display.removeTrack(track);
   }
   if (display.getAudioTracks().length === 0) {
-    throw new Error("macOS gave no system audio — Screen Recording is not granted to this build");
+    for (const track of display.getTracks()) track.stop();
+    throw new Error("no system audio track");
   }
   return display;
 }
 
-function record(channel: "mic" | "system", stream: MediaStream): void {
-  const recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
-  recorder.ondataavailable = (event) => {
-    if (event.data.size === 0) return;
-    void event.data.arrayBuffer().then((buffer) => {
-      window.capture.chunk(channel, Date.now() - startedAt, new Uint8Array(buffer));
-    });
+function pickMimeType(): string | null {
+  const supported = MediaRecorder.isTypeSupported;
+  if (typeof supported !== "function") return null;
+  for (const candidate of MIME_CANDIDATES) {
+    if (supported.call(MediaRecorder, candidate)) return candidate;
+  }
+  return null;
+}
+
+/** Open a new recording on a channel. Cheap, and the only place one starts. */
+function openChunk(channel: Channel): void {
+  const mimeType = pickMimeType();
+  const recorder =
+    mimeType === null ? new MediaRecorder(channel.stream) : new MediaRecorder(channel.stream, { mimeType });
+  channel.parts = [];
+  recorder.ondataavailable = (event: BlobEvent) => {
+    if (event.data.size > 0) channel.parts.push(event.data);
   };
-  recorder.start(TIMESLICE_MS);
-  recorders.push(recorder);
-  streams.push(stream);
+  recorder.start();
+  channel.recorder = recorder;
+  channel.startedAtMs = Date.now();
+}
+
+/**
+ * Close the open recording and hand it over as one complete file.
+ *
+ * The clock moves **first and unconditionally**: `durationMs` of session time
+ * passed whatever happens to the bytes, so a recorder that will not close must
+ * not make the rest of the meeting early. Same order as the phone's, for the
+ * same reason.
+ */
+async function closeChunk(channel: Channel, durationMs: number): Promise<void> {
+  const recorder = channel.recorder;
+  channel.recorder = null;
+  if (recorder === null) return;
+
+  const offsetMs = channel.offsetMs;
+  channel.offsetMs += durationMs;
+
+  const blob = await stopAndCollect(recorder, channel.parts);
+  channel.parts = [];
+  if (blob.size === 0 || durationMs <= 0) return;
+
+  const buffer = await blob.arrayBuffer();
+  window.capture.chunk({
+    channel: channel.name,
+    atMs: offsetMs,
+    durationMs,
+    // The browser's own answer, never our request.
+    mimeType: blob.type || recorder.mimeType || FALLBACK_MIME,
+    data: new Uint8Array(buffer),
+  });
+}
+
+function stopAndCollect(recorder: MediaRecorder, collected: Blob[]): Promise<Blob> {
+  const assemble = (): Blob =>
+    new Blob(collected, { type: recorder.mimeType || collected[0]?.type || FALLBACK_MIME });
+  if (recorder.state === "inactive") return Promise.resolve(assemble());
+  return new Promise<Blob>((resolve) => {
+    recorder.onstop = () => resolve(assemble());
+    try {
+      recorder.stop();
+    } catch {
+      resolve(assemble());
+    }
+  });
+}
+
+function queue(work: () => Promise<void>): Promise<void> {
+  // Both arms are `work`: a rejected chain must not swallow the next rotation.
+  pending = pending.then(work, work).catch(() => {});
+  return pending;
+}
+
+function startRotation(): void {
+  stopRotation();
+  rotation = setInterval(() => {
+    void queue(async () => {
+      for (const channel of channels) {
+        try {
+          await closeChunk(channel, SEGMENT_MS);
+        } finally {
+          // `finally`, because a chunk that could not be closed used to cost
+          // the interval after it as well — nothing was recording until the
+          // next tick, and that dead time was never added to the offsets.
+          openChunk(channel);
+        }
+      }
+    });
+  }, SEGMENT_MS);
+}
+
+function stopRotation(): void {
+  if (rotation !== null) clearInterval(rotation);
+  rotation = null;
 }
 
 function stopEverything(): void {
-  for (const recorder of recorders) {
-    if (recorder.state !== "inactive") recorder.stop();
+  stopRotation();
+  for (const channel of channels) {
+    if (channel.recorder && channel.recorder.state !== "inactive") {
+      try {
+        channel.recorder.stop();
+      } catch {
+        // Already gone. The tracks below are what actually matter.
+      }
+    }
+    channel.recorder = null;
+    for (const track of channel.stream.getTracks()) track.stop();
   }
-  // Tracks are stopped as well as recorders: a stopped MediaRecorder over a
-  // live track is still a microphone that macOS shows as in use, and this app
-  // must never be the orange dot that will not go away.
-  for (const stream of streams) {
-    for (const track of stream.getTracks()) track.stop();
-  }
-  recorders.length = 0;
-  streams.length = 0;
+  channels.length = 0;
 }
 
-window.capture.onStart(async ({ channels }) => {
+window.capture.onStart(async ({ channels: wanted }) => {
+  const degraded: string[] = [];
   try {
-    startedAt = Date.now();
-    for (const channel of channels) record(channel, await open(channel));
-    window.capture.ready();
+    for (const name of wanted) {
+      let stream: MediaStream;
+      try {
+        stream = await openStream(name);
+      } catch (error) {
+        if (name === "system") {
+          // The state every unsigned build is in. Recording continues from the
+          // microphone and the app says which half is missing.
+          degraded.push("system");
+          continue;
+        }
+        throw error;
+      }
+      const channel: Channel = { name, stream, recorder: null, parts: [], offsetMs: 0, startedAtMs: Date.now() };
+      openChunk(channel);
+      channels.push(channel);
+    }
+    if (channels.length === 0) throw new Error("no audio could be opened");
+    startRotation();
+    window.capture.ready(degraded);
   } catch (error) {
     stopEverything();
     window.capture.failed(error instanceof Error ? error.message : "capture failed");
@@ -86,18 +229,37 @@ window.capture.onStart(async ({ channels }) => {
 });
 
 window.capture.onPause(() => {
-  for (const recorder of recorders) {
-    if (recorder.state === "recording") recorder.pause();
-  }
+  void queue(async () => {
+    stopRotation();
+    for (const channel of channels) {
+      // The partial chunk is measured rather than assumed: a pause happens
+      // whenever somebody presses it, not on a rotation boundary.
+      await closeChunk(channel, Math.max(0, Date.now() - channel.startedAtMs));
+    }
+  });
 });
 
 window.capture.onResume(() => {
-  for (const recorder of recorders) {
-    if (recorder.state === "paused") recorder.resume();
-  }
+  void queue(async () => {
+    for (const channel of channels) openChunk(channel);
+    startRotation();
+  });
 });
 
-window.capture.onStop(() => stopEverything());
+window.capture.onStop(() => {
+  void queue(async () => {
+    stopRotation();
+    for (const channel of channels) {
+      try {
+        await closeChunk(channel, Math.max(0, Date.now() - channel.startedAtMs));
+      } catch {
+        // The bytes are lost; the tracks below are not optional.
+      }
+    }
+    stopEverything();
+  });
+});
+
 window.addEventListener("beforeunload", stopEverything);
 
 export {};

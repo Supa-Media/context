@@ -9,7 +9,7 @@ import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { leading } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import { APP_SECTIONS, type AppSectionKey } from "../nav";
+import { appSectionsFor, type AppSectionKey } from "../nav";
 import { relativeTime } from "../format";
 import { PaneHead } from "../ConsoleShell";
 import { atName } from "../format";
@@ -269,7 +269,14 @@ export function SettingsPane({
             This context, from further out
           </Text>
           <Card>
-            {APP_SECTIONS.map((section, index) => (
+            {/*
+              Search is drawn only where something would answer it — see
+              `appSectionsFor`. `data.searchableContexts` is `undefined` until
+              the query behind it has landed, and `undefined` draws the row: a
+              navigation item that appears a beat after the screen does is one
+              people learn not to look for.
+            */}
+            {appSectionsFor(data.searchableContexts).map((section, index) => (
               <Row key={section.key} divided={index > 0}>
                 <View style={styles.sectionRow}>
                   <View style={styles.sectionRowText}>
@@ -301,6 +308,7 @@ export function SettingsPane({
  * which on a settings page is a navigation somebody has to come back from.
  */
 const SECTION_BLURBS: Record<AppSectionKey, string> = {
+  search: "One search across every context you can reach, with a scope you can narrow.",
   map: "Every context you can reach, and every AI client connected to one, as a diagram.",
   connections: "The MCP endpoint, and the clients holding a grant. Revoke one without disturbing the others.",
 };

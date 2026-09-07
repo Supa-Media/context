@@ -59,6 +59,7 @@ import {
   resolveContextRoute,
   routeForPath,
   sameRoute,
+  searchHref,
   settingsHref,
   type ConsoleRoute,
 } from "../../../features/console/nav";
@@ -802,6 +803,26 @@ export default function ConsoleLayout() {
               "Nothing loaded matches that. Keep typing to search the rest of this context."
             }
             search={search}
+            /*
+              The handoff to the dedicated search page.
+
+              The overlay stays what it is — ten rows, no scrolling, gone on
+              the first press — and stops pretending to be the whole answer.
+              Somebody who is looking *up* a note is already done; somebody who
+              is reading *around* a subject presses this and gets a page with
+              scrolling, a scope they can change, and a URL that survives
+              opening a result and coming back.
+
+              The scope is deliberately not carried over. The palette searched
+              the context you are standing in; the page defaults to every
+              context you can reach, which is the question the page exists for.
+              Narrowing it back to one is a chip away and is in the URL when you
+              do it.
+            */
+            onSeeAll={(query) => {
+              setPaletteOpen(false);
+              router.push(searchHref(query));
+            }}
             onChoose={(item) => {
               setPaletteOpen(false);
               data.files.select(item.id);

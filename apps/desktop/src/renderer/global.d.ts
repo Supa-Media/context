@@ -19,6 +19,7 @@ declare global {
     context: {
       onState(handler: (state: UiState) => void): void;
       accept(episode: string): void;
+      record(): void;
       decline(episode: string): void;
       pause(): void;
       resume(): void;
@@ -27,15 +28,25 @@ declare global {
       title(title: string): void;
       setAskBeforeEveryMeeting(value: boolean): void;
       setBlocklist(list: string[]): void;
+      connect(): void;
+      disconnect(): void;
     };
     capture: {
       onStart(handler: (options: { channels: ("mic" | "system")[]; sampleRate: number }) => void): void;
       onPause(handler: () => void): void;
       onResume(handler: () => void): void;
       onStop(handler: () => void): void;
-      ready(): void;
+      /** Capture is running. `degraded` names the channels macOS would not give. */
+      ready(degraded: string[]): void;
       failed(message: string): void;
-      chunk(channel: "mic" | "system", atMs: number, data: Uint8Array): void;
+      /** One complete, self-contained audio file. Never a timeslice fragment. */
+      chunk(chunk: {
+        channel: "mic" | "system";
+        atMs: number;
+        durationMs: number;
+        mimeType: string;
+        data: Uint8Array;
+      }): void;
     };
   }
 }

@@ -247,6 +247,17 @@ export async function discover(endpoint, { fetchImpl = fetch } = {}) {
  * `redirectUriMatches` implements exactly that exception — because the port is
  * whatever the OS hands us at login time and cannot be known now.
  */
+/**
+ * The options are typed in JSDoc because a *second* consumer type-checks this
+ * file now: `apps/desktop` imports this module for the same flow, and TypeScript
+ * infers an options type from a bare destructuring pattern that omits every
+ * property without a default — so `clientName` did not exist as far as a
+ * checked consumer was concerned. Typed here rather than cast there, because a
+ * cast at the call site is a consumer asserting what this function takes.
+ *
+ * @param {{issuer: string, registrationEndpoint: string|null}} discovery
+ * @param {{clientName?: string, scope?: string, fetchImpl?: typeof fetch}} [options]
+ */
 export async function registerClient(
   discovery,
   { clientName, scope = HOOK_SCOPE, fetchImpl = fetch } = {}
