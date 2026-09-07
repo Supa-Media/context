@@ -93,6 +93,46 @@ export function runRecoveryChecks(check) {
     "...and the same for a session with no endedAt at all",
     checkFinalizeTimeout({ state: "finalizing", endedAt: null }, T0 + FINALIZE_TIMEOUT_MS * 5).action === "none"
   );
+  /*
+    The clock this reads is `endedAt` against the caller's `now`, which is wall
+    clock on both — so the two ways a real machine breaks that comparison are
+    worth pinning rather than assuming. A laptop asleep for an hour wakes with
+    a session that has "been finalizing" for an hour and was one second old
+    when the lid closed: it gets the one retry, which is the whole reason the
+    first sighting is never a failure. And a device whose clock is behind the
+    one that stamped `endedAt` reads a negative age, which is not stale.
+  */
+  check(
+    "a laptop that slept through the bound retries rather than failing a finalize it never got to try",
+    checkFinalizeTimeout(
+      { state: "finalizing", endedAt: new Date(T0).toISOString() },
+      T0 + 60 * 60 * 1000
+    ).action === "retry"
+  );
+  check(
+    "a session whose endedAt is in the future is not stale, however far ahead it is",
+    checkFinalizeTimeout(
+      { state: "finalizing", endedAt: new Date(T0 + 60 * 60 * 1000).toISOString() },
+      T0
+    ).action === "none"
+  );
+  check(
+    "a session that finalized as empty is terminal, and is never asked to fail on top of it",
+    checkFinalizeTimeout(
+      { state: "empty", endedAt: new Date(T0 - 999_999).toISOString() },
+      T0,
+      { retriedAt: T0 - 999_999 }
+    ).action === "none"
+  );
+  check(
+    "a session already failed is left alone rather than failed twice",
+    checkFinalizeTimeout(
+      { state: "failed", endedAt: new Date(T0 - 999_999).toISOString() },
+      T0,
+      { retriedAt: T0 - 999_999 }
+    ).action === "none"
+  );
+
   check(
     "a missing session is left alone rather than thrown on",
     attempt(() => checkFinalizeTimeout(null, T0)).threw === false &&

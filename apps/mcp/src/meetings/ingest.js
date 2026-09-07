@@ -662,7 +662,7 @@ async function finalizeSession(request, store, session, id, publishNote) {
     */
     if (hasNothingCaptured(next)) {
       const at = typeof body.endedAt === "string" ? body.endedAt : new Date().toISOString();
-      return assertSessionWithinLimits(fold(next, { type: "empty", at, reason: emptyReasonFrom(body) }));
+      return assertSessionWithinLimits(fold(next, { type: "empty", at, reason: emptyReasonFrom(body, next) }));
     }
     if (!next.notePath) {
       let candidate;
@@ -736,7 +736,20 @@ async function finalizeSession(request, store, session, id, publishNote) {
       });
     }
     if (fresh) {
-      const merged = fold(fresh.session, { type: "written", notePath: published.path });
+      /*
+        The other writer may have been a client's *own recovery* giving up on
+        this very finalize: `checkFinalizeTimeout` answers `fail` for a
+        finalize this slow, and a queued `fail` is an ordinary `session` write
+        that can land in exactly this window. The note is in the bucket by the
+        time we are here, so the record has to say so — folding `written` onto
+        a `failed` session would refuse the move, leave the note orphaned with
+        nothing pointing at it, and answer the client with a deterministic 400
+        it will park. `failed -> finalizing` is legal and is the same `end` the
+        claim folds; `reopenFailed` puts the meeting's own `endedAt` back
+        afterwards, so recovering a finalize never rewrites when it ended.
+      */
+      const reopened = fresh.session.state === "failed" ? reopenFailed(fresh.session) : fresh.session;
+      const merged = fold(reopened, { type: "written", notePath: published.path });
       /*
         A segment batch that landed between the claim and the note write is in
         the record and not in the file. Folding it into a receipt that drops the
@@ -784,6 +797,24 @@ function folderFlag(namedFolder, folder, notePath) {
 }
 
 /**
+ * Take a session a client's own recovery failed back to `finalizing`, without
+ * moving when the meeting ended.
+ *
+ * Only ever reached from the one window where it matters: the note is already
+ * in the customer's bucket and the record has changed underneath the claim.
+ * `end` is the legal `failed -> finalizing` move — the same one the claim
+ * folds — and it restamps `endedAt`, so the meeting's own end time is put back
+ * afterwards. It cannot simply be re-sent at the original timestamp: the
+ * reducer ignores a replayed `end` at or before the one it already folded,
+ * which would leave the session in `failed` and the note orphaned.
+ */
+function reopenFailed(session) {
+  const ended = session.endedAt;
+  const reopened = fold(session, { type: "end", at: new Date().toISOString() });
+  return typeof ended === "string" ? { ...reopened, endedAt: ended } : reopened;
+}
+
+/**
  * Why a session marked `empty` says it captured nothing.
  *
  * Client-supplied and capped — never trusted for *whether* a session is
@@ -795,8 +826,19 @@ function folderFlag(namedFolder, folder, notePath) {
  * build, or one with nothing to say — gets that sentence instead of an empty
  * one. Never quoted back to a client that sent something unusable, and there
  * is nothing here that could be: a truncation is not a refusal.
+ *
+ * **Except when this gateway itself took the audio.** `transcribedChunks` is
+ * spent before a byte is forwarded (`transcribe.js`), so a session carrying
+ * one has had audio through this process whatever came back — a transcription
+ * service that answered with nothing, or with an error, on every chunk. "The
+ * microphone was never granted" is then wrong in the one direction a person
+ * acts on: they would go looking at their permissions for a recording that
+ * really happened. The gateway's own knowledge wins over the device's guess
+ * here, which is what "the gateway's to accept or replace" means.
  */
-function emptyReasonFrom(body) {
+function emptyReasonFrom(body, session) {
+  const chunks = typeof session?.transcribedChunks === "number" ? session.transcribedChunks : 0;
+  if (chunks > 0) return "Audio was recorded, but none of it could be transcribed.";
   const raw = typeof body.emptyReason === "string" ? body.emptyReason.trim() : "";
   if (!raw) return "Nothing was captured during this meeting.";
   return raw.slice(0, LIMITS.emptyReasonChars);

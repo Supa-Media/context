@@ -571,6 +571,57 @@ export class MeetingsController {
     await this.sync();
   }
 
+  /**
+   * Take a meeting recovery gave up on back to `finalizing`, at the person's
+   * own request.
+   *
+   * **The other half of "retry once, then fail".** `recoverStaleFinalizes`
+   * ends at a `failed` session with a reason on the badge, and
+   * `MEETING_TRANSITIONS.failed` has allowed `failed -> finalizing` since a
+   * partial recording had to be writable out — but nothing in this app ever
+   * made that move, and `pendingSteps` only offers a `finalize` for a session
+   * in `finalizing`. So without this method a stuck finalize that timed out
+   * was not "failed until somebody retries", it was **never sent again**: a
+   * phone that lost signal for twenty minutes after a meeting kept the words
+   * somebody typed on the device permanently, behind a badge that said the
+   * meeting had failed and no control that did anything about it.
+   *
+   * `end` is the event, exactly as `end()` folds it: it moves `failed ->
+   * finalizing`, clears `failureReason` on the way through, and restamps
+   * `endedAt` — which is also the clock `checkFinalizeTimeout` reads, so a
+   * retry a person asked for gets its own full window rather than being
+   * failed again on the next tick. `retriedAt` is cleared with it, for the
+   * same reason `queueWrite` clears the desktop's copy: the one retry this
+   * session had spent belongs to the attempt that failed, not to this one.
+   *
+   * **`acked.finalized` is cleared too, and that is the half without which
+   * this method does nothing at all in the case it exists for.** The stuck
+   * meeting the owner reported is a gateway that *accepted* a finalize and
+   * never came back with a path — `sync.ts`'s "finalize accepted but no path
+   * came back" branch — and that acknowledgement is exactly what stops
+   * `pendingSteps` from offering the step again. Asking again is the whole
+   * request being made here, and the protocol is idempotent by construction:
+   * a second finalize on a session the gateway did write answers with the
+   * note it already wrote.
+   */
+  async retryFinalize(meetingId: string): Promise<void> {
+    const record = this.find(meetingId);
+    if (record === undefined || record.session.state !== "failed") return;
+    this.apply(meetingId, { type: "end", at: this.nowIso() });
+    const reopened = this.find(meetingId);
+    if (reopened !== undefined) {
+      this.put(
+        {
+          ...retrySync(reopened),
+          retriedAt: undefined,
+          acked: { ...reopened.acked, finalized: false },
+        },
+        { immediate: true },
+      );
+    }
+    await this.sync();
+  }
+
   /* --------------------------------- sync --------------------------------- */
 
   /**

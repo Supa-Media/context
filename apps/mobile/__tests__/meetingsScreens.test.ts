@@ -78,6 +78,8 @@ const { meetingKey } =
   require("../features/meetings/keys") as typeof import("../features/meetings/keys");
 const { MEETING_RECORD_VERSION, emptyAck } =
   require("../features/meetings/record") as typeof import("../features/meetings/record");
+const { FINALIZE_TIMEOUT_MS } =
+  require("../features/meetings/recovery") as typeof import("../features/meetings/recovery");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 /* -------------------------------------------------------------------------- */
@@ -621,6 +623,51 @@ describe("`saved` is said only when there is a path to print", () => {
     expect(mounted.container.textContent).not.toContain("Not in your bucket yet");
     expect(mounted.container.textContent).toContain("Nothing was captured");
     expect(mounted.container.textContent).toContain("Record again");
+    mounted.unmount();
+  });
+
+  /*
+    Nor is a `failed` session "not saved yet", and it is the sharper case of
+    the two: recovery's own `fail` is what puts a meeting there, and nothing
+    queues a finalize for a session that is not `finalizing`. So the screen
+    that told somebody it would be "sent as soon as your context answers" was
+    promising a send no code path was going to make.
+  */
+  test("a meeting recovery gave up on says it was not filed, and offers Retry", async () => {
+    const gateway = fakeGateway();
+    gateway.offlineFor(50);
+    await act(async () => {
+      meetings.reset();
+      await meetings.configure({
+        workspaceId: "ws-gave-up",
+        store: memoryStore(),
+        gateway,
+        recorder: fakeRecorder(),
+        device: { platform: "web" },
+        persistDebounceMs: 0,
+      });
+    });
+
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Stuck, then given up on" });
+      meetings.setNotes(id, "typed while the gateway was quiet");
+      await meetings.end();
+    });
+    await act(async () => {
+      // Retried once, then failed — the pure rule, driven with an explicit
+      // clock rather than a wait.
+      meetings.recoverStaleFinalizes(Date.now() + FINALIZE_TIMEOUT_MS);
+      meetings.recoverStaleFinalizes(Date.now() + FINALIZE_TIMEOUT_MS * 3);
+    });
+
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(mounted.container.textContent).not.toContain("Not in your bucket yet");
+    expect(mounted.container.textContent).not.toContain("Saved to your bucket");
+    expect(mounted.container.textContent).toContain("Not filed");
+    expect(mounted.container.textContent).toContain("Retry");
+    // And the words are still on the screen, which is what the Retry is for.
+    expect(mounted.container.textContent).toContain("typed while the gateway was quiet");
     mounted.unmount();
   });
 

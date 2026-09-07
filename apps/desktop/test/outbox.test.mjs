@@ -372,6 +372,50 @@ export function runOutboxChecks(check) {
         failed.entries.length,
     );
 
+    /*
+      "Retry once" has to survive the process, or a machine that crashes inside
+      the retry window grants a fresh retry on every launch and never reaches
+      the failure this exists to produce. `retriedAt` rides on the entry, and
+      the entry is JSON on disk, so this is the round trip `main/index.ts`
+      actually performs on launch — write, read back through `normalizeOutbox`,
+      recover.
+    */
+    check(
+      "the one retry survives a restart: it is on the entry, and the entry is on disk",
+      (() => {
+        const onDisk = normalizeOutbox(JSON.parse(JSON.stringify(retried)));
+        if (onDisk.entries[0]?.retriedAt !== T0 + FINALIZE_TIMEOUT_MS) return false;
+        const afterRelaunch = recoverStaleFinalize(onDisk, T0 + FINALIZE_TIMEOUT_MS * 2);
+        // Failed, not retried a second time — which is what a lost `retriedAt`
+        // would have produced, forever, one relaunch at a time.
+        return (
+          !afterRelaunch.entries.some((entry) => entry.kind === "finalize") &&
+          afterRelaunch.entries.some((entry) => entry.kind === "session")
+        );
+      })(),
+    );
+
+    check(
+      "a finalize parked on a refusal nobody looked at is recovered too, rather than parked forever",
+      (() => {
+        const parked = {
+          ...finalizing,
+          entries: finalizing.entries.map((entry) => ({
+            ...entry,
+            state: "parked",
+            parked: { code: ERRORS.invalid, message: "nobody has looked at this", noticedAt: T0 },
+          })),
+        };
+        const once = recoverStaleFinalize(parked, T0 + FINALIZE_TIMEOUT_MS);
+        const twice = recoverStaleFinalize(once, T0 + FINALIZE_TIMEOUT_MS * 2);
+        return (
+          once.entries[0]?.state === "pending" &&
+          !twice.entries.some((entry) => entry.kind === "finalize") &&
+          twice.entries.some((entry) => entry.kind === "session")
+        );
+      })(),
+    );
+
     check(
       "a finalize entry with no endedAt at all is left alone rather than failed for the wrong reason",
       (() => {

@@ -439,6 +439,39 @@ function Landing({ record }: { record: MeetingRecord }) {
     );
   }
 
+  /*
+    A `failed` session is not "not in your bucket *yet*" either, and for a
+    sharper reason than an `empty` one: recovery's own `fail` is what puts a
+    meeting here, `pendingSteps` offers a finalize only for a session in
+    `finalizing`, and so nothing sends this meeting again on its own. The
+    sentence says it was not filed, names the reason the badge carries, and
+    the control beside it is the `failed -> finalizing` the contract has
+    always allowed — the "Retry a person presses" this feature's decision
+    record promises.
+  */
+  if (session.state === "failed") {
+    return (
+      <View style={[styles.landing, styles.landingCrit]} testID="meeting-landing">
+        <Icon name="close" size={18} color={colors.crit} />
+        <View style={styles.landingText}>
+          <Text variant="mini" style={styles.landingCritTitle} testID="meeting-failed-reason">
+            Not filed: {session.failureReason ?? "the finalize did not complete."}
+          </Text>
+          <Pressable
+            onPress={() => void meetings.retryFinalize(session.id)}
+            accessibilityRole="button"
+            accessibilityLabel="Try filing this meeting again"
+            style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+            testID="meeting-retry-finalize"
+          >
+            <Icon name="plus" size={15} color={colors.text} />
+            <Text variant="mini">Retry</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
   if (session.notePath === null) {
     return (
       <View style={styles.landing} testID="meeting-landing">

@@ -12,7 +12,7 @@ import {
   meetingKeysForWorkspace,
   parseMeetingKey,
 } from "../features/meetings/keys";
-import { isSynced } from "../features/meetings/record";
+import { isSynced, pendingSteps } from "../features/meetings/record";
 import { FINALIZE_TIMEOUT_MS } from "../features/meetings/recovery";
 
 /**
@@ -535,6 +535,143 @@ describe("a session stuck finalizing is not left stuck", () => {
     // sighting past the bound is one more chance before giving up.
     expect(record.session.state).toBe("finalizing");
     expect(record.retriedAt).toBe(laterNow);
+  });
+});
+
+describe("a meeting recovery gave up on can still be filed", () => {
+  /*
+    The other half of "retry once, then fail", and the half a failed session is
+    worthless without: `pendingSteps` offers a `finalize` only for a session in
+    `finalizing`, so once recovery folds `fail` nothing in this app ever sends
+    that meeting again on its own. A phone that lost signal for twenty minutes
+    after a meeting would otherwise keep somebody's typed words on the device
+    permanently, behind a badge that said the meeting failed and no control
+    that did anything about it. `retryFinalize` is the `failed -> finalizing`
+    the contract has always allowed, at the person's own request.
+  */
+  async function stuckThenFailed() {
+    const gateway = fakeGateway();
+    gateway.offlineFor(1000);
+    const harnessed = await harness({ gateway });
+    const id = await harnessed.controller.start({ title: "Stuck, then given up on" });
+    harnessed.controller.setNotes(id, "the words this must not lose");
+    await harnessed.controller.end();
+    await settle();
+
+    harnessed.clock.advance(FINALIZE_TIMEOUT_MS);
+    harnessed.controller.recoverStaleFinalizes(harnessed.clock.now());
+    harnessed.clock.advance(FINALIZE_TIMEOUT_MS);
+    harnessed.controller.recoverStaleFinalizes(harnessed.clock.now());
+    return { ...harnessed, gateway, id };
+  }
+
+  test("nothing sends a failed meeting on its own, which is why the person's Retry has to exist", async () => {
+    const { controller, id } = await stuckThenFailed();
+    const record = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(record.session.state).toBe("failed");
+    // The proof that this is not "it will go out on the next sync": the queue
+    // this record offers has no finalize left in it.
+    expect(pendingSteps(record).some((step) => step.kind === "finalize")).toBe(false);
+  });
+
+  test("Retry takes it back to finalizing and the meeting lands in the bucket", async () => {
+    const { controller, gateway, id } = await stuckThenFailed();
+    // The network came back — which is the ordinary case for a meeting that
+    // failed because a laptop was in a lift, not because anything was wrong.
+    gateway.offlineFor(0);
+    await controller.retryFinalize(id);
+    await settle();
+
+    const record = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(record.session.state).toBe("complete");
+    expect(record.session.notePath).toBe(`0-inbox/meetings/${id}.md`);
+    expect(record.session.failureReason).toBeNull();
+    expect(record.session.notes).toBe("the words this must not lose");
+    expect(gateway.notesWritten()).toBe(1);
+  });
+
+  test("...and the retry gets its own full window rather than being failed on the next tick", async () => {
+    const { controller, clock, id } = await stuckThenFailed();
+    await controller.retryFinalize(id);
+    await settle();
+
+    const reopened = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(reopened.session.state).toBe("finalizing");
+    // The retry recovery already spent belonged to the attempt that failed.
+    expect(reopened.retriedAt).toBeUndefined();
+
+    clock.advance(FINALIZE_TIMEOUT_MS);
+    controller.recoverStaleFinalizes(clock.now());
+    const afterOneWindow = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(afterOneWindow.session.state).toBe("finalizing");
+    expect(afterOneWindow.retriedAt).toBe(clock.now());
+  });
+
+  test("the shape the owner actually reported: accepted, never written, and Retry asks again", async () => {
+    /*
+      A gateway that takes the finalize and never comes back with a path is
+      `sync.ts`'s "finalize accepted but no path came back" — a real state
+      while an enhancement runs, and the one this bug report was: two hours of
+      "Finalizing". The acknowledgement is what stops `pendingSteps` offering
+      the step again, so a Retry that did not clear it would be a button that
+      does nothing.
+    */
+    let finalizeCalls = 0;
+    const acceptsButNeverWrites = {
+      async putSession(_to: unknown, session: { id: string }) {
+        return { sessionId: session.id, state: "finalizing", segmentCount: 0, notePath: null, conflictSafe: true };
+      },
+      async putSegments(_to: unknown, id: string) {
+        return { sessionId: id, state: "finalizing", segmentCount: 0, notePath: null, conflictSafe: true };
+      },
+      async putNotes(_to: unknown, id: string) {
+        return { sessionId: id, state: "finalizing", segmentCount: 0, notePath: null, conflictSafe: true };
+      },
+      async finalize(_to: unknown, session: { id: string }) {
+        finalizeCalls += 1;
+        return { sessionId: session.id, state: "finalizing", segmentCount: 0, notePath: null, conflictSafe: true };
+      },
+      async list() {
+        return [];
+      },
+    } as unknown as FakeGateway;
+
+    const { controller, clock } = await harness({ gateway: acceptsButNeverWrites });
+    const id = await controller.start({ title: "Finalizing for two hours" });
+    controller.setNotes(id, "the decision from the meeting");
+    await controller.end();
+    await settle();
+    const accepted = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(accepted.session.state).toBe("finalizing");
+    expect(accepted.acked.finalized).toBe(true);
+    expect(pendingSteps(accepted).some((step) => step.kind === "finalize")).toBe(false);
+
+    clock.advance(FINALIZE_TIMEOUT_MS);
+    controller.recoverStaleFinalizes(clock.now());
+    clock.advance(FINALIZE_TIMEOUT_MS);
+    controller.recoverStaleFinalizes(clock.now());
+    expect(controller.getSnapshot().records.find((r) => r.session.id === id)!.session.state).toBe("failed");
+
+    const before = finalizeCalls;
+    await controller.retryFinalize(id);
+    await settle();
+    expect(finalizeCalls).toBe(before + 1);
+    expect(controller.getSnapshot().records.find((r) => r.session.id === id)!.session.notes).toBe(
+      "the decision from the meeting",
+    );
+  });
+
+  test("a meeting nobody failed is not reopened by it", async () => {
+    const { controller } = await harness();
+    const id = await controller.start({ title: "Perfectly fine" });
+    controller.setNotes(id, "typed");
+    await controller.end();
+    await settle();
+
+    await controller.retryFinalize(id);
+    const record = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    // `complete` is terminal and nothing returns from it, least of all this.
+    expect(record.session.state).toBe("complete");
   });
 });
 

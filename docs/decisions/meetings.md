@@ -2066,6 +2066,47 @@ the `retry` branch from either glue function and a session's first stale
 sighting is answered as already failed — a meeting whose gateway was one slow
 request from `complete` is told it failed for no reason at all.
 
+**Amended in review, before it merged: a failure nobody can undo is worse
+than a session that is still trying.** The paragraph above says the badge
+"changes to `Failed — <reason>` with a Retry a person presses", and the state
+table has allowed `failed -> finalizing` since a partial recording had to be
+writable out — but nothing in either client ever made that move.
+`pendingSteps` offers a `finalize` step only for a session in `finalizing`, and
+the desktop's recovery drops the stale entry outright, so the first version of
+this decision turned "stuck, and still trying every drain" into "failed, and
+never sent again": a phone with no signal for twenty minutes after a meeting
+kept the words somebody typed on the device permanently, behind a badge that
+named a failure and no control that did anything about it. That is a worse
+outcome than the bug being fixed, and it is why the retry is now code rather
+than a sentence: `MeetingsController.retryFinalize` folds the same `end` the
+contract already had (clearing `failureReason`, restamping `endedAt`, clearing
+`retriedAt` so a person's retry gets its own full window, and clearing
+`acked.finalized` — without which the button does nothing in the case it exists
+for, because a gateway that *accepted* a finalize and never came back with a
+path is the shape the owner actually reported, and that acknowledgement is what
+stops `pendingSteps` offering the step again), and
+`MeetingNoteScreen`'s `Landing` gains the `failed` branch that offers it —
+which also stops that screen telling a failed meeting it will be "sent as soon
+as your context answers", the same false promise the `empty` branch below
+exists to avoid. The checks are `nothing sends a failed meeting on its own,
+which is why the person's Retry has to exist`, `Retry takes it back to
+finalizing and the meeting lands in the bucket`, and `a meeting recovery gave
+up on says it was not filed, and offers Retry`.
+
+**And a client giving up races the gateway, which now ships a client that gives
+up on a schedule.** A queued `fail` is an ordinary `session` write, so it can
+land in the one window where the finalize has claimed a path and the note is
+not yet written. The note reaches the customer's bucket a moment later and the
+receipt's conditional write loses; folding `written` onto the `failed` record
+that replaced it is a move the table refuses, which used to answer 400 — a
+refusal the desktop outbox parks — and leave a real note in the bucket with
+nothing pointing at it. The rule is that **the bucket wins**: `reopenFailed` in
+`apps/mcp/src/meetings/ingest.js` takes the record back to `finalizing` through
+the same `end` the claim folds, puts the meeting's own `endedAt` back, and the
+receipt says `complete`. The check is `a client that gave up mid-finalize does
+not leave the note it raced orphaned`, and its two neighbours pin the note and
+the end time.
+
 ### A session that captured nothing is not filed
 
 The owner's other bug report, found on the same machine the same day: four
@@ -2146,6 +2187,29 @@ MeetingNoteScreen.tsx`'s `Landing` component, checked before the generic
 `notePath === null` branch so an empty session is never told "Not in your
 bucket yet, sent as soon as your context answers", which would be a promise
 this session can never keep.
+
+**Nothing is deleted, because there is nothing of a recording left to delete.**
+The question a review has to ask of a rule that files no note is whether it
+throws away a recording, and the answer is a property of the product rather
+than of this code: *audio is never persisted by us* — a chunk's file dies
+before the request carrying its contents (`The device is never waiting on the
+network`, above), no adapter writes audio to the bucket, and `empty` writes and
+deletes nothing at all: no note, no claim, and the session record itself stays
+readable with its reason. So the case that looks like data loss — a meeting
+whose audio was captured and whose transcription failed on every chunk, which
+is a defect this repository has had — is a meeting whose audio was already gone
+under every version of this rule. What `empty` costs it is the note that would
+have recorded that the meeting happened at all, and what it buys is that the
+person is told, in the app, instead of finding a blank file in their bucket.
+
+The one thing that must not survive that is a wrong sentence. A device's
+`emptyReason` is a guess about its own microphone, and on the path where **this
+gateway took the audio** it is a guess that is wrong in the direction somebody
+acts on — they go and check a permission for a recording that really happened.
+`transcribedChunks` is spent before a byte is forwarded, so the gateway knows,
+and its own sentence replaces the hint: `Audio was recorded, but none of it
+could be transcribed.` The check is `...but it is not told the microphone was
+the problem, because this gateway took the audio`.
 
 The checks are `hasNothingCaptured` and the `empty` event's own guard in
 `packages/meetings/test/session.test.mjs` (both halves required; a transcript
