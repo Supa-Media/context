@@ -72,7 +72,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/hook
       electron-updater:
-        specifier: ^6.3.9
+        specifier: 6.3.9
         version: 6.3.9
     devDependencies:
       '@electron/notarize':
