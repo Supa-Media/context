@@ -663,6 +663,14 @@ async function answerFromIndex(store, options) {
       listedAt: manifest.freshness.listedAt,
       shardsUnread,
       listingTruncated: manifest.freshness.truncated,
+      // Notes the index holds only part of, because the shard they belong in
+      // could not be stored whole (`shards.js`, `shedToFit`). Not the same
+      // fact as `pending` and it must not be read as one: `pending` resolves
+      // by running another pass, and this does not resolve at all until the
+      // note changes or the index is rebuilt with more room. In the trace and
+      // never in an answer, like every other count here — it is over the whole
+      // bucket, private notes included.
+      degraded: manifest.stats.reduce((total, entry) => total + (entry.degraded || 0), 0),
     },
   };
 }
