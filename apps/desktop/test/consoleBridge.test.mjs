@@ -407,8 +407,11 @@ export async function runConsoleBridgeChecks(check) {
     had appeared beside them — and this app grew its IPC surface three times in
     a day.
 
-    THIS IS THE THIRD SHAPE OF IT, and each earlier one was a lower bound
-    wearing an equals sign.
+    EVERY EARLIER SHAPE OF IT WAS A LOWER BOUND WEARING AN EQUALS SIGN, and
+    the count of shapes is deliberately not written down here: three separate
+    numbers for it were live in this file and in `docs/decisions/desktop.md` at
+    once, which is the same staleness this census exists to catch, in the prose
+    describing the census.
 
     The first read three files and one syntax. Measured, three forms grew the
     surface at 784 PASS / 0 FAIL: a registration in a file it did not read,
@@ -453,9 +456,10 @@ export async function runConsoleBridgeChecks(check) {
     /*
       TWO SCOPES, BECAUSE THE TWO CHECKS CAN DO DIFFERENT THINGS.
 
-      The raw count walks all of `src/`: a registration in
-      `src/core/evilRegistration.ts` was invisible at 987 PASS / 0 FAIL simply
-      because the directory was not walked, and a main-process module landing
+      The raw count walks all of `src/` and the bundled packages with it: a
+      registration in `src/core/` was measured invisible simply because the
+      directory was not walked, and so was one in `packages/desktop-bridge/src/`,
+      which esbuild pulls into this same bundle. A main-process module landing
       one level out is an accident rather than an attack. Counting bytes works
       anywhere, so there is no reason to stop at a boundary nobody maintains.
 
@@ -468,6 +472,21 @@ export async function runConsoleBridgeChecks(check) {
     */
     const srcDir = new URL("../src/", import.meta.url);
     const mainDir = new URL("../src/main/", import.meta.url);
+    /*
+      THE WALK IS THE BUNDLE, NOT THE DIRECTORY, and it took a review to say so.
+      `packages/desktop-bridge` and `packages/meetings` are imported by
+      `main/consoleBridge.ts` and `main/index.ts`, so esbuild pulls them into the
+      main-process bundle and a registration written in one is a registration in
+      the main process. Pointed at `src/` alone this census could not see them —
+      the same accident as "a main-process module one directory out of
+      `src/main`", which is what widening to `src/` was for, one level further
+      out. `contract.ts` already mentions the identifier in prose, which is why
+      the total below is 28 rather than 27.
+    */
+    const bundled = [
+      new URL("../../../packages/desktop-bridge/src/", import.meta.url),
+      new URL("../../../packages/meetings/src/", import.meta.url),
+    ];
 
     /*
       Strings out first, then comments. A regex that strips comments before
@@ -596,8 +615,8 @@ export async function runConsoleBridgeChecks(check) {
     /*
       THE ONE ASSERTION THAT CANNOT BE FOOLED BY LEXING, because it does not lex.
 
-      Four shapes of this census have had holes, and the last two were in the
-      lexer itself: a regex literal containing a quote swallowed the next
+      Every shape of this census so far has had holes, and two of them were in
+      the lexer itself: a regex literal containing a quote swallowed the next
       registration, and the regex/division rule added to fix that opened the
       mirror-image hole. `return /^[a-z']+$/i` divides — the character before
       the slash is the `n` of `return` — so the apostrophe opens string mode, a
@@ -615,12 +634,24 @@ export async function runConsoleBridgeChecks(check) {
       A guard that complains when the surface is DESCRIBED differently is
       cheaper than one that stays silent when the surface IS different.
 
-      WHAT IT STILL CANNOT SEE, said plainly rather than claimed away, because
-      five shapes of this census have each been described as exhaustive and none
-      was: **a registration that never spells the identifier.**
-      `electron["ipc" + "Main"].on(...)` passes, and no text scan will ever
-      catch it — the name is not in the bytes. Closing it needs a real import
-      graph, which is a build step this suite does not have.
+      WHAT IT STILL CANNOT SEE, said plainly rather than claimed away. Every
+      shape of this census so far has been described as exhaustive and none was,
+      so this list is what a reviewer MEASURED rather than what its author
+      believed:
+
+        - **a registration that never spells the identifier.**
+          `electron["ipc" + "Main"].on(...)` passes, and no text scan will ever
+          catch it — the name is not in the bytes.
+        - **an aliased receiver.** `const { ipc } = win.webContents;` followed by
+          `ipc.handle(...)` spells neither `ipcMain` nor `.ipc.`, and was
+          measured green. Telling that binding from any other `ipc` needs the
+          import graph this suite does not have.
+
+      Both need a real build step to close. What a review DID close, by
+      measuring the hole first: `handleOnce` and `addListener` (the method name
+      is no longer a list of three), and a registration in
+      `packages/desktop-bridge` or `packages/meetings` (the walk is the bundle
+      now, not this app's directory).
 
       So the claim is the smaller true one: **this guard is for the accident,
       not the adversary.** It catches a channel somebody adds without thinking
@@ -636,26 +667,51 @@ export async function runConsoleBridgeChecks(check) {
       `webContents.ipc` AND `webFrameMain.ipc` ARE IPC TOO, and neither spells
       `ipcMain`. They are Electron's documented way to scope a channel to one
       window, so a registration through them is idiomatic rather than obscure —
-      and it was invisible here at 987 / 0. The two inside `consoleBridge.ts`
-      are the guarded helpers; any third is new surface.
+      and it was invisible here until a review measured it.
+
+      THE METHOD NAME IS NOT ENUMERATED, and the first version of this check
+      enumerated it: `(?:on|once|handle)\(` is the three verbs somebody thought
+      of, and `IpcMain` also declares `handleOnce`, `addListener`,
+      `removeListener` and `off`. A review wrote `win.webContents.ipc.handleOnce(
+      …)` into this tree and it passed green. So the name is now `[A-Za-z_$][\w$]*`
+      — any member call on an `.ipc` receiver — which is a count of a surface
+      rather than a list of the parts of it anybody remembered.
     */
     let mentions = 0;
     let scoped = 0;
-    for (const file of walk(srcDir)) {
+    for (const file of [...walk(srcDir), ...bundled.flatMap(walk)]) {
       if (!/\.(?:[cm]?[jt]sx?)$/.test(file.pathname)) continue;
       const raw = readFileSync(file, "utf8");
       mentions += (raw.match(/\bipcMain\b/g) ?? []).length;
-      scoped += (raw.match(/\.ipc\.(?:on|once|handle)\(/g) ?? []).length;
+      scoped += (raw.match(/\.ipc\.[A-Za-z_$][\w$]*\(/g) ?? []).length;
     }
-    // 27 and not 25: widening to `src/` picks up two mentions in prose, in
-    // `core/shell/bridge.ts` and `core/shell/console.ts`, both comments about
-    // this very guard. That is exactly the false positive this check accepts by
-    // design — the number moves when the surface is DESCRIBED differently,
-    // which is cheaper than silence when it IS different.
-    check(`EVERY MENTION OF ipcMain UNDER src IS ACCOUNTED FOR — ${mentions} of 27`, mentions === 27);
+    // 28 and not 25: widening to `src/` picks up two mentions in prose, in
+    // `core/shell/bridge.ts` and `core/shell/console.ts`, and widening to the
+    // bundled packages picks up a third in `desktop-bridge/src/contract.ts` —
+    // all three comments about this very guard. That is exactly the false
+    // positive this check accepts by design: the number moves when the surface
+    // is DESCRIBED differently, which is cheaper than silence when it IS
+    // different.
     check(
-      `EVERY PER-WINDOW ipc REGISTRATION IS ONE OF THE BRIDGE'S TWO HELPERS — ${scoped} of 2`,
-      scoped === 2,
+      `EVERY MENTION OF ipcMain IN THE MAIN BUNDLE IS ACCOUNTED FOR — ${mentions} of 28`,
+      mentions === 28,
+    );
+    /*
+      Named for what it counts, after a review found the old name false twice
+      over. It said PER-WINDOW and there are no per-window registrations in this
+      tree: the two it matched are `deps.ipc.handle(` and `deps.ipc.on(` in
+      `consoleBridge.ts`, and `deps.ipc` is handed the **global** `ipcMain` at
+      `main/index.ts`. They match by shape. It also said "any third is new
+      surface", and the widened method name makes it five — the same two helpers
+      plus the bridge's own teardown calls, which are not registrations at all.
+
+      So the claim is the one this can actually carry: every `.ipc.` member call
+      in the main bundle is inside `consoleBridge.ts`, where the gate is. One
+      written anywhere else moves the number, whichever verb it uses.
+    */
+    check(
+      `EVERY .ipc. CALL IN THE MAIN BUNDLE IS INSIDE THE GUARDED BRIDGE — ${scoped} of 5`,
+      scoped === 5,
     );
 
     check(

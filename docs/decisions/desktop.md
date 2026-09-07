@@ -803,27 +803,38 @@ registration in that file passed at 916 / 0. Idiomatic TypeScript. Telling a
 regex from a division needs a parser, and this suite takes no dependencies.
 
 So the load-bearing check does not lex: it counts every occurrence of the
-identifier in the raw bytes of every file under `src/`, comments and strings
-included, and requires the total. A second count covers `webContents.ipc` and
-`webFrameMain.ipc` — Electron's documented way to scope a channel to one
-window, idiomatic, spelling no `ipcMain`, and invisible here until it was asked
-for. Walking `src/` rather than `src/main/` closes the other accident: a
-main-process module landing one directory out was simply not read.
+identifier in the raw bytes of every file the main-process bundle is built
+from, comments and strings included, and requires the total. Nothing about how
+a file lexes can move that number: writing the identifier in a new comment
+reddens it, and the fix is to update the number on purpose — **a guard that
+complains when the surface is described differently is cheaper than one that
+stays silent when the surface is different.** The classification stays as the
+diagnostic that names the offending mention.
 
-**It does not see a registration that never spells the identifier.**
-`electron["ipc" + "Main"].on(...)` passes, and no text scan will catch it;
-closing it needs a real import graph. Five shapes of this census have each been
-described as exhaustive and none was, so the claim is now the smaller true one:
-**this guard is for the accident, not the adversary.** Nothing about how a file lexes can move that number. Writing the
-identifier in a new comment reddens it, and the fix is to update the number on
-purpose — **a guard that complains when the surface is described differently is
-cheaper than one that stays silent when the surface is different.** The
-classification stays as the diagnostic that names the offending mention.
+A second count covers `webContents.ipc` and `webFrameMain.ipc` — Electron's
+documented way to scope a channel to one window, idiomatic, spelling no
+`ipcMain`, and invisible here until it was asked for. Two widenings, each made
+only after a review measured the hole rather than argued for it: the walk
+follows the **bundle** rather than this app's directory, because
+`packages/desktop-bridge` and `packages/meetings` are compiled into the same
+main process and a registration in either was not read; and the method name is
+any member call rather than the three verbs somebody thought of, because
+`handleOnce` and `addListener` are on the same interface and passed green.
 
-Four shapes of one census, three of them holes. The lesson worth keeping is not
-about lexers: it is that a guard which must understand a language is a guard
-that inherits every ambiguity of that language, and a cruder check with no
-ambiguity to inherit is worth more than a clever one.
+**Two things it still does not see, both measured rather than reasoned about.**
+A registration that never spells the identifier — `electron["ipc" + "Main"]
+.on(...)` passes, and no text scan will catch it. And an aliased receiver:
+`const { ipc } = win.webContents` followed by `ipc.handle(...)` spells neither
+name. Closing either needs a real import graph. Every shape of this census has
+been described as exhaustive and none was, so the claim is the smaller true one:
+**this guard is for the accident, not the adversary.**
+
+The lesson worth keeping is not about lexers: it is that a guard which must
+understand a language is a guard that inherits every ambiguity of that language,
+and a cruder check with no ambiguity to inherit is worth more than a clever one.
+The second lesson is newer and is about this file: every numbered claim about
+how many shapes the census has had went stale, including the one inside the
+paragraph warning that they go stale.
 
 That check is the answer to how this section came to describe a layer nobody had
 built. A guard tells you about the code it is pointed at; nothing was pointed at
