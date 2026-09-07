@@ -23,6 +23,7 @@
     "@codemirror/lang-javascript": "^6",
     "@codemirror/lang-markdown": "^6",
     "@codemirror/language": "^6",
+    "@codemirror/search": "^6",
     "@codemirror/state": "^6",
     "@codemirror/view": "^6",
     "@context/convex": "workspace:*",
