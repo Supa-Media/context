@@ -367,13 +367,13 @@ describe("the unlock session", () => {
 
   it("overwrites the key bytes it drops", () => {
     const live = new Uint8Array(32).fill(9);
-    let state = sessionReducer(initialSessionState, {
+    const unlockedState = sessionReducer(initialSessionState, {
       type: "unlocked",
       path: "a.md",
       key: live,
       at: 0,
     });
-    state = sessionReducer(state, { type: "lock" });
+    sessionReducer(unlockedState, { type: "lock" });
     expect(Array.from(live).every((byte) => byte === 0)).toBe(true);
   });
 });

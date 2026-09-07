@@ -88,7 +88,9 @@ describe("the envelope, in both runtimes", () => {
   it("agrees on what is an encrypted note, marker for marker", () => {
     const corpus = [
       VECTOR.document,
-      `﻿${VECTOR.document}`,
+      // A byte-order mark in front of the frontmatter: what a Windows editor
+      // leaves behind, and what both copies have to parse through.
+      `\u{FEFF}${VECTOR.document}`,
       PLAINTEXT,
       "",
       "---\ncontext_encryption: 1\n---\n\nno fence\n",

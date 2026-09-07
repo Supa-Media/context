@@ -235,7 +235,16 @@ function randomBytes(length: number): Uint8Array {
   return bytes;
 }
 
-const encoder = new TextEncoder();
+/**
+ * Encoding, per call rather than once at import.
+ *
+ * A module-level `new TextEncoder()` throws at *import* time in a runtime that
+ * has not got one, which turns "this device cannot open locked notes" into
+ * "this screen does not render" for every caller that merely imports a
+ * constant from here. The capability check in `kdf.ts` is where that answer
+ * belongs; a construction cost of nothing is what it costs to keep it there.
+ */
+const encode = (text: string): BufferSource => buf(new TextEncoder().encode(text));
 
 /**
  * A view widened to `BufferSource`.
@@ -257,9 +266,9 @@ export async function encryptForPassphrase(
   const iv = randomBytes(IV_BYTES);
   const ct = new Uint8Array(
     await subtle().encrypt(
-      { name: "AES-GCM", iv: buf(iv), additionalData: encoder.encode(aad) },
+      { name: "AES-GCM", iv: buf(iv), additionalData: encode(aad) },
       await aesKey(noteKey),
-      encoder.encode(plaintext),
+      encode(plaintext),
     ),
   );
   const recipient = await wrapNoteKey(noteKey, options);
@@ -283,7 +292,7 @@ export async function wrapNoteKey(
   const iv = randomBytes(IV_BYTES);
   const wrapped = new Uint8Array(
     await subtle().encrypt(
-      { name: "AES-GCM", iv: buf(iv), additionalData: encoder.encode(wrapAad(options.workspaceId)) },
+      { name: "AES-GCM", iv: buf(iv), additionalData: encode(wrapAad(options.workspaceId)) },
       await aesKey(options.kek),
       buf(noteKey),
     ),
@@ -318,7 +327,7 @@ export async function unwrapNoteKey(
         {
           name: "AES-GCM",
           iv: buf(assertIv(fromBase64Url(recipient.iv))),
-          additionalData: encoder.encode(wrapAad(workspaceId)),
+          additionalData: encode(wrapAad(workspaceId)),
         },
         await aesKey(kek),
         buf(fromBase64Url(recipient.wrapped)),
@@ -358,7 +367,7 @@ export async function decryptWithPassphrase(
       {
         name: "AES-GCM",
         iv: buf(assertIv(fromBase64Url(envelope.iv))),
-        additionalData: encoder.encode(envelope.aad),
+        additionalData: encode(envelope.aad),
       },
       await aesKey(noteKey),
       buf(fromBase64Url(envelope.ct)),
