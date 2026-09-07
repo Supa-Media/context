@@ -185,8 +185,48 @@ export interface PaletteProps {
    * nothing else — which is what "Move to…" and the quick switcher want.
    */
   search?: PaletteSearch;
+  /**
+   * Hand the query to a page that can show all of it.
+   *
+   * Absent for every palette that is a *navigator* — "Move to…" and the quick
+   * switcher are pickers over a list that is already complete, and there is no
+   * "all of it" to see. Present for the console's search, where ten rows is a
+   * deliberate cut of something longer.
+   *
+   * It is a row at the bottom of the same list the arrows walk, rather than a
+   * button in the chrome, and that is the whole design: Enter still opens the
+   * highlighted result, because that is what Enter has always done here and
+   * breaking it to reach a new page would be a worse trade than the page is
+   * worth. Walk to the last row — or press it — and Enter opens the page. With
+   * nothing matching, it is the only row there is, so Enter reaches it in one
+   * keystroke exactly when the overlay has failed to answer.
+   */
+  onSeeAll?: (query: string) => void;
   onChoose: (item: PaletteItem) => void;
   onDismiss: () => void;
+}
+
+/**
+ * The id of the "See all results" row.
+ *
+ * A real `PaletteItem` so it lives in the one flat `matches` array the arrows,
+ * the scroll arithmetic and Enter all walk — a row rendered outside that list
+ * would be a row the keyboard cannot reach, which is the same defect as a
+ * button drawn where a phone cannot see it. Prefixed so it cannot collide with
+ * a note path or a command name.
+ */
+export const SEE_ALL_ID = "\u0000see-all";
+
+/** The row, or `null` where there is nothing more to see. */
+export function seeAllItem(query: string, offered: boolean): PaletteItem | null {
+  const trimmed = query.trim();
+  if (!offered || trimmed === "") return null;
+  return {
+    id: SEE_ALL_ID,
+    label: `See all results for “${trimmed}”`,
+    detail: "Every context you can reach",
+    kind: "command",
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -332,6 +372,7 @@ export function Palette({
   emptyHeading,
   noMatchMessage,
   search,
+  onSeeAll,
   onChoose,
   onDismiss,
 }: PaletteProps) {
@@ -373,7 +414,26 @@ export function Palette({
    * One list for the arrows and for Enter, so a keyboard walks into the search
    * results rather than stopping at the last loaded note.
    */
-  const matches = useMemo(() => [...local, ...remote], [local, remote]);
+  /**
+   * One list for the arrows and for Enter, with the handoff as its last row.
+   *
+   * The row is appended here rather than rendered after the list so that
+   * `selected`, the wrap-around in `move`, and the scroll arithmetic all see
+   * it. Anything else makes it a row the mouse can press and the keyboard
+   * cannot reach.
+   */
+  const handoff = useMemo(
+    () => seeAllItem(query, onSeeAll !== undefined),
+    [query, onSeeAll],
+  );
+  const matches = useMemo(() => {
+    const rows = [...local, ...remote];
+    if (handoff === null) return rows;
+    return [
+      ...rows,
+      { item: handoff, score: 0, ranges: [] as readonly [number, number][] },
+    ];
+  }, [local, remote, handoff]);
 
   const onSearchQuery = search?.onQuery;
   useEffect(() => {
@@ -388,10 +448,20 @@ export function Palette({
    */
   const selected = matches.length === 0 ? -1 : Math.min(cursor, matches.length - 1);
 
+  /**
+   * Open what is highlighted.
+   *
+   * The handoff row is intercepted here rather than in `onChoose`, so a caller
+   * never has to know this row exists — a palette that leaked a synthetic item
+   * id into `onChoose` would have every caller writing the same guard, and the
+   * one that forgot would try to open a note called `\u0000see-all`.
+   */
   const choose = useCallback(() => {
     const match = matches[selected];
-    if (match !== undefined) onChoose(match.item);
-  }, [matches, selected, onChoose]);
+    if (match === undefined) return;
+    if (match.item.id === SEE_ALL_ID) onSeeAll?.(query);
+    else onChoose(match.item);
+  }, [matches, selected, onChoose, onSeeAll, query]);
 
   /**
    * Wraps, in both directions. The alternative — stopping dead at the ends —
@@ -576,7 +646,8 @@ export function Palette({
               touch={touch}
               onPress={() => {
                 setCursor(index);
-                onChoose(match.item);
+                if (match.item.id === SEE_ALL_ID) onSeeAll?.(query);
+                else onChoose(match.item);
               }}
               testID={`palette-row-${index}`}
             />

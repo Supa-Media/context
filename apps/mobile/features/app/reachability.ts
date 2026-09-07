@@ -395,7 +395,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         surface: "the app section list at the foot of a context's settings",
         control: {
           file: "features/console/panes/SettingsPane.tsx",
-          contains: ["APP_SECTIONS", "onPress={() => onOpenSection(section.key)}"],
+          contains: ["appSectionsFor", "onPress={() => onOpenSection(section.key)}"],
         },
         navigation: [
           {
@@ -422,6 +422,53 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     ],
   },
   {
+    route: "/console/search",
+    file: "app/(app)/console/search.tsx",
+    reachable: true,
+    from: [
+      {
+        surface: "the app section list at the foot of a context's settings",
+        control: {
+          file: "features/console/panes/SettingsPane.tsx",
+          contains: ["appSectionsFor", "onPress={() => onOpenSection(section.key)}"],
+        },
+        navigation: [
+          {
+            file: "app/(app)/console/[slug]/settings.tsx",
+            contains: ["router.push(appSectionHref(section))"],
+          },
+        ],
+        region: "screen",
+        densities: EVERY_DENSITY,
+      },
+      {
+        /*
+          The handoff out of the palette, and the reason the page exists in the
+          shape it does. The overlay is on every density — ⌘K on a pointer, the
+          bottom toolbar's search key on a phone — so this claim is too, and it
+          is the entry point somebody actually uses: they search, see ten rows,
+          and want the rest.
+
+          `See all results` is a row in the palette's own list rather than a
+          button in its chrome, which is what makes it reachable by the keyboard
+          as well as by a thumb. `Palette.tsx` is named as the control because
+          that is where the row is built; the layout is named as the navigation
+          because that is where the press becomes a URL.
+        */
+        surface: "“See all results”, the last row of the console's search palette",
+        control: {
+          file: "features/design/components/Palette.tsx",
+          contains: ["seeAllItem", "onSeeAll?.(query)"],
+        },
+        navigation: [
+          { file: CONSOLE_LAYOUT, contains: ["router.push(searchHref(query))"] },
+        ],
+        region: "screen",
+        densities: EVERY_DENSITY,
+      },
+    ],
+  },
+  {
     route: "/console/map",
     file: "app/(app)/console/map.tsx",
     reachable: true,
@@ -430,7 +477,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         surface: "the app section list at the foot of a context's settings",
         control: {
           file: "features/console/panes/SettingsPane.tsx",
-          contains: ["APP_SECTIONS", "onPress={() => onOpenSection(section.key)}"],
+          contains: ["appSectionsFor", "onPress={() => onOpenSection(section.key)}"],
         },
         navigation: [
           {

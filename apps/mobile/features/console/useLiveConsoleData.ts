@@ -165,6 +165,14 @@ export function useLiveConsoleData(): ConsoleData {
     () => ({
       workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} },
       invitations: { query: api.functions.invitations.listMyInvitations, args: {} },
+      // Which contexts a blended search would actually reach. It rides in the
+      // same spec for the reason `listMyInvitations` does — Convex dedupes
+      // identical subscriptions, so the search page subscribing to it as well
+      // is not a second round trip — and it is here rather than on the page
+      // because the *navigation* needs it: "Search" is drawn only where
+      // something would answer it. A failure is `undefined`, which draws the
+      // row, which is the same direction `SearchableContextCount` argues for.
+      searchable: { query: api.functions.fastSearch.searchableContexts, args: {} },
     }),
     [],
   );
@@ -182,6 +190,9 @@ export function useLiveConsoleData(): ConsoleData {
     specResults.invitations,
   );
   const workspaces = usable<WorkspaceSummary[]>(workspacesResult);
+  const searchableContexts = usable<Array<{ workspaceId: string }>>(
+    specResults.searchable,
+  )?.length;
   const failure =
     workspacesResult instanceof Error
       ? describeQueryFailure(workspacesResult, "your context")
@@ -468,6 +479,7 @@ export function useLiveConsoleData(): ConsoleData {
     invitations,
     selectedContextId,
     selectContext,
+    searchableContexts,
     graph,
     // Walking out of somebody else's context is the member's own move — the
     // server refuses it for owners (`OWNER_CANNOT_LEAVE`), so the rail only
