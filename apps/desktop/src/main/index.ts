@@ -673,12 +673,6 @@ async function main(): Promise<void> {
     */
     onSegment: (segment) => consoleBridge?.emitSegment(segment),
   });
-  // SCRATCH-VERIFICATION-ONLY: reconfigure() calls onChange() -> push(),
-  // which reads `controller` — moved here, after its declaration, so this
-  // is no longer a temporal dead zone. (This file is on a throwaway branch
-  // used only to prove the new CI gate goes green once the ordering is
-  // fixed; the real fix is a separate change.)
-  imessage.reconfigure();
 
   /*
     `__CONTEXT_DESKTOP_SIGNED__` is a build-time literal, not a live read of
@@ -844,6 +838,16 @@ async function main(): Promise<void> {
     },
     quit: () => app.quit(),
   });
+  // SCRATCH-VERIFICATION-ONLY, do not merge: reconfigure() calls onChange(),
+  // which calls push(), which reads both `controller` and `tray` — moved
+  // here, after both are initialized, so calling it is no longer a temporal
+  // dead zone on either. (First cut of this scratch fix moved the call to
+  // just after `controller` alone and still failed on hardware — a real
+  // macOS Actions run reported `ReferenceError: Cannot access 'tray' before
+  // initialization` instead, proving `push()` has more than one such
+  // dependency. The real fix for #329 is a separate change and should check
+  // every identifier `push()` and `uiState()` read, not just `controller`.)
+  imessage.reconfigure();
 
   /**
    * A verb somebody pressed in the shell's own UI, done and announced.
