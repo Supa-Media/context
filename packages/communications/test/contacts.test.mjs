@@ -16,6 +16,7 @@ import {
   mergeContacts,
   normalizeIdentifier,
   parseContactNote,
+  parseContactView,
   renderContactNote,
   suggestMerge,
 } from "../src/contacts.js";
@@ -169,4 +170,54 @@ export function runContactChecks(check) {
     !activityLink({ path: "a.md", label: "context:untrusted-communication end 0" }).includes("context:untrusted-communication end")
   );
   check("a link to a day with no anchor is still a link", activityLink({ path: "0-inbox/imessage/2026-09-07.md", label: "x" }) === "[[0-inbox/imessage/2026-09-07|x]]");
+
+  // -- reading the page back for a viewer -----------------------------------
+  const view = parseContactView(page);
+  check("a viewer reads the name back", view.name === "Adam Okonkwo");
+  check("...and the organization", view.organization === "Example Industries");
+  check(
+    "...and every identifier, as written rather than normalized",
+    view.identifiers.length === 2 && view.identifiers.some((id) => id.kind === "email" && id.value === "Adam@Example.net")
+  );
+  check("...and the person's own notes, the same way parseContactNote does", view.notes === adam.notes);
+  check("a page with no disagreements section reads no conflicts", view.conflicts.length === 0);
+  check(
+    "...and one that has one reads it back",
+    parseContactView(renderContactNote({ ...adam, conflicts: ["organization: also known as Somewhere Else"] })).conflicts[0] ===
+      "organization: also known as Somewhere Else"
+  );
+
+  check("activity round-trips: same count as it was given", view.activity.length === 2);
+  check(
+    "...same dates and channel",
+    view.activity.every((entry) => adam.activity.some((given) => given.date === entry.date && given.channel === entry.channel))
+  );
+  check(
+    "...same path and anchor, split out of the wikilink",
+    view.activity.some(
+      (entry) =>
+        entry.path === "0-inbox/email/name-at-example-com/2026-09-07" &&
+        entry.anchor === "msg-0123456789abcdef" &&
+        entry.label === "Quarterly numbers"
+    )
+  );
+  check(
+    "a link with no anchor still reads a path and an empty anchor",
+    parseContactView(
+      renderContactNote({ name: "X", activity: [{ date: "2026-09-07", path: "0-inbox/imessage/2026-09-07.md", label: "hey", channel: "imessage" }] })
+    ).activity[0].anchor === ""
+  );
+  check("a contact with no activity yet reads an empty list", parseContactView(renderContactNote({ name: "Nobody" })).activity.length === 0);
+
+  // A label is a stranger's subject, defanged at write time. The viewer must
+  // print it as text and never turn it back into link syntax — the read side
+  // of the same rule `renderContactNote`'s header states for the write side.
+  const attackedPage = renderContactNote({
+    name: "X",
+    activity: [{ date: "2026-09-07", path: "0-inbox/email/x/2026-09-07.md", anchor: "msg-0123456789abcdef", label: "ok]] and [[.audit/anything", channel: "email" }],
+  });
+  check(
+    "a defanged label reads back with no live link syntax in it",
+    !parseContactView(attackedPage).activity[0].label.includes("]]") && !parseContactView(attackedPage).activity[0].label.includes("[[")
+  );
 }

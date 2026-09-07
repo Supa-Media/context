@@ -148,9 +148,26 @@ export function browseHref(slug: string): string {
  * reads the segment after the context as a *view* name (`settings`). Putting a
  * note there would collide with that grammar; a query parameter is additive and
  * the parser already strips it.
+ *
+ * `anchor`, when given, is appended to `path` as `#anchor` before either is
+ * URL-encoded — **not** a second query parameter. This is the same shape a
+ * search result over a channel-day message already deep-links as
+ * (`apps/mcp/src/search/CONTRACT.md`, "What a search result carries for a
+ * hit, and the deep link": `<notePath>#<anchor>`, the shape a wikilink into
+ * one already uses) and the one `splitNoteAnchor`/`noteFromQuery`/
+ * `anchorFromQuery` below already read back apart — so a contact's activity
+ * link, a channel-day's own message list, and a per-message search hit all
+ * produce and consume one link shape rather than three. `encodeURIComponent`
+ * turns the `#` into `%23`, so it never becomes a literal URL fragment; see
+ * `docs/decisions/app-and-console.md`, *A note's anchor is a query
+ * parameter, not a URL fragment*. This third argument used to add its own
+ * `&anchor=…` instead — a second, independent read of `?anchor=` existed
+ * beside the one below until this was reconciled with the already-shipped
+ * search deep link, which is the version every reader here now agrees with.
  */
-export function noteHref(slug: string, path: string): string {
-  return `${browseHref(slug)}?note=${encodeURIComponent(path)}`;
+export function noteHref(slug: string, path: string, anchor?: string): string {
+  const target = anchor ? `${path}#${anchor}` : path;
+  return `${browseHref(slug)}?note=${encodeURIComponent(target)}`;
 }
 
 /**

@@ -33,6 +33,7 @@ export {
   defangLinks,
   defangOutsideFence,
   groupIntoThreads,
+  parseChannelDayMessages,
   parseChannelDayNote,
   planChannelDay,
   renderChannelDayNote,
@@ -49,6 +50,7 @@ export {
   mergeContacts,
   normalizeIdentifier,
   parseContactNote,
+  parseContactView,
   renderContactNote,
   suggestMerge,
 } from "./contacts.js";
