@@ -179,18 +179,34 @@ function tallyField(tokens, fieldIndex, into) {
 }
 
 /**
- * Index one note, replacing any existing entry for `path` — the old entry's
- * postings are removed first so a re-index never leaves stale term counts
- * behind.
+ * Index one note (or one channel-day sub-document), replacing any existing
+ * entry for `path` — the old entry's postings are removed first so a
+ * re-index never leaves stale term counts behind.
+ *
+ * `path` is the document's own key in `docs`/`terms` — a bucket path for an
+ * ordinary note, or `<notePath>#<anchor>` for one message inside a
+ * channel-day note (`search/commsIndex.js`, and CONTRACT.md's "Channel-day
+ * notes: one sub-document per message"). `notePath` and `anchor` are carried
+ * on the doc entry so every downstream consumer — visibility, snippet reads,
+ * the deep link a caller is shown — can tell a sub-document from the note it
+ * lives in without parsing the key: `path` can contain a `#` a real note
+ * might also contain, so the split is never inferred from the string.
  *
  * @param {ReturnType<typeof emptyIndex>} index
  * @param {string} path
- * @param {{etag: string, uploaded: string|null, content: string}} note
+ * @param {{etag: string, uploaded: string|null, content: string,
+ *   notePath?: string, anchor?: string|null,
+ *   comms?: {channel: string|null, date: string|null, threadId: string|null,
+ *     participants: string[]}|null}} note
  */
-export function addDoc(index, path, { etag, uploaded, content }) {
+export function addDoc(index, path, { etag, uploaded, content, notePath = path, anchor = null, comms = null }) {
   if (index.docs.has(path)) removeDoc(index, path);
 
-  const fields = extractFields(path, content);
+  // The real note's own path/basename decide the filename-fallback title and
+  // resolve relative links — never the sub-document key, whose `#anchor`
+  // suffix has no slash in it and would otherwise become part of a "title"
+  // no message actually carries.
+  const fields = extractFields(notePath, content);
   const tokensByField = [
     termsOf(fields.title),
     termsOf(fields.headings),
@@ -222,7 +238,28 @@ export function addDoc(index, path, { etag, uploaded, content }) {
       body: tokensByField[3].length,
     },
     rank: 0,
+    notePath,
+    anchor,
+    comms,
   });
+}
+
+/**
+ * Every existing doc whose containing note is `notePath` — one for an
+ * ordinary note, one per surviving message anchor for a channel-day note.
+ *
+ * Used ahead of a re-index so a note's sub-documents are replaced **exactly**:
+ * a message edited out of a regenerated day must not leave its old
+ * sub-document behind under an anchor `addDoc`'s own key-collision check never
+ * sees, because that anchor is not among the fresh keys being written.
+ *
+ * @param {ReturnType<typeof emptyIndex>} index
+ * @param {string} notePath
+ */
+export function removeDocsForNote(index, notePath) {
+  for (const [path, doc] of [...index.docs.entries()]) {
+    if (doc.notePath === notePath) removeDoc(index, path);
+  }
 }
 
 /**
@@ -250,6 +287,44 @@ function byFirst(a, b) {
 }
 
 /**
+ * A doc's `comms` metadata, ready for `JSON.stringify` — `null` for an
+ * ordinary note or a shard predating this field. Shared by both dialects
+ * (v1's `serializeIndex` and v2's `serializeShard`) so the shape cannot drift
+ * between them.
+ */
+export function serializeComms(comms) {
+  if (!comms || typeof comms !== "object") return null;
+  return {
+    channel: typeof comms.channel === "string" ? comms.channel : null,
+    date: typeof comms.date === "string" ? comms.date : null,
+    threadId: typeof comms.threadId === "string" ? comms.threadId : null,
+    participants: Array.isArray(comms.participants)
+      ? comms.participants.filter((p) => typeof p === "string")
+      : [],
+  };
+}
+
+/**
+ * The inverse of `serializeComms`. `{ ok: false }` for anything present but
+ * not a valid comms record — a shape violation the caller refuses the whole
+ * doc entry over, the same strictness every other field here gets — and
+ * `{ ok: true, comms: null }` for a value legitimately absent (an ordinary
+ * note, or an index predating this field).
+ */
+export function readComms(value) {
+  if (value === null || value === undefined) return { ok: true, comms: null };
+  if (typeof value !== "object" || Array.isArray(value)) return { ok: false, comms: null };
+  const { channel, date, threadId, participants } = value;
+  if (channel !== null && typeof channel !== "string") return { ok: false, comms: null };
+  if (date !== null && typeof date !== "string") return { ok: false, comms: null };
+  if (threadId !== null && typeof threadId !== "string") return { ok: false, comms: null };
+  if (!Array.isArray(participants) || !participants.every((p) => typeof p === "string")) {
+    return { ok: false, comms: null };
+  }
+  return { ok: true, comms: { channel, date, threadId, participants: [...participants] } };
+}
+
+/**
  * The bucket-stored JSON, per CONTRACT.md's "Serialized shape": arrays of
  * pairs (never keyed objects — the same prototype-pollution rule as the
  * in-memory shape), with entries sorted deterministically so what changed
@@ -270,6 +345,9 @@ export function serializeIndex(index) {
       links: [...doc.links],
       len: { ...doc.len },
       rank: doc.rank,
+      notePath: doc.notePath ?? path,
+      anchor: doc.anchor ?? null,
+      comms: serializeComms(doc.comms),
     },
   ]);
   const terms = [...index.terms.entries()].sort(byFirst).map(([term, postings]) => [
@@ -304,6 +382,13 @@ function readDocEntry(entry) {
   if (!isPlainObject(doc.len)) return null;
   if (!FIELD_ORDER.every((field) => isFiniteNumber(doc.len[field]))) return null;
   if (!isFiniteNumber(doc.rank)) return null;
+  // Three fields added for channel-day sub-documents (`search/commsIndex.js`),
+  // all optional so an index written before they existed still parses: absent
+  // means "an ordinary note", exactly what `addDoc`'s own defaults mean.
+  if (doc.notePath !== undefined && typeof doc.notePath !== "string") return null;
+  if (doc.anchor !== undefined && doc.anchor !== null && typeof doc.anchor !== "string") return null;
+  const { ok: commsOk, comms } = readComms(doc.comms);
+  if (!commsOk) return null;
   return {
     path,
     doc: {
@@ -318,6 +403,9 @@ function readDocEntry(entry) {
         body: doc.len.body,
       },
       rank: doc.rank,
+      notePath: typeof doc.notePath === "string" ? doc.notePath : path,
+      anchor: typeof doc.anchor === "string" ? doc.anchor : null,
+      comms,
     },
   };
 }
