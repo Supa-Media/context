@@ -73,6 +73,7 @@ import {
   type TranscriptSegment,
   type TrayCommand,
 } from "@context/desktop-bridge";
+import { originOfUrl } from "../core/shell/mirror.ts";
 
 /** An `IpcMainInvokeEvent`/`IpcMainEvent`, as much of one as the guard reads. */
 export interface BridgeSenderEvent {
@@ -106,8 +107,18 @@ export interface ConsoleBridgeView {
 
 export interface ConsoleBridgeDeps {
   ipc: IpcHost;
-  /** The origin the window was pinned to, from `consoleOrigin(consoleUrl(env))`. */
-  pinned: string;
+  /**
+   * The origin the window is pinned to *right now*.
+   *
+   * A getter rather than a value, because there are two origins this shell may
+   * legitimately be serving and only ever one at a time: the live console, and
+   * the offline mirror at `app://console`. `consoleMirror.ts` derives which
+   * from the URL the window has committed to (`pinnedOriginFor`), so falling
+   * back to the mirror moves the trust *instead of* widening it — a frame still
+   * claiming the live origin is refused the moment the mirror is being served,
+   * and a frame claiming the mirror is refused while the live page is loaded.
+   */
+  pinned: () => string;
   /** The console window, or `null` before it exists / after it is gone. */
   window: () => ConsoleWindowLike | null;
   shell: () => DesktopShell;
@@ -201,10 +212,19 @@ export function isBridgeSender(
 
   let origin = "";
   try {
-    // Both halves of this are inside the `try` on purpose: reading `senderFrame`
-    // can throw for a frame that has gone away, exactly as in `isConsoleFrame`,
-    // and `new URL` throws for the `url` of a frame that never settled.
-    origin = new URL(String(event.senderFrame?.url)).origin;
+    /*
+      Inside the `try` because reading `senderFrame` can throw for a frame that
+      has gone away, exactly as in `isConsoleFrame`.
+
+      `originOfUrl` rather than `new URL(...).origin`, and that is not tidying:
+      Node's URL answers `"null"` for `app://console/...` because it was never
+      told the scheme is standard, while Chromium — which *was* told, by
+      `registerSchemesAsPrivileged` — reports `location.origin` as
+      `app://console`. Written the obvious way, this guard refuses the offline
+      page the shell is itself serving, and the mirror loads with no bridge and
+      nothing to say about the queue.
+    */
+    origin = originOfUrl(event.senderFrame?.url);
   } catch {
     return false;
   }
@@ -285,8 +305,21 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     }
   };
 
+  /*
+    Read on every call, and never captured. A pin read once at construction is
+    a pin that keeps trusting the live origin after the shell has fallen back
+    to the mirror — and answers `app://console` with nothing.
+  */
+  const pinnedNow = (): string => {
+    try {
+      return deps.pinned();
+    } catch {
+      return "";
+    }
+  };
+
   const allowed = (event: BridgeSenderEvent): boolean =>
-    isBridgeSender(event, { webContentsId: windowId(), pinned: deps.pinned });
+    isBridgeSender(event, { webContentsId: windowId(), pinned: pinnedNow() });
 
   /** A handled channel: guarded, enveloped, and never throwing a sentence. */
   function handle<T>(channel: string, run: (payload: unknown) => T | Promise<T>): void {
@@ -343,7 +376,7 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     });
   }
 
-  answerSync(BRIDGE_CHANNELS.origin, () => deps.pinned);
+  answerSync(BRIDGE_CHANNELS.origin, () => pinnedNow());
   answerSync(BRIDGE_CHANNELS.shell, () => ({ ...deps.shell() }));
 
   handle(BRIDGE_CHANNELS.capabilities, () => ({ ...deps.capabilities() }));

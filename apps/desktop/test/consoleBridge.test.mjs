@@ -58,6 +58,8 @@
  *   the preload defaulting an unknown `kind` to `session`                     2
  *   an empty `context` read as this machine's own, in the main process        1
  *   ...and in the preload                                                     1
+ *   the bridge capturing the pin once instead of reading it per call         3
+ *   the sender check reading `app://console` as an opaque origin             1
  *
  * The identity row is 4 rather than 3 since the hidden capture window was
  * added as an attacker in its own right: it is the second window in this
@@ -77,6 +79,16 @@
  * shape that looks complete and is not. Neither is zero, so neither is
  * decoration, and neither subsumes the other.
  *
+ * The last two rows are about the offline mirror moving the pin. A bridge that
+ * read `deps.pinned()` once would keep trusting the live origin after the shell
+ * had fallen back to `app://console` — and answer the page it is itself serving
+ * with nothing. The second row is subtler and cost an afternoon: **Node's `URL`
+ * answers `"null"` for `app://console/...`**, because nothing told it the scheme
+ * is standard, while Chromium — which `registerSchemesAsPrivileged` did tell —
+ * reports `location.origin` as `app://console`. Written as `new URL(...).origin`
+ * the sender check reads the mirrored console as an opaque origin and refuses
+ * it; `originOfUrl` is the one place that difference is reconciled.
+ *
  * The unfrozen row reports three rather than one because `getDesktopBridge`
  * refuses an unfrozen bridge outright: the validator check goes red and so do
  * the two that read the object through it. That is the right shape — the
@@ -94,6 +106,7 @@ import {
 import { installDesktopBridge } from "../src/core/shell/bridge.ts";
 import { darwinMajorFrom, systemAudioCapability } from "../src/core/shell/capabilities.ts";
 import { createConsoleBridge, isBridgeSender } from "../src/main/consoleBridge.ts";
+import { MIRROR_ORIGIN } from "../src/core/shell/mirror.ts";
 import { CHANNELS, COMMANDS } from "../src/main/ipc.ts";
 
 const PINNED = "https://context.lc";
@@ -253,9 +266,12 @@ function mainBridge(overrides = {}) {
   const written = [];
   const window = overrides.window ?? fakeWindow();
   const ipc = fakeIpcMain();
+  // A getter, because the shell moves the pin to `app://console` when it falls
+  // back to the offline mirror. `overrides.pinned` lets a check move it.
+  let pinned = overrides.pinned ?? PINNED;
   const bridge = createConsoleBridge({
     ipc,
-    pinned: PINNED,
+    pinned: () => pinned,
     window: () => window,
     shell: () => ({ app: "Context", version: "0.1.0", platform: "macos" }),
     capabilities: () => {
@@ -297,7 +313,10 @@ function mainBridge(overrides = {}) {
     },
     ...overrides.deps,
   });
-  return { bridge, ipc, window, calls, written };
+  // `movePin` is how a check stages the shell falling back to the offline
+  // mirror: `consoleMirror.ts` derives the pin from the URL the window has
+  // committed to, and the bridge reads it on every call.
+  return { bridge, ipc, window, calls, written, movePin: (next) => { pinned = next; } };
 }
 
 /** Every channel the main process answers with `handle`. */
@@ -911,6 +930,61 @@ export async function runConsoleBridgeChecks(check) {
       "the console window off-origin is still told the pin — it is public, and the acting channels refuse it",
       wandered.returnValue === PINNED,
     );
+  }
+
+  /* --- the pin moves, and exactly one origin is trusted at a time -------- */
+
+  {
+    /*
+      The shell falls back to the offline mirror, so `app://console` is what it
+      is serving and the live origin is not. Both halves are checked, because a
+      pin that merely *added* the mirror would leave a window that has gone
+      offline still answering a frame claiming the origin it can no longer
+      reach — which is the one shape a stale renderer takes.
+    */
+    const { ipc, movePin } = mainBridge();
+    movePin(MIRROR_ORIGIN);
+    const mirrored = sender({ url: `${MIRROR_ORIGIN}/console` });
+    // Caught rather than awaited bare: a refusal here is a *throw*, and a check
+    // that lets it out reports zero failures by taking the run down with it.
+    let mirroredAnswer = null;
+    try {
+      mirroredAnswer = await ipc.handlers.get(BRIDGE_CHANNELS.outboxStatus)(mirrored, null);
+    } catch {
+      mirroredAnswer = null;
+    }
+    check(
+      "THE MIRRORED CONSOLE IS ANSWERED, so an offline page can say what is queued",
+      mirroredAnswer?.ok === true && mirroredAnswer.value.pending === QUEUE.pending,
+    );
+
+    let refused = false;
+    try {
+      await ipc.handlers.get(BRIDGE_CHANNELS.outboxStatus)(sender(), null);
+    } catch {
+      refused = true;
+    }
+    check("...AND THE LIVE ORIGIN IS REFUSED WHILE THE MIRROR IS THE ONE BEING SERVED", refused);
+
+    const event = sender({ url: `${MIRROR_ORIGIN}/console` });
+    ipc.listeners.get(BRIDGE_CHANNELS.origin)(event);
+    check("...and the pin the preload is told is the mirror's", event.returnValue === MIRROR_ORIGIN);
+  }
+
+  {
+    // And the other way round: the live page is loaded, so a frame claiming the
+    // mirror is somebody's idea rather than this shell's.
+    const { ipc } = mainBridge();
+    let refused = false;
+    try {
+      await ipc.handlers.get(BRIDGE_CHANNELS.outboxStatus)(
+        sender({ url: `${MIRROR_ORIGIN}/console` }),
+        null,
+      );
+    } catch {
+      refused = true;
+    }
+    check("A FRAME CLAIMING THE MIRROR IS REFUSED WHILE THE LIVE CONSOLE IS LOADED", refused);
   }
 
   /* --- and answers the console window ------------------------------------ */

@@ -470,6 +470,94 @@ What is honestly lost: a first launch with no network shows a failure page, not
 an app. And a cold *sign-in* needs the network, because the control plane is
 there — though recording does not, because the grant is on the machine.
 
+### Step 6 landed: one origin at a time, and a mirror that refuses data
+
+The mechanism is the one this document chose above — `app://console/` over the
+last good load — and the parts that were left as "a protocol handler" turned out
+to carry four decisions worth writing down.
+
+**The snapshot is taken after the load, never during it.** The alternative is
+intercepting every request the console makes and teeing the bodies, which puts
+the mirror on the path between a person and their app: a bug in it is a console
+that does not load *at all*, network or no network. So `did-finish-load` fires,
+the page is asked for its own resource list (`performance.getEntriesByType`),
+and each URL is re-fetched **with credentials omitted** through the console's
+own session. That last clause is not an optimisation: it is what makes "nothing
+per-person is mirrored" a property of the *request* rather than only of the
+response headers we then inspect. Redirects are `manual`, so a 3xx is a status
+`shouldMirror` refuses rather than a body from wherever it pointed — Electron
+documents `response.url` as unreliable for this fetch, and storing bytes under a
+path whose origin the process cannot verify is exactly the hole the origin rule
+exists to close.
+
+**What is refused is a closed set, and `/api` is in it.** A different origin, a
+non-`GET`, a non-`200`, anything under `/api`, anything carrying `Set-Cookie`,
+`Authorization` or `WWW-Authenticate`, anything whose `Cache-Control` says
+`no-store` or `private`, anything whose `Vary` says `Cookie` or `Authorization`,
+anything over 8 MB, and any content type the console is not made of. A mirror
+that took `/api` would be a copy of somebody's notes in an unencrypted directory
+*and* a stale answer to a question nobody asked; the note store and the outbox
+are where data offline lives, and they already work.
+
+**The mirrored page gets the bridge, and that is a moved pin rather than a wider
+one.** Without it the offline console cannot tell a person the one thing they
+need to know while the network is gone — that their meeting is *queued* — so
+`app://console` is a trusted origin. What keeps that honest is that
+**exactly one origin is trusted at a time**: `pinnedOriginFor` derives the pin
+from the URL the window has committed to, and `createConsoleBridge` reads it on
+every channel rather than capturing it. While the mirror is served, a frame
+claiming the live origin is refused; while the live page is loaded, a frame
+claiming the mirror is refused. `shouldExposeBridge` is unchanged and still
+compares two whole strings.
+
+One trap inside that, because it cost an afternoon and would be re-introduced by
+anybody writing the obvious line: **Node's `URL` answers `"null"` for
+`app://console/...`** — it was never told the scheme is standard — while
+Chromium, which `registerSchemesAsPrivileged` did tell, reports
+`location.origin` as `app://console`. A sender check written as
+`new URL(frame.url).origin` therefore refuses the very page this shell is
+serving, and `"null"` is the string every guard here refuses by name.
+`originOfUrl` is the single place the two processes are reconciled.
+
+**The mirror is disposable, and deletion is the only repair.** A different app
+version, a different origin, an unparsable manifest, a copy older than thirty
+days or one whose index is missing all delete the directory rather than patch
+it — CLAUDE.md's rule for every derivative, applied to a cache of somebody
+else's build. A snapshot is written into `pending/` and renamed over `current/`
+with the manifest written **last**, so a crash mid-save leaves the previous
+mirror rather than half a console.
+
+**The tests that fail if any of this is reversed** are in
+`apps/desktop/test/mirror.test.mjs`, with the counts: `A FAILED LOAD FALLS BACK
+TO THE MIRROR RATHER THAN TO A BLANK WINDOW`, `THE MIRROR IS NEVER SERVED FOR
+ANOTHER ORIGIN'S FAILED LOAD`, `A DIFFERENT ORIGIN IS NEVER MIRRORED`, `NOTHING
+UNDER /api IS MIRRORED`, `A RESPONSE CARRYING Set-Cookie IS NEVER MIRRORED`, `A
+MISSING ASSET IS A 404, NEVER THE PAGE`, `A MIRROR WRITTEN BY ANOTHER VERSION OF
+THIS APP IS NOT SHOWN`, and `A MANIFEST THAT WILL NOT PARSE DELETES THE MIRROR`.
+The pin's two directions are in `consoleBridge.test.mjs`: `THE MIRRORED CONSOLE
+IS ANSWERED` and `A FRAME CLAIMING THE MIRROR IS REFUSED WHILE THE LIVE CONSOLE
+IS LOADED`.
+
+**What a Mac has to confirm, because nothing here can.** Every check above runs
+without Electron, and four things consequently have never happened:
+
+- **A second launch with the network off shows the console, labelled.** Launch
+  once online (so a snapshot is taken), quit, turn the network off, launch
+  again: the window should show the app it showed before with the offline line
+  at the bottom of it, and `Try again` should reload the live URL.
+- **The mirrored page really has a bridge.** With the mirror showing, the
+  offline line should say what the queue is holding — that number comes from
+  `window.desktop.outbox.status()`, so a blank there means Chromium did not give
+  `app://console` a real origin and the preload refused, which is the failure
+  `registerSchemesAsPrivileged` exists to prevent.
+- **A first launch with no network shows the failure page and not a blank
+  window**, with a Retry that works once the network is back.
+- **The snapshot is a console and not a skeleton.** Expo's web export is a
+  document, a bundle and some assets; whether `performance.getEntriesByType`
+  names all of them on this build is a fact about Chromium, not about the
+  filter. `[mirror]` in the log, and the size of
+  `~/Library/Application Support/Context/mirror/v1/current`, are the evidence.
+
 ### The order is seven pull requests, and the first one changes nothing by default
 
 Each is shippable on its own and the first four are individually revertible by
@@ -502,7 +590,10 @@ one environment variable.
    `global.d.ts`, the dead half of `UiState`, three esbuild entry points.
    *(~-1,500 lines)*
 6. **The offline mirror.** `app://console/` over the last good load, the cached
-   badge, the first-run failure page. *(~250 lines)*
+   badge, the first-run failure page. *(~250 lines)* **Landed** — see "Step 6
+   landed: one origin at a time, and a mirror that refuses data" above, which
+   records the four decisions it turned out to carry and what a Mac still has to
+   confirm.
 7. **`electron-updater`.** The zip target, `publish: github`, a release job in
    `deploy-desktop.yml`, armed only when signed, never installing during a
    recording. *(~250 lines and a workflow)* **Landed** — see "Step 7 landed: a

@@ -25,6 +25,7 @@
 
 import { BrowserWindow, screen, shell } from "electron";
 import { join } from "node:path";
+import { MIRROR_ORIGIN } from "../core/shell/mirror.ts";
 
 export interface WindowSet {
   panel: BrowserWindow;
@@ -169,15 +170,24 @@ export function createConsoleWindow(url: string, rendererDir: string): BrowserWi
   /*
     Off-origin navigation is cancelled, and so is a target this process cannot
     parse — an unparseable URL is not a reason to let one through.
+
+    **Two origins are allowed and they are both this shell's own**: the console
+    it was pinned to, and `app://console`, which is served from this machine's
+    disk by `consoleMirror.ts` when the network is gone. The second is what
+    makes the offline page's Retry an ordinary link — it navigates back to the
+    live URL, and the mirrored console can reload itself without the shell
+    having to give it an IPC channel for it. What the page gets in either place
+    is still decided by the pin, which is one origin at a time.
   */
   win.webContents.on("will-navigate", (event, target) => {
-    let same = false;
+    let allowed = false;
     try {
-      same = new URL(target).origin === origin;
+      const targetOrigin = new URL(target).origin;
+      allowed = targetOrigin === origin || targetOrigin === MIRROR_ORIGIN;
     } catch {
-      same = false;
+      allowed = false;
     }
-    if (!same) event.preventDefault();
+    if (!allowed) event.preventDefault();
   });
   /*
     The console is never granted a media permission.

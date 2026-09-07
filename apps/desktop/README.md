@@ -25,8 +25,11 @@ src/core/        no Electron anywhere in it — this is what CI tests
   tray/            what the menu bar says, as a pure function
   update/          when to check, and when an update may install — never
                    during a recording
+  shell/           what the console window loads, which origin is pinned, and
+                   what may be mirrored for the times there is no network
 src/platform/    the macOS collectors — ps, System Events, ioreg, Calendar
-src/main/        Electron: tray, windows, IPC, capture window, disk
+src/main/        Electron: tray, windows, IPC, capture window, disk, and the
+                 offline mirror of the console (protocol handler + snapshot)
 src/preload/     the twelve verbs a window is allowed to send — no credential
 src/renderer/    the panel and the notepad, from the approved mockups
 test/            offline, no Electron, no network, no meeting required
@@ -70,6 +73,19 @@ four writes to `outbox.ts` over `meetings.write`, so it drains through the same
 queue as a recording somebody started from the menu bar with no window open. The
 shell's own controller does not queue for such a meeting (`queueWrites: false`)
 — one meeting is one writer.
+
+**It also keeps an offline mirror.** After a successful load the shell re-fetches
+what the page just loaded — through the console's own session, with credentials
+omitted — and keeps it under `mirror/v1/` in `userData`. When a load fails, the
+window is served from `app://console/` instead of going blank, with a line at
+the bottom saying it is a cached copy and what this machine's queue is still
+holding; a first run with no mirror gets an honest failure page with a Retry.
+What is never mirrored: another origin, anything under `/api`, anything carrying
+`Set-Cookie`/`Authorization`, anything the server marked `no-store`/`private` or
+`Vary`-ing on a cookie, and any redirect. The mirror is disposable — a new app
+version, a new origin or a manifest that will not parse deletes it rather than
+repairing it — and exactly one origin is pinned at a time, so the offline page
+being trusted means the live origin is not, and the other way round.
 
 `start` accepts `--fake-signals`, which runs the whole app against the
 deterministic collectors and the fake recorder and transcriber. That is how the
@@ -207,6 +223,16 @@ never quietly drop.
 - **An unsigned or dev build never checks at all.** `pnpm start` (unpackaged)
   and a dispatch with no certificate configured should both leave the tray
   silent about updates; `[update] not armed` in the log is the honest reason.
+- **A second launch with the network off shows the console, labelled offline.**
+  Launch once online so a snapshot is taken, quit, pull the network, launch
+  again: the window should show the app it showed before, with the offline line
+  at the bottom, a live count of what is queued on this machine, and a `Try
+  again` that reloads the real URL once the network is back.
+- **A first launch with no network shows the failure page**, not a blank window.
+- **The snapshot is a console and not a skeleton.** Whether Expo's export lists
+  every asset through `performance.getEntriesByType` is a fact about Chromium;
+  `[mirror]` in the log and the size of `mirror/v1/current` in the app's
+  `Application Support` directory are the evidence.
 
 ## Consent, because this app watches what you are doing
 
@@ -238,7 +264,7 @@ the settings file, put in a URL, or exposed to a renderer.
 
 ## What is real, and what is not
 
-### Real, and checked by the suite (625 checks, offline, no network)
+### Real, and checked by the suite (853 checks, offline, no network)
 
 - The detection loop against fake collectors, including the flicker cases: one
   poll of a conferencing app does not start a recording, a two-poll blip does
@@ -263,6 +289,14 @@ the settings file, put in a URL, or exposed to a renderer.
 - The console shell's origin pin: a foreign origin, a lookalike host, an opaque
   origin and a subframe each get no bridge, and the shell refuses to load a UI
   over plaintext from anything that is not really loopback.
+- **The offline mirror**, decision by decision and against a real temporary
+  directory: what may be copied (never another origin, never `/api`, never a
+  credentialed or per-person response), what a failed load means (the mirror for
+  this origin, an honest failure page with none, and *nothing* for another
+  origin's failure or an aborted load), which file answers a request (a missing
+  asset is a 404 rather than a page of HTML), that the mirrored console says it
+  is cached and reads the queue over the bridge, and that a mirror from another
+  app version or with an unparsable manifest is deleted rather than shown.
 - The bridge itself, both ends: the object the preload exposes is run through
   `getDesktopBridge()`, every subscription is proved to detach, every answer and
   every push is walked for anything credential-shaped, and the main process's
@@ -316,6 +350,11 @@ failures — and the checks were rewritten until each sabotage reports itself.
 - Whether macOS hands *this* build a system-audio track. It will not, until the
   app is signed and notarised — the app treats that as mic-only and says so
   rather than failing the meeting.
+- `src/main/consoleMirror.ts` — the privileged `app://` scheme, the protocol
+  handler, the post-load snapshot and the three `webContents` events. Everything
+  it decides is checked above; what only a Mac can show is whether Chromium
+  gives `app://console` a real origin (so the mirrored page gets a bridge) and
+  whether the snapshot is a whole console rather than a skeleton.
 - `src/main/updater.ts` — `electron-updater` itself, Squirrel.Mac's signature
   check, and the actual download and install. The policy it calls
   (`core/update/policy.ts`: when to check, when a download may install, never
