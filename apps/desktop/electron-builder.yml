@@ -1,0 +1,86 @@
+# What ships, and what macOS is told about it.
+#
+# ## Why electron-builder and not Forge
+#
+# The one thing this configuration exists to produce is a **signed, notarised,
+# hardened-runtime** app, because that is what stands between this app and
+# macOS handing it system audio. electron-builder does signing, entitlements,
+# notarisation and a dmg from one file with no plugin per step, and it reads
+# `CSC_LINK` / `CSC_KEY_PASSWORD` from the environment — which is what lets the
+# release workflow build unsigned today and signed the day a certificate exists,
+# with no change to this file. Forge would be a maker plus a plugin per concern
+# for the same result.
+#
+# The framework's own desktop package (`@supa-media/desktop`, supa-framework#56)
+# is not published yet and this app does not depend on it. When it is, the right
+# move is to adopt whatever it expects rather than to keep two answers — this
+# file is small on purpose so that is a deletion.
+#
+# ## The Info.plist strings are the product, not boilerplate
+#
+# `NSMicrophoneUsageDescription` and `NSAudioCaptureUsageDescription` are the
+# sentences macOS shows in the permission dialog, and they are the only thing a
+# person reads before deciding whether this app may hear their meeting. They say
+# what is captured and what happens to it. `NSCalendarsUsageDescription` is the
+# same for the detector, which reads events to name a meeting and correlate one.
+#
+# ## What is deliberately not here
+#
+# No auto-updater, no publish target, no code-signing identity. A release is a
+# `.dmg` a person downloads; shipping updates is a decision with a hosting bill
+# and a signing-key rotation story attached, and it is not this change.
+
+appId: lc.context.desktop
+productName: Context
+copyright: MIT licensed — see LICENSE
+
+directories:
+  output: release
+  buildResources: build
+
+# `dist/` is what esbuild produced; `node_modules` is not copied because this
+# app has no runtime dependencies — `@context/meetings` is bundled into the main
+# process by esbuild, which is also why `asar` has nothing to unpack.
+files:
+  - dist/**/*
+  - package.json
+
+asar: true
+
+mac:
+  category: public.app-category.productivity
+  # A menu-bar app with no dock icon. Without this macOS puts it in the dock and
+  # in the app switcher, which is not what a tray app is.
+  type: distribution
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  extendInfo:
+    LSUIElement: true
+    NSMicrophoneUsageDescription: >-
+      Context records the meetings you ask it to. Your microphone is opened only
+      after you press Take notes or Record, and the audio is transcribed and
+      thrown away — the note is what is kept, in the storage you own.
+    NSAudioCaptureUsageDescription: >-
+      Context captures this Mac's own audio so the other people in a call are in
+      the transcript without a bot joining it. It is opened only for a meeting
+      you started recording, and the audio is never saved.
+    NSCalendarsUsageDescription: >-
+      Context reads your calendar to notice when a meeting starts and to name it.
+      Event details are used on this Mac and are never sent anywhere.
+
+# The hook is `afterSign` rather than `afterAllArtifactBuild` because
+# notarisation happens on the signed `.app`, before it is put in a dmg. It
+# no-ops cleanly when there is nothing to notarise with; see build/notarize.cjs.
+afterSign: build/notarize.cjs
+
+dmg:
+  # Nothing custom: the default window with the app and an Applications alias.
+  # A background image is a design decision nobody has taken.
+  writeUpdateInfo: false
