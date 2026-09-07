@@ -743,6 +743,41 @@ The guard that matters is still the one on the door — `shouldExposeBridge`, th
 navigation refusal, and the per-channel sender check — because a page that is
 not the pinned origin never reaches any of this.
 
+**A drain does not freeze the queue, so its outcome is re-applied rather than
+assigned.** Found reviewing this stack: `main/index.ts` did
+`outbox = report.outbox` after a drain, and a drain is a snapshot plus a network
+round trip. Everything queued in between — a segment spoken, a line typed in the
+notepad, a write the console handed over — was silently dropped, *after* the
+thing that queued it had been told the write was accepted. On this path that is
+a false acknowledgement in the exact words the section above forbids:
+`meetings.write` answered `queued: true` about a note the queue no longer held.
+`reconcileDrain` puts the drain's outcome back on the queue as it now stands —
+an entry queued during the flight is kept, an entry acknowledged and unchanged
+is removed, an entry that *gained* content while its predecessor was in flight
+stays (what the gateway acknowledged is not what the queue is holding, and
+re-sending is safe because segments merge on a stable id and every route
+upserts), and a refusal keeps its parked flag over whatever content arrived
+since. Drains are also chained rather than overlapped now, because there are two
+callers: the timer, and every finalize the console hands over. **The tests that
+fail if this is reversed** are `outbox.test.mjs`'s *"A WRITE QUEUED DURING A
+DRAIN SURVIVES IT"* and *"AN ENTRY THAT GAINED CONTENT MID-FLIGHT IS NOT DELETED
+BY THE OLD ACK"* — assigning the snapshot again takes four checks red.
+
+**Absent is an address; unreadable is not; and no boundary may collapse the
+two.** `routableContext` draws that line in the queue — `null` is this machine's
+own context, which is where everything the tray records goes, and a name it
+cannot read is refused rather than dropped from the front of the URL — and both
+halves of the bridge were quietly undoing it: the preload turned `""` into
+`null` and defaulted a `kind` it did not recognise to `"session"`. Each is a
+value the guard that owns the queue never gets to refuse, and each chooses
+something: a default `kind` posts a body to a collection nobody named, and an
+empty context read as "none" files the meeting in whatever context the
+credential defaults to — the silent wrong-tenant write this whole section is
+about. Both now cross as they were given and are read against the closed sets in
+the process that owns the credential. **The checks**: *"A KIND THE CONTRACT DOES
+NOT NAME IS NOT REWRITTEN INTO ONE THAT ROUTES"* and *"AN EMPTY CONTEXT IS NOT
+THIS MACHINE'S OWN"*.
+
 **What is regained.** Everything `convexGateway.ts` lists as lost on the page's
 path — the enhancement pass, the session record under `.meetings/`,
 `list_meetings` — comes back on the desktop, because this is the client the

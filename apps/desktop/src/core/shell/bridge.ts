@@ -47,7 +47,6 @@
 import {
   BRIDGE_CHANNELS,
   BRIDGE_VERSION,
-  MEETING_WRITE_KINDS,
   NO_CAPABILITIES,
   TRAY_COMMANDS,
   capabilitiesFrom,
@@ -63,7 +62,6 @@ import {
   type DetectionView,
   type MeetingWrite,
   type MeetingWriteAck,
-  type MeetingWriteKind,
   type OutboxStatus,
   type StartCaptureRequest,
   type TranscriptSegment,
@@ -435,13 +433,33 @@ export function desktopBridge(ipc: PreloadIpc): DesktopBridge {
           four: the shell puts the body on the wire unread, so a `kind` it did
           not recognise would be a route nobody agreed to.
         */
-        const kind = (write as { kind?: unknown })?.kind;
-        const asked: MeetingWrite = {
+        /*
+          `kind` and `context` cross as they were given, and neither is repaired
+          here. This file runs in the renderer, so a value it "fixes" is a value
+          the guard in the main process never gets to refuse — and both of these
+          choose an address:
+
+           - a `kind` outside the four is a **route**, and defaulting it to
+             `session` would turn a page's mistake into a body posted to a
+             collection nobody named;
+           - an **empty** `context` is not the same as an absent one. Absent
+             means this machine's own context and is a correct address;
+             a name that cannot be read is `UNROUTABLE` in `routableContext` and
+             is refused. Collapsing `""` to `null` here would make it mean "my
+             own context", which is the silent wrong-bucket write that whole
+             function exists to prevent.
+
+          So they are carried and `consoleBridge.ts` reads them against the
+          closed sets, in the process that owns the queue and the credential.
+        */
+        const asked = {
           sessionId: text((write as { sessionId?: unknown })?.sessionId),
-          kind: MEETING_WRITE_KINDS.includes(kind as MeetingWriteKind)
-            ? (kind as MeetingWriteKind)
-            : "session",
-          context: sentence((write as { context?: unknown })?.context),
+          kind: text((write as { kind?: unknown })?.kind),
+          context:
+            (write as { context?: unknown })?.context === null ||
+            (write as { context?: unknown })?.context === undefined
+              ? null
+              : text((write as { context?: unknown })?.context),
           body: record((write as { body?: unknown })?.body),
         };
         return ask(ipc, BRIDGE_CHANNELS.meetingsWrite, asked, (value) =>

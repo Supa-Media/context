@@ -226,7 +226,15 @@ function meetingWriteFrom(payload: unknown): MeetingWrite | null {
   return {
     sessionId,
     kind: source.kind as MeetingWriteKind,
-    context: typeof source.context === "string" && source.context !== "" ? source.context : null,
+    /*
+      An **empty** context is carried rather than read as "none", and the
+      difference is the whole of `routableContext`: absent is this machine's own
+      context and is a correct address, while a name that cannot be read is one
+      nobody can route to. Collapsing `""` to `null` here would turn the second
+      into the first — a meeting filed in whatever context this credential
+      defaults to, silently, which is the one outcome the queue refuses to send.
+    */
+    context: typeof source.context === "string" ? source.context : null,
     body: body as Record<string, unknown>,
   };
 }

@@ -45,7 +45,7 @@ import type { AudioRecorder } from "../core/capture/recorder.ts";
 import { DesktopCaptureRecorder } from "./capture.ts";
 import { electronPermissionBroker } from "./permissions.ts";
 import { DesktopStore } from "./store.ts";
-import { emptyOutbox, queueWrite } from "../core/sync/outbox.ts";
+import { emptyOutbox, queueWrite, reconcileDrain } from "../core/sync/outbox.ts";
 import type { Outbox } from "../core/sync/outbox.ts";
 import { drainOnce } from "../core/sync/drain.ts";
 import { memoryTokenStore } from "../core/sync/tokenStore.ts";
@@ -598,7 +598,24 @@ async function main(): Promise<void> {
    */
   const notePaths = new Map<string, string>();
 
-  async function drain(): Promise<void> {
+  /**
+   * The drain in flight, so there is never more than one.
+   *
+   * Two overlapping drains post the same head entry twice and then race to
+   * assign the queue, and there are two callers now: the fifteen-second timer
+   * and every finalize the console hands over. Chained rather than skipped —
+   * a finalize that joined a drain which started *before* its entry was queued
+   * would be told "queued" about a request nobody made, which is the one answer
+   * this path may not give.
+   */
+  let draining: Promise<void> = Promise.resolve();
+
+  function drain(): Promise<void> {
+    draining = draining.then(drainNow, drainNow);
+    return draining;
+  }
+
+  async function drainNow(): Promise<void> {
     /*
       The base URL is the connection's, not the settings file's.
 
@@ -611,12 +628,22 @@ async function main(): Promise<void> {
     */
     const baseUrl = connection.baseUrl();
     if (baseUrl === null) return;
+    /*
+      The queue does not stand still for the round trip.
+
+      A segment is spoken, somebody types, the console hands over a write — all
+      of them synchronous, all of them landing on `outbox` while this awaits.
+      Assigning `report.outbox` over the top drops every one of them, and the
+      dropped write has already been answered as accepted. So the outcome is
+      re-applied to the queue as it is *now*. See `reconcileDrain`.
+    */
+    const before = outbox;
     const report = await drainOnce(
-      outbox,
+      before,
       { baseUrl, token: () => connection.token() },
       () => Date.now(),
     );
-    outbox = report.outbox;
+    outbox = reconcileDrain(before, report.outbox, outbox);
     for (const landed of report.written) notePaths.set(landed.sessionId, landed.notePath);
     await store.writeOutbox(outbox);
     push();

@@ -103,6 +103,27 @@ export async function runGatewayChecks(check) {
     contextRouteFor(entry("notes")) === ROUTES.notes(sessionId),
   );
   {
+    /*
+      And the addressed meeting really is posted there.
+
+      `contextRouteFor` above is the decision; this is the URL, because the two
+      being one line apart is not the same as the one calling the other. A
+      meeting somebody sent to a shared context from the console lands in that
+      bucket, with this machine's own grant on the request — which is the whole
+      shape of the feature in one check.
+    */
+    const impl = fakeFetch([{ status: 200, body: { sessionId, state: "recording" } }]);
+    const result = await postEntry(config(impl), { ...entry("session", { id: sessionId }), context: "acme" });
+    check(
+      "A MEETING ADDRESSED TO A SHARED CONTEXT IS POSTED TO IT, WITH THIS MACHINE'S GRANT",
+      result.ok === true && impl.calls[0]?.url === `https://gateway.example.test/@acme${ROUTES.sessions}`,
+    );
+    check(
+      "...and the name is in the path rather than in the credential",
+      !String(impl.calls[0]?.url ?? "").includes(TOKEN),
+    );
+  }
+  {
     const impl = fakeFetch([{ status: 200, body: {} }]);
     const result = await postEntry(config(impl), { ...entry("finalize"), context: "Acme Corp" });
     check("...and nothing is sent for it at all", impl.calls.length === 0);

@@ -50,6 +50,15 @@
  *   ...ignoring `packaged`, so a dev build claims a loopback tap              1
  *   `meetingWriteFrom` trusting the payload rather than reading it            1
  *   ...accepting a `kind` outside the protocol's four routes                  1
+ *   the preload defaulting an unknown `kind` to `session`                     2
+ *   an empty `context` read as this machine's own, in the main process        1
+ *   ...and in the preload                                                     1
+ *
+ * The last three are one rule with two boundaries: `kind` is a route and
+ * `context` is a bucket, and a value either boundary *repairs* is a value the
+ * guard that owns the queue never gets to refuse. A default of `session` posts
+ * a body to a collection nobody named; reading `""` as "no context" files a
+ * meeting in whatever context the credential defaults to.
  *
  * Rows two and three are the pair that had to be measured rather than assumed:
  * the identity check and the origin check are two different refusals of two
@@ -830,6 +839,57 @@ export async function runConsoleBridgeChecks(check) {
     check(
       "...and a field the contract does not declare is not passed on to the queue",
       written[0] !== undefined && !("extra" in written[0]),
+    );
+  }
+
+  /*
+    ABSENT IS AN ADDRESS; UNREADABLE IS NOT. THEY MUST NOT COLLAPSE HERE.
+
+    `routableContext` in the queue draws exactly that line: `null` means this
+    machine's own context, which is where everything the tray records goes, and
+    a name it cannot read is refused rather than dropped from the front of the
+    URL. A boundary that turned `""` into `null` on the way in would decide that
+    question before the queue ever saw it, and the answer it gives is the wrong
+    one — a meeting filed in whatever context the credential defaults to.
+  */
+  {
+    const { ipc, written } = mainBridge();
+    await ipc.handlers.get(BRIDGE_CHANNELS.meetingsWrite)(sender(), { ...WRITE, context: "" });
+    await ipc.handlers.get(BRIDGE_CHANNELS.meetingsWrite)(sender(), { ...WRITE, context: null });
+    await ipc.handlers.get(BRIDGE_CHANNELS.meetingsWrite)(sender(), { ...WRITE, context: undefined });
+    check(
+      "AN EMPTY CONTEXT IS NOT THIS MACHINE'S OWN — the queue is left to refuse it",
+      written[0]?.context === "",
+    );
+    check(
+      "...and an absent one is, which is what everything the tray records means",
+      written[1]?.context === null && written[2]?.context === null,
+    );
+  }
+
+  /*
+    And the preload does not repair either of them on the way out.
+
+    It runs in the renderer, so a value it "fixes" is a value the guard in the
+    main process never gets to refuse. `kind` is a route and `context` is a
+    bucket; a default for the first is a body posted to a collection nobody
+    named, and a default for the second is the wrong-tenant write above.
+  */
+  {
+    const shell = installed({ replies: { [BRIDGE_CHANNELS.meetingsWrite]: { ok: true, value: {} } } });
+    await shell.bridge.meetings.write({ sessionId: "m_1", kind: "enhance", context: "", body: {} });
+    const sent = shell.invoked.find((one) => one.channel === BRIDGE_CHANNELS.meetingsWrite)?.args[0];
+    check(
+      "A KIND THE CONTRACT DOES NOT NAME IS NOT REWRITTEN INTO ONE THAT ROUTES",
+      sent?.kind === "enhance",
+    );
+    check("...and an empty context crosses as itself", sent?.context === "");
+
+    const { ipc, written } = mainBridge();
+    const answer = await ipc.handlers.get(BRIDGE_CHANNELS.meetingsWrite)(sender(), sent);
+    check(
+      "...so the process that owns the queue is the one that refuses it",
+      answer.ok === false && written.length === 0,
     );
   }
   {

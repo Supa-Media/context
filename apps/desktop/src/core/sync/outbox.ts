@@ -341,6 +341,67 @@ export function applyDrain(
   return { ...outbox, entries };
 }
 
+/**
+ * PUT A DRAIN'S OUTCOME BACK ON A QUEUE THAT MOVED WHILE IT WAS IN FLIGHT.
+ *
+ * A drain is a snapshot plus a network round trip, and the queue is not frozen
+ * for the duration: a segment is spoken, somebody types in the notepad, the
+ * console hands over a write. Assigning the drain's result over the live queue
+ * — `outbox = report.outbox` — silently drops every one of those, and the write
+ * it drops has already been reported to whoever queued it as accepted. On the
+ * console path that is a **false acknowledgement**: `meetings.write` answered
+ * `queued: true` for a note the queue no longer holds, and
+ * `docs/decisions/app-and-console.md`'s rule is exactly that a UI may never
+ * claim a write it has not seen land.
+ *
+ * So the drain's outcome is *re-applied* rather than assigned, entry by entry:
+ *
+ *  - **Queued during the drain** — the drain knows nothing about it, so it is
+ *    kept untouched. This is the case that was being lost.
+ *  - **Acknowledged, and unchanged since** — removed, which is what an
+ *    acknowledgement means.
+ *  - **Acknowledged, but changed since** — kept. What the gateway acknowledged
+ *    is not what the queue is now holding: a `segments` entry that merged three
+ *    more segments while its predecessor was in flight is not the entry that
+ *    was sent, and dropping it drops those three. Re-sending the whole entry is
+ *    safe by the protocol's own rule — segments merge on a stable id and every
+ *    route upserts.
+ *  - **Refused or parked** — the drain's bookkeeping (the backoff it earned,
+ *    the parked flag it set) is kept, over whatever content the queue now
+ *    holds. A refusal is about the meeting, not about the bytes.
+ *
+ * Compared on `updatedAt` because `queueWrite` stamps it on every collapse,
+ * which makes it exactly "the content changed" and nothing else.
+ */
+export function reconcileDrain(before: Outbox, drained: Outbox, live: Outbox): Outbox {
+  if (live === before) return drained;
+
+  const wasById = new Map(before.entries.map((entry) => [entry.id, entry]));
+  const drainedById = new Map(drained.entries.map((entry) => [entry.id, entry]));
+
+  const entries = live.entries.flatMap((entry): OutboxEntry[] => {
+    const was = wasById.get(entry.id);
+    if (was === undefined) return [entry];
+
+    const changed = entry.updatedAt !== was.updatedAt;
+    const after = drainedById.get(entry.id);
+    if (after === undefined) return changed ? [entry] : [];
+    if (!changed) return [after];
+
+    const kept: OutboxEntry = {
+      ...entry,
+      attempts: after.attempts,
+      nextAttemptAt: after.nextAttemptAt,
+      state: after.state,
+    };
+    if (after.parked !== undefined) kept.parked = after.parked;
+    if (after.lastError !== undefined) kept.lastError = after.lastError;
+    return [kept];
+  });
+
+  return { ...live, entries };
+}
+
 /** Every entry for one session — what "this meeting has not been saved" means. */
 export function pendingFor(outbox: Outbox, sessionId: string): OutboxEntry[] {
   return outbox.entries.filter((entry) => entry.sessionId === sessionId);
