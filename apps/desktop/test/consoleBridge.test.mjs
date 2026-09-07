@@ -60,6 +60,7 @@
  *   ...and in the preload                                                     1
  *   the bridge capturing the pin once instead of reading it per call         3
  *   the sender check reading `app://console` as an opaque origin             1
+ *   the sender check accepting an opaque origin while the mirror is pinned  1
  *
  * The identity row is 4 rather than 3 since the hidden capture window was
  * added as an attacker in its own right: it is the second window in this
@@ -79,7 +80,7 @@
  * shape that looks complete and is not. Neither is zero, so neither is
  * decoration, and neither subsumes the other.
  *
- * The last two rows are about the offline mirror moving the pin. A bridge that
+ * The three `app://console` rows are about the offline mirror moving the pin. A bridge that
  * read `deps.pinned()` once would keep trusting the live origin after the shell
  * had fallen back to `app://console` — and answer the page it is itself serving
  * with nothing. The second row is subtler and cost an afternoon: **Node's `URL`
@@ -87,7 +88,10 @@
  * is standard, while Chromium — which `registerSchemesAsPrivileged` did tell —
  * reports `location.origin` as `app://console`. Written as `new URL(...).origin`
  * the sender check reads the mirrored console as an opaque origin and refuses
- * it; `originOfUrl` is the one place that difference is reconciled.
+ * it; `originOfUrl` is the one place that difference is reconciled. The third
+ * is the other side of that reconciliation: `app://console` is a real origin
+ * here, `"null"` is not one, and a `data:` or `about:blank` document reporting
+ * the second must not be answered while the first is what is pinned.
  *
  * The unfrozen row reports three rather than one because `getDesktopBridge`
  * refuses an unfrozen bridge outright: the validator check goes red and so do
@@ -969,6 +973,27 @@ export async function runConsoleBridgeChecks(check) {
     const event = sender({ url: `${MIRROR_ORIGIN}/console` });
     ipc.listeners.get(BRIDGE_CHANNELS.origin)(event);
     check("...and the pin the preload is told is the mirror's", event.returnValue === MIRROR_ORIGIN);
+
+    /*
+      An opaque origin reports `"null"`, and so does a second one — which is why
+      the pin is never that string and why this guard refuses it by name. Worth
+      a check on this side as well as in `shell.test.mjs`: this is the half that
+      runs in the main process, where `app://console` being a real origin is the
+      whole reason a pin can be a scheme no ordinary page can claim.
+    */
+    let opaqueRefused = false;
+    try {
+      await ipc.handlers.get(BRIDGE_CHANNELS.outboxStatus)(
+        sender({ url: "data:text/html,<script>fetch('x')</script>" }),
+        null,
+      );
+    } catch {
+      opaqueRefused = true;
+    }
+    check(
+      "AN OPAQUE ORIGIN IS REFUSED WHILE THE MIRROR IS PINNED — a data: page is not app://console",
+      opaqueRefused,
+    );
   }
 
   {

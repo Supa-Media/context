@@ -272,7 +272,14 @@ export function shouldMirror(candidate: MirrorCandidate): MirrorDecision {
     return { ok: false, why: MIRROR_REFUSALS.noStore };
   }
   const vary = readHeader(candidate.headers, "vary").toLowerCase();
-  if (vary.includes("cookie") || vary.includes("authorization") || vary.trim() === "*") {
+  /*
+    `*` is read as one of the header's comma-separated tokens rather than as the
+    whole of it: `Vary: *` and `Vary: Accept-Encoding, *` say the same thing —
+    this response varies on something this cache cannot see — and a check
+    written as `vary.trim() === "*"` believes only the first of them.
+  */
+  const varyTokens = vary.split(",").map((token) => token.trim());
+  if (vary.includes("cookie") || vary.includes("authorization") || varyTokens.includes("*")) {
     return { ok: false, why: MIRROR_REFUSALS.perUser };
   }
   if (!(candidate.bytes >= 0) || candidate.bytes > MIRROR_LIMITS.entryBytes) {
@@ -284,6 +291,26 @@ export function shouldMirror(candidate: MirrorCandidate): MirrorDecision {
     return { ok: false, why: MIRROR_REFUSALS.type };
   }
   return { ok: true };
+}
+
+/**
+ * Whether a response says, before its body is read, that it is too big to keep.
+ *
+ * `shouldMirror` reads the bytes that arrived, which is the honest number and
+ * the one that decides. This reads `Content-Length`, which is the number the
+ * server *claims* — and it is worth a check of its own because the caller has
+ * to buffer a body before it can weigh it. A compromised console listing a
+ * same-origin URL that streams for ever would otherwise be a main process
+ * holding all of it in memory to refuse it afterwards.
+ *
+ * A missing, unparseable or lying length is not refused here: it is the
+ * post-read check's job, and this one only ever short-circuits a response that
+ * volunteered a number over the limit.
+ */
+export function declaresTooManyBytes(headers: HeadersLike): boolean {
+  const raw = readHeader(headers, "content-length").trim();
+  if (!/^[0-9]+$/.test(raw)) return false;
+  return Number(raw) > MIRROR_LIMITS.entryBytes;
 }
 
 /**
@@ -358,8 +385,37 @@ export function pinnedOriginFor(currentUrl: string, liveOrigin: string): string 
   if (url === null) return "";
   const origin = originOf(url);
   if (liveOrigin !== "" && liveOrigin !== "null" && origin === liveOrigin) return liveOrigin;
-  if (origin === MIRROR_ORIGIN) return MIRROR_ORIGIN;
+  /*
+    The failure page is the one document at this origin that is not a copy of
+    the console: it is generated here, it holds a link and a sentence, and it
+    asks the bridge for nothing. So it is pinned to nothing, and `failurePage`'s
+    "this page needs no bridge and is given none" is a fact about the shell
+    rather than about what that page happens to contain today.
+  */
+  if (origin === MIRROR_ORIGIN) return url.pathname === MIRROR_FAILURE_PATH ? "" : MIRROR_ORIGIN;
   return "";
+}
+
+/**
+ * Whether the console window may navigate itself to this URL.
+ *
+ * `windows.ts` cancels everything else, and this is the decision behind it:
+ * the live console, and the mirror this shell serves from its own disk, and
+ * nothing else — not a redirect that landed elsewhere, not a link in somebody's
+ * note, not a URL this process cannot parse.
+ *
+ * **`originOfUrl` rather than `new URL(target).origin`**, which is the same
+ * trap `originOfUrl` exists for and the one place it was easiest to fall into:
+ * the main process's `URL` answers `"null"` for `app://console/...`, so the
+ * obvious comparison cancels every navigation *within* the offline console —
+ * a mirrored page whose links all do nothing, which is a worse offline console
+ * than one that says so.
+ */
+export function isAllowedConsoleNavigation(target: string, liveOrigin: string): boolean {
+  const origin = originOfUrl(target);
+  if (origin === "") return false;
+  if (origin === MIRROR_ORIGIN) return true;
+  return liveOrigin !== "" && liveOrigin !== "null" && origin === liveOrigin;
 }
 
 /** Chrome's `ERR_ABORTED`: a load this process replaced, not one that failed. */

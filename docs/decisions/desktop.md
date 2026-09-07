@@ -538,8 +538,36 @@ The pin's two directions are in `consoleBridge.test.mjs`: `THE MIRRORED CONSOLE
 IS ANSWERED` and `A FRAME CLAIMING THE MIRROR IS REFUSED WHILE THE LIVE CONSOLE
 IS LOADED`.
 
+**The fourth place the `"null"` trap was waiting, found in review.** The three
+places it is written down were not all the places it applies: the console
+window's `will-navigate` guard was allowing `app://console` with
+`new URL(target).origin`, which in the main process is `"null"` — so every
+navigation *within* the offline console was cancelled and the mirrored page's
+own links did nothing. The decision moved into `isAllowedConsoleNavigation`,
+where it is a pure function with checks on it rather than a comparison inside an
+event handler no suite can reach. That is the rule this file keeps re-learning:
+**any line that asks "what origin is this" goes through `originOfUrl`**, and one
+that cannot be tested is one that will be written the obvious way.
+
+Three smaller things settled in the same review, each now a check:
+
+- **The failure page is pinned to nothing.** It is served at `app://console`
+  but it is not a copy of the console — it is a sentence and a link, generated
+  here, asking the bridge for nothing — so `pinnedOriginFor` answers `""` for
+  `/__offline` and the page is given no bridge, which is what its own comment
+  already claimed.
+- **A response is weighed by what it says before it is weighed by what it is.**
+  `Content-Length` over the per-file limit is skipped before the body is read,
+  so a compromised page naming a same-origin URL that answers for ever is not
+  buffered into the main process to be refused afterwards.
+- **The mirror is read with `O_NOFOLLOW`.** Nothing `save` writes is a symlink,
+  so one found there is somebody else's, and following it would make the
+  protocol handler "serve me that file". Defence in depth rather than a
+  boundary — a process that can write into `userData` can already replace the
+  app's own JavaScript — and it costs one flag.
+
 **What a Mac has to confirm, because nothing here can.** Every check above runs
-without Electron, and four things consequently have never happened:
+without Electron, and five things consequently have never happened:
 
 - **A second launch with the network off shows the console, labelled.** Launch
   once online (so a snapshot is taken), quit, turn the network off, launch
@@ -557,6 +585,13 @@ without Electron, and four things consequently have never happened:
   names all of them on this build is a fact about Chromium, not about the
   filter. `[mirror]` in the log, and the size of
   `~/Library/Application Support/Context/mirror/v1/current`, are the evidence.
+- **What the offline console looks like signed out.** `app://console` is a
+  different origin from the live one, so it has its own storage and does not
+  carry the control-plane session — the mirrored page is expected to show the
+  signed-out shell with the offline line and the queue count on it. That is a
+  consequence of the origin rule rather than a defect, and the thing to confirm
+  is that it is *legible*: a person who can still record from the tray should
+  not be told the app is broken.
 
 ### The order is seven pull requests, and the first one changes nothing by default
 
