@@ -147,6 +147,13 @@ jobs:
             }
           ' "$resp"
 
+      - name: Deploy context-router
+        working-directory: infra/router
+        run: pnpm exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       # CONVEX_ORIGIN names which Convex deployment production talks to — an
       # account identifier, so infra/router/wrangler.jsonc no longer commits
       # it as a plaintext var (CLAUDE.md: "no internal hostnames, no account
@@ -170,6 +177,16 @@ jobs:
       # showed red. Caught while chasing an unrelated Cloudflare permission
       # failure on 2026-09-07, which is the first thing that made anyone look
       # at this job's failures at all.
+      #
+      # AFTER deploy, not before: while `infra/router/wrangler.jsonc` still
+      # committed CONVEX_ORIGIN as a plaintext var, the account's LIVE script
+      # carried it that way. `wrangler secret put` acts on whatever version is
+      # currently live, so running it before `wrangler deploy` collided with
+      # that stale var — Cloudflare 10053, "Binding name 'CONVEX_ORIGIN'
+      # already in use" — on every run, forever, because the one step that
+      # would remove the stale var (`wrangler deploy`) never got to run.
+      # Deploying first retires the var immediately, and this step then sets
+      # the secret against a live script that no longer declares it.
       - name: Set CONVEX_ORIGIN secret (Convex HTTP-actions origin)
         working-directory: infra/router
         env:
@@ -185,13 +202,6 @@ jobs:
             exit 0
           fi
           printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONVEX_ORIGIN
-
-      - name: Deploy context-router
-        working-directory: infra/router
-        run: pnpm exec wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Summary
         if: always()
