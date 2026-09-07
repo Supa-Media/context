@@ -462,7 +462,7 @@ export async function runConsoleBridgeChecks(check) {
     `src/main`" is what the sentence says and a non-recursive `.ts`-only scan is
     not that.
 
-    What it is honest about: the fifteen `ipcMain` registrations are ungated,
+    What it is honest about: the sixteen `ipcMain` registrations are ungated,
     and they are safe because every window whose preload can send them loads
     this app's own HTML — not because their preload cannot send.
     `preload/index.ts` exposes twelve send verbs, `record` and `connect` among
