@@ -48,6 +48,7 @@
  */
 
 import { isEncryptedNote } from "../encryption.js";
+import { messageSegmentFor } from "./commsIndex.js";
 import { readTermFilter, termFilterMayHold } from "./filter.js";
 import { createSearchBudget, inWaves } from "./maintain.js";
 import { MAX_RESULTS, parseQuery, rankedVisibleTo } from "./query.js";
@@ -502,32 +503,60 @@ async function answerFromIndex(store, options) {
     if (!budget.take()) break;
     wanted.push(hit);
   }
-  const read = await inWaves(wanted, SNIPPET_READ_CONCURRENCY, async ({ path, matchedTerms }) => {
-    try {
-      // The body read is inside the `try` as well as the fetch. A backend can
-      // hand back an object whose stream then fails, and a rejection there is
-      // the same kind of failure as a refused GET: one hit's snippet, never
-      // the whole answer. The sequential loop broke on this, which dropped
-      // every lower-ranked hit for a key the adapter happened to refuse.
-      const object = await store.get(path);
-      if (!object) return null;
-      const text = await object.text();
-      // A hit that turns out to be an encrypted note is dropped, exactly as a
-      // hit whose object has gone is. The index holds no body terms for one —
-      // it is synced with empty content — but a path or title term can still
-      // rank it, and the snippet cut here would be ciphertext. Dropping it
-      // here is what makes "search does not find encrypted notes" true of
-      // every path into this function rather than of the indexer alone.
-      if (isEncryptedNote(text)) return null;
-      return {
-        key: path,
-        title: noteTitle(path, text),
-        snippets: snippetLinesFor(text, matchedTerms),
-      };
-    } catch {
-      return null;
+  const read = await inWaves(
+    wanted,
+    SNIPPET_READ_CONCURRENCY,
+    async ({ path, matchedTerms, notePath, anchor }) => {
+      try {
+        // A channel-day sub-document reads its **containing note**, never a
+        // literal `store.get(path)` — `path` is `<notePath>#<anchor>`, which
+        // names no bucket object. `notePath` is what `isVisible` already ran
+        // on (`rankedVisibleTo`), so re-reading the same path here keeps the
+        // read and the visibility check pointed at the same file.
+        const readPath = typeof notePath === "string" ? notePath : path;
+        // The body read is inside the `try` as well as the fetch. A backend can
+        // hand back an object whose stream then fails, and a rejection there is
+        // the same kind of failure as a refused GET: one hit's snippet, never
+        // the whole answer. The sequential loop broke on this, which dropped
+        // every lower-ranked hit for a key the adapter happened to refuse.
+        const object = await store.get(readPath);
+        if (!object) return null;
+        const text = await object.text();
+        // A hit that turns out to be an encrypted note is dropped, exactly as a
+        // hit whose object has gone is. The index holds no body terms for one —
+        // it is synced with empty content — but a path or title term can still
+        // rank it, and the snippet cut here would be ciphertext. Dropping it
+        // here is what makes "search does not find encrypted notes" true of
+        // every path into this function rather than of the indexer alone —
+        // and, for a channel-day note, before any attempt to split it into
+        // messages: ciphertext holds no `### … {#msg-…}` heading anyway, but
+        // this is the same phase-1 rule checked the same way regardless.
+        if (isEncryptedNote(text)) return null;
+
+        if (typeof anchor !== "string") {
+          return { key: readPath, title: noteTitle(readPath, text), snippets: snippetLinesFor(text, matchedTerms) };
+        }
+
+        // The specific message, re-read from a fresh copy of the note — never
+        // from index data, the same rule an ordinary note's snippet already
+        // follows. `null` is a legitimate race (the day was regenerated
+        // between the index write and this read, and the anchor no longer
+        // exists) and is treated exactly like a hit whose note has gone.
+        const segment = messageSegmentFor(readPath, text, anchor);
+        if (!segment) return null;
+        return {
+          // The deep link: the containing note's path plus the anchor, so a
+          // caller can open exactly the message that matched
+          // (docs/decisions/communications.md, "Search must index messages").
+          key: `${readPath}#${anchor}`,
+          title: segment.title,
+          snippets: snippetLinesFor(segment.snippetText, matchedTerms),
+        };
+      } catch {
+        return null;
+      }
     }
-  });
+  );
   const hits = read.filter(Boolean);
   /*
     THE COUNT MUST NOT COUNT WHAT THE HITS DO NOT SHOW.

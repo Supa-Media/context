@@ -3,6 +3,7 @@ import { R2Store } from "../src/store/r2.js";
 import { SUPPORTED_SCOPES, visibilityTierForGrant } from "../src/session.js";
 import { runStoreChecks } from "./store.test.mjs";
 import { runCommunicationsChecks } from "./communications.test.mjs";
+import { runCommsSearchIndexChecks } from "./commsSearchIndex.test.mjs";
 import { runOrientationChecks } from "./orientation.test.mjs";
 import { runSearchFilterChecks } from "./searchFilter.test.mjs";
 import { runSearchIndexerChecks } from "./searchIndexer.test.mjs";
@@ -3890,6 +3891,7 @@ await runOrientationChecks(check);
 // the fixture here is two mailboxes with different visibilities, which is the
 // arrangement the "a mailbox is a folder" decision exists for.
 await runCommunicationsChecks(check);
+await runCommsSearchIndexChecks(check);
 
 // The search index. The two format halves are pure functions over their own
 // fixtures and touch no store or control plane, so they run anywhere; the
