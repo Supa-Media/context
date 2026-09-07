@@ -155,6 +155,24 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - What is deliberately not built
 - Consent is the customer's, and the product may never make recording invisible
 
+## [Communications](./communications.md)
+
+- A channel lands in `0-inbox`, and there is no second inbox root
+- There are no `YYYY/MM/` folders, and the date is the filename
+- The mailbox is a folder because a folder is what `privacy.md` can name
+- An address becomes a slug, and a slug is never a name anybody can claim
+- A channel-day note is one file, with a fixed frontmatter, and its messages are fenced
+- A message anchor is a hash, and it is the only provider id in the bucket
+- An oversized day splits by rendered bytes, and the split is a pure function of the day
+- A channel-day note is a note, and `privacy.md` decides it with no bypass
+- Search must index messages, and today's index cannot
+- A firehose is not attention
+- Retention: raw MIME is off by default, and attachments are metadata-only
+- Contacts: one page per person, and a merge never rewrites history
+- The Gmail restricted scope is Google's decision, so v1 runs on fixtures
+- The five open decisions, and who settles them
+- What is deliberately not built
+
 ## [The desktop shell](./desktop.md)
 
 - The shell loads the hosted console, and keeps a mirror of the last good load
