@@ -12,6 +12,7 @@
 //   let a slug carry a dot, so a mailbox can be plumbing  -> 2 checks failed
 //   return the base slug from chooseMailboxSlug always    -> 1 check failed
 //   accept any segment as the account level               -> 5 checks failed
+//   file a mailbox as a direct child of `0-inbox`          -> 5 checks failed
 
 import {
   CHANNELS,
@@ -234,6 +235,62 @@ export function runPathChecks(check) {
   check(
     "a key outside the customer's chosen root is not theirs",
     !isChannelDayNotePath("0-inbox/imessage/2026-09-07.md", { root: "brain" })
+  );
+
+  /*
+    A mailbox slug is a folder name in somebody's bucket. A reserved name is a
+    handle in the control plane's global namespace — and, because ingestion is
+    on the apex, the local part of a real mailbox on our own domain
+    (`functions/lib/names.ts`: *"Trimming an entry does not tidy the list, it
+    opens a mailbox"*). The two namespaces must never be read into each other.
+
+    The decision is explicit that `slugifyAddress` does **not** consult the
+    reserved list, and the reasoning is worth restating where the check is:
+    mapping a folder name through a mail-role denylist would rename somebody's
+    real mailbox after a word on a list they cannot see. So the separation is
+    STRUCTURAL, not a string comparison, and that is what is asserted — a
+    mailbox lives one level down, under `0-inbox/email/`, where it can never be
+    a handle, a route, or a sibling of the folders `0-inbox` already has.
+
+    Every reserved word that could also be produced by the slug function is
+    tried, which is the honest set: `support@…` slugifies to
+    `support-at-example-com` and could not collide anyway, but an address with
+    no `@` in it at all reaches the general rule and comes out as the bare word.
+  */
+  const RESERVED = ["mcp", "meetings", "oauth", "granola-webhook", "api", "support", "0-inbox", "brain", "context", "inbox", "contacts", "sessions"];
+  check(
+    "a reserved name is never a top-level key, whatever address produced it",
+    RESERVED.every((word) => {
+      const key = channelDayNotePath({ channel: "email", account: slugifyAddress(word), date: "2026-09-07" });
+      return key.startsWith(`${CHANNEL_FOLDERS.email}/`) && key.split("/").length === 4;
+    })
+  );
+  check(
+    "...so it is never a route the gateway reads, which only ever reads the first segment",
+    RESERVED.every(
+      (word) =>
+        channelDayNotePath({ channel: "email", account: slugifyAddress(word), date: "2026-09-07" }).split("/")[0] ===
+        INBOX_FOLDER
+    )
+  );
+  check(
+    "...and never a sibling of the folders the inbox already has",
+    RESERVED.every((word) => {
+      const slug = slugifyAddress(word);
+      return ![`${INBOX_FOLDER}/meetings`, `${INBOX_FOLDER}/sessions`, CONTACTS_FOLDER].includes(
+        `${CHANNEL_FOLDERS.email}/${slug}`
+      );
+    })
+  );
+  check(
+    "a mailbox folder can never BE a channel folder, because it is never their sibling",
+    CHANNELS.every((channel) => !isMailboxSlug(CHANNEL_FOLDERS[channel]))
+  );
+  check(
+    "and nothing in this package reads a folder name back as a claimable name",
+    // `@name` addressing is the control plane's, and a slug never carries the
+    // sigil that would let one be mistaken for the other.
+    RESERVED.every((word) => !slugifyAddress(`@${word}`).startsWith("@"))
   );
 
   // -- contacts ------------------------------------------------------------

@@ -408,7 +408,14 @@ export function planChannelDay(day, options = {}) {
  * enough for a test to prove the renderer emitted exactly the keys it names.
  *
  * @param {string} text
- * @returns {{frontmatter: Record<string, string>, title: string, anchors: string[]}}
+ * A `summary` is the heading line a message was written with — its time, its
+ * sender and its subject, already `singleLine`d and defanged by the renderer —
+ * so a listing can say what a day holds without reading a body it was not
+ * asked for.
+ *
+ * @returns {{frontmatter: Record<string, string>, title: string,
+ *            messages: Array<{anchor: string, summary: string, thread: string}>,
+ *            anchors: string[]}}
  */
 export function parseChannelDayNote(text) {
   const source = String(text ?? "");
@@ -451,8 +458,9 @@ export function parseChannelDayNote(text) {
     it exists: `defangFence` breaks any marker a sender writes, so the only
     `begin`/`end` pairs left are the ones this file drew.
   */
-  const anchors = [];
+  const messages = [];
   let inFence = false;
+  let thread = "";
   for (const line of body.split("\n")) {
     if (line.startsWith(`<!-- ${FENCE_MARKER} begin `)) {
       inFence = true;
@@ -463,8 +471,12 @@ export function parseChannelDayNote(text) {
       continue;
     }
     if (inFence) continue;
-    const heading = /^###\s.*\{#(msg-[0-9a-f]+)\}\s*$/.exec(line);
-    if (heading) anchors.push(heading[1]);
+    if (line.startsWith("## Thread — ")) {
+      thread = line.slice("## Thread — ".length).trim();
+      continue;
+    }
+    const heading = /^###\s(.*)\s\{#(msg-[0-9a-f]+)\}\s*$/.exec(line);
+    if (heading) messages.push({ anchor: heading[2], summary: heading[1].trim(), thread });
   }
-  return { frontmatter, title, anchors };
+  return { frontmatter, title, messages, anchors: messages.map((entry) => entry.anchor) };
 }
