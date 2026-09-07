@@ -39,13 +39,68 @@ const { mkdtempSync, rmSync, writeFileSync, chmodSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 
-/** All three, or the build is not being asked to notarise. */
+/**
+ * The .p8 as `notarytool` needs to read it, out of a secret that has been
+ * through a text box.
+ *
+ * This is not defensiveness either: the first signed build to get past code
+ * signing died on
+ *
+ *   Failed to notarize via notarytool. Error: invalidPEMDocument
+ *
+ * after twenty-six seconds of signing, which says only "the file I wrote is
+ * not a PEM" and nothing about why. A `.p8` is a multi-line PEM, and every
+ * common way of getting one into a secret store damages it in one of four
+ * ways: CRLF line endings, newlines escaped to a literal backslash-n, the
+ * whole file base64-encoded because that is what \`CSC_LINK\` wanted, or quotes
+ * left around it by a copy from a JSON blob. Each of those is unambiguous and
+ * repaired here.
+ *
+ * What is NOT repaired is a value that is not a private key at all, and that
+ * throws with a sentence somebody can act on — counting lines and characters,
+ * never printing any of them, because this is a private key and the logs of a
+ * public repository are public.
+ */
+function privateKey(raw) {
+  let text = String(raw).replace(/\r\n?/g, "\n").trim();
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    text = text.slice(1, -1).trim();
+  }
+  if (text.includes("\\n")) {
+    text = text.replace(/\\r/g, "").replace(/\\n/g, "\n").trim();
+  }
+  if (!text.includes("-----BEGIN") && /^[A-Za-z0-9+/=\n]+$/.test(text)) {
+    const decoded = Buffer.from(text, "base64").toString("utf8").replace(/\r\n?/g, "\n").trim();
+    if (decoded.includes("-----BEGIN")) text = decoded;
+  }
+  // The `\1` is the point: a BEGIN whose END does not match it is a truncated
+  // paste, and notarytool reports that as the same three words as everything
+  // else.
+  if (!/^-----BEGIN ([A-Z ]*)PRIVATE KEY-----\n[\s\S]+\n-----END \1PRIVATE KEY-----$/.test(text)) {
+    const lines = text.split("\n").length;
+    const sawBegin = text.startsWith("-----BEGIN");
+    throw new Error(
+      `ASC_API_KEY_P8 is not a PEM private key — ${lines} line(s), ${text.length} characters, and ` +
+        `${sawBegin ? "no -----END line that matches its -----BEGIN" : "no -----BEGIN line at all"}. ` +
+        "It should be the contents of the AuthKey_XXXXXXXXXX.p8 file Apple issued, newlines and all.",
+    );
+  }
+  // notarytool reads a file, and a PEM's last line ends.
+  return `${text}\n`;
+}
+
+/**
+ * All three, or the build is not being asked to notarise.
+ *
+ * A key that is present and unusable is not the same as no key: it throws,
+ * because the build was asked to notarise and cannot.
+ */
 function credentials(env) {
   const key = env.ASC_API_KEY_P8;
   const keyId = env.ASC_KEY_ID;
   const issuerId = env.ASC_ISSUER_ID;
   if (!key || !keyId || !issuerId) return null;
-  return { key, keyId, issuerId };
+  return { key: privateKey(key), keyId: keyId.trim(), issuerId: issuerId.trim() };
 }
 
 exports.default = async function afterSign(context) {
@@ -90,3 +145,28 @@ exports.default = async function afterSign(context) {
 // Exported for the suite: the decision this file makes is "all three, or
 // nothing", and that is the half worth checking without a Mac.
 exports.credentials = credentials;
+exports.privateKey = privateKey;
+
+/**
+ * `node build/notarize.cjs --check` — the same three values, judged before a
+ * build rather than after it.
+ *
+ * The workflow runs this next to the certificate preflight, and for the same
+ * reason: without it, a damaged key is discovered by Apple's own tool after
+ * electron-builder has downloaded Electron, packaged an app and signed it, and
+ * the answer it gives back is three words. The key never leaves this process —
+ * not to a log, not to a file, not to `GITHUB_ENV`.
+ */
+if (require.main === module) {
+  try {
+    const asc = credentials(process.env);
+    if (asc === null) {
+      console.log("[notarize] ASC_API_KEY_P8, ASC_KEY_ID and ASC_ISSUER_ID are not all set — this build will NOT be notarised.");
+    } else {
+      console.log(`[notarize] the App Store Connect key parses as a PEM private key (${asc.key.trim().split("\n").length} lines), with a key id and an issuer id.`);
+    }
+  } catch (error) {
+    console.log(`::error::${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+}

@@ -255,6 +255,28 @@ jobs:
             echo "Gatekeeper refuses an un-notarised build on another Mac, and macOS will not give it system audio."
           fi
 
+      # The other credential, judged by the code that will use it.
+      #
+      # The first build to get past code signing died twenty-six seconds later,
+      # after Electron had been downloaded, the app packaged and the signature
+      # applied, on `Failed to notarize via notarytool. Error:
+      # invalidPEMDocument` — which says the file the hook wrote is not a PEM
+      # and nothing about why. A `.p8` is a multi-line PEM and a secret store is
+      # a text box, so `build/notarize.cjs` repairs the four unambiguous ways it
+      # arrives damaged and refuses anything that is not a private key; running
+      # it with `--check` here applies exactly that rule, before the build,
+      # instead of a second copy of it in shell. The key stays inside that
+      # process: it is not written, echoed or exported.
+      - name: Check the notarisation key
+        working-directory: apps/desktop
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          node build/notarize.cjs --check
+
       # The signing half arrives as `CSC_KEYCHAIN` and
       # `CSC_IDENTITY_AUTO_DISCOVERY` from the step above, through `GITHUB_ENV`
       # — and `CSC_LINK` deliberately does not arrive at all, because its

@@ -140,19 +140,75 @@ export async function runPackagingChecks(check) {
   );
 
   // -- the hook's one decision ----------------------------------------------
-  const { credentials } = require(join(ROOT, "build/notarize.cjs"));
+  const { credentials, privateKey } = require(join(ROOT, "build/notarize.cjs"));
+  /*
+    A .p8 as Apple issues it, with a fake key in it. Every check below is about
+    the *shape* of the document, so the bytes inside can be nonsense — and in a
+    public repository they had better be.
+  */
+  const P8 = "-----BEGIN PRIVATE KEY-----\nbm90LWEtcmVhbC1rZXk=\n-----END PRIVATE KEY-----";
   check("no credentials at all is a skip, not a failure", credentials({}) === null);
   check(
     "TWO OF THREE IS ALSO A SKIP — a half-configured notarisation hangs on Apple's API and blames auth",
     credentials({ ASC_KEY_ID: "k", ASC_ISSUER_ID: "i" }) === null &&
-      credentials({ ASC_API_KEY_P8: "k", ASC_KEY_ID: "k" }) === null &&
-      credentials({ ASC_API_KEY_P8: "k", ASC_ISSUER_ID: "i" }) === null,
+      credentials({ ASC_API_KEY_P8: P8, ASC_KEY_ID: "k" }) === null &&
+      credentials({ ASC_API_KEY_P8: P8, ASC_ISSUER_ID: "i" }) === null,
   );
-  const complete = credentials({ ASC_API_KEY_P8: "-----BEGIN", ASC_KEY_ID: "k", ASC_ISSUER_ID: "i" });
+  const complete = credentials({ ASC_API_KEY_P8: P8, ASC_KEY_ID: "k", ASC_ISSUER_ID: "i" });
   check("all three notarises", complete !== null && complete.keyId === "k" && complete.issuerId === "i");
   check(
     "an empty string is not a credential — a workflow passing an unset secret sets it to ''",
     credentials({ ASC_API_KEY_P8: "", ASC_KEY_ID: "k", ASC_ISSUER_ID: "i" }) === null,
+  );
+
+  // -- the .p8, after a text box has had it ---------------------------------
+  /*
+    The first build to get past code signing died twenty-six seconds later on
+
+      Failed to notarize via notarytool. Error: invalidPEMDocument
+
+    which says the file the hook wrote is not a PEM and nothing whatever about
+    why. A .p8 is a multi-line PEM and a secret store is a text box, so the four
+    repairs below are the four ways it arrives damaged — each unambiguous, each
+    checked here rather than discovered on a runner after a signing run.
+
+    The fifth case is the one that must NOT be repaired: something that is not a
+    private key is refused, with a sentence that counts lines and characters and
+    prints none of them.
+  */
+  const escaped = P8.replace(/\n/g, "\\n");
+  check("a key stored with its newlines escaped is repaired", privateKey(escaped) === P8 + "\n");
+  check("...and one with CRLF line endings", privateKey(P8.replace(/\n/g, "\r\n")) === P8 + "\n");
+  check(
+    "...and one base64-encoded whole, which is what the certificate secret wanted",
+    privateKey(Buffer.from(P8, "utf8").toString("base64")) === P8 + "\n",
+  );
+  check("...and one with quotes left round it", privateKey(`"${P8}"`) === P8 + "\n");
+  check("an intact key is returned intact, with the newline notarytool reads to", privateKey(P8) === P8 + "\n");
+  const refused = (value) => {
+    try {
+      privateKey(value);
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  };
+  check("SOMETHING THAT IS NOT A PRIVATE KEY IS REFUSED, not written out for notarytool to reject", refused("hello") !== null);
+  check(
+    "...a truncated paste too — a BEGIN with no matching END",
+    refused("-----BEGIN PRIVATE KEY-----\nbm90LWEtcmVhbC1rZXk=") !== null,
+  );
+  check(
+    "...and the refusal names the secret and what it should hold",
+    /ASC_API_KEY_P8/.test(refused("hello") ?? "") && /\.p8/.test(refused("hello") ?? ""),
+  );
+  check(
+    "...WITHOUT PRINTING ANY OF IT — a private key does not go in a public repository's logs",
+    !(refused("sensitive-nonsense") ?? "").includes("sensitive-nonsense"),
+  );
+  check(
+    "a key present but unusable is not a skip — the build was asked to notarise and cannot",
+    refused("hello") !== null && credentials({ ASC_API_KEY_P8: "", ASC_KEY_ID: "k", ASC_ISSUER_ID: "i" }) === null,
   );
 
   // -- what ships -----------------------------------------------------------
@@ -259,6 +315,11 @@ export async function runPackagingChecks(check) {
     "the keychain is deleted whether the build passed or failed",
     cleanup !== undefined && /if: always\(\)/.test(cleanup),
   );
+  const keyCheck = steps.find((step) => /notarize\.cjs --check/.test(step));
+  check(
+    "the notarisation key is judged before the build too, not after twenty-six seconds of signing",
+    keyCheck !== undefined && steps.indexOf(keyCheck) < steps.indexOf(buildStep),
+  );
   check(
     "nothing about a branch triggers this workflow, signing or no signing",
     /^on:\n  workflow_dispatch:/m.test(WORKFLOW) && !/^\s*(push|pull_request):/m.test(WORKFLOW),
@@ -303,7 +364,7 @@ export async function runPackagingChecks(check) {
     packager: { appInfo: { productFilename: "Context" } },
   };
   const saved = { ...process.env };
-  process.env.ASC_API_KEY_P8 = "-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n";
+  process.env.ASC_API_KEY_P8 = P8;
   process.env.ASC_KEY_ID = "fake-key-id";
   process.env.ASC_ISSUER_ID = "fake-issuer-id";
   let thrown = null;

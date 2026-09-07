@@ -483,6 +483,18 @@ one that is not a Developer ID Application certificate at all. It prints the
 subject, which carries the company name and the Apple team id, because this
 repository is public and so are its Actions logs.
 
+**And the same for the App Store Connect key, because the next failure was
+its.** The first build to get past code signing died twenty-six seconds later
+on `Failed to notarize via notarytool. Error: invalidPEMDocument` — three words
+that say the file the hook wrote is not a PEM and nothing about why. A `.p8` is
+a multi-line PEM and a secret store is a text box, so `build/notarize.cjs`
+repairs the four unambiguous ways it arrives damaged (CRLF, newlines escaped to
+a literal backslash-n, the whole file base64-encoded, quotes left round it) and
+refuses anything that is not a private key with a sentence that counts its
+lines and characters and prints none of them. `node build/notarize.cjs --check`
+applies that same rule as a workflow step before the build, rather than a
+second copy of it in shell; the key never leaves that process.
+
 ---
 
 ### What is deliberately not built
