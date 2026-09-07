@@ -143,4 +143,23 @@ describe("shapeChannelDay", () => {
     const attachment = flattenDayMessages(view)[0].attachments[0];
     expect(attachment).toEqual({ filename: "rider.pdf", contentType: "application/pdf", size: "48213 bytes" });
   });
+
+  test("a stored attachment exposes its label, never its bucket path", () => {
+    const withAttachment = day({
+      events: [message({ attachments: [{
+        filename: "rider.pdf",
+        contentType: "application/pdf",
+        size: 48213,
+        path: "attachments/sha256-safe/rider.pdf",
+      }] })],
+    });
+    const view = shapeChannelDay("email", "name-at-example-com", "2026-09-07", [
+      { part: 1, text: renderChannelDayNote(withAttachment) },
+    ]);
+    expect(flattenDayMessages(view)[0].attachments[0]).toEqual({
+      filename: "rider.pdf",
+      contentType: "application/pdf",
+      size: "48213 bytes",
+    });
+  });
 });
