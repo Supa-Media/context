@@ -130,8 +130,20 @@ function readEntity(source: string, start: number): { text: string; length: numb
  *
  * @param html      the source, already capped by the caller
  * @param maxChars  hard cap on the returned string
+ * @param onStep    test-only hook, called once per loop iteration below (the
+ *                  outer scan and its two inner tag-scanning loops). Every one
+ *                  of those iterations strictly advances a cursor into `html`
+ *                  and never revisits a position, so the total number of calls
+ *                  across a whole run is bounded by `html.length` regardless
+ *                  of how the input is shaped — see `html.test.ts`, which
+ *                  turns that invariant into a deterministic tripwire for the
+ *                  exponential blow-up a regex-based rewrite would reintroduce,
+ *                  in place of a wall-clock budget that a busy CI runner could
+ *                  miss for reasons that have nothing to do with this function.
+ *                  Costs one optional-chained call per iteration when unset by
+ *                  every real caller.
  */
-export function htmlToText(html: string, maxChars: number): string {
+export function htmlToText(html: string, maxChars: number, onStep?: () => void): string {
   const out: string[] = [];
   let length = 0;
   let full = false;
@@ -157,6 +169,7 @@ export function htmlToText(html: string, maxChars: number): string {
   let opaque = "";
 
   while (index < html.length && !full) {
+    onStep?.();
     const char = html[index]!;
 
     if (char !== "<") {
@@ -203,7 +216,10 @@ export function htmlToText(html: string, maxChars: number): string {
     const closing = html[cursor] === "/";
     if (closing) cursor += 1;
     const nameStart = cursor;
-    while (cursor < html.length && /[A-Za-z0-9]/.test(html[cursor]!)) cursor += 1;
+    while (cursor < html.length && /[A-Za-z0-9]/.test(html[cursor]!)) {
+      onStep?.();
+      cursor += 1;
+    }
     const name = html.slice(nameStart, cursor).toLowerCase();
     if (!name) {
       if (!opaque) emit("<");
@@ -215,6 +231,7 @@ export function htmlToText(html: string, maxChars: number): string {
     // inside `title="a > b"` does not end it early.
     let quote = "";
     while (cursor < html.length) {
+      onStep?.();
       const tagChar = html[cursor]!;
       if (quote) {
         if (tagChar === quote) quote = "";

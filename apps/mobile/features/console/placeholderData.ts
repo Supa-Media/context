@@ -391,11 +391,20 @@ const SEYI_TREE: DemoContextTree = {
       "what decides, and it lists this note as an exception.",
       "",
     ].join("\n"),
+    // Carries a wikilink, a checked and an unchecked task, and a plain bullet
+    // long enough to wrap at 390pt — the constructs `apps/mobile/e2e/webkit`
+    // drives real touch events against. One folder deep and already the
+    // subject of `breadcrumb-shots.ts`'s first shot, so adding to it is the
+    // one place a WebKit run and a screenshot regression share a fixture.
     "2-areas/weekly-review.md": [
       "# Weekly review",
       "",
       "Friday. Empty 0-inbox, move anything that has become work into",
       "1-projects, and ask of every project: is this still the thing?",
+      "",
+      "- [ ] Reply to [[1-projects/context-lc.md]] about the rider",
+      "- [x] Send the Sunday recap",
+      "- Keep this list short enough to actually run through before the next Friday, because a list nobody rereads is not a review",
       "",
     ].join("\n"),
     "2-areas/public-worship/org-chart.md": [

@@ -21,8 +21,18 @@
  *   `desktopUiMode` losing the `renderer` escape hatch                      2
  *   `desktopUiMode` reading the value raw rather than trimmed and lowered   1
  *   `desktopUiMode` passing a misspelt mode through                         1
+ *   `consoleUrl` choosing its fallback from `NODE_ENV` again                4
  *
- * Two of those are worth writing down rather than just counting.
+ * Three of those are worth writing down rather than just counting.
+ *
+ * **The `NODE_ENV` row is the one this file got wrong for months.** These
+ * checks used to be written as `consoleUrl({ NODE_ENV: "production" })`, which
+ * made them a proof about a variable nothing sets — so the suite was green for
+ * the production branch while every packaged build took the development one and
+ * opened a window on a dead `localhost` port. A unit check that supplies the
+ * input the wiring never supplies is not a check of the wiring; `--smoke`
+ * reports the address a real launch resolved, and this file now takes the same
+ * `packaged` flag the app does.
  *
  * **The subframe sabotage reports one, not two**, and the second subframe check
  * is the reason: a cross-origin iframe is still refused by the origin
@@ -53,6 +63,7 @@ import {
   consoleUrl,
   desktopUiMode,
   shouldExposeBridge,
+  unexpectedConsoleAddress,
 } from "../src/core/shell/console.ts";
 
 const PINNED = "https://context.lc";
@@ -134,8 +145,8 @@ export function runShellChecks(check) {
     // The three facts a default launch depends on, in one place: it hosts the
     // console, at an address it derived rather than one typed twice, and that
     // address is the origin — and the only origin — the bridge is exposed to.
-    const env = { NODE_ENV: "production" };
-    const url = desktopUiMode(env) === "console" ? consoleUrl(env) : null;
+    const env = {};
+    const url = desktopUiMode(env) === "console" ? consoleUrl(env, true) : null;
     const origin = url === null ? "" : consoleOrigin(url);
     check(
       "A DEFAULT LAUNCH OPENS THE CONSOLE, AND THE BRIDGE IS PINNED TO WHAT IT OPENED",
@@ -148,27 +159,47 @@ export function runShellChecks(check) {
 
   // --- what the shell is willing to load ------------------------------------
 
+  /*
+    THE INSTALLED APP IS THE CASE THAT WAS NEVER CHECKED.
+
+    These four used to be spelled `{ NODE_ENV: "production" }` and
+    `{ NODE_ENV: "development" }`, which made them a check of a variable
+    **nothing sets**: not `scripts/build.mjs`, not `electron-builder.yml`, not
+    `deploy-desktop.yml`, not Electron, and not the launchd environment an app
+    launched from the Dock inherits. So the suite proved the production branch
+    worked while every packaged build took the development one, pointed at
+    `http://localhost:8081`, and opened an empty window on the owner's Mac.
+
+    `packaged` is `app.isPackaged`, which is true of exactly the builds this got
+    wrong. The unit checks are necessary and are not sufficient — it is the
+    *wiring* that broke, and `test/launch.smoke.mjs` is what reads the address a
+    real launch resolved.
+  */
   check(
-    "with nothing set, a production launch loads the hosted console",
-    consoleUrl({ NODE_ENV: "production" }) === `${DEFAULT_CONSOLE_URL}`,
+    "A PACKAGED BUILD LOADS THE HOSTED CONSOLE, NOT A DEAD LOCALHOST",
+    consoleUrl({}, true) === `${DEFAULT_CONSOLE_URL}`,
   );
   check(
     "with nothing set, a development launch loads the dev server",
-    consoleUrl({ NODE_ENV: "development" }).startsWith(DEV_CONSOLE_URL),
+    consoleUrl({}, false).startsWith(DEV_CONSOLE_URL),
   );
   check(
-    "a self-hoster's https origin is honoured",
-    consoleUrl({ CONTEXT_DESKTOP_UI_URL: "https://context.example/console" }) ===
-      "https://context.example/console",
+    "A SELF-HOSTER'S OWN ORIGIN BEATS BOTH DEFAULTS",
+    consoleUrl({ CONTEXT_DESKTOP_UI_URL: "https://context.example/console" }, false) ===
+      "https://context.example/console" &&
+      consoleUrl({ CONTEXT_DESKTOP_UI_URL: "https://context.example/console" }, true) ===
+        "https://context.example/console",
   );
   check(
     "an empty variable is the same as an unset one",
-    consoleUrl({ CONTEXT_DESKTOP_UI_URL: "   ", NODE_ENV: "production" }) === DEFAULT_CONSOLE_URL,
+    consoleUrl({ CONTEXT_DESKTOP_UI_URL: "   " }, true) === DEFAULT_CONSOLE_URL,
   );
 
   check("http on loopback is allowed, because `expo start` is one", (() => {
     try {
-      return consoleUrl({ CONTEXT_DESKTOP_UI_URL: "http://127.0.0.1:8081" }).startsWith("http://127.0.0.1:8081");
+      return consoleUrl({ CONTEXT_DESKTOP_UI_URL: "http://127.0.0.1:8081" }, false).startsWith(
+        "http://127.0.0.1:8081",
+      );
     } catch {
       return false;
     }
@@ -176,7 +207,7 @@ export function runShellChecks(check) {
 
   function refuses(value) {
     try {
-      consoleUrl({ CONTEXT_DESKTOP_UI_URL: value, NODE_ENV: "production" });
+      consoleUrl({ CONTEXT_DESKTOP_UI_URL: value }, true);
       return false;
     } catch {
       return true;
@@ -199,6 +230,93 @@ export function runShellChecks(check) {
   check(
     "the pinned origin is derived from the URL rather than configured twice",
     consoleOrigin("https://context.example/console?x=1#y") === "https://context.example",
+  );
+
+  /*
+    ── THE ADDRESS A LAUNCH REALLY RESOLVED ─────────────────────────────────
+
+    `unexpectedConsoleAddress` is what `--smoke` exits non-zero on, and it is the
+    half of F3 the unit checks above cannot be: those ask `consoleUrl` a question
+    with the right arguments and get the right answer, which is exactly what the
+    suite did while every installed build opened a blank window. This one is
+    asked *about the address the window was pointed at*, so the wrong answer is
+    visible whatever produced it.
+
+    Sabotage record, run as temporary local edits and reverted. Counts are FAIL
+    lines across the whole `apps/desktop` suite.
+
+      returning `null` unconditionally (the guard made a no-op)               6
+      dropping the packaged-launch loopback refusal, alone                    0
+      dropping the unpackaged-launch production refusal, alone                0
+      `consoleUrl`'s fallback regressed to the dev URL for every build        4
+      ...and the packaged-launch loopback refusal dropped as well             6
+
+    **Two of those rows are zero, and they are written down rather than left
+    out.** The last check in this function compares the resolved address with
+    what `consoleUrl` says this launch resolves, and in a healthy tree that
+    comparison already refuses everything the two explicit refusals refuse. A
+    reviewer counting FAIL lines would conclude those branches are dead.
+
+    They are not, and the last two rows are the witness. The comparison asks
+    `consoleUrl` a second time and **agrees with a bug inside it** — precisely
+    the failure this file's header records about `NODE_ENV`, where the suite
+    was green for months about a variable nothing sets. With `consoleUrl`
+    regressed so that every build resolves the dev URL, `A PACKAGED LAUNCH
+    POINTED AT LOOPBACK IS A FAILED SMOKE RUN` still holds, because the
+    refusal states a fact about the world instead of re-deriving one; delete
+    the refusal on top of that and it goes red with two others. The explicit
+    refusals are the half that survives the function being wrong.
+
+    The first row is the one worth naming: made `() => null` this function
+    still typechecks, `--smoke` still exits 0, and the release gate still goes
+    green on the build that shipped — which is the whole failure this PR is
+    about, arriving one layer further out.
+  */
+  check(
+    "A PACKAGED LAUNCH POINTED AT LOOPBACK IS A FAILED SMOKE RUN",
+    unexpectedConsoleAddress({}, true, "http://localhost:8081/") !== null,
+  );
+  check(
+    "...and that is true of every spelling of loopback",
+    ["http://127.0.0.1:8081/", "http://[::1]:8081/"].every(
+      (address) => unexpectedConsoleAddress({}, true, address) !== null,
+    ),
+  );
+  check(
+    "a packaged launch on the hosted console is fine",
+    unexpectedConsoleAddress({}, true, DEFAULT_CONSOLE_URL) === null,
+  );
+  check(
+    "AN UNPACKAGED LAUNCH POINTED AT PRODUCTION IS A FAILED SMOKE RUN",
+    unexpectedConsoleAddress({}, false, DEFAULT_CONSOLE_URL) !== null,
+  );
+  check(
+    "a development launch on the dev server is fine",
+    unexpectedConsoleAddress({}, false, `${DEV_CONSOLE_URL}/`) === null,
+  );
+  check(
+    "A SELF-HOSTER WHO ASKED FOR AN ADDRESS GETS IT, PACKAGED OR NOT",
+    unexpectedConsoleAddress(
+      { CONTEXT_DESKTOP_UI_URL: "https://context.example/console" },
+      true,
+      "https://context.example/console",
+    ) === null,
+  );
+  check(
+    "...but an address nobody asked for is still refused, override or no override",
+    unexpectedConsoleAddress(
+      { CONTEXT_DESKTOP_UI_URL: "https://context.example/console" },
+      true,
+      "https://somewhere.else.invalid/console",
+    ) !== null,
+  );
+  check(
+    "a window that resolved no address at all is a failure, not a pass",
+    unexpectedConsoleAddress({}, true, null) !== null,
+  );
+  check(
+    "and the failure says which address it found, because that is the diagnostic",
+    (unexpectedConsoleAddress({}, true, "http://localhost:8081/") ?? "").includes("localhost:8081"),
   );
 
   // --- the version-1 surface -------------------------------------------------

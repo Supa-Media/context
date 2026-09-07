@@ -129,6 +129,28 @@ Three properties of the survey are load-bearing:
   merely less curious. Note that a thrown handler is answered with a JSON-RPC
   error over HTTP 200, so "the handshake returned 200" does not test this.
 
+### Recency ranks attention, and automated capture is collapsed, not excluded
+
+"Recently updated" exists to answer one question — where has this person's
+attention actually been — and a connected mailbox or a run of daily meetings
+threatens that answer by writing a note on its own schedule rather than the
+person's, forever. `surveyContext` removes every note `src/communications/paths.js`
+recognises as automated capture (a channel-day note, a meeting, a saved
+session at its unrouted default) from the ranked list *before* `mostRecent`
+runs, so it can never outrank or bump an authored note off the same
+unchanged, unenlarged budget; each kind still present is reduced to one
+collapsed line — a count and its newest note — appended after. Collapsing
+rather than excluding is the deliberate half: an agent that asks "what came
+in?" gets a pointer, not silence, and the recogniser is a path predicate only,
+because nothing in this stack can tell an ingestion write from a person's own
+hand-edit, so an edited channel-day note still collapses. The full argument,
+and the three tests that pin it, are in
+[communications](./communications.md), "A firehose is not attention". The
+test that fails if this reverts to exclusion is `toolOrient answers "what came
+in" with a pointer, never silence`; the one that fails if the collapse itself
+is dropped is `a brain with a year of channel-day notes still surfaces its own
+recent notes in orient`.
+
 ### `search` and `fetch` exist because ChatGPT's chats can call nothing else
 
 Outside developer mode, ChatGPT invokes exactly two tools on a custom

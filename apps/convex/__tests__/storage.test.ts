@@ -6,8 +6,13 @@
  *  - no public function returns it, in any form, to anyone.
  */
 
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
+import {
+  ROTATED_ENVELOPE_COLUMNS,
+  ROTATION_EXEMPT_ENVELOPE_COLUMNS,
+} from "../functions/storage";
 import type { Id } from "../_generated/dataModel";
 import {
   type TestConvex,
@@ -19,7 +24,9 @@ import {
   createUser,
   createWorkspace,
   errorCode,
+  seedAppSecret,
   setupTest,
+  FAKE_D1,
 } from "./fixtures.helpers";
 
 /**
@@ -473,6 +480,19 @@ describe("rotating the encryption key", () => {
     }
   }
 
+  async function dataKeyEnvelopeOf(
+    t: TestConvex,
+    workspaceId: Id<"workspaces">,
+  ): Promise<string> {
+    const row = await t.run((ctx) =>
+      ctx.db
+        .query("workspaceDataKeys")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique(),
+    );
+    return row!.encryptedDataKey;
+  }
+
   async function envelopeOf(
     t: TestConvex,
     workspaceId: Id<"workspaces">,
@@ -607,6 +627,216 @@ describe("rotating the encryption key", () => {
     // Still there. A migration that deletes what it cannot read is a migration
     // that loses the customer's binding.
     expect(await envelopeOf(t, workspaceId)).toContain("v1:");
+  });
+
+  /**
+   * THE ENVELOPE THAT IS NOT ON A BINDING.
+   *
+   * `workspaceDataKeys.encryptedDataKey` is sealed by the same scheme and
+   * carries the same key id, and it is the one envelope in this control plane
+   * whose loss cannot be repaired: it opens the encrypted notes in somebody's
+   * bucket, and re-entering a credential does not bring it back.
+   *
+   * A pass that walked only `storageBindings` would report "nothing left" with
+   * these rows still under the outgoing key, and step 4 of the operator
+   * sequence — unset the PREVIOUS variables — would then destroy every
+   * encrypted note in every context. So the assertion that matters is the last
+   * one: the key still opens **after the old envelope key is gone from the
+   * environment entirely**, which is the state a finished rotation leaves.
+   */
+  test("a workspace data key is moved forward too, and still opens once the old key is gone", async () => {
+    const { t, workspaceId } = await boundWorkspace();
+    const originalKey = process.env.STORAGE_SECRET_ENCRYPTION_KEY!;
+
+    const before = await t.action(
+      internal.functions.encryptionKeys.openWorkspaceDataKey,
+      { workspaceId, create: true },
+    );
+    const sealedBefore = await dataKeyEnvelopeOf(t, workspaceId);
+    expect(sealedBefore.startsWith("v2:k1:")).toBe(true);
+
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: originalKey,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: "k1",
+      },
+      async () => {
+        const result = await t.action(
+          internal.functions.storage.rekeyStorageBindings,
+          {},
+        );
+        expect(result).toMatchObject({
+          rekeyed: 1,
+          dataKeysRekeyed: 1,
+          dataKeysSkipped: 0,
+          dataKeysUnreadable: 0,
+        });
+        // The envelope moved; the material inside it did not. A rotation that
+        // wrote a *new* key here would look identical from the outside and
+        // would have made every note already encrypted unreadable.
+        const sealedAfter = await dataKeyEnvelopeOf(t, workspaceId);
+        expect(sealedAfter.startsWith("v2:k2:")).toBe(true);
+        expect(sealedAfter).not.toBe(sealedBefore);
+
+        // Idempotent, like the binding half.
+        expect(
+          await t.action(internal.functions.storage.rekeyStorageBindings, {}),
+        ).toMatchObject({ rekeyed: 0, dataKeysRekeyed: 0 });
+      },
+    );
+
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: undefined,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: undefined,
+      },
+      async () => {
+        const after = await t.action(
+          internal.functions.encryptionKeys.openWorkspaceDataKey,
+          { workspaceId },
+        );
+        expect(after).toEqual(before);
+      },
+    );
+  });
+
+  test("a data key the pass cannot open is counted, never rewritten", async () => {
+    const { t, workspaceId } = await boundWorkspace();
+    const originalKey = process.env.STORAGE_SECRET_ENCRYPTION_KEY!;
+    await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId,
+      create: true,
+    });
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("workspaceDataKeys")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(row!._id, {
+        encryptedDataKey: "v1:aXZpdml2aXZpdml2aQ==:Y2lwaGVydGV4dA==",
+      });
+    });
+
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: originalKey,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: "k1",
+      },
+      async () => {
+        expect(
+          await t.action(internal.functions.storage.rekeyStorageBindings, {}),
+        ).toMatchObject({ dataKeysRekeyed: 0, dataKeysUnreadable: 1 });
+        // Left exactly as it was. Generating a replacement here would be data
+        // loss wearing the costume of a repair.
+        expect(await dataKeyEnvelopeOf(t, workspaceId)).toContain("v1:");
+      },
+    );
+  });
+
+  /**
+   * THE PLATFORM'S OWN CREDENTIALS, found by the guard below and fixed here.
+   *
+   * `appSecrets` is bound to the `integration` scope rather than to a
+   * workspace, so it was in neither the pass nor anybody's list. Losing these
+   * is an outage rather than data loss — an operator re-enters them — but a
+   * rotation that cannot be finished without breaking search provisioning and
+   * mail is a rotation nobody performs, which is the state this pass exists to
+   * end.
+   */
+  test("a platform secret is moved forward too, and its fingerprint does not move with it", async () => {
+    const { t } = await boundWorkspace();
+    const originalKey = process.env.STORAGE_SECRET_ENCRYPTION_KEY!;
+    await seedAppSecret(t, "SEARCH_D1_API_TOKEN", FAKE_D1.apiToken);
+    const fingerprintBefore = await t.run(async (ctx) => {
+      const row = await ctx.db.query("appSecrets").unique();
+      return row!.fingerprint;
+    });
+
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: originalKey,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: "k1",
+      },
+      async () => {
+        expect(
+          await t.action(internal.functions.storage.rekeyStorageBindings, {}),
+        ).toMatchObject({
+          platformSecretsRekeyed: 1,
+          platformSecretsSkipped: 0,
+          platformSecretsUnreadable: 0,
+        });
+      },
+    );
+
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: undefined,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: undefined,
+      },
+      async () => {
+        const row = await t.run(async (ctx) => await ctx.db.query("appSecrets").unique());
+        expect(row!.encryptedValue.startsWith("v2:k2:")).toBe(true);
+        // Derived from the plaintext, which a rotation does not touch. A
+        // fingerprint that moved would tell an operator their credential had
+        // been replaced.
+        expect(row!.fingerprint).toBe(fingerprintBefore);
+        expect(
+          await t.action(internal.functions.admin.readIntegrationSecret, {
+            name: "SEARCH_D1_API_TOKEN",
+          }),
+        ).toBe(FAKE_D1.apiToken);
+      },
+    );
+  });
+
+  /**
+   * The guard that would have caught the miss above.
+   *
+   * `dropboxBinding.test.ts` already couples `ENVELOPE_FIELDS` to the schema —
+   * but it reads only the `storageBindings` slice of it, so an encrypted column
+   * in a **new table** was invisible to it. That is the same blindness its own
+   * rationale warns about one level down, and `encryptedDataKey` walked
+   * straight through it.
+   */
+  test("every encrypted column in the whole schema is one rotation moves", () => {
+    const schema = readFileSync(new URL("../schema.ts", import.meta.url), "utf8");
+    const declared = [
+      ...new Set(
+        [...schema.matchAll(/^\s+(encrypted[A-Za-z0-9]*)\s*:\s*v\./gm)].map(
+          (match) => match[1]!,
+        ),
+      ),
+    ];
+    expect(declared.length).toBeGreaterThan(3);
+    // Two lists, and every encrypted column must be in exactly one of them. A
+    // column in neither is not "probably fine": it is an envelope whose fate on
+    // the operator's step 4 nobody has decided, which is how `encryptedDataKey`
+    // — the one envelope in this control plane that cannot be re-entered —
+    // came to be missing from the pass.
+    const accounted = [
+      ...(ROTATED_ENVELOPE_COLUMNS as readonly string[]),
+      ...(ROTATION_EXEMPT_ENVELOPE_COLUMNS as readonly string[]),
+    ];
+    for (const column of declared) {
+      expect(
+        accounted,
+        `schema column "${column}" is encrypted at rest but is in neither ROTATED_ENVELOPE_COLUMNS nor ROTATION_EXEMPT_ENVELOPE_COLUMNS, so nobody has decided what retiring the previous key does to it`,
+      ).toContain(column);
+    }
+    // And the exemptions are exemptions, not a second copy of the pass.
+    for (const column of ROTATION_EXEMPT_ENVELOPE_COLUMNS as readonly string[]) {
+      expect(ROTATED_ENVELOPE_COLUMNS as readonly string[]).not.toContain(column);
+    }
   });
 });
 

@@ -50,6 +50,9 @@ on:
       # normal path; this closes the direct-push one rather than leaving an
       # asterisk on the sentence above.
       - "packages/meetings/**"
+      # And the communications core, for the same reason one line up: `Test
+      # Communications Core` below is its only CI anywhere.
+      - "packages/communications/**"
       # And the desktop app, for exactly the same reason: `Test Desktop` below
       # is its only CI anywhere, so a direct push that skipped it would leave
       # the app with none on `main`.
@@ -125,6 +128,32 @@ jobs:
         working-directory: packages/meetings
         run: node test/test.mjs
 
+  communications:
+    name: Test Communications Core
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      # Beside `Test Meetings Core` and for the reason written there in full:
+      # a package whose suite no job runs has local-only checks, and this one
+      # decides what a stranger's mail looks like in a customer's bucket — the
+      # frontmatter escaping, the untrusted fence, and the slug that keeps a
+      # mailbox from becoming a hidden folder.
+      #
+      # The gateway's suite is not a substitute for the same measured reason:
+      # a consumer's suite sees the behaviour it happens to exercise, and the
+      # owning package's suite is the contract. Bare node with no install,
+      # because this package has no dependencies either.
+      - name: Run test suite
+        working-directory: packages/communications
+        run: node test/test.mjs
+
   desktop:
     name: Test Desktop
     runs-on: ubuntu-latest
@@ -178,6 +207,20 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Runs first, and before install: it needs only bash and node, and a
+      # workflow whose shell does not parse is worth failing fast on. This
+      # file is the second host for the same two-host reasoning as the
+      # trigger and preflight checkers below — `email-worker.yml` runs it too.
+      #
+      # `--self-test` first: the script used to read `process.argv` nowhere at
+      # all, so `--self-test` did nothing and every call to it fell through to
+      # the ordinary scan, silently verifying none of the cases the header
+      # claims it catches. See the script's `resolveMode`.
+      - name: Workflow run blocks parse as shell
+        run: |
+          node scripts/check-workflow-shell.mjs --self-test
+          node scripts/check-workflow-shell.mjs
+
       # A workflow file that does not parse is not a failing check — GitHub
       # ignores the file entirely, so it produces no run, no error, and no
       # status at all. The pull request then goes green having never executed
@@ -199,7 +242,7 @@ jobs:
       # — the same two-host arrangement, and for the same reason, as the
       # trigger checker below. One implementation, because two copies of a
       # guard are two things to drift.
-      - name: Every workflow file parses as YAML
+      - name: Every workflow file is one GitHub will load
         run: |
           node scripts/check-workflow-yaml.mjs --self-test
           node scripts/check-workflow-yaml.mjs
@@ -240,6 +283,27 @@ jobs:
         run: |
           node scripts/check-workflow-cloudflare-preflight.mjs --self-test
           node scripts/check-workflow-cloudflare-preflight.mjs
+
+      # `wrangler secret put` before `wrangler deploy` collided with a stale
+      # plaintext var on every run of deploy-router.yml (#302) because the
+      # secret push acts on whatever version is currently live — see the
+      # script's header. email-worker.yml runs it too, same two-host
+      # reasoning as the checkers above.
+      - name: No deploy workflow pushes a secret before deploying
+        run: |
+          node scripts/check-workflow-secret-order.mjs --self-test
+          node scripts/check-workflow-secret-order.mjs
+
+      # The other half of #302: `infra/router/wrangler.jsonc` once committed
+      # `CONVEX_ORIGIN` as a plaintext var, which is what the ordering above
+      # collided with. This proves no Wrangler config — this gateway's
+      # included — carries a secret it also pushes via `wrangler secret put`
+      # as a `vars` entry. email-worker.yml runs it too, same two-host
+      # reasoning as the checkers above.
+      - name: No Wrangler config commits a pushed secret as a var
+        run: |
+          node scripts/check-wrangler-vars-not-secrets.mjs --self-test
+          node scripts/check-wrangler-vars-not-secrets.mjs
 
   no-nul-bytes:
     name: Source stays diffable

@@ -41,6 +41,7 @@
  *     could change hands.
  */
 
+import { isEncryptedNote } from "./noteEncryption";
 import {
   PRIVACY_KEY,
   type PrivacyRule,
@@ -205,6 +206,14 @@ export type FileErrorCode =
   | "LISTING_INCOMPLETE"
   | "ARCHIVE_UNAVAILABLE"
   | "CONFIRMATION_REQUIRED"
+  /**
+   * The note at that path is stored encrypted, so this path may not write it.
+   *
+   * Its own code rather than `CONFLICT`, because the two mean opposite things
+   * to whoever is holding the editor: a conflict says reload and try again, and
+   * this says a write through this door cannot succeed at all.
+   */
+  | "NOTE_ENCRYPTED"
   | "NOT_A_FOLDER";
 
 /**
@@ -651,6 +660,19 @@ export interface FileContents {
   exception: boolean;
   /** `privacy.md`. The console shows it with an explanation instead of a textarea. */
   readOnly: boolean;
+  /**
+   * The note is stored encrypted, and this response is its ciphertext.
+   *
+   * The console shows a locked note rather than an editor. `readOnly` is forced
+   * true beside it, which is what makes the *existing* console behave correctly
+   * on a build that has never heard of this field — the same treatment
+   * `privacy.md` already gets, and the reason the flag is additive rather than a
+   * new mode.
+   *
+   * The control plane holds no key, so there is nothing here to decrypt with.
+   * See `functions/lib/noteEncryption.ts` for why that is deliberate.
+   */
+  encrypted: boolean;
 }
 
 export async function readFile(
@@ -665,14 +687,22 @@ export async function readFile(
   if (object === null) throw notFound();
 
   const described = describeFile(path, state.rules, state.overrides);
+  const text = await object.text();
+  // The ciphertext is returned rather than withheld: it is what is in the
+  // bucket, the caller has already passed `canSee`, and the file says in its own
+  // plain frontmatter what it is. What changes is that it is never editable —
+  // `readOnly` is forced, so an older console that ignores `encrypted` still
+  // refuses to put it in a textarea.
+  const encrypted = isEncryptedNote(text);
   return {
     path,
-    text: await object.text(),
+    text,
     etag: object.etag,
     visibility: described.visibility,
     inherited: described.inherited,
     exception: described.exception,
-    readOnly: described.readOnly,
+    readOnly: described.readOnly || encrypted,
+    encrypted,
   };
 }
 
@@ -733,6 +763,31 @@ export async function writeFile(
   if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
 
   const existing = await store.get(path);
+
+  /*
+   * AN ENCRYPTED NOTE IS NOT OVERWRITTEN THROUGH THIS DOOR.
+   *
+   * The gateway's rule is that whether a write is encrypted is decided by the
+   * stored object, and it enforces that by re-encrypting. This path cannot:
+   * the control plane holds no key, by design. So the only correct answer here
+   * is to refuse — because the alternative is writing the editor's plaintext
+   * over somebody's ciphertext and silently turning off encryption they asked
+   * for, which is the one failure this feature must not have.
+   *
+   * Checked on the marker rather than on a parse, so a malformed envelope is
+   * refused too. That is the case where overwriting is least recoverable.
+   *
+   * Before the conflict checks on purpose: this is a property of the note, not
+   * of the etag, and answering `CONFLICT` first would tell somebody to reload
+   * and try again at a write that can never succeed.
+   */
+  if (existing !== null && isEncryptedNote(await existing.text())) {
+    throw new FileOpError(
+      "NOTE_ENCRYPTED",
+      "That note is encrypted. Its content is stored as ciphertext and can only be edited through a client that can decrypt it.",
+      existing.etag,
+    );
+  }
 
   if (options.expectedEtag === undefined) {
     if (existing !== null) {

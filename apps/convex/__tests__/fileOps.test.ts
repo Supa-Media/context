@@ -4367,3 +4367,153 @@ describe("a set reports the manifest's answer", () => {
     expect(result.exception).toBe(true);
   });
 });
+
+
+/* -------------------------------------------------------------------------- */
+/*                            an encrypted note                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE CONSOLE'S DOOR ONTO A NOTE THE CONSOLE CANNOT OPEN.
+ *
+ * `docs/decisions/encryption.md`. The gateway re-encrypts a write over an
+ * encrypted note; this path cannot, because the control plane holds no key —
+ * deliberately. So the only correct behaviour here is to show it locked and
+ * refuse to write it, and the refusal is the half that matters: without it the
+ * editor loads an envelope into a textarea and saves the result back as the
+ * note's new plaintext, removing somebody's encryption by pressing Save through
+ * a door the gateway's guard does not reach.
+ */
+describe("an encrypted note", () => {
+  /** The shape `apps/mcp/src/encryption.js` writes, abbreviated. */
+  const ENVELOPE = [
+    "---",
+    "context_encryption: v1",
+    "context_encryption_key: ws:k1",
+    "---",
+    "",
+    "> [!NOTE] This note is encrypted.",
+    "",
+    "```context-encrypted",
+    '{"v":1,"alg":"A256GCM","iv":"AAAAAAAAAAAAAAAA","ct":"AAAA","aad":"context-note-v1:ws_x","recipients":[]}',
+    "```",
+    "",
+  ].join("\n");
+
+  test("reads as locked, and readOnly is forced whether or not the client knows the flag", async () => {
+    const store = bucket();
+    store.seed("1-projects/secret.md", ENVELOPE);
+
+    const file = await readFile(store, { path: "1-projects/secret.md", scope: "private" });
+    expect(file.encrypted).toBe(true);
+    // The older console never heard of `encrypted`. It honours `readOnly`, which
+    // is why the protection rides on the field that already existed and the new
+    // one only carries the explanation.
+    expect(file.readOnly).toBe(true);
+    // The ciphertext is returned rather than withheld: it is what is in the
+    // bucket, the caller has passed `canSee`, and the file says in its own plain
+    // frontmatter what it is.
+    expect(file.text).toBe(ENVELOPE);
+  });
+
+  test("an ordinary note is not locked, so the flag is not always true", async () => {
+    const store = bucket();
+    const file = await readFile(store, { path: "1-projects/context-lc.md", scope: "private" });
+    expect(file.encrypted).toBe(false);
+    expect(file.readOnly).toBe(false);
+  });
+
+  test("cannot be overwritten through this path, even with the right etag", async () => {
+    const store = bucket();
+    store.seed("1-projects/secret.md", ENVELOPE);
+    const file = await readFile(store, { path: "1-projects/secret.md", scope: "private" });
+
+    const refused = await capture(() =>
+      writeFile(store, {
+        path: "1-projects/secret.md",
+        text: "# I am plaintext now\n",
+        expectedEtag: file.etag,
+        scope: "private",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("NOTE_ENCRYPTED");
+    // The bytes, which is the claim that matters. A code with a write behind it
+    // is worse than no code at all.
+    expect(store.snapshot()["1-projects/secret.md"]).toBe(ENVELOPE);
+  });
+
+  test("...and the refusal is not a conflict, because reloading cannot help", async () => {
+    const store = bucket();
+    store.seed("1-projects/secret.md", ENVELOPE);
+
+    // A *stale* etag would ordinarily be `CONFLICT`. The encryption check runs
+    // first on purpose: telling somebody to reload and try again at a write that
+    // can never succeed sends them round a loop with no end.
+    const refused = await capture(() =>
+      writeFile(store, {
+        path: "1-projects/secret.md",
+        text: "# I am plaintext now\n",
+        expectedEtag: "an-etag-that-was-never-issued",
+        scope: "private",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("NOTE_ENCRYPTED");
+  });
+
+  test("a malformed envelope is refused a write too", async () => {
+    const store = bucket();
+    // Marked encrypted, and unparseable. This is the case where overwriting is
+    // least recoverable, so it must be refused at least as hard — which is why
+    // the check reads the marker rather than a successful parse.
+    store.seed("1-projects/broken.md", "---\ncontext_encryption: v1\n---\n\nnot an envelope\n");
+    const refused = await capture(() =>
+      writeFile(store, {
+        path: "1-projects/broken.md",
+        text: "# replaced\n",
+        scope: "private",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("NOTE_ENCRYPTED");
+  });
+
+  test("a note that merely writes about the marker is an ordinary note", async () => {
+    const store = bucket();
+    store.seed(
+      "1-projects/about-encryption.md",
+      "---\nupdated: 2026-09-07\n---\n\ncontext_encryption: v1 is a frontmatter key.\n",
+    );
+    const file = await readFile(store, {
+      path: "1-projects/about-encryption.md",
+      scope: "private",
+    });
+    expect(file.encrypted).toBe(false);
+    // And it saves, which is the point: a rule that read the body would let
+    // anybody make one of their own notes permanently unsavable by describing
+    // this feature in it.
+    const written = await writeFile(store, {
+      path: "1-projects/about-encryption.md",
+      text: "# rewritten\n",
+      expectedEtag: file.etag,
+      scope: "private",
+      now: NOW,
+    });
+    expect(written.path).toBe("1-projects/about-encryption.md");
+  });
+
+  test("a team caller is refused a private encrypted note exactly as it is refused a missing one", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("2-areas/vault.md", ENVELOPE);
+
+    const hidden = await capture(() => readFile(store, { path: "2-areas/vault.md", scope: "team" }));
+    const missing = await capture(() =>
+      readFile(store, { path: "2-areas/no-such-note.md", scope: "team" }),
+    );
+    // Byte-for-byte, in the style of `isolation.test.ts`: encrypting a note must
+    // add no way to tell it apart from a path that never existed.
+    expect(errorShape(hidden)).toBe(errorShape(missing));
+  });
+});

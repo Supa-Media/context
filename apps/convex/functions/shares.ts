@@ -80,6 +80,7 @@ import {
   type Invitee,
 } from "./lib/invitees";
 import { isPlumbing } from "./lib/privacy";
+import { isEncryptedNote } from "./lib/noteEncryption";
 import {
   boundPreviewChildren,
   normalizePreviewTitle,
@@ -816,6 +817,30 @@ export const createLinkShare = action({
         operation: { kind: "read", path: pathCheck.path },
       });
       if (visible.kind !== "file") throw notTeamVisible();
+      /*
+        AN UNLISTED LINK IS NOT MINTED OVER AN ENCRYPTED NOTE.
+
+        `docs/decisions/encryption.md`, "Sharing": both features are
+        defensible and their composition is not. An unlisted link is the one
+        audience in this product with no name and no session, and an encrypted
+        note is one the owner was told is stored unreadable. The owner's model
+        of "encrypted" and their model of "anyone with this link" cannot both
+        be true of one note, and the product does not get to pick which one
+        they meant.
+
+        Refused here for the same reason the visibility check above is here: a
+        link that silently resolves to "not available" for everyone who opens
+        it is indistinguishable, from the owner's side, from having published
+        something. And exactly as with that check, this is a courtesy and never
+        the thing the read path relies on — `readThroughShare` refuses again,
+        live, because a note encrypted *after* a link was minted is the case a
+        creation-time check cannot see.
+
+        On the marker, not on a successful parse: a note whose envelope is
+        malformed is one nobody can read either, and it is the case where
+        publishing a link over it helps least.
+      */
+      if (isEncryptedNote(visible.text)) throw notLinkableEncrypted();
     } catch (error) {
       // A note the manifest hides and a note that is not there answer
       // identically at `team` scope, by design — that indistinguishability is
@@ -862,6 +887,26 @@ function notTeamVisible(): ConvexError<{ code: string; message: string }> {
     message:
       "Your team cannot read that note, so a link cannot either. Check the path, " +
       "and share it with your team before making a link anyone can open.",
+  });
+}
+
+/**
+ * A note an unlisted link may not be minted over, because it is encrypted.
+ *
+ * Its own code rather than `PATH_NOT_TEAM_VISIBLE`: the two mean opposite
+ * things to the owner holding the button. That one says "publish the note
+ * first"; this one says "this note is deliberately unreadable, and a link
+ * anyone can open is the one audience that cannot have it".
+ *
+ * It discloses nothing — the caller is the owner, past owner clearance, reading
+ * a fact about their own note that its own frontmatter states in the clear.
+ */
+function notLinkableEncrypted(): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({
+    code: "PATH_ENCRYPTED",
+    message:
+      "That note is encrypted, so a link anyone can open cannot be made for it. " +
+      "Turn off encryption for the note first, or share it with named people instead.",
   });
 }
 
@@ -1524,6 +1569,7 @@ export const readSharedNote = action({
       grant.workspaceId,
       grant.entryPath,
       actorUserId,
+      grant.openToAnyone,
     );
     const links = linkedNotePaths(entry.text, grant.entryPath);
 
@@ -1531,7 +1577,13 @@ export const readSharedNote = action({
       // `SHARE_TRAVERSAL_DEPTH` is 1: the entry note's own links and nothing
       // further. See the constant.
       if (!links.includes(requested)) throw anonymousSafe(actorUserId, shareUnavailable());
-      const target = await readThroughShare(ctx, grant.workspaceId, requested, actorUserId);
+      const target = await readThroughShare(
+        ctx,
+        grant.workspaceId,
+        requested,
+        actorUserId,
+        grant.openToAnyone,
+      );
       return {
         path: requested,
         text: target.text,
@@ -1644,6 +1696,7 @@ async function readThroughShare(
   workspaceId: Id<"workspaces">,
   path: string,
   actorUserId: Id<"users"> | null,
+  openToAnyone: boolean,
 ): Promise<{ text: string }> {
   try {
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
@@ -1652,6 +1705,35 @@ async function readThroughShare(
       operation: { kind: "read", path },
     });
     if (result.kind !== "file") throw anonymousSafe(actorUserId, shareUnavailable());
+    /*
+      AND A LIVE LINK STOPS RESOLVING THE MOMENT THE NOTE IS ENCRYPTED.
+
+      The mint-time check cannot see this: a note encrypted *after* a link was
+      pasted is exactly the case that one misses, and nothing is stored on the
+      share row that could disagree with the bucket. So this re-derives from the
+      live object every read, the same way visibility is re-derived from the
+      live `privacy.md` — and it is where the security lives, while the check in
+      `createLinkShare` is only a courtesy to whoever pressed the button.
+
+      Refused rather than served: the control plane holds no note key, so the
+      alternative is handing an anonymous reader an envelope rendered as their
+      note. That is not a plaintext leak, but it is the product telling somebody
+      a link works when the thing behind it cannot be read, on the one path
+      where nobody can ask.
+
+      `openToAnyone` is what narrows this to the unlisted link. A share
+      addressed to a named person or to the members of a context has a reader
+      who signed in, and what the decision file refuses is the *composition* of
+      "encrypted" with "no identified reader" — not encryption with sharing.
+
+      The refusal is `anonymousSafe(shareUnavailable())`: byte-identical to a
+      revoked link, a token nobody minted, and a note made private. A holder
+      who could tell those apart would learn that the note exists and that its
+      owner encrypted it.
+    */
+    if (openToAnyone && isEncryptedNote(result.text)) {
+      throw anonymousSafe(actorUserId, shareUnavailable());
+    }
     return { text: result.text };
   } catch (error) {
     const code =
