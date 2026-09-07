@@ -427,7 +427,9 @@ describe("pressing a context in the strip goes back to where you were in it", ()
 
     const app = await mountConsole();
 
-    expect(app.pills()).toEqual(["seyi", "acme", "supa"]);
+    // `@seyi` is the current context and is drawn as the breadcrumb button,
+    // not as a pill — so the strip is the log's order over the rest.
+    expect(app.pills()).toEqual(["acme", "supa"]);
   });
 
   test("a context this device has never been in sorts behind every one it has", async () => {
@@ -437,7 +439,7 @@ describe("pressing a context in the strip goes back to where you were in it", ()
 
     const app = await mountConsole();
 
-    expect(app.pills()).toEqual(["seyi", "supa", "acme"]);
+    expect(app.pills()).toEqual(["supa", "acme"]);
   });
 
   test("a path the device should not have been holding does not reach the URL", async () => {

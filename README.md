@@ -139,7 +139,7 @@ Two answers, and you want both:
 - **A session-end hook**, for when the agent does not call it:
 
   ```sh
-  npx -y @context-lc/hook install
+  npx -y @supa-media/context-hook install
   ```
 
   Signs you in once and adds a `SessionEnd` hook to Claude Code. From then on a
@@ -166,7 +166,7 @@ anonymous tier.
 | `apps/mobile/`    | Expo app (iOS, Android, web) — onboarding and dashboard         |
 | `apps/mcp/`       | The MCP gateway Worker — tools, privacy engine, storage adapter |
 | `packages/shared/`| Types and constants shared across apps                          |
-| `packages/hook/`  | `npx @context-lc/hook` — the session-end hook                    |
+| `packages/hook/`  | `npx @supa-media/context-hook` — the session-end hook                    |
 
 ## Development
 

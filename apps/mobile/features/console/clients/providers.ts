@@ -347,7 +347,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     },
     hook: {
       note: "Signs in once, then brackets every session: at the start the model is told to orient before answering, and at the end the session's user-visible messages are saved to 0-inbox/. It asks for capture access only — it can add to your inbox and cannot read a single note. Add --orient to have your actual orientation injected at session start instead, which asks for read access on a credential that lives on your machine unattended.",
-      command: (endpoint) => `npx -y @context-lc/hook install --client claude-code --endpoint ${shellQuote(endpoint)}`,
+      command: (endpoint) => `npx -y @supa-media/context-hook install --client claude-code --endpoint ${shellQuote(endpoint)}`,
     },
     link: () => ({
       kind: "docs",
@@ -374,7 +374,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     },
     hook: {
       note: "Signs in once, then brackets every session: at the start the model is told to orient before answering, and at the end the session's user-visible messages are saved to 0-inbox/. It asks for capture access only — it can add to your inbox and cannot read a single note. Add --orient to have your actual orientation injected at session start instead, which asks for read access on a credential that lives on your machine unattended. The transcript parser was written against Claude Code's format, so a save here may keep less than it could — it says so when that happens rather than going quiet.",
-      command: (endpoint) => `npx -y @context-lc/hook install --client codex --endpoint ${shellQuote(endpoint)}`,
+      command: (endpoint) => `npx -y @supa-media/context-hook install --client codex --endpoint ${shellQuote(endpoint)}`,
     },
     link: () => ({
       kind: "docs",
@@ -450,7 +450,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     },
     hook: {
       note: "Signs in once, then brackets every session: at the start the model is told to orient before answering, and at the end the session's user-visible messages are saved to 0-inbox/. It asks for capture access only — it can add to your inbox and cannot read a single note. Add --orient to have your actual orientation injected at session start instead, which asks for read access on a credential that lives on your machine unattended. The transcript parser was written against Claude Code's format, so a save here may keep less than it could — it says so when that happens rather than going quiet.",
-      command: (endpoint) => `npx -y @context-lc/hook install --client gemini-cli --endpoint ${shellQuote(endpoint)}`,
+      command: (endpoint) => `npx -y @supa-media/context-hook install --client gemini-cli --endpoint ${shellQuote(endpoint)}`,
     },
     link: () => ({
       kind: "docs",

@@ -182,15 +182,26 @@ function mountStrip(over: Partial<Parameters<typeof ContextStrip>[0]> = {}): Mou
 /*                                 the rules                                  */
 /* -------------------------------------------------------------------------- */
 
-describe("the order answers where am I, then where was I", () => {
+describe("the strip is where you can go, not where you are", () => {
   /**
-   * SABOTAGE: dropped the `current` pin from `stripOrder`, leaving the recency
-   * sort alone. Fails here and in "the current pill is lit and first" — the two
+   * The context you are in is NOT on this row. It is the button at the head of
+   * the breadcrumb (`CurrentContextPill`), which is the way to its root — so
+   * this row is the contexts you can switch *to*, and every pill on it goes
+   * somewhere you are not.
+   *
+   * It was pinned first and lit here, with the path line naming the same
+   * context again one row down. Deleting the *path* half was the first fix and
+   * the wrong one: it took the way up with it, and a top-level folder was left
+   * with no route to its own root.
+   *
+   * SABOTAGE: dropped the `!== currentSlug` filter from `stripOrder`. Fails
+   * here and in "the strip draws no pill for the context you are in" — the two
    * halves of the same claim, in the two rooms.
    */
-  test("the context you are in is first, whatever the log says", () => {
+  test("the context you are in is not on the strip at all", () => {
     const order = stripOrder(contexts(), "acme", [{ slug: "supa" }, { slug: "seyi" }]);
-    expect(order.map((entry) => entry.slug)).toEqual(["acme", "supa", "seyi", "sayo"]);
+    expect(order.map((entry) => entry.slug)).toEqual(["supa", "seyi", "sayo"]);
+    expect(order.map((entry) => entry.slug)).not.toContain("acme");
   });
 
   /**
@@ -199,16 +210,16 @@ describe("the order answers where am I, then where was I", () => {
    * implementation if the recency were ignored, which is why the expectation
    * below is not in alphabetical order.
    */
-  test("and the rest are most recently visited, never alphabetical", () => {
+  test("and they are most recently visited, never alphabetical", () => {
     const order = stripOrder(contexts(), "seyi", [
       { slug: "seyi" },
       { slug: "supa" },
       { slug: "sayo" },
       { slug: "acme" },
     ]);
-    expect(order.map((entry) => entry.slug)).toEqual(["seyi", "supa", "sayo", "acme"]);
+    expect(order.map((entry) => entry.slug)).toEqual(["supa", "sayo", "acme"]);
     // The alphabetical answer, spelled out, so a reader can see the two differ.
-    expect(order.map((entry) => entry.slug)).not.toEqual(["seyi", "acme", "sayo", "supa"]);
+    expect(order.map((entry) => entry.slug)).not.toEqual(["acme", "sayo", "supa"]);
   });
 
   /**
@@ -234,17 +245,24 @@ describe("the order answers where am I, then where was I", () => {
       { slug: "removed-long-ago" },
       { slug: "supa" },
     ]);
-    expect(order.map((entry) => entry.slug)).toEqual(["seyi", "supa", "sayo", "acme"]);
+    expect(order.map((entry) => entry.slug)).toEqual(["supa", "sayo", "acme"]);
   });
 
-  test("every context the viewer can reach is on it, and nothing else is", () => {
+  test("every context the viewer can reach but the one they are in", () => {
     // Brains and workspaces undivided — the rail's two headed groups are one
     // row here, and the kind is the dot.
     const order = stripOrder(contexts(), "seyi", []);
-    expect(order).toHaveLength(contexts().length);
+    expect(order).toHaveLength(contexts().length - 1);
     expect(new Set(order.map((entry) => entry.slug))).toEqual(
-      new Set(["seyi", "sayo", "acme", "supa"]),
+      new Set(["sayo", "acme", "supa"]),
     );
+  });
+
+  test("...and all of them when the viewer is in none", () => {
+    // The app-level panes: Map, Connections, Settings with no context open.
+    // Nothing is being excluded, so nothing is missing.
+    const order = stripOrder(contexts(), null, []);
+    expect(order).toHaveLength(contexts().length);
   });
 });
 
@@ -273,37 +291,42 @@ describe("the kind is a colour, and it is not an alarm", () => {
   });
 });
 
-describe("a row of one is not drawn", () => {
+describe("an empty row is not drawn", () => {
   /**
-   * SABOTAGE: `total > 1` → `total > 0`. Fails here only.
+   * SABOTAGE: `total > 0` → `total >= 0`. Fails here only.
    */
   test("one context and nothing to reach is no strip at all", () => {
-    // A single pill naming the context you are looking at is a label wearing a
-    // button's clothes, and it costs the band the note could have had.
+    /*
+      The only context is the one you are in, which `stripOrder` drops, so
+      there is nothing to switch to — and the name is on the screen anyway, at
+      the head of the breadcrumb. The band goes back to the note.
+    */
     expect(stripEntries([context({ slug: "seyi" })], "seyi", [], NO_ENDS)).toBeNull();
     expect(stripEntries([], null, [], NO_ENDS)).toBeNull();
   });
 
   /**
-   * The reading this takes of "exactly one context → no strip", and it is the
-   * rule's own stated reason rather than a departure from it: *a row of one is
-   * a control that cannot do anything*. A row of one context **and** "New
-   * workspace" can do something, and `rail.ts` records that this entry is "the
-   * *whole* group for somebody who is in no workspaces yet, which is how a
-   * person who has only ever had a brain finds out that workspaces exist".
-   * Counting contexts rather than entries would take that away from exactly the
-   * person it was written for — one brain, a phone, and no other surface
-   * offering it, since the rail is not on a phone any more.
+   * The reading this takes of "nothing to switch to → no strip", and it is the
+   * rule's own stated reason rather than a departure from it: *an empty row is
+   * chrome that does nothing*. A row holding "New workspace" is not empty, and
+   * `rail.ts` records that this entry is "the *whole* group for somebody who is
+   * in no workspaces yet, which is how a person who has only ever had a brain
+   * finds out that workspaces exist". Counting contexts rather than entries
+   * would take that away from exactly the person it was written for — one
+   * brain, a phone, and no other surface offering it, since the rail is not on
+   * a phone any more.
    *
    * SABOTAGE: counted `ordered.length` instead of the total. Fails here and in
    * the render case below.
    */
-  test("but one context and somewhere to go is a strip of two", () => {
+  test("but one context and somewhere to go is a strip of the somewhere", () => {
     const entries = stripEntries([context({ slug: "seyi" })], "seyi", [], {
       claim: false,
       create: true,
     });
-    expect(entries?.map((entry) => entry.slug)).toEqual(["seyi"]);
+    // No pills — the only context is the current one — and the row exists for
+    // the entry at the end of it.
+    expect(entries).toEqual([]);
   });
 
   test("and no contexts at all with a claim to offer is still a strip", () => {
@@ -311,9 +334,9 @@ describe("a row of one is not drawn", () => {
     expect(stripEntries([], null, [], { claim: true, create: true })).toEqual([]);
   });
 
-  test("two contexts is a strip whether or not anything is offered", () => {
+  test("two contexts is a strip of the one you are not in", () => {
     const two = [context({ slug: "seyi" }), context({ slug: "supa", kind: "shared" })];
-    expect(stripEntries(two, "seyi", [], NO_ENDS)).toHaveLength(2);
+    expect(stripEntries(two, "seyi", [], NO_ENDS)?.map((entry) => entry.slug)).toEqual(["supa"]);
   });
 });
 
@@ -324,7 +347,8 @@ describe("a row of one is not drawn", () => {
 describe("what is on the strip", () => {
   test("a pill per context, in the order the rules decided", () => {
     const strip = mountStrip({ recent: [{ slug: "supa" }] });
-    for (const slug of ["seyi", "sayo", "acme", "supa"]) {
+    // `@seyi` is the current context: it is in the breadcrumb, not here.
+    for (const slug of ["sayo", "acme", "supa"]) {
       expect(strip.find(`context-strip-${slug}`)).not.toBeNull();
     }
     // Document order is the strip's order.
@@ -333,7 +357,8 @@ describe("what is on the strip", () => {
       .map((node) => node.dataset.testid)
       .filter((id) => id !== undefined && !id.endsWith("-scroll") && !id.endsWith("-fade"))
       .map((id) => id!.replace("context-strip-", ""));
-    expect(drawn).toEqual(["seyi", "supa", "sayo", "acme"]);
+    // `@seyi` is the current context and is drawn in the breadcrumb instead.
+    expect(drawn).toEqual(["supa", "sayo", "acme"]);
   });
 
   /**
@@ -342,12 +367,10 @@ describe("what is on the strip", () => {
    * mode once tried to. Fails here — and it is the rule that killed that
    * collapse, so it is asserted rather than trusted.
    */
-  test("every pill carries a real name, including the one you are on", () => {
+  test("every pill carries a real name, and every one is somewhere to go", () => {
     const strip = mountStrip();
-    expect(strip.need("context-strip-seyi").getAttribute("aria-label")).toBe(
-      "@seyi, the context you are in",
-    );
     expect(strip.need("context-strip-supa").getAttribute("aria-label")).toBe("Open @supa");
+    expect(strip.need("context-strip-sayo").getAttribute("aria-label")).toBe("Open @sayo");
     // And the dot beside it says nothing to a reader, which is why the label
     // has to carry the whole message.
     for (const node of strip.all("[data-testid^='context-strip-']")) {
@@ -359,14 +382,26 @@ describe("what is on the strip", () => {
   });
 
   /**
-   * SABOTAGE: dropped `aria-selected` and the `pillCurrent` style. Fails here.
+   * The rendered half of "the strip is where you can go, not where you are".
+   *
+   * There is no lit pill here any more, because there is no pill for the
+   * current context at all — it is `CurrentContextPill`, in the breadcrumb, and
+   * `navBand.test.ts` holds that end.
+   *
+   * SABOTAGE: dropped the `!== currentSlug` filter from `stripOrder`. Fails
+   * here and in "the context you are in is not on the strip at all".
    */
-  test("the current pill is lit and first, so the strip answers where am I", () => {
+  test("the strip draws no pill for the context you are in", () => {
     const strip = mountStrip({ currentSlug: "acme", recent: [{ slug: "supa" }] });
+    expect(strip.find("context-strip-acme")).toBeNull();
+    // And the first pill is the most recently visited of the rest, not a
+    // pinned label.
     const first = strip.all("[role='button']")[0]!;
-    expect(first.dataset.testid).toBe("context-strip-acme");
-    expect(first.getAttribute("aria-selected")).toBe("true");
-    expect(strip.need("context-strip-supa").getAttribute("aria-selected")).toBeNull();
+    expect(first.dataset.testid).toBe("context-strip-supa");
+    // Nothing on this row is "selected": every pill goes somewhere you are not.
+    for (const node of strip.all("[data-testid^='context-strip-']")) {
+      expect(node.getAttribute("aria-selected")).toBeNull();
+    }
   });
 
   test("pressing a pill asks the layout to open it, by slug", () => {
@@ -433,7 +468,7 @@ describe("what is on the strip", () => {
    */
   test("a pill clears the touch floor, because it is how a phone changes context", () => {
     const strip = mountStrip();
-    for (const testID of ["context-strip-seyi", "context-strip-supa"]) {
+    for (const testID of ["context-strip-sayo", "context-strip-supa"]) {
       const height = Number.parseFloat(styleOf(strip.need(testID), "height"));
       expect(height).toBeGreaterThanOrEqual(layout.minTouchTarget);
     }
@@ -452,7 +487,7 @@ describe("what is on the strip", () => {
       should stay that way.
     */
     const strip = mountStrip();
-    for (const testID of ["context-strip-seyi", "context-strip-supa"]) {
+    for (const testID of ["context-strip-sayo", "context-strip-supa"]) {
       // `min-width` rather than `width`: a long slug's pill is legitimately
       // wider than the floor, so what is being held is the floor itself.
       const floor = Number.parseFloat(styleOf(strip.need(testID), "min-width"));
@@ -482,8 +517,8 @@ describe("what is on the strip", () => {
    */
   test("a pill's mark is smaller than the thumb that presses it, and squarer", () => {
     const strip = mountStrip();
-    const target = strip.need("context-strip-seyi");
-    const mark = target.querySelector<HTMLElement>('[data-testid="mark-context-strip-seyi"]');
+    const target = strip.need("context-strip-sayo");
+    const mark = target.querySelector<HTMLElement>('[data-testid="mark-context-strip-sayo"]');
     expect(mark).not.toBeNull();
 
     const targetHeight = Number.parseFloat(styleOf(target, "height"));
@@ -551,7 +586,7 @@ describe("what is on the strip", () => {
     // a column for height it does not have.
     expect(styleOf(band, "flex-grow")).not.toBe("1");
     // The pills are what refuse to shrink; the scroller absorbs the overflow.
-    expect(styleOf(strip.need("context-strip-seyi"), "flex-shrink")).toBe("0");
+    expect(styleOf(strip.need("context-strip-sayo"), "flex-shrink")).toBe("0");
   });
 
   /**
