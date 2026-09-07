@@ -31,11 +31,20 @@
  *   `isEncryptedNote` returning `false` unconditionally                    12
  *   `decryptNote`'s wrap AAD built from a constant, not the envelope         6
  *
- * Added in adversarial review:
+ * Added in adversarial review, and re-measured on the file as it stands:
  *
  *   the CLI's single-file path falling back to "write what was read" when
  *   a note cannot be opened                                                 2
  *   `src/format.js` importing one constant from the gateway's module        1
+ *   `isEncryptedNote` returning `false` unconditionally, again             17
+ *   `decryptNote`'s wrap AAD built from an unrelated constant               5
+ *
+ * The two re-measurements are the original two rows, and the first one is a
+ * finding about this file. It reported **7**, not 12, until the passphrase
+ * block below stopped calling `parseEncryptedNote` twice: with the predicate
+ * sabotaged the second call returns `null`, reading `.recipients` off it threw,
+ * and the file ended there — so every check after it counted as passing by not
+ * running. A sabotage count is only a measurement if the run reaches the end.
  */
 
 import { execFileSync } from "node:child_process";
@@ -215,14 +224,20 @@ check(
     kek,
     kdf: { id: "argon2id", v: 19, m: 19456, t: 2, p: 1, salt: "c2FsdHNhbHRzYWx0c2E" },
   });
+  // Parsed once, and every assertion below reads the result rather than
+  // re-parsing: a sabotage that makes `isEncryptedNote` answer `false` turns a
+  // second `parseEncryptedNote(...).recipients` into a TypeError that ends the
+  // whole file, and a sabotage run that stops early undercounts every check
+  // after it. Measured: it reported 7 failures instead of 12.
+  const lockedEnvelope = isEncryptedNote(lockedNote) ? parseEncryptedNote(lockedNote) : null;
   check(
     "a passphrase-locked note is recognised as an encrypted note and parses",
-    isEncryptedNote(lockedNote) && parseEncryptedNote(lockedNote).recipients.length === 1,
+    lockedEnvelope !== null && lockedEnvelope.recipients.length === 1,
   );
   check(
     "...and its KDF descriptor survives the shape check this package makes",
-    parseEncryptedNote(lockedNote).recipients[0].kind === "passphrase" &&
-      parseEncryptedNote(lockedNote).recipients[0].kdf.id === "argon2id",
+    lockedEnvelope?.recipients[0].kind === "passphrase" &&
+      lockedEnvelope?.recipients[0].kdf.id === "argon2id",
   );
   const refusal = await threw(async () => decryptNote(lockedNote, { k1: KEY_A }));
   check(
