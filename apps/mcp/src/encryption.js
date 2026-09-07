@@ -332,6 +332,45 @@ export function indexableText(text) {
 }
 
 /**
+ * The bytes to store for a note this gateway *generated*, given whatever is
+ * already at that path.
+ *
+ * "Whether a write is encrypted is decided by the stored object at that path,
+ * never by the submitted content" is a rule about every writer, not only about
+ * the one a person drives. Several paths regenerate a note at a fixed key — an
+ * inbox capture replayed under the same external id, a meeting note, a calendar
+ * refresh — and each legitimately replaces the note's **content**. None of them
+ * is a reason to also replace its **form**: a note somebody deliberately
+ * encrypted must not quietly become plaintext because a scheduled job rewrote
+ * it.
+ *
+ * Three answers, and the third is why this returns a value rather than bytes:
+ *
+ *  - nothing there, or plaintext there — the text, unchanged;
+ *  - an envelope there, and a key — the text, encrypted;
+ *  - an envelope there and **no key** — `null`, meaning *leave the note alone*.
+ *    Writing plaintext over an envelope nobody in this request can open is the
+ *    one outcome worse than dropping the update, because the update can be made
+ *    again and the note's form cannot.
+ *
+ * `seal` is supplied by the caller rather than taken here, because sealing
+ * needs a workspace and a key and this module deliberately knows about neither.
+ * It answers `null` where the caller holds no key.
+ *
+ * Decided on the marker rather than on a successful parse, so a broken envelope
+ * is protected exactly as hard as a good one.
+ *
+ * @param {string} text the note as the generator produced it
+ * @param {string|null} storedText what is at the path now, or `null`
+ * @param {(plaintext: string) => Promise<string|null>} seal
+ * @returns {Promise<string|null>}
+ */
+export async function generatedNoteBytes(text, storedText, seal) {
+  if (typeof storedText !== "string" || !isEncryptedNote(storedText)) return text;
+  return await seal(text);
+}
+
+/**
  * The key generation an encrypted note names, without opening it.
  *
  * A re-wrap pass reads this to find what is still on the outgoing generation.

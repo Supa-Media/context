@@ -120,6 +120,7 @@ import {
   NoteCryptoError,
   decryptNote,
   encryptNote,
+  generatedNoteBytes,
   isEncryptedNote,
 } from "./encryption.js";
 import { inventoryPlugins } from "./plugins/inventory.js";
@@ -3723,6 +3724,25 @@ async function openStoredNote(store, stored) {
 }
 
 /**
+ * `generatedNoteBytes` bound to this request's key, for the generators below.
+ *
+ * The rule and everything it costs live in `src/encryption.js`; this is the
+ * half that needs a workspace and a key, which that module deliberately knows
+ * nothing about. `null` back means *leave the note alone*.
+ */
+async function generatedNoteFor(store, text, storedText) {
+  return await generatedNoteBytes(text, storedText, (plaintext) =>
+    sealNoteContent(store, plaintext),
+  );
+}
+
+/** The text currently stored at `key`, or `null` where there is nothing there. */
+async function storedTextAt(store, key) {
+  const object = await store.get(key);
+  return object ? await object.text() : null;
+}
+
+/**
  * The bytes to store for a note whose stored form is encrypted.
  *
  * Reachable only where the stored object has already been read and found
@@ -6067,14 +6087,25 @@ async function writeInboxCapture(store, capture, { actorScope = "inbox", replace
   }
 
   const note = `${frontmatter.join("\n")}\n\n${bodyParts.join("\n")}`;
+  let previous = null;
   if (existing) {
+    previous = await existing.text();
     // Idempotency only. An unchanged capture is not re-written; a changed one
     // overwrites, and the version it replaces is kept only if the customer
     // enabled versioning on their bucket.
-    const previous = await existing.text();
-    if (previous === note) return { path: key, duplicate: true };
+    //
+    // Compared against the *plaintext* where the note is encrypted, or every
+    // replay of the same capture would look changed — the envelope is never
+    // equal to the note it holds — and would burn a write and a sync in every
+    // connected vault for a capture nobody made.
+    const opened = await openStoredNote(store, previous);
+    if (opened.ok && opened.text === note) return { path: key, duplicate: true };
   }
-  await store.put(key, note);
+  // The form of the note at this path outlives this capture. See
+  // `generatedNoteBytes`.
+  const body = await generatedNoteFor(store, note, previous);
+  if (body === null) return { path: key, duplicate: false, updated: false, locked: true };
+  await store.put(key, body);
   await recordChange(store, existing ? "inbox_update" : "inbox_capture", actorScope, [key], { source });
   return { path: key, duplicate: false, updated: Boolean(existing) };
 }
@@ -6260,8 +6291,19 @@ async function publishMeetingNote(store, scope, { path, markdown, segmentCount }
     }
   }
 
+  // A meeting note regenerated over one somebody encrypted stays encrypted. A
+  // note we cannot open is left exactly as it is, and the refusal says so
+  // rather than replacing an envelope with plaintext.
+  const body = await generatedNoteFor(store, markdown, await storedTextAt(store, notePath));
+  if (body === null) {
+    throw new MeetingRefusal(
+      409,
+      "note_encrypted",
+      "that meeting note is encrypted and this request cannot open it; nothing was written",
+    );
+  }
   if (visibility === "private") await persistExactVisibility(store, notePath, "private", rules);
-  const put = await store.put(notePath, markdown);
+  const put = await store.put(notePath, body);
   if (visibility === "team") await persistExactVisibility(store, notePath, "team", rules);
   await recordChange(store, "meeting_note", scope, [notePath], {
     etag: put.etag,
@@ -6722,7 +6764,22 @@ async function syncCalendar(env, store) {
     }
     md += "\n";
   }
-  await store.put("2-areas/calendar/next-14-days.md", md);
+  // The refresh regenerates this note every run. If somebody encrypted it, it
+  // stays encrypted; if it cannot be opened, the refresh is skipped rather than
+  // stripping the encryption off a note in the customer's own bucket.
+  //
+  // The path is written as a literal at the `store.put` below rather than held
+  // in the variable read just above it, because `teamShare.test.ts` reads this
+  // source for `store.put("<product path>"` and checks every one against
+  // `PRODUCT_MANDATED_PATHS` — a guard that a variable here would silently
+  // empty out.
+  const calendarBody = await generatedNoteFor(
+    store,
+    md,
+    await storedTextAt(store, "2-areas/calendar/next-14-days.md"),
+  );
+  if (calendarBody === null) return;
+  await store.put("2-areas/calendar/next-14-days.md", calendarBody);
   await recordChange(store, "calendar_sync", "system", ["2-areas/calendar/next-14-days.md"], {
     count: upcoming.length,
   });
