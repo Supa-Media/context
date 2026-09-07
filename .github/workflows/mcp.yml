@@ -143,7 +143,7 @@ jobs:
       # was added to close, one app over. `ci.yml` filters on
       # `packages/shared/**`, `apps/mobile/**` and `apps/convex/**`, so a change
       # touching only `apps/desktop/**` matched no job anywhere, and the app's
-      # 472 checks — the consent gate, the credential's whole life, and the one
+      # 492 checks — the consent gate, the credential's whole life, and the one
       # request in the product that carries somebody's meeting audio — were
       # local-only.
       #

@@ -111,7 +111,7 @@ the settings file, put in a URL, or exposed to a renderer.
 
 ## What is real, and what is not
 
-### Real, and checked by the suite (472 checks, offline, no network)
+### Real, and checked by the suite (492 checks, offline, no network)
 
 - The detection loop against fake collectors, including the flicker cases: one
   poll of a conferencing app does not start a recording, a two-poll blip does
@@ -151,6 +151,12 @@ failures — and the checks were rewritten until each sabotage reports itself.
 - The capture plan: no grant, or on-device chosen, means **no microphone is
   opened at all** and no permission dialog is raised — and every sentence a
   person is shown comes from a closed set.
+- **The credential at rest**, against a fake keychain and a real temporary
+  directory: the plaintext token never reaches the file, the file is 0600, a
+  machine with no keyring gets **no file at all** rather than a token in the
+  clear, a file this keychain cannot open reads as "not connected" instead of
+  crashing the launch, and disconnecting removes the file rather than emptying
+  it.
 - **How this machine gets its grant**, against a real loopback listener on
   `127.0.0.1`: the scope asked for, PKCE with S256, a callback carrying the
   wrong state refused *before* the code is exchanged, a plaintext endpoint

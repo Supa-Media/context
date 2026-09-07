@@ -355,6 +355,13 @@ worth.
 `safeStorage` over a 0600 file created at open time, written atomically; a
 machine whose OS offers no encrypted storage holds it for that launch only and
 says so on the panel, rather than writing a bearer token to disk in the clear.
+Those rules live in `core/sync/encryptedFileStore.ts` rather than beside the
+Electron import, for the same reason `connect.ts` moved its: they were prose in
+a header no suite could load. `test/tokenStore.test.mjs` drives them against a
+fake keychain and a real directory — `THE PLAINTEXT TOKEN IS NOT ON DISK`,
+`THE FILE IS 0600`, `NO KEYRING MEANS NO FILE AT ALL` and
+`A FILE THIS KEYCHAIN CANNOT OPEN READS AS 'NOT CONNECTED', NOT AS A CRASH`.
+`main/tokenStore.ts` is now the one line that names `safeStorage`.
 No preload channel reads it, and the base URL requests go to is stored *with*
 the credential, so a token cannot be posted to a gateway other than the one it
 was minted for.
