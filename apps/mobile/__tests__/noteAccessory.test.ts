@@ -163,6 +163,7 @@ const KEYS: [id: string, label: string][] = [
   ["undo", "Undo"],
   ["redo", "Redo"],
   ["task", "Task checkbox"],
+  ["bullet", "Bulleted list"],
   ["heading", "Heading"],
   ["bold", "Bold"],
   ["italic", "Italic"],
@@ -426,6 +427,7 @@ describe("what the keys do", () => {
   test.each([
     ["heading", "# "],
     ["task", "- [ ] "],
+    ["bullet", "- "],
   ])("%s toggles its prefix on the caret's line", (id, prefix) => {
     const app = mountEditor(390);
     app.focus();
