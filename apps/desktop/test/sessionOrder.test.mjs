@@ -75,7 +75,7 @@ import {
   gatewayTranscriber,
 } from "../src/core/capture/gatewayTranscriber.ts";
 import { transcribeChunk } from "../src/main/transcribe.ts";
-import { emptyOutbox, reconcileDrain } from "../src/core/sync/outbox.ts";
+import { emptyOutbox, queueWrite, reconcileDrain } from "../src/core/sync/outbox.ts";
 import { DRAIN_INTERVAL_MS, drainOnce, drainUrgency } from "../src/core/sync/drain.ts";
 import { fakeClock } from "./fakes.mjs";
 import { readFileSync } from "node:fs";
@@ -203,6 +203,10 @@ function shell(impl, { drainOnStart = true } = {}) {
     clock,
     drain,
     outbox: () => outbox,
+    /** So a check can begin a meeting behind a queue that is already deep. */
+    setOutbox: (next) => {
+      outbox = next;
+    },
     /** Let every request this shell has started come back. */
     settle: async () => {
       await draining;
@@ -508,6 +512,61 @@ export async function runSessionOrderChecks(check) {
     check(
       "...and segments and notes still wait, because a meeting is sent in one pass",
       drainUrgency("segments") === "timer" && drainUrgency("notes") === "timer",
+    );
+  }
+
+  // -- A MEETING BEGUN BEHIND A QUEUE THAT IS ALREADY DEEP -------------------
+  //
+  // The residual the fire-and-forget drain names out loud — *"on a long queue
+  // the new session entry is at the back of `nextDrain`'s ordering and may not
+  // make it into this pass"* — driven rather than reasoned about. Added in
+  // review, because the sentence after it, *"which is the case the second fix
+  // exists for"*, is true for **one** missed pass and stops being true after
+  // two: a pass carries at most 25 entries and costs a whole
+  // `DRAIN_INTERVAL_MS`, so a queue three passes deep holds the row past
+  // `NOT_YET_GRACE_MS` and the meeting is given up exactly as it used to be.
+  // Measured on this machine's numbers: a transcript through 74 queued entries,
+  // none at 75. The table is in `docs/decisions/desktop.md`.
+  //
+  // This checks the side that must keep working — one missed pass — so it
+  // reddens if the deadline is ever shortened below the timer it outlasts.
+  {
+    const impl = fakeGateway();
+    const app = shell(impl);
+    let queued = app.outbox();
+    for (let i = 0; i < 30; i += 1) {
+      queued = queueWrite(queued, {
+        sessionId: `mtg_older${i}`,
+        kind: "notes",
+        body: { notes: "an earlier meeting, still going out" },
+        now: app.clock.ms(),
+      });
+    }
+    app.setOutbox(queued);
+    // Strictly later than every entry above, so the ordering really does put
+    // this meeting's row behind them rather than leaving it to `id`.
+    app.clock.advance(5_000);
+    await record(app);
+    await app.settle();
+    check(
+      "a meeting begun behind a full pass does not get its session row out in that pass",
+      !impl.calls.includes(ROUTES.sessions),
+    );
+
+    await rotate(app);
+    await app.drain();
+    await rotate(app);
+    check(
+      "...AND STILL GETS A TRANSCRIPT, because the deadline outlasts the pass it missed",
+      app.segments.length >= 1,
+    );
+    check(
+      "...rather than being given up on the chunk that raced it",
+      !app.notices.includes(CAPTURE_NOTICES.refused),
+    );
+    check(
+      "...which is the arithmetic that has to hold for that to be true",
+      NOT_YET_GRACE_MS > DRAIN_INTERVAL_MS,
     );
   }
 }

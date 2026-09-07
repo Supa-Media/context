@@ -2606,6 +2606,66 @@ and a `## Transcript` in the note. It should no longer need a hand-patched
 the suite and a typecheck, which is exactly the class of evidence that was green
 while this shipped.
 
+#### What an adversarial review measured, and the one number it moved
+
+Re-run against the merge commit, on a second machine, driving the real
+controller, the real outbox, the real drain and the real transcriber. Every
+sabotage row above reproduces — `requestDrain` withheld **6**, `drainUrgency`
+returning `"timer"` **7**, every 404 permanent again **10** across two files,
+the deadline believed at once **11**, no reset **1**, the drain in `#queue`
+**1**, the console arm reverted **2**, the normaliser dropping `notice` **2** and
+`frames` **1**, `BRIDGE_VERSION` left at 3 **1**. The `main` baseline is **1161**
+here, not the 1160 in the change's own count; 1224 with it, and 1228 with the
+check below.
+
+**The residual is one missed pass, not an arbitrary queue.** *"On a long queue
+the new session entry is at the back of `nextDrain`'s ordering and may not make
+it into this pass, in which case it goes out on the timer as before — which is
+the case the second fix exists for"* is true once and stops being true twice. A
+pass carries at most 25 entries and costs a whole `DRAIN_INTERVAL_MS`, so the
+delay is a pass per 25 entries while `NOT_YET_GRACE_MS` is two passes flat.
+Measured end to end, one chunk per 20 s against a timer every 30 s:
+
+```
+entries already queued when the meeting starts   session row     transcript
+   0 –  24                                       t ≈ 0 s         whole meeting
+  25 –  74                                       t = 30–60 s     all but the racing chunks
+  75 and up                                      t ≥ 90 s        NONE — given up
+```
+
+Seventy-five queued writes is not exotic: one earlier meeting recorded offline
+queues a `segments` write every twenty seconds. So a person who records
+offline, comes back online and starts a second meeting straight away still gets
+an empty transcript, by the same mechanism, after this change — and the app says
+so, which is new, but says it about a meeting that is already lost.
+
+It is a residual and not a regression — on `main` every meeting failed at any
+queue depth — and closing it is a different change: the session row has to
+**jump** the queue rather than ride a pass, which is `nextDrain`'s ordering
+contract and belongs in its own PR with its own argument. Raising
+`NOT_YET_GRACE_MS` is not that fix; it buys one pass per period and costs a
+megabyte of audio per period on a meeting that really is refused.
+`sessionOrder.test.mjs` pins the side that must keep working — a meeting begun
+behind a full pass still gets its transcript — so the deadline can never be
+shortened back below the timer it exists to outlast.
+
+**The racing chunks lose their words, and that is the design.** Two checks say
+so already and it is worth stating as a property rather than an aside: the 404
+deadline saves **the meeting, not the chunk**. `gatewayTranscriber` has no
+retry, because audio is never queued, so every chunk cut before the row lands is
+words nobody gets — up to two of them on the ordinary path once the row is
+early, and the person is told `CAPTURE_NOTICES.failed`, which is true rather
+than reassuring.
+
+**What holds under the cases nobody asked about.** Two `begin()` calls in quick
+succession write one session row and start one drain — the second is refused by
+the state machine, not deduplicated downstream. A meeting begun with no network
+records, queues its row, says only the recoverable sentence, and transcribes
+from the first chunk after the network returns. And an outage longer than
+`NOT_YET_GRACE_MS` does **not** consume the deadline, because a failed `fetch`
+is not a 404 and never arms it — which is the property the clock buys over a
+count, checked rather than assumed.
+
 ### What is deliberately not built
 
 Not built, and none of them foreclosed:
