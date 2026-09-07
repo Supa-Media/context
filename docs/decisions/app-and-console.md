@@ -1128,6 +1128,53 @@ exists for: `readonly` plus `select()` is the recipe every snippet shows and the
 one iOS ignores — it refuses to select a read-only field, so the copy takes
 whatever was selected before, usually nothing.
 
+### A write from outside the file browser has to say so
+
+The console refreshes a folder whenever **it** writes into one — `save`,
+`create`, `move`, `archive` each end with `refresh([parentPath(path)])`. Every
+one of those is the browser changing the bucket and telling itself, which worked
+for exactly as long as the browser was the only thing that wrote.
+
+A meeting is the first write in this product that reaches the same bucket from
+somewhere else. It went unannounced, and the symptom is the shape that makes
+this a decision rather than a fix: **the phone that had already read the folder
+was the one that did not show the note.** A client that had never opened
+`0-inbox/meetings` fetched it on the way in and drew the meeting immediately;
+the device that recorded it kept the listing it was holding. "After saving the
+meeting it did not show up on the mobile app, but it showed up on the web app."
+Nothing was lost — the note was in the customer's bucket the whole time — which
+is precisely why nothing surfaced it.
+
+`features/console/files/bucketWrites.ts` is the seam, and it is a bus rather
+than a call for a reason in each direction. **The console must not know that
+meetings exist**: it is a file browser over a bucket, and the second outside
+writer must not need a second branch in it. **The meetings gateway must not hold
+a console hook**: it runs from a screen the console does not own. Both import a
+module that knows about neither.
+
+Four things about it are decisions:
+
+- **It carries the workspace and the path, and never the text.** This is a
+  signal that a listing is stale, not a second channel for note bodies — a
+  subscriber taking content from here would hold a copy the cache never saw, at
+  a clearance nobody checked ([*A copy on the device is bounded by who read it*](#a-copy-on-the-device-is-bounded-by-who-read-it-when-and-whether-the-server-said-no)).
+- **The reader checks the workspace.** One device is signed into several
+  contexts and `useFileBrowser` is mounted for one of them; the same folder path
+  is a different folder in a different bucket.
+- **It announces after the write resolves.** An announcement of a write that
+  then failed makes every listener reload a folder to learn nothing, and raises
+  the console's own "the file list did not reload" notice about an operation
+  that never happened.
+- **Nothing is buffered or replayed.** A console that mounts *after* the write
+  reads the folder fresh on the way in; replaying would make it reload a folder
+  it has just loaded.
+
+The checks are `a meeting landing in a folder the console is holding reloads
+that folder`, `a write to another context refreshes nothing here`,
+`a meeting note announces the folder it landed in`, and `a write that failed
+announces nothing` — the first two sabotage-tested against the effect and
+against its workspace guard separately.
+
 ### A copy on the device is bounded by who read it, when, and whether the server said no
 
 Three rules sit under the queue and the cache, and each of them was reachable
