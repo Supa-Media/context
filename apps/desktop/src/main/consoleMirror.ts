@@ -32,6 +32,7 @@ import {
   MIRROR_FAILURE_PATH,
   MIRROR_ORIGIN,
   MIRROR_SCHEME,
+  awaitFallbackSettled,
   declaresTooManyBytes,
   failurePage,
   isMirrorUrl,
@@ -101,11 +102,25 @@ export interface ConsoleMirror {
    * `did-fail-load` only *starts* `win.loadURL(target)`; without this, an
    * offline launch would ask "did the window end up on `app://console`"
    * while that navigation was still in flight.
+   *
+   * **This does not await `loadURL(target)`'s own returned promise** — see
+   * `awaitFallbackSettled` in `core/shell/mirror.ts` for why that promise is
+   * not trusted: on a Mac, on hardware, it settled before the fallback's own
+   * `did-navigate`/`did-finish-load` had fired, and `--smoke-load` read the
+   * window's URL one event too early.
    */
   awaitFallback(): Promise<void>;
 }
 
 const HTML_HEADERS = { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" };
+/**
+ * How long `awaitFallback` waits for the fallback navigation to settle before
+ * giving up on it. Matches `SMOKE_LOAD_DEADLINE_MS` in `main/index.ts` — kept
+ * as its own constant rather than imported, because `main/index.ts` is what
+ * imports *from* this file and a cycle back would be the wrong direction for
+ * "the Electron half stays thin".
+ */
+const FALLBACK_DEADLINE_MS = 30_000;
 
 export function createConsoleMirror(deps: ConsoleMirrorDeps): ConsoleMirror {
   const now = deps.now ?? (() => Date.now());
@@ -335,11 +350,25 @@ export function createConsoleMirror(deps: ConsoleMirrorDeps): ConsoleMirror {
             answer === "mirror" ? `${MIRROR_ORIGIN}/` : `${MIRROR_ORIGIN}${MIRROR_FAILURE_PATH}`;
           servingUrl = target;
           if (win.isDestroyed()) return;
-          try {
-            await win.loadURL(target);
-          } catch (error) {
+          /*
+            Registered *before* `loadURL` is called, and awaited instead of
+            trusting that call's own returned promise. On a Mac, on hardware,
+            that promise settled before this navigation's own
+            `did-navigate`/`did-finish-load` had fired at all — the window went
+            on to land on `app://console/` exactly as it should, but
+            `wasMirrorServed` had already been asked and answered `false` on a
+            launch that worked. See `awaitFallbackSettled`'s own header.
+          */
+          const settled = awaitFallbackSettled({
+            events: win.webContents,
+            getURL: () => win.webContents.getURL(),
+            targetOrigin: MIRROR_ORIGIN,
+            deadlineMs: FALLBACK_DEADLINE_MS,
+          });
+          win.loadURL(target).catch((error: unknown) => {
             console.error(`[mirror] the offline page did not load: ${(error as Error).message}`);
-          }
+          });
+          await settled;
         })();
       });
     },
