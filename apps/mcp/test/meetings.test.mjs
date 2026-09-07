@@ -2672,6 +2672,100 @@ export async function runMeetingChecks(check) {
     );
   }
 
+  /*
+   * M1, the title-collision half: a title is a weaker anchor than a
+   * `meeting-id` — two sessions can share one — so a hit is never trusted
+   * from the ranking alone. This is the check the PR's own sabotage record
+   * named and left unpinned: dropping the per-candidate frontmatter
+   * comparison (trusting the top search hit outright) passed every other
+   * check in this file, because none of the fixtures above ever gave two
+   * *different* meetings the same title. This one does.
+   *
+   * Session B finalizes first and is indexed normally — a real, readable
+   * note with its own `meeting-id`. Session A shares its exact title, but its
+   * own note is deleted the instant it is created, before any index pass
+   * ever sees it — so when A's stale stored path later misses, the *only*
+   * note a title search can find is B's, and B is not A's meeting. Resolving
+   * to B's path would be exactly what "trust the top hit outright" does; the
+   * frontmatter check is what stops it and falls back to A's own (now
+   * unreadable) stale path instead — "not resolved this time", never someone
+   * else's note.
+   */
+  {
+    const COLLIDING_TITLE = "Ambiguous title fixture";
+
+    const SESSION_TITLE_B = idOf("0");
+    await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+      body: {
+        id: SESSION_TITLE_B,
+        title: COLLIDING_TITLE,
+        startedAt: "2026-09-05T10:00:00.000Z",
+        events: [{ type: "start", at: "2026-09-05T10:00:00.000Z" }],
+      },
+    });
+    const finalizeB = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_TITLE_B}/finalize`, {
+      body: { endedAt: "2026-09-05T10:30:00.000Z" },
+    });
+    const pathB = finalizeB.body?.notePath;
+    check(
+      "title-collision fixture: session B finalizes with its own note",
+      finalizeB.status === 200 && typeof pathB === "string" && pathB !== ""
+    );
+
+    const SESSION_TITLE_A = idOf("1");
+    await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+      body: {
+        id: SESSION_TITLE_A,
+        title: COLLIDING_TITLE,
+        startedAt: "2026-09-05T11:00:00.000Z",
+        events: [{ type: "start", at: "2026-09-05T11:00:00.000Z" }],
+      },
+    });
+    const finalizeA = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_TITLE_A}/finalize`, {
+      body: { endedAt: "2026-09-05T11:30:00.000Z" },
+    });
+    const pathA = finalizeA.body?.notePath;
+    check(
+      "title-collision fixture: session A finalizes with the same title, a different note",
+      finalizeA.status === 200 && typeof pathA === "string" && pathA !== "" && pathA !== pathB
+    );
+
+    // A's note is gone before anything ever indexes it — not moved anywhere
+    // reachable, so it can never be the hit a title search returns. Only B's
+    // note is real and findable under this title from here on.
+    recorder.delete(pathA);
+
+    for (let pass = 0; pass < 12; pass += 1) {
+      await callTool(env, TOKEN_OWNER, "search_notes", { query: "Ambiguous" });
+    }
+
+    const resolvedA = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_TITLE_A}`, {
+      method: "GET",
+    });
+    check(
+      "a note belonging to a *different* meeting, sharing this one's title, is never returned for it",
+      resolvedA.status === 200 && resolvedA.body?.session?.notePath !== pathB
+    );
+    check(
+      "...not anywhere in the answer",
+      !JSON.stringify(resolvedA.body ?? {}).includes(pathB)
+    );
+    check(
+      "...it falls back to reporting its own (now stale, unreadable) path honestly instead",
+      resolvedA.status === 200 && resolvedA.body?.session?.notePath === pathA
+    );
+
+    // And B, which really does own that title, still resolves to itself —
+    // the guard rejects an *impostor*, not every hit on a shared title.
+    const resolvedB = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_TITLE_B}`, {
+      method: "GET",
+    });
+    check(
+      "meanwhile the meeting that actually owns the title still resolves to its own note",
+      resolvedB.status === 200 && resolvedB.body?.session?.notePath === pathB
+    );
+  }
+
   restoreFailures();
   restoreControlPlane();
   restoreS3();
