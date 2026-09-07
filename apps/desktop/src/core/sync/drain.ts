@@ -10,7 +10,7 @@
  * not fire two hundred requests in a burst; the next pass picks up the rest.
  */
 
-import { nextDrain, applyDrain } from "./outbox.ts";
+import { nextDrain, applyDrain, recoverStaleFinalize } from "./outbox.ts";
 import type { Outbox, OutboxKind } from "./outbox.ts";
 import { postEntry } from "./client.ts";
 import type { GatewayConfig } from "./client.ts";
@@ -87,7 +87,15 @@ export async function drainOnce(
   now: () => number,
   maxRequests = 25,
 ): Promise<DrainReport> {
-  let current = outbox;
+  /*
+    Before anything is sent: a `finalize` that has been stuck since before this
+    pass — since before this launch, on the very first pass after one — is
+    retried once or turned into a queued `fail`, never left to read
+    "Finalizing" forever. See `recoverStaleFinalize`'s own header for why this
+    single call point covers both "a drain runs periodically" and "on app
+    launch", which is the same code path here.
+  */
+  let current = recoverStaleFinalize(outbox, now());
   let sent = 0;
   let failed = 0;
   const written: { sessionId: string; notePath: string }[] = [];

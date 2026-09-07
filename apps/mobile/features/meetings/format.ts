@@ -303,11 +303,29 @@ export function sourceLabel(source: MeetingSource): string {
  * a `warn` tone rather than a neutral one on purpose: a draft is a meeting
  * whose note is not in the bucket yet, and this product treats the bucket as
  * the only place a thing is real.
+ *
+ * **`failed` carries its reason, and `finalizing` no longer means forever.**
+ * A session stuck `finalizing` for hours with no recovery was a real bug: the
+ * badge read "Finalizing" whether the gateway was a second away from
+ * `complete` or had not heard from this device in two hours, because the word
+ * carried no information about which. `checkFinalizeTimeout`
+ * (`@context/meetings/recovery`) is what a client runs to notice the second
+ * case and fold a `fail` event — this function only renders what a session
+ * already says, which is why a reason appended here reads as "Failed — mic
+ * permission was revoked" rather than a bare "Failed" that answers nothing.
+ *
+ * **`empty` is its own word, not a `failed` with excuses.** A session that
+ * captured nothing recorded no defect — there is nothing to retry, only a
+ * meeting to record again — so it gets a neutral tone and its own label rather
+ * than borrowing `failed`'s red one for a state that is not an error.
  */
 export function meetingBadge(
   meeting: MeetingSession,
 ): { label: string; tone: "warn" | "crit" | "neutral" } | null {
-  if (meeting.state === "failed") return { label: "Failed", tone: "crit" };
+  if (meeting.state === "failed") {
+    return { label: meeting.failureReason ? `Failed — ${meeting.failureReason}` : "Failed", tone: "crit" };
+  }
+  if (meeting.state === "empty") return { label: "Nothing captured", tone: "neutral" };
   if (meeting.state === "finalizing") return { label: "Finalizing", tone: "warn" };
   if (meeting.state === "complete") return null;
   return { label: "Draft", tone: "warn" };

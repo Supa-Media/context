@@ -45,7 +45,7 @@ import type { AudioRecorder } from "../core/capture/recorder.ts";
 import { DesktopCaptureRecorder } from "./capture.ts";
 import { electronPermissionBroker } from "./permissions.ts";
 import { DesktopStore } from "./store.ts";
-import { emptyOutbox, queueWrite, reconcileDrain } from "../core/sync/outbox.ts";
+import { emptyOutbox, queueWrite, reconcileDrain, recoverStaleFinalize } from "../core/sync/outbox.ts";
 import type { Outbox } from "../core/sync/outbox.ts";
 import { DRAIN_INTERVAL_MS, drainOnce, drainUrgency } from "../core/sync/drain.ts";
 import { memoryTokenStore } from "../core/sync/tokenStore.ts";
@@ -487,6 +487,17 @@ async function main(): Promise<void> {
   const store = new DesktopStore(app.getPath("userData"));
   settings = await store.readSettings();
   outbox = await store.readOutbox();
+  /*
+    A `finalize` that was already stuck when this launch's queue was written to
+    disk is handled the moment it is read back, not thirty seconds from now on
+    the first timer tick: "a meeting stuck on Finalizing for two hours" is
+    exactly a session whose owning process is gone, and the next one to open
+    this queue is this line. `drainOnce` runs the same check on every later
+    pass, so this is belt-and-braces for the one case that matters most —
+    nobody watching the tray between a crash and the next launch.
+  */
+  outbox = recoverStaleFinalize(outbox, Date.now());
+  void store.writeOutbox(outbox);
 
   /*
     The credential, and the one place it lives.
