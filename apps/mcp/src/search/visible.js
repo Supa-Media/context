@@ -578,17 +578,37 @@ async function answerFromIndex(store, options) {
     implying.** Only the notes inside the page are read, so only the encrypted
     ones inside the page can be subtracted; an encrypted note ranked below the
     limit is still counted, because knowing it is encrypted would mean reading
-    every match — the full-bucket read this whole path exists to avoid. The
+    every match — the full-bucket read this whole path exists to avoid. So the
     count is exact for the common case and still high in the tail, which is the
     same direction `matchCountIsFloor` already documents for the opposite
     reason.
+
+    **`withheld` IS EVERY NULL FROM THE READ WAVE, NOT ONLY THE ENCRYPTED
+    ONES**, and a review had to point that out because the paragraph above
+    reads as though encryption were the only cause. The read answers `null`
+    for three things: an encrypted body, an object that is no longer in the
+    bucket, and any throw — a refused GET, a stream that dies mid-body. All
+    three subtract here, so the count can be **low** as well as high: a
+    transient backend refusal understates the total for that one answer. That
+    is the safe direction for disclosure and the honest one for a count, and it
+    is written down rather than left to be rediscovered. Where the refusal was
+    a whole shard, `matchCountIsFloor` is already true and a lowered floor is
+    still a floor.
   */
   const withheld = read.length - hits.length;
 
   return {
     indexed: true,
     hits,
-    matchCount: Math.max(hits.length, visible.length - withheld),
+    /*
+      `visible.length - withheld` and no floor under it. `Math.max(hits.length,
+      …)` stood here and a review proved it dead: `withheld` is
+      `read.length - hits.length` and `read.length <= visible.length` always, so
+      the left arm can never win. A defensive `max` that cannot fire reads as
+      though a case exists that does not, which is the same kind of false claim
+      as the count it was guarding.
+    */
+    matchCount: visible.length - withheld,
     // The floor is read off the *visible* list and never off `ranked`, and
     // `MAX_RESULTS` is imported rather than mirrored, because a scoring cap
     // retyped here is a rule stated twice with nothing running both.

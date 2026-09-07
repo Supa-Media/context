@@ -120,6 +120,16 @@ export interface MeetingRecord {
   rejection?: { code: string; message: string; noticedAt: number };
   /** The last transient failure, for the person who asks why it is still here. */
   lastError?: string;
+  /**
+   * When `controller.recoverStaleFinalizes` last forced this session's
+   * `finalizing` back to the front of the queue, so a second stale sighting
+   * can tell "still within its one retry's own window" from "the retry did
+   * not help either" — `checkFinalizeTimeout`'s own `retriedAt`
+   * (`@context/meetings/recovery`). Meaningless once the session has left
+   * `finalizing`, and nothing clears it explicitly: a session that reaches
+   * `complete`, `empty`, or `failed` is not read again by that function.
+   */
+  retriedAt?: number;
 }
 
 export const MEETING_RECORD_VERSION = 1;
@@ -381,6 +391,7 @@ export function parseRecord(raw: string | null, workspaceId: string): MeetingRec
     attempts: typeof record.attempts === "number" ? record.attempts : 0,
     rejection: record.rejection,
     lastError: record.lastError,
+    retriedAt: typeof record.retriedAt === "number" ? record.retriedAt : undefined,
   };
 }
 

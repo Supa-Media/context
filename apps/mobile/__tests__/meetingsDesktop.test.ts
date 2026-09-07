@@ -828,6 +828,7 @@ describe("the shell records it, and the shell writes it", () => {
       device: { platform: "web" },
     });
     const id = await controller.start({ title: "Standup" });
+    controller.setNotes(id, "- daily standup notes");
     await controller.end();
 
     const record = controller.getSnapshot().records.find((one) => one.session.id === id);
