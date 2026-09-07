@@ -38,7 +38,8 @@ on Google's verification of a restricted scope.
 | `anchors.js` | The stable link target for one message, and the key a thread is grouped by. |
 | `note.js` | Rendering and parsing the Markdown a day becomes, and splitting an oversized one. |
 | `contacts.js` | The contact page, what may merge automatically, and what may only be suggested. |
-| `index.js` | The public surface. |
+| `calendar/` | A day of the calendar: its own folder, its own frontmatter, its own sync cache — see below. |
+| `index.js` | The public surface, calendar included. |
 
 ## The layout
 
@@ -49,12 +50,39 @@ on Google's verification of a restricted scope.
 │   └── name-at-example-com/2026-09-07.md    one connected mailbox, one day
 ├── google-chat/2026-09-07.md
 ├── imessage/2026-09-07.md
+├── calendar/2026-09-07.md                   every connected account, merged
 └── contacts/adam-okonkwo.md
 ```
 
 No date folders, and no second inbox root. A mailbox is a *folder* because a
 folder is the unit `privacy.md` can name — flat, per-mailbox visibility would be
-one exact override per day, forever.
+one exact override per day, forever. Calendar is the one exception to "a
+channel is a folder": every connected account merges into one
+`0-inbox/calendar/`, because a person has one calendar the way they have
+several mailboxes — see `docs/decisions/communications.md`, "A calendar day
+lands at `0-inbox/calendar/YYYY-MM-DD.md`, with no account level".
+
+## Calendar
+
+`src/calendar/` is the same shape one level down: `protocol.js`,
+`anchors.js` (`evt-` anchors, reusing `fnv1a64`), `paths.js`, `timezone.js`
+(`Intl.DateTimeFormat` only — no hand-rolled DST table), `render.js`,
+`sync.js` (the pure cache-and-project logic an incremental sync needs — see
+the decision doc for why a calendar sync needs a local cache at all, which a
+channel day never did), `meetingLink.js` (matching a captured meeting to an
+event, and the text patch that attaches the link) and `contacts.js`
+(attendees, drafted into the same shape `mergeContacts` above already
+consumes). The provider-shaped adapter — turning a raw
+`calendar.events.list` response into what this package renders — lives in
+`apps/mcp/src/communications/calendar-google.js`, one level up, for the same
+reason nothing in here knows what Gmail is.
+
+```
+node test/calendar.test.mjs
+```
+
+runs the calendar suite alone; `node test/test.mjs` runs it as part of the
+whole package.
 
 ## Tests
 
