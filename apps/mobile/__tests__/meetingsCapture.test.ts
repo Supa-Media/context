@@ -2,6 +2,19 @@ import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globa
 import type { TranscriptSegment } from "../features/meetings/protocol";
 import type { RecorderError } from "../features/meetings/capture";
 import { createRecorder } from "../features/meetings/capture";
+/**
+ * `createRecorder` (`capture/index.ts`) resolves its own `"./audio"` import
+ * the same ambiguous way this line does — and `jest.config.js` resolves that
+ * to `audio.web.ts`, not `audio.ts`, for the reason the file header explains.
+ * So "the one function everything above capture/ calls agrees" cannot honestly
+ * assert a capability value: under this suite, `createRecorder` is reaching
+ * `audio.web.ts`'s notes-only fallback for "ios" and "android" alike, which a
+ * real native (Metro) bundle never does. What it *can* honestly assert is
+ * delegation — that `createRecorder` is a passthrough to whatever `audioRecorder`
+ * this same ambiguous path resolves to, not a second implementation — and that
+ * survives the resolver quirk because both sides of the comparison hit it.
+ */
+import { audioRecorder as ambiguouslyResolvedAudioRecorder } from "../features/meetings/capture/audio";
 import {
   MAX_INFLIGHT_CHUNKS,
   SEGMENT_MS,
@@ -361,6 +374,10 @@ interface HarnessOptions {
   hang?: boolean;
   /** Install nothing at all, so `resolveTranscriber()` answers `null`. */
   noTranscriber?: boolean;
+  /** Defaults to `"ios"`. Every test in this file that does not care about the
+   * platform split leaves it at that default; the tests that do care pass
+   * `"android"` explicitly rather than this default ever silently changing. */
+  platform?: "ios" | "android";
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -382,7 +399,7 @@ function harness(options: HarnessOptions = {}): Harness {
     },
   };
   setTranscriber(options.noTranscriber === true ? null : transcriber);
-  const recorder = audioRecorder("ios");
+  const recorder = audioRecorder(options.platform ?? "ios");
   const segments: TranscriptSegment[] = [];
   const errors: RecorderError[] = [];
   recorder.onSegment((segment) => segments.push(segment));
@@ -863,21 +880,112 @@ describe("stopping", () => {
 
 describe("android", () => {
   /**
-   * Untouched, and honestly so. Recording while backgrounded on Android 14+
-   * needs a foreground service with the `microphone` type actually started —
-   * a notification the person can see. That is a native target rather than a
-   * config line, and half of it would be a recorder that stops the moment
-   * somebody looks away.
+   * The switch this PR flips. Android used to answer `notesOnlyRecorder`
+   * because a foreground service with the `microphone` type actually started
+   * looked like a native target this app had not built. It already had one:
+   * `expo-audio`'s own installed Android module bundles that service and
+   * starts it itself — see the header comment in `audio.ts`, point 6 — so
+   * Android gets the same `expoAudioRecorder` iOS does, real capability and
+   * all.
    */
-  test("android is still a notepad, and says why", () => {
-    const recorder = audioRecorder("android");
-    expect(recorder.capability.audio).toBe(false);
-    expect(recorder.capability.transcribesAt).toBe("nowhere");
-    expect(recorder.capability.unavailableReason).toMatch(/typed session/i);
+  test("android records for real now, the same way ios does", async () => {
+    const { recorder } = harness({ platform: "android" });
+    expect(recorder.capability.audio).toBe(true);
+    expect(recorder.capability.transcribesAt).toBe("cloud");
+    expect(recorder.capability.systemAudio).toBe(false);
+    expect(recorder.capability.unavailableReason).toBeNull();
+    await recorder.start();
+    await recorder.stop();
   });
 
   test("the one function everything above capture/ calls agrees", () => {
-    expect(createRecorder("android").capability.audio).toBe(false);
+    expect(createRecorder("android").capability).toEqual(
+      ambiguouslyResolvedAudioRecorder("android").capability,
+    );
+  });
+
+  /**
+   * The one field Android needs that iOS must never see.
+   *
+   * `allowsBackgroundRecording` is what tells `expo-audio`'s native module to
+   * start its bundled foreground service (`AudioRecorder.kt`'s
+   * `useForegroundService`, set from this field — see `AudioModule.kt`). It is
+   * documented `@platform android` on iOS's own side too, where it gates
+   * something this app has never touched: whether a recorder pauses on
+   * backgrounding. Mixing it into the object iOS reads would be a behaviour
+   * change nobody asked for, so it has to land only on Android's session.
+   */
+  test("android's audio session asks for the foreground service; ios's is untouched", async () => {
+    const ios = harness({ platform: "ios" });
+    await ios.recorder.start();
+    const android = harness({ platform: "android" });
+    await android.recorder.start();
+
+    const iosMode = mockAudioModes[0];
+    const androidMode = mockAudioModes[1];
+
+    expect(iosMode).toEqual(MEETING_AUDIO_MODE);
+    expect((iosMode as { allowsBackgroundRecording?: boolean }).allowsBackgroundRecording).toBeUndefined();
+    expect(androidMode).toEqual({ ...MEETING_AUDIO_MODE, allowsBackgroundRecording: true });
+
+    await ios.recorder.stop();
+    await android.recorder.stop();
+  });
+
+  /**
+   * The worry going into this change was that "mixing" needed a second,
+   * Android-specific answer. It does not: `expo-audio`'s Android module reads
+   * this same field to decide whether to request audio focus **at all**, and
+   * `mixWithOthers` is the one value that skips the request — verified
+   * against `AudioModule.kt`'s `requestAudioFocus()`, not assumed from the
+   * name. So the exact object that keeps a Zoom call's microphone on iOS does
+   * the same job on Android, unmodified.
+   */
+  test("the same interruptionMode that mixes on ios mixes on android too", async () => {
+    const { recorder } = harness({ platform: "android" });
+    await recorder.start();
+    expect(mockAudioModes[0].interruptionMode).toBe("mixWithOthers");
+    await recorder.stop();
+  });
+
+  /**
+   * Same fallback shape as iOS, for the same defensive reason: if
+   * `setAudioModeAsync` ever throws for the background-capable request, a
+   * foreground-only session is still a session rather than a refusal. There
+   * has never been a shipped Android binary for an *older* install to lack an
+   * entitlement — this is not iOS's history repeating — but the fallback
+   * costs nothing to share.
+   */
+  test("a session that refuses the background mode still records in the foreground", async () => {
+    mockRefuseBackgroundSession = true;
+    const { recorder } = harness({ platform: "android" });
+    await recorder.start();
+
+    expect(mockAudioModes).toHaveLength(2);
+    expect(mockAudioModes[1]).toEqual(FOREGROUND_AUDIO_MODE);
+    expect(recorder.state).toBe("recording");
+    await recorder.stop();
+  });
+
+  /**
+   * The same code path end to end: rotation, offsets and chunk ids do not
+   * know or care which platform is asking. This is "confirm expo-audio
+   * recording works on Android with the same code path" as a test rather
+   * than a sentence — it is the ios rotation test in `describe("rotation")`
+   * above, run with `platform: "android"` instead.
+   */
+  test("rotation, offsets and segments are identical on android", async () => {
+    const { recorder, transcriber } = harness({ platform: "android" });
+    await recorder.start();
+
+    await advance(SEGMENT_MS * 2);
+
+    expect(transcriber.chunks.map((chunk) => chunk.offsetMs)).toEqual([0, SEGMENT_MS]);
+    expect(transcriber.chunks.map((chunk) => chunk.durationMs)).toEqual([
+      SEGMENT_MS,
+      SEGMENT_MS,
+    ]);
+    await recorder.stop();
   });
 });
 
