@@ -107,8 +107,21 @@ export async function dispatchTouch(
       try {
         event = new TouchEvent(type, eventInit as TouchEventInit);
       } catch {
+        // `Object.assign` was the first version of this fallback and it threw
+        // its own error, measured live in the same WebKit run: "Attempted to
+        // assign to readonly property" — `bubbles`/`cancelable` are read-only
+        // accessors on `Event.prototype`, and `Object.assign` writes through
+        // to whatever the property already resolves to rather than shadowing
+        // it. `bubbles`/`cancelable` go through `CustomEvent`'s own
+        // constructor instead, and `defineProperty` creates a genuine OWN
+        // property for the three touch-list fields — which shadows an
+        // inherited accessor rather than trying to write through it, so this
+        // cannot repeat that failure whatever else `CustomEvent.prototype`
+        // turns out to define.
         event = new CustomEvent(type, { bubbles: true, cancelable: true });
-        Object.assign(event, eventInit);
+        for (const key of ["touches", "targetTouches", "changedTouches"] as const) {
+          Object.defineProperty(event, key, { value: eventInit[key], configurable: true });
+        }
       }
       target.dispatchEvent(event);
     },
