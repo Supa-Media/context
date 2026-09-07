@@ -77,6 +77,17 @@
  *     1 check failed. Cheap to get wrong, because the receipt is deliberately
  *     the place where almost everything is dropped; the note has the answer,
  *     but the receipt is what a client lists without opening one.
+ * 21. **Transcription** — the route that carries audio, sabotaged six ways:
+ *     the per-session budget removed (2), a chunk accepted for a session that
+ *     does not exist (8), the body forwarded unvalidated (6), the session
+ *     offset dropped from the times (1), segment ids renumbered around the
+ *     blanks that were dropped (1), and an unconfigured gateway answering 503
+ *     rather than 501 (2). Three more in `index.js`: an `http` transcription
+ *     endpoint accepted (1), the workspace id forwarded instead of an HMAC of
+ *     it (2), and a session id added to the body the service receives (1). The
+ *     checks that matter most are the ones asserting a refusal bought **no**
+ *     inference, because a guard that refuses after paying is not a guard.
+ *
  * 15. **`finalizeSession` ignores `body.folder` and builds the inbox path from
  *     the module constant** — the defect §16 exists to close, put back — 9
  *     checks failed.
@@ -138,6 +149,10 @@ import { SessionRefusal, sessionForContext, splitWorkspacePath } from "../src/se
 import { handleMeetings } from "../src/meetings/ingest.js";
 
 const S3_ENDPOINT = "https://s3.example-meetings.test";
+
+/** A transcription service that does not exist, answered by the fetch layer. */
+const TRANSCRIBE_ORIGIN = "https://transcribe.example-meetings.test";
+const TRANSCRIBE_SECRET = "fake-transcribe-secret-not-a-real-one";
 
 const TOKEN_OWNER = `cat_meet_owner_${"0".repeat(24)}`;
 const TOKEN_NEIGHBOUR = `cat_meet_neighbour_${"0".repeat(22)}`;
@@ -247,6 +262,8 @@ const SESSION_READ_ONLY_DENIED = idOf("4");
  * block it sits in rather than of the id, so it is not a thing to rely on.
  */
 const SESSION_CROWDED = idOf("5");
+/** The meeting the transcription route is exercised against. */
+const SESSION_TRANSCRIBE = idOf("8");
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
@@ -408,10 +425,28 @@ export async function runMeetingChecks(check) {
    * is not interested in down the chain.
    */
   let failPut = null;
+  /**
+   * The transcription service, when a check has configured one.
+   *
+   * Every request to it is recorded, so "nothing was forwarded" is an assertion
+   * rather than a hope — which is the whole point for the checks about refusals:
+   * a refusal that still bought the inference it was refusing is not a refusal.
+   */
+  const transcribeCalls = [];
+  let transcribeAnswer = null;
   const previousFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
     const method = (init?.method || "GET").toUpperCase();
+    if (url.startsWith(TRANSCRIBE_ORIGIN)) {
+      transcribeCalls.push({ url, headers: init?.headers ?? {}, body: JSON.parse(init?.body ?? "{}") });
+      return transcribeAnswer
+        ? transcribeAnswer()
+        : new Response(JSON.stringify({ segments: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+    }
     if (failPut && method === "PUT") {
       const verdict = failPut(url);
       if (verdict) return new Response("", { status: verdict });
@@ -2282,6 +2317,230 @@ export async function runMeetingChecks(check) {
     /not necessarily every meeting|does not appear here|not every meeting/i.test(listedDescription)
   );
   check("...and points somewhere for the ones it does not list", listedDescription.includes("search_notes"));
+
+  /* ----------------------- 12. transcribing a chunk ------------------------ */
+  //
+  // The one route that carries audio. What is checked here is not "does it
+  // transcribe" — the engine is a stub — but the three things that decide
+  // whether it is safe to have at all: an unconfigured deployment says so
+  // permanently, a refusal costs zero inference, and the audio goes to the
+  // service without anything that would let the service reconstruct a meeting.
+
+  const chunk = (overrides = {}) => ({
+    audioBase64: "QUJDRA==",
+    mimeType: "audio/webm;codecs=opus",
+    chunkId: `${SESSION_TRANSCRIBE}-mic-0`,
+    offsetMs: 40_000,
+    durationMs: 20_000,
+    ...overrides,
+  });
+
+  const unconfigured = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_MAIN}/transcribe`, {
+    body: chunk(),
+  });
+  check(
+    "a gateway with no transcription configured refuses, permanently",
+    unconfigured.status === 501 && unconfigured.body?.error === "meeting_unavailable"
+  );
+  check("...and forwards nothing", transcribeCalls.length === 0);
+
+  const transcribing = {
+    ...env,
+    TRANSCRIBE_WORKER_URL: TRANSCRIBE_ORIGIN,
+    TRANSCRIBE_WORKER_SECRET: TRANSCRIBE_SECRET,
+  };
+
+  const insecure = await meetingRequest(
+    { ...transcribing, TRANSCRIBE_WORKER_URL: "http://transcribe.example-meetings.test" },
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_MAIN}/transcribe`,
+    { body: chunk() }
+  );
+  check(
+    "an http transcription endpoint is no configuration at all — audio does not go in the clear",
+    insecure.status === 501 && transcribeCalls.length === 0
+  );
+
+  const openedForAudio = await meetingRequest(transcribing, TOKEN_OWNER, "/meetings/sessions", {
+    body: { id: SESSION_TRANSCRIBE, title: "Transcribed meeting", transcription: "cloud" },
+  });
+  check("a meeting to transcribe is opened", openedForAudio.status === 200);
+
+  transcribeAnswer = () =>
+    new Response(
+      JSON.stringify({
+        segments: [
+          { startMs: 0, endMs: 1_000, text: "first" },
+          { startMs: 1_000, endMs: 1_200, text: "   " },
+          { startMs: 1_200, endMs: 2_000, text: "third", confidence: 0.5 },
+        ],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+  const transcribed = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk() }
+  );
+  check("a chunk is transcribed", transcribed.status === 200);
+  const words = transcribed.body?.segments ?? [];
+  check("the blank segment is dropped", words.length === 2);
+  check(
+    "...and nothing is renumbered, so an id names a position in the engine's own answer",
+    words[1]?.id === `${SESSION_TRANSCRIBE}-mic-0-s002`
+  );
+  check("every id is derived from the chunk id the client sent", words.every((word) => word.id.startsWith(chunk().chunkId)));
+  check("times are offset into session time", words[0]?.startMs === 40_000 && words[0]?.endMs === 41_000);
+  check("a speaker is never invented", words.every((word) => word.speaker === null));
+  check("a confidence the engine did not give is null, not a number we chose", words[0]?.confidence === null);
+  check("...and one it did give is passed through", words[1]?.confidence === 0.5);
+
+  const forwarded = transcribeCalls.at(-1);
+  check("the audio went to the configured service", forwarded?.url === `${TRANSCRIBE_ORIGIN}/transcribe`);
+  check("...with the shared secret as a bearer", forwarded?.headers.Authorization === `Bearer ${TRANSCRIBE_SECRET}`);
+  check("...carrying the audio and what it is", forwarded?.body.audioBase64 === "QUJDRA==" && forwarded?.body.mimeType.startsWith("audio/webm"));
+  check(
+    "THE SERVICE IS NOT TOLD WHERE THE CHUNK SITS, so it cannot hold a fragment of a meeting",
+    forwarded?.body.chunkId === undefined &&
+      forwarded?.body.offsetMs === undefined &&
+      forwarded?.body.sessionId === undefined
+  );
+  const callerHeader = forwarded?.headers["X-Caller-Hash"];
+  check("who is spending is named opaquely", typeof callerHeader === "string" && /^[0-9a-f]{64}$/.test(callerHeader));
+  check("...and it is not the workspace id", callerHeader !== "ws_recorder" && !callerHeader.includes("recorder"));
+
+  const audioKey = `${MEETING_PREFIX}${SESSION_TRANSCRIBE}.json`;
+  const audioRecord = JSON.parse(recorder.get(audioKey)?.body ?? "{}");
+  check("the chunk was charged against the meeting's own budget", audioRecord.transcribedChunks === 1);
+
+  /*
+    The counter has to survive the *other* writes to a session, and that is not
+    obvious: it is a field the shared core does not know about, riding on a
+    record every event fold rebuilds. If a fold dropped it, the budget would
+    silently reset on the next segment batch — a ceiling that resets is not a
+    ceiling, and nothing else in the suite would have noticed.
+  */
+  await meetingRequest(transcribing, TOKEN_OWNER, `/meetings/sessions/${SESSION_TRANSCRIBE}/segments`, {
+    body: { segments: [{ id: "seg-after-audio", startMs: 0, endMs: 1_000, text: "still here", channel: "mic" }] },
+  });
+  const afterFold = JSON.parse(recorder.get(audioKey)?.body ?? "{}");
+  check("THE BUDGET SURVIVES AN EVENT FOLD, so a ceiling cannot be reset by recording", afterFold.transcribedChunks === 1);
+  check("...and the fold still did its own job", (afterFold.transcript ?? []).length === 1);
+
+  /*
+    And the same attack through the other door, which is the obvious one to
+    reach for: re-open the session you already hold, over the collection route,
+    and see whether the record comes back rebuilt with the count gone.
+    `foldMetadata` starts from the stored session rather than from the body, so
+    it does not — but that is a property of `applyEvent` spreading a record it
+    does not fully know, and nothing else here would notice it changing.
+  */
+  await meetingRequest(transcribing, TOKEN_OWNER, "/meetings/sessions", {
+    body: { id: SESSION_TRANSCRIBE, title: "Re-opened to reset the meter" },
+  });
+  const afterUpsert = JSON.parse(recorder.get(audioKey)?.body ?? "{}");
+  check(
+    "...AND AN UPSERT OF A SESSION YOU HOLD DOES NOT RESET IT EITHER",
+    afterUpsert.transcribedChunks === 1 && afterUpsert.title === "Re-opened to reset the meter"
+  );
+
+  const before = transcribeCalls.length;
+  const neighbourTranscribe = await meetingRequest(
+    transcribing,
+    TOKEN_NEIGHBOUR,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk() }
+  );
+  check(
+    "a neighbour holding the id cannot transcribe into it",
+    neighbourTranscribe.status === 404 && neighbourTranscribe.body?.error === "meeting_forbidden"
+  );
+  check("...AND BUYS NO INFERENCE DOING SO", transcribeCalls.length === before);
+
+  const readOnlyTranscribe = await meetingRequest(
+    transcribing,
+    TOKEN_READ_ONLY,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk() }
+  );
+  check(
+    "a read-only grant may not transcribe",
+    readOnlyTranscribe.status === 403 && readOnlyTranscribe.body?.error === "meeting_forbidden"
+  );
+  check("...and buys no inference either", transcribeCalls.length === before);
+
+  const unknownSession = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_NEVER_ISSUED}/transcribe`,
+    { body: chunk() }
+  );
+  check(
+    "a chunk must belong to a meeting that exists",
+    unknownSession.status === 404 && unknownSession.body?.error === "meeting_forbidden"
+  );
+  check("...so inference cannot be bought without recording anything", transcribeCalls.length === before);
+
+  const badMime = await meetingRequest(transcribing, TOKEN_OWNER, `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`, {
+    body: chunk({ mimeType: "application/octet-stream" }),
+  });
+  check("a container this gateway does not accept is refused", badMime.status === 400 && badMime.body?.error === "meeting_invalid");
+  check("...before anything is forwarded", transcribeCalls.length === before);
+
+  const oversizedChunk = await meetingRequest(transcribing, TOKEN_OWNER, `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`, {
+    body: chunk({ audioBase64: "A".repeat(LIMITS.transcribeAudioChars + 1) }),
+  });
+  check("an oversized chunk is refused", oversizedChunk.status === 413);
+  check("...before anything is forwarded", transcribeCalls.length === before);
+
+  const badChunkId = await meetingRequest(transcribing, TOKEN_OWNER, `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`, {
+    body: chunk({ chunkId: "a chunk id with spaces and a \n newline" }),
+  });
+  check("a chunk id that is not a short key is refused", badChunkId.status === 400);
+
+  // The budget, from the far side: a record already at the ceiling refuses
+  // without forwarding, which is the only bound this stateless Worker can have.
+  const spent = JSON.parse(recorder.get(audioKey)?.body ?? "{}");
+  recorder.set(audioKey, {
+    body: JSON.stringify({ ...spent, transcribedChunks: LIMITS.transcribeChunksPerSession }),
+    etag: "t-spent",
+  });
+  const overBudget = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk() }
+  );
+  check(
+    "a meeting that has spent its budget is refused, and not with a retry code",
+    overBudget.status === 400 && overBudget.body?.error === "meeting_invalid"
+  );
+  check("...COSTING ZERO INFERENCE", transcribeCalls.length === before);
+
+  // A service that is down is temporary: the meeting is still recording, and
+  // the next chunk is worth trying.
+  recorder.set(audioKey, {
+    body: JSON.stringify({ ...spent, transcribedChunks: 1 }),
+    etag: "t-reset",
+  });
+  transcribeAnswer = () => new Response("upstream is having a day", { status: 502 });
+  const upstreamDown = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk() }
+  );
+  check(
+    "a transcription service that is down is a retryable refusal",
+    upstreamDown.status === 503 && upstreamDown.body?.error === "meeting_unavailable"
+  );
+  check(
+    "...and its own words are not relayed to the client",
+    !JSON.stringify(upstreamDown.body ?? {}).includes("having a day")
+  );
+  transcribeAnswer = null;
 
   restoreFailures();
   restoreControlPlane();

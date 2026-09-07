@@ -45,13 +45,49 @@ import { inviteHref } from "../auth/redirect";
  * you in your notes rather than in a diagram of them.
  */
 
-/** The app-level destinations, in rail order. */
+/**
+ * The app-level destinations, in rail order.
+ *
+ * Search is first, and it is app level rather than a context's, for the reason
+ * it exists: the question it answers — "where did anybody write about the
+ * review cycle" — is the one question in this product that spans more than one
+ * context. Putting it inside a context would make the default scope "this one",
+ * which is the search that already exists behind ⌘K.
+ */
 export const APP_SECTIONS = [
+  { key: "search", label: "Search", href: "/console/search" },
   { key: "map", label: "Map", href: "/console/map" },
   { key: "connections", label: "Connections", href: "/console/connections" },
 ] as const;
 
 export type AppSectionKey = (typeof APP_SECTIONS)[number]["key"];
+
+/**
+ * The app sections to draw for one viewer.
+ *
+ * Search is the only conditional one, and the condition is whether anything
+ * would answer: the blended page searches contexts whose owner has turned fast
+ * search on, and a person with none of those has a destination that can only
+ * apologise. So the row appears with the first eligible context and disappears
+ * with the last.
+ *
+ * **`undefined` means "nobody has told me yet", and draws the row.** That is
+ * deliberate and it is the direction that fails safely: the eligible list
+ * arrives from a Convex query a frame or two after the first paint, so treating
+ * absence as zero would make Search flicker into existence on every load — and
+ * a navigation item that appears late is one people learn not to look for. It
+ * also keeps the demo console and the reachability registry honest: neither has
+ * a live query behind it, and neither should have to fake one to draw the app's
+ * own navigation.
+ */
+export function appSectionsFor(
+  searchableContexts?: number,
+): readonly (typeof APP_SECTIONS)[number][] {
+  if (searchableContexts === undefined) return APP_SECTIONS;
+  return APP_SECTIONS.filter(
+    (section) => section.key !== "search" || searchableContexts > 0,
+  );
+}
 
 /** What a context shows. Browse is the default; settings is reached from it. */
 export type ContextView = "browse" | "settings";
@@ -64,6 +100,7 @@ export type ConsoleRoute =
 
 export const LANDING_ROUTE: ConsoleRoute = { kind: "landing" };
 export const MAP_ROUTE: ConsoleRoute = { kind: "app", section: "map" };
+export const SEARCH_ROUTE: ConsoleRoute = { kind: "app", section: "search" };
 
 export const CONSOLE_ROOT = "/console";
 
@@ -182,6 +219,70 @@ export function safeNotePath(raw: string): string | null {
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(trimmed)) return null;
   return trimmed;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                             the search page's URL                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A search, as a URL: `/console/search?q=review%20cycle&in=seyi,lk`.
+ *
+ * ## Why the query is in the URL at all
+ *
+ * Because a search page that cannot be reloaded, linked or gone back to is a
+ * modal wearing a URL. Refreshing mid-scroll and losing the query is the single
+ * most annoying thing a search page can do, and "open the result, press back,
+ * carry on reading" is how people actually use one.
+ *
+ * The cost is real and is written down in `docs/decisions/search.md`: the words
+ * somebody typed end up in browser history, in whatever they paste into a chat,
+ * and in any referrer a link from this page sends. That is a decision about
+ * text a person deliberately typed into a visible field, which is a different
+ * thing from the machinery around it — the *cursor* carries a fingerprint of
+ * the query and never the query, precisely because nobody reads a cursor and
+ * nobody chose to put one anywhere.
+ *
+ * ## The scope is slugs, not workspace ids
+ *
+ * `?in=seyi,lk` and never `?in=k97ab…`. A URL somebody may paste into a chat
+ * should not contain database identifiers, and slugs are already the console's
+ * public addressing everywhere else (`/console/@seyi`). It also degrades
+ * usefully: a slug the recipient cannot reach resolves to nothing on their
+ * side, exactly as `resolveScope` drops an id they cannot search, so a shared
+ * link narrows to whatever the reader can actually see instead of erroring.
+ *
+ * An absent `in` means every eligible context, which is the page's default.
+ */
+export function searchHref(query: string, slugs: readonly string[] = []): string {
+  const trimmed = query.trim();
+  const parts: string[] = [];
+  if (trimmed !== "") parts.push(`q=${encodeURIComponent(trimmed)}`);
+  if (slugs.length > 0) {
+    parts.push(`in=${slugs.map((slug) => encodeURIComponent(slug)).join(",")}`);
+  }
+  return parts.length === 0 ? SEARCH_PATH : `${SEARCH_PATH}?${parts.join("&")}`;
+}
+
+export const SEARCH_PATH = "/console/search";
+
+/** What the page should show, read back off its own URL. */
+export function searchFromQuery(params: {
+  q?: string | string[];
+  in?: string | string[];
+}): { query: string; slugs: string[] } {
+  const raw = Array.isArray(params.q) ? params.q[0] : params.q;
+  const scope = Array.isArray(params.in) ? params.in[0] : params.in;
+  return {
+    query: typeof raw === "string" ? raw : "",
+    slugs:
+      typeof scope === "string"
+        ? scope
+            .split(",")
+            .map((slug) => slugFromSegment(slug.trim()))
+            .filter((slug) => slug !== "")
+        : [],
+  };
 }
 
 export function settingsHref(slug: string): string {

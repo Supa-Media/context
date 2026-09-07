@@ -387,6 +387,28 @@ export const ROUTES = Object.freeze({
   notes: (id) => `/meetings/sessions/${id}/notes`,
   /** POST /meetings/sessions/:id/finalize — end, enhance, write to the bucket. */
   finalize: (id) => `/meetings/sessions/${id}/finalize`,
+  /**
+   * POST /meetings/sessions/:id/transcribe — one chunk of audio in, words out.
+   *
+   * The only route in this contract that carries audio, and the only one whose
+   * answer is not an `IngestAck`. Three properties make it safe to have at all,
+   * and each is a property of the shape rather than a promise:
+   *
+   *  - **Nothing on the far end keeps the audio.** The gateway holds it for the
+   *    life of one request, hands it to a transcription service, and answers
+   *    with text. It is never written to the bucket, never queued, and never
+   *    logged — `docs/decisions/meetings.md`: *audio is never written to the
+   *    bucket and never persisted by us*.
+   *  - **It is scoped to a session that already exists.** A chunk is charged
+   *    against a meeting the caller has already opened in their own context, so
+   *    inference cannot be spent by a caller who is not recording anything, and
+   *    what was spent is attributable to a workspace.
+   *  - **It answers with segments the client owns.** The times in the answer are
+   *    relative to the chunk; the client offsets them and appends them through
+   *    `segments`, which is still the only route that writes a transcript. A
+   *    transcription that never came back costs words, never a note.
+   */
+  transcribe: (id) => `/meetings/sessions/${id}/transcribe`,
 });
 
 /**
@@ -455,6 +477,28 @@ export const ROUTES = Object.freeze({
  * @property {MeetingSource} [source]
  * @property {Attendee[]} [attendees]
  * @property {string} [notes]
+ *
+ * @typedef {Object} TranscribeChunkBody
+ * @property {string} audioBase64  `POST …/transcribe`. One **complete,
+ *   self-contained** audio file, base64-encoded. Not a fragment of a longer
+ *   recording: a `MediaRecorder` timeslice after the first carries no container
+ *   header and no engine can read it, which is why every recorder rotates
+ *   rather than slices (`chunks.js`).
+ * @property {string} mimeType     What the platform actually produced —
+ *   `audio/webm;codecs=opus`, `audio/mp4`, … The recorder's own answer, never
+ *   what it asked for.
+ * @property {string} chunkId      Stable across re-sends; see `chunkIdFor`. The
+ *   segment ids in the answer are derived from it, so the same audio
+ *   transcribed twice merges rather than doubling the transcript.
+ * @property {number} offsetMs     Milliseconds from the start of the session to
+ *   the start of this chunk. Added by the *client* to the times that come back.
+ * @property {number} durationMs   How long this chunk is.
+ *
+ * @typedef {Object} TranscribeChunkResult
+ * @property {TranscriptSegment[]} segments  The words, with `startMs`/`endMs`
+ *   already offset into session time, ids derived from `chunkId`, and `speaker`
+ *   `null` unless the engine genuinely diarized. An empty array means the
+ *   engine listened and heard nothing — it never means it was not asked.
  *
  * @typedef {Object} SessionRead
  * @property {MeetingSessionSummary} session  `GET /meetings/sessions/:id`.

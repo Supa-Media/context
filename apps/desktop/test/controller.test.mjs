@@ -21,6 +21,9 @@
  *   the `grantedEpisode === null` guard removed                               4
  *   the session write queued after the first segment                          3
  *   a fresh segment id minted per segment rather than the stable one          1
+ *   permissions asked for from a constant rather than from the channels       1
+ *   a typed meeting still labelled with the engine's name                     1
+ *   the engine handed one session id for the life of the app                  2
  *
  * The second one had to be *added* to this file: the original checks looked at
  * the recorder after `end()` resolved, which is green whichever order those two
@@ -46,7 +49,7 @@ function harness(options = {}) {
   const views = [];
   const controller = new MeetingController({
     recorder,
-    transcriber: options.transcriber ?? fakeTranscriber("mtg_abcdefghjkmnpqrstvwx", ["one", "two"]),
+    transcriber: options.transcriber ?? fakeTranscriber(["one", "two"]),
     permissions,
     device: { platform: "macos", name: "a laptop", appVersion: "0.1.0" },
     outbox: () => outbox,
@@ -172,7 +175,7 @@ export async function runControllerChecks(check) {
     let outbox = emptyOutbox();
     controller = new MeetingController({
       recorder,
-      transcriber: fakeTranscriber("mtg_abcdefghjkmnpqrstvwx"),
+      transcriber: fakeTranscriber(),
       permissions: fakePermissionBroker(),
       device: { platform: "macos" },
       outbox: () => outbox,
@@ -261,6 +264,78 @@ export async function runControllerChecks(check) {
     }
     check("a complete session cannot be paused", threw);
     check("the contract says so", MEETING_TRANSITIONS.complete.length === 0);
+  }
+
+  // -- a typed meeting opens nothing ----------------------------------------
+  //
+  // `capturePlan` answers with no channels when there is nothing to transcribe
+  // with — no grant on this machine, or on-device chosen and not built. The
+  // controller must then open no microphone, ask for no permission, and still
+  // produce a note: the person typed, and what they typed is theirs.
+  {
+    const { controller, permissions, recorder, outbox } = harness();
+    const begun = await controller.begin({
+      source,
+      title: "Kickoff",
+      grantedEpisode: "e",
+      channels: [],
+      notice: "This machine is not connected to a context yet.",
+    });
+    check("a typed meeting starts", begun.ok === true);
+    check("NO PERMISSION IS REQUESTED FOR A MEETING THAT OPENS NO MICROPHONE", permissions.calls.length === 0);
+    check("...and nothing is capturing", recorder.capturing === false && controller.view()?.capturing === false);
+    check("the session says it has no audio", controller.view()?.audio === false);
+    check("...and the rail does not claim an engine", controller.view()?.transcriptionLabel === "typed");
+    check("...nor that audio went anywhere", controller.view()?.audioLeavesDevice === false);
+    check("...and the reason is carried on the session, for the panel to show", (controller.view()?.notice ?? "").includes("not connected"));
+
+    controller.notes("They want the pilot before the quarter ends.");
+    const ended = await endQuietly(controller);
+    check("a typed meeting still ends cleanly", ended.error === null && controller.view()?.state === "complete");
+    const kinds = outbox().entries.map((entry) => entry.kind);
+    check("...and still becomes a note", kinds.filter((kind) => kind === "finalize").length === 1);
+    check("...carrying the notes the person typed", kinds.includes("notes"));
+    check("...with nothing recorded", (controller.view()?.recordedMs ?? -1) === 0);
+  }
+
+  // -- a notice from the engine reaches the session -------------------------
+  {
+    const notices = [];
+    const engine = {
+      id: "cloud",
+      audioLeavesDevice: true,
+      label: "cloud (audio not stored)",
+      async start(options) {
+        notices.push(options.onNotice);
+        return { push() {}, async finish() {} };
+      },
+    };
+    const { controller } = harness({ transcriber: engine });
+    await controller.begin({ source, title: "x", grantedEpisode: "e" });
+    check("the engine is handed a way to say something went wrong", typeof notices[0] === "function");
+    notices[0]?.({ recoverable: false, message: "This meeting is not being transcribed." });
+    check("...and what it says lands on the session the UI renders", controller.view()?.notice === "This meeting is not being transcribed.");
+    check("...without stopping the recording", controller.view()?.state === "recording");
+  }
+
+  // -- the engine is told which meeting it is transcribing -------------------
+  {
+    const seen = [];
+    const engine = {
+      id: "cloud",
+      audioLeavesDevice: true,
+      label: "cloud (audio not stored)",
+      async start(options) {
+        seen.push(options.sessionId);
+        return { push() {}, async finish() {} };
+      },
+    };
+    const { controller } = harness({ transcriber: engine });
+    await controller.begin({ source, title: "x", grantedEpisode: "e" });
+    check(
+      "THE ENGINE IS TOLD THE SESSION ID PER MEETING, so two meetings cannot share segment ids",
+      seen[0] === controller.view()?.id,
+    );
   }
 
   // -- one at a time ---------------------------------------------------------

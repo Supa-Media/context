@@ -1,6 +1,7 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   APP_SECTIONS,
+  appSectionsFor,
   LANDING_ROUTE,
   landingHref,
   MAP_ROUTE,
@@ -36,8 +37,36 @@ const contexts = [
 ];
 
 describe("the route table", () => {
-  test("app level is exactly Map and Connections", () => {
-    expect(APP_SECTIONS.map((section) => section.key)).toEqual(["map", "connections"]);
+  test("app level is exactly Search, Map and Connections", () => {
+    expect(APP_SECTIONS.map((section) => section.key)).toEqual([
+      "search",
+      "map",
+      "connections",
+    ]);
+  });
+
+  /**
+   * Search is app level rather than a context's, and it is conditional.
+   *
+   * The first half is why it exists at all: the question it answers spans more
+   * than one context, and a Search *inside* a context would default its scope
+   * to that one — which is the search that already lives behind the palette.
+   *
+   * The second half is the rule that shows on screen. Somebody whose contexts
+   * all have fast search off has a destination that can only apologise, so the
+   * row goes; somebody whose eligible list has not arrived yet keeps it,
+   * because a navigation item that appears a beat late is one people learn not
+   * to look for. `undefined` is therefore emphatically not zero.
+   */
+  test("Search is drawn until something says nothing would answer it", () => {
+    expect(appSectionsFor(undefined).map((section) => section.key)).toContain("search");
+    expect(appSectionsFor(2).map((section) => section.key)).toContain("search");
+    expect(appSectionsFor(0).map((section) => section.key)).not.toContain("search");
+    // And nothing else moves with it.
+    expect(appSectionsFor(0).map((section) => section.key)).toEqual([
+      "map",
+      "connections",
+    ]);
   });
 
   test("every app section has a distinct URL", () => {

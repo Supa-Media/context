@@ -69,7 +69,7 @@ import { indexByName, rewriteLinks } from "@context/shared/src/links";
 import { createSearchBudget } from "../../../mcp/src/search/maintain.js";
 import { syncShardedIndex } from "../../../mcp/src/search/shards.js";
 import { searchIndexedNotes } from "../../../mcp/src/search/visible.js";
-import { answerFromProjection } from "../../../mcp/src/search/d1/serve.js";
+import { answerFromProjection, pageDepth } from "../../../mcp/src/search/d1/serve.js";
 // The projection, on the same terms. `projectPass`, `loadCensus` and
 // `progressFrom` take a store, a census, a `visibilityOf` and a budget and
 // know nothing about a gateway request — which is what makes the control
@@ -2815,7 +2815,40 @@ export interface SearchResults {
  */
 export async function searchNotes(
   store: FileStore,
-  options: { query: string; prefix?: string; scope: Scope; budget?: number },
+  options: {
+    query: string;
+    prefix?: string;
+    scope: Scope;
+    budget?: number;
+    /**
+     * How far down the ranked list to read, in notes.
+     *
+     * Ten by default, which is the palette every caller had before the search
+     * page existed. `pageDepth` is the shared clamp and the ceiling is
+     * `MAX_RESULTS`, where the *ranking* is cut — see its comment in
+     * `search/d1/serve.js` for why a deeper page is a deeper slice of the same
+     * list rather than a second query with an offset.
+     */
+    limit?: number;
+    /**
+     * Whether an empty answer may buy one bucket listing and ask again.
+     *
+     * True for a single-context search, which is the case `searchIndexedNotes`
+     * wrote the rule for: somebody wrote a note a minute ago and is looking for
+     * it, and one listing is worth not telling them it does not exist.
+     *
+     * **A fan-out across contexts passes false**, and the arithmetic is the
+     * reason. The rule costs one listing per *miss*, and a blended search over
+     * eight contexts misses in most of them by construction — a word that is in
+     * one brain is absent from the other seven. That is seven full bucket
+     * listings, on seven customers' request quotas, for one keystroke's worth
+     * of scrolling, and it would make the fan-out's worst case its ordinary
+     * case. The honesty the rule buys is not lost: a source whose index is
+     * behind still says so, per source, and the page renders that rather than
+     * "no matches".
+     */
+    refreshOnMiss?: boolean;
+  },
   projection: ProjectionClient | null = null,
 ): Promise<SearchResults> {
   const query = options.query.trim();
@@ -2841,6 +2874,12 @@ export async function searchNotes(
   const isVisible = (path: string) =>
     canSee(path, options.scope, state.rules, state.overrides);
 
+  // Clamped once, here, and handed to both index paths — a page depth that the
+  // projection honoured and the R2 index did not would make the number of
+  // results depend on which derivative answered, which is the one difference
+  // between them a caller must never be able to see.
+  const limit = pageDepth(options.limit);
+
   if (projection !== null) {
     try {
       const fast = await answerFromProjection(projection, {
@@ -2848,6 +2887,7 @@ export async function searchNotes(
         prefix: folder,
         tier: options.scope,
         isVisible,
+        limit,
       });
       if (fast) {
         return {
@@ -2883,6 +2923,7 @@ export async function searchNotes(
     isIndexable: (key: string) => key.endsWith(".md") && !isPlumbing(key),
     query,
     prefix: folder,
+    limit,
     budget: createSearchBudget(options.budget ?? CONSOLE_SEARCH_BUDGET),
     // A person typed this and is watching a spinner, which is exactly who the
     // rule is for: a miss over an index that believes it is converged buys one
@@ -2890,7 +2931,9 @@ export async function searchNotes(
     // console is where somebody writes a note and then looks for it, so the
     // case this covers — the index is current as of a minute ago and the note
     // is newer than that — is the console's own most likely miss.
-    refreshOnMiss: true,
+    //
+    // A fan-out turns it off; see `refreshOnMiss` in the options above.
+    refreshOnMiss: options.refreshOnMiss ?? true,
   });
 
   if (!found.indexed) {
