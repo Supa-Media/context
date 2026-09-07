@@ -50,6 +50,10 @@ on:
       # normal path; this closes the direct-push one rather than leaving an
       # asterisk on the sentence above.
       - "packages/meetings/**"
+      # And the desktop app, for exactly the same reason: `Test Desktop` below
+      # is its only CI anywhere, so a direct push that skipped it would leave
+      # the app with none on `main`.
+      - "apps/desktop/**"
       - ".github/workflows/mcp.yml"
 
 permissions:
@@ -120,6 +124,52 @@ jobs:
       - name: Run test suite
         working-directory: packages/meetings
         run: node test/test.mjs
+
+  desktop:
+    name: Test Desktop
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # NOTHING RAN THIS SUITE EITHER — the same hole this file's `meetings` job
+      # was added to close, one app over. `ci.yml` filters on
+      # `packages/shared/**`, `apps/mobile/**` and `apps/convex/**`, so a change
+      # touching only `apps/desktop/**` matched no job anywhere, and the app's
+      # 425 checks — the consent gate, the credential's whole life, and the one
+      # request in the product that carries somebody's meeting audio — were
+      # local-only.
+      #
+      # It lives in this workflow for the reason the header gives: no `paths:`
+      # filter on `pull_request`, so it runs on every pull request rather than
+      # only on the ones somebody remembered to name. The gateway's own jobs
+      # install nothing on purpose; this one has to, because the desktop app
+      # imports `@context/meetings` by package name and resolves it through the
+      # workspace. Scoped to that app so the install stays small.
+      - name: Install
+        run: pnpm install --filter "./apps/desktop..." --frozen-lockfile
+
+      - name: Run test suite
+        working-directory: apps/desktop
+        run: node --experimental-strip-types test/test.mjs
+
+      - name: Typecheck
+        working-directory: apps/desktop
+        run: pnpm exec tsc --noEmit
+
+      # The bundle is what Electron actually loads, and a main process that
+      # cannot be bundled is an app that does not start — a failure no unit
+      # test in this repository can see, because none of them import Electron.
+      - name: The app still bundles
+        working-directory: apps/desktop
+        run: node scripts/build.mjs
 
   workflows-parse:
     name: Workflows parse
