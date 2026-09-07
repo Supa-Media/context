@@ -55,10 +55,14 @@ pnpm --filter @context/desktop typecheck
 `CONTEXT_DESKTOP_UI=console` opens a third window that hosts `apps/mobile`'s web
 build — `CONTEXT_DESKTOP_UI_URL` says where from, defaulting to
 `http://localhost:8081` outside production so `expo start` is what you develop
-against. It carries a bridge whose every capability answers `false`, which is
-step one of `docs/decisions/desktop.md`: the UI moves out of this app and ships
+against. It carries the whole version-1 bridge from `@context/desktop-bridge`,
+over this app's real capture, connection and queue: `preload/console.ts` is four
+statements over `core/shell/bridge.ts`, and `main/consoleBridge.ts` answers each
+channel only for the console window's own top frame at the pinned origin. That
+is `docs/decisions/desktop.md`'s plan: the UI moves out of this app and ships
 with the web deploy, and the shell keeps the tray, the audio, the credential and
-the queue.
+the queue. The default is still `renderer` — the panel and the notepad — until
+that document's step 4.
 
 `start` accepts `--fake-signals`, which runs the whole app against the
 deterministic collectors and the fake recorder and transcriber. That is how the
@@ -252,6 +256,11 @@ the settings file, put in a URL, or exposed to a renderer.
 - The console shell's origin pin: a foreign origin, a lookalike host, an opaque
   origin and a subframe each get no bridge, and the shell refuses to load a UI
   over plaintext from anything that is not really loopback.
+- The bridge itself, both ends: the object the preload exposes is run through
+  `getDesktopBridge()`, every subscription is proved to detach, every answer and
+  every push is walked for anything credential-shaped, and the main process's
+  sender check is driven with a foreign `webContents`, a foreign origin and a
+  subframe.
 
 Every one of those areas has a **sabotage record** in its test file: the
 invariant was broken deliberately, the run was watched, and the count of

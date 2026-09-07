@@ -1,65 +1,29 @@
 /**
- * `window.desktop`, version 1, with nothing behind it yet.
+ * `window.desktop`, version 1, wired to the shell that is actually behind it.
  *
- * This is the first step of `docs/decisions/desktop.md`'s order: the shell can
- * host the console, the page can tell it is running inside a shell, and every
- * capability answers `false`. A web bundle that already knows how to degrade —
- * `features/meetings/capture/audio.web.ts` is microphone-only and says so —
- * therefore behaves in this shell exactly as it does in a browser, which is
- * what makes this step shippable on its own.
+ * Deliberately four statements long. Everything the bridge *is* — the channels,
+ * the normalisers, the unsubscribes, the closed set of sentences — lives in
+ * `core/shell/bridge.ts`, which imports no Electron and is therefore driven end
+ * to end by `test/consoleBridge.test.mjs`. What is left here is the part that
+ * genuinely needs `electron`: two objects to hand it, and the two facts about
+ * this document that decide whether it gets a bridge at all.
  *
- * Two properties it shares with `preload/index.ts` and must never lose: there
- * is no generic `invoke`, and there is no way to read the gateway credential.
- * The token lives in `safeStorage` in the main process and every request that
- * carries one is made there.
+ * Three properties this file must never lose, and none of them is enforced
+ * here:
  *
- * ## Why the origin is fetched synchronously
- *
- * The bridge has to be on `window` before the page's first script runs, so the
- * pin cannot be awaited. `sendSync` is the one call in this file and it returns
- * a public value — knowing which origin the shell pinned tells an attacker
- * nothing they could not read off the window's own URL. What it buys is that
- * the pin is the *main process's* answer rather than something baked into a
- * bundle, so a self-hoster's `CONTEXT_DESKTOP_UI_URL` is honoured by one file.
+ *  - **There is no generic `invoke`** — `bridge.ts` names one channel per verb.
+ *  - **There is no way to read the gateway credential.** The token lives in
+ *    `safeStorage` in the main process and every request that carries one is
+ *    made there. `connection.get()` answers three words and a base URL.
+ *  - **The bridge is exposed to exactly one document**: the pinned origin, in
+ *    the top frame. `shouldExposeBridge` decides, the main process re-checks
+ *    the sender on every channel it answers, and the two are separate checks
+ *    because this one runs in the renderer — and a compromised renderer is the
+ *    threat model.
  */
 
 import { contextBridge, ipcRenderer } from "electron";
-import {
-  BRIDGE_VERSION,
-  NO_CAPABILITIES,
-  shouldExposeBridge,
-  type DesktopCapabilities,
-} from "../core/shell/console.ts";
-
-/** Answered by the main process with the origin this window is pinned to. */
-export const CONSOLE_ORIGIN_CHANNEL = "context:console-origin";
-
-/** Answered with `{ app, version, platform }`. No credential, no paths. */
-export const CONSOLE_SHELL_CHANNEL = "context:console-shell";
-
-export interface DesktopShellInfo {
-  app: string;
-  version: string;
-  platform: "macos" | "windows" | "linux";
-}
-
-function pinnedOrigin(): string {
-  try {
-    return String(ipcRenderer.sendSync(CONSOLE_ORIGIN_CHANNEL) ?? "");
-  } catch {
-    // A window whose main process will not answer is a window that gets no
-    // bridge. Failing closed is the only safe direction here.
-    return "";
-  }
-}
-
-function shellInfo(): DesktopShellInfo | null {
-  try {
-    return (ipcRenderer.sendSync(CONSOLE_SHELL_CHANNEL) as DesktopShellInfo) ?? null;
-  } catch {
-    return null;
-  }
-}
+import { installDesktopBridge } from "../core/shell/bridge.ts";
 
 /*
   Fail closed on a window that is not there.
@@ -70,29 +34,8 @@ function shellInfo(): DesktopShellInfo | null {
   A preload with no window should expose nothing, so absence is a refusal.
 */
 const frame = globalThis.window;
-const exposed = shouldExposeBridge({
-  pinned: pinnedOrigin(),
+
+installDesktopBridge(contextBridge, ipcRenderer, {
   origin: globalThis.location?.origin ?? "",
   isTopFrame: frame !== undefined && frame !== null && frame === frame.top,
 });
-
-if (exposed) {
-  const shell = shellInfo();
-  contextBridge.exposeInMainWorld(
-    "desktop",
-    Object.freeze({
-      version: BRIDGE_VERSION,
-      shell,
-      /*
-        Async on purpose, and it is a promise this step does not need.
-
-        What a build can do is discovered rather than declared — whether macOS
-        hands over a loopback tap is only knowable by asking for one — so the
-        answer has to be able to come from the main process. Making it sync now
-        would make step 2 a breaking change to a surface that has already
-        shipped in a binary people cannot be made to update.
-      */
-      capabilities: async (): Promise<DesktopCapabilities> => ({ ...NO_CAPABILITIES }),
-    }),
-  );
-}

@@ -31,6 +31,7 @@ import { runTrayChecks } from "./tray.test.mjs";
 import { runPlatformChecks } from "./platform.test.mjs";
 import { runContractChecks } from "./contract.test.mjs";
 import { runShellChecks } from "./shell.test.mjs";
+import { runConsoleBridgeChecks } from "./consoleBridge.test.mjs";
 import { runPackagingChecks } from "./packaging.test.mjs";
 import { runUpdatePolicyChecks } from "./updatePolicy.test.mjs";
 
@@ -73,6 +74,7 @@ runTrayChecks(check);
 runPlatformChecks(check);
 runShellChecks(check);
 runUpdatePolicyChecks(check);
+await runConsoleBridgeChecks(check);
 await runContractChecks(check, skip);
 await runPackagingChecks(check);
 

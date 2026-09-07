@@ -410,10 +410,29 @@ export const BRIDGE_CHANNELS = Object.freeze({
   shell: "context:console-shell",
 
   capabilities: "context:capabilities",
-  startCapture: "context:capture-start",
-  pauseCapture: "context:capture-pause",
-  resumeCapture: "context:capture-resume",
-  stopCapture: "context:capture-stop",
+  /*
+    THE FOUR CAPTURE VERBS CARRY THE `console-` PREFIX, AND THAT IS A GUARD.
+
+    `context:capture-{start,pause,resume,stop}` are the *hidden capture
+    window's* private channels — `apps/desktop/src/main/capture.ts` sends them
+    at one window it owns and `src/preload/capture.ts` listens for them there.
+    The bridge used the same four strings when this file was written, which was
+    safe only for a reason nobody reading either file would see: `handle`
+    (renderer→main, by `invoke`) and `send` (main→renderer) are separate
+    registries, so the two never met. That is a trap rather than a design — the
+    day somebody answers one of those names with `ipcMain.on` in the capture
+    file, the console's Pause is answered by a window holding a live
+    microphone.
+
+    So the names are disjoint by construction, which is a property a check can
+    hold: `test/consoleBridge.test.mjs` reads both capture sources and asserts
+    that no channel string in this object appears in either. Renaming here is
+    the whole of the change, because both processes import these constants.
+  */
+  startCapture: "context:console-capture-start",
+  pauseCapture: "context:console-capture-pause",
+  resumeCapture: "context:console-capture-resume",
+  stopCapture: "context:console-capture-stop",
 
   connectionGet: "context:connection-get",
   connectionConnect: "context:connection-connect",

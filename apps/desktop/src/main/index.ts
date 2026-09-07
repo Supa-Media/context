@@ -18,7 +18,9 @@
  */
 
 import { app, dialog, ipcMain } from "electron";
+import type { BrowserWindow } from "electron";
 import { join } from "node:path";
+import { release } from "node:os";
 import { createDetectionLoop, loadDetector } from "../core/detection/loop.ts";
 import type { DetectionUpdate } from "../core/detection/loop.ts";
 import { macosCollectors } from "../platform/macos/index.ts";
@@ -34,9 +36,10 @@ import {
 import type { ConsentState } from "../core/consent/gate.ts";
 import { isBlockedSource } from "../core/consent/blocklist.ts";
 import { MeetingController } from "../core/recording/controller.ts";
+import type { BeginResult, SessionView } from "../core/recording/controller.ts";
 import { fakeTranscriber } from "../core/capture/transcriber.ts";
 import { gatewayTranscriber } from "../core/capture/gatewayTranscriber.ts";
-import { capturePlan } from "../core/capture/plan.ts";
+import { PLAN_NOTICES, capturePlan } from "../core/capture/plan.ts";
 import { fakeRecorder } from "../core/capture/recorder.ts";
 import type { AudioRecorder } from "../core/capture/recorder.ts";
 import { DesktopCaptureRecorder } from "./capture.ts";
@@ -63,7 +66,18 @@ import {
   revealNotepadQuietly,
 } from "./windows.ts";
 import { consoleOrigin, consoleUrl } from "../core/shell/console.ts";
-import { CONSOLE_ORIGIN_CHANNEL, CONSOLE_SHELL_CHANNEL } from "../preload/console.ts";
+import { darwinMajorFrom, systemAudioCapability } from "../core/shell/capabilities.ts";
+import { createConsoleBridge } from "./consoleBridge.ts";
+import type { ConsoleBridge } from "./consoleBridge.ts";
+import type {
+  CaptureStarted,
+  CaptureStateUpdate,
+  CaptureSummary,
+  DesktopCapabilities,
+  OutboxStatus,
+  StartCaptureRequest,
+  TrayCommand,
+} from "@context/desktop-bridge";
 import { CHANNELS, COMMANDS } from "./ipc.ts";
 import type { UiState } from "./ipc.ts";
 import { DEFAULT_SETTINGS } from "../core/settings.ts";
@@ -75,11 +89,12 @@ const FAKE = process.argv.includes("--fake-signals");
  * Which UI this shell hosts. `renderer` is the panel and the notepad in
  * `src/renderer/`; `console` additionally opens `apps/mobile`'s web build.
  *
- * Default unchanged on purpose: this is step one of
- * `docs/decisions/desktop.md`'s order, and step one is allowed to change
- * nothing. The console window it opens carries a bridge with every capability
- * answering `false`, so what it proves is that the shell can host a remote
- * origin and give it nothing — not that the app has moved into it yet.
+ * Default unchanged on purpose: `docs/decisions/desktop.md`'s step 4 is what
+ * flips it, and this is not that step. What has changed is what the window
+ * gets: the bridge behind it is the whole version-1 surface over the shell's
+ * real capture, connection and queue, so a launch with this set is a launch
+ * where the console can actually record. Until the default moves, the panel and
+ * the notepad are still what a person sees.
  */
 const CONSOLE_UI = process.env.CONTEXT_DESKTOP_UI === "console";
 const RENDERER_DIR = join(import.meta.dirname, "..", "renderer");
@@ -101,7 +116,37 @@ let missingPermissions: string[] = [];
  */
 let systemAudioAvailable: boolean | null = null;
 let connecting = false;
+/**
+ * The console window and the bridge behind it, when this launch opened one.
+ *
+ * Both are `null` on a `CONTEXT_DESKTOP_UI=renderer` launch, which is still the
+ * default, and every use of them is optional-chained for that reason rather
+ * than guarded by the flag a second time.
+ */
+let consoleWindow: BrowserWindow | null = null;
+let consoleBridge: ConsoleBridge | null = null;
+
 let connectError: string | null = null;
+
+/**
+ * Everything the bridge may put in front of a person that `plan.ts` does not
+ * already own, and the whole of it.
+ *
+ * The same closed-set rule as `PLAN_NOTICES` and the phone's
+ * `CAPTURE_MESSAGES`: a sentence assembled from an upstream error is how a
+ * channel name or a fragment of a payload ends up on somebody's screen.
+ */
+const CONSOLE_NOTICES = Object.freeze({
+  alreadyRecording: "This machine is already recording a meeting.",
+  blocked:
+    "You asked this app never to record the app you are in, so it did not start. Change that in the menu bar if you meant to.",
+  permissions:
+    "macOS has not granted this app the microphone yet, so nothing was recorded. Open the menu bar to grant it.",
+  captureFailed:
+    "The Context app on this machine could not open an input, so this meeting is typed. Your notes still land in your bucket.",
+  nothingToOpen:
+    "There is nothing for this machine to record, so this meeting is typed. Your notes still land in your bucket.",
+});
 
 async function main(): Promise<void> {
   // A menu-bar app, not a dock app.
@@ -125,7 +170,6 @@ async function main(): Promise<void> {
   await connection.load();
   const panel = createPanel(RENDERER_DIR);
   const notepad = createNotepad(RENDERER_DIR);
-  openConsoleWindowIfAsked();
 
   const capture = FAKE ? null : new DesktopCaptureRecorder(RENDERER_DIR);
   const recorder: AudioRecorder = capture ?? fakeRecorder();
@@ -158,6 +202,16 @@ async function main(): Promise<void> {
     },
     now: () => new Date(),
     onChange: () => push(),
+    /*
+      Every finished segment, once, as it is produced.
+
+      The console needs the *event* and not the state: `onChange` carries the
+      whole transcript on every keystroke as well, and a page that diffed two
+      arrays to find the new words would be a second implementation of what the
+      controller already knows. `capture/desktop.ts` on the other side takes
+      these straight into the app's own recorder interface.
+    */
+    onSegment: (segment) => consoleBridge?.emitSegment(segment),
   });
 
   /*
@@ -210,8 +264,8 @@ async function main(): Promise<void> {
       panel.showInactive();
     },
     openNotepad: () => revealNotepadQuietly(notepad),
-    record: () => void recordNow(),
-    end: () => void endMeeting(),
+    record: () => void pressed("record", () => recordNow()),
+    end: () => void pressed("end", () => endMeeting()),
     connect: () => void connectThisMachine(),
     disconnect: () => void disconnectThisMachine(),
     toggleDetection: () => void update({ detectionEnabled: !settings.detectionEnabled }),
@@ -223,6 +277,24 @@ async function main(): Promise<void> {
     },
     quit: () => app.quit(),
   });
+
+  /**
+   * A verb somebody pressed in the shell's own UI, done and announced.
+   *
+   * The tray is a complete capture surface on its own — a person can record a
+   * whole meeting with the console never having loaded — so these are not the
+   * page's only route to these verbs. They are told to the page so that a
+   * console that *is* open agrees with the menu bar instead of drawing a stale
+   * Record button, which is the whole of what `onTrayCommand` is for.
+   *
+   * Announced *before* the work rather than after it: `end()` awaits a drain,
+   * and a page that learned about the press only once the queue had emptied
+   * would show the old state for as long as the network took.
+   */
+  function pressed(command: TrayCommand, run: () => Promise<unknown>): Promise<unknown> {
+    consoleBridge?.emitTrayCommand(command);
+    return run();
+  }
 
   function trayState(): TrayState {
     const view = controller.view();
@@ -323,6 +395,22 @@ async function main(): Promise<void> {
     for (const window of [panel, notepad]) {
       if (!window.isDestroyed()) window.webContents.send(CHANNELS.state, state);
     }
+    /*
+      The same change, in the vocabulary the contract uses.
+
+      Four narrow views rather than the whole `UiState`, and that is not an
+      optimisation: `UiState` is this app's internal shape and the console is a
+      *remote origin*. Sending it whole would mean every field ever added to
+      the panel's state is also published to whatever `CONTEXT_DESKTOP_UI_URL`
+      points at, which is precisely the accident the bridge exists to make
+      impossible.
+    */
+    consoleBridge?.push({
+      captureState: captureStateUpdate(),
+      connection: { ...state.connection },
+      outbox: outboxStatus(),
+      detection: state.detection,
+    });
   }
 
   async function update(patch: Partial<DesktopSettings>): Promise<void> {
@@ -363,9 +451,13 @@ async function main(): Promise<void> {
    * same sentence — "record the meeting I am in" — so both come through here
    * rather than through two paths that could drift on what capture means.
    */
-  async function beginMeeting(episode: string, manual = false): Promise<void> {
+  async function beginMeeting(
+    episode: string,
+    manual = false,
+    id?: string,
+  ): Promise<BeginResult | null> {
     const detected = manual ? null : lastUpdate;
-    if (!manual && !detected) return;
+    if (!manual && !detected) return null;
     // What this machine can actually do right now, in one place. `plan.notice`
     // is the sentence the panel shows when it is less than everything.
     const plan = capturePlan({
@@ -375,6 +467,7 @@ async function main(): Promise<void> {
     });
 
     const result = await controller.begin({
+      id,
       source: detected?.state.source ?? detected?.result.source ?? { kind: "unknown" },
       title: detected?.result.suggestedTitle ?? "Untitled meeting",
       attendees: detected?.result.suggestedAttendees ?? [],
@@ -409,6 +502,7 @@ async function main(): Promise<void> {
       showPanel();
     }
     push();
+    return result;
   }
 
   /**
@@ -458,9 +552,9 @@ async function main(): Promise<void> {
     await beginMeeting(episode, true);
   }
 
-  async function endMeeting(): Promise<void> {
-    if (!controller.recording) return;
-    await controller.end();
+  async function endMeeting(): Promise<SessionView | null> {
+    if (!controller.recording) return null;
+    const finished = await controller.end();
     push();
     await drain();
     controller.clear();
@@ -481,6 +575,7 @@ async function main(): Promise<void> {
     const episode = lastUpdate ? episodeKey(lastUpdate.state) : null;
     consent = episode === null ? IDLE_CONSENT : answered(episode, "declined");
     push();
+    return finished;
   }
 
   async function drain(): Promise<void> {
@@ -506,6 +601,235 @@ async function main(): Promise<void> {
     push();
   }
 
+  /* --- the console window, and the bridge behind it ---------------------- */
+
+  /**
+   * What THIS build can actually do, asked rather than declared.
+   *
+   * `mic` is "there is a real recorder in this process", which `--fake-signals`
+   * makes false: a development run that answered `true` would put a Record
+   * button on the console over a recorder that produces scripted text, and the
+   * app would be claiming a capability it does not have — the one thing
+   * `docs/decisions/meetings.md` forbids by name.
+   *
+   * `connection` is *this machine holds a grant*, not "this shell has a
+   * connection feature", which is what the contract's own comment says it is.
+   * A machine with no grant has nowhere to transcribe and nowhere to send a
+   * meeting, and that is a fact about now rather than about the build.
+   */
+  function shellCapabilities(): DesktopCapabilities {
+    const canCapture = capture !== null;
+    return {
+      systemAudio:
+        canCapture &&
+        systemAudioCapability({
+          platform: process.platform,
+          packaged: app.isPackaged,
+          // The same build-time literal the updater reads, and asked for the
+          // same reason: macOS gives a loopback tap to a signed, notarised app,
+          // and a locally packaged unsigned build is neither.
+          signed: __CONTEXT_DESKTOP_SIGNED__,
+          darwinMajor: darwinMajorFrom(release()),
+          probed: systemAudioAvailable,
+        }),
+      mic: canCapture,
+      detection: true,
+      tray: true,
+      outbox: true,
+      connection: connection.state() === "connected",
+    };
+  }
+
+  /** The recorder's four words, from the controller's own state machine. */
+  function captureStateUpdate(): CaptureStateUpdate {
+    const view = controller.view();
+    if (view === null) return { state: "idle", capturing: false, fault: null };
+    const state =
+      view.state === "recording" || view.state === "paused"
+        ? view.state
+        : view.state === "idle"
+          ? "idle"
+          : "stopped";
+    return {
+      state,
+      capturing: view.capturing,
+      fault:
+        view.state === "failed"
+          ? { recoverable: false, message: view.failureReason ?? CONSOLE_NOTICES.captureFailed }
+          : null,
+    };
+  }
+
+  /** Counts, never contents. What the queue is holding right now. */
+  function outboxStatus(): OutboxStatus {
+    const pending = outbox.entries.filter((entry) => entry.state === "pending");
+    const parked = outbox.entries.filter((entry) => entry.state === "parked");
+    return {
+      pending: pending.length,
+      parked: parked.length,
+      // The queue's own words about the last refusal, which `outbox.ts` already
+      // keeps closed to the contract's codes and the gateway's short message.
+      lastError: parked[0]?.parked?.message ?? pending.find((e) => e.lastError)?.lastError ?? null,
+    };
+  }
+
+  /**
+   * "Record this meeting", asked by the page.
+   *
+   * The same sentence as the tray's Record and the panel's Take notes, and it
+   * lands on the same three refusals in the same order — the master switch, the
+   * blocklist, the consent gate — because a page that could talk past any of
+   * them would be the reason not to host a page at all. What it adds is the
+   * **id**: the meeting is already named by the app that asked, and the shell
+   * records under that name so one meeting is one note.
+   *
+   * A refusal throws a sentence rather than a code. `createConsoleBridge` turns
+   * it into `{ ok: false, message }` and the preload rethrows exactly that
+   * string, which `capture/desktop.ts` shows: *"the shell's own sentence when
+   * it gave one"*.
+   */
+  async function startFromConsole(request: StartCaptureRequest): Promise<CaptureStarted> {
+    if (controller.recording) throw new Error(CONSOLE_NOTICES.alreadyRecording);
+    if (!settings.captureEnabled) throw new Error(PLAN_NOTICES.notConnected);
+
+    const source = lastUpdate?.state.source ?? null;
+    if (source && isBlockedSource(source, settings.blocklist)) {
+      throw new Error(CONSOLE_NOTICES.blocked);
+    }
+
+    /*
+      The plan is asked before anything begins, and a notes-only plan is a
+      refusal rather than a recording of nothing.
+
+      `capturePlan` answers "no channels" for the two states where nothing can
+      transcribe — no grant, or on-device chosen with no on-device engine — and
+      beginning a meeting there would leave the shell holding a session the page
+      also holds, for a recording that was never going to exist. Refusing hands
+      the page the plan's own sentence instead, and the page's meeting carries
+      on as a typed one, which is what it already does in a browser.
+    */
+    const plan = capturePlan({
+      settings,
+      connected: connection.state() === "connected",
+      systemAudio: systemAudioAvailable,
+    });
+    const wanted = plan.channels.filter((channel) =>
+      channel === "mic" ? request.mic : request.systemAudio,
+    );
+    if (wanted.length === 0) throw new Error(plan.notice ?? CONSOLE_NOTICES.nothingToOpen);
+
+    const episode = `console:${Date.now()}`;
+    consent = answered(episode, "granted");
+    const result = await beginMeeting(episode, true, request.sessionId);
+    if (result === null || !result.ok) {
+      throw new Error(
+        result?.why === "permissions"
+          ? CONSOLE_NOTICES.permissions
+          : CONSOLE_NOTICES.captureFailed,
+      );
+    }
+
+    const degraded = capture?.degradedChannels() ?? [];
+    const opened = wanted.filter((channel) => !degraded.includes(channel));
+    return {
+      sessionId: result.view.id,
+      mic: opened.includes("mic"),
+      systemAudio: opened.includes("system"),
+      startedAtMs: Date.parse(result.view.startedAt),
+      transcribesAt: plan.transcription === "cloud" ? "cloud" : "nowhere",
+      // The controller's own notice, which `beginMeeting` has already re-planned
+      // if the system tap was refused. One sentence, owned by `plan.ts`.
+      notice: controller.view()?.notice ?? null,
+    };
+  }
+
+  /** The last capture's shape, so `stopCapture` is safe to call twice. */
+  let lastCaptureSummary: CaptureSummary = {
+    sessionId: "",
+    endedAtMs: 0,
+    durationMs: 0,
+    segments: 0,
+    pending: 0,
+  };
+
+  async function stopFromConsole(): Promise<CaptureSummary> {
+    const finished = await endMeeting();
+    if (finished === null) return { ...lastCaptureSummary };
+    lastCaptureSummary = {
+      sessionId: finished.id,
+      endedAtMs: Date.now(),
+      durationMs: finished.recordedMs,
+      segments: finished.transcript.length,
+      // What the queue is *still* holding for this meeting after the drain
+      // `endMeeting` already ran. The page reads it to say "queued" rather than
+      // "saved", which is the rule `docs/decisions/app-and-console.md` states.
+      pending: outbox.entries.filter((entry) => entry.sessionId === finished.id).length,
+    };
+    return { ...lastCaptureSummary };
+  }
+
+  /**
+   * Open the hosted console, when this launch was asked to.
+   *
+   * The bridge is registered **before** the window exists — `window` is a
+   * getter for exactly that reason — because the preload's two synchronous
+   * calls happen while the page is loading, and a handler registered after
+   * `loadURL` is a race whose losing side is a window with no bridge on it.
+   *
+   * A misconfigured `CONTEXT_DESKTOP_UI_URL` throws in `consoleUrl` and is
+   * caught here: the flag is a development aid today, and a typo in it must not
+   * stop the tray, the detector and the queue from starting.
+   */
+  function openConsoleWindowIfAsked(): void {
+    if (!CONSOLE_UI) return;
+    let url: string;
+    try {
+      url = consoleUrl(process.env);
+    } catch (error) {
+      console.error(`CONTEXT_DESKTOP_UI=console, but ${(error as Error).message}`);
+      return;
+    }
+
+    consoleBridge = createConsoleBridge({
+      ipc: ipcMain,
+      pinned: consoleOrigin(url),
+      window: () => consoleWindow,
+      shell: () => ({ app: app.getName(), version: app.getVersion(), platform: "macos" }),
+      capabilities: shellCapabilities,
+      startCapture: startFromConsole,
+      pauseCapture: async () => {
+        await controller.pause();
+        push();
+      },
+      resumeCapture: async () => {
+        await controller.resume();
+        push();
+      },
+      stopCapture: stopFromConsole,
+      connection: () => uiState().connection,
+      connect: () => void connectThisMachine(),
+      disconnect: () => void disconnectThisMachine(),
+      outbox: outboxStatus,
+      drain: () => void drain(),
+    });
+
+    consoleWindow = createConsoleWindow(url, RENDERER_DIR);
+    consoleWindow.once("ready-to-show", () => consoleWindow?.show());
+    consoleWindow.on("closed", () => {
+      /*
+        The window is gone, so the channels go with it.
+
+        Not merely tidiness: `handle` throws if a channel is registered twice,
+        and leaving ten handlers behind whose only behaviour is to refuse
+        everything is a surface that looks answered and is not. The bridge is
+        rebuilt with the window if one is ever opened again.
+      */
+      consoleWindow = null;
+      consoleBridge?.dispose();
+      consoleBridge = null;
+    });
+  }
+
   /* --- what a window is allowed to ask for ------------------------------ */
 
   ipcMain.on(COMMANDS.accept, (_event, episode: string) => {
@@ -514,16 +838,16 @@ async function main(): Promise<void> {
     const current = lastUpdate ? episodeKey(lastUpdate.state) : null;
     if (current === null || current !== episode) return;
     consent = answered(episode, "granted");
-    void beginMeeting(episode);
+    void pressed("accept", () => beginMeeting(episode));
   });
   ipcMain.on(COMMANDS.decline, (_event, episode: string) => {
     consent = answered(episode, "declined");
     panel.hide();
     push();
   });
-  ipcMain.on(COMMANDS.pause, () => void controller.pause().then(push));
-  ipcMain.on(COMMANDS.resume, () => void controller.resume().then(push));
-  ipcMain.on(COMMANDS.end, () => void endMeeting());
+  ipcMain.on(COMMANDS.pause, () => void pressed("pause", () => controller.pause().then(push)));
+  ipcMain.on(COMMANDS.resume, () => void pressed("resume", () => controller.resume().then(push)));
+  ipcMain.on(COMMANDS.end, () => void pressed("end", () => endMeeting()));
   ipcMain.on(COMMANDS.notes, (_event, markdown: string) => controller.notes(String(markdown)));
   ipcMain.on(COMMANDS.title, (_event, title: string) => controller.title(String(title).slice(0, 200)));
   ipcMain.on(COMMANDS.setAskBeforeEveryMeeting, (_event, value: boolean) =>
@@ -534,7 +858,7 @@ async function main(): Promise<void> {
       blocklist: Array.isArray(list) ? list.map(String).filter((entry) => entry.trim() !== "") : [],
     }),
   );
-  ipcMain.on(COMMANDS.record, () => void recordNow());
+  ipcMain.on(COMMANDS.record, () => void pressed("record", () => recordNow()));
   ipcMain.on(COMMANDS.connect, () => void connectThisMachine());
   ipcMain.on(COMMANDS.disconnect, () => void disconnectThisMachine());
 
@@ -640,6 +964,7 @@ async function main(): Promise<void> {
     await update({ gatewayBaseUrl: null });
   }
 
+  openConsoleWindowIfAsked();
   loop.start();
   updater.start();
   setInterval(() => void drain(), DRAIN_INTERVAL_MS);
@@ -654,39 +979,6 @@ async function main(): Promise<void> {
     event.preventDefault();
     void endMeeting().then(() => app.quit());
   });
-}
-
-/**
- * Open the hosted console, when this launch was asked to.
- *
- * The two `sendSync` handlers are the preload's whole conversation with this
- * process: which origin it is pinned to, and what to call this shell. Both are
- * public — the origin is already in the window's own URL bar — and neither is a
- * credential, which is the property that has to survive every future addition
- * to this surface.
- *
- * A misconfigured `CONTEXT_DESKTOP_UI_URL` throws in `consoleUrl` and is caught
- * here: the flag is a development aid today, and a typo in it must not stop the
- * tray, the detector and the queue from starting.
- */
-function openConsoleWindowIfAsked(): void {
-  if (!CONSOLE_UI) return;
-  let url: string;
-  try {
-    url = consoleUrl(process.env);
-  } catch (error) {
-    console.error(`CONTEXT_DESKTOP_UI=console, but ${(error as Error).message}`);
-    return;
-  }
-  const origin = consoleOrigin(url);
-  ipcMain.on(CONSOLE_ORIGIN_CHANNEL, (event) => {
-    event.returnValue = origin;
-  });
-  ipcMain.on(CONSOLE_SHELL_CHANNEL, (event) => {
-    event.returnValue = { app: app.getName(), version: app.getVersion(), platform: "macos" };
-  });
-  const win = createConsoleWindow(url, RENDERER_DIR);
-  win.once("ready-to-show", () => win.show());
 }
 
 app.whenReady().then(main);
