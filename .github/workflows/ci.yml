@@ -159,3 +159,44 @@ jobs:
           name: bundle-rebuilt
           path: apps/mobile/features/console/files/webview/bundle.generated.ts
           if-no-files-found: error
+
+  # ── THE BRIDGE BETWEEN THE ONE UI AND THE SHELL ──────────────────────────
+  #
+  # `packages/desktop-bridge` is what `apps/mobile` asks and `apps/desktop`
+  # answers once the Expo app is the UI on macOS too (docs/decisions/desktop.md).
+  # It has no npm dependencies and its suite runs on bare node, so it gets a job
+  # here rather than an install: the same shape as `Test Gateway` and
+  # `Test Meetings Core` in mcp.yml, and for the same reason those exist —
+  # a package whose only CI is somebody's laptop has none.
+  #
+  # The second step is the guard the decision document asks for by name:
+  # **apps/mcp imports nothing from packages/desktop-bridge**. It runs in
+  # mcp.yml too, and is repeated here because that is where somebody adding to
+  # this package will look, and because the rule it enforces was widened in the
+  # same pull request that created the package. A relative import into a
+  # sibling package passed the older "relative only" rule; three self-test cases
+  # now say it does not.
+  desktop-bridge:
+    name: Test Desktop Bridge
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          # See mcp.yml: setup-node would shell out to pnpm to find its cache
+          # directory, and this job deliberately never installs pnpm.
+          package-manager-cache: false
+
+      # No `pnpm install`. If this ever needs one, an npm dependency crept into
+      # the bridge and that is the thing to fix.
+      - name: Run test suite
+        working-directory: packages/desktop-bridge
+        run: node --experimental-strip-types test/test.mjs
+
+      - name: The gateway imports none of it
+        run: |
+          node scripts/check-gateway-imports.mjs --self-test
+          node scripts/check-gateway-imports.mjs apps/mcp/src

@@ -125,6 +125,23 @@ three words and a base URL; it calls `connection.connect()` and the browser
 opens; a token is never a value the page can hold. That is the same rule as
 non-negotiable #1 one layer in: decrypted only where the request is made.
 
+`getDesktopBridge()` turns that sentence into a check that runs on every page
+load: a bridge carrying a credential-shaped member is refused outright and the
+page behaves as a browser. **What that check is, stated so nobody mistakes it
+for something larger**: it reads *names* — own and inherited keys of the bridge
+and of the sub-objects the contract declares — so a Proxy that hides the key
+from `ownKeys` and serves it from `get`, an innocently named member that returns
+a credential on its second call, and anything nested more than one level deep
+all get past it. That is not a hole, because **a hostile main process is not the
+threat model**: whoever can plant such a bridge already owns the window, the
+preload and the token. The guards that face an attacker are the three below —
+`shouldExposeBridge`, the navigation refusal, and the per-channel sender check —
+and they run where the page cannot reach them. The name check exists so that
+*our own* shell cannot grow a `getToken` and have it noticed only in a review
+somebody skimmed. Its three limits are pinned as checks in
+`packages/desktop-bridge/test/bridge.test.mjs`, asserted as accepted, because a
+limit nobody wrote down is a limit somebody later mistakes for a guard.
+
 The two credentials coexist without either standing in for the other: the
 Convex session in the shell's `persist:console` partition is what makes the
 console *a console* — the file browser, the search page, the note editor all
@@ -473,6 +490,67 @@ one environment variable.
 Steps 1 and 2 are ordered before 3 deliberately: the shell must be able to
 answer the bridge before the UI is allowed to ask, or the first thing a person
 sees on a stale shell is a screen calling a function that is not there.
+
+### The signing keychain belongs to the workflow, not to electron-builder
+
+**Both of the first two signed dispatches died in forty seconds**, in
+electron-builder's own keychain setup and before a single file was packaged:
+
+```
+security set-key-partition-list -S apple-tool:,apple: -s -k *** <temp>.keychain
+security: SecKeychainUnlock: The user name or passphrase you entered is not correct.
+```
+
+**The password in that line is the wrong one, and it is upstream's mistake, not
+a mis-set secret.** `createKeychain()` makes a temporary keychain with
+`randomBytes(32)` as its password, and `importCerts()` is then handed only the
+*certificate's* passphrase — which it passes to `set-key-partition-list -k`,
+where the keychain's own password is what is wanted. The `security import` on
+the line before it succeeded on both runs, and that import is where a wrong
+passphrase fails ("MAC verification failed"), so the log itself rules out
+`CSC_KEY_PASSWORD`. It is
+[electron-builder#10066](https://github.com/electron-userland/electron-builder/issues/10066);
+the fix was merged and is
+[in no released 26.x](https://github.com/electron-userland/electron-builder/issues/10167).
+
+**So the workflow makes the keychain.** `macPackager`'s `codeSigningInfo` picks
+the path on one condition — a csc link builds a keychain, no csc link uses
+`process.env.CSC_KEYCHAIN` — so the Build step is handed `CSC_KEYCHAIN` and
+neither of the two signing secrets. They stop at the step above it, which
+decodes the .p12, imports it into a keychain it created, and runs the same
+`set-key-partition-list` with the password that keychain actually has.
+
+**What a "simplification" of this would cost.** Putting `CSC_LINK` back in the
+Build step's `env:` — the obvious tidy-up, since electron-builder documents
+reading it — restores the exact forty-second failure, on a workflow whose
+feedback loop is a dispatch and a Mac runner. `packaging.test.mjs` asserts the
+Build step carries neither secret, that `-k` gets the keychain's own password,
+and that the keychain is deleted in an `always()` step; each was checked by
+making the change and watching the check go red.
+
+**A preflight, because forty seconds of packaging is a slow way to learn the
+certificate is wrong.** Before anything is built the workflow decodes
+`CSC_LINK`, opens it with `CSC_KEY_PASSWORD`, and refuses in plain language: not
+base64, not a PKCS#12 bundle, a passphrase that does not open it, a certificate
+with no private key (what a `.cer` export gives you), an expired certificate, or
+one that is not a Developer ID Application certificate at all. It prints the
+*kind* of certificate, whether the key came with it, and the expiry — never the
+subject, which carries the company name and the Apple team id, because this
+repository is public and so are its Actions logs.
+
+**And the same for the App Store Connect key, because the next failure was
+its.** The first build to get past code signing died twenty-six seconds later
+on `Failed to notarize via notarytool. Error: invalidPEMDocument` — three words
+that say the file the hook wrote is not a PEM and nothing about why. A `.p8` is
+a multi-line PEM and a secret store is a text box, so `build/notarize.cjs`
+repairs the four unambiguous ways it arrives damaged (CRLF, newlines escaped to
+a literal backslash-n, the whole file base64-encoded, quotes left round it) and
+refuses anything that is not a private key with a sentence that counts its
+lines and characters and prints none of them. `node build/notarize.cjs --check`
+applies that same rule as a workflow step before the build, rather than a
+second copy of it in shell; the key never leaves that process.
+
+---
 
 ### What is deliberately not built
 
