@@ -99,7 +99,7 @@ export function mayInstall(state: UpdateState, capturing: boolean): boolean {
 
 /** `autoUpdater` is constructed for exactly one reason to exist at all. */
 export interface ArmingInput {
-  /** `app.isPackaged` — false for `electron dist/main/index.js` in development. */
+  /** `app.isPackaged` — false for `electron dist/main/index.cjs` in development. */
   packaged: boolean;
   /**
    * Whether **this build** was code-signed with the Developer ID certificate.

@@ -16,7 +16,7 @@
 export interface SystemAudioInput {
   /** `process.platform`. */
   platform: string;
-  /** `app.isPackaged` — false for `electron dist/main/index.js` in development. */
+  /** `app.isPackaged` — false for `electron dist/main/index.cjs` in development. */
   packaged: boolean;
   /**
    * Whether **this build** was code-signed with the Developer ID certificate.
