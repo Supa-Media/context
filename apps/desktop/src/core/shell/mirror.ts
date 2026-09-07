@@ -467,6 +467,63 @@ export function respondToFailedLoad(failure: FailedLoad): "mirror" | "failure" |
 }
 
 /**
+ * A `webContents`-shaped source of the three events a fallback navigation can
+ * raise, and nothing else. The real thing is Electron's `WebContents`; a test
+ * hands in a plain `EventEmitter`, which has the same three-argument `.once`.
+ */
+export interface FallbackNavigationEvents {
+  once(event: "did-navigate" | "did-finish-load" | "did-fail-load", listener: (...args: unknown[]) => void): void;
+}
+
+/**
+ * Waits for the fallback navigation `main/consoleMirror.ts` just started to
+ * actually **settle**, rather than trusting `win.loadURL(target)`'s own
+ * returned promise to have done so.
+ *
+ * Found on a Mac, on hardware, against a packaged build: offline, with a good
+ * mirror already on disk, `--smoke-load` reported `mirrorServed:false` and
+ * exited `1` — while the window, read over CDP a moment later, really had
+ * landed on `app://console/` (title "Context", the app mounted). The old code
+ * called `win.loadURL(target)` from inside the *live* navigation's own
+ * `did-fail-load` handler and simply `await`ed the promise that call returned.
+ * On real hardware that promise settled before the fallback's own
+ * `did-navigate`/`did-finish-load` had fired at all, so `wasMirrorServed` read
+ * `webContents.getURL()` while it still named the dead live address — "no
+ * network" read as "broken app", the exact confusion the mirror exists to
+ * answer, one event too early. `consoleLoadSettled` in `main/index.ts` never
+ * made this mistake for the *live* navigation in the first place — it listens
+ * for the raw events rather than trusting a promise from `loadURL` — and this
+ * is that same fix, applied to the fallback.
+ *
+ * Resolves `true` once a `did-navigate` or `did-finish-load` fires and
+ * `getURL()`, asked **at that moment** rather than cached from before the
+ * event, answers `targetOrigin`; `false` on a `did-fail-load` (the fallback
+ * failed too — that is `smokeLoadFailure`'s "a refused fallback" case) or when
+ * neither has happened inside `deadlineMs` (a genuine hang).
+ */
+export function awaitFallbackSettled(input: {
+  events: FallbackNavigationEvents;
+  getURL: () => string;
+  targetOrigin: string;
+  deadlineMs: number;
+}): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => finish(false), input.deadlineMs);
+    function finish(value: boolean): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    }
+    const onNavigated = (): void => finish(originOfUrl(input.getURL()) === input.targetOrigin);
+    input.events.once("did-navigate", onNavigated);
+    input.events.once("did-finish-load", onNavigated);
+    input.events.once("did-fail-load", () => finish(false));
+  });
+}
+
+/**
  * Whether a manifest on disk may be served at all.
  *
  * Every "no" here ends in the directory being deleted rather than repaired: the
