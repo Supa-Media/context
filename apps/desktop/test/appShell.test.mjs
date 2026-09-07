@@ -536,4 +536,31 @@ export function runAppShellChecks(check) {
       explainBody !== "" && asker !== "" && /dialog\.showMessageBox/.test(elsewhere) === false,
     );
   }
+
+  /* --- the setup order that made the app exit 1 on launch ------------------ */
+
+  /*
+    `imessage.reconfigure()` can reach its own `onChange`, `onChange` calls
+    `push()`, and `push()` reads `controller`, `tray` and `updater`. Called
+    beside the service's constructor — above all three — it threw
+    `ReferenceError: Cannot access 'controller' before initialization`. It
+    arrived through a promise, so there was no stack at the call site: the app
+    simply exited 1 about a second after launch, printing nothing.
+
+    `main` shipped that way from #329 until the call moved down beside the other
+    service starts. Nothing caught it because the only thing that launches the
+    app is `deploy-desktop.yml`'s gate, which does not run on a pull request —
+    so the failure appeared at release time, against whichever commit happened
+    to be at the head, which was not the one that caused it.
+
+    Positional on purpose. A call textually above the declaration is the defect
+    whether or not today's reading of the control flow says it is reachable.
+  */
+  check(
+    "NOTHING RECONFIGURES THE IMESSAGE SERVICE ABOVE `controller` — that path reaches push(), and the app exits 1 on launch",
+    source.includes("imessage.reconfigure()") &&
+      source.includes("const controller = new MeetingController") &&
+      source.indexOf("imessage.reconfigure()") >
+        source.indexOf("const controller = new MeetingController"),
+  );
 }
