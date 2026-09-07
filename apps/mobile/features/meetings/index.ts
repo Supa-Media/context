@@ -118,14 +118,25 @@ export { fakeGateway, type FakeGateway } from "./fakeGateway";
 export {
   audioRecorder,
   createRecorder,
+  createRecorderFor,
   fakeRecorder,
   fakeSegment,
   notesOnlyRecorder,
+  type CaptureOptions,
   type FakeRecorder,
   type MeetingRecorder,
   type RecorderCapability,
   type RecorderError,
 } from "./capture";
+
+/*
+  The machine the console is running on, for the settings pane.
+
+  A component rather than a hook, and it decides for itself whether there is a
+  shell to draw — so the console mounts it unconditionally and asks nothing.
+*/
+export { ThisMachineCard } from "./components/ThisMachineCard";
+export { describeMachine, machineTitle, type MachineDescription } from "./thisMachine";
 
 export {
   applyMeetingEvent,

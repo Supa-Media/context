@@ -13,3 +13,4 @@ export * from "./note.js";
 export * from "./detect.js";
 export * from "./enhance.js";
 export * from "./chunks.js";
+export * from "./recorder.js";

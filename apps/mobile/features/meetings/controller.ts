@@ -143,6 +143,19 @@ export interface StartInput {
    * default is the right answer for it.
    */
   destination?: MeetingDestination;
+  /**
+   * Record the machine's own audio as well as the microphone.
+   *
+   * The person's answer from the sheet, and only ever asked where a build can
+   * do it at all — inside the desktop shell, on a signed build. Absent means
+   * "whatever this build can do", which is what pressing Record from a surface
+   * that never offered the choice has to mean.
+   *
+   * The recorder narrows it: a `true` here on a browser or a phone changes
+   * nothing, because a recorder reports what it opened rather than echoing
+   * what it was asked.
+   */
+  systemAudio?: boolean;
 }
 
 /** How long typing waits before it is written to the device. */
@@ -170,6 +183,7 @@ export const SYNC_THROTTLE_MS = 5_000;
 
 const NO_CAPTURE: MeetingRecorder["capability"] = {
   audio: false,
+  systemAudio: false,
   transcribesAt: "nowhere",
   unavailableReason: null,
 };
@@ -357,7 +371,17 @@ export class MeetingsController {
     this.set({ ...this.snapshot, captureError: null });
 
     try {
-      await config.recorder.start();
+      /*
+        The meeting's own id goes to the recorder, and it is the only thing in
+        this call that is not the person's choice. Four of the five recorders
+        ignore both fields; the desktop shell queues writes in another process
+        keyed by session, so a capture started under any other name would be a
+        second meeting in somebody's bucket.
+      */
+      await config.recorder.start({
+        sessionId: id,
+        systemAudio: input.systemAudio ?? config.recorder.capability.systemAudio,
+      });
     } catch (error) {
       /*
         The session stays `recording` and the reason goes on the *snapshot*.

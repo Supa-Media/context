@@ -1,3 +1,4 @@
+import { nextRecorderState } from "@context/meetings/recorder";
 import type { MeetingRecorder, RecorderState } from "./index";
 
 /**
@@ -32,6 +33,9 @@ export function notesOnlyRecorder(platform: "ios" | "android" | "web"): MeetingR
   return {
     capability: {
       audio: false,
+      // Nothing is captured at all, so there is nothing to be honest about
+      // twice. `audio: false` already says the whole of it.
+      systemAudio: false,
       transcribesAt: "nowhere",
       unavailableReason:
         platform === "web"
@@ -41,17 +45,27 @@ export function notesOnlyRecorder(platform: "ios" | "android" | "web"): MeetingR
     get state() {
       return state;
     },
+    /*
+      The moves come from `@context/meetings`, not from four assignments here.
+
+      A recorder that captures nothing still has to *say* the right thing about
+      what it is doing — the clock runs, the bar is drawn, and `state` is what
+      the honesty check in `capture/index.ts` reads. It used to answer
+      `"recording"` to a `resume` after a `stop`, which no real recorder does:
+      "a meeting that has ended does not reopen the microphone" was implemented
+      twice, in the two files that hold a microphone, and not here.
+    */
     async start() {
-      state = "recording";
+      state = nextRecorderState(state, "start");
     },
     async pause() {
-      state = "paused";
+      state = nextRecorderState(state, "pause");
     },
     async resume() {
-      state = "recording";
+      state = nextRecorderState(state, "resume");
     },
     async stop() {
-      state = "stopped";
+      state = nextRecorderState(state, "stop");
     },
     onSegment() {
       // Never called. Returning a working unsubscribe rather than a throw keeps

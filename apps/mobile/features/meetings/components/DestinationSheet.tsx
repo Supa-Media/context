@@ -42,6 +42,23 @@ export const AUDIO_SENTENCE =
   "What you type and the transcript become one Markdown note in storage you own. " +
   "The audio is transcribed and then discarded — it is never written to your bucket.";
 
+/**
+ * What a build that hears only the microphone is recording, said plainly.
+ *
+ * Shown wherever `systemAudio` is not on offer, which is a browser, a phone,
+ * and a desktop shell whose build macOS will not hand a loopback tap. It is the
+ * sentence `capture/audio.web.ts` and `notesOnly.ts` have always made in their
+ * headers, moved to the one place somebody reads before pressing Record.
+ */
+export const MIC_ONLY_SENTENCE =
+  "This records the room and your own side of the call. The far side of a call on headphones is not in the recording.";
+
+/** The offer, where a machine can take the whole call. */
+export const SYSTEM_AUDIO_TITLE = "Record the whole call";
+
+export const SYSTEM_AUDIO_SUB =
+  "This machine can hear the call's own audio as well as your microphone, so both sides are in the transcript.";
+
 export function DestinationSheet({
   choice,
   selectedIndex,
@@ -51,6 +68,7 @@ export function DestinationSheet({
   onClaimName,
   onOpenMeetings,
   blocked = null,
+  systemAudio = null,
 }: {
   choice: DestinationChoice;
   /** From `useMeetingFlow`, which folds presses through `chooseOffer`. */
@@ -85,6 +103,22 @@ export function DestinationSheet({
    * meetings.
    */
   onOpenMeetings?: () => void;
+  /**
+   * The machine's own audio: offered, or not.
+   *
+   * `null` — the default, and every surface that is not a desktop shell — draws
+   * the mic-only sentence instead of a control. This is the same rule the whole
+   * feature follows about capabilities: **nothing on screen may claim a
+   * capability the shell did not report**, and the honest absence is a sentence
+   * rather than a disabled switch, because a disabled switch reads as "turn
+   * this on" and there is nothing to turn on.
+   *
+   * Whether it is offered at all is decided in `useMeetingFlow` from the
+   * recorder's `capability.systemAudio`, which is answered by the shell over
+   * the bridge. It is not decided here: a rule expressed inside a component in
+   * this app is a rule nothing holds.
+   */
+  systemAudio?: { on: boolean; onToggle: (on: boolean) => void } | null;
 }) {
   const styles = useThemedStyles(makeStyles);
 
@@ -178,6 +212,45 @@ export function DestinationSheet({
                 The sentence and the control that starts the recording, in the
                 same card. Separating them is what the decision refuses.
               */}
+              {/*
+                What this machine will actually hear, immediately above the
+                control that opens it.
+
+                A switch where there is something to switch, and a sentence
+                where there is not — never a disabled switch, which reads as an
+                invitation to turn something on. The desktop shell is the only
+                surface that can offer this, and only on a build macOS has
+                verified, so most people see the sentence and it is the same one
+                the recorders have always made in their own headers.
+              */}
+              {systemAudio === null ? (
+                <Text variant="hint" testID="meeting-mic-only">
+                  {MIC_ONLY_SENTENCE}
+                </Text>
+              ) : (
+                <PressRow
+                  accessibilityLabel={SYSTEM_AUDIO_TITLE}
+                  selected={systemAudio.on}
+                  onPress={() => systemAudio.onToggle(!systemAudio.on)}
+                  radius={radii.lg}
+                  style={styles.row}
+                  hoverStyle={styles.rowHover}
+                  selectedStyle={styles.rowOn}
+                >
+                  <View
+                    style={styles.rowBody}
+                    role="switch"
+                    aria-checked={systemAudio.on}
+                    testID="meeting-system-audio"
+                  >
+                    <Text variant="rowTitle">{SYSTEM_AUDIO_TITLE}</Text>
+                    <Text variant="rowSub">
+                      {systemAudio.on ? SYSTEM_AUDIO_SUB : MIC_ONLY_SENTENCE}
+                    </Text>
+                  </View>
+                </PressRow>
+              )}
+
               <View style={styles.disclosure}>
                 <Text variant="hint">{AUDIO_SENTENCE}</Text>
               </View>

@@ -2,6 +2,18 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    /*
+      `@context/desktop-bridge` is TypeScript source with no build step — the
+      same shape as `apps/desktop`, and for the same reason: the shell runs its
+      suite on bare node through Node's own type stripping, which resolves
+      `./contract.ts` and nothing shorter. Typechecking this app follows those
+      imports into the package, so the flag has to be on here too.
+
+      It is safe with `tsc --noEmit`, which is the only way this project runs
+      `tsc`, and TypeScript itself refuses the combination that would not be:
+      the flag requires `noEmit` or `emitDeclarationOnly`.
+    */
+    "allowImportingTsExtensions": true,
     "paths": {
       "@/*": ["./*"]
     }

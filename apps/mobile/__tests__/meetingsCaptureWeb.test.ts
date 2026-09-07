@@ -345,6 +345,15 @@ describe("the capability, probed rather than assumed", () => {
     const recorder = audioRecorder("web");
     expect(recorder.capability).toEqual({
       audio: true,
+      /*
+        A browser hears the room and your own side of a call, and never the far
+        side of one on headphones — the sentence this file's header has always
+        made and the capability now states. It is `false` here in the same
+        assertion as `audio: true` deliberately: the pair is the whole claim,
+        and a recorder that reported system audio in a browser would put a
+        switch on the sheet that nothing behind it could honour.
+      */
+      systemAudio: false,
       transcribesAt: "cloud",
       unavailableReason: null,
     });
