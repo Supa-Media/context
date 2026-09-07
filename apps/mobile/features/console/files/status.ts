@@ -194,11 +194,29 @@ function saveSegment(facts: StatusFacts): StatusSegment | null {
       };
 
     case "dirty":
+      /*
+        **`quiet`, and it used to be `warn` reading "Unsaved changes".** That
+        wording was true when the only way into the bucket was a button: the
+        edits really were in the editor until somebody acted. They are not any
+        more — the draft is written a couple of seconds after typing stops
+        (`autosave.ts`) and is on the device meanwhile — so a standing warning
+        over the ordinary act of typing is the console asking to be looked
+        after, which is the thing autosave exists to stop.
+
+        The tone is the part worth arguing about, because `warn` is also how
+        this strip says "not in your bucket", and for a second or two that is
+        still true. It is `quiet` because the state is transient by
+        construction and resolves itself: the states that persist without the
+        bucket ever hearing about them — `queued`, `error`, a cached body —
+        keep their louder tones a few lines down, and those are the ones a
+        person actually needs to act on.
+      */
       return {
         id: "save",
-        text: "Unsaved changes",
-        tone: "warn",
-        detail: "Your edits are in this editor only until you save them.",
+        text: "Saving soon",
+        tone: "quiet",
+        detail:
+          "Kept on this device, and written to your bucket a moment after you stop typing.",
       };
 
     case "saving":
