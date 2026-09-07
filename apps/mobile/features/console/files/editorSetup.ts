@@ -27,8 +27,10 @@ import {
   type Extension,
 } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap, redo, undo } from "@codemirror/commands";
-import { livePreview, markdownLanguage } from "./livePreview";
+import { defaultKeymap, history, historyKeymap, indentLess, indentMore, redo, undo } from "@codemirror/commands";
+import { syntaxTree } from "@codemirror/language";
+import type { SyntaxNode } from "@lezer/common";
+import { codeHighlighting, livePreview, markdownLanguage } from "./livePreview";
 import { noteCompletion } from "./linkComplete";
 import { noteLinks, type NoteLinkRef } from "./noteLinks";
 import type { EditorCommand } from "./webview/protocol";
@@ -305,6 +307,43 @@ export function coveredBottom(read: () => number): Extension {
 }
 
 /**
+ * Whether every selection range sits inside a list item.
+ *
+ * K1 is "Tab indents a list item", not "Tab indents anything" — CM6's own
+ * `indentWithTab` binds Tab unconditionally, and upstream's own doc comment
+ * on it says to read the Tab example before using it: bound bare, it captures
+ * Tab on *every* line, so a plain paragraph loses the browser's ordinary
+ * keyboard-navigation behaviour (Tab moves focus to the next control) in
+ * favour of inserting whitespace nobody asked for on that line. This note
+ * editor is one of several controls on the page — Save, the accessory bar,
+ * links elsewhere in the console — so trapping keyboard focus outside a list
+ * is a real regression, not a hypothetical one.
+ */
+function selectionInList(state: EditorState): boolean {
+  const tree = syntaxTree(state);
+  return state.selection.ranges.every((range) => {
+    for (let node: SyntaxNode | null = tree.resolveInner(range.head, -1); node; node = node.parent) {
+      if (node.name === "ListItem") return true;
+    }
+    return false;
+  });
+}
+
+/**
+ * Tab/Shift-Tab, scoped to a list. Returning `false` outside one leaves the
+ * key unhandled — CodeMirror's `keymap` only calls `preventDefault` on a
+ * truthy result, so an unhandled Tab falls through to whatever the browser
+ * would otherwise do with it (move focus), exactly as before this pair
+ * existed.
+ */
+function listIndent(direction: 1 | -1) {
+  return (view: EditorView): boolean => {
+    if (!selectionInList(view.state)) return false;
+    return direction === 1 ? indentMore(view) : indentLess(view);
+  };
+}
+
+/**
  * Everything the editor is, minus where it is drawn.
  *
  * `editableCompartment` is passed in rather than made here because the host
@@ -335,6 +374,7 @@ export function editorExtensions(options: {
   return [
     markdownLanguage(),
     livePreview(),
+    codeHighlighting(),
     /*
       Both halves of "a link to another note": drawing one as a link and
       following it, and offering the notes a `[[` could mean. One ref feeds
@@ -346,6 +386,15 @@ export function editorExtensions(options: {
     history(),
     EditorView.lineWrapping,
     placeholder(EDITOR_PLACEHOLDER),
+    /*
+      P1 in the sweep. CodeMirror's own default is `spellcheck="false"` on the
+      content DOM — right for a code editor and wrong here: this note was
+      reported dictated on a phone, and a notes editor with spellcheck off
+      leaves every misspelling silent until Save. Nobody asked for the
+      opposite (squiggles under a code span or an identifier), and that cost
+      is accepted rather than hidden.
+    */
+    EditorView.contentAttributes.of({ spellcheck: "true" }),
     editableCompartment.of(editability(editable)),
     ...(insetBottom === undefined ? [] : [coveredBottom(insetBottom)]),
     keymap.of([
@@ -371,6 +420,19 @@ export function editorExtensions(options: {
           return true;
         },
       },
+      /*
+        K1 in the sweep: with no indent/outdent binding at all, nesting a list
+        meant typing spaces by hand — CM6 deliberately keeps `indentWithTab`
+        out of `defaultKeymap`, so it has to be added. `readOnly` already
+        stops it: `indentMore`/`indentLess` are ordinary commands `runCommand`
+        was already trusting `state.readOnly` and `changeFilter` to gate, and
+        neither is special-cased for this pair.
+
+        Not upstream's bare `indentWithTab`: that binds Tab everywhere, and a
+        plain paragraph is not a list. `listIndent` above returns `false`
+        outside one so Tab keeps doing what it always did there — move focus.
+      */
+      { key: "Tab", run: listIndent(1), shift: listIndent(-1) },
       ...historyKeymap,
       ...defaultKeymap,
     ]),

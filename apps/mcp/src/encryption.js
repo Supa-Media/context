@@ -108,6 +108,29 @@ export class NoteCryptoError extends Error {
   }
 }
 
+/**
+ * A bucket-controlled value, rendered small enough to put in a message.
+ *
+ * `v` and `alg` are read out of a file in the customer's bucket, and the error
+ * that names them reaches a structured log line and — past `canSee` — a client.
+ * Interpolating them verbatim would let a file decide the size and the content
+ * of a log record, which is the one thing a log line is not allowed to let a
+ * note do. Shapes and short prefixes are enough to debug with; the rest is
+ * somebody's bytes.
+ */
+function describeField(value) {
+  if (typeof value === "string") {
+    return value.length <= 16
+      ? JSON.stringify(value)
+      : `${JSON.stringify(value.slice(0, 16))}\u2026`;
+  }
+  if (value === null) return "null";
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return "an array";
+  if (typeof value === "object") return "an object";
+  return typeof value;
+}
+
 /* ------------------------------ base64url -------------------------------- */
 //
 // Unpadded base64url throughout the envelope, so it survives a URL, a YAML
@@ -233,11 +256,22 @@ export function generateWorkspaceKey() {
  * but string concatenation.
  */
 export function renderEncryptedNote(envelope) {
-  const keyId = envelope.recipients?.[0]?.id;
+  // The generation named in the frontmatter is the *workspace* recipient's, and
+  // it is omitted rather than invented when there is not one to name. A
+  // `ws:undefined` line would be read back by `encryptedNoteKeyId` as a real
+  // generation, and a re-wrap pass would then look for a key called
+  // "undefined" instead of reporting a note it cannot place.
+  const generation = (envelope.recipients ?? []).find(
+    (recipient) =>
+      recipient &&
+      recipient.kind === RECIPIENT_WORKSPACE &&
+      typeof recipient.id === "string" &&
+      KEY_ID_PATTERN.test(recipient.id),
+  )?.id;
   return [
     "---",
     `${MARKER_KEY}: v${ENVELOPE_VERSION}`,
-    `${KEY_MARKER_KEY}: ws:${keyId}`,
+    ...(generation === undefined ? [] : [`${KEY_MARKER_KEY}: ws:${generation}`]),
     "---",
     "",
     "> [!NOTE] This note is encrypted.",
@@ -355,10 +389,10 @@ function assertEnvelopeShape(envelope) {
   if (envelope.v !== ENVELOPE_VERSION) {
     // Refused rather than best-guessed. A newer gateway may write a v2; an
     // older one must say it cannot read it, not open it as though it could.
-    throw new NoteCryptoError(`unsupported envelope version ${JSON.stringify(envelope.v)}`);
+    throw new NoteCryptoError(`unsupported envelope version ${describeField(envelope.v)}`);
   }
   if (envelope.alg !== CONTENT_ALG) {
-    throw new NoteCryptoError(`unsupported envelope algorithm ${JSON.stringify(envelope.alg)}`);
+    throw new NoteCryptoError(`unsupported envelope algorithm ${describeField(envelope.alg)}`);
   }
   if (typeof envelope.aad !== "string" || envelope.aad.length === 0) {
     throw new NoteCryptoError("envelope is missing its associated data");

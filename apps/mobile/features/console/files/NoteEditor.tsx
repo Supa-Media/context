@@ -15,7 +15,6 @@ import { noteHeading, noteHeadingSource, properties, splitNote, type Property } 
 import { Confirm } from "./Dialogs";
 import { LiveEditor, type EditorControls } from "./LiveEditor";
 import { NoteAccessory } from "./NoteAccessory";
-import { highlightMarkdown } from "./highlight";
 import type { Visibility } from "./types";
 
 /**
@@ -362,25 +361,28 @@ export function NoteEditor({
       {/*
         **A note you cannot edit is still a note.**
 
-        This used to branch on `editable`: anything read-only fell through to
-        the syntax-highlighted source below — monospace, with its `#` and `**`
-        showing. That is a reasonable *inspector*, and it was reaching people it
-        was never meant for. `browser.ts` is explicit that `canEdit: false` is a
-        signed-in workspace **member**, not a landing-page visitor, so every
-        note in a context somebody was invited into was read as raw Markdown in
-        a code face on a phone.
+        This used to branch on `editable`, with a phone carved out as the one
+        exception: anything read-only on a *pointer* layout fell through to a
+        syntax-highlighted source view below — monospace, with its `#` and `**`
+        showing. That was a reasonable *inspector*, and it was reaching people
+        it was never meant for. `browser.ts` is explicit that `canEdit: false`
+        is a signed-in workspace **member**, not a landing-page visitor, so
+        every note in a context somebody was invited into as a viewer was read
+        as raw Markdown in a code face — on a pointer, while the identical note
+        already got Live Preview on a phone. Two answers to "what does this
+        file look like", R2 in the editor-polish sweep.
 
-        The reading surface is the same one, with editing switched off:
-        `LiveEditor` already takes `editable`, CodeMirror's own `contenteditable`
-        goes with it, and the live-preview decorations do not care. So a member
-        reads what an editor reads, which is what Obsidian's reading view is.
-
-        The source view survives where it earns its keep — a pointer, where the
-        window is wide enough to inspect a file beside the tree that names it,
-        and where `previewContentCompact` was never the layout anyway.
+        The reading surface is the same one everywhere now, with editing
+        switched off: `LiveEditor` already takes `editable`, CodeMirror's own
+        `contenteditable` goes with it, and the live-preview decorations do not
+        care. So a member reads what an editor reads, which is what Obsidian's
+        reading view is — on every density, which is the finish this comment
+        used to describe as future work. The raw-source `ScrollView` this
+        replaced, and the styles it alone used, are gone rather than kept
+        dark: a renderer nothing reaches is a second one to keep in step with
+        every future change to the first, which is exactly how this drifted.
       */}
-      {editable || compact ? (
-        <View style={compact ? undefined : styles.document}>
+      <View style={compact ? undefined : styles.document}>
           {/*
             The filing metadata, folded away — see `Properties` below and
             `frontmatter.ts`. Drawn where there is a block to fold **or** an
@@ -479,30 +481,6 @@ export function NoteEditor({
             />
           )}
         </View>
-      ) : (
-        <ScrollView
-          style={[styles.preview, compact && styles.previewCompact]}
-          contentContainerStyle={compact ? styles.previewContentCompact : styles.previewContent}
-        >
-          <Text variant="code">
-            {highlightMarkdown(state.draft).map((span, index) => (
-              <Text
-                key={index}
-                variant="code"
-                style={
-                  span.tone === "key"
-                    ? styles.codeKey
-                    : span.tone === "heading"
-                      ? styles.codeHeading
-                      : undefined
-                }
-              >
-                {span.text}
-              </Text>
-            ))}
-          </Text>
-        </ScrollView>
-      )}
 
       {state.status === "conflict" ? (
         <View style={styles.conflict}>
@@ -1117,27 +1095,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     lineHeight: 22,
     color: colors.muted,
   },
-
-  preview: {
-    flex: 1,
-    minHeight: 0,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radii.lg,
-    backgroundColor: colors.well,
-    // No `maxHeight`. It was 360 while this sat in a card on a scrolling page;
-    // in a region that cap strands the reader two thirds of the way down a
-    // screen with the rest of the note behind a scrollbar that need not exist.
-  },
-  previewContent: { paddingVertical: 14, paddingHorizontal: 16 },
-  previewCompact: { borderWidth: 0, borderRadius: 0, backgroundColor: "transparent" },
-  previewContentCompact: {
-    paddingTop: space.x2,
-    paddingHorizontal: layout.readingMargin,
-    paddingBottom: space.x8,
-  },
-  codeKey: { color: colors.codeKey },
-  codeHeading: { color: colors.text, fontWeight: "500" },
 
   statusRow: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
   /**

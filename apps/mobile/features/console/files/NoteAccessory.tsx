@@ -109,6 +109,13 @@ const KEYS: readonly AccessoryKey[] = [
     icon: "brackets",
     run: (c) => c.toggleLinePrefix("- [ ] "),
   },
+  /*
+    A1 in the sweep: the bar could make a `- [ ] ` and not a `- `, which is
+    the more common of the two by a distance. Placed beside the checkbox
+    rather than beside heading — both are list markers, and `heading` is the
+    lone non-list prefix on this side of the bar.
+  */
+  { id: "bullet", label: "Bulleted list", icon: "bulletList", run: (c) => c.toggleLinePrefix("- ") },
   { id: "heading", label: "Heading", icon: "heading", run: (c) => c.toggleLinePrefix("# ") },
   { id: "bold", label: "Bold", icon: "bold", run: (c) => c.wrap("**", "**") },
   { id: "italic", label: "Italic", icon: "italic", run: (c) => c.wrap("*", "*") },

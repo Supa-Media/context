@@ -32,8 +32,10 @@ built, it says so rather than pretending the code is already gone.
 ### The shell loads the hosted console, and keeps a mirror of the last good load
 
 **The window loads a URL**: `CONTEXT_DESKTOP_UI_URL`, defaulting to
-`https://context.lc/console` and to `http://localhost:8081` when
-`NODE_ENV !== "production"` so `expo start` is what a desktop developer runs.
+`https://context.lc/console` in an installed build and to `http://localhost:8081`
+in an unpackaged one, so `expo start` is what a desktop developer runs. (That
+sentence said `NODE_ENV !== "production"` until the first signed build opened a
+blank window — see "Nothing had ever started this app" below.)
 A self-hoster who deployed the Expo web app at their own origin points the same
 variable at it, which is the same shape as `settings.gatewayEndpoint`: there is
 no hard-coded address of ours anywhere in this app, and there must not be one.
@@ -393,6 +395,236 @@ always` is ever passed to electron-builder; deleting either credential check
 and leaving only the dispatch input passes that regex's first half and fails
 its second.
 
+### Nothing had ever started this app
+
+The first signed, notarised, stapled build — `03f1c8c`, Actions run
+34125953592 — was installed on the owner's Mac and **could not launch**. It
+opened a modal dialog:
+
+```
+A JavaScript error occurred in the main process
+Uncaught Exception:
+Error: Dynamic require of "events" is not supported
+    at file:///Applications/Context.app/Contents/Resources/app.asar/dist/main/index.js:11:9
+    at .../builder-util-runtime/out/CancellationToken.js
+    at .../electron-updater/out/main.js
+```
+
+It had passed 922 checks, a typecheck, a code signature, an Apple notarisation
+and a Gatekeeper assessment. **Not one of those starts the process.** Three
+separate defects were in that build, and the second and third were invisible
+because the first one killed the app before they could show:
+
+1. it threw before `app.whenReady()`;
+2. it had no Dock tile, no app-switcher entry and no application menu;
+3. it pointed its window at `http://localhost:8081`.
+
+The durable decision is the fourth item, and it is the only one that would have
+caught the other three.
+
+#### The main process is CommonJS
+
+`electron-updater` and `builder-util-runtime` are CommonJS and `require("events")`
+when they load. Bundled into an **ESM** main process, esbuild inlines them and
+emits its own shim — `if (typeof require !== "undefined") … throw Error('Dynamic
+require of "' + x + '" is not supported')` — and in an ES module `require` is
+undefined, so the first line of the app throws. It arrived with `9368591`/`#279`
+and every build since was dead on launch.
+
+Three fixes were built and measured rather than argued about.
+
+- **`external: ["electron-updater"]`, shipped from `node_modules`** is the
+  tidiest-sounding and does not work: esbuild emits `import { autoUpdater } from
+  "electron-updater"`, Node's ESM loader cannot see a named export on a CommonJS
+  module, and the app dies at load with `SyntaxError: Named export 'autoUpdater'
+  not found` — the same launch-time death wearing a different sentence, *in
+  development*, before packaging is even reached. Making it work needs
+  `src/main/updater.ts` rewritten to a default import plus a destructure **and**
+  `electron-builder.yml`'s `files:` extended to carry electron-updater and its
+  transitive tree into the asar — which pnpm keeps under
+  `node_modules/.pnpm/electron-updater@6.3.9/node_modules/`, not where a flat
+  glob finds it, and which falsifies that file's own "`node_modules` is not
+  copied because every runtime dependency is bundled". Two source changes and a
+  packaging change, to close the hazard for one package.
+- **A `createRequire(import.meta.url)` banner** is two lines and does work —
+  verified by launching it. It leaves esbuild's `Dynamic require of` shim in the
+  shipped bundle, merely unreachable, so the property worth asserting ("this
+  bundle cannot throw that") becomes unassertable; and it puts a top-level `const
+  require` into an ES module, one name collision away from a `SyntaxError`.
+- **`format: "cjs"`**, which is what shipped. The main process is a CommonJS
+  world — Electron's own main-process ecosystem, electron-builder and
+  electron-updater all are — and `src/main/` needed nothing an ES module
+  provides. As CJS, `require` is real, **esbuild emits no shim at all**, and this
+  config now says the same thing as the three preload configs for the same
+  reason.
+
+What it costs, stated so nobody rediscovers it: `"type": "module"` means the
+output is `dist/main/index.cjs`, `main` and `start` name that file, and
+`src/main/index.ts` uses `__dirname` rather than `import.meta.dirname`, which
+esbuild warns about and silently empties in a CJS build. That last one decides
+where the preloads are found, so `--smoke` reports whether `RENDERER_DIR` exists.
+
+**What a "simplification" of this costs**: switching the main bundle back to
+`format: "esm"` reintroduces the shim, and the next CommonJS dependency anybody
+adds to the main process ships an app that will not start.
+
+#### A launch is a check, and it is the only one that would have caught this
+
+`--smoke` is a flag on the app itself, and its **exit code is the contract**:
+
+- **0** — it initialised, a window was created, `RENDERER_DIR` exists, and one
+  `[smoke]` line was printed. Nothing else exits 0.
+- **non-zero** — no window, an uncaught exception or rejection, or `main()` did
+  not finish inside ten seconds.
+- **it always ends.** The deadline is armed before `whenReady`, because a hung
+  smoke run is a hung release job.
+
+It needs **no network**: the assertion is that the console window was *created*,
+not that the page loaded. On a runner nothing answers the console address, the
+mirror serves its failure page, and a check that waited for a load would fail on
+every machine that is not a laptop.
+
+The one thing it cannot cover is stated rather than papered over: the crash it
+exists for threw while the module graph was still evaluating, before any line of
+the app ran, so no handler inside it could have caught it. Electron's answer to
+that is a modal dialog and an indefinite wait, so the **caller** must impose a
+limit — `test/launch.smoke.mjs` kills the process, and the release step wraps
+the run in `timeout`.
+
+`test/launch.smoke.mjs` is the harness: it builds nothing, starts either
+`dist/main/index.cjs` or a packaged `.app`, and reads the facts off the running
+process. It deliberately does **not** use `ELECTRON_RUN_AS_NODE` — that variable
+makes the Electron binary run as plain Node, which swaps the module loader,
+supplies a real CommonJS `require`, and creates no `app` at all; it would have
+loaded the broken bundle without complaint. The harness deletes it from the
+child's environment rather than merely not setting it.
+
+What it does not prove: the page **rendered**. A window pointed at a dead
+address is still a window. What it checks instead is the address, which is the
+fact that was wrong.
+
+**Sabotage, which is the result that matters.** With `format: "esm"` restored,
+the packaged app's own `--smoke` run reproduces the shipped crash exactly:
+`Dynamic require of "events" is not supported`, no `[smoke]` line, and a process
+that never exits until the harness kills it. That is the proof this gate would
+have stopped the build that went out.
+
+#### The app is in the Dock
+
+`app.dock.hide()` and `LSUIElement: true` were right when they were written: a
+menu-bar app with no window of its own has nothing to put in the Dock, and
+`src/main/windows.ts` argued for it in as many words. **Step 4 made it false** —
+"the console is what a launch opens" — and the first signed build is what
+demonstrated the cost. The owner, holding it: *"I dont even see a launched app,
+I should be able to open the app locally like all these other apps."*
+
+That is the reason, and it outranks the original argument because it is a fact
+about how people use a Mac rather than a preference about tidiness. What was
+reasoned about as "a second thing to manage" is, to the person who installed it,
+the only way they open anything.
+
+So a console launch is an ordinary Mac application: a Dock tile, an
+app-switcher entry, a window on launch, and an application menu built entirely
+from `role`s. The menu is not cosmetic — the console hosts a text editor, and on
+macOS Cmd-C, Cmd-V, Cmd-X, Cmd-Z and Cmd-A are menu key equivalents and nothing
+else, so an app with no Edit menu has none of them. There was no
+`Menu.setApplicationMenu` call at all before this, which an accessory app did
+not need and a windowed one cannot do without.
+
+**It is conditional, not unconditional.** `CONTEXT_DESKTOP_UI=renderer` is still
+the panel and the notepad — a popover under a menu-bar icon, with no window a
+person opens — and that genuinely is an accessory app: it keeps
+`app.dock.hide()` and gets no application menu, because macOS shows an accessory
+app's menu bar to nobody. The escape hatch step 5 is waiting to remove behaves
+exactly as it did.
+
+**The menu bar is untouched.** The tray is still built, still records a whole
+meeting with no window open, and is still the whole app on a launch whose window
+could not be built. This is a Dock tile *as well as*, never instead of. Cmd-W
+closes the window without quitting (`window-all-closed` refuses to quit, so a
+recording in progress runs on in this process with no window at all), Cmd-Q
+quits through `before-quit`, which stops the microphone first, and a Dock click
+*rebuilds* the window rather than only raising it — the console window is
+destroyed on close, so a handler that only raised one would leave the Dock tile
+inert for the rest of the run.
+
+**What only a Mac can confirm, and has not been**: whether removing
+`LSUIElement` changes the microphone or Screen Recording prompt. Reasoned, not
+verified: an accessory app cannot become the active application, so the TCC
+dialog it raises appears over whatever *is* — removing accessory status should
+make the prompt behave more normally, not less. No entitlement, no usage string
+and no permission call site was touched. Somebody has to grant the microphone to
+a signed build and watch what the dialog does.
+
+#### The console address is `app.isPackaged`, never `NODE_ENV`
+
+`consoleUrl` picked its fallback with `env.NODE_ENV === "production"`, and
+**nothing sets `NODE_ENV`** — not `scripts/build.mjs`, whose esbuild `define`
+carries only `__CONTEXT_DESKTOP_SIGNED__`; not `electron-builder.yml`; not
+`package.json`; not `deploy-desktop.yml`; not Electron; and least of all the
+launchd environment an app launched from the Dock inherits. Every installed
+build therefore resolved `http://localhost:8081`, where nothing on a person's
+Mac is listening. The suite proved the production branch worked while no build
+ever took it.
+
+The rule was already written down one function above, in `desktopUiMode`'s own
+docblock: *"a misspelt address is refused, because loading the wrong page is
+worse than loading none."* A default pointing at a dead loopback port is the
+milder version of exactly that, chosen silently. It is now `app.isPackaged` —
+the fact that is true of precisely the builds this got wrong — **passed in**
+rather than read inside, so `consoleUrl` stays a pure function with no Electron
+in it, matching `core/shell/capabilities.ts` and `core/update/policy.ts`, which
+both take the same flag and both document it as *"false for `electron
+dist/main/index.cjs` in development."* `CONTEXT_DESKTOP_UI_URL` still beats both,
+because a self-hoster's own origin is the one answer neither can guess, and the
+refusal of a non-https, non-loopback address is untouched.
+
+**The unit check is necessary and is not sufficient**, and that is the whole
+lesson of this section: what broke was the *wiring*, and a test that asks
+`consoleUrl` a second time agrees with itself. `--smoke` reports the address the
+window was actually pointed at.
+
+#### `--smoke`'s exit code is the gate, and it carries all three verdicts
+
+Found in review of the pull request above, before it merged. The first version
+of `--smoke` *printed* the address, the Dock state and the menu roles, and
+exited non-zero on only two things: no window, and no renderer directory. Every
+other assertion lived in `test/launch.smoke.mjs`, which reads the printed line
+from outside.
+
+That is a gate with a hole in it, and the hole is shaped exactly like the defect
+it was built for. **The release step runs the packaged binary directly** —
+`Context.app/Contents/MacOS/Context --smoke` — because the runner has an `.app`
+and not a checkout, so the only thing it can read is an exit code. A build
+pointed at `http://localhost:8081` initialises, opens a window, finds its
+renderer directory and prints its line: F3 would have gone out green a second
+time, past the gate written to catch it.
+
+So the app asserts its own verdict. `unexpectedConsoleAddress` in
+`core/shell/console.ts` is a pure function `--smoke` calls with `process.env`,
+`app.isPackaged` and the address the window was really given, and the menu roles
+are checked in the same block. **The Dock tile is deliberately still reported
+rather than asserted there**: `app.dock.isVisible()` is an answer from the window
+server, which a headless runner may answer differently, and both halves of that
+defect already have offline guards that cannot flake — `appShell.test.mjs` reads
+`LSUIElement` out of `electron-builder.yml` and the `RENDERER_UI`-conditional
+`app.dock?.hide()` out of `main/index.ts`. A gate that goes red on a working
+build is the one failure a gate must not have, because the response to it is to
+stop trusting the gate. That is the same reason `SMOKE_DEADLINE_MS` is thirty
+seconds and not ten: the only measurement anyone has is a 12.2 s wall clock on
+an M2 Pro, with no way to read off how much of it was inside the timer.
+
+`unexpectedConsoleAddress` states its refusals as facts about the world — a
+packaged launch is never on loopback, a development launch is never on
+production — **and not only as a second call to `consoleUrl`**. The distinction
+is the paragraph above this one: a comparison against `consoleUrl` agrees with a
+bug inside `consoleUrl`. The test that fails if this is reversed is in
+`shell.test.mjs`, and it takes two edits to witness, which is why the sabotage
+record there carries two zero rows and an explanation instead of hiding them:
+regress `consoleUrl`'s fallback to the dev URL and `A PACKAGED LAUNCH POINTED AT
+LOOPBACK IS A FAILED SMOKE RUN` still holds; drop the explicit refusal as well
+and it goes red.
+
 ### Nothing that can start a recording may come from an origin we did not pin
 
 `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, and no
@@ -401,12 +633,20 @@ extended to a window that now loads a **remote** origin, which the panel and the
 notepad never did. That is the whole of what is new, and it is enough to warrant
 three independent guards rather than one:
 
-1. **The preload refuses to expose the bridge off-origin.** The pinned origin is
-   passed to the preload through `webPreferences.additionalArguments` at
-   construction, and `shouldExposeBridge(pinned, location.origin, isTopFrame)`
-   is a pure function that answers false for a different origin, for an
-   `about:blank`, and for **any subframe** — a preload runs in every frame, so
-   an iframe on a page is otherwise a bridge.
+1. **The preload refuses to expose the bridge off-origin.**
+   `shouldExposeBridge({ pinned, origin, isTopFrame })` is a pure function that
+   answers false for a different origin, for an `about:blank`, and for **any
+   subframe**. That last one is defence in depth rather than load-bearing, and
+   the difference is worth stating because the sentence here used to assert the
+   opposite: "a preload runs in every frame" is true only with
+   `nodeIntegrationInSubFrames`, which `createConsoleWindow` does not set —
+   measured on the real binary, in both directions. It is kept because the day
+   somebody sets that flag, or relaxes the origin rule for a sibling origin, is
+   the day an iframe would otherwise inherit a bridge. The pin reaches the preload by a `sendSync` to the main
+   process and deliberately **not** through
+   `webPreferences.additionalArguments`, which this paragraph specified and the
+   code never did: a sandboxed preload asks, so the pin has one source and it is
+   the main process.
 2. **The window cannot navigate off it.** `will-navigate` is cancelled and
    `setWindowOpenHandler` returns `{ action: "deny" }` and hands the URL to
    `shell.openExternal`, so a link inside somebody's note opens in their browser
@@ -416,11 +656,65 @@ three independent guards rather than one:
    a page choosing what this app asks macOS to open is the hazard rather than
    the feature. An unparseable target is refused by both guards rather than
    waved through, which is the direction a `try` around a `new URL` has to fail.
-3. **The main process re-checks the sender on every channel.** Each
-   `ipcMain.handle` compares `event.senderFrame.url`'s origin to the pinned one
-   and refuses otherwise. This exists precisely because guard 1 lives in the
-   renderer process: a compromised renderer is the threat model, and a check
-   inside it is a check the attacker owns.
+3. **The main process answers only its own console window's main frame, at the
+   pinned origin.** `isConsoleFrame` and `isBridgeSender` in
+   `main/consoleBridge.ts`: the sender's `webContents` id is this window's, its
+   frame's `parent` is `null`, and — for every channel but the two synchronous
+   ones — the frame's own origin equals the pin. The two synchronous channels
+   are identity-only on purpose: the preload calls them to learn *what* the pin
+   is, so asking whether it matches in order to answer what it is would be
+   circular, and both values are public. This exists precisely because guard 1
+   lives in the renderer process: a compromised renderer is the threat model,
+   and a check inside it is a check the attacker owns.
+
+   **This paragraph used to specify an origin comparison on
+   `event.senderFrame.url`, and for months nothing implemented it.** The main
+   process answered whoever asked, on every handler it had — a layer described
+   here, in `core/shell/console.ts` and in `packages/desktop-bridge`, and
+   present in none of them. `#272` found that; `#277` built it. Nothing leaked
+   while it was missing: the console's two channels then answered values that
+   are already public, and the `COMMANDS.*` channels are reachable only from
+   windows that `loadFile` this app's own HTML — not, note, because their
+   preload cannot send. `preload/index.ts` exposes twelve send verbs including
+   `record` and `connect`, and `preload/capture.ts` three.
+
+   **Identity as well as origin, and the reason is a measurement.** Driving the
+   real Electron 33.4.11 binary: `senderFrame.origin` is readable at preload
+   time, so unreadability was never the objection — but a second `BrowserWindow`
+   opened at the same address reports the same origin as the console, so an
+   origin comparison *alone* admits any other window this app opens at that
+   address. Identity refuses it.
+
+   The hidden capture window is the example **on two of the thirteen channels
+   and not on the other eleven**, and an earlier draft of this paragraph got
+   that wrong in each direction in turn. It is a `loadFile` of `capture.html`,
+   so its origin is `file://` and never the pin: on the eleven `handle`
+   channels the origin arm alone refuses it, and `THE HIDDEN CAPTURE WINDOW IS
+   REFUSED ON EVERY CHANNEL` still passes with identity deleted. But the two
+   **synchronous** channels have no origin arm — asking whether the pin matches
+   in order to answer what the pin is would be circular — so identity is the
+   only thing refusing it there, and deleting identity reddens *...and told
+   neither the pin nor the shell on the synchronous channels*. Both values are
+   public, so nothing leaks; what would be lost is the rule.
+
+   Identity also earns its place against a *second window at the live origin*,
+   which the offline mirror and a future second console make ordinary rather
+   than hypothetical. `parent === null` rather than an identity comparison between
+   `WebFrameMain` instances, because Electron's own typings caution that
+   distinct instances may refer to one frame; both were measured to work and
+   only one of them is documented behaviour.
+
+   **And the honest scope, recounted rather than carried: thirteen of
+   twenty-eight.** Twelve `COMMANDS.*` in `main/index.ts` and three in
+   `main/capture.ts` are still answered to whoever asks; the console bridge's
+   eleven `handle` channels and two synchronous ones are gated. The fifteen are
+   safe for the reason above and not for a better one, and the three capture
+   channels are the closest to the microphone of any channel here. That split is
+   asserted by a census in `test/consoleBridge.test.mjs` rather than left in
+   this paragraph, because a number in prose is a number somebody has to
+   remember: adding a gated channel moves one side of it, adding an ungated one
+   moves the other and reddens. Nothing here should be read as saying the
+   remaining fifteen are done.
 
 And one rule that is stronger than any of them: **the console window is never
 granted a media permission.** Its session's
@@ -434,12 +728,94 @@ cannot open a microphone directly, and it cannot record invisibly
 ([meetings](./meetings.md), *Consent is the customer's, and the product may
 never make recording invisible*).
 
-The test the owner asked for, and it is two: `a foreign origin gets no bridge`
-drives `shouldExposeBridge` through the origin, subframe and `about:blank` cases
-with no Electron in sight; `startCapture from a foreign sender is refused`
-drives the channel guard with a fake `event.senderFrame`. Both are sabotage
-tested — delete the origin comparison in either and exactly one of them must go
-red, which is what proves they are not the same check written twice.
+The tests, and they are in two files. `test/shell.test.mjs` drives
+`shouldExposeBridge` through the origin, subframe and `about:blank` cases with
+no Electron in sight. `test/consoleBridge.test.mjs` drives the answering side
+against a fake `ipcMain`: a foreign `webContents`, a page we did not pin, a
+subframe, the hidden capture window, and a disposed frame. Sabotage, measured — dropping the identity arm reddens **4**, the top-frame arm
+**2**, the origin comparison **4**, and opening the guard entirely **9**.
+
+**Deltas, and deliberately not a total.** A count of the whole suite is a number
+somebody else's merge falsifies, and on this branch it went stale four times in
+four commits — including in the sentence warning that it would. The deltas are
+what the sabotage means and they survive a merge; the totals live in the suite's
+own output, which is always current by construction. An earlier version of this
+paragraph also reconstructed pre-`#281` values for these rows and got them
+wrong in a way no single reading made consistent; they are not reconstructed
+here, because a historical number nobody re-measures is the same defect one
+tense back.
+Each arm is a different set of checks, which is what proves they are not one
+check written three times.
+
+**A third check is a census of the whole IPC surface**, and it exists because
+the first two only ever look at the channels they are already on. It reads every
+`.ts` file under `src/main` as text — they import Electron at the top level and
+the suite cannot load them — and it does not look for registrations: it accounts
+for **every mention of the identifier `ipcMain`**, requiring each to be the
+import, a registration it counts, or a `removeAllListeners`. Anything else is an
+unrecognised mention and reddens.
+
+That shape is the second attempt. The first read three files and one syntax, and
+this paragraph claimed a new ungated channel "appearing anywhere" would redden
+it — measured false three ways, all at 784 PASS / 0 FAIL: a registration in
+`main/windows.ts`, which it did not read; `ipcMain` split across lines before
+`.on`; and `ipcMain.on.bind(ipcMain)`. **A scan that aliasing steps around is a
+lower bound wearing an equals sign**, which is the same defect as a documented
+guard nobody built, one level down.
+
+That was the second shape, and it was a lower bound too. It classified
+"followed by `,` or `}`" as an import specifier, so `register(ipcMain, ch)`,
+`{ ipc: ipcMain }` and `Reflect.get(ipcMain, "on")` all read as imports — and
+`main/index.ts` already contains such a mention. Its comment-stripping regex
+also let a `//` inside a string literal eat the registration on the same line,
+a stripper whose failure direction is "delete the evidence".
+
+The version here removes strings and comments with a lexer rather than a regex
+(each misleads the other), removes import clauses whole rather than guessing
+from punctuation, counts the single hand-off to `createConsoleBridge` explicitly
+so it cannot become two, and walks `src/main` recursively over every extension
+the bundler loads. Measured as deltas rather than against a total, for the
+reason the sabotage paragraph above gives: a plain new `ipcMain.on` reddens 2, a
+registration in a new subdirectory with a new extension 2, a `//`-in-a-string
+hiding place 2, and each of `.bind`, an argument, an object property and
+`Reflect.get` reddens 1 — naming the offending mention in the failure. An
+`import { ipcMain as … }` rename **reddens 1**, by name, and that is the third
+hole this scan has had: deleting the import clause and then looking for the
+identifier means a file that binds it under another name has no mentions left to
+find, so `electronIpc.on(...)` registered a channel at 906 / 0. An earlier draft
+of this paragraph reported that silence as "reddens nothing", which is a hole
+described as a feature. The clause is where the aliasing happens, so the clause
+is where it is caught.
+
+The lexer needed a **regex-literal state** for the same reason: `const quoted =
+/["]/;` opened string mode on its own bracket and swallowed the registration on
+the next line, at 906 / 0 — the "delete the evidence" direction a lexer was
+introduced to avoid. A lexer without a regex state is a regex with extra steps.
+
+**And then the regex state opened the mirror-image hole**, which is where this
+stopped being a lexer problem and started being the wrong tool. `return
+/^[a-z']+$/i` divides — the character before the slash is the `n` of `return` —
+so the apostrophe opened string mode, a later quote closed it, and an ungated
+registration in that file passed at 916 / 0. Idiomatic TypeScript. Telling a
+regex from a division needs a parser, and this suite takes no dependencies.
+
+So the load-bearing check does not lex: it counts every occurrence of the
+identifier in the raw bytes, comments and strings included, and requires the
+total. Nothing about how a file lexes can move that number. Writing the
+identifier in a new comment reddens it, and the fix is to update the number on
+purpose — **a guard that complains when the surface is described differently is
+cheaper than one that stays silent when the surface is different.** The
+classification stays as the diagnostic that names the offending mention.
+
+Four shapes of one census, three of them holes. The lesson worth keeping is not
+about lexers: it is that a guard which must understand a language is a guard
+that inherits every ambiguity of that language, and a cruder check with no
+ambiguity to inherit is worth more than a clever one.
+
+That check is the answer to how this section came to describe a layer nobody had
+built. A guard tells you about the code it is pointed at; nothing was pointed at
+the question "is there something new here that no guard covers", and for months
+the answer was yes.
 
 ### Offline is what the outbox was always for, plus a tray that needs no page
 
@@ -1042,6 +1418,173 @@ THE MACHINE'S OWN GRANT"*: the shell records, every write reaches
 **zero** times. Sabotaging `meetingsWriterFor` so it returns the fallback inside
 a shell takes three tests red; acking a queued finalize as written takes one;
 dropping an unroutable destination instead of refusing it takes one.
+
+### A release is a build that started
+
+A Mac session's report on 2026-09-07 is why this section exists: the signed,
+notarised artifact that `deploy-desktop.yml` had been producing crashed on
+launch —
+`Dynamic require of "events"`, from `electron-updater`'s inlined CommonJS —
+and nothing in this repository had ever started the app it packages. 922
+checks passed on a build that could not open a window, because every one of
+them checks what the build *contains*, not whether it *runs*. The Gatekeeper
+verification `#285` added (*"Verify the signed app inside each dmg"*) comes
+closest and still is not this: `spctl`, `codesign --verify` and
+`stapler validate` all judge the app's signature and its packaging, and none
+of them execute a single instruction of it.
+
+**The fix is not a smarter static check — it is running the thing.** The Mac
+session's own pull request gives the app a `--smoke` mode: initialise, open
+the console window, log one line, exit 0 inside its own deadline; exit
+non-zero on any uncaught error, if no window was created, if the console
+address disagrees with `app.isPackaged`, or if the application menu is missing
+its clipboard and undo roles. This decision is the other half, owned here: a
+step in `deploy-desktop.yml`, *"Launch the app it just built"*, that runs
+`Context.app/Contents/MacOS/Context --smoke` against the exact binary
+electron-builder just produced, on a 60-second deadline it enforces itself,
+and fails the job on a non-zero exit, on the process still being alive at the
+deadline, or on the captured log naming `Uncaught Exception`, `A JavaScript
+error occurred`, or `Dynamic require` — the exact three strings a
+caught-and-swallowed crash can still leave behind after exiting 0.
+
+Five decisions inside that one step.
+
+**The deadline is `SIGKILL`, because the state it exists to catch is a process
+that has stopped answering.** Found in review, changed before merge. The first
+version was `perl -e 'alarm 30; exec @ARGV'`: macOS ships no `timeout(1)`,
+`alarm` schedules `SIGALRM`, and `exec` replaces perl's image with the app in
+place so there is no wrapper left to reap. It is the tidier shape and it rests
+on three assumptions nobody could check: that a pending `alarm(2)` survives
+`execve(2)` on Darwin, that nothing in Electron, Chromium, libuv or Node
+catches, blocks or ignores `SIGALRM`, and that a process parked in a modal
+`NSAlert` run loop dies of it anyway. **`SIGALRM` is catchable**, and the
+failure this gate exists for is precisely an app that has stopped responding —
+the Mac session measured it, alive and silent at sixty seconds behind
+Electron's crash dialog. A deadline the app can catch is not a deadline, and
+what it produces is worse than no gate at all: a release job that hangs for its
+full 45 minutes on a build that cannot start.
+
+So the step launches the app in the background, `wait`s for it, and arms a
+watchdog that sends signal 9 at the deadline. `SIGKILL` cannot be caught,
+blocked or ignored, and it does not care what run loop the main thread is in.
+The watchdog touches a marker file, so *"still alive at the deadline"* is
+reported as itself rather than inferred from an exit code that could mean
+something else. Sixty seconds rather than thirty because `--smoke` now arms its
+own 30-second deadline once its bundle evaluates: this one is the backstop for
+what that timer cannot see, a crash *during* module evaluation, which is the
+crash that shipped. A good launch was measured at 12 seconds. **The tests that
+fail if this is reversed** are in `packaging.test.mjs`: `THE DEADLINE IS
+kill -9, WHICH A CRASH DIALOG CANNOT CATCH, BLOCK OR IGNORE`, and beside it
+`...and it is not a catchable signal exec'd into the app, which is what this
+replaced`, which goes red the moment `alarm` comes back.
+
+**The launch deletes `ELECTRON_RUN_AS_NODE` rather than merely not setting
+it.** That variable makes the Electron binary run as plain Node: it swaps the
+module loader, hands the bundle a real CommonJS `require`, and never creates an
+`app` object at all — so the build that shipped, the one that threw `Dynamic
+require of "events"`, loads under it without a word. It is the single
+environment variable that turns this gate into a check that proves nothing, and
+a runner image, a composite action or a future `env:` block on this job could
+all supply it. `test/launch.smoke.mjs` deletes it for the same reason on the
+other path. `NODE_ENV` is deliberately not set either: the app chooses its
+console address from `app.isPackaged`, and a workflow that supplied `NODE_ENV`
+would be proving a packaged launch works under a variable no packaged launch
+has — which is the exact shape of the unit checks that were green while every
+installed build opened a blank window.
+
+**It runs on the unsigned path too, unconditionally.** `spctl`'s refusal is a
+check against the quarantine attribute a *download* sets; a binary this same
+runner just built and executes by its own path never carries one, so an
+unsigned build launches here exactly as a signed one does. Nothing in the step
+is gated on `steps.certificate.outputs.signed` or
+`steps.notarize_check.outputs.notarized` — which matters because `publish`
+defaults to `false` and most dispatches never reach a signed, notarised build
+at all. Gating the launch on either would have left the common path — the one
+the original crash report actually came from — exactly as unguarded as it was
+before this decision.
+
+**It sits before the artifact upload, and before publishing too — build and
+publish are two steps now, not one.** The first version of this decision left
+a real gap and said so rather than hiding it: `electron-builder --mac
+--config electron-builder.yml --publish always` used to run *inside* the
+Build step, and electron-builder's own GitHub provider uploaded to the
+release as part of building — before this launch step, or anything else, had
+a chance to object. That was flagged here as follow-up rather than shipped as
+if it were already closed, and closing it turned out to matter immediately:
+`electron-updater` polls the *latest published release* and would auto-install
+whatever is there onto every Mac already running this app, so a crashing
+build reaching that release is not a "red CI, nobody trusts it" outcome — it
+is a real regression pushed to a live install base. **So the Build step now
+always passes `--publish never`, full stop**, and publishing is a separate
+step, *"Publish the release"*, gated on `steps.decide.outputs.publish ==
+'true'` (the pre-existing publish/signed/notarised decision) **AND
+`steps.smoke.outcome == 'success'`** — this launch step's own outcome, by its
+step id. Nothing that fails to start can reach the release any more, not just
+the CI artifact.
+
+**Publishing reuses the exact bits the launch step tested, rather than
+building a second time.** The obvious-looking fix — build once ungated, gate,
+then run `electron-builder --publish always` again to publish — was rejected:
+a second invocation re-signs, re-notarises and re-packages from scratch, which
+is a *different* set of bytes than the ones that were just launched and
+verified. That defeats the entire point of testing first. So the Publish step
+instead runs `gh release create "$TAG" release/*.dmg release/*.zip
+release/latest-mac.yml`, uploading the exact files the Build step already
+produced, with the workflow's own built-in `GH_TOKEN` — no new secret. `gh
+release create` on a tag this repository already released fails outright
+rather than overwriting it, which backstops the earlier "Refuse to publish a
+version already released" step rather than replacing it.
+
+**What actually has to be in that upload was read out of the dependency,
+not assumed.** `node_modules/electron-updater`'s own `GitHubProvider.js`
+shows `getLatestVersion()` fetching `<tag>/latest-mac.yml` (macOS's channel
+file — `getChannelFilePrefix()` returns `-mac` there) and `resolveFiles()`
+resolving each entry inside it against the same release; the updater never
+asks for the dmg at all. So the three files uploaded are exactly `latest-mac.yml`,
+the zip(s) it names, and the dmg — the last one for a person's first, manual
+install, not for the updater, which is unchanged from what electron-builder
+was already uploading before this decision, just uploaded by `gh` now instead
+of by electron-builder.
+
+**The x64 launch is attempted only where the runner can actually run it.**
+`macos-latest` has been an Apple Silicon image since macos-14, and an arm64
+runner needs Rosetta to execute the x64 build under `release/mac/` at all —
+GitHub's arm64 images do not carry it by default. `arch -x86_64 /usr/bin/true`
+probes for it rather than assuming either way; its absence is a named
+`::warning::` skip, not folded into the job's pass/fail, because it is a fact
+about the runner rather than about the app. The **arm64 launch is what
+actually gates this job** — it is unconditional — and the x64 skip means that
+build ships with this one check unverified until Rosetta lands on the image or
+a person confirms it by hand, exactly as honestly stated as every other gap
+this file already documents (system audio, Gatekeeper trust on somebody else's
+Mac).
+
+**Only the last 40 lines of the captured log reach a public log, through the
+same `build/redact-signing-log.sh` the Build step already pipes through.** A
+crash log is exactly the kind of thing somebody pastes into an issue, and
+Electron's own crash reporter can echo recent log output on the way out —
+including, in principle, the signing-identity line `#285` already redacts
+once. Reusing the one shared script rather than a second copy of its pattern
+is the same reasoning `#285`'s own decision gives for that script existing at
+all: two copies of a regex are two chances for them to drift, and the exact
+way this repository's own redaction bug shipped once already.
+
+**The tests that fail if this is reversed**: `packaging.test.mjs`'s
+`"IT PRECEDES THE ARTIFACT UPLOAD — nothing that fails this gate is ever
+kept"` reads the step order in `deploy-desktop.yml` and fails if the launch
+step is not strictly before `actions/upload-artifact@v4`; deleting the launch
+step outright takes twelve checks in that file red at once, and dropping any
+one of the three crash strings from its grep takes exactly one red. For the
+publish split: `"THE BUILD STEP ALWAYS PASSES --publish never"` goes red alone
+if `--publish always` is put back on the Build step's electron-builder
+invocation; `"a step publishes the release, separately from Build"` and its
+seven neighbours (eight in total) go red together if the Publish step is
+deleted outright; `"IT COMES AFTER THE LAUNCH STEP, NOT BEFORE"` goes red
+alone if the Publish step is moved ahead of the launch step; and `"IT IS GATED
+ON THE LAUNCH STEP'S OWN OUTCOME"` goes red alone if
+`steps.smoke.outcome == 'success'` is dropped from the Publish step's `if:`.
+Every count above was produced by sabotaging the actual workflow file and
+restoring it, not guessed at.
 
 ### What is deliberately not built
 

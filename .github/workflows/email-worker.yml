@@ -52,7 +52,7 @@ jobs:
       # is not a failing check, GitHub ignores the file entirely, so a checker
       # that lives only inside the file that broke goes down with it silently.
       # `mcp.yml` held the only copy and was the file it could not check.
-      - name: Every workflow file parses as YAML
+      - name: Every workflow file is one GitHub will load
         run: |
           node scripts/check-workflow-yaml.mjs --self-test
           node scripts/check-workflow-yaml.mjs
@@ -65,6 +65,15 @@ jobs:
         run: |
           node scripts/check-workflow-triggers.mjs --self-test
           node scripts/check-workflow-triggers.mjs
+
+      # A deploy preflight calling the bare GET /accounts/{id} endpoint is
+      # what took down deploy-router.yml and this workflow's own deploy job on
+      # 2026-09-07 — see the script's header. mcp.yml runs it too, same
+      # two-host reasoning as the trigger checker above.
+      - name: No deploy preflight calls the bare accounts/{id} endpoint
+        run: |
+          node scripts/check-workflow-cloudflare-preflight.mjs --self-test
+          node scripts/check-workflow-cloudflare-preflight.mjs
 
       - uses: pnpm/action-setup@v4
 

@@ -31,7 +31,10 @@
         "EAS_PROJECT_ID": "REPLACED_BY_CI"
       },
       "channel": "production",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      }
     }
   },
   "submit": {
