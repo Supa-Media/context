@@ -27,7 +27,7 @@
  * Run as a temporary local edit and reverted. Count is FAIL lines in this file.
  *
  *   `toolRotateEncryptionKeys` counting a `put` conflict as done rather
- *   than pending                                                          2
+ *   than pending                                                      2 → 4
  *
  * Added in adversarial review:
  *
@@ -35,6 +35,19 @@
  *   the whole bucket instead of the batch it is allowed to move           2
  *   `rewrapWorkspaceRecipient` giving the body a fresh `iv` — a re-encrypt
  *   wearing a re-wrap's costume                                          10
+ *
+ * Added in a second adversarial review:
+ *
+ *   the completing call's read cost bounded to the batch cap instead of
+ *   the bucket — the shape a persisted cursor would have, asserted so the
+ *   ceiling is measured rather than estimated                             1
+ *
+ * The conflict row moved from 2 to 4 on re-measurement, and the two extra
+ * failures are the two checks this review added around it: a walk that thinks
+ * a lost write is a done write reports "complete" one call early, so the
+ * completing call's read cost is measured on the wrong call and a note is
+ * still left on the retired generation. The number in a sabotage record is
+ * only true of the file it was measured on.
  */
 
 import worker from "../src/index.js";
@@ -303,10 +316,60 @@ export async function runEncryptionRotationChecks(check) {
         !(await call("read_note", { path: sabotaged }))?.isError,
     );
 
+    /*
+      WHAT THE CALL THAT *COMPLETES* A ROTATION COSTS, MEASURED.
+
+      The batch-cap stop bounds the first call's reads to the size of the
+      batch. It cannot bound the last one's, and that asymmetry is the real
+      shape of "no persisted cursor": before this walk may say "complete" it
+      has to prove nothing is left, and with no cursor the only proof
+      available is reading every note in the bucket again. So the completing
+      call's cost is the size of the BUCKET, every time, whatever the batch
+      cap is.
+
+      That is not a slow path, it is a ceiling. A Cloudflare Worker
+      invocation has a subrequest budget (`docs/decisions/storage-and-credentials.md`
+      calls it 50 and is openly optimistic about `FOLDER_MOVE_CAP`'s 500), and
+      every one of these reads is one. Measured over the whole curve, outside
+      this suite, at a batch cap of 200:
+
+        notes   calls   total reads   reads in the largest call
+          200       1           201                         201
+          600       3         1,205                         601
+        1,000       5         3,009                       1,001
+        2,000      10        11,019                       2,001
+        4,000      20        42,039                       4,001
+
+      Total reads grow as `notes x calls / 2`, which the decision file already
+      names. The last column is the one it did not: a rotation of a
+      4,000-note bucket ends with a single invocation issuing 4,001 reads, and
+      a rotation cannot finish at a size where that call cannot run. The
+      failure is not "expensive", it is "the walk re-wraps every note and then
+      never reports complete", leaving the rotation row `in_progress` and the
+      next rotation unable to start.
+
+      Asserted here so the ceiling is a measured number in the suite rather
+      than an estimate in prose, and so the day somebody adds the cursor this
+      check fails and says why.
+    */
+    let readsDuringCompletingCall = 0;
+    // The exact reference, put back exactly — the `put` wrapper armed above is
+    // deliberately left in place, because by this call its one shot is spent
+    // and swapping it out here would be tidying up somebody else's fixture.
+    const getBeforeCounting = a.bucket.get;
+    a.bucket.get = async (key) => {
+      readsDuringCompletingCall += 1;
+      return getBeforeCounting.call(a.bucket, key);
+    };
     const third = await call("rotate_encryption_keys", {});
+    a.bucket.get = getBeforeCounting;
     check(
       "a further call finishes the one note the sabotage left behind",
       !third?.isError && /rotation complete: k1 → k2/.test(textOf(third)),
+    );
+    check(
+      "the call that COMPLETES a rotation reads the whole bucket, not the batch — the cursor-less ceiling",
+      readsDuringCompletingCall >= noteCount && readsDuringCompletingCall <= noteCount + 5,
     );
 
     const remainingOnK1 = [...a.objects.keys()].filter(

@@ -57,11 +57,23 @@
  *   `export_encryption_keys`/`rotate_encryption_keys` left out of
  *   `PRIVATE_TIER_ONLY_TOOLS`, so `tools/list` advertises them to a
  *   team-tier connection the call then tells they do not exist              1
- *   `toolExportEncryptionKeys`'s `scope !== "private"` gate removed         3
+ *   `toolExportEncryptionKeys`'s `scope !== "private"` gate removed     3 → 4
  *   `EXPORT_RATE_LIMIT.limit` moved from 5 to 1                             2
  *   the export document written to a `console.log`                          1
  *   the audit detail carrying `Object.values(key.keys)` (the material
  *   itself) instead of its generation ids                                   2
+ *
+ * Added in a second adversarial review, re-measured on the same denominator:
+ *
+ *   `toolExportEncryptionKeys` taking `args` and reading a workspace id
+ *   out of it — the smuggled-argument attack                                1
+ *   `toolRotateEncryptionKeys` doing the same                               1
+ *
+ * The export-gate row moved from 3 to 4 because of a check added here, not
+ * because the gate got stronger: with the gate gone, the team-tier caller's
+ * earlier attempt succeeds and spends one of the five exports the window
+ * allows, so the exact-count rate-limit check fails too. Re-measured rather
+ * than left at the number it had when it was written.
  *
  * Three of the original rows are findings about this file rather than about
  * the source.
@@ -308,6 +320,10 @@ export async function runEncryptionGatewayChecks(check) {
     const textOf = (result) => result?.content?.[0]?.text ?? "";
     const readA = (key) => {
       const entry = a.objects.get(key);
+      return entry ? new TextDecoder().decode(entry.bytes) : undefined;
+    };
+    const readB = (key) => {
+      const entry = b.objects.get(key);
       return entry ? new TextDecoder().decode(entry.bytes) : undefined;
     };
 
@@ -1120,6 +1136,55 @@ export async function runEncryptionGatewayChecks(check) {
         exportedDoc.keys[0].generation === "k1" &&
         exportedDoc.keys[0].key === KEY_A,
     );
+    /*
+      AND NAMING IT IN EVERY OTHER ARGUMENT THE ROUTE ACCEPTS.
+
+      `context` is the *routing* argument and it is re-decided in the context
+      it points at, which the two checks above ask. This asks the rest of the
+      surface. `inputSchema` declares `properties: {}` with
+      `additionalProperties: false`, but this gateway does not validate a
+      tool's arguments against its own schema — `callTool` hands the object
+      straight through — so "this tool takes no arguments" is a statement
+      about the advertisement, not about the door. What makes it true of the
+      door is that `toolExportEncryptionKeys(store, scope)` and
+      `toolRotateEncryptionKeys(store, scope)` are the only two tool functions
+      in `index.js` that do not take `args` at all, and so have nothing to
+      read an attacker-supplied id out of.
+
+      Asserted rather than read off the signature, because a later refactor
+      that added `args` "for symmetry" is a one-line change with no test
+      standing in front of it. Every name these two routes could plausibly
+      grow — the control plane's own field names included,
+      `startEncryptionRotation` and `completeEncryptionRotation` among them —
+      carrying context B's identifiers, on a connection that owns A and
+      nothing else:
+    */
+    const SMUGGLED = {
+      workspaceId: "ws_enc_b",
+      expectedWorkspaceId: "ws_enc_b",
+      workspace: "@encb",
+      workspace_id: "ws_enc_b",
+      slug: "encb",
+      generation: "k1",
+      current: "k1",
+      keys: { k1: KEY_B },
+      encryptionKey: { current: "k1", keys: { k1: KEY_B } },
+      startEncryptionRotation: true,
+      completeEncryptionRotation: "k1",
+      scope: "private",
+      accessToken: OWNER_B,
+    };
+    const smuggledExport = await call(OWNER_A, "export_encryption_keys", { ...SMUGGLED });
+    const smuggledText = textOf(smuggledExport);
+    check(
+      "an owner naming ANOTHER context in every argument but `context` still exports only their own",
+      !smuggledExport?.isError &&
+        smuggledText.includes(KEY_A) &&
+        !smuggledText.includes(KEY_B) &&
+        !smuggledText.includes("ws_enc_b") &&
+        JSON.parse(smuggledText.slice(smuggledText.indexOf("{"))).workspace_id === "ws_enc_a",
+    );
+
     check(
       "the export says what it means and points at the offline decryptor",
       /one-way action/.test(exportedText) && exportedText.includes("packages/encryption-decryptor"),
@@ -1173,8 +1238,9 @@ export async function runEncryptionGatewayChecks(check) {
     /*
       THE RATE LIMIT, ASKED THE WAY AN ATTACKER WOULD.
 
-      Two exports have happened above — the first one, and the log-capture
-      one — so exactly three of the six attempts below may be accepted. The
+      Three exports have happened above — the first one, the
+      smuggled-argument one, and the log-capture one — so exactly two of the
+      six attempts below may be accepted. The
       limit is five per rolling day per CONTEXT,
       and the three ways a caller would try to get around it are all the same
       question — is the counter attached to the session, or to the context?
@@ -1215,7 +1281,7 @@ export async function runEncryptionGatewayChecks(check) {
     }
     check(
       "exactly five exports per context per window are accepted, counting the ones already spent",
-      accepted === 3 && refused === 3,
+      accepted === 2 && refused === 4,
     );
     check(
       "a second client, a second grant and a reconnection all meet the same counter",
@@ -1343,6 +1409,35 @@ export async function runEncryptionGatewayChecks(check) {
       /rotate_encryption_keys/.test(auditAfterRotate) &&
         !auditAfterRotate.includes(KEY_A) &&
         !readA("1-projects/vault/private-secret.md").includes(KEY_A),
+    );
+
+    /*
+      THE ROTATION HALF OF THE SMUGGLED-ARGUMENT ATTACK, ASKED LAST.
+
+      The export half is above, beside the other export checks. This one has
+      the sharper version of the same question and belongs here, after two
+      real rotations, because it performs a third: two of the names in
+      `SMUGGLED` are the literal flags `/gateway/binding` accepts
+      (`startEncryptionRotation`, `completeEncryptionRotation`), so a tool
+      that passed its arguments through to `store.rotateEncryptionKeys` would
+      hand a caller a rotation of somebody else's workspace key — the one
+      operation in this file that can strand every note in a bucket.
+
+      Two things have to hold: B's bytes are untouched, and this call rotated
+      A rather than reporting on B. The generation labels are the tell —
+      A is on k3 by now, B has never rotated and is still on k1, so a call
+      that answered about B would say "k1 → k2".
+    */
+    const bStolenBefore = readB("1-projects/stolen.md");
+    const bOwnBefore = readB("1-projects/own.md");
+    const smuggledRotate = await call(OWNER_A, "rotate_encryption_keys", { ...SMUGGLED });
+    check(
+      "a rotation named at another context in every argument rotates this one, and leaves that one's bytes alone",
+      !smuggledRotate?.isError &&
+        /rotation complete: k3 → k4/.test(textOf(smuggledRotate)) &&
+        !textOf(smuggledRotate).includes(KEY_B) &&
+        readB("1-projects/stolen.md") === bStolenBefore &&
+        readB("1-projects/own.md") === bOwnBefore,
     );
   } finally {
     restore();
