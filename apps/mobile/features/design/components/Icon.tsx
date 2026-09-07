@@ -141,6 +141,14 @@ export const ICON_NAMES = [
    */
   "bulletList",
   /**
+   * The accessory bar's link key, A2 in the editor-polish sweep: `[[]]`,
+   * caret between the brackets, completion opened. Two offset capsule rings
+   * rather than `attach`'s nested pair — a chain link overlaps its neighbour,
+   * it does not sit inside it, and the two shapes need to read apart at 20pt
+   * on the same bar.
+   */
+  "link",
+  /**
    * A tag, which would insert a `#`, and a paperclip, for embedding a file.
    *
    * **Neither has a caller**, which is the one exception to the rule stated at
@@ -723,6 +731,15 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         bar("l2", u, w, c, { cx: 0.6, cy: 0.5, length: 0.56 }),
         dot("d3", u, c, { cx: 0.18, cy: 0.74, r: 0.055 }),
         bar("l3", u, w, c, { cx: 0.6, cy: 0.74, length: 0.56 }),
+      ];
+
+    case "link":
+      // Two capsule rings, offset diagonally so they interlock — the
+      // ordinary chain-link mark, and distinct from `attach`'s nested pair
+      // (one ring *inside* the other) by overlapping instead.
+      return [
+        rect("a", u, w, c, { x0: 0.08, y0: 0.08, x1: 0.62, y1: 0.46, radius: 0.19 }),
+        rect("b", u, w, c, { x0: 0.38, y0: 0.54, x1: 0.92, y1: 0.92, radius: 0.19 }),
       ];
 
     case "tag":
