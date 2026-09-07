@@ -296,7 +296,7 @@ the settings file, put in a URL, or exposed to a renderer.
 
 ## What is real, and what is not
 
-### Real, and checked by the suite (860 checks, offline, no network)
+### Real, and checked by the suite (895 checks, offline, no network)
 
 - The detection loop against fake collectors, including the flicker cases: one
   poll of a conferencing app does not start a recording, a two-poll blip does
