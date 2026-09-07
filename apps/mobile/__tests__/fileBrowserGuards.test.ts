@@ -14,18 +14,18 @@ import type { FolderListing, OpenNote } from "../features/console/files/types";
  * **The four `useFileBrowser` guards that nothing held.**
  *
  * In this console every guard expressed as a pure module is caught by a test
- * (13 of 13) and every guard living inside a hook is not (0 of 8). `#102` and `#106` took the ones that could be moved
- * out. These four cannot be — they are decisions about *when to call the
- * server*, which only exist in the hook — so they get a mounted-hook harness
- * instead, the same one `saveTimeout.test.ts` and `fileErrorCallSites.test.ts`
- * use.
+ * (13 of 13) and every guard living inside a hook is not (0 of 8). `#102` and
+ * `#106` took the ones that could be moved out. These four cannot be — they
+ * are decisions about *when to call the server*, which only exist in the hook
+ * — so they get a mounted-hook harness instead, the same one
+ * `saveTimeout.test.ts` and `fileErrorCallSites.test.ts` use.
  *
  * The reason to bother, from `#110`: an untested guard is not merely unproven,
  * it is where a wrong constant hides. Testing the share cap turned up an
  * off-by-one it had been carrying since the day it was written.
  *
  * **Every test here asserts on whether an action was CALLED, not on what came
- * back.** That is the anti-vacuity rule row 132 exists for: a guard that
+ * back.** That is the anti-vacuity rule: a guard that
  * refuses and a server that would have refused anyway produce the same visible
  * outcome, so a test that reads the outcome proves nothing about the guard.
  * Each also carries its own positive control — the same call with the guard's
