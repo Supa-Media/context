@@ -40,7 +40,7 @@
  *
  *   the sender check dropped from `handle` (any webContents answered)         4
  *   the sender check keeping identity but dropping the origin comparison      2
- *   ...keeping the origin comparison but dropping the webContents identity    3
+ *   ...keeping the origin comparison but dropping the webContents identity    4
  *   the sender check dropping the top-frame test                              1
  *   `unsubscribe` returning a no-op instead of removing the listener          3
  *   the preload passing the main process's object through unnormalised        2
@@ -48,6 +48,15 @@
  *   the exposed object not frozen                                             3
  *   `systemAudioCapability` ignoring the probe's `false`                      1
  *   ...ignoring `packaged`, so a dev build claims a loopback tap              1
+ *   the guard reading Electron's live getters unprotected again               1
+ *   a synchronous channel letting its own answer throw                        1
+ *   the bridge taking a hidden-capture-window channel name back               1
+ *   the closed console window leaving its handlers registered                 1
+ *
+ * The identity row is 4 rather than 3 since the hidden capture window was
+ * added as an attacker in its own right: it is the second window in this
+ * process, it holds a live microphone, and "one of ours" is not a reason to
+ * answer it.
  *
  * Rows two and three are the pair that had to be measured rather than assumed:
  * the identity check and the origin check are two different refusals of two
@@ -177,6 +186,32 @@ function fakeIpcMain() {
 function sender({ id = 7, url = `${PINNED}/console`, top = true } = {}) {
   const frame = { url, parent: top ? null : { url } };
   return { sender: { id }, senderFrame: frame };
+}
+
+/**
+ * The hidden capture window, asking.
+ *
+ * A second `BrowserWindow` in this same app, loaded from `file:` — and the one
+ * that holds a live microphone. It is a *different* attacker from a hostile
+ * page: nothing about it is remote, its origin is not the pinned one and never
+ * will be, and if identity were not checked it would be able to drive the
+ * queue, the grant and the recorder it is the tape head for.
+ */
+function captureWindowSender({ id = 42 } = {}) {
+  return sender({ id, url: "file:///Applications/Context.app/renderer/capture.html" });
+}
+
+/**
+ * An event whose live Electron getters throw, which is what a frame that went
+ * away mid-call really hands a handler.
+ */
+function disposedSender({ id = 7 } = {}) {
+  return {
+    sender: { id },
+    get senderFrame() {
+      throw new Error("Render frame was disposed before WebFrameMain could be accessed");
+    },
+  };
 }
 
 /** A window whose `webContents.id` the guard pins to. */
@@ -587,6 +622,142 @@ export async function runConsoleBridgeChecks(check) {
   }
 
   /*
+    The other window in this app, which is the one that matters most.
+
+    `main/capture.ts` opens a hidden `BrowserWindow` holding a live microphone.
+    It has its own narrow preload and no reason to touch any of this — but it is
+    a webContents in the same process, so "is this an internal window" is not a
+    question worth asking and "is this THE console window" is. Every handled
+    channel, and both synchronous ones.
+  */
+  {
+    const { ipc, calls } = mainBridge();
+    let refusals = 0;
+    for (const channel of HANDLED) {
+      try {
+        await ipc.handlers.get(channel)(captureWindowSender(), {
+          sessionId: "m_1",
+          mic: true,
+          systemAudio: false,
+        });
+      } catch {
+        refusals += 1;
+      }
+    }
+    check(
+      "THE HIDDEN CAPTURE WINDOW IS REFUSED ON EVERY CHANNEL — it holds a microphone, not a bridge",
+      refusals === HANDLED.length && calls.length === 0,
+    );
+
+    const origin = captureWindowSender();
+    ipc.listeners.get(BRIDGE_CHANNELS.origin)(origin);
+    const shell = captureWindowSender();
+    ipc.listeners.get(BRIDGE_CHANNELS.shell)(shell);
+    check(
+      "...and told neither the pin nor the shell on the synchronous channels",
+      origin.returnValue === null && shell.returnValue === null,
+    );
+  }
+
+  {
+    const { ipc } = mainBridge();
+    const framed = sender({ top: false });
+    ipc.listeners.get(BRIDGE_CHANNELS.origin)(framed);
+    check("a subframe is not told the pin either", framed.returnValue === null);
+  }
+
+  /*
+    A frame that went away while the call was in flight.
+
+    Electron's `event.senderFrame` is a getter over a live object and it *throws*
+    — "Render frame was disposed before WebFrameMain could be accessed" — for a
+    frame that navigated, reloaded or closed. That is an ordinary event, not an
+    attack, and it must land as a refusal: a throw out of the guard is a
+    rejection carrying Electron's own text on `handle`, and on a synchronous
+    channel it is a listener that never sets `returnValue` while the renderer
+    blocks on `sendSync` at document start.
+  */
+  {
+    // Called through a `try` so that a guard which *does* throw is reported as
+    // one failed check rather than as a suite that stopped running.
+    let guarded = null;
+    try {
+      guarded = isBridgeSender(disposedSender(), { webContentsId: 7, pinned: PINNED });
+    } catch {
+      guarded = "threw";
+    }
+    check("A FRAME THAT WENT AWAY MID-CALL IS REFUSED, NOT A THROW OUT OF THE GUARD", guarded === false);
+
+    const { ipc, calls } = mainBridge();
+    let answered = null;
+    let threw = false;
+    try {
+      answered = await ipc.handlers.get(BRIDGE_CHANNELS.startCapture)(disposedSender(), {
+        sessionId: "m_1",
+        mic: true,
+        systemAudio: false,
+      });
+    } catch {
+      threw = true;
+    }
+    check(
+      "...and `handle` refuses it as it refuses any other sender",
+      threw && answered === null && calls.length === 0,
+    );
+
+    const event = disposedSender();
+    let syncThrew = false;
+    try {
+      ipc.listeners.get(BRIDGE_CHANNELS.origin)(event);
+    } catch {
+      syncThrew = true;
+    }
+    check(
+      "...and the synchronous channel answers `null` rather than leaving `sendSync` waiting",
+      !syncThrew && event.returnValue === null,
+    );
+  }
+
+  /*
+    The same rule for the *answer* and not only for the guard.
+
+    `answerSync` calls into the shell to produce its value — `app.getName()` on
+    a shell mid-quit is the real case — and a synchronous listener that throws
+    is the one shape with a worse failure than a refusal: the renderer is
+    blocked inside `sendSync` at document start, so the window never paints
+    rather than merely losing its bridge. `null` is what the preload already
+    reads as "no shell", and it fails closed there.
+  */
+  {
+    const { ipc } = mainBridge({
+      deps: {
+        shell: () => {
+          throw new Error("Object has been destroyed");
+        },
+      },
+    });
+    const event = sender();
+    let threw = false;
+    try {
+      ipc.listeners.get(BRIDGE_CHANNELS.shell)(event);
+    } catch {
+      threw = true;
+    }
+    check(
+      "A SHELL THAT CANNOT ANSWER SYNCHRONOUSLY ANSWERS `null` — never a blocked renderer",
+      !threw && event.returnValue === null,
+    );
+  }
+
+  check(
+    "a sender id that is not a number is refused, however it compares",
+    isBridgeSender({ sender: { id: "7" }, senderFrame: { url: `${PINNED}/console`, parent: null } }, {
+      webContentsId: 7,
+      pinned: PINNED,
+    }) === false,
+  );
+
+  /*
     The guard on its own, for the shapes a fake `ipcMain` cannot stage.
 
     Every one of these is an event Electron really can hand a handler — a frame
@@ -642,6 +813,21 @@ export async function runConsoleBridgeChecks(check) {
     const shellEvent = sender();
     ipc.listeners.get(BRIDGE_CHANNELS.shell)(shellEvent);
     check("...and what to call this shell", shellEvent.returnValue.app === "Context");
+
+    /*
+      Deliberate, and written down so it is not mistaken for the origin check
+      leaking: the console window is told the pin whatever page it is on,
+      because it is calling to find out *what* the pin is and asking whether it
+      matches would be circular. Both values are public — the origin is in the
+      window's own URL bar — and the exposure decision is still the renderer's,
+      against `location.origin`. Every channel that *does* something re-asks.
+    */
+    const wandered = sender({ url: "https://attacker.invalid/console" });
+    ipc.listeners.get(BRIDGE_CHANNELS.origin)(wandered);
+    check(
+      "the console window off-origin is still told the pin — it is public, and the acting channels refuse it",
+      wandered.returnValue === PINNED,
+    );
   }
 
   /* --- and answers the console window ------------------------------------ */
@@ -734,6 +920,25 @@ export async function runConsoleBridgeChecks(check) {
     check("disposing removes every handler", ipc.handlers.size === 0 && ipc.listeners.size === 0);
   }
 
+  /*
+    And the window closing is what calls it.
+
+    `dispose()` being right is checked above; that it is *reached* is a line in
+    `main/index.ts`, which imports Electron and cannot be run here. Left
+    unchecked it is the leak the contract's own unsubscribe rule exists to
+    prevent, one process over: ten handlers left registered against a window
+    that is gone refuse everything and look answered, and `ipcMain.handle`
+    throws outright if the channel is registered a second time.
+  */
+  {
+    const source = readFileSync(new URL("../src/main/index.ts", import.meta.url), "utf8");
+    const closed = source.match(/consoleWindow\.on\("closed",[\s\S]{0,800}?\n {4}\}\);/)?.[0] ?? "";
+    check(
+      "THE CONSOLE WINDOW CLOSING UNREGISTERS THE BRIDGE — no channel outlives the window it answers",
+      closed.includes("consoleBridge?.dispose()") && closed.includes("consoleBridge = null"),
+    );
+  }
+
   /* --- the channel names do not collide with the old renderer's ---------- */
 
   {
@@ -745,27 +950,43 @@ export async function runConsoleBridgeChecks(check) {
   }
 
   /*
-    The bridge's capture verbs DO share three names with the hidden capture
-    window's private channels, and that is safe for exactly one reason: the
-    directions never meet. `main/capture.ts` only ever `webContents.send`s
-    `context:capture-{start,stop,pause,resume}` at one window it owns, and the
-    bridge only ever `ipcMain.handle`s them — two registries, and `send` is
-    addressed to a `webContents` rather than broadcast.
+    THE BRIDGE AND THE HIDDEN CAPTURE WINDOW SHARE NO CHANNEL NAME AT ALL.
 
-    Written as a check rather than a comment because the day somebody adds an
-    `ipcMain.on` or an `ipcMain.handle` to that file, the console's Pause starts
-    being answered by a window holding a live microphone, and nothing else in
-    this suite would notice.
+    They used to share four — `context:capture-{start,pause,resume,stop}` — and
+    that was safe for a reason neither file said out loud: `handle`
+    (renderer→main, reached by `invoke`) and `send` (main→renderer) are separate
+    registries, so a name in both is answered by whichever direction asked. It
+    is a true reason and a bad one to rely on, because the guard is a fact about
+    Electron's dispatch rather than anything either author can see. The day
+    somebody answers one of those names with `ipcMain.on` in the capture file,
+    the console's Pause is answered by a window holding a live microphone.
+
+    So `BRIDGE_CHANNELS` carries the `console-` prefix on its four capture verbs
+    and the names are disjoint by construction. The check reads both capture
+    sources — the main process's and the capture window's preload — for every
+    `context:` string in them and asserts no bridge channel is among them, which
+    is a check that keeps working whatever either side is renamed to.
   */
   {
-    const source = readFileSync(new URL("../src/main/capture.ts", import.meta.url), "utf8");
+    const captureSources = [
+      readFileSync(new URL("../src/main/capture.ts", import.meta.url), "utf8"),
+      readFileSync(new URL("../src/preload/capture.ts", import.meta.url), "utf8"),
+    ].join("\n");
+    const captureChannels = new Set(captureSources.match(/context:[a-z-]+/g) ?? []);
+    const shared = BRIDGE_CHANNEL_NAMES.filter((name) => captureChannels.has(name));
     check(
-      "THE HIDDEN CAPTURE WINDOW'S CHANNELS ARE SEND-ONLY, so sharing three names with the bridge cannot collide",
-      !/ipcMain\.handle\s*\(/.test(source) &&
-        !/ipcMain\.(on|once)\s*\(\s*CAPTURE_(START|STOP|PAUSE|RESUME)\b/.test(source),
+      "THE HIDDEN CAPTURE WINDOW SHARES NO CHANNEL NAME WITH THE BRIDGE — no dispatch rule is load-bearing",
+      captureChannels.size >= 4 && shared.length === 0,
     );
     check(
-      "...and the bridge answers those three with `handle`, which is a different registry",
+      "...and the capture window's own channels stay send-only, which is a second reason rather than the only one",
+      !/ipcMain\.handle\s*\(/.test(captureSources) &&
+        !/ipcMain\.(on|once)\s*\(\s*(CAPTURE_(START|STOP|PAUSE|RESUME)\b|["'`]context:(console-)?capture-(start|stop|pause|resume))/.test(
+          captureSources,
+        ),
+    );
+    check(
+      "...and the bridge answers its four with `handle`",
       HANDLED.every((name) => mainBridge().ipc.handlers.has(name)),
     );
   }

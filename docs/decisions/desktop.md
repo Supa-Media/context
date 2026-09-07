@@ -635,6 +635,34 @@ recorded where it lives:
   credential-shaped crosses"* from a property of the code we wrote into a
   property of the payloads that can arrive.
 
+- **The bridge shares no channel name with the hidden capture window.** It used
+  to share four — `context:capture-{start,pause,resume,stop}` — and that was
+  safe for a reason neither file said out loud: `handle` (renderer→main, reached
+  by `invoke`) and `send` (main→renderer) are separate registries, so a name in
+  both is answered by whichever direction asked. True, and a bad thing to rest
+  on, because the guard is a fact about Electron's dispatch rather than anything
+  either author can see: the day somebody answers one of those names with
+  `ipcMain.on` in `main/capture.ts`, the console's Pause is answered by a window
+  holding a live microphone. So `BRIDGE_CHANNELS` carries `console-` on its four
+  capture verbs and the sets are disjoint by construction. **The test that fails
+  if this is reversed**: `consoleBridge.test.mjs` reads both capture sources for
+  every `context:` string in them and asserts no bridge channel is among them —
+  put one name back and it goes red on its own.
+- **The sender check refuses rather than throws when Electron's own getters
+  do.** `event.senderFrame` raises *"Render frame was disposed before
+  WebFrameMain could be accessed"* for a frame that navigated or closed while a
+  call was in flight, and `event.sender.id` raises *"Object has been destroyed"*
+  for a webContents that is gone — both ordinary, neither an attack. Left
+  unguarded, the first is a rejection carrying Electron's own text on `handle`
+  and the second is worse on the two synchronous channels: a listener that
+  throws never sets `returnValue`, and the preload is *blocking* inside
+  `sendSync` at document start, so the window never paints rather than merely
+  losing its bridge. Every live read is inside the guard's `try` and every
+  synchronous answer inside its own, and `null` is what the preload already
+  reads as "no pin". The checks are `A FRAME THAT WENT AWAY MID-CALL IS REFUSED,
+  NOT A THROW OUT OF THE GUARD` and `A SHELL THAT CANNOT ANSWER SYNCHRONOUSLY
+  ANSWERS null`.
+
 `capabilities().systemAudio` is the real probe: `systemAudioCapability` answers
 `false` off macOS, `false` on an unpackaged build, `false` below macOS 13, and
 otherwise the guess — which the first meeting's actual attempt overrules, in
