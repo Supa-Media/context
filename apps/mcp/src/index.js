@@ -120,8 +120,11 @@ import {
   NoteCryptoError,
   decryptNote,
   encryptNote,
+  encryptedNoteKeyId,
   generatedNoteBytes,
   isEncryptedNote,
+  renderKeyExport,
+  rewrapWorkspaceRecipient,
 } from "./encryption.js";
 import { inventoryPlugins } from "./plugins/inventory.js";
 import { renderPluginReport } from "./plugins/report.js";
@@ -2279,6 +2282,20 @@ function baseToolDefinitions() {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
+      name: "export_encryption_keys",
+      description:
+        "Personal connection only, owner tier. Export this context's workspace data key(s) in the clear — every generation that opens an encrypted note in this bucket — in a versioned, language-neutral format documented in docs/decisions/encryption.md and readable by the offline decryptor in packages/encryption-decryptor. Exporting widens the blast radius: there is no un-export. Rate limited.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    {
+      name: "rotate_encryption_keys",
+      description:
+        "Personal connection only, owner tier. Rotate this context's workspace data key: mints a new key generation and re-wraps every encrypted note's key toward it, without re-encrypting any note body. Bounded per call — call again to resume an in-progress rotation. The retiring generation stays readable; nothing is deleted.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    {
       name: "set_folder_visibility",
       description:
         "Personal connection only. Dry-run or atomically set a folder's inherited visibility in privacy.md without a source checkout or rclone. Use visibility=inherit to remove that folder's direct rule. Applying requires the privacy etag returned by dry-run; any private-to-team publication also requires confirm_team_publish=true. Redundant exact-note overrides are compacted.",
@@ -2570,6 +2587,21 @@ async function callTool(name, args, store, scope) {
       return toolSetVisibility(store, scope, rules, overrides, args);
     case "set_encryption":
       return toolSetEncryption(store, scope, rules, overrides, args);
+    // Owner-only, and masked exactly like an invented tool name for every
+    // other caller — the same idiom `docs/decisions/encryption.md` already
+    // uses for a team-tier read of a private encrypted note ("byte-identical
+    // to a path that never existed"), applied here to a *tool* rather than a
+    // path. `set_encryption` and `list_plugins` answer a team-tier caller with
+    // a distinct "permission denied" message, which is fine for a capability
+    // whose existence is not itself sensitive; a workspace's key material is
+    // a narrower thing to advertise, so this refuses as though the tool were
+    // never registered at all.
+    case "export_encryption_keys":
+      if (scope !== "private") return toolError(`unknown tool: ${name}`);
+      return toolExportEncryptionKeys(store, scope);
+    case "rotate_encryption_keys":
+      if (scope !== "private") return toolError(`unknown tool: ${name}`);
+      return toolRotateEncryptionKeys(store, scope);
     case "set_folder_visibility":
       return toolSetFolderVisibility(store, scope, args);
     case "propose_note":
@@ -3684,9 +3716,14 @@ function encryptionContext(store) {
   if (!key || typeof workspaceId !== "string" || !workspaceId) return null;
   return {
     workspaceId,
-    generation: key.generation,
-    dataKey: key.dataKey,
-    keys: { [key.generation]: key.dataKey },
+    // The generation a fresh encryption writes under, and the material that
+    // opens it — `sealNoteContent`'s pair.
+    generation: key.current,
+    dataKey: key.keys[key.current],
+    // Every live generation, current and retired alike — what `decryptNote`
+    // needs to open a note regardless of which one wrapped it, and mid-rotation
+    // that is more than one.
+    keys: key.keys,
   };
 }
 
@@ -4001,6 +4038,288 @@ async function toolSetEncryption(store, scope, rules, overrides, args) {
           "Its content is now stored as ciphertext. It stays readable through Context to everyone " +
           "its visibility already reaches, and it is no longer searchable."
       : `decrypted: ${path} (etag ${put.etag})\nIts content is stored as plain markdown again.`,
+  );
+}
+
+/* ------------------------------- key export -------------------------------- */
+
+/** Where a best-effort, per-context export rate limit is tracked. Plumbing: never listed, never a note. */
+const EXPORT_RATE_LIMIT_PATH = ".context/encryption-export-rate.json";
+
+/**
+ * Exports allowed per context per rolling window. Matches the console's own
+ * `authorizeEncryptionExport` in `apps/convex/functions/encryptionKeys.ts` —
+ * not because the two limiters share state (they cannot: this one lives in
+ * the customer's own bucket, and the console's lives in the control plane's
+ * database, because the two surfaces have no other shared state to spend a
+ * round trip reaching) but because an owner exporting from either surface
+ * should meet the same policy.
+ */
+const EXPORT_RATE_LIMIT = { limit: 5, windowMs: 24 * 60 * 60 * 1000 };
+
+/**
+ * A best-effort, bucket-side fixed-window rate limit for `export_encryption_keys`.
+ *
+ * Zero-dependency and Workers-runtime only, like everything else in this file:
+ * a small JSON counter at a plumbing path, read, checked, and written back —
+ * the same shape `apps/convex/functions/lib/rateLimit.ts` uses, translated to
+ * a store that has no database, only `get`/`put`. It is best-effort rather
+ * than exact under a genuine race (two requests reading the same counter
+ * before either writes back), which is an acceptable gap for a limit
+ * defending an *owner's own* repeated access to their *own* key — the harm a
+ * tighter limiter would prevent is a compromised session harvesting the key
+ * by retrying, not a race with itself.
+ *
+ * A corrupt or unreadable counter fails **open toward a fresh window**, never
+ * toward "block forever": the file this limiter writes is not canonical data,
+ * and refusing an owner their own key because a JSON file got corrupted would
+ * be a worse failure than under-counting once.
+ *
+ * @returns {Promise<boolean>} `true` if the caller is over the limit — and, in
+ *   that case, nothing is written, so a rate-limited attempt does not itself
+ *   consume budget from the window it is refused against.
+ */
+async function checkAndConsumeExportRateLimit(store) {
+  const now = Date.now();
+  let state = { windowStartedAt: now, count: 0 };
+  const existing = await store.get(EXPORT_RATE_LIMIT_PATH);
+  if (existing) {
+    try {
+      const parsed = JSON.parse(await existing.text());
+      if (
+        parsed &&
+        typeof parsed.windowStartedAt === "number" &&
+        typeof parsed.count === "number"
+      ) {
+        state = parsed;
+      }
+    } catch {
+      // Corrupt counter: treated as absent, which resets the window. See above.
+    }
+  }
+  if (now - state.windowStartedAt >= EXPORT_RATE_LIMIT.windowMs) {
+    state = { windowStartedAt: now, count: 0 };
+  }
+  if (state.count >= EXPORT_RATE_LIMIT.limit) return true;
+  await store.put(EXPORT_RATE_LIMIT_PATH, JSON.stringify({ ...state, count: state.count + 1 }));
+  return false;
+}
+
+/**
+ * Export this context's workspace data key(s) in the clear.
+ *
+ * Owner-only through the gate the dispatcher already applies (`scope !==
+ * "private"` is masked as an unknown tool, one level up). This function's own
+ * job is the rest of `docs/decisions/encryption.md`'s "Revocation and
+ * export": rate limit, audit, and the versioned bundle itself.
+ *
+ * **The exported bytes never appear in the audit entry, in a log, or in a
+ * URL.** `recordChange` is given the generation ids — operator-chosen
+ * configuration strings, already visible in every affected note's own
+ * frontmatter — and nothing else. The key material is returned exactly once,
+ * in this call's own response, and is not retained by this gateway across the
+ * request that produced it.
+ */
+async function toolExportEncryptionKeys(store, scope) {
+  const key = store.encryptionKey;
+  if (!key) {
+    return toolText(
+      "this context has never encrypted a note; there is nothing to export.",
+    );
+  }
+  const workspaceId = store?.actor?.workspaceId;
+  if (typeof workspaceId !== "string" || !workspaceId) {
+    return toolError("this connection has no workspace to export a key for");
+  }
+
+  if (await checkAndConsumeExportRateLimit(store)) {
+    return toolError(
+      `rate limited: encryption keys were exported ${EXPORT_RATE_LIMIT.limit} times in the ` +
+        "last 24 hours for this context; try again later.",
+    );
+  }
+
+  let doc;
+  try {
+    doc = renderKeyExport({
+      workspaceId,
+      current: key.current,
+      keys: Object.entries(key.keys).map(([generation, material]) => ({ generation, material })),
+    });
+  } catch (error) {
+    if (error instanceof NoteCryptoError) return toolError(`could not build the export: ${error.message}`);
+    throw error;
+  }
+
+  // Names the generations touched and nothing else — never the material, and
+  // never in a log line either, because this is the same `recordChange` every
+  // audited write in this gateway uses.
+  await recordChange(store, "export_encryption_keys", scope, [], {
+    generations: Object.keys(key.keys).sort().join(","),
+    current: key.current,
+  });
+
+  return toolText(
+    "Exported this context's workspace data key(s), below.\n\n" +
+      "Store this somewhere safe and offline. With this and the notes already in your bucket, " +
+      "your context is complete and usable without Context — no gateway, no control plane. " +
+      "This is a one-way action: there is no way to make this key material secret again once it " +
+      "has left this response.\n\n" +
+      "Open your notes with it using the offline decryptor: packages/encryption-decryptor (MIT-licensed, " +
+      "zero dependencies, plain Web Crypto). The full format is docs/decisions/encryption.md.\n\n" +
+      JSON.stringify(doc, null, 2),
+  );
+}
+
+/* ------------------------------ key rotation -------------------------------- */
+
+/**
+ * How many notes one `rotate_encryption_keys` call re-wraps before reporting
+ * back rather than continuing.
+ *
+ * Small next to `FOLDER_MOVE_CAP`'s 500 on purpose: a re-wrap is two
+ * subrequests per note (`get`, then a conditional `put`) plus whatever the
+ * listing itself costs, against the same 50-subrequest Worker budget
+ * `docs/decisions/storage-and-credentials.md` already measures every bulk
+ * operation in this file against. Call the tool again to continue — that is
+ * the entire resumption protocol, and it is safe to call as many times as it
+ * takes, because a note already on the target generation is skipped rather
+ * than re-wrapped.
+ *
+ * Not exported: this file's only export is the default worker
+ * (`scripts/check-gateway-imports.mjs`/`gatewayFormat.helpers.ts` in
+ * `apps/convex/__tests__` both assume it), and `apps/mcp/test/encryptionRotation.test.mjs`
+ * asserts this same number as a plain literal rather than importing it.
+ */
+const ROTATION_BATCH_CAP = 200;
+
+/**
+ * Rotate this context's workspace data key.
+ *
+ * Owner-only through the same masked gate `export_encryption_keys` uses. What
+ * happens here is exactly the cost `docs/decisions/encryption.md`'s
+ * "Rotation" section names: a new generation is minted (or, if a walk is
+ * already under way, this call simply continues it — see
+ * `startWorkspaceKeyRotation` in the control plane for why a second caller
+ * never mints a second generation), and every note still on the outgoing
+ * generation has its **`workspace` recipient** re-wrapped toward the new one.
+ * No note body is ever decrypted or re-encrypted here.
+ *
+ * **There is no persisted cursor.** Every call walks the whole bucket, in the
+ * store's own listing order, and skips a note the instant it finds it already
+ * on the target generation — which is what makes the walk idempotent and
+ * resumable with no state of its own: calling this tool again after a partial
+ * pass, a crash, or a conflicting concurrent write finds exactly the notes
+ * still left and nothing else. The cost this trades away is efficiency on a
+ * very large bucket, where a completed pass still has to re-list and
+ * re-inspect every already-migrated note on its way to finding none are
+ * left — the same "optimistic about `FOLDER_MOVE_CAP`" trade
+ * `storage-and-credentials.md` already names for bulk moves, made again here
+ * for the same reason: a persisted cursor is a second piece of state that can
+ * itself go stale, and the bucket is already the one source of truth this
+ * gateway trusts for "which notes exist".
+ */
+async function toolRotateEncryptionKeys(store, scope) {
+  if (!store.encryptionKey) {
+    return toolText(
+      "this context has never encrypted a note; there is nothing to rotate.",
+    );
+  }
+  const workspaceId = store?.actor?.workspaceId;
+  if (typeof workspaceId !== "string" || !workspaceId) {
+    return toolError("this connection has no workspace to rotate a key for");
+  }
+
+  // Idempotently starts a rotation, or reports the one already in progress —
+  // either way, this is the one call that guarantees `keys` includes the
+  // TARGET generation's material, freshly minted a moment ago if this is what
+  // started it.
+  const { encryptionKey, rotation } = await store.rotateEncryptionKeys({ start: true });
+  if (!rotation || !encryptionKey) {
+    return toolError(
+      "this context's workspace key could not be rotated right now; nothing was changed. Try again shortly.",
+    );
+  }
+  const { fromGeneration, toGeneration } = rotation;
+  const newKeyMaterial = encryptionKey.keys[toGeneration];
+  if (typeof newKeyMaterial !== "string" || newKeyMaterial === "") {
+    return toolError(
+      "the new key generation is not yet available to this connection; try again shortly.",
+    );
+  }
+
+  const allKeys = await listAllKeys(store, "");
+  let rewrapped = 0;
+  let stillPending = 0;
+  for (const { key } of allKeys) {
+    if (!key.endsWith(".md") || isPlumbing(key)) continue;
+    const object = await store.get(key);
+    if (!object) continue;
+    const text = await object.text();
+    if (!isEncryptedNote(text) || encryptedNoteKeyId(text) !== fromGeneration) continue;
+
+    if (rewrapped >= ROTATION_BATCH_CAP) {
+      stillPending += 1;
+      continue;
+    }
+    let rewrappedText;
+    try {
+      rewrappedText = await rewrapWorkspaceRecipient(text, {
+        workspaceId,
+        keys: encryptionKey.keys,
+        newGeneration: toGeneration,
+        newKeyMaterial,
+      });
+    } catch (error) {
+      if (error instanceof NoteCryptoError) {
+        // A note this pass cannot open under any live generation, or one
+        // whose envelope is malformed. Left exactly as it is — the one
+        // outcome worse than leaving it behind is guessing at its content —
+        // and counted as still pending so the walk never silently reports
+        // done while it exists.
+        stillPending += 1;
+        continue;
+      }
+      throw error;
+    }
+    // Conditional on the etag this pass read: a note edited concurrently
+    // (its plaintext changed, or `set_encryption` turned it off) is left for
+    // the next pass rather than overwritten.
+    const put = await store.put(key, rewrappedText, { onlyIf: { etagMatches: object.etag } });
+    if (put) rewrapped += 1;
+    else stillPending += 1;
+  }
+
+  if (stillPending === 0) {
+    const completed = await store.rotateEncryptionKeys({ complete: toGeneration });
+    await recordChange(store, "rotate_encryption_keys", scope, [], {
+      from_generation: fromGeneration,
+      to_generation: toGeneration,
+      notes_rewrapped: rewrapped,
+      status: "complete",
+    });
+    const stillRotating = completed.rotation !== null;
+    return toolText(
+      `rotation complete: ${fromGeneration} → ${toGeneration}\n` +
+        `${rewrapped} note(s) re-wrapped this call.\n` +
+        (stillRotating
+          ? "Another rotation is already in progress for this context; call this tool again to continue it."
+          : `The ${fromGeneration} generation is retired. It is not deleted — see "Rotation" in ` +
+            "docs/decisions/encryption.md for the grace-period policy — and every note now names " +
+            `${toGeneration}.`),
+    );
+  }
+
+  await recordChange(store, "rotate_encryption_keys", scope, [], {
+    from_generation: fromGeneration,
+    to_generation: toGeneration,
+    notes_rewrapped: rewrapped,
+    status: "in_progress",
+  });
+  return toolText(
+    `rotation in progress: ${fromGeneration} → ${toGeneration}\n` +
+      `${rewrapped} note(s) re-wrapped this call, at least ${stillPending} left on ${fromGeneration}.\n` +
+      "Call this tool again to continue. The retiring generation stays readable until the walk completes.",
   );
 }
 

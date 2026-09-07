@@ -191,14 +191,14 @@ export async function runEncryptionGatewayChecks(check) {
       bindingName: "BUCKET_A",
       capabilities: { conditionalWrite: true },
       status: "active",
-      encryptionKey: { generation: "k1", dataKey: KEY_A },
+      encryptionKey: { current: "k1", keys: { k1: KEY_A } },
     });
     controlPlane.addWorkspace("ws_enc_b", "encb", {
       provider: "r2-binding",
       bindingName: "BUCKET_B",
       capabilities: { conditionalWrite: true },
       status: "active",
-      encryptionKey: { generation: "k1", dataKey: KEY_B },
+      encryptionKey: { current: "k1", keys: { k1: KEY_B } },
     });
     // The third context is the ordinary one: a workspace that has never
     // encrypted anything, so the control plane sends no key at all. Every
@@ -788,6 +788,127 @@ export async function runEncryptionGatewayChecks(check) {
         !audit.includes("Compensation review") &&
         !audit.includes("A256GCM") &&
         !audit.includes(KEY_A.slice(0, 16)),
+    );
+
+    /* -- (14) export_encryption_keys ---------------------------------------- */
+
+    const teamExport = await call(TEAM_A, "export_encryption_keys", {});
+    check(
+      "a team connection cannot see export_encryption_keys exists",
+      teamExport?.isError === true && textOf(teamExport) === "unknown tool: export_encryption_keys",
+    );
+
+    const keylessExport = await call(KEYLESS, "export_encryption_keys", {});
+    check(
+      "a context that has never encrypted anything has nothing to export, and it is not a refusal",
+      !keylessExport?.isError && /nothing to export/.test(textOf(keylessExport)),
+    );
+
+    const exported = await call(OWNER_A, "export_encryption_keys", {});
+    const exportedText = textOf(exported);
+    const exportedDoc = JSON.parse(exportedText.slice(exportedText.indexOf("{")));
+    check(
+      "the export names the workspace, the current generation, and includes the live key",
+      !exported?.isError &&
+        exportedDoc.workspace_id === "ws_enc_a" &&
+        exportedDoc.current === "k1" &&
+        exportedDoc.keys.length === 1 &&
+        exportedDoc.keys[0].generation === "k1" &&
+        exportedDoc.keys[0].key === KEY_A,
+    );
+    check(
+      "the export says what it means and points at the offline decryptor",
+      /one-way action/.test(exportedText) && exportedText.includes("packages/encryption-decryptor"),
+    );
+    check(
+      "the export never appears in the audit trail",
+      !(await (async () => {
+        const keys = [...a.objects.keys()].filter((key) => key.startsWith(".audit/"));
+        const text = keys.map((key) => new TextDecoder().decode(a.objects.get(key).bytes)).join("\n");
+        return text.includes(KEY_A);
+      })()),
+    );
+
+    // Rate limited after the configured number of exports in one window.
+    let rateLimited = null;
+    for (let i = 0; i < 6; i += 1) {
+      const attempt = await call(OWNER_A, "export_encryption_keys", {});
+      if (attempt?.isError) rateLimited = attempt;
+    }
+    check(
+      "exporting is rate limited",
+      rateLimited !== null && /rate limited/.test(textOf(rateLimited)),
+    );
+
+    /* -- (15) rotate_encryption_keys ------------------------------------------ */
+
+    const teamRotate = await call(TEAM_A, "rotate_encryption_keys", {});
+    check(
+      "a team connection cannot see rotate_encryption_keys exists either",
+      teamRotate?.isError === true && textOf(teamRotate) === "unknown tool: rotate_encryption_keys",
+    );
+
+    const keylessRotate = await call(KEYLESS, "rotate_encryption_keys", {});
+    check(
+      "a context with no key has nothing to rotate, and it is not a refusal",
+      !keylessRotate?.isError && /nothing to rotate/.test(textOf(keylessRotate)),
+    );
+
+    // Two encrypted notes exist by this point: `1-projects/vault/private-secret.md`
+    // (encrypted in section (3) and never decrypted) and `1-projects/conflict.md`
+    // (left encrypted by section (12)). `1-projects/moved-secret.md`, the note
+    // moved in section (6), was decrypted again in section (10) and is plaintext.
+    const beforeRotate = readA("1-projects/vault/private-secret.md");
+    const rotated = await call(OWNER_A, "rotate_encryption_keys", {});
+    check(
+      "rotation reports what it did and completes in one call for a small context",
+      !rotated?.isError &&
+        /rotation complete: k1 → k2/.test(textOf(rotated)) &&
+        /2 note\(s\) re-wrapped/.test(textOf(rotated)),
+    );
+
+    const afterRotate = readA("1-projects/vault/private-secret.md");
+    check(
+      "the note's body ciphertext is byte-for-byte unchanged by rotation",
+      isEncryptedNote(afterRotate) &&
+        isEncryptedNote(beforeRotate) &&
+        parseEncryptedNote(afterRotate).ct === parseEncryptedNote(beforeRotate).ct &&
+        parseEncryptedNote(afterRotate).iv === parseEncryptedNote(beforeRotate).iv,
+    );
+    check(
+      "...but its frontmatter now names the new generation",
+      /context_encryption_key: ws:k2/.test(afterRotate),
+    );
+
+    const readAfterRotate = await call(OWNER_A, "read_note", {
+      path: "1-projects/vault/private-secret.md",
+    });
+    check(
+      "the rotated note still reads back to exactly its plaintext",
+      !readAfterRotate?.isError && textOf(readAfterRotate).endsWith(SECRET_BODY),
+    );
+
+    // Calling the tool again with no rotation in progress starts a FRESH one
+    // (k2 -> k3) — rotation has no "already rotated, do nothing" state, only
+    // "a walk is in progress" or not. Both live notes move again, and the
+    // walk completes in the same call for a context this small.
+    const rotateAgain = await call(OWNER_A, "rotate_encryption_keys", {});
+    check(
+      "rotating again with no walk in progress starts and completes a fresh rotation",
+      !rotateAgain?.isError &&
+        /rotation complete: k2 → k3/.test(textOf(rotateAgain)) &&
+        /2 note\(s\) re-wrapped/.test(textOf(rotateAgain)),
+    );
+
+    const auditAfterRotate = [...a.objects.keys()]
+      .filter((key) => key.startsWith(".audit/"))
+      .map((key) => new TextDecoder().decode(a.objects.get(key).bytes))
+      .join("\n");
+    check(
+      "rotation is audited by generation id, never by key material",
+      /rotate_encryption_keys/.test(auditAfterRotate) &&
+        !auditAfterRotate.includes(KEY_A) &&
+        !readA("1-projects/vault/private-secret.md").includes(KEY_A),
     );
   } finally {
     restore();
