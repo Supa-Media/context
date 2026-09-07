@@ -124,6 +124,58 @@ module.exports = ({ config }) => {
           category: ["DEFAULT", "BROWSABLE"],
         },
       ],
+      /**
+       * Android is prepared, not shipped (owner, 2026-09-07): no keystore, no
+       * build, no store submission yet. This is the manifest half of that prep,
+       * so the first real Android binary is one `eas build` rather than a
+       * project — see `docs/decisions/meetings.md`, "Android is prepared, not
+       * shipped".
+       *
+       * Every permission a backgrounded recording needs on Android 14+, and
+       * where each one actually comes from — spelled out because two of the
+       * four are already granted by a library this app depends on, and leaving
+       * that undocumented is how somebody "cleans up" a permission that is
+       * silently load-bearing:
+       *
+       *  - `RECORD_AUDIO` — also declared by the `expo-audio` plugin below
+       *    (`recordAudioAndroid` defaults to `true`) and by that library's own
+       *    bundled `AndroidManifest.xml`. Listed here too so this array is a
+       *    complete, self-contained answer to "what does recording need" that
+       *    does not require reading a dependency's source to verify.
+       *  - `FOREGROUND_SERVICE` — the base permission every foreground service
+       *    needs on API 28+. Already unconditional in `expo-audio`'s own
+       *    bundled manifest (`android/src/main/AndroidManifest.xml` in the
+       *    installed package), which Android's manifest merger folds into this
+       *    app's on every build regardless of what this file says. Listed here
+       *    anyway, for the same self-contained reason as `RECORD_AUDIO`.
+       *  - `FOREGROUND_SERVICE_MICROPHONE` — the Android 14 (API 34) microphone
+       *    foreground-service type. `expo-audio`'s plugin only adds this when
+       *    its `enableBackgroundRecording` option is passed, which this config
+       *    does not do (see the `expo-audio` plugin entry below for why:
+       *    duplicating one permission source into two would be the thing this
+       *    comment is warning against). So this line is the one that is
+       *    actually load-bearing for it.
+       *  - `POST_NOTIFICATIONS` — Android 13 (API 33) runtime permission a
+       *    foreground service's notification needs to actually show. Same
+       *    story as `FOREGROUND_SERVICE_MICROPHONE`: load-bearing here.
+       *
+       * What this array does **not** need to add: the `<service
+       * android:foregroundServiceType="microphone">` declaration, or the
+       * notification channel. `expo-audio`'s own Android module
+       * (`AudioRecordingService.kt`, installed alongside the JS package)
+       * already declares that service in its bundled manifest and creates its
+       * notification channel at runtime the first time a recording starts — so
+       * the "small config plugin under `apps/mobile/plugins/`" this was
+       * expected to need turned out to be unnecessary: the library already
+       * does it. If a future `expo-audio` upgrade ever drops that service, the
+       * Android manifest test below is the one that will fail first.
+       */
+      permissions: [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.POST_NOTIFICATIONS",
+      ],
     },
     web: {
       favicon: "./assets/favicon.png",
@@ -203,6 +255,21 @@ module.exports = ({ config }) => {
         */
           microphonePermission:
             "Context uses the microphone to record your meetings. Audio is transcribed and then discarded — only the text is saved, into storage you own.",
+          /*
+          Deliberately **not** `enableBackgroundRecording: true` here, even
+          though that option exists and would add
+          `FOREGROUND_SERVICE_MICROPHONE` and `POST_NOTIFICATIONS` for us. Two
+          reasons. First, this plugin's own `enableBackgroundRecording` also
+          pushes `"audio"` into `ios.infoPlist.UIBackgroundModes` — harmlessly,
+          since it checks for the value before pushing and `app.config.js`
+          already sets it above, but a second writer of the same iOS key is
+          not a habit worth starting. Second, `android.permissions` above is
+          already the one place that answers "what does recording need on
+          Android" — adding a second path that grants two of the same four
+          permissions is exactly the duplication that block's own comment
+          warns about. If `android.permissions` above is ever removed, turn
+          this on instead of leaving Android permission-less.
+        */
         },
       ],
       "expo-video",

@@ -151,9 +151,26 @@ jobs:
 
       # Prove the token can write to the account wrangler will deploy into,
       # BEFORE the opaque wrangler failure ("Could not route ... [code: 7003]",
-      # which says nothing about the cause). Prints the account NAME it
-      # resolves to — never the secret — so a token pointed at the personal
-      # account instead of Supa Media's is immediately obvious.
+      # which says nothing about the cause).
+      #
+      # This calls GET /accounts/{id}/workers/scripts rather than the bare
+      # GET /accounts/{id} it used until 2026-09-07. The bare form needs
+      # "Account Settings: Read" — a permission this deploy has no other use
+      # for — and that day the token lost exactly that scope while otherwise
+      # unchanged (it could still deploy). Two sibling workflows
+      # (deploy-router.yml, deploy-email-worker.yml) died on Cloudflare 9109
+      # ("Unauthorized to access requested resource") from the identical bare
+      # call; this workflow carried the same step and would have failed the
+      # same way on its next trigger. `/workers/scripts` needs only
+      # "Workers Scripts: Read", a strict subset of "Workers Scripts: Edit",
+      # which `wrangler deploy` below needs no matter what — so this preflight
+      # can never need a permission the deploy does not already require.
+      #
+      # It can no longer print the account's NAME — that field lives behind
+      # the same "Account Settings: Read" this step now deliberately avoids
+      # asking for — so it prints the script COUNT instead. A count is not an
+      # identifier, but it still distinguishes the personal account (its own,
+      # unrelated set of scripts) from Supa Media's.
       - name: Verify Cloudflare credentials (preflight)
         if: steps.config.outputs.found == 'true'
         env:
@@ -162,14 +179,21 @@ jobs:
         run: |
           set -euo pipefail
           resp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID")"
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts")"
           node -e '
             const d = JSON.parse(process.argv[1] || "{}");
             if (d.success) {
-              console.log("[ok] token can access account: " + ((d.result && d.result.name) || "(unknown)"));
+              console.log("[ok] token can list Workers scripts for this account (" + (d.result || []).length + " script(s)).");
             } else {
-              console.error("[FAIL] CLOUDFLARE_API_TOKEN cannot access CLOUDFLARE_ACCOUNT_ID.");
+              console.error("[FAIL] CLOUDFLARE_API_TOKEN cannot read Workers scripts for CLOUDFLARE_ACCOUNT_ID.");
               console.error("       Cloudflare errors: " + JSON.stringify(d.errors));
+              console.error("");
+              console.error("       Code 9109 (\"Unauthorized to access requested resource\") means one of:");
+              console.error("         - CLOUDFLARE_ACCOUNT_ID is wrong for this token, or");
+              console.error("         - CLOUDFLARE_API_TOKEN itself is invalid or expired, or");
+              console.error("         - the token is missing \"Workers Scripts: Read\" (or :Edit) on this account.");
+              console.error("       wrangler deploy below needs \"Workers Scripts: Edit\" regardless, so if");
+              console.error("       this is a permission gap, that same edit fixes both.");
               process.exit(1);
             }
           ' "$resp"
