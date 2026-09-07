@@ -453,14 +453,21 @@ three independent guards rather than one:
    origin comparison *alone* admits any other window this app opens at that
    address. Identity refuses it.
 
-   The hidden capture window is **not** that example, and naming it here was
-   wrong: it is a `loadFile` of `capture.html`, so its origin is `file://` and
-   never the pin — measured, `THE HIDDEN CAPTURE WINDOW IS REFUSED ON EVERY
-   CHANNEL` still passes with the identity arm deleted, and
-   `consoleBridge.test.mjs` says so in its own words. The window identity arm
-   earns its place against a *second window at the live origin*, which is what
-   the offline mirror and a future second console make ordinary rather than
-   hypothetical. `parent === null` rather than an identity comparison between
+   The hidden capture window is the example **on two of the thirteen channels
+   and not on the other eleven**, and an earlier draft of this paragraph got
+   that wrong in each direction in turn. It is a `loadFile` of `capture.html`,
+   so its origin is `file://` and never the pin: on the eleven `handle`
+   channels the origin arm alone refuses it, and `THE HIDDEN CAPTURE WINDOW IS
+   REFUSED ON EVERY CHANNEL` still passes with identity deleted. But the two
+   **synchronous** channels have no origin arm — asking whether the pin matches
+   in order to answer what the pin is would be circular — so identity is the
+   only thing refusing it there, and deleting identity reddens *...and told
+   neither the pin nor the shell on the synchronous channels*. Both values are
+   public, so nothing leaks; what would be lost is the rule.
+
+   Identity also earns its place against a *second window at the live origin*,
+   which the offline mirror and a future second console make ordinary rather
+   than hypothetical. `parent === null` rather than an identity comparison between
    `WebFrameMain` instances, because Electron's own typings caution that
    distinct instances may refer to one frame; both were measured to work and
    only one of them is documented behaviour.
@@ -533,9 +540,19 @@ so it cannot become two, and walks `src/main` recursively over every extension
 the bundler loads. Measured, baseline 906: a plain new `ipcMain.on` reddens 2, a
 registration in a new subdirectory with a new extension 2, a `//`-in-a-string
 hiding place 2, and each of `.bind`, an argument, an object property and
-`Reflect.get` reddens 1 — naming the offending mention in the failure. A
-legitimate `import { ipcMain as … }` rename reddens nothing, which the previous
-shape got wrong in the other direction.
+`Reflect.get` reddens 1 — naming the offending mention in the failure. An
+`import { ipcMain as … }` rename **reddens 1**, by name, and that is the third
+hole this scan has had: deleting the import clause and then looking for the
+identifier means a file that binds it under another name has no mentions left to
+find, so `electronIpc.on(...)` registered a channel at 906 / 0. An earlier draft
+of this paragraph reported that silence as "reddens nothing", which is a hole
+described as a feature. The clause is where the aliasing happens, so the clause
+is where it is caught.
+
+The lexer needed a **regex-literal state** for the same reason: `const quoted =
+/["]/;` opened string mode on its own bracket and swallowed the registration on
+the next line, at 906 / 0 — the "delete the evidence" direction a lexer was
+introduced to avoid. A lexer without a regex state is a regex with extra steps.
 
 That check is the answer to how this section came to describe a layer nobody had
 built. A guard tells you about the code it is pointed at; nothing was pointed at

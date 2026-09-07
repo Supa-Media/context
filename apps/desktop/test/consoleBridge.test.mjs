@@ -38,10 +38,10 @@
  * Run as temporary local edits and reverted. Counts are FAIL lines across the
  * whole `apps/desktop` suite.
  *
- *   the sender check dropped from `handle` (any webContents answered)         4
- *   the sender check keeping identity but dropping the origin comparison      2
+ *   the sender check dropped from `handle` (any webContents answered)         9
+ *   the sender check keeping identity but dropping the origin comparison      4
  *   ...keeping the origin comparison but dropping the webContents identity    4
- *   the sender check dropping the top-frame test                              1
+ *   the sender check dropping the top-frame test                              2
  *   `unsubscribe` returning a no-op instead of removing the listener          3
  *   the preload passing the main process's object through unnormalised        2
  *   `installDesktopBridge` exposing regardless of `shouldExposeBridge`        4
@@ -61,6 +61,11 @@
  *   the bridge capturing the pin once instead of reading it per call         3
  *   the sender check reading `app://console` as an opaque origin             1
  *   the sender check accepting an opaque origin while the mirror is pinned  1
+ *
+ * Four of these were measured before `#281` added three mirror checks and are
+ * re-measured here on the head that carries them: the whole-guard row was 6,
+ * the origin row 2 and the top-frame row 1. **A number in a table is a claim
+ * about a tree, and somebody else's merge is enough to falsify it.**
  *
  * The identity row is 4 rather than 3 since the hidden capture window was
  * added as an attacker in its own right: it is the second window in this
@@ -441,25 +446,51 @@ export async function runConsoleBridgeChecks(check) {
     const code = (text) => {
       let out = "";
       let mode = "code";
+      /*
+        The last character that decides whether a `/` opens a REGEX or divides.
+        Without this state a legitimate `const quoted = /["]/;` opens string
+        mode on its own bracket and swallows the next registration whole —
+        MEASURED at 906 PASS / 0 FAIL, which is the "delete the evidence"
+        failure direction this lexer replaced a regex to avoid. A lexer without
+        a regex state is a regex with extra steps.
+      */
+      let significant = "";
       for (let i = 0; i < text.length; i += 1) {
         const c = text[i];
         const next = text[i + 1];
         if (mode === "code") {
           if (c === "/" && next === "/") { mode = "line"; i += 1; continue; }
           if (c === "/" && next === "*") { mode = "block"; i += 1; continue; }
+          // A `/` after a value divides; after an operator or a bracket it
+          // opens a regex. The conservative reading is what matters here: a
+          // wrongly-detected regex hides code, so anything ambiguous divides.
+          if (c === "/" && significant !== "" && !/[A-Za-z0-9_$)\]]/.test(significant)) {
+            mode = "regex";
+            out += " ";
+            continue;
+          }
           if (c === '"' || c === "'" || c === "`") { mode = c; out += " "; continue; }
           out += c;
+          if (!/\s/.test(c)) significant = c;
         } else if (mode === "line") {
           if (c === "\n") { mode = "code"; out += c; }
         } else if (mode === "block") {
           if (c === "*" && next === "/") { mode = "code"; i += 1; }
+        } else if (mode === "regex") {
+          if (c === "\\") { i += 1; continue; }
+          if (c === "[") { mode = "class"; continue; }
+          if (c === "/") { mode = "code"; significant = "x"; }
+        } else if (mode === "class") {
+          // A `/` inside a character class does not end the literal.
+          if (c === "\\") { i += 1; continue; }
+          if (c === "]") mode = "regex";
         } else {
           // inside a string: a backslash escapes the next character
           if (c === "\\") { i += 1; continue; }
-          if (c === mode) mode = "code";
+          if (c === mode) { mode = "code"; significant = "x"; }
         }
       }
-      return out;
+      return { text: out, ended: mode };
     };
 
     const walk = (dir) =>
@@ -477,13 +508,36 @@ export async function runConsoleBridgeChecks(check) {
       if (!/\.(?:[cm]?[jt]sx?)$/.test(file.pathname)) continue;
       // Import clauses whole, so `ipcMain` inside one is never guessed at from
       // the punctuation that happens to follow it.
-      const text = code(
-        // Import clauses go BEFORE the lexer, while their module specifier is
-        // still a quoted string — the lexer replaces it with a space, and a
-        // regex written for the stripped form would be matching a shape that
-        // only exists after its own input has been mangled.
-        readFileSync(file, "utf8").replace(/\bimport\s[^;]*?\sfrom\s*["'`][^"'`]*["'`]\s*;/g, " "),
-      );
+      const raw = readFileSync(file, "utf8");
+      /*
+        A RENAMED IMPORT IS AN UNRECOGNISED FORM, not an ignored one.
+
+        Deleting the import clause and then scanning for the identifier means a
+        file that binds it under another name has no mentions left to find:
+        `import { ipcMain as electronIpc }` followed by `electronIpc.on(...)`
+        registered a channel at 906 PASS / 0 FAIL. The clause is where the
+        aliasing happens, so the clause is where it has to be caught — and this
+        branch's own comment used to call that silence "a legitimate rename
+        reddens nothing", which was describing the hole as the feature.
+
+        Refused rather than followed, because nothing in this app renames it and
+        a census that tracks arbitrary local bindings is a parser. If somebody
+        needs the rename, they change this check and say why.
+      */
+      for (const clause of raw.matchAll(/\bimport\s([^;]*?)\sfrom\s*["'`][^"'`]*["'`]\s*;/g)) {
+        if (/\bipcMain\s+as\s+\w+/.test(clause[1])) {
+          unrecognised.push(`${file.pathname.split("/").pop()}: ipcMain imported under another name`);
+        }
+      }
+      // Import clauses go BEFORE the lexer, while their module specifier is
+      // still a quoted string — the lexer replaces it with a space, and a regex
+      // written for the stripped form would match a shape that only exists
+      // after its own input has been mangled.
+      const lexed = code(raw.replace(/\bimport\s[^;]*?\sfrom\s*["'`][^"'`]*["'`]\s*;/g, " "));
+      if (lexed.ended !== "code") {
+        unrecognised.push(`${file.pathname.split("/").pop()}: lexer ended in ${lexed.ended}`);
+      }
+      const text = lexed.text;
       for (const match of text.matchAll(/\bipcMain\b/g)) {
         const before = text.slice(Math.max(0, match.index - 12), match.index);
         const after = text.slice(match.index + "ipcMain".length, match.index + 40);
@@ -495,7 +549,7 @@ export async function runConsoleBridgeChecks(check) {
       }
     }
 
-    const bridge = code(readFileSync(new URL("consoleBridge.ts", mainDir), "utf8"));
+    const bridge = code(readFileSync(new URL("consoleBridge.ts", mainDir), "utf8")).text;
     const bridgeCalls = (bridge.match(/deps\.ipc\.(?:on|once|handle)\(/g) ?? []).length;
     const gatedAsync = (bridge.match(/\n {2}handle\(BRIDGE_CHANNELS\./g) ?? []).length;
     const gatedSync = (bridge.match(/\n {2}answerSync\(BRIDGE_CHANNELS\./g) ?? []).length;
