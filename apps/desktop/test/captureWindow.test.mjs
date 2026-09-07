@@ -46,9 +46,25 @@
  *   a system-audio failure failing the whole capture instead of degrading      2
  *   a stop's partial length assumed to be `SEGMENT_MS` instead of measured     2
  *   the `durationMs <= 0` guard dropped (a chunk of nothing handed over)       1
+ *   `getDisplayMedia` asked with `video: true` again (the shipped bug)        1
+ *   `video: false` dropped from the request, leaving `{ audio: true }`        1
+ *   `answerDisplayMedia` answering the loopback tap unconditionally           2
+ *   the handler's try/catch removed, so Electron's throw goes unhandled       1
+ *
+ * And for the meter, measured the same way:
+ *
+ *   no analyser attached to the stream the recorder is holding                1
+ *   sampled once a frame (16ms) instead of ten times a second                 1
+ *   the change filter dropped, so every reading is posted                     2
+ *   a pause leaving the meter at whatever the last reading was                2
+ *   the `AudioContext` left open when the capture ends                        1
+ *   `startLevels` not resuming a suspended graph                             1
  */
 
+import { readFileSync } from "node:fs";
+
 import { SEGMENT_MS } from "@context/meetings/chunks";
+import { answerDisplayMedia } from "../src/core/capture/displayMedia.ts";
 
 /** Every recorder the module has ever constructed, in order. */
 const recorders = [];
@@ -56,11 +72,30 @@ const recorders = [];
 const chunks = [];
 /** Tracks handed out, so "was it stopped" is answerable. */
 const tracks = [];
+/** Every constraint object `getDisplayMedia` was called with, in order. */
+const displayMediaAsks = [];
 
 let rotate = null;
+/** The meter's own timer, which is a different interval from the rotation. */
+let sample = null;
 let handlers = {};
 let ready = null;
 let failure = null;
+/** Every level pair handed back to the main process. */
+const levels = [];
+/** Every analyser the module has built, so "is it reading" is answerable. */
+const analysers = [];
+/** Every `AudioContext` it has opened, so "did it close" is too. */
+const contexts = [];
+/**
+ * What the fake microphone is doing, as a signed amplitude in ±1.
+ *
+ * The analyser reads byte time-domain data centred on 128, so this is what a
+ * test sets to make the room silent or make somebody talk.
+ */
+let amplitude = 0;
+/** Every interval the module has armed, so the cadence is a check and not a comment. */
+const intervalsMs = [];
 
 /**
  * The fake wall clock, in the units the module reads it in.
@@ -131,9 +166,59 @@ class FakeMediaRecorder {
   }
 }
 
+/**
+ * The Web Audio half of the browser, which is all the meter touches.
+ *
+ * `createMediaStreamSource(...).connect(analyser)` and one `getByteTimeDomain
+ * Data` per reading. The samples are filled from `amplitude`, so a check can
+ * put the room in a state and read what the module posts about it.
+ */
+class FakeAudioContext {
+  constructor() {
+    this.closed = false;
+    // Chromium's own default for a window nobody has clicked in. Electron
+    // overrides it, and the module asks anyway — see `startLevels`.
+    this.state = "suspended";
+    this.resumes = 0;
+    contexts.push(this);
+  }
+
+  async resume() {
+    this.resumes += 1;
+    this.state = "running";
+  }
+
+  createAnalyser() {
+    const analyser = {
+      fftSize: 2048,
+      connectedTo: null,
+      reads: 0,
+      getByteTimeDomainData(target) {
+        analyser.reads += 1;
+        // A square wave at `amplitude`, so RMS is exactly `|amplitude|` and the
+        // decibel arithmetic in the module has one right answer.
+        for (let index = 0; index < target.length; index += 1) {
+          target[index] = Math.round(128 + amplitude * 128);
+        }
+      },
+    };
+    analysers.push(analyser);
+    return analyser;
+  }
+
+  createMediaStreamSource(streamGiven) {
+    return { stream: streamGiven, connect: (node) => { node.connectedTo = streamGiven; } };
+  }
+
+  async close() {
+    this.closed = true;
+  }
+}
+
 /** Everything the module reads off the global scope, installed before import. */
 function installBrowser() {
   globalThis.MediaRecorder = FakeMediaRecorder;
+  globalThis.AudioContext = FakeAudioContext;
   // Node's own `navigator` is a getter-only global, so the devices are defined
   // onto it rather than the whole object being replaced.
   Object.defineProperty(globalThis.navigator, "mediaDevices", {
@@ -141,7 +226,12 @@ function installBrowser() {
     writable: true,
     value: {
       getUserMedia: async () => stream(["audio"]),
-      getDisplayMedia: async () => stream(["audio", "video"]),
+      // The constraints are recorded, because the shape of the request is the
+      // bug: see `displayMediaAsks` below and the measurement it cites.
+      getDisplayMedia: async (constraints) => {
+        displayMediaAsks.push(constraints);
+        return stream(["audio", "video"]);
+      },
     },
   });
   globalThis.window = {
@@ -154,12 +244,31 @@ function installBrowser() {
       ready: (degraded) => { ready = degraded; },
       failed: (message) => { failure = message; },
       chunk: (chunk) => { chunks.push(chunk); },
+      level: (level) => { levels.push(level); },
     },
   };
-  // The rotation timer is held rather than run: a test that waited twenty real
-  // seconds per chunk is a test nobody runs.
-  globalThis.setInterval = (callback) => { rotate = callback; return 1; };
-  globalThis.clearInterval = () => { rotate = null; };
+  /*
+    The rotation timer is held rather than run: a test that waited twenty real
+    seconds per chunk is a test nobody runs.
+
+    TWO timers now, and they are told apart by their interval rather than by
+    the order they are armed in — the meter's is deliberately much shorter than
+    a rotation, and a harness that overwrote one with the other would report a
+    module that had stopped rotating as one that was merely quiet.
+  */
+  globalThis.setInterval = (callback, ms) => {
+    intervalsMs.push(ms);
+    if (ms >= SEGMENT_MS) {
+      rotate = callback;
+      return 1;
+    }
+    sample = callback;
+    return 2;
+  };
+  globalThis.clearInterval = (handle) => {
+    if (handle === 1) rotate = null;
+    else sample = null;
+  };
   // The clock the module measures a partial chunk against. Held still unless
   // the test moves it, so "how long was that chunk" has one answer per run.
   Date.now = () => clock;
@@ -199,6 +308,67 @@ export async function runCaptureWindowChecks(check) {
     recorders.length === 1 && recorders[0].startArgs.length === 0,
   );
   check("the container is the best one the browser admits to", recorders[0].mimeType === "audio/webm;codecs=opus");
+
+  /* -- the meter: the only thing a person can see while a meeting runs -------
+   *
+   * The bar had never moved on any build, and the reason was that nothing in
+   * the main process had ever sent a level: `onLevel` was a bridge member with
+   * a subscriber, a normaliser, a fake and no producer. What the owner saw was
+   * a control that looks **identical** whether the microphone is live, denied,
+   * or nothing is running — *"the bar is still not moving. And I can't tell
+   * that it can hear me talking."*
+   *
+   * So these check the producing end: a tap on the stream the recorder is
+   * already holding, a reading whose arithmetic is decibels rather than raw
+   * RMS, a cadence that is not a frame loop, and the two states that used to be
+   * indistinguishable — capturing-and-silent, and capturing-and-hearing-speech.
+   */
+  check(
+    "AN ANALYSER IS ATTACHED TO THE STREAM THE RECORDER IS ALREADY HOLDING",
+    analysers.length === 1 && analysers[0].connectedTo !== null,
+  );
+  check(
+    "A SUSPENDED AUDIO GRAPH IS ASKED TO RUN — a graph that never starts reads as a silent room",
+    contexts.length === 1 && contexts[0].resumes === 1 && contexts[0].state === "running",
+  );
+  check(
+    "...and it reads a small window, not a whole second of audio",
+    analysers[0].fftSize === 512,
+  );
+  check(
+    "THE METER IS SAMPLED ON ITS OWN TIMER, ten times a second and not once a frame",
+    intervalsMs.includes(100) && intervalsMs.some((ms) => ms >= SEGMENT_MS),
+  );
+  check("nothing is posted before the first reading", levels.length === 0);
+
+  amplitude = 0;
+  sample();
+  check(
+    "A SILENT ROOM READS ZERO — the level says nothing was heard, not that nothing is open",
+    levels.length === 1 && levels[0].mic === 0 && levels[0].systemAudio === 0,
+  );
+
+  // -20 dBFS: an ordinary speaking voice into a laptop microphone.
+  amplitude = 0.1;
+  sample();
+  check(
+    "SPEECH MOVES IT, and by a fraction a bar can be drawn from",
+    levels.length === 2 && Math.abs(levels[1].mic - 2 / 3) < 0.01,
+  );
+  check("...on the channel it was heard on, and no other", levels[1].systemAudio === 0);
+
+  const posted = levels.length;
+  sample();
+  sample();
+  check(
+    "AN UNCHANGED READING IS NOT SENT — a steady room costs the heartbeat, not ten a second",
+    levels.length === posted,
+  );
+
+  amplitude = 0.5;
+  sample();
+  check("...and the next real change is", levels.length === posted + 1 && levels[posted].mic > 0.85);
+  amplitude = 0;
 
   // -- rotation: the whole point ---------------------------------------------
   await rotate();
@@ -242,11 +412,44 @@ export async function runCaptureWindowChecks(check) {
 
   // -- system audio degrades, and the microphone does not ---------------------
   const before = chunks.length;
-  globalThis.navigator.mediaDevices.getDisplayMedia = async () => stream(["video"]);
+  globalThis.navigator.mediaDevices.getDisplayMedia = async (constraints) => {
+    displayMediaAsks.push(constraints);
+    return stream(["video"]);
+  };
   ready = null;
   failure = null;
   await handlers.start({ channels: ["mic", "system"], sampleRate: 48_000 });
   await settle();
+
+  /*
+    THE SHAPE OF THE REQUEST IS THE BUG, SO THE SHAPE IS WHAT IS ASSERTED.
+
+    Measured in the live hidden capture window of the signed installed build
+    (Chrome/130.0.6723.191, macOS 26.4.1), with the shell answering
+    `{ audio: "loopback" }`:
+
+      { audio: true, video: false }  -> RESOLVED  audio=1 video=0
+      { audio: true }                -> REJECTED  AbortError
+      { audio: true, video: true }   -> REJECTED  AbortError
+
+    The third is what shipped. So `getDisplayMedia` had never once resolved on
+    that machine, every meeting silently degraded to mic-only, and on a video
+    call nobody else was ever recorded. Nothing in the suite could see it: the
+    fake `getDisplayMedia` resolved whatever it was asked for, so the shape was
+    the one thing this file did not check.
+
+    `video: false` is asserted **present and false** rather than merely falsy,
+    because omitting it is shape B — a different request, and one that also
+    fails.
+  */
+  check(
+    "SYSTEM AUDIO IS ASKED FOR AS AUDIO-ONLY, which is the only shape that resolves",
+    displayMediaAsks.length === 1 &&
+      displayMediaAsks[0]?.audio === true &&
+      "video" in (displayMediaAsks[0] ?? {}) &&
+      displayMediaAsks[0]?.video === false,
+  );
+
   check("a build macOS will not give system audio to still records", ready !== null && failure === null);
   check("...and says which channel it did not get", Array.isArray(ready) && ready.includes("system"));
   await rotate();
@@ -280,6 +483,121 @@ export async function runCaptureWindowChecks(check) {
   await settle();
   check("A MICROPHONE THAT WILL NOT OPEN FAILS THE CAPTURE rather than recording silence",
     failure !== null && ready === null);
+
+  /* --- the shell's half of the same rule ----------------------------------- */
+  //
+  // `main/capture.ts` cannot be imported here — it imports Electron — so the
+  // decision it makes lives in `core/capture/displayMedia.ts` and is checked
+  // directly. It is the guard that makes the renderer's shape unforgeable from
+  // the other side: the handler answered `{ audio: "loopback" }` to every
+  // request, including the one that asked for video, and Chromium threw *"Video
+  // was requested, but no video stream was provided"* back into a callback
+  // nothing was catching — two `UnhandledPromiseRejectionWarning` lines on
+  // stderr on every single press of Record.
+  {
+    const audioOnly = answerDisplayMedia({ videoRequested: false, audioRequested: true });
+    check(
+      "an audio-only request is answered with the loopback tap",
+      audioOnly.kind === "loopback" && audioOnly.streams.audio === "loopback",
+    );
+
+    const withVideo = answerDisplayMedia({ videoRequested: true, audioRequested: true });
+    check(
+      "A REQUEST THAT ASKED FOR VIDEO IS REFUSED, never handed a shape it did not ask for",
+      withVideo.kind === "refuse",
+    );
+    check(
+      "...and says why, in words a log can carry",
+      withVideo.kind === "refuse" && withVideo.reason.includes("video"),
+    );
+
+    const neither = answerDisplayMedia({ videoRequested: false, audioRequested: false });
+    check(
+      "a request for nothing at all is refused rather than answered with a tap",
+      neither.kind === "refuse",
+    );
+
+    /*
+      And the handler really asks it, and really catches. Read as text — with
+      block comments stripped, the same technique `appShell.test.mjs` uses and
+      for the same reason — because `main/capture.ts` imports Electron and
+      cannot be run here. The `catch` is not decoration: `callback` throws
+      *synchronously from inside Electron*, from a handler Electron calls in an
+      async context, which is exactly how the shipped throw became an unhandled
+      rejection rather than a stack anybody owned.
+    */
+    const handler = readFileSync(new URL("../src/main/capture.ts", import.meta.url), "utf8").replace(
+      /\/\*[\s\S]*?\*\//g,
+      "",
+    );
+    check(
+      "THE SHELL'S HANDLER ASKS THE RULE rather than answering every request the same way",
+      /const answer = answerDisplayMedia\(\{\s*videoRequested: request\.videoRequested === true,\s*audioRequested: request\.audioRequested === true,\s*\}\);/.test(
+        handler,
+      ),
+    );
+    check(
+      "...AND ITS CALLBACK CANNOT RAISE AN UNHANDLED REJECTION, whatever Electron throws into it",
+      /try \{[\s\S]*?callback\(answer\.streams\);\s*\} catch \(error\) \{\s*console\.error\(/.test(handler),
+    );
+  }
+
+  /* -- the meter goes flat when the input does, and says so ------------------
+   *
+   * The failure this closes is the mirror image of the one above: a bar left at
+   * whatever the last reading was, on a meeting that is paused or over. That is
+   * a meter claiming a closed microphone is hearing somebody, which is worse
+   * than the flat bar it replaced — it is the same lie in the other direction.
+   * The zero is FORCED past the change filter for exactly that reason.
+   */
+  {
+    globalThis.navigator.mediaDevices.getUserMedia = async () => stream(["audio"]);
+    globalThis.navigator.mediaDevices.getDisplayMedia = async () => stream(["audio", "video"]);
+    await handlers.start({ channels: ["mic", "system"], sampleRate: 48_000 });
+    await settle();
+
+    check(
+      "BOTH OPEN CHANNELS ARE TAPPED — the wire carries the pair, whatever the glass draws",
+      analysers.length >= 2 && analysers.slice(-2).every((one) => one.connectedTo !== null),
+    );
+    amplitude = 0.1;
+    sample();
+    const heard = levels[levels.length - 1];
+    check(
+      "...and both of them are heard",
+      Math.abs(heard.mic - 2 / 3) < 0.01 && Math.abs(heard.systemAudio - 2 / 3) < 0.01,
+    );
+
+    const openContexts = contexts.length;
+    handlers.pause();
+    await settle();
+    const paused = levels[levels.length - 1];
+    check(
+      "A PAUSE FLATTENS THE METER IMMEDIATELY — not when the open chunk finishes closing",
+      paused.mic === 0 && paused.systemAudio === 0,
+    );
+    check("...and stops reading altogether, because there is nothing to read", sample === null);
+
+    handlers.resume();
+    await settle();
+    check("resuming arms it again", sample !== null);
+    // Still talking, and the meter says so rather than waiting for a change.
+    sample();
+    check("...and it hears the room again", levels[levels.length - 1].mic > 0.5);
+
+    handlers.stop();
+    await settle();
+    const ended = levels[levels.length - 1];
+    check(
+      "ENDING FLATTENS IT TOO, so a finished meeting never draws a live bar",
+      ended.mic === 0 && ended.systemAudio === 0 && sample === null,
+    );
+    check(
+      "THE AUDIO GRAPH IS CLOSED WITH THE TRACKS — a meter must not outlive the capture either",
+      contexts.length === openContexts && contexts[openContexts - 1].closed === true,
+    );
+    amplitude = 0;
+  }
 
   globalThis.setInterval = realSetInterval;
   globalThis.clearInterval = realClearInterval;

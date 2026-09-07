@@ -49,13 +49,20 @@
  *   `--smoke` no longer asking `unexpectedConsoleAddress`                   1
  *   `--smoke` no longer asking about the application menu                   1
  *   the `SMOKE_DEADLINE_MS` timer deleted                                   1
- *   `smokeLoadFailure`'s call moved outside its `if (SMOKE_LOAD)` guard      1
+ *   `smokeLoadFailure`'s call moved outside its `if (SMOKE_LOAD)` guard     1
  *   `[smoke]`'s `loaded` field hardcoded to `false`                         1
  *   `--smoke-load` reading the mirror before `awaitSnapshot` resolves       1
  *   `EFFECTIVE_SMOKE_DEADLINE_MS` collapsed back to `SMOKE_DEADLINE_MS`     1
  *   the fallback navigation never awaited before reading the window's URL   1
  *   `mirrorServed` hardcoded rather than asked of the window's own URL      1
- *   `CONSOLE_NOTICES.permissions` reverted to "Open the menu bar to grant it" 3
+ *   the permission notice reverted to "Open the menu bar to grant it"       3
+ *   the permission sentence defaulting to the microphone again              1
+ *   nothing logging the real text of a capture failure                      1
+ *   the shell's `transcriber` branch removed                                1
+ *   `explain` back to a parentless, application-modal alert                 1
+ *   `explain`'s windowless fallback made a blocking alert                   2
+ *   `askSomething` never passing the parent window                          1
+ *   the connect question asked with `dialog.showMessageBox` directly        2
  *
  * **The guard row is the one worth reading twice.** `smokeLoadFailure`'s call
  * has to live *inside* `if (SMOKE_LOAD)`, because plain `--smoke` is what the
@@ -65,7 +72,7 @@
  * alarm `SMOKE_DEADLINE_MS`'s own widening already argues against, one layer
  * further out.
  *
- * **The last two rows are the finding this fix is about, made a check.** A
+ * **The `mirrorServed` rows are the finding that fix was about, made a check.** A
  * Mac session found `--smoke-load` exiting 1 offline even when the mirror had
  * just served a real document — `loaded:false` and nothing else was asked.
  * `mirrorServed` and `wasMirrorServed` (`core/shell/mirror.ts`) are what tells
@@ -75,7 +82,7 @@
  * in `test/mirror.test.mjs`, run as a temporary local edit and reverted:
  * `smokeLoadFailure`'s own docblock names the run.
  *
- * The last row is why the stripper has a self-test at all: made into `(s) => s`
+ * The stripper row is why the stripper has a self-test at all: made into `(s) => s`
  * the three checks that scan for an *absent* string all invert, because the
  * prose these files carry mentions every string they are being checked for. A
  * stripper that does nothing turns this file into a check that the
@@ -113,7 +120,17 @@ function withoutComments(source) {
   return source.replace(/\/\*[\s\S]*?\*\//g, "");
 }
 
-function withoutYamlComments(source) {
+/**
+ * The same idea for YAML, where a comment is `#` to end of line.
+ *
+ * Exported because `packaging.test.mjs` needs it too. `electron-builder.yml`'s
+ * comments now argue about the app icon at length — naming `icon.icns`, the
+ * default path and `CFBundleIconFile` — so a check for the icon run against the
+ * raw file would pass on the paragraph explaining the icon rather than on the
+ * key that sets it. One stripper with one self-test, rather than a second copy
+ * over there that nothing checks.
+ */
+export function withoutYamlComments(source) {
   return source
     .split("\n")
     .map((line) => line.replace(/(^|\s)#.*$/, ""))
@@ -379,11 +396,12 @@ export function runAppShellChecks(check) {
     process's life, still failed to open an input, and the panel *still* said
     "not granted" at 14:57. AVFoundation's per-process authorization can lag a
     grant made in System Settings until the process relaunches, so a person
-    who did exactly what `CONSOLE_NOTICES.permissions` told them to do sees the
+    who did exactly what `CONSOLE_NOTICES.microphonePermission` told them to do
+    sees the
     same sentence again — which reads as "that didn't work" about an
     instruction that was never wrong, it was just already followed. The only
     thing that actually recovers this one is a relaunch, so it needs its own
-    sentence and its own key: reusing `permissions` here would send this
+    sentence and its own key: reusing a permission sentence here would send this
     person back to a System Settings toggle that is already on.
   */
   {
@@ -403,6 +421,119 @@ export function runAppShellChecks(check) {
       "THE CONSOLE ROUTES A STALE GRANT TO ITS OWN SENTENCE rather than the generic 'not granted' one",
       typeof staleKey === "string" &&
         (source.match(new RegExp(`CONSOLE_NOTICES\\.${staleKey}\\b`, "g")) ?? []).length >= 2,
+    );
+  }
+
+  /* --- a permission notice names WHICH permission -------------------------- */
+
+  /*
+    There used to be one `permissions` sentence and it named the microphone —
+    not because anything had been read, but because the microphone is the usual
+    answer. `outcome.missing` has always known which permission macOS actually
+    refused, and the only renderer that could print the other name was the
+    panel (`renderer/panel.ts`, "Screen Recording"), which is `null` on a
+    default launch. So the console blamed the microphone whatever happened.
+  */
+  {
+    const notices = source.match(/const CONSOLE_NOTICES = Object\.freeze\(\{[\s\S]*?\n\}\);/)?.[0] ?? "";
+    check(
+      "THE CLOSED SET HAS A SENTENCE PER PERMISSION, one of which names Screen Recording",
+      /microphonePermission:\s*\n?\s*"(?:[^"\\]|\\.)*Microphone(?:[^"\\]|\\.)*"/.test(notices) &&
+        /screenRecordingPermission:\s*\n?\s*"(?:[^"\\]|\\.)*Screen Recording(?:[^"\\]|\\.)*"/.test(notices),
+    );
+    const refusal = source.match(/} else if \(result\.why === "permissions"\) \{[\s\S]*?\n {4}\} else if/)?.[0] ?? "";
+    check(
+      "THE SENTENCE IS CHOSEN FROM `missing`, NOT DEFAULTED TO THE MICROPHONE",
+      /missingPermissions\.includes\("screen"\)/.test(refusal) &&
+        /explain\(CONSOLE_NOTICES\.screenRecordingPermission\);/.test(refusal) &&
+        /explain\(CONSOLE_NOTICES\.microphonePermission\);/.test(refusal),
+    );
+    check(
+      "...and the console's own refusal asks the same question rather than inventing a second",
+      /permissionNotice\(result\.missing \?\? \[\]\)/.test(source) &&
+        /function permissionNotice\(missing: readonly PermissionKind\[\]\): string \{/.test(source),
+    );
+  }
+
+  /* --- a failure names its own subsystem, and is written down -------------- */
+
+  /*
+    NOTHING IN `apps/desktop/src` LOGGED A CAPTURE FAILURE AT ALL.
+
+    The shell caught a `BeginResult` that was not ok, substituted a sentence
+    from the closed set, and dropped the real text on the floor — so on a
+    machine where the system tap had never once opened, the only trace anywhere
+    was two `UnhandledPromiseRejectionWarning` lines from Electron's internals,
+    naming Chromium's problem rather than this app's. The person still gets a
+    closed-set sentence; the log is the half that was missing.
+  */
+  {
+    check(
+      "A CAPTURE FAILURE IS WRITTEN DOWN WITH ITS REAL TEXT",
+      /function logCaptureFailure\(why: string, message: string \| null\): void \{\s*console\.error\(/.test(
+        source,
+      ) && (source.match(/logCaptureFailure\(/g) ?? []).length >= 5,
+    );
+    const engine = source.match(/} else if \(result\.why === "transcriber"\) \{[\s\S]*?\n {4}\}/)?.[0] ?? "";
+    check(
+      "AN ENGINE THAT FAILED IS EXPLAINED AS AN ENGINE, not as a permission",
+      engine !== "" &&
+        /logCaptureFailure\("transcriber", result\.message \?\? null\);/.test(engine) &&
+        /explain\(CONSOLE_NOTICES\.captureFailed\);/.test(engine) &&
+        /Permission\b/.test(engine) === false,
+    );
+  }
+
+  /* --- an alert may never stop the main process ---------------------------- */
+
+  /*
+    THE MEASUREMENT: `sample` on the live main process while one of these was
+    up put **1374 of 1374 samples** on `-[NSAlert runModal]` ->
+    `-[NSApplication runModalForWindow:]`. A `dialog.showMessageBox(options)`
+    with no `browserWindow` is application-modal on macOS, and for as long as it
+    is open the main process is stopped: no outbox drain, no finalize, no IPC
+    answered. `explain()` fires on exactly the capture-failed path, which is the
+    worst moment available to stop draining a queue holding somebody's meeting.
+
+    Passing the parent makes it a window sheet — document-modal, process still
+    running behind it. Where there is no window, an alert is not available at
+    all: `explain` degrades to a `Notification`, which never blocks.
+  */
+  {
+    const explainBody = source.match(/function explain\(sentence: string\): void \{[\s\S]*?\n {2}\}/)?.[0] ?? "";
+    check("THE `explain` BODY IS FOUND AT ALL", explainBody !== "");
+    check(
+      "A SENTENCE IS SHOWN AS A WINDOW SHEET, never as an application-modal alert",
+      /void dialog\.showMessageBox\(parent, \{/.test(explainBody) &&
+        /dialog\.showMessageBox\(\{/.test(explainBody) === false,
+    );
+    check(
+      "...and with no window to attach one to it CANNOT BLOCK — it notifies instead",
+      /new Notification\(\{ title: "Context", body: sentence \}\)\.show\(\)/.test(explainBody) &&
+        /console\.error\(`\[shell\] \$\{sentence\}`\)/.test(explainBody),
+    );
+
+    const asker = source.match(/function askSomething\([\s\S]*?\n\}/)?.[0] ?? "";
+    check(
+      "A QUESTION IS ASKED THROUGH ONE PLACE, which passes the parent when there is one",
+      /return parent === null \? dialog\.showMessageBox\(options\) : dialog\.showMessageBox\(parent, options\);/.test(
+        asker,
+      ),
+    );
+    check(
+      "...and both remaining questions go through it",
+      (source.match(/await askSomething\(liveConsoleWindow\(\), \{/g) ?? []).length === 2,
+    );
+    /*
+      The whole-file sweep, because the defect is an *omitted argument* and a
+      per-call-site check only catches the sites somebody remembered to list.
+      Three calls remain in the file: `explain`'s sheet and `askSomething`'s two
+      arms, so everything outside those two bodies must have none.
+    */
+    const elsewhere = source.replace(explainBody, "").replace(asker, "");
+    check(
+      "NO OTHER CALL SITE OPENS A MESSAGE BOX, so a fourth cannot omit its window quietly",
+      explainBody !== "" && asker !== "" && /dialog\.showMessageBox/.test(elsewhere) === false,
     );
   }
 }

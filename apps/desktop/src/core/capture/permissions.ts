@@ -84,8 +84,33 @@ export async function ensureCapturePermissions(
   return { ok: missing.length === 0, missing, statuses };
 }
 
-/** What a capture of both channels needs. */
-export const CAPTURE_NEEDS: readonly PermissionKind[] = Object.freeze(["microphone", "screen"]);
+/**
+ * What a capture of both channels needs — and **`screen` is not on it**.
+ *
+ * It was, and that was an assumption rather than a measurement. Measured in
+ * the live capture window of the signed installed build on macOS 26.4.1, with
+ * no `kTCCServiceScreenCapture` row for this app in the TCC database at all —
+ * Screen Recording has never been granted on that machine — the loopback tap
+ * still delivered real system audio. So the tap is not gated on that grant,
+ * and listing it here bought nothing.
+ *
+ * What it *cost* is the reason the list is being shortened.
+ * `ensureCapturePermissions` refuses when anything it was asked about is not
+ * `granted`, so a Mac whose Screen Recording reads `denied` failed every
+ * meeting outright — `{ ok: false, why: "permissions" }`, no microphone, no
+ * note — which is the exact opposite of what `capture/plan.ts` promises out
+ * loud: *"a build macOS will not give system audio to still records"*, from
+ * the microphone, saying which half is missing. A permission that cannot be
+ * requested at all (`main/permissions.ts`: there is no API that raises the
+ * Screen Recording prompt) and is not needed anyway had one remaining effect,
+ * and it was to turn a mic-only meeting into a dead one.
+ *
+ * `PermissionKind` keeps `"screen"`. macOS still has the permission, this app
+ * still reads and names it, and `RATIONALES` and `main/permissions.ts`'s
+ * `PANES` still carry its words — so if a future capture genuinely needs it,
+ * putting it back here is the whole change and the sentences already exist.
+ */
+export const CAPTURE_NEEDS: readonly PermissionKind[] = Object.freeze(["microphone"]);
 
 /** A broker that answers from a table and records what it was asked. */
 export function fakePermissionBroker(

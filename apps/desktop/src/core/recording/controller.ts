@@ -10,8 +10,8 @@
  *
  *  1. Refuses outright if consent was not granted for this episode. The gate in
  *     `consent/gate.ts` decides; this asserts.
- *  2. Asks for the microphone and Screen Recording *now* — see
- *     `capture/permissions.ts` for why the moment matters.
+ *  2. Asks for the microphone *now* — see `capture/permissions.ts` for why the
+ *     moment matters, and for why Screen Recording is no longer on that list.
  *  3. Starts the recorder and the transcriber, and only then reports
  *     `recording`, so the always-on indicator cannot lag the capture.
  *  4. Queues the session, then segments as they arrive, then the human's notes,
@@ -191,12 +191,46 @@ export interface BeginInput {
   queueWrites?: boolean;
 }
 
+/**
+ * Why a `begin()` did not begin.
+ *
+ * **Every value names its own subsystem, and `"permissions"` is the narrowest
+ * of them.** It may be returned only where `ensureCapturePermissions` actually
+ * read something as not-granted, and it always arrives with the `missing` list
+ * that says which — nothing downstream should have to guess "the microphone"
+ * because that is the usual one. `"transcriber"` exists because a transcriber
+ * that threw used to be reported as `"permissions"` from a catch where
+ * `outcome.ok` was already true and `outcome.missing` was already empty: a lie
+ * by construction, and one that sent a person to a System Settings toggle over
+ * an engine that had failed.
+ */
+export type BeginWhy =
+  | "not-consented"
+  | "already-recording"
+  | "permissions"
+  | "stale-permission"
+  | "transcriber";
+
 export type BeginResult =
   | { ok: true; view: SessionView }
   | {
       ok: false;
-      why: "not-consented" | "already-recording" | "permissions" | "stale-permission";
+      why: BeginWhy;
+      /** Which permissions macOS refused. Non-empty exactly when `why` is `"permissions"`. */
       missing?: PermissionKind[];
+      /**
+       * The original text of whatever actually failed, kept whole.
+       *
+       * For a log, and for the same string this class already puts on
+       * `SessionView.failureReason` — never assembled into one of the
+       * closed-set sentences a person is shown, for the reason `PLAN_NOTICES`
+       * and `CONSOLE_NOTICES` are frozen. It exists because the shell
+       * substituted a canned sentence at the top of this call and the real
+       * message then went nowhere at all: nothing in `apps/desktop/src` logged
+       * a capture failure, so a machine that could not open an input said
+       * "this meeting is typed" and kept the reason entirely to itself.
+       */
+      message?: string;
     };
 
 export class MeetingController {
@@ -323,8 +357,24 @@ export class MeetingController {
           onNotice: (notice) => this.#update({ notice: notice.message }),
         });
       } catch (error) {
-        this.#update({ state: "failed", failureReason: describe(error), capturing: false });
-        return { ok: false, why: "permissions", missing: outcome.missing };
+        /*
+          THE TRANSCRIBER FAILED, AND IT SAYS SO IN ITS OWN WORDS.
+
+          This returned `why: "permissions", missing: outcome.missing` — from
+          inside a branch that is only reachable *after* `outcome.ok` came back
+          true, with `outcome.missing` therefore empty. So the shell was told
+          "macOS refused a permission" and handed an empty list of which one,
+          for a failure macOS had no part in, and every renderer downstream
+          filled the blank with the microphone. A person whose gateway was
+          unreachable was sent to System Settings to enable a permission that
+          was already on.
+
+          The subsystem names itself now, and the engine's own message travels
+          with it rather than being replaced by a sentence about permissions.
+        */
+        const message = describe(error);
+        this.#update({ state: "failed", failureReason: message, capturing: false });
+        return { ok: false, why: "transcriber", message };
       }
       try {
         await this.#deps.recorder.start({
@@ -347,7 +397,8 @@ export class MeetingController {
           },
         });
       } catch (error) {
-        this.#update({ state: "failed", failureReason: describe(error), capturing: false });
+        const message = describe(error);
+        this.#update({ state: "failed", failureReason: message, capturing: false });
         /*
           `outcome.ok` is true here — `ensureCapturePermissions` already read
           `granted` for everything this meeting needs — and the input still
@@ -366,8 +417,13 @@ export class MeetingController {
           instruction this section exists to remove, just for a different
           reason. `missing` stays empty — nothing is missing, this process is
           stale — so the panel can tell the two apart without re-deriving it.
+
+          The recorder's own words travel with it too. The *sentence* a person
+          is shown is still the closed set's, because "quit and reopen" is the
+          only instruction that recovers this; the message is what a log needs
+          in order to say which input refused and why.
         */
-        return { ok: false, why: "stale-permission", missing: [] };
+        return { ok: false, why: "stale-permission", missing: [], message };
       }
     }
 
