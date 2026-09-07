@@ -34,6 +34,7 @@ function settle(start: { note: string | null; selected: string | null }, passes 
     const inputs: AddressInputs = {
       contextId: CTX,
       selectedContextId: CTX,
+      urlContextId: CTX,
       note,
       selected,
       seen,
@@ -104,6 +105,7 @@ describe("the rule that keeps ?note= and the open note in step", () => {
     const inputs: AddressInputs = {
       contextId: "w0",
       selectedContextId: CTX,
+      urlContextId: CTX,
       note: A,
       selected: null,
       seen: null,
@@ -124,6 +126,7 @@ describe("the rule that keeps ?note= and the open note in step", () => {
       nextAddressStep({
         contextId: CTX,
         selectedContextId: CTX,
+        urlContextId: CTX,
         note: A,
         selected: null,
         seen,
@@ -131,31 +134,111 @@ describe("the rule that keeps ?note= and the open note in step", () => {
     ).toEqual({ action: "open", path: A });
   });
 
+  test("a URL that has moved to another context is not read against this one", () => {
+    /**
+     * **The switch bug.** Pressing another context in the rail replaces the
+     * URL with `/console/@supa` — no `?note=` — and that lands a commit before
+     * the console selects `@supa` and the browser resets under it. Every value
+     * this rule reads in that commit is honest and the pair is not: the `note`
+     * is `@supa`'s (there is none) and the `selected` is still `@seyi`'s.
+     *
+     * Without the URL's own context in the inputs, the rule read that as "the
+     * URL merely lost its note" and re-addressed the open one — writing
+     * `?note=<a @seyi path>` onto `/console/@supa`, which then opened as a link
+     * into a context that has never had that file. "I'll change between
+     * workspaces and it will say file not found."
+     */
+    const seen: Reconciled = { contextId: CTX, note: A, selected: A };
+    expect(
+      nextAddressStep({
+        contextId: CTX,
+        selectedContextId: CTX,
+        urlContextId: "w2",
+        note: null,
+        selected: A,
+        seen,
+      }),
+    ).toEqual({ action: "wait" });
+  });
+
+  test("...and a note the new URL names is not opened in the old context either", () => {
+    /*
+      The phone's half of the same commit. Its strip restores the path that
+      context was last left at (`contextHrefFor`), so the URL arrives carrying
+      `@supa`'s note while the browser is still `@seyi` — and `select` there is
+      a read of one context's path against the other's bucket.
+    */
+    const seen: Reconciled = { contextId: CTX, note: A, selected: A };
+    expect(
+      nextAddressStep({
+        contextId: CTX,
+        selectedContextId: CTX,
+        urlContextId: "w2",
+        note: B,
+        selected: A,
+        seen,
+      }),
+    ).toEqual({ action: "wait" });
+  });
+
+  test("a context the list does not hold is waited on rather than guessed at", () => {
+    // `urlContextId` is `null` for a slug that is not in the context list --
+    // still loading, or a dead link the layout is about to redirect away from.
+    // Neither is a reason to touch the URL or the selection.
+    expect(
+      nextAddressStep({
+        contextId: CTX,
+        selectedContextId: CTX,
+        urlContextId: null,
+        note: A,
+        selected: null,
+        seen: null,
+      }),
+    ).toEqual({ action: "wait" });
+  });
+
+  test("the switch settles once the browser has caught up", () => {
+    // The commit after: everything agrees on `@supa`, the browser's reset has
+    // cleared the selection, and the URL names no note. Nothing to do -- and in
+    // particular no write, which is what would put the old note back.
+    const seen: Reconciled = { contextId: CTX, note: A, selected: A };
+    expect(
+      nextAddressStep({
+        contextId: "w2",
+        selectedContextId: "w2",
+        urlContextId: "w2",
+        note: null,
+        selected: null,
+        seen,
+      }),
+    ).toEqual({ action: "hold" });
+  });
+
   test("a link that changes wins over the note that is open", () => {
     const seen: Reconciled = { contextId: CTX, note: A, selected: A };
     expect(
-      nextAddressStep({ contextId: CTX, selectedContextId: CTX, note: B, selected: A, seen }),
+      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: B, selected: A, seen }),
     ).toEqual({ action: "open", path: B });
   });
 
   test("a selection that changes is addressed", () => {
     const seen: Reconciled = { contextId: CTX, note: A, selected: A };
     expect(
-      nextAddressStep({ contextId: CTX, selectedContextId: CTX, note: A, selected: B, seen }),
+      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: A, selected: B, seen }),
     ).toEqual({ action: "address", note: B });
   });
 
   test("a selection cleared by a delete clears the URL", () => {
     const seen: Reconciled = { contextId: CTX, note: A, selected: A };
     expect(
-      nextAddressStep({ contextId: CTX, selectedContextId: CTX, note: A, selected: null, seen }),
+      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: A, selected: null, seen }),
     ).toEqual({ action: "address", note: null });
   });
 
   test("a URL that lost its note is re-addressed rather than obeyed", () => {
     const seen: Reconciled = { contextId: CTX, note: A, selected: A };
     expect(
-      nextAddressStep({ contextId: CTX, selectedContextId: CTX, note: null, selected: A, seen }),
+      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: null, selected: A, seen }),
     ).toEqual({ action: "address", note: A });
   });
 
@@ -166,6 +249,7 @@ describe("the rule that keeps ?note= and the open note in step", () => {
         nextAddressStep({
           contextId: CTX,
           selectedContextId: CTX,
+          urlContextId: CTX,
           note: value,
           selected: value,
           seen,

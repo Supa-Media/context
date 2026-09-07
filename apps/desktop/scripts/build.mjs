@@ -56,6 +56,18 @@ const configs = [
     target: NODE_TARGET,
     external: ["electron"],
   },
+  {
+    // The console window's bridge. CJS for the same reason as the other two,
+    // and doubly so here: this preload runs sandboxed, where an ESM one does
+    // not merely misbehave, it never runs at all — a window that loads, looks
+    // right, and has no `window.desktop` on it.
+    entryPoints: [join(root, "src/preload/console.ts")],
+    outfile: join(out, "renderer/consolePreload.js"),
+    platform: "node",
+    format: "cjs",
+    target: NODE_TARGET,
+    external: ["electron"],
+  },
   ...["panel", "notepad", "capture"].map((name) => ({
     entryPoints: [join(root, `src/renderer/${name}.ts`)],
     outfile: join(out, `renderer/${name}.js`),

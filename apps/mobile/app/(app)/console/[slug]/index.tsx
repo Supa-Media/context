@@ -1,6 +1,10 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useConsoleData } from "../../../../features/console/ConsoleDataContext";
-import { noteFromQuery, settingsHref } from "../../../../features/console/nav";
+import {
+  contextIdForSlug,
+  noteFromQuery,
+  settingsHref,
+} from "../../../../features/console/nav";
 import { placeFor } from "../../../../features/console/lastPlace";
 import { useContextSlug } from "../../../../features/console/useContextSlug";
 import { useRememberPlace } from "../../../../features/console/useLastPlace";
@@ -35,6 +39,24 @@ import { BrowsePane } from "../../../../features/console/panes/BrowsePane";
  * fed the *addressed* note rather than the browser's selection, so what a
  * device restores is exactly what a reload would restore, and `placeFor`
  * refuses to record a context this account cannot reach.
+ *
+ * ## The URL is handed over as one fact: a context **and** a note
+ *
+ * Which it always was, and this route used to take it apart — passing the
+ * `note` to `useNoteAddress` and leaving that hook to get its context from the
+ * console's own state. The two disagree across a switch: pressing another
+ * context replaces the address a commit or two before the console selects what
+ * it names and before the file browser resets under it, so the URL's note
+ * (`@supa`'s, or none) was reconciled against `@seyi`'s open one. What that did
+ * is write the note from the context being *left* onto the address of the one
+ * being entered — which then opened as a link into a context that has never had
+ * that file, and was recorded on the device in that shape, so it happened again
+ * on every later switch. `noteAddress.ts` holds the rule and the account of it.
+ *
+ * `placeFor` needs no separate guard for the same reason it is fed the URL's
+ * note rather than the browser's selection: both halves of what it records come
+ * from one address in one commit, so the record can only be wrong if the
+ * address is. `contextSwitchRecord.test.ts` is what holds that end of it.
  */
 export default function ContextBrowseRoute() {
   const data = useConsoleData();
@@ -42,7 +64,12 @@ export default function ContextBrowseRoute() {
   const slug = useContextSlug(data);
   const note = noteFromQuery(useLocalSearchParams<{ note?: string | string[] }>().note);
 
-  useNoteAddress(data.files, note, data.selectedContextId, useNoteUrl());
+  useNoteAddress(
+    data.files,
+    { contextId: contextIdForSlug(data.contexts, slug), note },
+    data.selectedContextId,
+    useNoteUrl(),
+  );
   useRememberPlace(placeFor(data.contexts, slug, note));
 
   return (

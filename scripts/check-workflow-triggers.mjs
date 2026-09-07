@@ -166,6 +166,12 @@ const DEPLOY_COMMANDS = [
   // reason a workflow that submits to the App Store could have worn any name.
   /\beas\s+build\b/,
   /\beas\s+submit\b/,
+  // `electron-builder` is the desktop app's `eas build`, and it is here for the
+  // same reason: it signs a binary with the account's Developer ID certificate
+  // and notarises it with Apple. Unmatched, `deploy-desktop.yml` would have been
+  // a file wearing the deploy name while this checker said it deployed nothing —
+  // which is the exemption-in-disguise the NAME rule exists to refuse.
+  /\belectron-builder\b/,
   /\buses:\s*\S*deploy[^\s]*\.ya?ml/,
 ];
 

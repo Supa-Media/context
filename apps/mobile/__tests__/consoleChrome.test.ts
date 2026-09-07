@@ -5,6 +5,8 @@
 import { describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { EditorRegion } from "../features/console/EditorRegion";
+import { NavBandProvider } from "../features/console/NavBand";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -460,6 +462,84 @@ describe("on a phone", () => {
     expect(app.find("storage-pill")).toBeNull();
 
     app.unmount();
+  });
+});
+
+describe("the panes that are not Browse carry the navigation too", () => {
+  /*
+    THE FIXTURE ABOVE DRAWS `NavBand` ITSELF, AND THAT IS THE RIGHT CALL — a
+    `Slot` rendering `null` would be a layout with the navigation missing, so
+    every assertion about the strip would be testing the absence. But it means
+    those assertions cannot say anything about the pane that draws the band on
+    Map, Connections and Settings, because the fixture stands in for it.
+
+    MEASURED, on `main`: deleting `EditorRegion`'s `<NavBand />` — the only one
+    for every non-Browse pane — left the whole mobile suite green at 3,516. A
+    phone on Settings would have had no rail (hidden at compact) and no strip,
+    which is no navigation at all, and nothing would have said so.
+
+    So this mounts the real `EditorRegion`. `BrowsePane` is already covered the
+    same way in `noteChrome.test.ts`; between them both halves of "the console
+    always has a way out" rest on a real component rather than on a mock.
+  */
+  const mountEditorRegion = (phone: boolean) => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+    act(() => {
+      root.render(
+        createElement(
+          NavBandProvider as never,
+          /*
+            Plain nodes: `NavBand` draws the band when the provider holds any,
+            and what the contexts row CONTAINS is `ContextStrip`'s own question,
+            asked in `contextStrip.test.ts`. Coupling this to that component's
+            props would buy nothing and break on a rename.
+
+            The shape here is `nodes: { contexts, current }`. It was `node` when
+            this was written, and #255 changed it — which these two checks
+            caught by failing, which is the whole point of mounting the real
+            component rather than a fixture that supplies it.
+          */
+          {
+            nodes: {
+              contexts: createElement("div", null, "contexts"),
+              current: createElement("div", null, "here"),
+            },
+          },
+          createElement(
+            EditorRegion as never,
+            { browse: false, failure: null, tabs: null, onCloseTab: () => {}, phone },
+            createElement("div", null, "a pane"),
+          ),
+        ),
+      );
+    });
+    return {
+      band: () => container.querySelector('[data-testid="nav-band"]'),
+      unmount: () => {
+        act(() => root.unmount());
+        container.remove();
+      },
+    };
+  };
+
+  test("a non-Browse pane draws the navigation band on a phone", () => {
+    const view = mountEditorRegion(true);
+    expect(view.band()).not.toBeNull();
+    view.unmount();
+  });
+
+  test("...and on a pointer, where the rail is present too", () => {
+    /*
+      The positive twin for the phone case above. If this drew nothing on a
+      pointer the first assertion would still pass while the component was
+      broken for everybody — and asserting only the phone would leave the
+      band's presence resting on one density.
+    */
+    const view = mountEditorRegion(false);
+    expect(view.band()).not.toBeNull();
+    view.unmount();
   });
 });
 

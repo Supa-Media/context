@@ -50,6 +50,14 @@ pnpm --filter @context/desktop test      # offline; no Electron needed
 pnpm --filter @context/desktop typecheck
 ```
 
+`CONTEXT_DESKTOP_UI=console` opens a third window that hosts `apps/mobile`'s web
+build — `CONTEXT_DESKTOP_UI_URL` says where from, defaulting to
+`http://localhost:8081` outside production so `expo start` is what you develop
+against. It carries a bridge whose every capability answers `false`, which is
+step one of `docs/decisions/desktop.md`: the UI moves out of this app and ships
+with the web deploy, and the shell keeps the tray, the audio, the credential and
+the queue.
+
 `start` accepts `--fake-signals`, which runs the whole app against the
 deterministic collectors and the fake recorder and transcriber. That is how the
 panel, the tray and the notepad are worked on without being in a meeting, and it
@@ -81,6 +89,59 @@ The credential lives in the OS keychain (`safeStorage` over a 0600 file in
 renderer. On a machine whose OS offers no encrypted storage the app holds it for
 that launch only and says so on the panel rather than writing a token to disk.
 
+## Building a `.dmg`
+
+```sh
+pnpm --filter @context/desktop package    # dist/ + release/Context-*.dmg
+```
+
+On macOS only — `codesign`, `notarytool` and dmg creation are Apple's own
+tools — and it works with no credentials at all, which is the state this
+repository is in today. What that produces is a **real, unsigned app**: it
+installs on the machine that built it, and
+
+- Gatekeeper refuses it on any other Mac, and
+- **macOS gives it no system audio.** It is a hardened-runtime build macOS has
+  not verified, so TCC declines; the app detects that, records the microphone
+  alone, and says so on the panel.
+
+`.github/workflows/deploy-desktop.yml` is the same build on a runner —
+`workflow_dispatch` only, because a binary somebody installs is a decision
+somebody takes rather than something a merge does. It uploads the dmg as an
+artifact and prints a warning when the build is unsigned.
+
+### What signing needs, and who can do it
+
+Five values in the `production` environment, none of which exists yet and none
+of which anybody but the account holder can create:
+
+| | what it is |
+| --- | --- |
+| `CSC_LINK` | the Developer ID Application certificate, base64 |
+| `CSC_KEY_PASSWORD` | its passphrase |
+| `ASC_API_KEY_P8` | an App Store Connect key, the `.p8` file's contents |
+| `ASC_KEY_ID` / `ASC_ISSUER_ID` | which key that is |
+
+With all five, the same dispatch signs, notarises and staples — no code change,
+because `build/entitlements.mac.plist` already declares
+`com.apple.security.device.audio-input` and `build/notarize.cjs` reads the last
+three. The first two are read by the **workflow**, not by electron-builder, and
+that is deliberate: handed `CSC_LINK`, electron-builder makes its own temporary
+keychain and then unlocks it with the certificate's passphrase instead of the
+keychain's, which fails every time on a runner
+([electron-builder#10066](https://github.com/electron-userland/electron-builder/issues/10066),
+unfixed in 26.x). So `deploy-desktop.yml` checks the certificate, builds the
+keychain itself, hands electron-builder `CSC_KEYCHAIN`, and deletes the keychain
+whatever the build did. The suite checks the parts
+that can be checked without a Mac: the entitlement is *granted* rather than
+mentioned, the hardened runtime is on, the helper processes inherit the
+entitlements, the three `Info.plist` usage strings exist and say what happens to
+the audio, the notarisation hook treats two-of-three credentials as a skip
+rather than a hang — and, driven against a fake Apple, that a submission Apple
+*refuses* fails the build rather than producing a quiet unsigned dmg, and that
+the private key the hook writes for `notarytool` is gone from the runner
+afterwards even when the submission failed.
+
 ## Consent, because this app watches what you are doing
 
 Five rules, each enforced in code with a check beside it rather than promised
@@ -111,7 +172,7 @@ the settings file, put in a URL, or exposed to a renderer.
 
 ## What is real, and what is not
 
-### Real, and checked by the suite (492 checks, offline, no network)
+### Real, and checked by the suite (555 checks, offline, no network)
 
 - The detection loop against fake collectors, including the flicker cases: one
   poll of a conferencing app does not start a recording, a two-poll blip does
@@ -133,6 +194,9 @@ the settings file, put in a URL, or exposed to a renderer.
 - The gateway client: routes taken from `ROUTES`, the credential in a header
   and provably nowhere else, a captive portal's 200 not counted as an ingest.
 - The macOS parsers against fixtures, including the redactions.
+- The console shell's origin pin: a foreign origin, a lookalike host, an opaque
+  origin and a subframe each get no bridge, and the shell refuses to load a UI
+  over plaintext from anything that is not really loopback.
 
 Every one of those areas has a **sabotage record** in its test file: the
 invariant was broken deliberately, the run was watched, and the count of

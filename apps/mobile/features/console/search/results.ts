@@ -69,6 +69,23 @@ export interface SearchableContext {
 }
 
 /**
+ * A context the viewer belongs to that this page will not reach, and why.
+ *
+ * Mirrors the control plane's own `UnsearchableContext` — same fields, same
+ * `state` vocabulary (`FastSearchState`, minus `"on"`), because a client that
+ * re-derived either would be a second place for the nudge to disagree with the
+ * settings card it points at.
+ */
+export interface UnsearchableContext {
+  workspaceId: string;
+  slug: string;
+  displayName: string;
+  /** Whether this viewer may turn fast search on for it. */
+  owner: boolean;
+  state: "off" | "preparing" | "failed" | "unavailable";
+}
+
+/**
  * Below this a query is a prefix of a word rather than a word.
  *
  * The same number the palette uses, and shared for a reason beyond tidiness:
@@ -267,4 +284,105 @@ export function noteworthySources(answer: BlendedAnswer | null): {
     }
   }
   return rows;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                        the nudge toward fast search                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A row in the nudge: which of the viewer's contexts is not searchable here,
+ * what to say about it, and — only where there is something to press — where
+ * that press goes.
+ *
+ * `href` is deliberately absent rather than disabled for a context nobody can
+ * act on right now (a member watching another owner's "off", or one that is
+ * still `preparing`): the reviewer's own words about the page as a whole apply
+ * here at the row level too — the fix is a nudge, never a control offered to
+ * somebody it would refuse.
+ */
+export interface NudgeRow {
+  workspaceId: string;
+  slug: string;
+  message: string;
+  /** The context's own settings pane — reused, never a switch drawn here. */
+  href: string | null;
+}
+
+/**
+ * Whether a context the viewer owns is sitting there un-searchable, is a
+ * question worth answering on its own — it is the trigger for showing the
+ * nudge in the scope picker even while other contexts already answer.
+ *
+ * Zero eligible contexts is the other trigger, and it is asked at the call
+ * site rather than folded in here: it is a fact about the *answer*
+ * (`eligibleCount`), not about this list, and folding it in would make this
+ * function need an argument it otherwise has no business with.
+ */
+export function ownsAnUnsearchableContext(
+  notEligible: readonly UnsearchableContext[],
+): boolean {
+  return notEligible.some((context) => context.owner);
+}
+
+/**
+ * The sentence for one context that cannot be searched here, in the second
+ * person where the viewer can act and the third where only an owner can.
+ *
+ * `preparing` reuses the settings card's own word for "opted in and not yet
+ * actually serving" (`describeFastSearch`'s "Preparing the index") rather than
+ * inventing "backfilling" as a second name for the same thing — one context
+ * cannot be "backfilling" here and "preparing" on its own settings screen.
+ */
+export function nudgeMessage(context: UnsearchableContext): string {
+  switch (context.state) {
+    case "off":
+      return context.owner
+        ? `Fast search is off for @${context.slug}.`
+        : `@${context.slug}'s owner has not turned fast search on.`;
+    case "preparing":
+      // Never "nothing here": the same rule `noteworthySources` follows for a
+      // source mid-search applies before a search is even asked.
+      return `@${context.slug} is still being indexed.`;
+    case "failed":
+      return context.owner
+        ? `@${context.slug}'s index could not be prepared.`
+        : `@${context.slug}'s index could not be prepared. Only its owner can try again.`;
+    case "unavailable":
+      return `Fast search is not available for @${context.slug}.`;
+  }
+}
+
+/**
+ * Whether this row has a press an owner can act on right now.
+ *
+ * Only `off` and `failed`, and only for an owner: `preparing` has nothing to
+ * press — a backfill in progress is not sped up by opening its settings — and
+ * `unavailable` has no switch to reach, because there is no entitlement to
+ * turn on. A non-owner never gets a press: the card behind it refuses them,
+ * and a button that reaches a permission error is worse than no button.
+ */
+function actionable(context: UnsearchableContext): boolean {
+  return context.owner && (context.state === "off" || context.state === "failed");
+}
+
+/**
+ * The nudge's rows, built from the contexts the viewer belongs to that this
+ * page cannot reach — the server's own list, so a workspace the viewer is not
+ * a member of cannot appear here any more than it can in `eligible`.
+ *
+ * `settingsHref` rather than a new switch: the task this exists for is
+ * pointing at the one control that already changes this, not building a
+ * second one three taps closer.
+ */
+export function nudgeRows(
+  notEligible: readonly UnsearchableContext[],
+  settingsHref: (slug: string) => string,
+): NudgeRow[] {
+  return notEligible.map((context) => ({
+    workspaceId: context.workspaceId,
+    slug: context.slug,
+    message: nudgeMessage(context),
+    href: actionable(context) ? settingsHref(context.slug) : null,
+  }));
 }

@@ -37,6 +37,7 @@ import {
   type BlendedResult,
   type PageState,
   type SearchableContext,
+  type UnsearchableContext,
 } from "./results";
 
 /**
@@ -57,6 +58,8 @@ export interface BlendedSearchView {
   results: BlendedResult[];
   answer: BlendedAnswer | null;
   eligible: SearchableContext[];
+  /** The viewer's own contexts this page cannot reach, and why — for the nudge. */
+  notEligible: UnsearchableContext[];
   /** Whether another page exists. */
   hasMore: boolean;
   loadingMore: boolean;
@@ -92,10 +95,27 @@ export function useBlendedSearch(options: {
     [],
   );
   const answers = useQueries(spec);
-  const eligible = useMemo<SearchableContext[]>(() => {
-    const value = answers.contexts;
-    return Array.isArray(value) ? (value as SearchableContext[]) : [];
+  /*
+    The query answers `{ eligible, notEligible }` rather than a bare array now
+    — see `fastSearch.searchScopeFor`. A thrown or not-yet-landed query is
+    `undefined` here (see the comment above `spec`), and both halves default to
+    empty exactly the way the bare array used to: an empty `eligible` draws
+    "nothing is searchable", which is wrong but survivable, and an empty
+    `notEligible` simply shows no nudge rather than a false one.
+  */
+  const known = useMemo<{ eligible: SearchableContext[]; notEligible: UnsearchableContext[] }>(() => {
+    const value = answers.contexts as
+      | { eligible?: unknown; notEligible?: unknown }
+      | undefined;
+    return {
+      eligible: Array.isArray(value?.eligible) ? (value.eligible as SearchableContext[]) : [],
+      notEligible: Array.isArray(value?.notEligible)
+        ? (value.notEligible as UnsearchableContext[])
+        : [],
+    };
   }, [answers.contexts]);
+  const eligible = known.eligible;
+  const notEligible = known.notEligible;
 
   const [answer, setAnswer] = useState<BlendedAnswer | null>(null);
   const [results, setResults] = useState<BlendedResult[]>([]);
@@ -293,12 +313,13 @@ export function useBlendedSearch(options: {
       results,
       answer,
       eligible,
+      notEligible,
       hasMore: typeof answer?.cursor === "string",
       loadingMore,
       loadMore,
       retry,
       retrying,
     }),
-    [state, results, answer, eligible, loadingMore, loadMore, retry, retrying],
+    [state, results, answer, eligible, notEligible, loadingMore, loadMore, retry, retrying],
   );
 }

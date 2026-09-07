@@ -54,12 +54,15 @@ import { trayPresentation } from "../core/tray/presentation.ts";
 import type { TrayState } from "../core/tray/presentation.ts";
 import { AppTray } from "./tray.ts";
 import {
+  createConsoleWindow,
   createNotepad,
   createPanel,
   markQuitting,
   positionPanelUnderTray,
   revealNotepadQuietly,
 } from "./windows.ts";
+import { consoleOrigin, consoleUrl } from "../core/shell/console.ts";
+import { CONSOLE_ORIGIN_CHANNEL, CONSOLE_SHELL_CHANNEL } from "../preload/console.ts";
 import { CHANNELS, COMMANDS } from "./ipc.ts";
 import type { UiState } from "./ipc.ts";
 import { DEFAULT_SETTINGS } from "../core/settings.ts";
@@ -67,6 +70,17 @@ import type { DesktopSettings } from "../core/settings.ts";
 
 /** `--fake-signals` runs the whole app against the deterministic collectors. */
 const FAKE = process.argv.includes("--fake-signals");
+/**
+ * Which UI this shell hosts. `renderer` is the panel and the notepad in
+ * `src/renderer/`; `console` additionally opens `apps/mobile`'s web build.
+ *
+ * Default unchanged on purpose: this is step one of
+ * `docs/decisions/desktop.md`'s order, and step one is allowed to change
+ * nothing. The console window it opens carries a bridge with every capability
+ * answering `false`, so what it proves is that the shell can host a remote
+ * origin and give it nothing — not that the app has moved into it yet.
+ */
+const CONSOLE_UI = process.env.CONTEXT_DESKTOP_UI === "console";
 const RENDERER_DIR = join(import.meta.dirname, "..", "renderer");
 const DRAIN_INTERVAL_MS = 30_000;
 
@@ -110,6 +124,7 @@ async function main(): Promise<void> {
   await connection.load();
   const panel = createPanel(RENDERER_DIR);
   const notepad = createNotepad(RENDERER_DIR);
+  openConsoleWindowIfAsked();
 
   const capture = FAKE ? null : new DesktopCaptureRecorder(RENDERER_DIR);
   const recorder: AudioRecorder = capture ?? fakeRecorder();
@@ -611,6 +626,39 @@ async function main(): Promise<void> {
     event.preventDefault();
     void endMeeting().then(() => app.quit());
   });
+}
+
+/**
+ * Open the hosted console, when this launch was asked to.
+ *
+ * The two `sendSync` handlers are the preload's whole conversation with this
+ * process: which origin it is pinned to, and what to call this shell. Both are
+ * public — the origin is already in the window's own URL bar — and neither is a
+ * credential, which is the property that has to survive every future addition
+ * to this surface.
+ *
+ * A misconfigured `CONTEXT_DESKTOP_UI_URL` throws in `consoleUrl` and is caught
+ * here: the flag is a development aid today, and a typo in it must not stop the
+ * tray, the detector and the queue from starting.
+ */
+function openConsoleWindowIfAsked(): void {
+  if (!CONSOLE_UI) return;
+  let url: string;
+  try {
+    url = consoleUrl(process.env);
+  } catch (error) {
+    console.error(`CONTEXT_DESKTOP_UI=console, but ${(error as Error).message}`);
+    return;
+  }
+  const origin = consoleOrigin(url);
+  ipcMain.on(CONSOLE_ORIGIN_CHANNEL, (event) => {
+    event.returnValue = origin;
+  });
+  ipcMain.on(CONSOLE_SHELL_CHANNEL, (event) => {
+    event.returnValue = { app: app.getName(), version: app.getVersion(), platform: "macos" };
+  });
+  const win = createConsoleWindow(url, RENDERER_DIR);
+  win.once("ready-to-show", () => win.show());
 }
 
 app.whenReady().then(main);
