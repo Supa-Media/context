@@ -288,3 +288,47 @@ export function parseRecord(raw: string | null): ConnectionRecord | null {
 function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
 }
+
+/**
+ * Where the meeting routes live, given the MCP endpoint a person typed.
+ *
+ * `ROUTES` are **siblings** of `/mcp` rather than children of it, so what a
+ * client posts to is the endpoint's origin. Derived in one place because the
+ * mobile app derives the same thing (`gatewayOriginFrom`) for the same reason:
+ * a self-hoster who moved their gateway moves both, and a client that guessed
+ * would post meetings at `…/mcp/meetings/sessions` and get a 404 it could not
+ * explain.
+ */
+export function gatewayBaseFrom(endpoint: string): string {
+  return new URL(endpoint).origin;
+}
+
+/**
+ * OAuth error codes that mean "this grant is dead", as opposed to "try later".
+ *
+ * RFC 6749 §5.2's list, minus the ones a refresh from a registered public
+ * client cannot produce. It lives here rather than in `main/connect.ts` because
+ * it is the decision the whole credential lifecycle turns on — a wrong answer
+ * either deletes a working credential or queues meetings forever against a
+ * revoked one — and `main/` cannot be reached by the suite.
+ */
+export const FATAL_OAUTH_CODES: readonly string[] = Object.freeze([
+  "invalid_grant",
+  "invalid_client",
+  "unauthorized_client",
+  "invalid_scope",
+]);
+
+/**
+ * Anything unrecognised is **temporary**, and that default is the load-bearing
+ * half.
+ *
+ * A captive portal answering HTML, a proxy answering 502, a DNS failure: none
+ * of them is the authorization server saying no, and reading one as a
+ * revocation would clear the keychain and strand every queued meeting on a
+ * laptop that is thirty seconds from reconnecting.
+ */
+export function isFatalOAuthError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : "";
+  return FATAL_OAUTH_CODES.some((code) => message.includes(code));
+}

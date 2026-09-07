@@ -23,7 +23,14 @@
  *   an expired token returned as-is rather than refreshed                     11
  */
 
-import { GatewayConnection, RefreshFailed, parseRecord } from "../src/core/sync/connection.ts";
+import {
+  FATAL_OAUTH_CODES,
+  GatewayConnection,
+  RefreshFailed,
+  gatewayBaseFrom,
+  isFatalOAuthError,
+  parseRecord,
+} from "../src/core/sync/connection.ts";
 import { memoryTokenStore } from "../src/core/sync/tokenStore.ts";
 
 const REFRESH = "fake-refresh-token-not-a-real-one";
@@ -203,4 +210,37 @@ export async function runConnectionChecks(check) {
     const connection = new GatewayConnection({ store: memoryTokenStore("not json at all"), refresh: async () => ({}) });
     check("...and the app starts anyway, asking to be connected", (await connection.load()) === "disconnected");
   }
+
+  // -- where the meeting routes are, given an endpoint ----------------------
+  check(
+    "the meeting routes are siblings of /mcp, not children of it",
+    gatewayBaseFrom("https://gateway.example.test/mcp") === "https://gateway.example.test",
+  );
+  check(
+    "...including a gateway served under a path",
+    gatewayBaseFrom("https://example.test/context/mcp") === "https://example.test",
+  );
+  check(
+    "...and a local one, port and all",
+    gatewayBaseFrom("http://127.0.0.1:8787/mcp") === "http://127.0.0.1:8787",
+  );
+
+  // -- which refusals are the end of a credential ---------------------------
+  check(
+    "invalid_grant is the end of this grant",
+    isFatalOAuthError(new Error("the token request was refused (invalid_grant)")),
+  );
+  check(
+    "...as is a client the server no longer knows",
+    isFatalOAuthError(new Error("the token request was refused (invalid_client)")),
+  );
+  check(
+    "A CAPTIVE PORTAL IS NOT A REVOCATION",
+    !isFatalOAuthError(new Error("the token request was refused (502)")),
+  );
+  check(
+    "...nor is a gateway that said nothing at all",
+    !isFatalOAuthError(new Error("fetch failed")) && !isFatalOAuthError(null),
+  );
+  check("every fatal code is a code, not a sentence", FATAL_OAUTH_CODES.every((code) => /^[a-z_]+$/.test(code)));
 }

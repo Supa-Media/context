@@ -350,6 +350,20 @@ export class MeetingController {
     return this.#view;
   }
 
+  /**
+   * Say something about this meeting that is not about its content.
+   *
+   * "System audio was not available", "nothing is transcribing this". It is
+   * carried on the session so the panel and the notepad show the same sentence,
+   * and it is deliberately *not* queued: the gateway is not told what this
+   * machine could not do, because the note is about the meeting rather than
+   * about the recorder.
+   */
+  notice(message: string | null): void {
+    if (!this.#view) return;
+    this.#update({ notice: message });
+  }
+
   /** Something broke. The session is kept so its transcript is not lost. */
   fail(reason: string): void {
     if (!this.#view) return;

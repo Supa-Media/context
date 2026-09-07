@@ -12,35 +12,41 @@
  * hands the app the meeting's own output, so the other people see six
  * participants rather than seven.
  *
- * So this class owns a **hidden window** whose only job is to hold two
+ * So this class owns a **hidden window** whose only job is to hold the
  * `MediaRecorder`s and post their chunks back. It is not visible, it has no
  * navigation, and it loads one local file.
  *
  * ### What is real here
  *
  * The wiring: the handler, the hidden window, the IPC, the frame plumbing into
- * `AudioRecorder`, pause and resume, and `recordedMs` excluding pauses.
+ * `AudioRecorder`, pause and resume, `recordedMs` excluding pauses, and the
+ * **honest degrade** — a build macOS will not give system audio to records the
+ * microphone and reports which half is missing, rather than failing the meeting
+ * or claiming both channels.
  *
  * ### What is not, and cannot be from inside this repository
  *
  *  - **Entitlements and a signed build.** ScreenCaptureKit requires a hardened
  *    runtime, `com.apple.security.device.audio-input`, and a notarised,
  *    code-signed app. An unsigned development build gets a microphone and, in
- *    most macOS versions, silence from the loopback tap.
- *  - **`NSMicrophoneUsageDescription` and `NSCalendarsUsageDescription`** in
+ *    most macOS versions, nothing at all from the loopback tap — which is the
+ *    degrade path above, and the reason it exists rather than being an edge
+ *    case somebody might hit.
+ *  - **`NSMicrophoneUsageDescription` and `NSAudioCaptureUsageDescription`** in
  *    `Info.plist`, which is a packaging step, not a source file.
  *  - **Electron ≥ 31** for `audio: "loopback"`; earlier versions have no
- *    system-audio path on macOS at all.
- *  - **A transcriber.** The frames arrive; `core/capture/transcriber.ts` says
- *    what still has to consume them.
+ *    system-audio path on macOS at all. This app declares 33.
  *
  * None of that can be verified by a test in CI, which is exactly why it is
- * written down here and in `README.md` rather than assumed to work.
+ * written down here and in `README.md` rather than assumed to work. What CI
+ * *does* prove is everything on the other side of the IPC boundary: the chunk
+ * arithmetic, the transcriber, the queue and the note.
  */
 
 import { BrowserWindow, ipcMain } from "electron";
 import { join } from "node:path";
 import type { AudioRecorder, RecorderOptions, RecorderSummary } from "../core/capture/recorder.ts";
+import type { CaptureChunk } from "../preload/capture.ts";
 
 const CAPTURE_READY = "context:capture-ready";
 const CAPTURE_START = "context:capture-start";
@@ -58,6 +64,8 @@ export class DesktopCaptureRecorder implements AudioRecorder {
   #startedAt = 0;
   #recordedMs = 0;
   #rendererDir: string;
+  /** Which requested channels the platform refused. Read after `start`. */
+  #degraded: string[] = [];
 
   constructor(rendererDir: string) {
     this.#rendererDir = rendererDir;
@@ -65,6 +73,19 @@ export class DesktopCaptureRecorder implements AudioRecorder {
 
   get capturing(): boolean {
     return this.#capturing && !this.#paused;
+  }
+
+  /**
+   * What the last `start` could not open.
+   *
+   * The probe is the attempt: there is no API that answers "would macOS give
+   * this build the system tap" without asking for it, so the answer is what
+   * came back. `capturePlan` takes it as `systemAudio: false` from the next
+   * meeting on, which is what stops the app asking for Screen Recording every
+   * time on a build that will never get it.
+   */
+  degradedChannels(): string[] {
+    return [...this.#degraded];
   }
 
   async start(options: RecorderOptions): Promise<void> {
@@ -107,19 +128,27 @@ export class DesktopCaptureRecorder implements AudioRecorder {
         reject(new Error(String(message).slice(0, 200))),
       );
     });
-    const ready = new Promise<void>((resolve) => {
-      ipcMain.once(CAPTURE_READY, () => resolve());
+    const ready = new Promise<string[]>((resolve) => {
+      ipcMain.once(CAPTURE_READY, (_event, degraded: unknown) =>
+        resolve(Array.isArray(degraded) ? degraded.map(String) : []),
+      );
     });
 
-    ipcMain.on(CAPTURE_CHUNK, (_event, chunk: { channel: "mic" | "system"; atMs: number; data: Uint8Array }) => {
+    ipcMain.on(CAPTURE_CHUNK, (_event, chunk: CaptureChunk) => {
       this.#frames += 1;
-      options.onFrame({ channel: chunk.channel, atMs: chunk.atMs, data: new Uint8Array(chunk.data) });
+      options.onFrame({
+        channel: chunk.channel,
+        atMs: Number(chunk.atMs) || 0,
+        durationMs: Number(chunk.durationMs) || 0,
+        mimeType: String(chunk.mimeType || "audio/webm"),
+        data: new Uint8Array(chunk.data),
+      });
     });
 
     await window.loadFile(join(this.#rendererDir, "capture.html"));
     window.webContents.send(CAPTURE_START, { channels: options.channels, sampleRate: options.sampleRate });
     try {
-      await Promise.race([ready, failure]);
+      this.#degraded = await Promise.race([ready, failure]);
     } catch (error) {
       await this.#abandon(window);
       throw error;
@@ -162,6 +191,16 @@ export class DesktopCaptureRecorder implements AudioRecorder {
     this.#capturing = false;
     this.#paused = false;
     this.#window?.webContents.send(CAPTURE_STOP);
+    /*
+      The window is given a moment to hand over its last chunk before it is
+      destroyed — the final seconds of a meeting are exactly the ones somebody
+      wants — but a moment, not a wait: `stop()` is on the path between "the
+      person pressed End" and the microphone closing, and the one thing that may
+      not happen here is an open stream waiting on a renderer that has hung.
+      The chunk listener is removed after it, so a late arrival is dropped
+      rather than delivered into a session that is already finalized.
+    */
+    await new Promise((resolve) => setTimeout(resolve, LAST_CHUNK_GRACE_MS));
     ipcMain.removeAllListeners(CAPTURE_CHUNK);
     // Destroyed rather than hidden: a window holding a live MediaRecorder is a
     // microphone that is still open, and "the indicator is off but the stream
@@ -171,3 +210,13 @@ export class DesktopCaptureRecorder implements AudioRecorder {
     return { recordedMs: this.#recordedMs, frames: this.#frames };
   }
 }
+
+/**
+ * How long `stop()` waits for the renderer's last chunk.
+ *
+ * Long enough for a `MediaRecorder.stop()` to fire `onstop` and an
+ * `arrayBuffer()` to resolve — both are fast and local — and short enough that
+ * a hung renderer cannot hold the microphone open while the UI says the meeting
+ * has ended.
+ */
+const LAST_CHUNK_GRACE_MS = 400;

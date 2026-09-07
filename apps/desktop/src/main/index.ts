@@ -17,7 +17,7 @@
  * dropped rather than starting a recording of whatever is happening instead.
  */
 
-import { app, ipcMain } from "electron";
+import { app, dialog, ipcMain } from "electron";
 import { join } from "node:path";
 import { createDetectionLoop, loadDetector } from "../core/detection/loop.ts";
 import type { DetectionUpdate } from "../core/detection/loop.ts";
@@ -32,9 +32,11 @@ import {
   forgetEpisode,
 } from "../core/consent/gate.ts";
 import type { ConsentState } from "../core/consent/gate.ts";
+import { isBlockedSource } from "../core/consent/blocklist.ts";
 import { MeetingController } from "../core/recording/controller.ts";
-import { unavailableTranscriber } from "../core/capture/transcriber.ts";
 import { fakeTranscriber } from "../core/capture/transcriber.ts";
+import { gatewayTranscriber } from "../core/capture/gatewayTranscriber.ts";
+import { capturePlan } from "../core/capture/plan.ts";
 import { fakeRecorder } from "../core/capture/recorder.ts";
 import type { AudioRecorder } from "../core/capture/recorder.ts";
 import { DesktopCaptureRecorder } from "./capture.ts";
@@ -44,6 +46,10 @@ import { emptyOutbox } from "../core/sync/outbox.ts";
 import type { Outbox } from "../core/sync/outbox.ts";
 import { drainOnce } from "../core/sync/drain.ts";
 import { memoryTokenStore } from "../core/sync/tokenStore.ts";
+import { GatewayConnection } from "../core/sync/connection.ts";
+import { keychainTokenStore } from "./tokenStore.ts";
+import { browserlessRefresher, connectMachine } from "./connect.ts";
+import { transcribeChunk } from "./transcribe.ts";
 import { trayPresentation } from "../core/tray/presentation.ts";
 import type { TrayState } from "../core/tray/presentation.ts";
 import { AppTray } from "./tray.ts";
@@ -69,6 +75,18 @@ let outbox: Outbox = emptyOutbox();
 let consent: ConsentState = IDLE_CONSENT;
 let lastUpdate: DetectionUpdate | null = null;
 let missingPermissions: string[] = [];
+/**
+ * What the last capture found out about system audio, for the next meeting.
+ *
+ * `null` until something has tried: there is no API that answers "would macOS
+ * give this build the loopback tap" without asking for it, so the probe is the
+ * attempt and this is its answer. It is deliberately **not** persisted — a
+ * signed build installed over an unsigned one would inherit the old answer and
+ * never ask again.
+ */
+let systemAudioAvailable: boolean | null = null;
+let connecting = false;
+let connectError: string | null = null;
 
 async function main(): Promise<void> {
   // A menu-bar app, not a dock app.
@@ -78,17 +96,43 @@ async function main(): Promise<void> {
   settings = await store.readSettings();
   outbox = await store.readOutbox();
 
-  const tokens = memoryTokenStore(null);
+  /*
+    The credential, and the one place it lives.
+
+    `--fake-signals` gets a memory store so a development run cannot write a
+    keychain entry, and the real one is `safeStorage` over a 0600 file in
+    `userData`. Either way the renderer never sees it: `preload` exposes no
+    channel that reads a token, and every request that carries one is made
+    here.
+  */
+  const tokens = FAKE ? memoryTokenStore(null) : keychainTokenStore(app.getPath("userData"));
+  const connection = new GatewayConnection({ store: tokens, refresh: browserlessRefresher() });
+  await connection.load();
   const panel = createPanel(RENDERER_DIR);
   const notepad = createNotepad(RENDERER_DIR);
 
-  const recorder: AudioRecorder = FAKE ? fakeRecorder() : new DesktopCaptureRecorder(RENDERER_DIR);
+  const capture = FAKE ? null : new DesktopCaptureRecorder(RENDERER_DIR);
+  const recorder: AudioRecorder = capture ?? fakeRecorder();
   const controller = new MeetingController({
     recorder,
-    // The real engines are not built yet; see `capture/transcriber.ts`. With
-    // `--fake-signals` the notepad is driven by the fake so the window can be
-    // worked on without a meeting.
-    transcriber: FAKE ? fakeTranscriber("mtg_00000000000000000000") : unavailableTranscriber(settings.transcription),
+    /*
+      One engine, held for the life of the app, and `capturePlan` decides
+      whether it is used.
+
+      Not a branch on `settings.transcription`, which is what this was first
+      written as: that setting changes at runtime — connecting a machine is
+      where a person chooses cloud transcription — and a transcriber chosen at
+      launch would go on being the wrong one until the next restart, silently.
+      The plan is re-asked at the start of every meeting instead, and it answers
+      "typed meeting" for both states where nothing can transcribe: no grant on
+      this machine, and on-device chosen with no on-device engine built.
+
+      `--fake-signals` still swaps it, so the notepad can be worked on without a
+      meeting and without a network.
+    */
+    transcriber: FAKE
+      ? fakeTranscriber(["...", "..."])
+      : gatewayTranscriber({ send: (request) => transcribeChunk(connection, request) }),
     permissions: electronPermissionBroker(),
     device: { platform: "macos", name: app.getName(), appVersion: app.getVersion() },
     outbox: () => outbox,
@@ -135,7 +179,10 @@ async function main(): Promise<void> {
       panel.showInactive();
     },
     openNotepad: () => revealNotepadQuietly(notepad),
+    record: () => void recordNow(),
     end: () => void endMeeting(),
+    connect: () => void connectThisMachine(),
+    disconnect: () => void disconnectThisMachine(),
     toggleDetection: () => void update({ detectionEnabled: !settings.detectionEnabled }),
     quit: () => app.quit(),
   });
@@ -194,6 +241,8 @@ async function main(): Promise<void> {
             transcriptionLabel: view.transcriptionLabel,
             audioLeavesDevice: view.audioLeavesDevice,
             capturing: view.capturing,
+            audio: view.audio,
+            notice: view.notice,
           }
         : null,
       settings: {
@@ -202,6 +251,16 @@ async function main(): Promise<void> {
         captureEnabled: settings.captureEnabled,
         detectionEnabled: settings.detectionEnabled,
       },
+      connection: {
+        state: connection.state(),
+        gateway: connection.baseUrl(),
+        // Said out loud rather than hidden: a machine with no encrypted storage
+        // holds its credential for this launch only, and a person who sees the
+        // app ask to be connected after every restart is owed the reason.
+        encrypted: tokens.encrypted,
+        connecting,
+        error: connectError,
+      },
       pending: new Set(outbox.entries.map((entry) => entry.sessionId)).size,
       missingPermissions,
     };
@@ -209,6 +268,11 @@ async function main(): Promise<void> {
 
   function push(): void {
     const state = uiState();
+    tray.setMenuState({
+      recording: controller.recording,
+      detectionEnabled: settings.detectionEnabled,
+      connected: state.connection.state === "connected",
+    });
     tray.render(
       trayPresentation({
         state: trayState(),
@@ -253,17 +317,52 @@ async function main(): Promise<void> {
     push();
   }
 
-  async function beginMeeting(episode: string): Promise<void> {
-    const detected = lastUpdate;
-    if (!detected) return;
-    const result = await controller.begin({
-      source: detected.state.source ?? detected.result.source,
-      title: detected.result.suggestedTitle ?? "Untitled meeting",
-      attendees: detected.result.suggestedAttendees,
-      grantedEpisode: episode,
+  /**
+   * Start one meeting, however the yes arrived.
+   *
+   * `episode` is the consent, and it has exactly two sources: the panel
+   * answering a detected meeting, or a person pressing Record. Both are the
+   * same sentence — "record the meeting I am in" — so both come through here
+   * rather than through two paths that could drift on what capture means.
+   */
+  async function beginMeeting(episode: string, manual = false): Promise<void> {
+    const detected = manual ? null : lastUpdate;
+    if (!manual && !detected) return;
+    // What this machine can actually do right now, in one place. `plan.notice`
+    // is the sentence the panel shows when it is less than everything.
+    const plan = capturePlan({
+      settings,
+      connected: connection.state() === "connected",
+      systemAudio: systemAudioAvailable,
     });
+
+    const result = await controller.begin({
+      source: detected?.state.source ?? detected?.result.source ?? { kind: "unknown" },
+      title: detected?.result.suggestedTitle ?? "Untitled meeting",
+      attendees: detected?.result.suggestedAttendees ?? [],
+      grantedEpisode: episode,
+      channels: plan.channels,
+      notice: plan.notice,
+    });
+
     if (result.ok) {
       missingPermissions = [];
+      /*
+        The probe's answer, recorded for the next meeting.
+
+        The renderer is the only thing that can know whether macOS handed over a
+        system-audio track, and it only knows by asking. So the first meeting on
+        an unsigned build asks and degrades; every meeting after it plans for
+        the microphone alone and does not raise Screen Recording again.
+      */
+      if (capture && plan.channels.includes("system")) {
+        systemAudioAvailable = !capture.degradedChannels().includes("system");
+        if (!systemAudioAvailable) {
+          // Re-planned rather than re-worded, so the sentence a person sees is
+          // the one `plan.ts` owns and the suite checks.
+          controller.notice(capturePlan({ settings, connected: true, systemAudio: false }).notice);
+        }
+      }
       if (!panel.isDestroyed()) panel.hide();
       revealNotepadQuietly(notepad);
     } else if (result.why === "permissions") {
@@ -272,6 +371,44 @@ async function main(): Promise<void> {
       showPanel();
     }
     push();
+  }
+
+  /**
+   * "Record a meeting", from the tray or the panel.
+   *
+   * The episode is minted here because there is no detector episode to answer:
+   * a person pressing Record is consenting to the meeting in front of them, and
+   * the gate's rules about *asking* do not apply to somebody who has asked us.
+   * The blocklist still does — it beats an explicit yes, by decision — so it is
+   * checked against whatever the detector can currently see before anything
+   * opens.
+   */
+  async function recordNow(): Promise<void> {
+    if (controller.recording) return;
+    /*
+      The master switch still wins, and it is the reason this is not a silent
+      no-op.
+
+      `captureEnabled` is "this machine may open a microphone at all" — a hard
+      stop that no detection and no button talks past — and it is off on a fresh
+      install by design. What it lacked was any way to become true: nothing in
+      the app set it, so a person could press Record forever and get nothing.
+      Connecting a machine turns it on, because that dialog is where somebody
+      says this machine records their meetings; until then the panel says so
+      rather than the press doing nothing.
+    */
+    if (!settings.captureEnabled) {
+      showPanel();
+      return;
+    }
+    const source = lastUpdate?.state.source ?? null;
+    if (source && isBlockedSource(source, settings.blocklist)) {
+      showPanel();
+      return;
+    }
+    const episode = `manual:${Date.now()}`;
+    consent = answered(episode, "granted");
+    await beginMeeting(episode, true);
   }
 
   async function endMeeting(): Promise<void> {
@@ -296,10 +433,21 @@ async function main(): Promise<void> {
   }
 
   async function drain(): Promise<void> {
-    if (settings.gatewayBaseUrl === null) return;
+    /*
+      The base URL is the connection's, not the settings file's.
+
+      Both existed, and settings never had one: `gatewayBaseUrl` defaulted to
+      null with nothing on the machine able to set it, so this returned on its
+      first line and the queue never drained at all. It is one value now, minted
+      by the OAuth flow beside the credential it belongs to — which also means a
+      token cannot be posted to a gateway other than the one it was minted for,
+      because the two are read from the same record.
+    */
+    const baseUrl = connection.baseUrl();
+    if (baseUrl === null) return;
     const report = await drainOnce(
       outbox,
-      { baseUrl: settings.gatewayBaseUrl, token: () => tokens.read() },
+      { baseUrl, token: () => connection.token() },
       () => Date.now(),
     );
     outbox = report.outbox;
@@ -335,6 +483,106 @@ async function main(): Promise<void> {
       blocklist: Array.isArray(list) ? list.map(String).filter((entry) => entry.trim() !== "") : [],
     }),
   );
+  ipcMain.on(COMMANDS.record, () => void recordNow());
+  ipcMain.on(COMMANDS.connect, () => void connectThisMachine());
+  ipcMain.on(COMMANDS.disconnect, () => void disconnectThisMachine());
+
+  /**
+   * Connect this machine to a context.
+   *
+   * The endpoint is the person's own: self-hosting is a supported path and
+   * there is no hard-coded gateway anywhere in this app. Everything after it —
+   * discovery, registration, the browser, the exchange — is `packages/hook`'s
+   * reviewed flow, and the record it produces goes straight to the keychain
+   * without passing through a renderer.
+   */
+  async function connectThisMachine(): Promise<void> {
+    if (connecting) return;
+    connecting = true;
+    connectError = null;
+    push();
+    try {
+      const answer = await dialog.showMessageBox({
+        type: "question",
+        title: "Connect this machine",
+        message: `Connect this machine to ${settings.gatewayEndpoint}`,
+        detail:
+          "Your browser will open so you can approve this machine. It is registered as its own connection, so you can revoke this laptop on its own — and it asks only for what a meeting needs: to write notes, at your own privacy tier.",
+        buttons: ["Open my browser", "Cancel"],
+        defaultId: 0,
+        cancelId: 1,
+      });
+      if (answer.response !== 0) return;
+
+      const record = await connectMachine({
+        endpoint: settings.gatewayEndpoint,
+        log: (message) => console.log(message),
+      });
+      await connection.connect(record);
+      // Kept in settings as well, so the panel can name where meetings go
+      // without unlocking anything. Not a credential, and never one.
+      /*
+        Capture is switched on here, and this is the only place it is.
+
+        Two things happened in the same breath: a person approved this machine
+        against their own context, in a dialog that says it is for meetings, and
+        the app got somewhere to put one. That is the yes `captureEnabled`
+        records. It is not turned back off on disconnect — the meetings already
+        in the queue are still theirs, and a machine that forgot the answer
+        every time a grant expired would ask again for no reason.
+      */
+      await update({ gatewayBaseUrl: record.gatewayBaseUrl, captureEnabled: true });
+      await askAboutTranscription();
+      // Whatever the queue is holding has been waiting for exactly this.
+      await drain();
+    } catch (error) {
+      connectError = error instanceof Error ? error.message : "the connection could not be completed";
+    } finally {
+      connecting = false;
+      push();
+    }
+  }
+
+  /**
+   * Where the audio goes, asked once, in the one place a person can answer it.
+   *
+   * The default is `on-device`, which is the engine that does not exist yet —
+   * chosen deliberately, because the alternative is an app whose first meeting
+   * streams audio off the machine because nobody was asked. So this is the ask,
+   * and it is made at the moment somebody has just connected a machine to their
+   * own context rather than buried in a settings pane this app does not have.
+   *
+   * A "not now" is a real answer and leaves the app in the honest state it was
+   * already in: meetings are typed, the panel says why, and the notes still
+   * land in the bucket.
+   */
+  async function askAboutTranscription(): Promise<void> {
+    if (settings.transcription === "cloud") return;
+    const answer = await dialog.showMessageBox({
+      type: "question",
+      title: "Transcribe meetings",
+      message: "Transcribe meetings through your gateway?",
+      detail:
+        "Each twenty seconds of audio is sent to your own gateway, transcribed, and thrown away — it is never written to your bucket and never kept. Until you turn this on, meetings are typed: nothing opens your microphone.",
+      buttons: ["Transcribe my meetings", "Not now"],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (answer.response === 0) await update({ transcription: "cloud" });
+  }
+
+  /**
+   * Give the grant up.
+   *
+   * The outbox is deliberately left alone: somebody disconnecting has not asked
+   * to lose the meetings that have not been sent yet, and connecting again
+   * drains them. What goes is the credential.
+   */
+  async function disconnectThisMachine(): Promise<void> {
+    await connection.disconnect();
+    connectError = null;
+    await update({ gatewayBaseUrl: null });
+  }
 
   loop.start();
   setInterval(() => void drain(), DRAIN_INTERVAL_MS);
