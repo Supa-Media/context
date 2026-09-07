@@ -347,7 +347,13 @@ describe("on a phone", () => {
       node.getAttribute("aria-label"),
     );
     expect(labels).toContain("Search notes");
-    expect(labels).toContain("New note");
+    /*
+      "New note or folder", not "New note". A phone has no explorer, so this one
+      key is the only way to create anything — and while it said "note" there
+      was no way to make a folder on a phone at all. It raises the chooser now;
+      see `CreatePrompt`.
+    */
+    expect(labels).toContain("New note or folder");
     // The bar is really on the screen, and not merely a set of labels somewhere
     // in the tree. It used to be enough to assert the console had rendered
     // *any* text — and then it was not, because the top bar became a toggle and

@@ -635,7 +635,7 @@ export default function ConsoleLayout() {
               onStep={step}
               onSearch={() => setPaletteOpen(true)}
               onOpenTabs={() => setSwitcherOpen(true)}
-              onNewNote={(folder) => setBarDialog({ kind: "newNote", folder })}
+              onNewNote={(folder) => setBarDialog({ kind: "create", folder })}
               onStartMeeting={startMeetingFlow}
             />
           ) : undefined
@@ -1120,12 +1120,18 @@ function ConsoleBottomBar({
 
           `ExplorerDialogs` already renders `NamePrompt` with the sentence that
           answers all of that: "It will be created in 1-projects as markdown."
+
+          **And it asks which of the two this is.** The explorer's toolbar has
+          a button each for a note and a folder; this bar has room for one key,
+          and that key used to mean *note* — which left no way to make a folder
+          on a phone at all, in the bar or anywhere else. It now raises the
+          chooser, which is the honest reading of a `+`. See `CreatePrompt`.
         */
         ...(files.canEdit
           ? [
               {
                 id: "new",
-                label: "New note",
+                label: "New note or folder",
                 icon: "plus" as const,
                 onPress: () => onNewNote(folder),
               },
