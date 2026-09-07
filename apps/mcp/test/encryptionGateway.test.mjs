@@ -526,6 +526,46 @@ export async function runEncryptionGatewayChecks(check) {
       textOf(searchedOpen).includes("1-projects/open.md"),
     );
 
+    /*
+     * AND THE COUNT MUST NOT COUNT WHAT THE HITS DO NOT SHOW.
+     *
+     * `visible.js` drops an encrypted note when it reads the body for a
+     * snippet, but `matchCount` is `visible.length` — taken before that drop.
+     * The index holds the note with empty content, so no body term ranks it,
+     * but its PATH still can: MEASURED, a search for "moved" — a word that
+     * appears only in `1-projects/moved-secret.md` — answered
+     * "2 matching notes — the 1 best shown" with the encrypted note counted
+     * and withheld.
+     *
+     * Nothing leaks: `rankedVisibleTo` runs first, so only notes this caller
+     * may see are ever counted, and the byte-identical promise
+     * `docs/decisions/encryption.md` makes to a team-tier caller is untouched.
+     * What is wrong is that `search does not find encrypted notes` is stated
+     * flatly while the count still counts them, and "the N best shown" tells an
+     * agent there is another match to page to when there is not.
+     */
+    const counted = await call(OWNER_A, "search_notes", { query: "moved" });
+    const countedText = textOf(counted);
+    const headline = countedText.split("\n")[0] ?? "";
+    const shown = (countedText.match(/^1-projects\//gm) ?? []).length;
+    const claimed = Number(headline.match(/^(\d+)/)?.[1] ?? "0");
+    check(
+      "THE MATCH COUNT DOES NOT COUNT AN ENCRYPTED NOTE IT WILL NOT SHOW",
+      headline === "(no matches)" ? shown === 0 : claimed === shown,
+    );
+    check(
+      "...and the one hit shown is the plaintext note that legitimately links to it",
+      /*
+        NOT "the encrypted note is never named". That assertion was written
+        first and was false for a good reason: `1-projects/renamed.md` is a
+        plaintext note whose body holds `[[1-projects/moved-secret]]`, and a
+        search quoting its own body is correct. What must not appear is the
+        encrypted note as a HIT of its own.
+      */
+      countedText.includes("1-projects/renamed.md") &&
+        !/^1-projects\/moved-secret\.md$/m.test(countedText),
+    );
+
     const fetched = await call(OWNER_A, "fetch", { id: "1-projects/moved-secret.md" });
     check(
       "the ChatGPT fetch dialect returns the plaintext for a caller that holds the key",

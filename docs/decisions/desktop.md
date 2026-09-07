@@ -774,13 +774,16 @@ The version here removes strings and comments with a lexer rather than a regex
 (each misleads the other), removes import clauses whole rather than guessing
 from punctuation, counts the single hand-off to `createConsoleBridge` explicitly
 so it cannot become two, and walks `src/main` recursively over every extension
-the bundler loads. Measured as deltas rather than against a total, for the
-reason the sabotage paragraph above gives: a plain new `ipcMain.on` reddens 2, a
-registration in a new subdirectory with a new extension 2, a `//`-in-a-string
-hiding place 2, and each of `.bind`, an argument, an object property and
-`Reflect.get` reddens 1 — naming the offending mention in the failure. An
-`import { ipcMain as … }` rename **reddens 1**, by name, and that is the third
-hole this scan has had: deleting the import clause and then looking for the
+the bundler loads. Every form named here reddens and names the offending
+mention in the failure; **the counts are not repeated in this paragraph.** The
+last version repeated them and every one was a count short within a day, because
+a later check reddens alongside each and nobody re-measured the list — the ninth
+time a tree-dependent number in this file went stale, two paragraphs below its
+own argument against them. The forms are the durable part; a current count lives
+in the suite's output, where it cannot be wrong.
+
+An `import { ipcMain as … }` rename reddens by name, and that is the third hole
+this scan has had: deleting the import clause and then looking for the
 identifier means a file that binds it under another name has no mentions left to
 find, so `electronIpc.on(...)` registered a channel at 906 / 0. An earlier draft
 of this paragraph reported that silence as "reddens nothing", which is a hole
@@ -800,8 +803,18 @@ registration in that file passed at 916 / 0. Idiomatic TypeScript. Telling a
 regex from a division needs a parser, and this suite takes no dependencies.
 
 So the load-bearing check does not lex: it counts every occurrence of the
-identifier in the raw bytes, comments and strings included, and requires the
-total. Nothing about how a file lexes can move that number. Writing the
+identifier in the raw bytes of every file under `src/`, comments and strings
+included, and requires the total. A second count covers `webContents.ipc` and
+`webFrameMain.ipc` — Electron's documented way to scope a channel to one
+window, idiomatic, spelling no `ipcMain`, and invisible here until it was asked
+for. Walking `src/` rather than `src/main/` closes the other accident: a
+main-process module landing one directory out was simply not read.
+
+**It does not see a registration that never spells the identifier.**
+`electron["ipc" + "Main"].on(...)` passes, and no text scan will catch it;
+closing it needs a real import graph. Five shapes of this census have each been
+described as exhaustive and none was, so the claim is now the smaller true one:
+**this guard is for the accident, not the adversary.** Nothing about how a file lexes can move that number. Writing the
 identifier in a new comment reddens it, and the fix is to update the number on
 purpose — **a guard that complains when the surface is described differently is
 cheaper than one that stays silent when the surface is different.** The
