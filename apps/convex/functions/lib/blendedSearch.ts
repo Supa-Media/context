@@ -185,7 +185,13 @@ export function fuse(sources: readonly BlendSource[]): BlendedRow[] {
     const from = Math.max(0, Math.floor(source.offset));
     for (let index = from; index < source.hits.length; index += 1) {
       const hit = source.hits[index]!;
-      const id = `${source.key} ${hit.path}`;
+      // The separator is written as an ESCAPE and never as the character. A
+      // literal NUL makes git treat the whole file as binary, so it has no
+      // diff and cannot be reviewed — `check-source-diffable` fails the build
+      // for exactly that. What is wanted is the character's property: it
+      // cannot occur in a workspace id or a bucket key, so no two different
+      // pairs can produce the same joined string.
+      const id = `${source.key}\u0000${hit.path}`;
       if (seen.has(id)) continue;
       seen.add(id);
       rows.push({
