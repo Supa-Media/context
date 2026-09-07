@@ -1,5 +1,11 @@
+import { nextRecorderState } from "@context/meetings/recorder";
 import type { TranscriptSegment } from "../protocol";
-import type { MeetingRecorder, RecorderError, RecorderState } from "./index";
+import type {
+  CaptureOptions,
+  MeetingRecorder,
+  RecorderError,
+  RecorderState,
+} from "./index";
 
 /**
  * A recorder a test drives by hand.
@@ -26,6 +32,8 @@ export interface FakeRecorder extends MeetingRecorder {
   fail(error: RecorderError): void;
   /** Make the next `start()` reject — a refused permission, a busy device. */
   refuseStart(message: string): void;
+  /** What the last `start()` was asked for, or `null`. */
+  readonly startedWith: CaptureOptions | null;
 }
 
 export function fakeRecorder(
@@ -36,11 +44,16 @@ export function fakeRecorder(
   const calls: string[] = [];
   let state: RecorderState = "idle";
   let refusal: string | null = null;
+  let startedWith: CaptureOptions | null = null;
 
   return {
     calls,
+    get startedWith() {
+      return startedWith;
+    },
     capability: {
       audio: true,
+      systemAudio: false,
       transcribesAt: "device",
       unavailableReason: null,
       ...capability,
@@ -57,26 +70,30 @@ export function fakeRecorder(
     fail(error) {
       for (const listener of errorListeners) listener(error);
     },
-    async start() {
+    // The moves are `@context/meetings`' — the same table the real recorders
+    // answer to — so a test driving this one cannot accidentally prove a
+    // sequence no device would allow.
+    async start(options) {
       calls.push("start");
+      startedWith = options ?? null;
       if (refusal !== null) {
         const message = refusal;
         refusal = null;
         throw new Error(message);
       }
-      state = "recording";
+      state = nextRecorderState(state, "start");
     },
     async pause() {
       calls.push("pause");
-      state = "paused";
+      state = nextRecorderState(state, "pause");
     },
     async resume() {
       calls.push("resume");
-      state = "recording";
+      state = nextRecorderState(state, "resume");
     },
     async stop() {
       calls.push("stop");
-      state = "stopped";
+      state = nextRecorderState(state, "stop");
     },
     onSegment(listener) {
       segmentListeners.add(listener);

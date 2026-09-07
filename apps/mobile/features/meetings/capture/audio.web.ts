@@ -1,4 +1,6 @@
+import { capabilitiesFrom, getDesktopBridge, type DesktopBridge } from "@context/desktop-bridge";
 import type { TranscriptSegment } from "../protocol";
+import { desktopRecorder } from "./desktop";
 import type { MeetingRecorder, RecorderError, RecorderState } from "./index";
 import { notesOnlyRecorder } from "./notesOnly";
 import { MAX_INFLIGHT_CHUNKS, SEGMENT_MS, chunkIdFor } from "./segments";
@@ -113,6 +115,67 @@ export function audioRecorder(platform: "ios" | "android" | "web"): MeetingRecor
   if (platform !== "web") return notesOnlyRecorder(platform);
   if (!browserCanRecord()) return notesOnlyRecorder("web");
   return mediaRecorderRecorder();
+}
+
+/**
+ * The recorder this page has, once it has asked whether it is inside a shell.
+ *
+ * `docs/decisions/desktop.md`, step 3: the Expo app is the UI on macOS too, and
+ * *"`capture/audio.web.ts` takes segments from `onSegment` when a shell is
+ * present instead of driving `MediaRecorder`"*. This is that sentence.
+ *
+ * ## Detection is the bridge, not the user agent
+ *
+ * `Platform.OS === "web" && getDesktopBridge() !== null`. Electron's UA is
+ * configurable, spoofable, and says nothing about which build is underneath;
+ * a frozen `window.desktop` carrying a version this bundle understands is the
+ * only thing that means "there is a shell here that will answer". Everything
+ * about that check is in `@context/desktop-bridge` — including refusing a
+ * bridge that grew a credential-shaped member — and this file only asks.
+ *
+ * ## In a shell, the shell records — even when it says it cannot
+ *
+ * There is no fallback to `getUserMedia` inside the shell, and that is
+ * deliberate rather than an omission. The console window is **never granted a
+ * media permission**: its session denies `media` and `display-capture`
+ * outright, because the microphone in that app belongs to a hidden window the
+ * main process opens after its consent gate says yes. So a browser recorder in
+ * there would ask for a device it is guaranteed to be refused, and present as a
+ * denied-permission error rather than as the honest sentence
+ * `desktopRecorder` gives.
+ *
+ * ## Nothing is claimed before the answer arrives
+ *
+ * `capabilities()` is awaited *before* a recorder exists, so the object the
+ * controller reads is right the first time somebody looks at it. A capability
+ * that arrived later and mutated in place would have been read as `false` by
+ * the screens and then silently disagreed with them.
+ */
+export async function resolveRecorder(
+  platform: "ios" | "android" | "web",
+): Promise<MeetingRecorder> {
+  if (platform !== "web") return notesOnlyRecorder(platform);
+  const bridge = getDesktopBridge();
+  if (bridge === null) return audioRecorder(platform);
+  return desktopRecorder(bridge, capabilitiesFrom(await askCapabilities(bridge)));
+}
+
+/**
+ * What the shell says it can do, and `{}` if it will not say.
+ *
+ * A rejected probe is a shell that is there and not answering — a channel the
+ * main process no longer handles, an older build, a window mid-teardown — and
+ * `capabilitiesFrom` reads the empty answer as every capability `false`. That
+ * produces a recorder that captures nothing and says so, which is the honest
+ * end of this branch; the alternative is an unhandled rejection in the effect
+ * that configures the whole feature.
+ */
+async function askCapabilities(bridge: DesktopBridge): Promise<unknown> {
+  try {
+    return await bridge.capabilities();
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -409,6 +472,16 @@ function mediaRecorderRecorder(): MeetingRecorder {
   return {
     capability: {
       audio: true,
+      /*
+        A browser captures the microphone and nothing else. `getDisplayMedia({
+        audio: true })` can get a *shared tab's* audio, in some browsers, with
+        the person choosing a source every time — a different feature with a
+        different consent story. The far side of a call on headphones is not in
+        this recording, and this `false` is what keeps the screen from saying
+        otherwise. A browser running inside the desktop shell never reaches this
+        recorder at all; see `resolveRecorder` below.
+      */
+      systemAudio: false,
       transcribesAt: "cloud",
       unavailableReason: null,
     },

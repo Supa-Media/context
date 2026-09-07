@@ -111,6 +111,9 @@ importers:
       '@context/convex':
         specifier: workspace:*
         version: link:../convex
+      '@context/desktop-bridge':
+        specifier: workspace:*
+        version: link:../../packages/desktop-bridge
       '@context/meetings':
         specifier: workspace:*
         version: link:../../packages/meetings

@@ -657,6 +657,16 @@ describe("the audio is transient, structurally", () => {
       "MEETING_AUDIO_MODE",
       "RESUME_RETRY_MS",
       "audioRecorder",
+      /*
+        `resolveRecorder` is the second half of the platform split, added when
+        the app learned to run inside the desktop shell: the web file asks a
+        bridge what the machine can hear before it builds a recorder, so the
+        factory had to become async, and this native half answers immediately
+        with exactly what `audioRecorder` returns. It is a factory like the one
+        above it — it holds nothing and hands back nothing — which is why it
+        belongs on this list rather than failing it.
+      */
+      "resolveRecorder",
     ]);
     await recorder.stop();
   });

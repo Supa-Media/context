@@ -274,6 +274,27 @@ export function audioRecorder(platform: "ios" | "android" | "web"): MeetingRecor
   return expoAudioRecorder();
 }
 
+/**
+ * The same answer, asynchronously, because the *other* half of this split has
+ * a question to ask.
+ *
+ * A phone has nothing to probe: the Expo binary is the native surface, the
+ * microphone is `expo-audio`, and `capability` is known the moment the recorder
+ * exists. `audio.web.ts` has to ask a shell what it can hear before it can say,
+ * so `createRecorderFor` is async for everybody and this is the half where that
+ * costs a resolved promise and nothing else.
+ *
+ * It is here rather than in `capture/index.ts` because it is part of the
+ * platform split — Metro resolves `./audio` to the web file in a browser bundle
+ * — and putting a `window.desktop` check above the split is exactly the
+ * platform branch this folder exists to prevent.
+ */
+export async function resolveRecorder(
+  platform: "ios" | "android" | "web",
+): Promise<MeetingRecorder> {
+  return audioRecorder(platform);
+}
+
 function expoAudioRecorder(): MeetingRecorder {
   const segmentListeners = new Set<(segment: TranscriptSegment) => void>();
   const errorListeners = new Set<(error: RecorderError) => void>();
@@ -655,6 +676,10 @@ function expoAudioRecorder(): MeetingRecorder {
   return {
     capability: {
       audio: true,
+      // A phone hears the room and your own side of a call. There is no
+      // loopback tap on iOS and there is not going to be one: system audio is
+      // the desktop shell's job, and no copy anywhere may imply otherwise.
+      systemAudio: false,
       transcribesAt: "cloud",
       unavailableReason: null,
     },

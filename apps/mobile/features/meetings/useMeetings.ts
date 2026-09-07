@@ -5,7 +5,7 @@ import { api } from "@context/convex/_generated/api";
 import { defaultContext } from "../console/nav";
 import { useReachability } from "../offline/reachability";
 import { openStore } from "../offline/store";
-import { createRecorder, setTranscriptionClient } from "./capture";
+import { createRecorderFor, setTranscriptionClient } from "./capture";
 import { createConvexGateway, writeNoteThrough } from "./convexGateway";
 import { meetingWorkspaceId, type RoutableContext } from "./destination";
 import { type MeetingsGateway } from "./gateway";
@@ -251,15 +251,39 @@ export function useMeetingsSetup(
     [options.gateway, convex, resolveWorkspaceId],
   );
 
+  /*
+    The recorder is built before the controller is configured, and building it
+    can take a turn of the event loop.
+
+    Only one platform needs that: inside the desktop shell, what this machine
+    can capture is *asked* over the bridge, and no screen may claim a capability
+    the shell did not report. Everywhere else `createRecorderFor` resolves with
+    exactly what `createRecorder` returned, so a phone and a browser are
+    unchanged but for the microtask.
+
+    `cancelled` is not tidiness. The effect re-runs on a context switch and on a
+    sign-out, and a probe that answered after one of those would configure the
+    controller for the workspace somebody just left — which is the one thing
+    `configure` must never be told twice about, since it is what decides whose
+    meetings are on this device.
+  */
   useEffect(() => {
     if (workspaceId === null) return;
-    void meetings.configure({
-      workspaceId,
-      store: openStore(),
-      gateway,
-      recorder: createRecorder(platformFor()),
-      device: { platform: platformFor(), appVersion: undefined },
-    });
+    let cancelled = false;
+    void (async () => {
+      const recorder = await createRecorderFor(platformFor());
+      if (cancelled) return;
+      await meetings.configure({
+        workspaceId,
+        store: openStore(),
+        gateway,
+        recorder,
+        device: { platform: platformFor(), appVersion: undefined },
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [workspaceId, gateway]);
 
   /*
