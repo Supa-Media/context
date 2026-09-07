@@ -12,7 +12,7 @@
 //   let a slug carry a dot, so a mailbox can be plumbing  -> 2 checks failed
 //   return the base slug from chooseMailboxSlug always    -> 1 check failed
 //   accept any segment as the account level               -> 5 checks failed
-//   file a mailbox as a direct child of `0-inbox`          -> 6 checks failed
+//   file a mailbox as a direct child of `0-inbox`          -> 5 checks failed
 
 import {
   CHANNELS,
