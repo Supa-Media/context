@@ -826,7 +826,19 @@ returns, not a new credential path.
 
 **And the decryptor is a file, not a promise.** `packages/encryption-decryptor`
 is dependency-free Web Crypto in an MIT-licensed public repository, and the
-table above is a complete spec. "You can still read your notes" is something
+table above is a complete spec.
+
+**Its suite runs in CI, which it did not at first** — `Test Offline Decryptor`
+in `.github/workflows/mcp.yml`, beside `Test Meetings Core`, whose own comment
+records the identical failure one package earlier: the reusable pipeline
+filters on `apps/mobile`, `apps/convex` and `packages/shared`, and nothing
+invoked this package's tests, so its 23 checks were local-only. That matters
+more here than for most packages, because this suite is also the only thing
+that checks the gateway's envelope *writer* against an independent *reader*.
+It encrypts with `apps/mcp/src/encryption.js` and opens the result with its
+own parser, so it catches exactly the class of bug a single implementation
+cannot: one both halves would have shared. It runs on every pull request,
+including one that touches only the gateway's envelope module. "You can still read your notes" is something
 somebody can run — `npx @supa-media/context-encryption-decryptor keys.json
 ./my-bucket ./out`.
 
