@@ -62,15 +62,20 @@ const { join } = require("node:path");
  * public repository are public.
  *
  * A fifth shape joins those four, found on a real run rather than guessed at:
- * every newline gone — not escaped to a literal `\n`, not CRLF, just absent —
- * which is what a single-line ("password"-typed) field in 1Password does to a
- * multi-line paste. `-----BEGIN ... -----`, the base64 body and
- * `-----END ... -----` survive, run together on one line. That is unambiguous
- * enough to re-wrap: a real PEM's body is pure base64 and its BEGIN/END labels
- * match, so anything of that exact shape is repaired below, and anything that
- * is merely close to it (a stray character in the body, labels that do not
- * match) is left for the ordinary refusal at the end of this function rather
- * than guessed at.
+ * every newline gone. Not to nothing, either — a diagnostic run against the
+ * actual failing secret (structure only: lengths, booleans, character-class
+ * counts, never the base64 body itself) showed the label markers intact, the
+ * body's every character accounted for as base64 except a handful of stray
+ * whitespace characters where its line breaks used to be. That is a
+ * single-line ("password"-typed) field in a secret store collapsing a
+ * multi-line paste — some clients delete the newline outright, others turn it
+ * into a space or a run of them, and both land here as `-----BEGIN ... -----`,
+ * a base64 body carrying incidental whitespace, and `-----END ... -----`, all
+ * on one physical line. That is unambiguous enough to re-wrap: strip
+ * whitespace from the middle and what is left has to be pure base64 with
+ * matching BEGIN/END labels, or this does not touch it. A stray non-base64,
+ * non-whitespace character in the body, or labels that do not match, are left
+ * for the ordinary refusal at the end of this function rather than guessed at.
  */
 function privateKey(raw) {
   let text = String(raw).replace(/\r\n?/g, "\n").trim();
@@ -80,11 +85,16 @@ function privateKey(raw) {
   if (text.includes("\\n")) {
     text = text.replace(/\\r/g, "").replace(/\\n/g, "\n").trim();
   }
-  const oneLine = /^-----BEGIN ([A-Z ]+)-----([A-Za-z0-9+/=]+)-----END \1-----$/.exec(text);
-  if (oneLine) {
-    const [, label, body] = oneLine;
-    const wrapped = body.match(/.{1,64}/g) ?? [body];
-    text = `-----BEGIN ${label}-----\n${wrapped.join("\n")}\n-----END ${label}-----`;
+  if (!text.includes("\n")) {
+    const begin = /^-----BEGIN ([A-Z ]+)-----/.exec(text);
+    const end = /-----END ([A-Z ]+)-----$/.exec(text);
+    if (begin && end && begin[1] === end[1] && text.length > begin[0].length + end[0].length) {
+      const body = text.slice(begin[0].length, text.length - end[0].length).replace(/\s+/g, "");
+      if (body.length > 0 && /^[A-Za-z0-9+/=]+$/.test(body)) {
+        const wrapped = body.match(/.{1,64}/g) ?? [body];
+        text = `-----BEGIN ${begin[1]}-----\n${wrapped.join("\n")}\n-----END ${begin[1]}-----`;
+      }
+    }
   }
   let base64OfSomethingElse = false;
   if (!text.includes("-----BEGIN") && /^[A-Za-z0-9+/=\n]+$/.test(text)) {
@@ -103,9 +113,9 @@ function privateKey(raw) {
         `${sawBegin ? "no -----END line that matches its -----BEGIN" : "no -----BEGIN line at all"}. ` +
         "It should be the contents of the AuthKey_XXXXXXXXXX.p8 file Apple issued, newlines and all — " +
         "around 250 characters over three or four lines. A single line with matching " +
-        "-----BEGIN/-----END markers and a base64 body in between is repaired automatically " +
-        "(what a single-line field in a secret store does to a multi-line paste) — this value " +
-        "is not that either." +
+        "-----BEGIN/-----END markers and a base64 body in between (its line breaks lost, or turned to " +
+        "stray whitespace, by a single-line field in a secret store) is repaired automatically — " +
+        "this value is not that either." +
         // The one guess worth making, because it is the mistake the two secrets
         // invite: CSC_LINK is base64 and this one is not, and a value that is
         // base64 of something binary is almost certainly the certificate.

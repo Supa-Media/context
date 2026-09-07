@@ -213,10 +213,12 @@ export async function runPackagingChecks(check) {
   /*
     A fifth way the .p8 arrives damaged, found on a real run rather than
     guessed at: every newline gone, not escaped to `\n` and not CRLF, just
-    absent — what a single-line ("password"-typed) field in 1Password does to
-    a multi-line paste. The BEGIN/END markers and the base64 body survive
-    intact, run together on one line. Unambiguous because a real PEM's body
-    is pure base64 and its BEGIN/END labels match, so this is repaired by
+    absent (or, on the actual failing secret — diagnosed structurally, never
+    by reading its content — turned into a handful of stray whitespace
+    characters where the line breaks used to be). Either way the BEGIN/END
+    markers and the base64 body survive, run together on one line. Unambiguous
+    because a real PEM's body is pure base64 once its incidental whitespace is
+    stripped, and its BEGIN/END labels match, so this is repaired by
     re-wrapping rather than refused — anything that does not fit that exact
     shape falls through to the ordinary refusal below.
   */
@@ -269,6 +271,49 @@ export async function runPackagingChecks(check) {
     (() => {
       try {
         privateKey(`-----BEGIN PRIVATE KEY-----${oneLineBody}-----END EC PRIVATE KEY-----`);
+        return false;
+      } catch {
+        return true;
+      }
+    })(),
+  );
+
+  /*
+    The shape actually found in production: newlines turned to single spaces
+    rather than deleted outright — every one of `realPem`'s three line breaks
+    replaced with " " instead of "". Confirmed by a content-blind diagnostic
+    run against the real, still-failing secret (structure only: it reported
+    matching BEGIN/END labels and a body that was pure base64 except for a
+    handful of whitespace characters — never the base64 itself).
+  */
+  const spaceJoined = realPem.trim().split("\n").join(" ");
+  check(
+    "a real key with its newlines turned to spaces — the shape found on the live secret — is repaired",
+    (() => {
+      try {
+        createPrivateKey(privateKey(spaceJoined));
+        return true;
+      } catch {
+        return false;
+      }
+    })(),
+  );
+  check(
+    "...however many spaces stand in for the lost newline, not just exactly one",
+    (() => {
+      try {
+        createPrivateKey(privateKey(realPem.trim().split("\n").join("   ")));
+        return true;
+      } catch {
+        return false;
+      }
+    })(),
+  );
+  check(
+    "...but a stray non-whitespace character among the spaces is still refused",
+    (() => {
+      try {
+        privateKey(spaceJoined.slice(0, -30) + "!" + spaceJoined.slice(-29));
         return false;
       } catch {
         return true;
