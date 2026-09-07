@@ -1,0 +1,7 @@
+{
+  "workspaceId": "ws_fixture_0000000000000000",
+  "workspaceKey": "ce0zKnxF1cLi4YcSPE7gJDh/pzVnW0nitdRjBlWnuck=",
+  "keyId": "k1",
+  "plaintext": "---\ntitle: A pinned vector\ntags: [fixture]\n---\n\nThe body of a note, pinned so a future decryptor can be checked against the same bytes.\n",
+  "document": "---\ncontext_encryption: v1\ncontext_encryption_key: ws:k1\n---\n\n> [!NOTE] This note is encrypted.\n> Its content is stored as ciphertext and cannot be read here. Open it in\n> Context, or decrypt it yourself with the spec in\n> docs/decisions/encryption.md.\n\n```context-encrypted\n{\"v\":1,\"alg\":\"A256GCM\",\"iv\":\"TDsYawkQFSI4JtlO\",\"ct\":\"8_sot0VN9lsLXS6I5MuHydACUOuAKB22QPiv5yYOgtLMph5ZA1kYVfBU1-dpPwplHWuXxwx_XGBi9TjmhRzmBPnoB40RUcMyzeadl2eoGjChTNo1D_XQe_eH-168hO9EtgCNwmFg5oEJN6yk7TlOHunXlNh1o-qEwtKvEQ1CH9FIe_b_5n9Me5NnpKTYgJkujRchLNy4xiI\",\"aad\":\"context-note-v1:ws_fixture_0000000000000000\",\"recipients\":[{\"kind\":\"workspace\",\"id\":\"k1\",\"alg\":\"A256GCM\",\"iv\":\"b69qLFda3lYgCRb-\",\"wrapped\":\"2WjEpA5n5q363Bvdpvce_BCBwVT198XEEDaemT2kvO2sfsIren_oL53NztHMw0A6\"}]}\n```\n"
+}
