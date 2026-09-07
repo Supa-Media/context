@@ -55,19 +55,28 @@
     //
     // Public information (it is in every web client's network tab), so it is
     // fine in a public repository. Neither of these is a secret.
-    "EXPO_ORIGIN": "https://context.expo.app",
+    "EXPO_ORIGIN": "https://context.expo.app"
 
-    // The Convex HTTP-actions origin: https://<deployment>.convex.site — the
-    // `.site` host, NOT the `.cloud` one the client library uses.
+    // CONVEX_ORIGIN — the Convex HTTP-actions origin: https://<deployment>.
+    // convex.site, the `.site` host, NOT the `.cloud` one the client library
+    // uses — used to live here as a plaintext var. It named which Convex
+    // deployment this repository's production deploy talks to, which is an
+    // account identifier a public, MIT-licensed repo does not commit
+    // (CLAUDE.md: "no internal hostnames, no account identifiers").
     //
-    // DELIBERATELY EMPTY. The production Convex deployment does not exist yet
-    // (CONVEX_DEPLOY_KEY is provisioned but nothing has been deployed), and
-    // guessing would proxy the sign-in flow at whatever answers that name.
-    // While it is empty the Worker fails CLOSED: /api/auth/* returns a 503
-    // naming this variable, and the rest of the site is unaffected. Set it to
-    // the production deployment's `.convex.site` URL — the value Convex prints
-    // as CONVEX_SITE_URL — and redeploy.
-    "CONVEX_ORIGIN": "https://clean-ptarmigan-116.convex.site"
+    // It is now a `wrangler secret`, set by `deploy-router.yml` from the
+    // `CONTROL_PLANE_URL` secret (the same origin the email worker and the
+    // MCP gateway read under that name — one Convex deployment, three
+    // Workers) via `wrangler secret put CONVEX_ORIGIN`. A Worker reads a
+    // secret through `env.CONVEX_ORIGIN` exactly like a var, so
+    // `src/index.ts` needed no change.
+    //
+    // Locally, `wrangler dev` reads a `.dev.vars` file for the same name —
+    // see Cloudflare's docs on local secrets; nothing here commits one.
+    //
+    // If it is unset (no secret configured yet, e.g. a fresh self-hosted
+    // deploy), the Worker fails CLOSED: /api/auth/* returns a 503 naming this
+    // variable, and the rest of the site is unaffected.
   },
 
   "observability": {

@@ -121,6 +121,26 @@ jobs:
             }
           ' "$resp"
 
+      # CONVEX_ORIGIN names which Convex deployment production talks to — an
+      # account identifier, so infra/router/wrangler.jsonc no longer commits
+      # it as a plaintext var (CLAUDE.md: "no internal hostnames, no account
+      # identifiers"). Set as a `wrangler secret` instead, from the same
+      # `CONTROL_PLANE_URL` secret the email worker and the MCP gateway read
+      # under that name — one Convex deployment origin, three Workers.
+      #
+      # Skipped, not failed, when the secret is unset: infra/router's own
+      # comment on CONVEX_ORIGIN documents that state as a real one — the
+      # Worker fails CLOSED on /api/auth/* rather than guessing — for a fresh
+      # self-hosted deploy that has not set up Convex yet.
+      - name: Set CONVEX_ORIGIN secret (Convex HTTP-actions origin)
+        if: ${{ secrets.CONTROL_PLANE_URL != '' }}
+        working-directory: infra/router
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
+        run: printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONVEX_ORIGIN
+
       - name: Deploy context-router
         working-directory: infra/router
         run: pnpm exec wrangler deploy

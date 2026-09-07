@@ -126,10 +126,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
+          CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
         run: |
           set -euo pipefail
           missing=0
-          for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID EMAIL_WORKER_SECRET; do
+          for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID EMAIL_WORKER_SECRET CONTROL_PLANE_URL; do
             if [ -z "${!var:-}" ]; then
               echo "ERROR: missing required secret '$var' in the 'production' environment."
               missing=1
@@ -194,42 +195,23 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
+          CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
         run: |
           set -euo pipefail
           printf '%s' "$EMAIL_WORKER_SECRET" | pnpm exec wrangler secret put EMAIL_WORKER_SECRET
-          echo "OK — the Worker's secret matches this repository's."
+          # CONTROL_PLANE_URL used to be a plaintext var in this file's
+          # wrangler.jsonc, naming an account identifier (which Convex
+          # deployment) a public repo does not commit. Same secret and pattern
+          # apps/mcp already uses for this value.
+          printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONTROL_PLANE_URL
+          echo "OK — the Worker's secrets match this repository's."
 
-      # The worker, the gateway and the router must all name the SAME Convex
-      # deployment. They did not: this worker was pinned to a deployment the
-      # rest of the product stopped using, so every ingest call would have
-      # authenticated against a backend nobody else talks to — silently, since
-      # a wrong-but-live deployment answers rather than erroring.
-      #
-      # The router's config is the single source of truth for which deployment
-      # is production, so compare against it rather than keeping a third copy.
-      - name: Verify this worker names the production Convex deployment
-        run: |
-          set -euo pipefail
-          router=$(node -e '
-            const fs = require("fs");
-            const raw = fs.readFileSync("infra/router/wrangler.jsonc", "utf8");
-            const m = raw.match(/"CONVEX_ORIGIN"\s*:\s*"https:\/\/([a-z0-9-]+)\.convex\.(?:site|cloud)"/);
-            if (!m) { console.error("No CONVEX_ORIGIN in infra/router/wrangler.jsonc."); process.exit(1); }
-            process.stdout.write(m[1]);
-          ')
-          mine=$(node -e '
-            const fs = require("fs");
-            const raw = fs.readFileSync("infra/email-worker/wrangler.jsonc", "utf8");
-            const m = raw.match(/"CONTROL_PLANE_URL"\s*:\s*"https:\/\/([a-z0-9-]+)\.convex\.(?:site|cloud)"/);
-            if (!m) { console.error("No CONTROL_PLANE_URL in infra/email-worker/wrangler.jsonc."); process.exit(1); }
-            process.stdout.write(m[1]);
-          ')
-          if [ "$router" != "$mine" ]; then
-            echo "ERROR: this worker targets '$mine' but production is '$router'."
-            echo "Fix CONTROL_PLANE_URL in infra/email-worker/wrangler.jsonc."
-            exit 1
-          fi
-          echo "OK — email worker and router both use '$router'."
+      # This used to compare infra/router/wrangler.jsonc's CONVEX_ORIGIN
+      # against this worker's own CONTROL_PLANE_URL, both committed literals
+      # that could drift independently. Now that both are the identical
+      # `CONTROL_PLANE_URL` secret (set above and in deploy-router.yml), they
+      # cannot drift from each other — only "Verify required secrets" above
+      # can still fail, if the secret itself is unset.
 
       - name: Deploy context-email
         working-directory: infra/email-worker
@@ -412,11 +394,11 @@ jobs:
       # authenticating. Only 401 means "deployed, and refusing an
       # unauthenticated caller".
       - name: Verify the control plane's ingest routes are live
+        env:
+          CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
         run: |
           set -euo pipefail
-          # Public information — it is in every web client's network tab — and
-          # is the same value as vars.CONTROL_PLANE_URL in wrangler.jsonc.
-          origin="https://clean-ptarmigan-116.convex.site"
+          origin="$CONTROL_PLANE_URL"
           url="$origin/gateway/ingest/resolve"
 
           for attempt in $(seq 1 20); do
@@ -466,9 +448,10 @@ jobs:
       - name: Verify the Worker's secret is the one the control plane accepts
         env:
           EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
+          CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
         run: |
           set -euo pipefail
-          url="https://clean-ptarmigan-116.convex.site/gateway/ingest/resolve"
+          url="$CONTROL_PLANE_URL/gateway/ingest/resolve"
 
           # A reserved name. Refused before any lookup, so this probe reads no
           # row, writes no row, and consumes no limit.

@@ -77,7 +77,7 @@ hour each, and **neither belongs in a commit**:
   `Waiting for Watchman 'watch-project'`. `EXPO_NO_WATCHMAN=1` is ignored; set
   `config.resolver.useWatchman = false`.
 
-Then: `EXPO_PUBLIC_CONVEX_URL=https://clean-ptarmigan-116.convex.cloud` in
+Then: set `EXPO_PUBLIC_CONVEX_URL` to whatever `npx convex dev` printed in
 `apps/mobile/.env.local` (the dev deployment has no auth env vars at all), run
 the worktree's own `./node_modules/.bin/expo` rather than a bare `npx expo`, and
 deep-link past the landing page with
