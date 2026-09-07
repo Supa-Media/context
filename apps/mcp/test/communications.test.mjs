@@ -151,7 +151,7 @@ async function callTool(env, token, name, args = {}) {
 }
 
 /** A day, rendered by the package that owns the format rather than by hand. */
-function seedDay(bucket, { account, address, date, subjects, channel = "email" }) {
+function seedDay(bucket, { account, address, date, subjects, channel = "email", space }) {
   const events = subjects.map((subject, index) => ({
     channel,
     account,
@@ -161,6 +161,7 @@ function seedDay(bucket, { account, address, date, subjects, channel = "email" }
     subject,
     from: { name: `Sender ${index}`, address: `sender${index}@example.net` },
     body: `BODY-MARKER-${subject.replace(/\W+/g, "-")}`,
+    ...(space ? { space } : {}),
   }));
   const text = renderChannelDayNote({
     channel,
@@ -238,6 +239,19 @@ export async function runCommunicationsChecks(check) {
       channel: "imessage",
       date: "2026-09-06",
       subjects: ["On my way"],
+    });
+    // Google Chat: also a no-account channel, but one level deeper — space,
+    // then thread, then message — so this end-to-end pass through the real
+    // gateway tools (not packages/communications' own tests) is what proves
+    // `read_channel_day` surfaces that grouping rather than only the
+    // renderer producing it correctly in isolation.
+    const googleChatDay = seedDay(bucket, {
+      account: "",
+      address: "",
+      channel: "google-chat",
+      date: "2026-09-06",
+      subjects: ["Standup notes"],
+      space: { key: "spaces/AAAA1111", displayName: "Engineering Team", type: "group_chat" },
     });
     // Two notes in the same folder that are NOT days: the forwarded captures
     // this project deliberately left where they are, and a meeting.
@@ -320,6 +334,24 @@ export async function runCommunicationsChecks(check) {
       !(await callTool(env, OWNER_TOKEN, "list_channel_days", { account: "work-at-example-com" })).includes(
         privateDay
       )
+    );
+    check("a Google Chat day is listed alongside every other channel", ownerList.includes(googleChatDay));
+    check(
+      "...and a channel filter narrows to it specifically",
+      (await callTool(env, OWNER_TOKEN, "list_channel_days", { channel: "google-chat" })).includes(googleChatDay) &&
+        !(await callTool(env, OWNER_TOKEN, "list_channel_days", { channel: "google-chat" })).includes(chatDay)
+    );
+    check(
+      "read_channel_day on a Chat day surfaces the space heading through the real gateway path, not only the renderer's own tests",
+      (await callTool(env, OWNER_TOKEN, "read_channel_day", { path: googleChatDay, messages: true })).includes(
+        "Space — Engineering Team"
+      )
+    );
+    check(
+      "a Google Chat day is private by default, the same as any other unnamed folder",
+      !(await callTool(env, TEAM_TOKEN, "list_channel_days", { channel: "google-chat" })).includes(googleChatDay) &&
+        (await callTool(env, TEAM_TOKEN, "read_channel_day", { path: googleChatDay })) ===
+          (await callTool(env, TEAM_TOKEN, "read_channel_day", { path: "0-inbox/google-chat/1999-01-01.md" }))
     );
     check(
       "a channel nobody has is a caller error, not a silent empty answer",
