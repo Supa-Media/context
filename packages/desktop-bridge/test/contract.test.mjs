@@ -52,6 +52,7 @@ import {
   CAPABILITY_NAMES,
   MIN_BRIDGE_VERSION,
   NO_CAPABILITIES,
+  MEETING_WRITE_KINDS,
   TRAY_COMMANDS,
   capabilitiesFrom,
 } from "../src/index.ts";
@@ -177,6 +178,28 @@ export function runContractChecks(check) {
   check(
     "record, pause, resume and end are all reachable from the menu bar",
     ["record", "pause", "resume", "end"].every((command) => TRAY_COMMANDS.includes(command)),
+  );
+
+  // -- the meeting write, which is the version-2 addition
+  //
+  // Four kinds because there are four routes, and they are the protocol's own
+  // names rather than a second vocabulary: a `write` with `kind: "segments"` is
+  // `POST /meetings/sessions/:id/segments`. A fifth word here would be a route
+  // the gateway does not serve.
+
+  check("the write kinds are frozen", Object.isFrozen(MEETING_WRITE_KINDS));
+  check("...and distinct", new Set(MEETING_WRITE_KINDS).size === MEETING_WRITE_KINDS.length);
+  check(
+    "they are the meetings protocol's four routes, and only those",
+    MEETING_WRITE_KINDS.join() === "session,segments,notes,finalize",
+  );
+  check(
+    "the write carries a context *name*, never a path the page composed",
+    /context: string \| null/.test(CONTRACT_SOURCE),
+  );
+  check(
+    "the ack can say parked, so a refusal is not retried against somebody's quota",
+    /rejected: \{ code: string; message: string \} \| null/.test(CONTRACT_SOURCE),
   );
 
   // -- the credential rule, read off the declared surface

@@ -24,6 +24,8 @@
  *   permissions asked for from a constant rather than from the channels       1
  *   a typed meeting still labelled with the engine's name                     1
  *   the engine handed one session id for the life of the app                  2
+ *   `queueWrites: false` ignored, so the console path queues twice            1
+ *   `onSegment` fired from `#update` rather than once per segment             1
  *
  * The second one had to be *added* to this file: the original checks looked at
  * the recorder after `end()` resolved, which is green whichever order those two
@@ -47,6 +49,7 @@ function harness(options = {}) {
   const permissions = options.permissions ?? fakePermissionBroker();
   let outbox = emptyOutbox();
   const views = [];
+  const segments = [];
   const controller = new MeetingController({
     recorder,
     transcriber: options.transcriber ?? fakeTranscriber(["one", "two"]),
@@ -56,9 +59,10 @@ function harness(options = {}) {
     setOutbox: (next) => { outbox = next; },
     now: clock.now,
     onChange: (view) => views.push(view),
+    onSegment: (segment) => segments.push(segment),
     newId: () => "mtg_abcdefghjkmnpqrstvwx",
   });
-  return { controller, recorder, permissions, views, clock, outbox: () => outbox };
+  return { controller, recorder, permissions, views, clock, segments, outbox: () => outbox };
 }
 
 const source = { kind: "zoom", app: "zoom.us" };
@@ -345,5 +349,96 @@ export async function runControllerChecks(check) {
     const second = await controller.begin({ source, title: "two", grantedEpisode: "e2" });
     check("a second meeting does not start over the first", second.ok === false && second.why === "already-recording");
     check("the first meeting is untouched", controller.view()?.title === "one");
+  }
+  /* --- one meeting is one writer ---------------------------------------- */
+
+  /**
+   * WHO QUEUES THE WRITES, AND WHY IT IS NOT ALWAYS THIS OBJECT.
+   *
+   * `docs/decisions/desktop.md`: on the console path the *page* holds the
+   * meeting — its record, the human's notes, the destination somebody picked —
+   * and hands each write to this machine's queue over the bridge, so the note
+   * is written by the machine's own grant through the outbox that outlives the
+   * window. If this controller also queued, both would collapse onto the same
+   * `${sessionId}:${kind}` entries and the last one in would win: `end()`
+   * queues an **empty** `notes`, drains it, and the gateway writes the note
+   * before the person's typed notes have left the page.
+   *
+   * What must stay true is everything else: the microphone, the consent gate,
+   * the transcriber and the segment stream are unchanged, because they are what
+   * the shell is for.
+   */
+  {
+    const shell = harness();
+    await shell.controller.begin({
+      source,
+      title: "Standup",
+      grantedEpisode: "e1",
+      queueWrites: false,
+      channels: ["mic"],
+    });
+    check(
+      "...and the microphone is open, which is what the shell is for",
+      shell.recorder.capturing === true,
+    );
+    shell.recorder.step(1_000);
+    shell.controller.notes("what the person typed");
+    await endQuietly(shell.controller);
+    check(
+      "A MEETING THE CONSOLE STARTED QUEUES NOTHING HERE — the page is the writer",
+      shell.outbox().entries.length === 0,
+    );
+    check(
+      "...though it did capture and transcribe, so the words reached the page",
+      shell.segments.length > 0,
+    );
+    check(
+      "...and it still holds the human's notes for anything on this side that asks",
+      shell.controller.view()?.notes === "what the person typed",
+    );
+  }
+
+  {
+    const shell = harness();
+    await shell.controller.begin({ source, title: "Standup", grantedEpisode: "e1", channels: ["mic"] });
+    check(
+      "a meeting the shell started queues its own session row, as it always has",
+      shell.outbox().entries.some((entry) => entry.kind === "session"),
+    );
+    await endQuietly(shell.controller);
+  }
+
+  {
+    const shell = harness();
+    await shell.controller.begin({ source, title: "Standup", grantedEpisode: "e1", channels: ["mic"] });
+    await endQuietly(shell.controller);
+    check(
+      "every segment is announced once, as an event rather than as a state",
+      shell.segments.length === shell.controller.view()?.transcript.length,
+    );
+    check(
+      "...and it is the segment itself, not the whole transcript",
+      shell.segments.every((segment) => typeof segment?.id === "string" && typeof segment.text === "string"),
+    );
+  }
+
+  {
+    const shell = harness();
+    await shell.controller.begin({
+      id: "mtg_theoneythepagechose",
+      source,
+      title: "Standup",
+      grantedEpisode: "e1",
+      channels: ["mic"],
+    });
+    check(
+      "THE ID THE PAGE MINTED IS THE ID THE MEETING IS FILED UNDER",
+      shell.controller.view()?.id === "mtg_theoneythepagechose",
+    );
+    check(
+      "...and the queue is keyed on it, so one meeting is one note",
+      shell.outbox().entries.every((entry) => entry.sessionId === "mtg_theoneythepagechose"),
+    );
+    await endQuietly(shell.controller);
   }
 }

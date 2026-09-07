@@ -7,6 +7,7 @@ import { useReachability } from "../offline/reachability";
 import { openStore } from "../offline/store";
 import { createRecorderFor, setTranscriptionClient } from "./capture";
 import { createConvexGateway, writeNoteThrough } from "./convexGateway";
+import { meetingsWriterFor } from "./desktopGateway";
 import { meetingWorkspaceId, type RoutableContext } from "./destination";
 import { type MeetingsGateway } from "./gateway";
 import { meetings, type MeetingsSnapshot } from "./controller";
@@ -161,6 +162,16 @@ export function useTranscriptionClient(): void {
  * pass, the session record in the bucket, `list()`) and how idempotency is
  * bought without a claimed path.
  *
+ * **And there is a third, inside the desktop shell.** `meetingsWriterFor` swaps
+ * in `desktopGateway.ts` when `window.desktop` offers `meetings`, so the note is
+ * written by the *machine's* own grant through the queue that drains with no
+ * window open — the same path the tray-only recording takes. That is the half
+ * `docs/decisions/desktop.md` deferred out of step 3: until it landed, a meeting
+ * on a Mac took two credentials and the shell's outbox was not on the path.
+ * There is no branch on whether the machine currently holds a grant; a machine
+ * with none queues, which is what `createHttpGateway` has always answered and
+ * what `classifySyncFailure` already treats as transient.
+ *
  * The workspace list is what turns a destination's `@name` into the id
  * `writeNote` takes. It is read through a ref rather than captured, because it
  * lands *after* the controller is configured and a meeting can be finalized at
@@ -241,13 +252,30 @@ export function useMeetingsSetup(
     [],
   );
 
+  /*
+    Which writer a meeting takes, and the third one.
+
+    In a browser and on a phone this is unchanged: `createConvexGateway`, the
+    control-plane session, writing through `files.writeNote` exactly as the
+    editor does. **Inside the desktop shell it is the shell**, over
+    `window.desktop` — `desktopGateway.ts` has the argument, and the short
+    version is that a meeting on a Mac was taking two credentials, and the queue
+    that outlives the window was not on the path at all.
+
+    `meetingsWriterFor` reads the bridge at *configure* time and never again
+    while a meeting is live, which is what makes it a decision rather than a
+    race. There is no branch on whether the machine happens to hold a grant: two
+    writers for one meeting, chosen by timing, is the failure this replaced.
+  */
   const gateway = useMemo(
     () =>
       options.gateway ??
-      createConvexGateway({
-        writeNote: writeNoteThrough(convex as never),
-        resolveWorkspaceId,
-      }),
+      meetingsWriterFor(
+        createConvexGateway({
+          writeNote: writeNoteThrough(convex as never),
+          resolveWorkspaceId,
+        }),
+      ),
     [options.gateway, convex, resolveWorkspaceId],
   );
 

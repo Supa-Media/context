@@ -42,6 +42,7 @@ for (const name of [
   "BRIDGE_CHANNELS",
   "BRIDGE_CHANNEL_NAMES",
   "CAPABILITY_NAMES",
+  "MEETING_WRITE_KINDS",
   "NO_CAPABILITIES",
   "TRAY_COMMANDS",
   "capabilitiesFrom",

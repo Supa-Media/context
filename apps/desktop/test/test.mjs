@@ -31,7 +31,11 @@ import { runTrayChecks } from "./tray.test.mjs";
 import { runPlatformChecks } from "./platform.test.mjs";
 import { runContractChecks } from "./contract.test.mjs";
 import { runShellChecks } from "./shell.test.mjs";
+import { runTrayOnlyChecks } from "./trayOnly.test.mjs";
+import { runMirrorChecks } from "./mirror.test.mjs";
+import { runConsoleBridgeChecks } from "./consoleBridge.test.mjs";
 import { runPackagingChecks } from "./packaging.test.mjs";
+import { runUpdatePolicyChecks } from "./updatePolicy.test.mjs";
 
 let failures = 0;
 let skipped = 0;
@@ -71,6 +75,10 @@ await runControllerChecks(check);
 runTrayChecks(check);
 runPlatformChecks(check);
 runShellChecks(check);
+await runTrayOnlyChecks(check);
+await runMirrorChecks(check);
+runUpdatePolicyChecks(check);
+await runConsoleBridgeChecks(check);
 await runContractChecks(check, skip);
 await runPackagingChecks(check);
 

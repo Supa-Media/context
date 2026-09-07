@@ -21,6 +21,16 @@
  *   `isRetryable` returning true for `meeting_forbidden`                       2
  *   `nextDrain` returning the oldest entry rather than the session's head      1
  *   the collapse resetting `attempts` on a parked entry                        1
+ *   the drain assigning its snapshot over the live queue again                 4
+ *   an entry that gained content mid-flight deleted by the old ack             1
+ *   a refusal forgotten because the content changed                            1
+ *
+ * The three new rows are one defect with three faces, and it is the one that
+ * loses somebody's words *after* they were told the write was accepted: a drain
+ * is a snapshot plus a round trip, the queue does not stand still for it, and
+ * `outbox = report.outbox` in `main/index.ts` dropped everything queued in
+ * between. `reconcileDrain` is the answer and these are what it must not stop
+ * doing.
  *
  * The two large numbers are the two that lose somebody's words, and both of
  * them originally *crashed* this file rather than failing it — a deleted entry
@@ -40,6 +50,7 @@ import {
   normalizeOutbox,
   pendingFor,
   queueWrite,
+  reconcileDrain,
 } from "../src/core/sync/outbox.ts";
 import { isMeetingId, newMeetingId } from "@context/meetings";
 
@@ -166,6 +177,113 @@ export function runOutboxChecks(check) {
     outbox = applyDrain(outbox, stuck.id, { ok: false, code: ERRORS.forbidden, message: "no", retryable: false }, 10);
     const next = nextDrain(outbox, 10);
     check("a parked session does not block another session", next !== null && next.sessionId === other);
+  }
+
+  // -- a drain does not freeze the queue --------------------------------------
+
+  /**
+   * THE QUEUE MOVES WHILE A DRAIN IS IN FLIGHT, AND NOTHING QUEUED THEN IS LOST.
+   *
+   * A drain is a snapshot plus a network round trip. During it a segment is
+   * spoken, somebody types in the notepad, the console hands over a write — all
+   * synchronous, all landing on the live queue. `main/index.ts` used to assign
+   * the drain's result over the top (`outbox = report.outbox`), which drops
+   * every one of them, and the dropped write has already been answered as
+   * accepted: on the console path `meetings.write` said `queued: true` about a
+   * note the queue no longer holds. That is the false acknowledgement
+   * `app-and-console.md` forbids by name.
+   */
+  {
+    const before = queueWrite(emptyOutbox(), {
+      sessionId,
+      kind: "segments",
+      body: { sessionId, segments: [seg("s1", 0, "one")] },
+      now: 0,
+    });
+    // The drain sent it and the gateway said yes.
+    const drained = applyDrain(before, before.entries[0].id, { ok: true }, 10);
+    // Meanwhile the person typed, and the console handed the notes over.
+    const live = queueWrite(before, { sessionId, kind: "notes", body: { markdown: "typed" }, now: 5 });
+
+    const next = reconcileDrain(before, drained, live);
+    check(
+      "A WRITE QUEUED DURING A DRAIN SURVIVES IT — it was acknowledged to somebody",
+      next.entries.some((entry) => entry.kind === "notes" && entry.body.markdown === "typed"),
+    );
+    check(
+      "...and what the gateway did acknowledge is gone",
+      !next.entries.some((entry) => entry.kind === "segments"),
+    );
+  }
+
+  {
+    const before = queueWrite(emptyOutbox(), {
+      sessionId,
+      kind: "segments",
+      body: { sessionId, segments: [seg("s1", 0, "one")] },
+      now: 0,
+    });
+    const drained = applyDrain(before, before.entries[0].id, { ok: true }, 10);
+    // Two more segments merged into the same entry while its predecessor was in
+    // flight. What the gateway acknowledged is not what the queue is holding.
+    const live = queueWrite(before, {
+      sessionId,
+      kind: "segments",
+      body: { sessionId, segments: [seg("s2", 1000, "two")] },
+      now: 5,
+    });
+
+    const next = reconcileDrain(before, drained, live);
+    check(
+      "AN ENTRY THAT GAINED CONTENT MID-FLIGHT IS NOT DELETED BY THE OLD ACK",
+      next.entries[0]?.kind === "segments" && next.entries[0]?.body.segments?.length === 2,
+    );
+  }
+
+  {
+    const before = queueWrite(emptyOutbox(), { sessionId, kind: "session", body: { id: sessionId }, now: 0 });
+    const drained = applyDrain(
+      before,
+      before.entries[0].id,
+      { ok: false, code: ERRORS.forbidden, message: "no", retryable: false },
+      10,
+    );
+    const live = queueWrite(before, { sessionId, kind: "session", body: { id: sessionId, title: "later" }, now: 5 });
+
+    const next = reconcileDrain(before, drained, live);
+    check(
+      "a refusal is about the meeting, so it survives the content changing",
+      next.entries[0]?.state === "parked" && next.entries[0]?.parked?.code === ERRORS.forbidden,
+    );
+    check(
+      "...and the newer content is what is kept beside it",
+      next.entries[0]?.body.title === "later",
+    );
+  }
+
+  {
+    const before = queueWrite(emptyOutbox(), { sessionId, kind: "session", body: { id: sessionId }, now: 0 });
+    const drained = applyDrain(before, before.entries[0].id, { ok: true }, 10);
+    check(
+      "a queue nothing touched during the drain is the drain's own answer",
+      reconcileDrain(before, drained, before).entries.length === 0,
+    );
+  }
+
+  {
+    const before = queueWrite(emptyOutbox(), { sessionId, kind: "session", body: { id: sessionId }, now: 0 });
+    const drained = applyDrain(
+      before,
+      before.entries[0].id,
+      { ok: false, code: ERRORS.unavailable, message: "offline", retryable: true },
+      10,
+    );
+    // A person deleted the meeting while the request was in the air.
+    const next = reconcileDrain(before, drained, forgetSession(before, sessionId));
+    check(
+      "a meeting somebody deleted mid-drain stays deleted",
+      next.entries.length === 0,
+    );
   }
 
   // -- persistence -----------------------------------------------------------

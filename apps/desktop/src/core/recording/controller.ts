@@ -99,11 +99,33 @@ export interface ControllerDeps {
   setOutbox: (outbox: Outbox) => void;
   now: () => Date;
   onChange?: (view: SessionView) => void;
+  /**
+   * One finished segment, as it arrives. Fired before `onChange`.
+   *
+   * Separate from `onChange` because it is an *event* and `onChange` is a
+   * state: the view carries the whole transcript on every keystroke, and a
+   * subscriber that had to diff two arrays to find the new words would be a
+   * second implementation of what this class already knows. The desktop bridge
+   * is the caller — `docs/decisions/desktop.md`'s `onSegment` — and a page
+   * cannot be handed the transcript array itself.
+   */
+  onSegment?: (segment: TranscriptSegment) => void;
   newId?: () => string;
   sampleRate?: number;
 }
 
 export interface BeginInput {
+  /**
+   * The id this meeting is filed under, when somebody else already minted one.
+   *
+   * Absent everywhere the shell starts a meeting itself — the tray, the panel —
+   * and present when the **console** started it: the page mints the id, its own
+   * record is keyed on it, and the outbox files every write for this session
+   * under it. Two ids for one meeting would be two notes in somebody's bucket
+   * that nothing on this device could ever reconcile, so this is passed rather
+   * than the shell answering back with an id the page then has to adopt.
+   */
+  id?: string;
   source: MeetingSource;
   title: string;
   attendees?: Attendee[];
@@ -118,6 +140,23 @@ export interface BeginInput {
   channels?: readonly ("mic" | "system")[];
   /** What `capturePlan` said this meeting is not doing, shown as it stands. */
   notice?: string | null;
+  /**
+   * Whether this controller queues the writes for this meeting. Default `true`.
+   *
+   * **False when the console started it**, and that is a decision rather than a
+   * switch. On that path the *page* holds the meeting — its own record, its own
+   * notes, its own destination — and hands each write to the shell's queue over
+   * the bridge. If this controller also queued, both would collapse onto the
+   * same `${sessionId}:${kind}` entries and the last one in would win: the
+   * shell's `end()` queues an **empty** `notes` and a finalize, drains them, and
+   * the gateway writes the note before the person's typed notes have left the
+   * page. One meeting is one writer, and on that path it is not this object.
+   *
+   * What stays true either way: this controller is still the only thing that
+   * opens a microphone, still holds the consent gate, and still transcribes
+   * with this machine's grant. What changes is only who files the result.
+   */
+  queueWrites?: boolean;
 }
 
 export type BeginResult =
@@ -130,6 +169,8 @@ export class MeetingController {
   #stream: TranscriptionStream | null = null;
   #segments = 0;
   #startedAtMs = 0;
+  /** See `BeginInput.queueWrites`. True for every meeting this shell starts. */
+  #queues = true;
 
   constructor(deps: ControllerDeps) {
     this.#deps = deps;
@@ -167,6 +208,9 @@ export class MeetingController {
   #queue(kind: "session" | "segments" | "notes" | "finalize", body: Record<string, unknown>): void {
     const view = this.#view;
     if (!view) return;
+    // See `BeginInput.queueWrites`: one meeting is one writer, and on the
+    // console path it is the page rather than this object.
+    if (!this.#queues) return;
     this.#deps.setOutbox(
       queueWrite(this.#deps.outbox(), {
         sessionId: view.id,
@@ -202,7 +246,8 @@ export class MeetingController {
     if (!outcome.ok) return { ok: false, why: "permissions", missing: outcome.missing };
 
     const startedAt = this.#deps.now();
-    const id = (this.#deps.newId ?? newMeetingId)();
+    const id = input.id ?? (this.#deps.newId ?? newMeetingId)();
+    this.#queues = input.queueWrites ?? true;
     this.#startedAtMs = startedAt.getTime();
     this.#segments = 0;
 
@@ -277,6 +322,7 @@ export class MeetingController {
     const view = this.#view;
     if (!view) return;
     this.#segments += 1;
+    this.#deps.onSegment?.(segment);
     this.#update({ transcript: [...view.transcript, segment] });
     // Queued one at a time; `queueWrite` collapses them into a single pending
     // entry keyed on segment id, so a two-hour meeting is one request rather

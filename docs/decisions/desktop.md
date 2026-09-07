@@ -193,6 +193,15 @@ interface DesktopBridge {
 }
 ```
 
+That is version 1, and it is written out above as it shipped. **Version 2 adds
+one member** — `meetings.write`, the four protocol writes handed to the shell's
+queue — for the reason *One meeting is one credential* argues below. The
+version-1 row of the validator's required-members table is untouched and
+`MIN_BRIDGE_VERSION` stays `1`, so a shell installed before that member existed
+answers `1`, is accepted, and simply has none; the page asks for the *member*
+rather than comparing the version. Editing row 1 is how a bundle starts refusing
+shells that are doing nothing wrong.
+
 Four decisions inside that shape.
 
 **Every subscription returns its own unsubscribe.** The existing
@@ -337,6 +346,53 @@ manifest, not only a dmg` — the last one belongs beside
 `packaging.test.mjs`'s existing sabotage record, which already learned that
 reading the config as text passes when the value is only discussed in a comment.
 
+### Step 7 landed: a release, not a draft, and the meeting always wins
+
+Step 7 shipped `apps/desktop/src/core/update/policy.ts`, `src/main/updater.ts`,
+the `zip`/`publish` halves of `electron-builder.yml`, and a `publish` input on
+`deploy-desktop.yml`. Two decisions the sections above left open, closed here
+because building them surfaced a question each:
+
+**`releaseType: release`, not `draft`.** `autoUpdater`'s GitHub provider reads
+the *latest published* release; a draft is not one — it exists in this
+repository's UI and nowhere the update check can see. Publishing a draft would
+make every future dispatch build correctly, sign correctly, notarise
+correctly, and update nobody, silently, because nothing failed. **The test
+that fails if this is reversed**: `packaging.test.mjs`'s `"...as a real
+release, not a draft the update check can never see"` reads
+`electron-builder.yml` for `releaseType: release`; flip it to `draft` locally
+and that check goes red with nothing else changed.
+
+**An update downloaded mid-meeting is deferred, never dropped.** The state
+machine has no path from `deferred-for-recording` back to `idle` — the only
+way out is `capture-ended`, fired from `MeetingController.end()` once the note
+is queued. A "simplification" here would be tempting in exactly one direction:
+discarding a deferred update and re-checking later, on the theory that the next
+poll six hours on will pick it up anyway. It would not, not promptly — a
+person who ends a four-hour meeting would wait up to six more hours for the
+tray to notice again, having already paid the download. **The test that fails
+if this is reversed**: `updatePolicy.test.mjs`'s `"DEFERRED INSTALL FIRES ONLY
+AFTER THE MEETING ENDS"` asserts `transition("deferred-for-recording",
+{ type: "capture-ended" }) === "ready"`; a version of `transition` that instead
+resets a deferred update to `"idle"` on `capture-ended` passes every other
+check in the file and fails only that one — which is the point of naming it
+rather than folding it into the sweep.
+
+A third call worth recording even though it was not asked for by name: the
+build job's `permissions` block moves from `contents: read` to `contents:
+write` rather than splitting into a second job, because GitHub Actions grants
+permissions per job-declaration, not per dispatch input, and a second job that
+only exists to hold a narrower scope would duplicate the entire
+certificate-and-keychain sequence above it — twice the signing surface for a
+scope that is exercised, in practice, on the one dispatch a maintainer marks
+`publish: true`. **The test that fails if the gate is removed instead of the
+scope**: `packaging.test.mjs`'s `"publishing is decided once, from the
+dispatch input AND both credentials"` requires all three of
+`PUBLISH_REQUESTED`, `SIGNED` and `NOTARIZED` to be true before `--publish
+always` is ever passed to electron-builder; deleting either credential check
+and leaving only the dispatch input passes that regex's first half and fails
+its second.
+
 ### Nothing that can start a recording may come from an origin we did not pin
 
 `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, and no
@@ -414,6 +470,129 @@ What is honestly lost: a first launch with no network shows a failure page, not
 an app. And a cold *sign-in* needs the network, because the control plane is
 there — though recording does not, because the grant is on the machine.
 
+### Step 6 landed: one origin at a time, and a mirror that refuses data
+
+The mechanism is the one this document chose above — `app://console/` over the
+last good load — and the parts that were left as "a protocol handler" turned out
+to carry four decisions worth writing down.
+
+**The snapshot is taken after the load, never during it.** The alternative is
+intercepting every request the console makes and teeing the bodies, which puts
+the mirror on the path between a person and their app: a bug in it is a console
+that does not load *at all*, network or no network. So `did-finish-load` fires,
+the page is asked for its own resource list (`performance.getEntriesByType`),
+and each URL is re-fetched **with credentials omitted** through the console's
+own session. That last clause is not an optimisation: it is what makes "nothing
+per-person is mirrored" a property of the *request* rather than only of the
+response headers we then inspect. Redirects are `manual`, so a 3xx is a status
+`shouldMirror` refuses rather than a body from wherever it pointed — Electron
+documents `response.url` as unreliable for this fetch, and storing bytes under a
+path whose origin the process cannot verify is exactly the hole the origin rule
+exists to close.
+
+**What is refused is a closed set, and `/api` is in it.** A different origin, a
+non-`GET`, a non-`200`, anything under `/api`, anything carrying `Set-Cookie`,
+`Authorization` or `WWW-Authenticate`, anything whose `Cache-Control` says
+`no-store` or `private`, anything whose `Vary` says `Cookie` or `Authorization`,
+anything over 8 MB, and any content type the console is not made of. A mirror
+that took `/api` would be a copy of somebody's notes in an unencrypted directory
+*and* a stale answer to a question nobody asked; the note store and the outbox
+are where data offline lives, and they already work.
+
+**The mirrored page gets the bridge, and that is a moved pin rather than a wider
+one.** Without it the offline console cannot tell a person the one thing they
+need to know while the network is gone — that their meeting is *queued* — so
+`app://console` is a trusted origin. What keeps that honest is that
+**exactly one origin is trusted at a time**: `pinnedOriginFor` derives the pin
+from the URL the window has committed to, and `createConsoleBridge` reads it on
+every channel rather than capturing it. While the mirror is served, a frame
+claiming the live origin is refused; while the live page is loaded, a frame
+claiming the mirror is refused. `shouldExposeBridge` is unchanged and still
+compares two whole strings.
+
+One trap inside that, because it cost an afternoon and would be re-introduced by
+anybody writing the obvious line: **Node's `URL` answers `"null"` for
+`app://console/...`** — it was never told the scheme is standard — while
+Chromium, which `registerSchemesAsPrivileged` did tell, reports
+`location.origin` as `app://console`. A sender check written as
+`new URL(frame.url).origin` therefore refuses the very page this shell is
+serving, and `"null"` is the string every guard here refuses by name.
+`originOfUrl` is the single place the two processes are reconciled.
+
+**The mirror is disposable, and deletion is the only repair.** A different app
+version, a different origin, an unparsable manifest, a copy older than thirty
+days or one whose index is missing all delete the directory rather than patch
+it — CLAUDE.md's rule for every derivative, applied to a cache of somebody
+else's build. A snapshot is written into `pending/` and renamed over `current/`
+with the manifest written **last**, so a crash mid-save leaves the previous
+mirror rather than half a console.
+
+**The tests that fail if any of this is reversed** are in
+`apps/desktop/test/mirror.test.mjs`, with the counts: `A FAILED LOAD FALLS BACK
+TO THE MIRROR RATHER THAN TO A BLANK WINDOW`, `THE MIRROR IS NEVER SERVED FOR
+ANOTHER ORIGIN'S FAILED LOAD`, `A DIFFERENT ORIGIN IS NEVER MIRRORED`, `NOTHING
+UNDER /api IS MIRRORED`, `A RESPONSE CARRYING Set-Cookie IS NEVER MIRRORED`, `A
+MISSING ASSET IS A 404, NEVER THE PAGE`, `A MIRROR WRITTEN BY ANOTHER VERSION OF
+THIS APP IS NOT SHOWN`, and `A MANIFEST THAT WILL NOT PARSE DELETES THE MIRROR`.
+The pin's two directions are in `consoleBridge.test.mjs`: `THE MIRRORED CONSOLE
+IS ANSWERED` and `A FRAME CLAIMING THE MIRROR IS REFUSED WHILE THE LIVE CONSOLE
+IS LOADED`.
+
+**The fourth place the `"null"` trap was waiting, found in review.** The three
+places it is written down were not all the places it applies: the console
+window's `will-navigate` guard was allowing `app://console` with
+`new URL(target).origin`, which in the main process is `"null"` — so every
+navigation *within* the offline console was cancelled and the mirrored page's
+own links did nothing. The decision moved into `isAllowedConsoleNavigation`,
+where it is a pure function with checks on it rather than a comparison inside an
+event handler no suite can reach. That is the rule this file keeps re-learning:
+**any line that asks "what origin is this" goes through `originOfUrl`**, and one
+that cannot be tested is one that will be written the obvious way.
+
+Three smaller things settled in the same review, each now a check:
+
+- **The failure page is pinned to nothing.** It is served at `app://console`
+  but it is not a copy of the console — it is a sentence and a link, generated
+  here, asking the bridge for nothing — so `pinnedOriginFor` answers `""` for
+  `/__offline` and the page is given no bridge, which is what its own comment
+  already claimed.
+- **A response is weighed by what it says before it is weighed by what it is.**
+  `Content-Length` over the per-file limit is skipped before the body is read,
+  so a compromised page naming a same-origin URL that answers for ever is not
+  buffered into the main process to be refused afterwards.
+- **The mirror is read with `O_NOFOLLOW`.** Nothing `save` writes is a symlink,
+  so one found there is somebody else's, and following it would make the
+  protocol handler "serve me that file". Defence in depth rather than a
+  boundary — a process that can write into `userData` can already replace the
+  app's own JavaScript — and it costs one flag.
+
+**What a Mac has to confirm, because nothing here can.** Every check above runs
+without Electron, and five things consequently have never happened:
+
+- **A second launch with the network off shows the console, labelled.** Launch
+  once online (so a snapshot is taken), quit, turn the network off, launch
+  again: the window should show the app it showed before with the offline line
+  at the bottom of it, and `Try again` should reload the live URL.
+- **The mirrored page really has a bridge.** With the mirror showing, the
+  offline line should say what the queue is holding — that number comes from
+  `window.desktop.outbox.status()`, so a blank there means Chromium did not give
+  `app://console` a real origin and the preload refused, which is the failure
+  `registerSchemesAsPrivileged` exists to prevent.
+- **A first launch with no network shows the failure page and not a blank
+  window**, with a Retry that works once the network is back.
+- **The snapshot is a console and not a skeleton.** Expo's web export is a
+  document, a bundle and some assets; whether `performance.getEntriesByType`
+  names all of them on this build is a fact about Chromium, not about the
+  filter. `[mirror]` in the log, and the size of
+  `~/Library/Application Support/Context/mirror/v1/current`, are the evidence.
+- **What the offline console looks like signed out.** `app://console` is a
+  different origin from the live one, so it has its own storage and does not
+  carry the control-plane session — the mirrored page is expected to show the
+  signed-out shell with the offline line and the queue count on it. That is a
+  consequence of the origin rule rather than a defect, and the thing to confirm
+  is that it is *legible*: a person who can still record from the tray should
+  not be told the app is broken.
+
 ### The order is seven pull requests, and the first one changes nothing by default
 
 Each is shippable on its own and the first four are individually revertible by
@@ -438,21 +617,122 @@ one environment variable.
    the sheet offers system audio only where `capabilities()` said yes, and
    Settings grows a "This machine" card over `connection`. Everything else about
    the screens is unchanged, which is the point. *(~450 lines)* **Landed with
-   the gateway half deferred — see *What step 3 did not do* below.**
+   the gateway half deferred; that half is `desktopGateway.ts` and it has since
+   landed too — see *One meeting is one credential* below.**
 4. **Flip the default** to `CONTEXT_DESKTOP_UI=console`. The old windows still
-   build and are unused. *(~40 lines)*
+   build and are unused. *(~40 lines)* **Landed** — see "Step 4 landed: the
+   console is what a launch opens, and the panel is one variable away" below.
 5. **Delete the renderer.** Panel, notepad, `tokens.css`, `preload/index.ts`,
    `global.d.ts`, the dead half of `UiState`, three esbuild entry points.
-   *(~-1,500 lines)*
+   *(~-1,500 lines)* **Waiting on a Mac**, deliberately: the confirmations
+   listed in #277, #278 and step 6 have not been made by anybody, and deleting
+   the fallback before somebody has seen the replacement record a meeting is
+   deleting the thing they would fall back *to*.
 6. **The offline mirror.** `app://console/` over the last good load, the cached
-   badge, the first-run failure page. *(~250 lines)*
+   badge, the first-run failure page. *(~250 lines)* **Landed** — see "Step 6
+   landed: one origin at a time, and a mirror that refuses data" above, which
+   records the four decisions it turned out to carry and what a Mac still has to
+   confirm.
 7. **`electron-updater`.** The zip target, `publish: github`, a release job in
    `deploy-desktop.yml`, armed only when signed, never installing during a
-   recording. *(~250 lines and a workflow)*
+   recording. *(~250 lines and a workflow)* **Landed** — see "Step 7 landed: a
+   release, not a draft, and the meeting always wins" above.
 
 Steps 1 and 2 are ordered before 3 deliberately: the shell must be able to
 answer the bridge before the UI is allowed to ask, or the first thing a person
 sees on a stale shell is a screen calling a function that is not there.
+
+### Step 4 landed: the console is what a launch opens, and the panel is one variable away
+
+`desktopUiMode(env)` answers `console` unless `CONTEXT_DESKTOP_UI` says
+`renderer`, and `main/index.ts` reads it once. Three decisions came out of doing
+it, none of which the one-line description implied.
+
+**A misspelt mode is the default rather than a refusal.** `consoleUrl` makes the
+opposite call about `CONTEXT_DESKTOP_UI_URL` — a typo there throws at launch —
+and the difference is what the mistake costs: loading *the wrong page* is worse
+than loading none, while hosting *no UI at all* is worse than hosting the one
+the person nearly asked for. A shell whose window never opens because of a typo
+in a mode name is a bug report about a broken app.
+
+**In console mode the panel and the notepad are not created at all**, rather
+than created and left hidden. Two UIs answering one meeting is worse than
+either: a popover asking "take notes?" over a console already showing the same
+detection is two consents for one meeting, and whichever is pressed the other is
+stale. What replaces each of them is named where it happens — the tray's
+menu-bar click raises the console window instead of the popover, and *Open
+notes* raises it instead of the notepad. The consent rule is untouched and if
+anything stricter: nothing records until somebody presses Record, on the tray or
+in the page, and both go through `consent/gate.ts` and `capturePlan` exactly as
+before.
+
+**The tray is unchanged, and that is the point.** Record, Pause, End, the
+pending count and the connection verbs are all still there with no window open
+at all, which is the first layer of *Offline* above and now the only layer a
+person needs on a launch where the console has not loaded.
+
+**The refusals the panel used to explain are now said out loud.** The panel was
+not only a UI, it was the answer to "why did that button do nothing" — a press
+of Record with capture switched off, an app on the blocklist, a macOS permission
+never granted. None of those is attached to a capture the bridge could report, so
+on a launch with no panel `explain()` raises the console window and shows the
+sentence in a message box. The sentences are `CONSOLE_NOTICES` and
+`PLAN_NOTICES`, unchanged and never assembled at the call site; a silent button
+is the one outcome that was not acceptable.
+
+**A closed console window is opened again, because it is destroyed rather than
+hidden.** Found in review, and it is the same rule as the message box one level
+up: the panel hides when somebody dismisses it, while `closed` on the console
+window sets `consoleWindow`, its bridge and its mirror to `null` — so a
+menu-bar click that only *raises* a window is a click that does nothing for the
+rest of the run, on an app whose only UI the person just closed. `showConsoleWindow`
+raises what is there and `openConsoleWindow` builds it again, and the two names
+are the difference between a refusal that wants a window behind it and a click
+that *is* the request for one. Reopening is safe by construction: `closed`
+disposed the bridge, and `createConsoleMirror` unregisters the scheme on its
+partition before registering it — the case that file's own comment anticipated
+and nothing exercised until now. The one launch that can still have no window is
+a `CONTEXT_DESKTOP_UI_URL` this app refuses, and that click now says so from the
+same closed set as every other refusal.
+
+What this step **does not** carry across, stated so step 5 does not inherit a
+surprise: the panel also *renders state* — the evidence list, the blocklist, the
+transcription setting — and the console shows its own version of that from the
+bridge's four views rather than from `UiState`. `missingPermissions` is still a
+field of `UiState` that only the panel reads. Step 5 is where it is either given
+a place in the contract or deliberately dropped.
+
+**The checks**: `THE DEFAULT UI IS THE HOSTED CONSOLE`, `THE OLD RENDERER IS ONE
+ENVIRONMENT VARIABLE AWAY`, `A MISSPELT MODE IS THE DEFAULT, NOT A REFUSAL`, and
+`A DEFAULT LAUNCH OPENS THE CONSOLE, AND THE BRIDGE IS PINNED TO WHAT IT
+OPENED`. `test/trayOnly.test.mjs` holds the rest, and it exists because this
+step is what makes the tray load-bearing: it walks detection → consent → plan →
+controller → outbox with no window in the process at all, and then reads
+`main/index.ts` for the three facts that are Electron's — the panel and the
+notepad are not built, both menu-bar routes reach the console window and say
+why when there is none, and every sentence `explain` shows comes from a closed
+set (`A WHOLE MEETING RECORDED FROM THE MENU BAR STILL BECOMES A NOTE`, `A
+CLOSED CONSOLE WINDOW IS OPENED AGAIN`, `EVERY SENTENCE THE TRAY EXPLAINS COMES
+FROM THE CLOSED SET`). Both halves are sabotage-tested and non-zero, because a step that only
+flips the default is not revertible by one variable, and revertibility is what
+the order rests on.
+
+**What a Mac has to confirm before step 5** — this is the list step 5 is waiting
+on, and it is the union of what #277, #278 and step 6 each left open:
+
+- **A default launch opens the console window and the page has a bridge**: the
+  meetings screen offers Record, `capabilities()` answers, and *This machine*
+  shows the grant.
+- **A meeting recorded from the console writes one note through the machine's
+  own grant** (#278), with the tray showing the pending count and the queue
+  draining with the window closed.
+- **The tray records a whole meeting with the window never opened** — Record,
+  Pause, End and the note, no page involved.
+- **The mirror serves the console offline and says so** (step 6), with a live
+  queue count on the offline line.
+- **The panel and the notepad still come back** with
+  `CONTEXT_DESKTOP_UI=renderer`, because that is the fallback step 5 is about to
+  remove.
 
 ### The signing keychain belongs to the workflow, not to electron-builder
 
@@ -515,46 +795,100 @@ second copy of it in shell; the key never leaves that process.
 
 ---
 
-### What step 3 did not do, and which of those is next
+### What step 3 did not do, and what has since been done about it
 
 Step 3 replaced the **recorder** and nothing else, which is less than the line
-above originally promised. Written down here rather than left to be discovered
-by whoever opens step 4, because two of these are the difference between a
-feature that works on somebody's Mac and one that only works in a test.
+above originally promised. Both of the halves it deferred were named here rather
+than left to be discovered by whoever opened step 4, and both have since landed:
+the meeting is written by the machine's grant (*One meeting is one credential*,
+below) and the preload answers the whole contract. What remains in this section
+is the third item, which is a refactor rather than a blocker.
 
-**The note is still written by the console's own session, not by the shell's
-grant.** `useMeetingsSetup` builds one gateway — `convexGateway.ts`, the
-control-plane session writing through `files.writeNote`, exactly as a browser
-does — and the desktop branch swaps the recorder underneath it. So a meeting
-captured on a Mac takes two credentials: the **shell's** machine grant for the
-audio it captured and transcribed, and the **page's** Convex session for the
-note. What that costs is what `convexGateway.ts` already lists and costs
-identically in a browser — no enhancement pass, no session record under
-`.meetings/`, no `list_meetings` — plus one thing that is only true here: the
-shell's window-less outbox is not on the path, so a meeting is written by the
-page that is open rather than by the queue that survives it.
+**The preload answered three members, and now answers the contract.** This was
+the second of the two things step 3 deferred, and it is done: `preload/console.ts`
+is four statements over `core/shell/bridge.ts`, which builds the whole contract
+surface over an injected `ipcRenderer`, and `main/consoleBridge.ts` answers
+every channel `BRIDGE_CHANNELS` names with the sender check this document
+specifies. `getDesktopBridge()` accepts the real object rather than
+refusing it as `surface-incomplete`, and the suite asserts exactly that — the
+shell's own bridge, run through the package's validator, with no Electron in
+the room.
 
-`desktopGateway.ts` — a `MeetingsGateway` that proxies to `outbox` over the
-bridge — is therefore **the next step**, and it is worth taking before step 4
-flips the default: a shell whose queue drains with no window is the reason the
-grant lives in the main process at all (*Sign-in stays in the page*, above), and
-until the page uses it, the offline story on the desktop is the *page's* queue
-and not the shell's. The end-to-end check that exists today is
-`meetingsDesktop.test.ts`'s *"a meeting captured over the bridge is written by
-the gateway the app configures"*: the shell records, the app's gateway writes
-one note, and the test says which is which.
+Four things about that wiring are decisions rather than plumbing, and each is
+recorded where it lives:
 
-**The preload still answers three members, so no real shell passes the
-validator yet.** `preload/console.ts` exposes `version`, `shell` and
-`capabilities()` — step 1's surface — and `getDesktopBridge()` refuses that as
-`surface-incomplete`, which is the right refusal and means the console inside
-the shell behaves exactly as a browser today. Wiring it is not mechanical: it is
-twelve channels, `ipcMain.handle` for each with the sender check this document
-already specifies, and the main process's capture, connection and outbox
-plumbing pointed at the console window rather than at the old renderer's
-`UiState`. It is its own pull request, and it belongs with step 4 — flipping the
-default before the bridge is answered would ship a console that silently
-degrades on every Mac.
+- **The sender check is two halves, and they refuse two different attacks.**
+  `isConsoleFrame` is identity and top-frame — it refuses *another window in
+  this app*, including the hidden capture window that holds a live microphone —
+  and `isBridgeSender` adds the origin comparison, which refuses *this window on
+  a page it should not be on*. Sabotaging either goes red on its own; the counts
+  are in `test/consoleBridge.test.mjs`. The origin comparison is written out
+  there rather than delegated to `shouldExposeBridge`, because the two guards
+  have to be able to fail independently or the sabotage that proves they are not
+  one check written twice cannot be run.
+- **The two synchronous channels are guarded on identity only, and that is not
+  an oversight.** The preload calls them to find out *what* the pinned origin
+  is, so asking "are you at the pinned origin" to answer it is circular, and a
+  frame url that has not settled would fail closed and leave the window with no
+  bridge at all. Both values are public — the origin is in the window's own URL
+  bar — and the decision they feed is still made in the renderer against
+  `location.origin`, which the renderer knows exactly.
+- **A refusal travels as data, not as a rejected promise.** A throw inside
+  `ipcMain.handle` reaches the page as `Error: Error invoking remote method
+  '<channel>': …`, and `capture/desktop.ts` renders that string at a person. So
+  every handled channel answers `{ ok: true, value }` or `{ ok: false, message }`
+  with a sentence `plan.ts` owns, and the preload rethrows only the sentence. A
+  **refused sender** is the one exception and does throw, because it is an attack
+  rather than a state and there is nobody legitimate waiting for an answer.
+- **Every payload is rebuilt from the keys the contract declares**, in both
+  directions, so a field added to `UiState` is not silently published to whatever
+  `CONTEXT_DESKTOP_UI_URL` points at, and a field added to a `startCapture`
+  request is not forwarded into the shell. That is what turns *"nothing
+  credential-shaped crosses"* from a property of the code we wrote into a
+  property of the payloads that can arrive.
+
+- **The bridge shares no channel name with the hidden capture window.** It used
+  to share four — `context:capture-{start,pause,resume,stop}` — and that was
+  safe for a reason neither file said out loud: `handle` (renderer→main, reached
+  by `invoke`) and `send` (main→renderer) are separate registries, so a name in
+  both is answered by whichever direction asked. True, and a bad thing to rest
+  on, because the guard is a fact about Electron's dispatch rather than anything
+  either author can see: the day somebody answers one of those names with
+  `ipcMain.on` in `main/capture.ts`, the console's Pause is answered by a window
+  holding a live microphone. So `BRIDGE_CHANNELS` carries `console-` on its four
+  capture verbs and the sets are disjoint by construction. **The test that fails
+  if this is reversed**: `consoleBridge.test.mjs` reads both capture sources for
+  every `context:` string in them and asserts no bridge channel is among them —
+  put one name back and it goes red on its own.
+- **The sender check refuses rather than throws when Electron's own getters
+  do.** `event.senderFrame` raises *"Render frame was disposed before
+  WebFrameMain could be accessed"* for a frame that navigated or closed while a
+  call was in flight, and `event.sender.id` raises *"Object has been destroyed"*
+  for a webContents that is gone — both ordinary, neither an attack. Left
+  unguarded, the first is a rejection carrying Electron's own text on `handle`
+  and the second is worse on the two synchronous channels: a listener that
+  throws never sets `returnValue`, and the preload is *blocking* inside
+  `sendSync` at document start, so the window never paints rather than merely
+  losing its bridge. Every live read is inside the guard's `try` and every
+  synchronous answer inside its own, and `null` is what the preload already
+  reads as "no pin". The checks are `A FRAME THAT WENT AWAY MID-CALL IS REFUSED,
+  NOT A THROW OUT OF THE GUARD` and `A SHELL THAT CANNOT ANSWER SYNCHRONOUSLY
+  ANSWERS null`.
+
+`capabilities().systemAudio` is the real probe: `systemAudioCapability` answers
+`false` off macOS, `false` on an unpackaged build, `false` below macOS 13, and
+otherwise the guess — which the first meeting's actual attempt overrules, in
+either direction, because the probe is the only fact and everything above it is
+inference about what macOS is likely to do. `mic` is false under
+`--fake-signals`, so a development run cannot put a Record button over a
+recorder that produces scripted text.
+
+The console's `startCapture` drives the *same* path as the tray's Record — the
+master switch, the blocklist, the consent gate, `capturePlan` — with one
+addition: it carries the **id the page minted**, so one meeting is one note
+rather than two ids nothing on the device could reconcile. A notes-only plan is
+refused with the plan's own sentence rather than begun as a recording of
+nothing.
 
 What *was* mechanical and is done: `apps/desktop/src/core/shell/console.ts` no
 longer declares `BRIDGE_VERSION`, `DesktopCapabilities` and `NO_CAPABILITIES`
@@ -571,6 +905,143 @@ assignments, because a `start` whose first chunk will not open returns them to
 that has ended does not reopen the microphone* — is consequently held in three
 places, each with its own test of that name. That file's header carries the
 reason and names the conversion as its next step.
+
+### One meeting is one credential, and on a Mac it is the machine's
+
+Step 3 left a meeting captured on a Mac taking **two**: the shell's machine
+grant for the audio it captured and transcribed, and the page's Convex session
+for the note, because `useMeetingsSetup` built one gateway —
+`convexGateway.ts`, writing through `files.writeNote` exactly as a browser does
+— and the desktop branch swapped only the recorder underneath it. What that
+cost is what `convexGateway.ts` already lists and costs identically in a browser
+— no enhancement pass, no session record under `.meetings/`, no `list_meetings`
+— plus one thing that was only true here: **the shell's window-less outbox was
+not on the path**, so a meeting was written by the page that happened to be open
+rather than by the queue that survives it. A shell whose queue drains with no
+window is the entire reason the grant lives in the main process (*Sign-in stays
+in the page*, above), and until the page used it, the offline story on the
+desktop was the *page's* queue and not the shell's.
+
+**The decision: inside the shell, the shell writes the meeting.** The page
+composes — it holds the record, the human's Markdown, the destination somebody
+picked — and hands each of the meetings protocol's four writes to the machine
+over `meetings.write`, bridge version 2. The shell queues them in the same
+outbox the tray-only recording uses, addresses them with the same credential,
+and sends them on the same routes. A meeting recorded with the window closed and
+one recorded from the console are the same four requests with the same grant.
+
+Six things follow, and each is a decision rather than plumbing.
+
+**There is no branch on whether the machine currently holds a grant.** Inside
+the shell, every meeting goes through it — including a typed one, and one
+started before the machine was connected. "Sometimes the page and sometimes the
+shell" would be two writers for one meeting chosen by a race, and the failure
+that produces is not hypothetical: both write into the same
+`${sessionId}:${kind}` queue entries and the last one in wins. A machine with no
+grant is therefore a *queue*, not a fallback: `postEntry` answers "this machine
+is not connected to a context yet", the write is kept, the Settings card is
+where somebody connects it, and the next drain sends it. That is the answer
+`createHttpGateway` has always given and `classifySyncFailure` already treats as
+transient, so the meeting is kept with a sentence beside it rather than lost.
+
+**The shell's own controller stops queueing for a meeting the console started.**
+`BeginInput.queueWrites: false`. Without it the two writers collapse onto the
+same entries and the shell wins the race it did not know it was in: `end()`
+queues an **empty** `notes` and a finalize, drains them, and the gateway writes
+the note before the person's typed notes have left the page. The controller
+still opens the microphone, still holds the consent gate, still transcribes with
+the machine's grant — what it stops doing is *filing*.
+
+**A queued finalize is not an acknowledgement.** The first three writes are a
+completed handover: the queue is durable, drains with no page open, and sends
+them in the contract's order. The finalize's answer is the one fact the page
+does not already have — where the note landed — and until it has that, the note
+is not in the bucket. So a queued finalize is a transient refusal, the record
+asks again, and re-finalizing is answered with the note that already exists.
+This is [app-and-console](./app-and-console.md)'s *the UI must never claim a
+write it has not seen acknowledged*, on the surface where somebody is most
+likely to shut the laptop before the drain.
+
+**The destination travels as a name, and an unroutable one is refused rather
+than dropped.** The gateway routes on an optional `@name` at the front of the
+path, and the shell is the process that builds the URL — so the page hands over
+a *slug*, checked against the same `[a-z0-9-]{2,32}` the gateway's own selector
+accepts, on both sides of the bridge. A value that fails would fall off the
+front of the path and be served by whatever context the credential defaults to:
+a meeting written into the wrong tenant, in silence, which
+`apps/mobile/features/meetings/gateway.ts` argues at length about. It parks with
+a sentence instead.
+
+**The body is the protocol's, not a second one.** `createDesktopGateway`
+composes exactly what `createHttpGateway` composes, because it is the same
+request made with the same credential — the shell is transport rather than a
+protocol. What stops `meetings.write` being a generic `invoke` is that the body
+never chooses an address: the route comes from `kind`, which is one of four
+words, and the context from `context`, and both are read against closed sets in
+the preload, in the main process, and again in the queue.
+
+**What a compromised console page gains, stated rather than left implicit.** It
+can queue writes on the four meetings routes with the machine's grant. That is a
+real widening and it is bounded on purpose: four routes and no others, a body
+that never chooses an address, a context slug validated in the preload, in the
+main process and again in the queue, and the grant's own tier gate at the far
+end — a meeting note is a note, and `canSee` over the context's `privacy.md`
+decides it exactly as it decides every other write. Set against what such a page
+could already do: it holds a signed-in control-plane session and can write notes
+through `files.writeNote` directly, and it can already ask the shell to record.
+The guard that matters is still the one on the door — `shouldExposeBridge`, the
+navigation refusal, and the per-channel sender check — because a page that is
+not the pinned origin never reaches any of this.
+
+**A drain does not freeze the queue, so its outcome is re-applied rather than
+assigned.** Found reviewing this stack: `main/index.ts` did
+`outbox = report.outbox` after a drain, and a drain is a snapshot plus a network
+round trip. Everything queued in between — a segment spoken, a line typed in the
+notepad, a write the console handed over — was silently dropped, *after* the
+thing that queued it had been told the write was accepted. On this path that is
+a false acknowledgement in the exact words the section above forbids:
+`meetings.write` answered `queued: true` about a note the queue no longer held.
+`reconcileDrain` puts the drain's outcome back on the queue as it now stands —
+an entry queued during the flight is kept, an entry acknowledged and unchanged
+is removed, an entry that *gained* content while its predecessor was in flight
+stays (what the gateway acknowledged is not what the queue is holding, and
+re-sending is safe because segments merge on a stable id and every route
+upserts), and a refusal keeps its parked flag over whatever content arrived
+since. Drains are also chained rather than overlapped now, because there are two
+callers: the timer, and every finalize the console hands over. **The tests that
+fail if this is reversed** are `outbox.test.mjs`'s *"A WRITE QUEUED DURING A
+DRAIN SURVIVES IT"* and *"AN ENTRY THAT GAINED CONTENT MID-FLIGHT IS NOT DELETED
+BY THE OLD ACK"* — assigning the snapshot again takes four checks red.
+
+**Absent is an address; unreadable is not; and no boundary may collapse the
+two.** `routableContext` draws that line in the queue — `null` is this machine's
+own context, which is where everything the tray records goes, and a name it
+cannot read is refused rather than dropped from the front of the URL — and both
+halves of the bridge were quietly undoing it: the preload turned `""` into
+`null` and defaulted a `kind` it did not recognise to `"session"`. Each is a
+value the guard that owns the queue never gets to refuse, and each chooses
+something: a default `kind` posts a body to a collection nobody named, and an
+empty context read as "none" files the meeting in whatever context the
+credential defaults to — the silent wrong-tenant write this whole section is
+about. Both now cross as they were given and are read against the closed sets in
+the process that owns the credential. **The checks**: *"A KIND THE CONTRACT DOES
+NOT NAME IS NOT REWRITTEN INTO ONE THAT ROUTES"* and *"AN EMPTY CONTEXT IS NOT
+THIS MACHINE'S OWN"*.
+
+**What is regained.** Everything `convexGateway.ts` lists as lost on the page's
+path — the enhancement pass, the session record under `.meetings/`,
+`list_meetings` — comes back on the desktop, because this is the client the
+gateway was built for. `list()` still answers empty, for a different reason:
+reading the gateway's real listing back over the bridge would be a fifth verb
+for a call nothing in the app makes.
+
+**The check that fails if the page writes directly in desktop mode** is
+`meetingsDesktop.test.ts`'s *"A MEETING RECORDED FROM THE CONSOLE IS WRITTEN BY
+THE MACHINE'S OWN GRANT"*: the shell records, every write reaches
+`shell.writes`, and the page's own gateway is asserted to have been called
+**zero** times. Sabotaging `meetingsWriterFor` so it returns the fallback inside
+a shell takes three tests red; acking a queued finalize as written takes one;
+dropping an unroutable destination instead of refusing it takes one.
 
 ### What is deliberately not built
 

@@ -11,7 +11,11 @@ loopback audio tap, a credential in the OS keychain, and a queue that drains
 with no window open. This package is the contract between the two, and the only
 place either side describes it.
 
-`docs/decisions/desktop.md` is the argument. This is step **2** of its order.
+`docs/decisions/desktop.md` is the argument. This is step **2** of its order,
+now at **version 2**: version 1 is the capture, connection and outbox surface;
+version 2 adds `meetings.write`, which is how a meeting note comes to be written
+by the *machine's* own grant through the queue that outlives the window rather
+than by whichever page happened to be open.
 
 ## What is in here
 
@@ -19,7 +23,7 @@ place either side describes it.
 | --- | --- |
 | `src/contract.ts` | The types, `BRIDGE_VERSION`, `NO_CAPABILITIES`, `capabilitiesFrom`, and the IPC channel names both processes agree on. |
 | `src/bridge.ts` | `getDesktopBridge()` — the one reach for `window.desktop` — and the refusals it makes. |
-| `src/fake.ts` | A shell a test drives by hand. Imported from `@context/desktop-bridge/fake` so it cannot reach an app bundle. |
+| `src/fake.ts` | A shell a test drives by hand. Imported from `@context/desktop-bridge/fake` so it cannot reach an app bundle. `noMeetings: true` gives you a version-1 shell. |
 
 Zero npm dependencies, one workspace dependency (`@context/meetings`, for
 `TranscriptSegment` — the segment on this bridge is the segment on the wire, not
@@ -60,6 +64,14 @@ binary somebody installs; the UI ships when `deploy-web.yml` publishes. So a
 bridge *older* than the running bundle is used at its own version, and only a
 bridge *newer* than anything the bundle knows is refused — which degrades the
 page to exactly what a browser does, which is a real product.
+
+Version 2 is what that rule looks like in practice rather than in prose.
+`MIN_BRIDGE_VERSION` stays `1`, the version-1 row of `REQUIRED_MEMBERS` is
+**untouched**, and `meetings` is optional on the interface — so a shell somebody
+installed before it existed answers `1`, is accepted, and simply has no
+`meetings`, and the page asks for the *member* rather than comparing the
+version. Adding it to row 1 would have made the bundle refuse every shell in the
+estate on the day it published, all of them doing nothing wrong.
 
 **Every subscription returns its own unsubscribe.** The desktop app's existing
 `preload/index.ts` `onState` does not, which is right for a renderer with one

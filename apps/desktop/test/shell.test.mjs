@@ -17,6 +17,10 @@
  *   `shouldExposeBridge` dropping the `isTopFrame` check                     1
  *   `consoleUrl` accepting any `http:`                                       3
  *   `isLoopback` matching a hostname that *contains* `localhost`             2
+ *   `desktopUiMode` defaulting to the renderer again                        4
+ *   `desktopUiMode` losing the `renderer` escape hatch                      2
+ *   `desktopUiMode` reading the value raw rather than trimmed and lowered   1
+ *   `desktopUiMode` passing a misspelt mode through                         1
  *
  * Two of those are worth writing down rather than just counting.
  *
@@ -26,6 +30,12 @@
  * pins the *combination* — the day somebody relaxes the origin rule for a
  * sibling origin, that check is what stops an iframe inheriting the relaxation
  * — but only the same-origin subframe check actually guards this line.
+ *
+ * **The two `desktopUiMode` rows are the two halves of step 4**, and both have
+ * to be non-zero for the step to be what it claims: the default really is the
+ * console now, *and* `CONTEXT_DESKTOP_UI=renderer` really does still put the old
+ * windows back. A step that is only the first half is not revertible by an
+ * environment variable, which is the property the migration order rests on.
  *
  * **The loopback sabotage is why the set is matched on the whole hostname.**
  * Written as `hostname.includes("localhost")` every other check stays green and
@@ -41,6 +51,7 @@ import {
   NO_CAPABILITIES,
   consoleOrigin,
   consoleUrl,
+  desktopUiMode,
   shouldExposeBridge,
 } from "../src/core/shell/console.ts";
 
@@ -96,6 +107,44 @@ export function runShellChecks(check) {
     "a cross-origin subframe gets no bridge either",
     shouldExposeBridge(exposure({ origin: "https://attacker.invalid", isTopFrame: false })) === false,
   );
+
+  // --- which UI a launch hosts ----------------------------------------------
+
+  check("THE DEFAULT UI IS THE HOSTED CONSOLE", desktopUiMode({}) === "console");
+  check("...and an unset variable is the same as no variable", desktopUiMode({ CONTEXT_DESKTOP_UI: undefined }) === "console");
+  check(
+    "THE OLD RENDERER IS ONE ENVIRONMENT VARIABLE AWAY, which is what makes this revertible",
+    desktopUiMode({ CONTEXT_DESKTOP_UI: "renderer" }) === "renderer",
+  );
+  check(
+    "...however it was typed or padded",
+    desktopUiMode({ CONTEXT_DESKTOP_UI: " Renderer " }) === "renderer",
+  );
+  check(
+    "an explicit `console` is still the console",
+    desktopUiMode({ CONTEXT_DESKTOP_UI: "console" }) === "console",
+  );
+  check(
+    "A MISSPELT MODE IS THE DEFAULT, NOT A REFUSAL — a shell with no UI is the worse failure",
+    desktopUiMode({ CONTEXT_DESKTOP_UI: "renderrer" }) === "console" &&
+      desktopUiMode({ CONTEXT_DESKTOP_UI: "" }) === "console",
+  );
+
+  {
+    // The three facts a default launch depends on, in one place: it hosts the
+    // console, at an address it derived rather than one typed twice, and that
+    // address is the origin — and the only origin — the bridge is exposed to.
+    const env = { NODE_ENV: "production" };
+    const url = desktopUiMode(env) === "console" ? consoleUrl(env) : null;
+    const origin = url === null ? "" : consoleOrigin(url);
+    check(
+      "A DEFAULT LAUNCH OPENS THE CONSOLE, AND THE BRIDGE IS PINNED TO WHAT IT OPENED",
+      origin === "https://context.lc" &&
+        shouldExposeBridge({ pinned: origin, origin, isTopFrame: true }) === true &&
+        shouldExposeBridge({ pinned: origin, origin: "https://attacker.invalid", isTopFrame: true }) ===
+          false,
+    );
+  }
 
   // --- what the shell is willing to load ------------------------------------
 
