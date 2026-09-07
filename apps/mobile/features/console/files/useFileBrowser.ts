@@ -36,11 +36,13 @@ import { noteHref } from "../nav";
 import { afterPaste, planPaste, put, type Clipboard } from "./clipboard";
 import {
   SAVE_TIMEOUT_MS,
+  autosaves,
   editorReducer,
   emptyEditor,
   guardLeaving,
   isDirty,
 } from "./editor";
+import { createAutosaveController, type AutosaveController } from "./autosave";
 import {
   ancestorsOf,
   baseName,
@@ -222,7 +224,8 @@ export function useFileBrowser(options: {
   );
 
   /**
-   * The generation counter and timer handle for the save in flight.
+   * The generation counter and timer handle for the save in flight, **per
+   * note**.
    *
    * The same shape `createReverifyController` uses, and for the same reason: a
    * response that arrives after its own attempt was abandoned must not be able
@@ -230,9 +233,17 @@ export function useFileBrowser(options: {
    * *and* when one times out, so a write that lands after we stopped waiting is
    * discarded rather than being allowed to mark the editor clean against a
    * draft the person has since typed more into.
+   *
+   * **Keyed by path, which it was not before autosave.** One counter was
+   * enough while `guardLeaving` refused to leave a note with a save in flight:
+   * only one save could exist. Now leaving flushes instead of refusing, so a
+   * write for the note you just left is routinely still in the air when the
+   * next one starts — and a single counter would let the second save silently
+   * discard the first one's answer, skipping the cache bookkeeping that keeps
+   * a device copy from resurrecting a draft that was written.
    */
-  const saveRun = useRef(0);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveRuns = useRef(new Map<string, number>());
+  const saveTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   /**
    * The generation of the toolbar operation in flight.
@@ -243,11 +254,33 @@ export function useFileBrowser(options: {
    */
   const operationRun = useRef(0);
 
+  /**
+   * The autosave timers, and the one function they are allowed to call.
+   *
+   * The controller is created once for the life of the hook, so it cannot be
+   * rebuilt — with its pending timers dropped — by a render. What it calls goes
+   * through a ref for the same reason every other callback here does: `save`
+   * would otherwise capture the first render's `performSave` and write with a
+   * `workspaceId` from before a context switch.
+   */
+  const autosaveNowRef = useRef<(path: string) => void>(() => {});
+  const autosaveRef = useRef<AutosaveController | null>(null);
+  if (autosaveRef.current === null) {
+    autosaveRef.current = createAutosaveController({
+      schedule: (fn, ms) => setTimeout(fn, ms),
+      cancel: (handle) => clearTimeout(handle),
+      save: (path) => autosaveNowRef.current(path),
+    });
+  }
+  const autosave = autosaveRef.current;
+
   useEffect(
     () => () => {
-      if (saveTimer.current !== null) clearTimeout(saveTimer.current);
+      for (const timer of saveTimers.current.values()) clearTimeout(timer);
+      saveTimers.current.clear();
+      autosave.dispose();
     },
-    [],
+    [autosave],
   );
 
   /* ------------------------------- offline -------------------------------- */
@@ -656,6 +689,23 @@ export function useFileBrowser(options: {
 
   const select = useCallback(
     (path: string): boolean => {
+      /*
+        Write what is pending before anything moves.
+
+        This is what makes the relaxed `guardLeaving` honest: a draft that was
+        waiting on the idle timer is handed to the bucket on the way out rather
+        than being left to a timer that will refuse to fire under the next note.
+        It is the same conditional write Save makes, against the etag this draft
+        was typed on, and it is issued while the editor still holds the note it
+        belongs to.
+
+        Before the guard, deliberately. The guard reads `editorRef`, which is
+        assigned during render and so still says `dirty` here — the flush cannot
+        change the answer it gives about this navigation, and evaluating the
+        guard first would only make the ordering look load-bearing when it is
+        not.
+      */
+      autosave.flush();
       const guard = guardLeaving(editorRef.current);
       if (!guard.allowed) {
         setNotice(guard.prompt ?? null);
@@ -708,7 +758,7 @@ export function useFileBrowser(options: {
       // this answer is not about. A caller only needs to know the guard let go.
       return true;
     },
-    [listings, openNote, refresh, reportRefreshFailure, settleOpening, workspaceId],
+    [autosave, listings, openNote, refresh, reportRefreshFailure, settleOpening, workspaceId],
   );
 
   /**
@@ -847,6 +897,13 @@ export function useFileBrowser(options: {
     (path: string, text: string, expectedEtag: string | null) => {
       if (workspaceId === null) return;
       const offline = offlineRef.current;
+      /*
+        Whatever the timer was holding for this note is being written now, by
+        this call. Leaving it armed would spend a second request writing the
+        same text against an etag this write is about to move past. Only this
+        note's timer: another note's pending write is not this call's to drop.
+      */
+      if (autosave.pending() === path) autosave.cancel();
 
       /*
         With no connection the text goes into the queue instead of into a socket
@@ -875,24 +932,38 @@ export function useFileBrowser(options: {
         return;
       }
 
-      saveRun.current += 1;
-      const mine = saveRun.current;
-      if (saveTimer.current !== null) clearTimeout(saveTimer.current);
+      const mine = (saveRuns.current.get(path) ?? 0) + 1;
+      saveRuns.current.set(path, mine);
+      const running = saveTimers.current.get(path);
+      if (running !== undefined) clearTimeout(running);
       dispatch({ type: "saveStarted" });
 
-      saveTimer.current = setTimeout(() => {
-        saveTimer.current = null;
-        if (saveRun.current !== mine) return;
-        // Bump past `mine` so the write, if it ever lands, cannot come back and
-        // settle an attempt the editor has already given up on.
-        saveRun.current += 1;
-        dispatch({ type: "saveTimedOut" });
-      }, SAVE_TIMEOUT_MS);
+      saveTimers.current.set(
+        path,
+        setTimeout(() => {
+          saveTimers.current.delete(path);
+          if (saveRuns.current.get(path) !== mine) return;
+          // Bump past `mine` so the write, if it ever lands, cannot come back
+          // and settle an attempt the editor has already given up on.
+          saveRuns.current.set(path, mine + 1);
+          // A timeout for a note that is no longer on screen has no editor to
+          // put into `error`, and the reducer would put the *other* note there.
+          // See the failure branch below for the whole argument.
+          if (editorRef.current.path !== path) {
+            setNotice(
+              `${path} is still waiting on your bucket, so we stopped waiting. We don't know whether that save landed. Your draft for it is kept on this device.`,
+            );
+            return;
+          }
+          dispatch({ type: "saveTimedOut" });
+        }, SAVE_TIMEOUT_MS),
+      );
 
       const settle = () => {
-        if (saveTimer.current !== null) {
-          clearTimeout(saveTimer.current);
-          saveTimer.current = null;
+        const timer = saveTimers.current.get(path);
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          saveTimers.current.delete(path);
         }
       };
 
@@ -903,7 +974,7 @@ export function useFileBrowser(options: {
         expectedEtag: expectedEtag ?? undefined,
       })
         .then((result) => {
-          if (saveRun.current !== mine) return;
+          if (saveRuns.current.get(path) !== mine) return;
           settle();
           /*
             The text is in the bucket now, so the copy of it on this device is
@@ -925,20 +996,54 @@ export function useFileBrowser(options: {
             same conflict again about a decision that has already been made.
           */
           offlineRef.current.dropQueued(path);
-          dispatch({
-            type: "saveSucceeded",
-            etag: result.etag,
-            conflictCheck: result.conflictCheck,
-          });
+          /*
+            The editor describes the note that is **open**, and with autosave
+            this write is routinely for one that is not: leaving a note flushes
+            its draft, and the answer arrives after the next note has loaded.
+            `saveSucceeded` would then move the *other* note's baseline and
+            etag onto this write's — marking somebody's real unsaved draft
+            clean and arming their next save against a version it was never
+            based on. The same guard `onDrained` has, for the same reason.
+
+            Everything above this line still runs, because it is keyed by path
+            and is what stops the device copy resurrecting a draft that was
+            written. Only the reducer is skipped.
+          */
+          if (editorRef.current.path === path) {
+            dispatch({
+              type: "saveSucceeded",
+              etag: result.etag,
+              conflictCheck: result.conflictCheck,
+            });
+          }
           void refresh([parentPath(path)]).catch(reportRefreshFailure);
         })
         .catch((error: unknown) => {
-          if (saveRun.current !== mine) return;
+          if (saveRuns.current.get(path) !== mine) return;
           settle();
-          dispatch({ type: "saveFailed", error: toFileError(error) });
+          const failure = toFileError(error);
+          if (editorRef.current.path !== path) {
+            /*
+              Same rule, and this direction is worse: `saveFailed` would put
+              whatever note is open now into `conflict` or `error`, over a
+              refusal that was about a different file — and a conflict carries
+              `conflictEtag`, so the wrong note would be offered somebody
+              else's version to merge with.
+
+              It is not swallowed. The draft is on the device and comes back
+              when the note is reopened (`restoreFor` — as a conflict if the
+              bucket has moved on), so the notice says which note and where its
+              text is rather than implying it is gone.
+            */
+            setNotice(
+              `${path} could not be saved: ${failure.message} Your draft for it is kept on this device — open it to try again.`,
+            );
+            return;
+          }
+          dispatch({ type: "saveFailed", error: failure });
         });
     },
-    [refresh, reportRefreshFailure, workspaceId, writeNote],
+    [autosave, refresh, reportRefreshFailure, workspaceId, writeNote],
   );
 
   /**
@@ -960,6 +1065,50 @@ export function useFileBrowser(options: {
     if (current.path === null || current.readOnly) return;
     performSave(current.path, current.draft, current.etag);
   }, [performSave]);
+
+  /**
+   * A timer came due. Write that note's draft — **if it is still that note.**
+   *
+   * The scariest bug available in this whole change is right here. A timer
+   * armed while `1-projects/plan.md` was open fires two seconds later, by which
+   * time somebody has clicked `0-inbox/idea.md`; without the comparison below
+   * it would write `editorRef.current.draft` — the *other* note's text — to
+   * whichever path, against whichever etag, the state happens to hold now.
+   * Either arrangement of that is somebody's note overwritten with somebody
+   * else's words, which is the one failure this console must never produce.
+   *
+   * So the path is captured when the timer is armed (`autosave.edited`), handed
+   * back here, and compared. A note that has moved on simply drops the write:
+   * the draft it was for is already on the device, and `select` flushed it on
+   * the way out anyway.
+   *
+   * `autosaves` is re-asked here rather than trusted from arming time, because
+   * the two seconds in between are long enough for a conflict to arrive, for a
+   * save to be pressed, or for the person to have discarded the draft.
+   */
+  const autosaveNow = useCallback(
+    (path: string) => {
+      const current = editorRef.current;
+      if (current.path !== path) return;
+      if (!autosaves(current)) return;
+      performSave(path, current.draft, current.etag);
+    },
+    [performSave],
+  );
+  autosaveNowRef.current = autosaveNow;
+
+  /**
+   * Write what the timer is holding, now.
+   *
+   * The other half of "stop bugging people to save": leaving a note, closing a
+   * tab or closing the browser tab hands the pending draft over rather than
+   * asking somebody to. Answers whether it wrote anything, so a caller can tell
+   * "nothing was owed" from "it has been dealt with".
+   */
+  const flushAutosave = useCallback(
+    (path?: string) => autosave.flush(path),
+    [autosave],
+  );
 
   /**
    * The person answered the conflict: this text, over the version they saw.
@@ -1071,8 +1220,12 @@ export function useFileBrowser(options: {
       offlineRef.current.dropQueued(path);
       offlineRef.current.forgetDraft(path);
     }
+    // Belt and braces: `autosaveNow` would refuse a discarded draft anyway,
+    // because the note is `clean` by the time the timer comes due. Cancelling
+    // is what makes that a decision rather than a coincidence of ordering.
+    autosave.cancel();
     dispatch({ type: "discarded" });
-  }, []);
+  }, [autosave]);
 
   /**
    * Every keystroke, written down.
@@ -1088,26 +1241,49 @@ export function useFileBrowser(options: {
    * Both are debounced inside `useOfflineNotes`; neither writes to storage per
    * character.
    */
-  const setDraft = useCallback((text: string) => {
-    const current = editorRef.current;
-    dispatch({ type: "edited", text });
-    if (current.path === null || current.readOnly) return;
-    const offline = offlineRef.current;
-    if (current.status === "queued") {
-      offline.queueSave({ path: current.path, text, baseEtag: current.etag });
-      return;
-    }
-    if (text === current.baseline) {
-      offline.forgetDraft(current.path);
-      return;
-    }
-    offline.rememberDraft({
-      path: current.path,
-      text,
-      baseEtag: current.etag,
-      savedAt: Date.now(),
-    });
-  }, []);
+  const setDraft = useCallback(
+    (text: string) => {
+      const current = editorRef.current;
+      dispatch({ type: "edited", text });
+      if (current.path === null || current.readOnly) return;
+
+      /*
+        And, unless the state says otherwise, scheduled to be written to the
+        bucket.
+
+        The decision is made against the state this edit *produces*, by running
+        the reducer — not by re-deriving "is it dirty now" here. There is one
+        definition of what an edit does to the status (`edited`, which keeps a
+        conflict a conflict and a queued draft queued) and one definition of
+        what may be written without being asked for (`autosaves`); a second
+        copy of either in this callback is how they come to disagree, and the
+        direction that disagreement fails is an automatic write over somebody
+        else's version.
+      */
+      if (autosaves(editorReducer(current, { type: "edited", text }))) {
+        autosave.edited(current.path);
+      } else {
+        autosave.cancel();
+      }
+
+      const offline = offlineRef.current;
+      if (current.status === "queued") {
+        offline.queueSave({ path: current.path, text, baseEtag: current.etag });
+        return;
+      }
+      if (text === current.baseline) {
+        offline.forgetDraft(current.path);
+        return;
+      }
+      offline.rememberDraft({
+        path: current.path,
+        text,
+        baseEtag: current.etag,
+        savedAt: Date.now(),
+      });
+    },
+    [autosave],
+  );
 
   const dismissNotice = useCallback(() => setNotice(null), []);
 
@@ -1805,6 +1981,7 @@ export function useFileBrowser(options: {
       editor,
       setDraft,
       save,
+      flushAutosave,
       useTheirs,
       keepMine,
       conflict,
@@ -1878,6 +2055,7 @@ export function useFileBrowser(options: {
       editor,
       expanded,
       conflict,
+      flushAutosave,
       keepMine,
       listings,
       loading,

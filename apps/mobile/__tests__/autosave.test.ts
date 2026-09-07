@@ -16,16 +16,18 @@
  * ## Sabotage record
  *
  * Run as temporary local edits and reverted. Counts are failing tests across
- * this file and `autosaveEditor.test.ts`.
+ * this file, `autosaveEditor.test.ts`, `fileEditor.test.ts` and
+ * `offlineEditor.test.ts`.
  *
- *   the ceiling restarted on every edit, so dictation never saves       1
- *   `autosaves` accepting `conflict`                                    3
- *   `autosaves` accepting `error`                                       2
- *   `autosaves` accepting `queued`                                      2
- *   `autosaves` dropping the `isDirty` half                             1
- *   `edited` not re-arming the idle timer (fires mid-typing)            1
+ *   the ceiling restarted on every edit, so dictation never saves       5
+ *   the idle timer not re-armed by an edit, so it fires mid-sentence    6
  *   `flush` ignoring its path argument                                  1
- *   `needsDecision` returning false for a conflict                      3
+ *   `autosaves` accepting `conflict`                                    3
+ *   `autosaves` accepting `error`                                       1
+ *   `autosaves` accepting `queued`                                      1
+ *   `autosaves` dropping the `isDirty` half                             1
+ *   `needsDecision` returning false for a conflict                      2
+ *   `guardLeaving` refusing an ordinary dirty draft again              10
  */
 
 import { describe, expect, test } from "@jest/globals";
@@ -38,6 +40,7 @@ import {
   autosaves,
   editorReducer,
   emptyEditor,
+  guardLeaving,
   needsDecision,
   type EditorState,
 } from "../features/console/files/editor";
@@ -426,5 +429,42 @@ describe("which drafts nothing will ever write for you", () => {
         }),
       ),
     ).toBe(true);
+  });
+});
+
+describe("what leaving still asks about", () => {
+  test("an ordinary draft no longer stops anybody", () => {
+    // The prompt this replaces is the "bugging people to save" the whole
+    // change is about. The draft is written on the way out and is on the
+    // device besides.
+    expect(guardLeaving(dirty())).toEqual({ allowed: true });
+    expect(needsDecision(dirty())).toBe(false);
+  });
+
+  test("a conflict does, and the sentence does not offer a Save that cannot help", () => {
+    const conflicted = editorReducer(dirty(), {
+      type: "saveFailed",
+      error: { code: "CONFLICT", message: "Somebody else saved first.", currentEtag: "etag-9" },
+    });
+    expect(needsDecision(conflicted)).toBe(true);
+    const guard = guardLeaving(conflicted);
+    expect(guard.allowed).toBe(false);
+    expect(guard.prompt).toContain("written by somebody else");
+    expect(guard.prompt).not.toMatch(/Save them/);
+  });
+
+  test("a failed save does", () => {
+    const failed = editorReducer(dirty(), {
+      type: "saveFailed",
+      error: { code: "UNKNOWN", message: "That did not work." },
+    });
+    expect(needsDecision(failed)).toBe(true);
+    expect(guardLeaving(failed).allowed).toBe(false);
+  });
+
+  test("a queued draft still does not, and a clean note never did", () => {
+    const queued = editorReducer(dirty(), { type: "saveQueued", message: "No connection." });
+    expect(guardLeaving(queued).allowed).toBe(true);
+    expect(guardLeaving(opened()).allowed).toBe(true);
   });
 });

@@ -5,8 +5,10 @@
  * about is not the typing, it is the two moments either side of it:
  *
  *  - **Unsaved changes.** Clicking another note with an unsaved draft must not
- *    throw the draft away. `guardLeaving` answers "can I navigate?" and the
- *    pane asks it before every selection change.
+ *    throw the draft away. A draft is now *written* on the way out rather than
+ *    guarded — `autosaves` says which drafts may be written without anybody
+ *    asking, `autosave.ts` decides when, and `guardLeaving` is left holding
+ *    only the two cases nothing can write for you (`needsDecision`).
  *  - **Conflicts.** The bucket is also open in Obsidian and being written by
  *    AI clients, so "somebody else saved while you were typing" is the normal
  *    case, not an edge case. On a conflict the draft is **kept**, nothing is
@@ -463,6 +465,18 @@ export function needsDecision(state: EditorState): boolean {
  * Returned rather than thrown so the caller decides between a dialog and a
  * quiet refusal — and so the wording is pinned by a test instead of living
  * inside a component nobody renders in CI.
+ *
+ * **This used to refuse for every unsaved draft, and autosave is what retired
+ * that.** The refusal existed because clicking another note would have thrown
+ * the draft away; now the caller flushes the pending write on the way out
+ * (`select` in `useFileBrowser`), the write is the same conditional write Save
+ * makes, and the text is on the device besides. Refusing anyway would be the
+ * console asking to be looked after in the one place it no longer needs to be.
+ *
+ * What it still refuses is `needsDecision`: a conflict, and a save that failed.
+ * Autosave will not write either, so leaving really does leave something
+ * undone, and the sentence says which one rather than telling somebody to press
+ * a Save that cannot help them.
  */
 export function guardLeaving(state: EditorState): { allowed: boolean; prompt?: string } {
   if (!isDirty(state)) return { allowed: true };
@@ -478,9 +492,13 @@ export function guardLeaving(state: EditorState): { allowed: boolean; prompt?: s
     and the tab's dot should say so.
   */
   if (state.status === "queued") return { allowed: true };
+  if (!needsDecision(state)) return { allowed: true };
   return {
     allowed: false,
-    prompt: `${state.path} has unsaved changes. Save them, or discard them, before opening something else.`,
+    prompt:
+      state.status === "conflict"
+        ? `${state.path} was written by somebody else while you had it open. Choose which version to keep before opening something else.`
+        : `${state.path} could not be saved to your bucket. Try again, or discard it, before opening something else.`,
   };
 }
 

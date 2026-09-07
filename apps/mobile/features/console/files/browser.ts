@@ -144,6 +144,18 @@ export interface FileBrowser {
   editor: EditorState;
   setDraft: (text: string) => void;
   save: () => void;
+  /**
+   * Write the draft autosave is holding, now, and say whether there was one.
+   *
+   * Every exit that is not a save goes through this: opening another note,
+   * closing a tab, and — on web — the tab being hidden or closed. `path`
+   * restricts it to one note, for a caller acting on a tab rather than on the
+   * editor; without one it writes whatever is pending.
+   *
+   * It is the same conditional write `save` makes. There is no second write
+   * path in this console and nothing here can force one.
+   */
+  flushAutosave: (path?: string) => boolean;
   /** Take the version that is on the server, discarding this draft. Writes nothing. */
   useTheirs: () => void;
   /** Keep this draft and save it over theirs, on the etag that is now current. */
