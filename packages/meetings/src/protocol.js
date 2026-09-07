@@ -376,17 +376,68 @@ export function isMeetingId(value) {
  * segment id replaces, and finalize on an already-complete session returns the
  * note path it already wrote rather than writing a second note.
  */
+/**
+ * The id, as one path segment and never as more than one.
+ *
+ * These builders are interpolation, and what they return is concatenated onto a
+ * base URL and fetched **with a bearer credential** by `apps/desktop`. `fetch`
+ * normalises what it is handed, so an id is not a name in a path — it is a say
+ * in which endpoint the request reaches. MEASURED with `new URL`:
+ * `a/../../../inbox#` under `.../finalize` resolves to `POST /inbox`, and
+ * `a#frag` truncates the path so `/finalize` is dropped entirely.
+ *
+ * Callers validate: the gateway runs `isMeetingId` at `matchMeetingRoute`
+ * before anything is built from the id, and `apps/desktop`'s console bridge
+ * runs the same predicate on the id a page mints. This is the other half.
+ * **A validator protects one caller; an encoder protects the shape** — and the
+ * caller that forgets is the one nobody is looking at.
+ *
+ * **Encoding alone is not enough, and the first version of this said it was.**
+ * `encodeURIComponent("..")` is `".."` — dot segments are unreserved — so
+ * `finalize("..")` resolved to `/meetings/finalize` and `session("..")` to
+ * `/meetings/`. One level rather than the four `a/../../../inbox#` buys, and
+ * unreachable while both callers validate, but the sentence above claimed a
+ * traversal could not be spelled and one could. A dot segment is refused
+ * outright, so the claim and the code agree.
+ *
+ * `DOT_SEGMENT` is refused rather than escaped because **escaping it does not
+ * work**. WHATWG URL's path-removal step treats the percent-encoded spellings
+ * of a dot segment as dot segments — `%2e` and `%2E` specifically, not
+ * percent-encoding in general (`/x/a%2Fb/y` keeps its `%2F`) — so
+ * `/meetings/sessions/%2E%2E/finalize` resolves to `/meetings/finalize` exactly
+ * as `..` does. Measured, and asserted by the test beside this one.
+ * An earlier draft of this paragraph said `%2E%2E` would survive as a segment
+ * no route matches, which would have been a silent 404; it is a traversal, and
+ * the test written in the same commit already said so. Refusing is the only
+ * answer that holds.
+ *
+ * A caller that reaches here with `..` has a bug, and the empty segment it gets
+ * back produces a path no id can ever match — `/meetings/sessions/` and
+ * `/meetings/sessions//finalize` are both inside the prefix and address
+ * nothing, which `matchMeetingRoute` answers 404 for like any other malformed
+ * id.
+ *
+ * Costs nothing on a real id: every character of `MEETING_ID_ALPHABET` and the
+ * prefix's underscore are unreserved, so a well-formed id round-trips byte for
+ * byte, which the test beside this asserts so the claim cannot rot.
+ */
+const DOT_SEGMENT = /^\.{1,2}$/;
+const segment = (id) => {
+  const text = String(id);
+  return DOT_SEGMENT.test(text) ? "" : encodeURIComponent(text);
+};
+
 export const ROUTES = Object.freeze({
   /** POST /meetings/sessions — upsert one session. GET — list recent ones. */
   sessions: "/meetings/sessions",
   /** GET /meetings/sessions/:id — read one session back. */
-  session: (id) => `/meetings/sessions/${id}`,
+  session: (id) => `/meetings/sessions/${segment(id)}`,
   /** POST /meetings/sessions/:id/segments — append transcript segments. */
-  segments: (id) => `/meetings/sessions/${id}/segments`,
+  segments: (id) => `/meetings/sessions/${segment(id)}/segments`,
   /** POST /meetings/sessions/:id/notes — replace the human's Markdown. */
-  notes: (id) => `/meetings/sessions/${id}/notes`,
+  notes: (id) => `/meetings/sessions/${segment(id)}/notes`,
   /** POST /meetings/sessions/:id/finalize — end, enhance, write to the bucket. */
-  finalize: (id) => `/meetings/sessions/${id}/finalize`,
+  finalize: (id) => `/meetings/sessions/${segment(id)}/finalize`,
   /**
    * POST /meetings/sessions/:id/transcribe — one chunk of audio in, words out.
    *
@@ -408,7 +459,7 @@ export const ROUTES = Object.freeze({
    *    `segments`, which is still the only route that writes a transcript. A
    *    transcription that never came back costs words, never a note.
    */
-  transcribe: (id) => `/meetings/sessions/${id}/transcribe`,
+  transcribe: (id) => `/meetings/sessions/${segment(id)}/transcribe`,
 });
 
 /**

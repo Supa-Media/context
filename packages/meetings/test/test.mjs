@@ -105,6 +105,88 @@ check(
   ROUTES.session("mtg_x") !== ROUTES.sessions
 );
 check("the per-session routes are built from the id", ROUTES.segments("mtg_x").endsWith("/mtg_x/segments"));
+
+/*
+  AN ID IN A URL IS A ROUTE, NOT A NAME.
+
+  These builders are string interpolation, and their output is concatenated onto
+  a base URL and fetched with a bearer credential by `apps/desktop`. `fetch`
+  normalises what it is given, so an id carrying `..` or `#` moves the request:
+  MEASURED with `new URL`, `a/../../../inbox#` under `.../finalize` resolves to
+  `POST /inbox`, and `a#frag` truncates the path so `/finalize` is dropped
+  entirely.
+
+  Callers validate — the gateway runs `isMeetingId` at `matchMeetingRoute`, and
+  `apps/desktop`'s bridge does the same on the id a page mints. This is the
+  other half: **encode here, so a traversal cannot be spelled even by a caller
+  that forgets to ask.** A validator protects one caller; an encoder protects
+  the shape.
+*/
+for (const [name, build] of [
+  ["session", ROUTES.session],
+  ["segments", ROUTES.segments],
+  ["notes", ROUTES.notes],
+  ["finalize", ROUTES.finalize],
+  ["transcribe", ROUTES.transcribe],
+]) {
+  /*
+    `..` AND `.` ARE THE CASES `encodeURIComponent` DOES NOT COVER, and the
+    first version of this loop probed only `a/../../../inbox#` — which is the
+    case that passes. MEASURED against encoding alone:
+
+        ROUTES.finalize("..")  ->  /meetings/sessions/../finalize  =>  /meetings/finalize
+        ROUTES.session("..")   ->  /meetings/sessions/..           =>  /meetings/
+        ROUTES.finalize(".")   ->  /meetings/sessions/./finalize   =>  /meetings/sessions/finalize
+
+    One level, and unreachable while both callers validate — but the docblock
+    said "a traversal cannot be spelled", and a dot segment is a traversal that
+    could be spelled. A guard whose name is stronger than the guard is the
+    thing this repository keeps paying for, so the name is kept and the guard
+    is made to match.
+  */
+  /*
+    `"."` is in this list and proves nothing here — `finalize(".")` was already
+    `/meetings/sessions/finalize`, which satisfies `startsWith`. It is pinned
+    properly by the block below, which asserts what a dot segment actually
+    produces. Kept in the list so the two forms are read together, and named as
+    inert so nobody counts it as coverage.
+  */
+  for (const id of ["a/../../../inbox#", "..", ".", "a/b", "%2e%2e", "....//"]) {
+    const moved = new URL(build(id), "https://gateway.invalid").pathname;
+    check(
+      `ROUTES.${name} cannot be walked out of /meetings/sessions with ${JSON.stringify(id)}`,
+      moved.startsWith("/meetings/sessions/"),
+    );
+  }
+}
+/*
+  A DOT SEGMENT ADDRESSES NO SESSION, which is the other half of staying under
+  the prefix: `/meetings/sessions/` and `/meetings/sessions//finalize` are both
+  inside it and neither names an id, so `matchMeetingRoute` answers 404 the same
+  way it does for any other malformed id.
+
+  It cannot be fixed by encoding, and that is why `segment` refuses instead:
+  WHATWG URL decodes `%2E` BEFORE removing dot segments, so emitting `%2E%2E`
+  would collapse exactly as `..` does. Measured — `new URL` turns
+  `/meetings/sessions/%2E%2E/finalize` into `/meetings/finalize`.
+*/
+for (const id of ["..", "."]) {
+  check(
+    `a ${JSON.stringify(id)} id addresses no session rather than a shorter path`,
+    ROUTES.finalize(id) === "/meetings/sessions//finalize" &&
+      ROUTES.session(id) === "/meetings/sessions/",
+  );
+}
+check(
+  "...and encoding a dot segment would NOT have been enough, which is why it is refused",
+  new URL("/meetings/sessions/%2E%2E/finalize", "https://gateway.invalid").pathname ===
+    "/meetings/finalize",
+);
+
+check(
+  "...and a well-formed id still round-trips unchanged, so the encoding costs nothing",
+  ROUTES.finalize("mtg_abcdefghjkmnpqrstvwx") === "/meetings/sessions/mtg_abcdefghjkmnpqrstvwx/finalize",
+);
 check(
   "...and hang off the one-session route rather than restating it",
   ["segments", "notes", "finalize", "transcribe"].every((name) =>
