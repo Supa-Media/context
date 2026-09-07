@@ -95,9 +95,29 @@ describe("content that is not text is not emitted", () => {
 });
 
 describe("it cannot be made to run long", () => {
-  /** Generous by design: these inputs make a backtracking engine hang, not slow. */
-  const budgetMs = 1_000;
-
+  /**
+   * Work done, not time elapsed. A wall-clock budget here (there used to be
+   * one: `expect(Date.now() - started).toBeLessThan(1_000)`) is a bet that
+   * this process gets a full core's attention for the length of the test —
+   * true on a quiet machine and false under ten parallel `turbo` tasks, where
+   * the same linear-time code can miss a generous budget for reasons that
+   * have nothing to do with a regression in `html.ts`. Flaky red on a fast
+   * machine trains everyone to re-run rather than look, which is how a real
+   * regression here would actually get missed.
+   *
+   * `htmlToText`'s `onStep` hook is called once per iteration of its three
+   * loops (the outer scan and its two inner tag-scanning loops), and every
+   * one of those iterations strictly advances a cursor into `html` and never
+   * revisits a position — see the hook's doc comment in `html.ts`. So the
+   * total call count over one run is bounded by a small constant multiple of
+   * `html.length` REGARDLESS of machine speed, load, or how many other tests
+   * happen to be running: a fixed, size-derived ceiling rather than a
+   * time-derived one. A regression that reintroduces the backtracking regex
+   * this scanner was written to avoid restructures these loops away entirely,
+   * which this bound would catch by construction — there would be nothing
+   * left calling `onStep` at all, and the assertion below would never see the
+   * count it expects.
+   */
   const attacks: Record<string, string> = {
     "many unclosed script opens": "<script ".repeat(50_000),
     "nested unclosed tags": "<div><span><b>".repeat(30_000),
@@ -111,10 +131,29 @@ describe("it cannot be made to run long", () => {
   };
 
   it.each(Object.entries(attacks))("%s", (_name, html) => {
-    const started = Date.now();
-    const text = htmlToText(html, CAP);
-    expect(Date.now() - started).toBeLessThan(budgetMs);
+    let steps = 0;
+    const text = htmlToText(html, CAP, () => {
+      steps += 1;
+    });
+    // 3x is headroom for the (rare) input position visited by both an inner
+    // tag-scanning loop and the outer loop's own bookkeeping around it, not a
+    // knob to widen if this ever fails — a genuine regression here blows the
+    // count out by orders of magnitude, not by a few percent.
+    expect(steps).toBeLessThanOrEqual(html.length * 3 + 100);
     expect(text.length).toBeLessThanOrEqual(CAP);
+  });
+
+  it("the step count actually tracks a real slowdown, not just a fast one", () => {
+    // Sabotage-test the tripwire itself: without this, a bound nothing ever
+    // exercises above its own floor is a bound that could report zero calls
+    // and still "pass". A tag name long enough that its scan loop dominates
+    // must push the count close to the input length, not leave it near zero.
+    let steps = 0;
+    const html = `<${"a".repeat(10_000)}>text`;
+    htmlToText(html, CAP, () => {
+      steps += 1;
+    });
+    expect(steps).toBeGreaterThan(9_000);
   });
 });
 

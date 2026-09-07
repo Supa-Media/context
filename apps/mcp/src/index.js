@@ -116,6 +116,13 @@ import {
   worthReporting,
 } from "./search/d1/backfill.js";
 import { createSearchTrace, logSearchTrace } from "./search/trace.js";
+import {
+  NoteCryptoError,
+  decryptNote,
+  encryptNote,
+  generatedNoteBytes,
+  isEncryptedNote,
+} from "./encryption.js";
 import { inventoryPlugins } from "./plugins/inventory.js";
 import { renderPluginReport } from "./plugins/report.js";
 import {
@@ -2252,6 +2259,22 @@ function baseToolDefinitions() {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
+      name: "set_encryption",
+      description:
+        "Personal connection only. Encrypt or decrypt one note's content in place. An encrypted note stays a file at its own path, readable through Context and stored as ciphertext in the bucket \u2014 so the storage provider and a leaked bucket key cannot read it. It is not end-to-end: this is encryption at rest, and people the note is already shared with can still read it through Context. Encrypted notes are not searchable.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          encrypted: { type: "boolean", description: "true to encrypt, false to decrypt" },
+          expected_etag: { type: "string", description: "Optional current note etag" },
+        },
+        required: ["path", "encrypted"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    {
       name: "set_folder_visibility",
       description:
         "Personal connection only. Dry-run or atomically set a folder's inherited visibility in privacy.md without a source checkout or rclone. Use visibility=inherit to remove that folder's direct rule. Applying requires the privacy etag returned by dry-run; any private-to-team publication also requires confirm_team_publish=true. Redundant exact-note overrides are compacted.",
@@ -2541,6 +2564,8 @@ async function callTool(name, args, store, scope) {
       return toolWriteNote(store, scope, rules, overrides, args);
     case "set_visibility":
       return toolSetVisibility(store, scope, rules, overrides, args);
+    case "set_encryption":
+      return toolSetEncryption(store, scope, rules, overrides, args);
     case "set_folder_visibility":
       return toolSetFolderVisibility(store, scope, args);
     case "propose_note":
@@ -3552,9 +3577,17 @@ async function toolReadNote(store, scope, rules, overrides, pathArg) {
   if (!canSee(path, scope, rules, overrides)) return toolError("not found");
   const obj = await store.get(path);
   if (!obj) return toolError("not found");
-  const text = await obj.text();
+  const stored = await obj.text();
+  // Decrypted here, at request time, and nowhere else. The caller is handed the
+  // plaintext plus a line saying the note is encrypted, so an agent can tell
+  // its user what they are looking at — and so that a client echoing what it
+  // read back into `write_note` is writing plaintext, which is exactly what the
+  // write path expects.
+  const opened = await openStoredNote(store, stored);
+  if (!opened.ok) return encryptedNoteRefusal(path);
+  const marker = opened.encrypted ? "\nencryption: v1" : "";
   return toolText(
-    `etag: ${obj.etag}\npath: ${path}\nvisibility: ${effectiveVisibility(path, rules, overrides)}\n\n${text}`
+    `etag: ${obj.etag}\npath: ${path}\nvisibility: ${effectiveVisibility(path, rules, overrides)}${marker}\n\n${opened.text}`
   );
 }
 
@@ -3610,6 +3643,121 @@ async function toolReadImage(store, scope, rules, overrides, args) {
       { type: "image", data: base64FromBytes(bytes), mimeType: image.mimeType },
     ],
   };
+}
+
+/* ------------------------------ encryption ------------------------------- */
+//
+// `docs/decisions/encryption.md`. Three rules live here and nowhere else:
+//
+//  1. **`canSee` runs first, always.** Encryption is confidentiality, not access
+//     control. Nothing below is reached by a caller who could not already read
+//     the note, so an encrypted note adds no inference channel — a team-tier
+//     caller on a private one gets the same three bytes as on a path that never
+//     existed, decided several lines above any of this.
+//  2. **Whether a write is encrypted is decided by the STORED OBJECT**, never by
+//     the submitted content. A client that read plaintext and echoed it back
+//     must not be able to store it in the clear, and one that read an envelope
+//     it could not open must not be able to store that as the note's new text.
+//  3. **A key we do not have is a locked note, never a missing one.** The
+//     refusal says what it is and what to do, because the caller has already
+//     passed the visibility check and there is nothing left to conceal.
+
+/**
+ * What this request can decrypt with, or `null`.
+ *
+ * The key rides the binding response and lands non-enumerable on the store. It
+ * is absent for every context that has never encrypted a note, and absent again
+ * for one whose key the control plane could not open; all of those are the same
+ * answer here, which is that this request cannot decrypt.
+ *
+ * A `keys` map rather than one key, because that is the shape rotation needs: a
+ * deployment mid-rotation opens notes written under either generation without
+ * any caller knowing which.
+ */
+function encryptionContext(store) {
+  const key = store?.encryptionKey;
+  const workspaceId = store?.actor?.workspaceId;
+  if (!key || typeof workspaceId !== "string" || !workspaceId) return null;
+  return {
+    workspaceId,
+    generation: key.generation,
+    dataKey: key.dataKey,
+    keys: { [key.generation]: key.dataKey },
+  };
+}
+
+/**
+ * The refusal an encrypted note gets when this request holds no key for it.
+ *
+ * Deliberately explicit, where every other refusal in this gateway is uniform.
+ * Reaching this line required passing `canSee`, so the caller already knows the
+ * note is there — "not found" would send somebody hunting for a note they can
+ * see sitting in their own bucket.
+ */
+function encryptedNoteRefusal(path) {
+  return toolError(
+    `that note is encrypted and this connection cannot open it: ${path}. ` +
+      "Its content is stored as ciphertext.",
+  );
+}
+
+/**
+ * Read a stored note as plaintext, whether or not it was encrypted.
+ *
+ * @returns {Promise<{ok: true, text: string, encrypted: boolean}|{ok: false}>}
+ */
+async function openStoredNote(store, stored) {
+  if (!isEncryptedNote(stored)) return { ok: true, text: stored, encrypted: false };
+  const context = encryptionContext(store);
+  if (context === null) return { ok: false };
+  try {
+    return { ok: true, text: await decryptNote(stored, context), encrypted: true };
+  } catch (error) {
+    // A `NoteCryptoError` is a note this deployment cannot open: a generation
+    // it holds no key for, a tampered envelope, an envelope carried in from
+    // another context. Every one of them is "locked", and none may be answered
+    // by handing the caller the ciphertext instead. Anything else is a bug and
+    // rethrows.
+    if (error instanceof NoteCryptoError) return { ok: false };
+    throw error;
+  }
+}
+
+/**
+ * `generatedNoteBytes` bound to this request's key, for the generators below.
+ *
+ * The rule and everything it costs live in `src/encryption.js`; this is the
+ * half that needs a workspace and a key, which that module deliberately knows
+ * nothing about. `null` back means *leave the note alone*.
+ */
+async function generatedNoteFor(store, text, storedText) {
+  return await generatedNoteBytes(text, storedText, (plaintext) =>
+    sealNoteContent(store, plaintext),
+  );
+}
+
+/** The text currently stored at `key`, or `null` where there is nothing there. */
+async function storedTextAt(store, key) {
+  const object = await store.get(key);
+  return object ? await object.text() : null;
+}
+
+/**
+ * The bytes to store for a note whose stored form is encrypted.
+ *
+ * Reachable only where the stored object has already been read and found
+ * encrypted, so there is no path to it with a note that was not — which is rule
+ * 2 above expressed as a call graph rather than as a check somebody has to
+ * remember to write.
+ */
+async function sealNoteContent(store, plaintext) {
+  const context = encryptionContext(store);
+  if (context === null) return null;
+  return await encryptNote(plaintext, {
+    workspaceId: context.workspaceId,
+    workspaceKey: context.dataKey,
+    keyId: context.generation,
+  });
 }
 
 function normalizeVisibility(value) {
@@ -3673,16 +3821,62 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
     );
   }
 
+  /*
+   * READ THE STORED BODY ONCE.
+   *
+   * `StoredObject.text()` consumes a stream on R2 and S3 both, so it may be
+   * called at most once per object — and two things now need it: the conflict
+   * message, and the question of whether this note is stored encrypted. Reading
+   * it twice worked against the in-memory stub and would have failed in
+   * production on the second call.
+   *
+   * It is read only where there is something to read: a create has no stored
+   * body and pays nothing for this.
+   */
+  const storedBody = existing ? await existing.text() : null;
   if (existing) {
     if (expectedEtag && existing.etag !== expectedEtag) {
-      const current = await existing.text();
+      // The conflict body is what the caller must merge into, so it is the
+      // *plaintext* where the note is encrypted. Handing back an envelope would
+      // be telling a client to merge its change into base64 — and then storing
+      // whatever it produced.
+      const opened = await openStoredNote(store, storedBody);
+      if (!opened.ok) return encryptedNoteRefusal(path);
       return toolError(
         `conflict: note changed since you read it (current etag ${existing.etag}). ` +
-          `Re-read, merge your change into the current content below, and write again.\n\n${current}`
+          `Re-read, merge your change into the current content below, and write again.\n\n${opened.text}`
       );
     }
   } else if (expectedEtag) {
     return toolError("conflict: note no longer exists; write again without expected_etag to recreate it");
+  }
+
+  /*
+   * WHETHER THIS WRITE IS ENCRYPTED IS DECIDED BY THE STORED OBJECT.
+   *
+   * Not by the submitted content, not by frontmatter, not by an argument. If
+   * the note at this path is encrypted, this write is encrypted — whatever the
+   * client sent, and whether or not it knows the feature exists.
+   *
+   * That is the one rule that stops a round trip being a downgrade. A client
+   * that read plaintext and echoed it back would otherwise silently store the
+   * note in the clear; a client that read an envelope it could not open would
+   * otherwise store *that* as the note's new text, encrypting nothing and
+   * destroying everything. `set_encryption` is the only way to change the
+   * answer, and it is owner-only.
+   *
+   * The same discipline `write_note` already applies to visibility — "
+   * frontmatter is not access control" — applied to the second thing
+   * frontmatter must not be allowed to decide.
+   */
+  let body = content;
+  if (storedBody !== null && isEncryptedNote(storedBody)) {
+    const sealed = await sealNoteContent(store, content);
+    // No key, so this write cannot preserve the encryption the note already
+    // has. Refusing is the only safe direction: the alternative is storing the
+    // plaintext, which is the feature silently turning itself off.
+    if (sealed === null) return encryptedNoteRefusal(path);
+    body = sealed;
   }
 
   const action = existing ? "update_note" : "create_note";
@@ -3691,7 +3885,7 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   if (desiredVisibility === "private") {
     await persistExactVisibility(store, path, "private", rules);
   }
-  const put = await store.put(path, content);
+  const put = await store.put(path, body);
   if (desiredVisibility === "team") {
     await persistExactVisibility(store, path, "team", rules);
   }
@@ -3701,6 +3895,109 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
     team_visible: desiredVisibility === "team",
   });
   return toolText(`written: ${path} (etag ${put.etag})\nvisibility: ${desiredVisibility}`);
+}
+
+/**
+ * Turn encryption on or off for one note, in place.
+ *
+ * ## Owner-only, through the gate this file already has
+ *
+ * `scope !== "private"` is the same check `set_visibility` and `list_plugins`
+ * make, and it is at least as strict as "owner": `visibilityTierForGrant`
+ * answers `private` only for the owner of a context *and* only where the person
+ * granted the client the private tier. An owner on a team-tier grant is
+ * refused, which is correct — deciding that a note's bytes become unreadable to
+ * their own storage provider is not something a connection they gave narrower
+ * access to gets to do on their behalf.
+ *
+ * Deliberately not derived from the role directly: "the privacy tier is a scope
+ * on the grant, never an inference from a role"
+ * (`docs/decisions/identity-and-access.md`).
+ *
+ * ## It is a re-write of one note, and it is conflict-safe
+ *
+ * The note is read, opened, and written back in the other form. `expected_etag`
+ * is honoured exactly as `write_note` honours it, because this is a full-body
+ * rewrite of somebody's note and a lost concurrent edit here is a lost note.
+ *
+ * ## The two no-ops are answered, not performed
+ *
+ * Encrypting an encrypted note would re-encrypt it under a fresh note key,
+ * which is a pointless write, a new etag, and a sync in every connected
+ * Obsidian vault. Decrypting a plaintext note is the same in reverse. Both are
+ * reported as already being in the asked-for state.
+ */
+async function toolSetEncryption(store, scope, rules, overrides, args) {
+  if (scope !== "private") {
+    return toolError(
+      "permission denied: only a personal connection can encrypt or decrypt a note",
+    );
+  }
+  const path = normalizePath(args?.path);
+  if (!path || !path.endsWith(".md")) return toolError("invalid path (must end in .md)");
+  if (isPlumbing(path)) return toolError("that path is reserved");
+  if (typeof args?.encrypted !== "boolean") {
+    return toolError("encrypted must be true or false");
+  }
+  // `canSee` first, as everywhere. A personal connection sees everything in its
+  // own context, so this is the plumbing and manifest refusal rather than a
+  // tenancy one — which the two checks above have already made.
+  if (!canSee(path, scope, rules, overrides)) return toolError("not found");
+
+  const existing = await store.get(path);
+  if (!existing) return toolError("not found");
+  const expectedEtag = args?.expected_etag;
+  if (expectedEtag && existing.etag !== expectedEtag) {
+    return toolError(
+      `conflict: note changed since you read it (current etag ${existing.etag}). Re-read and try again.`,
+    );
+  }
+
+  const stored = await existing.text();
+  const alreadyEncrypted = isEncryptedNote(stored);
+  if (alreadyEncrypted === args.encrypted) {
+    return toolText(
+      `unchanged: ${path} is already ${args.encrypted ? "encrypted" : "stored as plain markdown"}`,
+    );
+  }
+
+  const opened = await openStoredNote(store, stored);
+  if (!opened.ok) return encryptedNoteRefusal(path);
+
+  let body;
+  if (args.encrypted) {
+    body = await sealNoteContent(store, opened.text);
+    if (body === null) {
+      // No key reached this request. Encrypting with one we cannot read back
+      // would be writing a note nothing can open, so this refuses instead.
+      return toolError(
+        "this context has no encryption key available right now; nothing was changed",
+      );
+    }
+  } else {
+    body = opened.text;
+  }
+
+  const put = await store.put(path, body, { onlyIf: { etagMatches: existing.etag } });
+  if (!put) {
+    // Only where the backend honours it. A `null` here means the note changed
+    // between the read and the write, and a full-body rewrite that overwrites
+    // somebody's concurrent edit is the one failure this tool must not have.
+    return toolError("conflict: note changed while it was being rewritten; re-read and try again");
+  }
+
+  // The path and the new state, never the note's content and never the key.
+  await recordChange(store, args.encrypted ? "encrypt_note" : "decrypt_note", scope, [path], {
+    etag: put.etag,
+    encrypted: args.encrypted,
+  });
+  return toolText(
+    args.encrypted
+      ? `encrypted: ${path} (etag ${put.etag})\n` +
+          "Its content is now stored as ciphertext. It stays readable through Context to everyone " +
+          "its visibility already reaches, and it is no longer searchable."
+      : `decrypted: ${path} (etag ${put.etag})\nIts content is stored as plain markdown again.`,
+  );
 }
 
 async function toolSetVisibility(store, scope, rules, overrides, args) {
@@ -4331,6 +4628,13 @@ async function scanVisibleNotes(store, scope, rules, overrides, query, prefix, b
       }
       if (!obj) return null;
       const text = await obj.text();
+      // An encrypted note is not searched and never quoted. Matching a needle
+      // against base64 would produce hits nobody asked for, and the snippets
+      // below would put ciphertext in a search result — see
+      // `docs/decisions/encryption.md`, "What search does". The scan is the
+      // fallback path and reads live bytes, so this is the one place the check
+      // has to be on the body rather than on what an index holds.
+      if (isEncryptedNote(text)) return null;
       if (!text.toLowerCase().includes(needle)) return null;
       const snippets = text
         .split("\n")
@@ -5114,14 +5418,20 @@ async function toolOpenAiFetch(store, scope, rules, overrides, idArg) {
   if (!canSee(path, scope, rules, overrides)) return toolError("not found");
   const obj = await store.get(path);
   if (!obj) return toolError("not found");
-  const text = await obj.text();
+  const stored = await obj.text();
+  // The same decrypt `read_note` does, because this is `read_note` wearing
+  // OpenAI's contract and "a second path is a second place for a bug". A note
+  // this request cannot open is refused rather than answered with its envelope
+  // — returning the ciphertext as `text` would put it in a chat transcript.
+  const opened = await openStoredNote(store, stored);
+  if (!opened.ok) return encryptedNoteRefusal(path);
   return toolText(
     JSON.stringify({
       id: path,
-      title: noteTitle(path, text),
-      text,
+      title: noteTitle(path, opened.text),
+      text: opened.text,
       url: noteUrl(path),
-      metadata: { etag: obj.etag },
+      metadata: { etag: obj.etag, encrypted: opened.encrypted || undefined },
     })
   );
 }
@@ -5266,6 +5576,24 @@ async function rewriteReferences(store, scope, rules, overrides, renames, { writ
     const object = await store.get(key);
     if (!object) continue;
     const text = await object.text();
+    /*
+      AN ENCRYPTED NOTE'S STORED BYTES ARE NEVER REWRITTEN.
+
+      There are no links in them to rewrite — the note's links are inside the
+      ciphertext — and running a link regex over base64 is a way to corrupt a
+      note that nothing can then recover. Skipping is the safe direction, and
+      it is checked on the marker rather than on a successful parse so that a
+      *broken* envelope is skipped exactly as hard as a good one.
+
+      **The cost, stated rather than left to be discovered: links written
+      inside an encrypted note are not rewritten when their target moves, and
+      they go stale.** The alternative is decrypt-rewrite-re-encrypt inside a
+      walk that already runs against a 50-subrequest budget and a 4,000-note
+      cap, which is the trade `storage-and-credentials.md` has already made in
+      the other direction for bulk moves. See `docs/decisions/encryption.md`,
+      "Round-tripping without damaging ciphertext".
+    */
+    if (isEncryptedNote(text)) continue;
     const rewritten = rewriteLinks(text, { fromPath, toPath: key, renames, byName });
     if (rewritten === null) continue;
     notes += 1;
@@ -5759,14 +6087,25 @@ async function writeInboxCapture(store, capture, { actorScope = "inbox", replace
   }
 
   const note = `${frontmatter.join("\n")}\n\n${bodyParts.join("\n")}`;
+  let previous = null;
   if (existing) {
+    previous = await existing.text();
     // Idempotency only. An unchanged capture is not re-written; a changed one
     // overwrites, and the version it replaces is kept only if the customer
     // enabled versioning on their bucket.
-    const previous = await existing.text();
-    if (previous === note) return { path: key, duplicate: true };
+    //
+    // Compared against the *plaintext* where the note is encrypted, or every
+    // replay of the same capture would look changed — the envelope is never
+    // equal to the note it holds — and would burn a write and a sync in every
+    // connected vault for a capture nobody made.
+    const opened = await openStoredNote(store, previous);
+    if (opened.ok && opened.text === note) return { path: key, duplicate: true };
   }
-  await store.put(key, note);
+  // The form of the note at this path outlives this capture. See
+  // `generatedNoteBytes`.
+  const body = await generatedNoteFor(store, note, previous);
+  if (body === null) return { path: key, duplicate: false, updated: false, locked: true };
+  await store.put(key, body);
   await recordChange(store, existing ? "inbox_update" : "inbox_capture", actorScope, [key], { source });
   return { path: key, duplicate: false, updated: Boolean(existing) };
 }
@@ -5952,8 +6291,19 @@ async function publishMeetingNote(store, scope, { path, markdown, segmentCount }
     }
   }
 
+  // A meeting note regenerated over one somebody encrypted stays encrypted. A
+  // note we cannot open is left exactly as it is, and the refusal says so
+  // rather than replacing an envelope with plaintext.
+  const body = await generatedNoteFor(store, markdown, await storedTextAt(store, notePath));
+  if (body === null) {
+    throw new MeetingRefusal(
+      409,
+      "note_encrypted",
+      "that meeting note is encrypted and this request cannot open it; nothing was written",
+    );
+  }
   if (visibility === "private") await persistExactVisibility(store, notePath, "private", rules);
-  const put = await store.put(notePath, markdown);
+  const put = await store.put(notePath, body);
   if (visibility === "team") await persistExactVisibility(store, notePath, "team", rules);
   await recordChange(store, "meeting_note", scope, [notePath], {
     etag: put.etag,
@@ -6414,7 +6764,22 @@ async function syncCalendar(env, store) {
     }
     md += "\n";
   }
-  await store.put("2-areas/calendar/next-14-days.md", md);
+  // The refresh regenerates this note every run. If somebody encrypted it, it
+  // stays encrypted; if it cannot be opened, the refresh is skipped rather than
+  // stripping the encryption off a note in the customer's own bucket.
+  //
+  // The path is written as a literal at the `store.put` below rather than held
+  // in the variable read just above it, because `teamShare.test.ts` reads this
+  // source for `store.put("<product path>"` and checks every one against
+  // `PRODUCT_MANDATED_PATHS` — a guard that a variable here would silently
+  // empty out.
+  const calendarBody = await generatedNoteFor(
+    store,
+    md,
+    await storedTextAt(store, "2-areas/calendar/next-14-days.md"),
+  );
+  if (calendarBody === null) return;
+  await store.put("2-areas/calendar/next-14-days.md", calendarBody);
   await recordChange(store, "calendar_sync", "system", ["2-areas/calendar/next-14-days.md"], {
     count: upcoming.length,
   });

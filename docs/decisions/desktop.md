@@ -1599,6 +1599,71 @@ ON THE LAUNCH STEP'S OWN OUTCOME"` goes red alone if
 Every count above was produced by sabotaging the actual workflow file and
 restoring it, not guessed at.
 
+### A slow Rosetta launch is not a crash, so it does not get the same deadline
+
+The first gated release under the decision above (run 34135737601) passed
+both legs:
+
+```
+PASS: release/mac-arm64/…/Context started, ran --smoke, and exited 0 after 2s.
+PASS: release/mac/…/Context started, ran --smoke, and exited 0 after 57s.
+```
+
+Both PASS. The second line is the problem. `macos-latest` is an Apple Silicon
+image, so the x64 build under `release/mac/` runs the whole step — Electron's
+own startup, module evaluation, `--smoke`'s console window — translated by
+Rosetta rather than natively, and it used 57 of the 60 seconds the arm64 leg
+and the x64 leg shared. That is not the app being slow; it is emulation
+overhead on work the arm64 leg does in 2. A runner having a marginally worse
+day — a busier host, a colder cache — was three seconds from turning that PASS
+into the exact FAIL a real launch crash produces: `"was still alive 60s after
+it was started ... and had to be killed with SIGKILL."` **A slow runner would
+fail a release for being slow, and that failure reads as the crash this gate
+exists to catch** — indistinguishable in the log, in the job's red X, and to
+whoever is paged. That is the worst kind of false positive there is, because
+the fix people reach for is re-running the gate rather than trusting it, and a
+gate people route around is a gate that has stopped gating anything.
+
+**The fix is two deadlines, not one, and only one of them stays a hard gate.**
+arm64 is native on this runner and keeps exactly what it had: 60 seconds,
+`SIGKILL` at the deadline, and a timeout there still fails the job — a hang on
+native hardware is still evidence of a real hang. x64 gets its own, much
+larger allowance (240 seconds) under the same `SIGKILL` discipline, but a
+timeout on x64 *alone* is downgraded to `::warning::` and does not fail the
+job — Rosetta being slow is not evidence of a crash. What does **not** soften
+for x64: a crash string in its log (`Uncaught Exception`, `A JavaScript error
+occurred`, `Dynamic require`) or a non-zero exit before its own deadline still
+fails the job exactly as it does for arm64, because those are not about speed
+at all. `launch()` in `deploy-desktop.yml`'s *"Launch the app it just built"*
+step takes the deadline and whether a timeout is fatal as arguments now
+(`launch <app> <log> <deadline> <timeout_is_fatal>`), called once as
+`... "$SMOKE_DEADLINE_S" true` for arm64 and once as `...
+"$X64_SMOKE_DEADLINE_S" false` for x64 — and the crash-string grep and the
+non-zero-exit check inside that function are never conditioned on either
+argument, so weakening x64's crash detection would mean carving a special case
+into a check that is currently the same code for both legs, not flipping a
+flag.
+
+**Both legs print their own elapsed time on every path**, including the PASS
+line — `"...exited 0 after ${elapsed}s (of ${deadline}s allowed)"` — because
+57-of-60 was exactly the number this decision responds to, and a margin that
+close needs to stay visible rather than being swallowed by a bare PASS. A
+future run cutting it close on either leg's *own* deadline is now something
+the log says outright, rather than something discovered the day a release
+fails.
+
+**The tests that fail if this is reversed** are in `packaging.test.mjs`, and
+both counts were produced by sabotaging the real workflow file and restoring
+it, the same way as every other count in this document: flipping the x64
+leg's fourth argument from `false` to `true` (making its timeout fatal again)
+takes exactly one check red — `"THE X64 LEG IS CALLED WITH A NON-FATAL
+TIMEOUT"`; and wrapping the crash-string grep inside `launch()` in an `if [
+"$timeout_is_fatal" = "true" ]` guard (scoping it to skip the x64 leg) also
+takes exactly one check red — `"THE CRASH-STRING CHECK IS UNCONDITIONAL"`.
+Neither sabotage moves any other check, which is itself the point: the two
+legs' behaviour is independent enough that breaking one leg's guarantee does
+not accidentally also fail on the other leg's already-broken state.
+
 ### What is deliberately not built
 
 Not built, and none of them foreclosed:
