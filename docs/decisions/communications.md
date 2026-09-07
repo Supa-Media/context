@@ -422,9 +422,52 @@ that is not a channel-day note is indexed exactly as it is now, so nothing
 about this reaches a brain with no mailbox connected.
 
 This is **decided here and built in phase 2**, with `apps/mcp/src/search/CONTRACT.md`
-amended in the same commit as the code. Phase 1 ships the rendering, the
-anchors and the recognisers, and does not touch the index. The check that will
-matter is `a term in the last message of a large day is found`.
+amended in the same commit as the code. Phase 1 shipped the rendering, the
+anchors and the recognisers, and did not touch the index. The check that
+matters is `a term in the last message of a large day is found`.
+
+**Phase 2 shipped.** `apps/mcp/src/search/commsIndex.js` is the split:
+`subDocumentsFor(path, full)` is the sync loop's one seam, answering the
+existing single-document, whole-file-capped behaviour for anything that is
+not a channel-day note and one sub-document per message anchor for one that
+is. Every doc entry gained three optional fields — `notePath`, `anchor`, and
+`comms` (`channel`, `date`, a **rendered thread label** rather than a hashed
+provider thread id, since the bucket never retains one to re-read, and
+`participants`) — defaulting to "an ordinary note" so a stored shard written
+before this feature parses unchanged, and `canSee` is applied to `notePath` at
+every visibility check in the query path rather than to a sub-document's own
+key, which is the concrete difference between correctly hiding a private
+day's messages and quietly missing an exact-note `privacy.md` override that
+names the note precisely (a folder-prefix rule would pass by accident; an
+exact-path rule would not, which is why the test uses one). Full argument and
+format: `apps/mcp/src/search/CONTRACT.md`, "Channel-day notes: one
+sub-document per message". The two guardrails above are not yet measured
+against a real mailbox — that is still true and still gates turning this on
+for a live account — but the mechanism they gate is built and tested
+(`apps/mcp/test/commsSearchIndex.test.mjs`): independent per-message capping
+on a day many times `NOTE_INDEX_CHAR_CAP`, the private/team and tenant-isolation
+proofs above, encrypted notes yielding nothing, and a regeneration replacing
+exactly one note's sub-documents.
+
+**Filtering by `comms`'s fields is not built.** They are stored through both
+serialization dialects because a caller needs them to render a result (the
+date and channel beside a message hit, say) and because the decision above
+names them, but nothing in the scorer narrows a query by channel, date,
+thread or participant yet — that is a query-surface change with its own
+argument, not a free rider on the storage format landing here.
+
+**The console deep link opens correctly; scrolling to the anchor is not
+built here.** A result's `key` is `<notePath>#<anchor>`, the same shape a
+wikilink into one already uses, and `noteHref`/`noteFromQuery` in
+`apps/mobile/features/console/nav.ts` already round-trip it correctly — the
+anchor is split off before it ever reaches `useNoteAddress`'s note/selection
+reconciliation, so a search result opens the right note rather than a literal
+`path#anchor` 404. Scrolling the editor to the message once it is open would
+mean extending either the frozen native `EditorCommand` bridge
+(`webview/protocol.ts` says why that list is deliberately closed) or the web
+CodeMirror instance a sibling change is concurrently touching for the console
+Inbox views, and this change deliberately does not do either — left for a
+follow-up with its own review rather than guessed at here.
 
 ### A firehose is not attention
 

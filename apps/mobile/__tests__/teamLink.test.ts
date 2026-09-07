@@ -28,11 +28,13 @@
 
 import { describe, expect, test } from "@jest/globals";
 import {
+  anchorFromQuery,
   browseHref,
   noteFromQuery,
   noteHref,
   resolveContextRoute,
   routeForPath,
+  splitNoteAnchor,
 } from "../features/console/nav";
 
 const CONTEXTS = [{ id: "w1", slug: "seyi" }];
@@ -99,6 +101,66 @@ describe("reading the note out of a URL", () => {
 
   test("a control character opens nothing", () => {
     expect(noteFromQuery("a\u0000b.md")).toBeNull();
+  });
+});
+
+/**
+ * A search result over a channel-day note's message deep-links as
+ * `<notePath>#<anchor>` (`apps/mcp/src/search/CONTRACT.md`, "Channel-day
+ * notes: one sub-document per message") — the same shape a wikilink into one
+ * already uses. `noteHref` needs no change: `encodeURIComponent` already
+ * turns the `#` into `%23`, so it never becomes a URL fragment. What has to
+ * split it back apart is the read side.
+ */
+describe("a message deep link inside a note path", () => {
+  const dayPath = "0-inbox/email/name-at-example-com/2026-09-07.md";
+  const anchor = "msg-6f3a91c04b7d5e28";
+
+  test("splitNoteAnchor separates the two", () => {
+    expect(splitNoteAnchor(`${dayPath}#${anchor}`)).toEqual({ path: dayPath, anchor });
+  });
+
+  test("an ordinary path has no anchor to split off", () => {
+    expect(splitNoteAnchor("1-projects/plan.md")).toEqual({ path: "1-projects/plan.md", anchor: null });
+    expect(splitNoteAnchor(dayPath)).toEqual({ path: dayPath, anchor: null });
+  });
+
+  test("something that merely contains a # is not an anchor", () => {
+    // Only a trailing `#msg-<16 hex>` counts — a stray `#` anywhere else in a
+    // path is just a character in a path, not a link target.
+    expect(splitNoteAnchor("a#b.md")).toEqual({ path: "a#b.md", anchor: null });
+    expect(splitNoteAnchor(`${dayPath}#msg-notenoughhex`)).toEqual({
+      path: `${dayPath}#msg-notenoughhex`,
+      anchor: null,
+    });
+  });
+
+  /**
+   * The property that matters: `noteFromQuery` — what feeds `useNoteAddress`'s
+   * two-way sync with the open selection — never carries the anchor through.
+   * If it did, `note` would disagree with `FileBrowser`'s own `selectedPath`
+   * (a real bucket path, never one with a `#anchor` tail) by exactly that
+   * suffix on every note a search result opened, which is the oscillation
+   * `useNoteAddress`'s own module comment warns never converges.
+   */
+  test("noteFromQuery opens the containing note, not a literal #anchor path", () => {
+    expect(noteFromQuery(`${dayPath}#${anchor}`)).toBe(dayPath);
+  });
+
+  test("anchorFromQuery reads the other half of the same value", () => {
+    expect(anchorFromQuery(`${dayPath}#${anchor}`)).toBe(anchor);
+    expect(anchorFromQuery(dayPath)).toBeNull();
+    expect(anchorFromQuery(undefined)).toBeNull();
+  });
+
+  test("a repeated parameter reads consistently across both halves", () => {
+    expect(noteFromQuery([`${dayPath}#${anchor}`, "other.md"])).toBe(dayPath);
+    expect(anchorFromQuery([`${dayPath}#${anchor}`, "other.md"])).toBe(anchor);
+  });
+
+  test("a value safeNotePath refuses has no path and no anchor", () => {
+    expect(noteFromQuery(`../../secret.md#${anchor}`)).toBeNull();
+    expect(anchorFromQuery(`../../secret.md#${anchor}`)).toBeNull();
   });
 });
 
