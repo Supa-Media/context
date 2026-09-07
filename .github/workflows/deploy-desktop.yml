@@ -380,7 +380,26 @@ jobs:
       # preflight above reads and refuses to print, arriving anyway through a
       # dependency's own log line, so it is redacted here instead — on the way
       # to the log, not before electron-builder ever sees it, and with
-      # `pipefail` so a redacted failure still fails the step.
+      # `pipefail` so a redacted failure still fails the step. The expression
+      # itself lives in `build/redact-signing-log.sh`, not inline: an earlier
+      # inline `sed` used `[^\n]*`, which is a GNU extension that this
+      # `macos-latest` runner's BSD `sed` does not share (see that script's own
+      # header) — it matched nothing, silently, on the one platform this step
+      # ever runs on for a signed build, and both dispatches went out with the
+      # company name and Apple team id in a public log. One shared script
+      # means the workflow and `test/packaging.test.mjs` run the identical
+      # expression instead of two copies that can drift apart again the same
+      # way.
+      #
+      # Separately: `skipped macOS notarization reason=… unable to be
+      # generated`, a few lines into the Build step's own output, is
+      # electron-builder's *built-in* notarize step declining — expected and
+      # harmless. This repository notarises through its own `afterSign` hook
+      # (`build/notarize.cjs`, wired below it) instead of electron-builder's
+      # built-in support, precisely so the `.p8` can be repaired and checked
+      # the way that file's header explains; the hook's own
+      # "submitting … / done — notarised and stapled" lines, right after, are
+      # the notarisation that actually happens.
       - name: Build
         working-directory: apps/desktop
         env:
@@ -406,7 +425,7 @@ jobs:
             publish_policy=never
           fi
           pnpm exec electron-builder --mac --config electron-builder.yml --publish "$publish_policy" 2>&1 \
-            | sed -E 's/(identityName=)[^\n]*( identityHash=)[0-9A-Fa-f]+/\1[redacted]\2[redacted]/'
+            | bash build/redact-signing-log.sh
 
       - name: What was produced
         working-directory: apps/desktop
@@ -417,15 +436,86 @@ jobs:
           set -euo pipefail
           ls -la release/*.dmg
           ls -la release/*.zip release/latest-mac.yml 2>/dev/null || true
-          # `spctl` says whether Gatekeeper would accept this on another Mac. It
-          # is expected to refuse an unsigned build, so this reports rather than
-          # gates: a red X on an unsigned build is the truth, not a failure.
-          for dmg in release/*.dmg; do
-            echo "— $dmg"
-            spctl --assess --type open --context context:primary-signature -v "$dmg" 2>&1 || true
-          done
           if [ "$PUBLISHED" = "true" ]; then
             echo "Published v$VERSION to GitHub Releases — electron-builder's own log above named the assets it uploaded."
+          fi
+
+      # `spctl --assess` on the `.dmg` itself always said "no usable
+      # signature" — correctly, because electron-builder does not sign the
+      # disk image by default and Gatekeeper never assesses one anyway: it
+      # assesses the app a person double-clicks their way into, after
+      # mounting the dmg, exactly like this step now does.
+      # `electron-builder.yml`'s `dmg.sign: true` signs the container too, so
+      # a real failure to sign or mount is no longer masked by a dmg check
+      # that was never going to pass regardless.
+      #
+      # Signed and notarised is the only shape this can honestly demand
+      # Gatekeeper accept, so that combination is what gates the step; an
+      # unsigned or un-notarised dispatch is expected to fail every one of
+      # these — that is the whole reason this workflow prints
+      # "::warning::This build is UNSIGNED" earlier rather than refusing to
+      # build at all — and is reported, not failed, the same way the dmg
+      # check it replaces always treated an unsigned build's rejection as the
+      # truth rather than a bug.
+      #
+      # None of the three tools' own output reaches the log: `spctl -vv` and
+      # `codesign -v` both print the signing identity on success, which is
+      # the same subject already redacted out of electron-builder's own log
+      # above — showing it here a second time would undo that. Only the
+      # PASS/FAIL line this step writes itself is printed.
+      - name: Verify the signed app inside each dmg
+        working-directory: apps/desktop
+        env:
+          SIGNED: ${{ steps.certificate.outputs.signed }}
+          NOTARIZED: ${{ steps.notarize_check.outputs.notarized }}
+        run: |
+          set -euo pipefail
+          strict=false
+          if [ "$SIGNED" = "true" ] && [ "$NOTARIZED" = "true" ]; then
+            strict=true
+          fi
+          status=0
+          for dmg in release/*.dmg; do
+            name="$(basename "$dmg")"
+            mnt="$(mktemp -d)"
+            if ! hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg" >/dev/null 2>&1; then
+              echo "FAIL: could not mount $name"
+              status=1
+              rmdir "$mnt" 2>/dev/null || true
+              continue
+            fi
+            app="$(find "$mnt" -maxdepth 1 -name "*.app" -print -quit)"
+            if [ -z "$app" ]; then
+              echo "FAIL: no .app found inside $name"
+              status=1
+            else
+              if spctl --assess --type execute -vv "$app" >/dev/null 2>&1; then
+                echo "PASS: spctl accepts the app in $name"
+              else
+                echo "FAIL: spctl rejects the app in $name"
+                status=1
+              fi
+              if codesign --verify --deep --strict "$app" >/dev/null 2>&1; then
+                echo "PASS: codesign verifies the app in $name"
+              else
+                echo "FAIL: codesign verification failed for the app in $name"
+                status=1
+              fi
+              if xcrun stapler validate "$app" >/dev/null 2>&1; then
+                echo "PASS: the notarisation ticket is stapled in $name"
+              else
+                echo "FAIL: stapler could not validate the app in $name"
+                status=1
+              fi
+            fi
+            hdiutil detach "$mnt" -quiet >/dev/null 2>&1 || hdiutil detach "$mnt" -force >/dev/null 2>&1 || true
+          done
+          if [ "$status" -ne 0 ]; then
+            if [ "$strict" = "true" ]; then
+              echo "::error::A signed, notarised build failed a Gatekeeper check inside its own dmg — see PASS/FAIL lines above."
+              exit 1
+            fi
+            echo "::warning::Not every check passed, but this build is not both signed and notarised — Gatekeeper is expected to refuse it elsewhere. See PASS/FAIL lines above."
           fi
 
       - uses: actions/upload-artifact@v4

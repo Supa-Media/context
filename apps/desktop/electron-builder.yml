@@ -115,8 +115,21 @@ mac:
 afterSign: build/notarize.cjs
 
 dmg:
-  # Nothing custom: the default window with the app and an Applications alias.
-  # A background image is a design decision nobody has taken.
+  # The default window with the app and an Applications alias — a background
+  # image is a design decision nobody has taken.
+  #
+  # `sign: true` because electron-builder's own default is to leave the disk
+  # image itself unsigned even on a fully signed, notarised build (only the
+  # `.app` inside it is signed by default) — confirmed against `dmg-builder`
+  # 26.0.0's own source, which only signs the dmg when this is explicitly
+  # `true`. `deploy-desktop.yml`'s post-build check asserts Gatekeeper accepts
+  # the `.app` mounted out of each dmg — this line is what makes the dmg
+  # itself a real, signed container around that app instead of the
+  # unconditional "no usable signature" the workflow used to print for a dmg
+  # nothing had ever signed. It reuses whatever identity `mac.type:
+  # distribution` above already resolved — no new secret, no separate
+  # certificate.
+  sign: true
 
 # GitHub Releases, published only when `deploy-desktop.yml` passes
 # `--publish always` — see the header for why `release` and not `draft`, and why

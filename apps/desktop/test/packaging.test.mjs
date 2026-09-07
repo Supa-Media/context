@@ -47,6 +47,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createPrivateKey, generateKeyPairSync } from "node:crypto";
+import { execFileSync } from "node:child_process";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -621,18 +622,170 @@ export async function runPackagingChecks(check) {
     ID Application: <company> (<team id>) identityHash=<sha1>` at "info" level
     on every signed build, unconditionally — proven on a runner, where a
     successful sign printed exactly that line to this public repository's
-    Actions log. It is not one of this workflow's own `echo`s, so the
-    certificate-subject checks above (which read the *preflight*'s shell) do
-    not see it; this reads the Build step itself.
+    Actions log, twice, the redaction below unable to touch it. It is not one
+    of this workflow's own `echo`s, so the certificate-subject checks above
+    (which read the *preflight*'s shell) do not see it; this reads the Build
+    step itself.
+
+    The expression that redacts it is not typed into this test or the
+    workflow a second time — both run the exact same file,
+    `build/redact-signing-log.sh`, which is the point: an inline `sed` in the
+    workflow and a copy of its pattern in this test can drift apart (that is
+    exactly how the bug below shipped unnoticed), and a single script cannot.
   */
   check(
-    "ELECTRON-BUILDER'S OWN SIGNING LOG IS REDACTED — identityName carries the company name and Apple team id",
-    buildStep !== undefined && /identityName=/.test(buildStep) && /sed -E/.test(buildStep),
+    "the Build step pipes electron-builder's output through the shared redaction script, not an inline pattern of its own",
+    buildStep !== undefined && /redact-signing-log\.sh/.test(buildStep) && !/sed -E/.test(buildStep),
   );
   check(
     "...and a failure inside that redacted pipe still fails the step",
     buildStep !== undefined && /pipefail/.test(buildStep),
   );
+
+  /*
+    The script itself, run exactly as the workflow runs it — piped stdin,
+    read stdout — against the line shape captured verbatim from a real signed
+    run (company and team id replaced with fakes; the shape is what matters).
+
+    This is also the regression test for the bug that shipped: the script's
+    predecessor used `[^\n]*`, which GNU sed (this very check, on whatever
+    Linux runs this suite) extends to mean "the rest of the line" but BSD sed
+    — `/usr/bin/sed` on the `macos-latest` runner the workflow actually signs
+    on — resolves to "not the literal letter n", matching nothing before
+    `identityHash=` and leaving the line untouched. Node's `execFileSync`
+    below shells out to whatever `sed` the *test* runner has, which proves
+    the *expression* is correct rather than proving any particular sed
+    accepts it — the real defect was one platform's sed disagreeing with
+    another's about what `\n` means inside `[...]`, not a bug this process
+    can reproduce without a second sed to compare against. What this can and
+    does prove: the fixed expression uses no such extension, matches on this
+    sed, and is the one and only place either the workflow or this test reads
+    that pattern from.
+  */
+  const REDACT_SCRIPT_PATH = join(ROOT, "build/redact-signing-log.sh");
+  const REDACT_SCRIPT_TEXT = readFileSync(REDACT_SCRIPT_PATH, "utf8");
+  /*
+    The behavioural checks below run this script through *this* process's own
+    `sed`, which on every machine this suite has ever run on is GNU sed — the
+    one that extends `\n` inside a bracket expression to mean an actual
+    newline. That is exactly why the original bug was invisible here: a test
+    written the same way this one is, run on Linux, watches `[^\n]*` behave
+    like `.*` and passes. The platform that disagrees is BSD sed on
+    `macos-latest`, and this suite has no way to invoke it. So the guarantee
+    this test can actually give is narrower and, for that reason, checked
+    directly: the expression itself never spells `\n` inside `[...]` again,
+    GNU extension or not, because a future edit reaching for "any character
+    but a newline" the same way will pass on every developer's machine and
+    fail the exact way this one did — silently, on a Mac, in a public log.
+  */
+  const REDACT_SCRIPT_CODE = REDACT_SCRIPT_TEXT.split("\n")
+    .filter((line) => !/^\s*#/.test(line))
+    .join("\n");
+  check(
+    "the script never reintroduces `[^\\n]` — the GNU-only escape that made the redaction match nothing on the runner's BSD sed",
+    // Read with comment lines stripped: the header above explains the exact
+    // bug this guards, in prose that necessarily quotes `[^\n]*` itself — a
+    // check that read the whole file would fail on the sentence describing
+    // the mistake rather than on the mistake.
+    !/\[[^\]]*\\n[^\]]*\]/.test(REDACT_SCRIPT_CODE),
+  );
+  const redact = (input) => execFileSync("bash", [REDACT_SCRIPT_PATH], { input, encoding: "utf8" });
+  const FAKE_COMPANY = "Fake Company LLC (Widgets)";
+  const FAKE_TEAM_ID = "ABCDE12345";
+  const FAKE_HASH = "0123456789ABCDEF0123456789ABCDEF01234567";
+  const signingLine = (appOutDir) =>
+    `  • signing         file=release/${appOutDir}/Context.app platform=darwin type=distribution ` +
+    `identityName=Developer ID Application: ${FAKE_COMPANY} (${FAKE_TEAM_ID}) identityHash=${FAKE_HASH} provisioningProfile=none`;
+  const arm64Line = signingLine("mac-arm64");
+  const x64Line = signingLine("mac");
+  const otherLine = "  • building        target=macOS zip arch=arm64 file=release/Context-0.1.0-arm64-mac.zip";
+  const redacted = redact([arm64Line, x64Line, otherLine].join("\n") + "\n");
+  check(
+    "the shared script redacts the arm64 build's signing line — the exact shape captured from a real run",
+    redacted.includes("identityName=[redacted] identityHash=[redacted]"),
+  );
+  check(
+    "...and the x64 build's, which electron-builder prints a second time in the same run",
+    redacted.split("identityName=[redacted] identityHash=[redacted]").length - 1 === 2,
+  );
+  check(
+    "...WITHOUT LEAVING THE COMPANY NAME BEHIND",
+    !redacted.includes(FAKE_COMPANY),
+  );
+  check(
+    "...OR THE TEAM ID",
+    !redacted.includes(FAKE_TEAM_ID),
+  );
+  check(
+    "...or the signing identity's hash",
+    !redacted.includes(FAKE_HASH),
+  );
+  check(
+    "a line with no identity in it passes through untouched",
+    redacted.includes(otherLine),
+  );
+  check(
+    "everything else on the redacted line survives — this is a redaction, not a line filter",
+    redacted.includes("file=release/mac-arm64/Context.app") && redacted.includes("provisioningProfile=none"),
+  );
+
+  check(
+    "the dmg itself is signed too, not just the app inside it — electron-builder's own default leaves the container unsigned",
+    /dmg:\s*\n(?:[^\n]*\n)*?\s*sign:\s*true/.test(BUILDER),
+  );
+
+  /*
+    The check `spctl --assess` used to run directly against the `.dmg`, which
+    Gatekeeper never assesses and electron-builder does not sign by default —
+    it printed "no usable signature" on every dispatch, signed or not, and
+    was treated as expected rather than as the tautology it was. This reads
+    the step that replaced it: mount the dmg the way a person's Finder does,
+    assess the `.app` inside, and never let any of the three tools' own
+    output — which names the signing identity on success, same as the log
+    line just redacted above — reach a public log a second time.
+  */
+  const verifyStep = steps.find((step) => /hdiutil attach/.test(step));
+  check("a step verifies the app inside each dmg, not the dmg's own (nonexistent) signature", verifyStep !== undefined);
+  check(
+    "...by mounting it read-only, invisibly to Finder",
+    verifyStep !== undefined && /hdiutil attach -nobrowse -readonly/.test(verifyStep),
+  );
+  check(
+    "...running spctl against the app Gatekeeper actually assesses",
+    verifyStep !== undefined && /spctl --assess --type execute/.test(verifyStep),
+  );
+  check(
+    "...verifying the signature covers every nested binary",
+    verifyStep !== undefined && /codesign --verify --deep --strict/.test(verifyStep),
+  );
+  check(
+    "...and validating the notarisation ticket travelled with it",
+    verifyStep !== undefined && /stapler validate/.test(verifyStep),
+  );
+  check(
+    "...detaching the volume whether or not the checks it ran passed",
+    verifyStep !== undefined && /hdiutil detach/.test(verifyStep),
+  );
+  check(
+    "NONE OF THE THREE TOOLS' OWN OUTPUT REACHES THE LOG — each is redirected, not echoed",
+    verifyStep !== undefined &&
+      /spctl --assess --type execute -vv "\$app" >\/dev\/null 2>&1/.test(verifyStep) &&
+      /codesign --verify --deep --strict "\$app" >\/dev\/null 2>&1/.test(verifyStep) &&
+      /stapler validate "\$app" >\/dev\/null 2>&1/.test(verifyStep),
+  );
+  check(
+    "a signed AND notarised build fails the workflow if Gatekeeper refuses it — the case this was actually seen failing",
+    verifyStep !== undefined && /strict=true/.test(verifyStep) && /exit 1/.test(verifyStep),
+  );
+  check(
+    "...but an unsigned or un-notarised build only reports, the same honesty this workflow gives that path everywhere else",
+    verifyStep !== undefined && /::warning::/.test(verifyStep) && /strict/.test(verifyStep),
+  );
+  check(
+    "the dmg-only spctl check this replaced is gone, not left behind as a second, always-failing assessment",
+    !/--context context:primary-signature/.test(WORKFLOW),
+  );
+
   check(
     "nothing about a branch triggers this workflow, signing or no signing",
     /^on:\n  workflow_dispatch:/m.test(WORKFLOW) && !/^\s*(push|pull_request):/m.test(WORKFLOW),
