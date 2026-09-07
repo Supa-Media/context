@@ -369,6 +369,19 @@ holds is the design this repository has already refused. The checks are
 `A CAPTIVE PORTAL IS NOT A REVOCATION` and
 `...BY THE TIME THE TOKEN WAS HANDED OUT, so a crash cannot spend a token nobody saved`.
 
+**And the acquisition half is checked too, which took moving one import.**
+`main/connect.ts` held a top-level `import { shell } from "electron"`, so no
+suite on plain Node could load it and sabotaging its state comparison failed
+nothing anywhere in this repository — an auth path with no check behind it,
+which is the one thing CLAUDE.md names outright. The Electron call is a dynamic
+import inside the default browser opener now, for the reason `main/transcribe.ts`
+already gave for holding none, and `test/connect.test.mjs` drives the real flow
+against a real `127.0.0.1` listener: `A CALLBACK CARRYING THE WRONG STATE IS
+REFUSED`, `...AND THE CODE IS NEVER EXCHANGED, so an injected code buys no
+grant`, `THE SCOPE ASKED FOR IS WRITE AND PRIVATE`, `A PLAINTEXT GATEWAY IS
+REFUSED` and `THE LISTENER ANSWERS ONCE AND CLOSES`. Putting the static import
+back is not a tidy-up; it deletes those five checks.
+
 ### A recorder that holds a grant transcribes at the gateway, and the meeting's own record is the ceiling
 
 The section above settles the cloud path for a client with a *control-plane*
@@ -499,7 +512,13 @@ said.
 
 The checks are `packages/meetings/test/chunks.test.mjs` and, on the client side,
 `its id is derived from the chunk, never taken from the answer` and
-`a second chunk goes out while the first is still unanswered`.
+`a second chunk goes out while the first is still unanswered` — plus
+`apps/desktop/test/captureWindow.test.mjs`, which drives the real capture module
+against a fake browser, because this is a bug that hides: the fragments look
+fine in a log and the failure presents later as "the first twenty seconds
+transcribe and then it goes quiet". `A RECORDER IS STARTED WITH NO TIMESLICE`,
+`EACH CHUNK IS A WHOLE RECORDING` and `OFFSETS ARE CONTIGUOUS ARITHMETIC` are
+the three that fail if it comes back.
 
 ### A client-supplied id is bounded where it enters — and, since 2026-09-05, where it lands as well
 

@@ -111,7 +111,7 @@ the settings file, put in a URL, or exposed to a renderer.
 
 ## What is real, and what is not
 
-### Real, and checked by the suite (425 checks, offline, no network)
+### Real, and checked by the suite (472 checks, offline, no network)
 
 - The detection loop against fake collectors, including the flicker cases: one
   poll of a conferencing app does not start a recording, a two-poll blip does
@@ -151,16 +151,25 @@ failures — and the checks were rewritten until each sabotage reports itself.
 - The capture plan: no grant, or on-device chosen, means **no microphone is
   opened at all** and no permission dialog is raised — and every sentence a
   person is shown comes from a closed set.
+- **How this machine gets its grant**, against a real loopback listener on
+  `127.0.0.1`: the scope asked for, PKCE with S256, a callback carrying the
+  wrong state refused *before* the code is exchanged, a plaintext endpoint
+  refused before a single request leaves, and nothing thrown carrying a token.
+- **The capture window**, against a fake browser: each chunk is a whole
+  recording started with **no timeslice** — the bug that would transcribe the
+  first twenty seconds of a meeting and silence after — offsets that are
+  contiguous arithmetic rather than a clock, system audio degrading to mic-only
+  rather than failing the meeting, and every track stopped on every exit path.
 
 ### Real, but only a person on a Mac can confirm it
 
 - The Electron main process, tray, windows, IPC and preloads. They compile and
   bundle; nothing here can run them, because there is no display.
-- `src/main/capture.ts` and `src/renderer/capture.ts` — the hidden capture
-  window, `setDisplayMediaRequestHandler` with `audio: "loopback"`, one
-  `MediaRecorder` per channel **rotated** every `SEGMENT_MS` so each chunk is a
-  complete file, chunks posted to the main process, tracks stopped on every exit
-  path.
+- `src/main/capture.ts` — the hidden window itself and
+  `setDisplayMediaRequestHandler` with `audio: "loopback"`. The renderer half's
+  rotation, offsets and degradation are checked above against a fake browser;
+  what no suite here can see is whether the real Chromium inside Electron
+  produces a file a decoder will open from it.
 - The browser half of the OAuth flow: the system browser opening, the loopback
   listener answering, and the grant appearing in the console's connections.
 - Whether macOS hands *this* build a system-audio track. It will not, until the

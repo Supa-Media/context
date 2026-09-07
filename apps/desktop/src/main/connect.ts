@@ -39,11 +39,27 @@
  * 9728 — and `credentialUrlOk` refuses to walk to an `http` one that is not
  * loopback, so a discovery document cannot redirect this flow onto a plaintext
  * token endpoint.
+ *
+ * ## Why `electron` is imported late, at the one line that needs it
+ *
+ * This file is the app's whole credential-acquisition path, and CLAUDE.md's
+ * rule for that is a test proving the attack fails — which a module with a
+ * top-level `import { shell } from "electron"` cannot have, because the suite
+ * runs on plain Node and Electron is not importable there. `main/transcribe.ts`
+ * already made this trade the other way and said why: "imports no Electron —
+ * deliberately, so the request that puts somebody's meeting on a network is
+ * checked here rather than by holding one." The same argument is stronger here,
+ * since what this file gets wrong is not a request, it is the grant.
+ *
+ * So the only Electron in it is a dynamic `import("electron")` inside the
+ * default browser opener, reached only when no `openBrowser` was injected —
+ * `esbuild` keeps `electron` external either way, so the bundle is unchanged.
+ * `test/connect.test.mjs` then drives the real flow against a real loopback
+ * listener, and the state check has a check behind it.
  */
 
 import { hostname } from "node:os";
 import { randomBytes } from "node:crypto";
-import { shell } from "electron";
 import {
   authorizeUrl,
   createPkce,
@@ -118,7 +134,7 @@ export async function connectMachine(options: ConnectOptions): Promise<Connectio
 
   log(`Opening your browser to approve this machine.\nIf it does not open: ${href}`);
   try {
-    await (options.openBrowser ? options.openBrowser(href) : shell.openExternal(href));
+    await (options.openBrowser ?? openInSystemBrowser)(href);
   } catch {
     // A machine whose browser will not open is a real case. The URL has already
     // been logged, and the listener is still waiting.
@@ -158,6 +174,18 @@ export async function connectMachine(options: ConnectOptions): Promise<Connectio
     expiresAt: tokens.expiresAt,
     scope: tokens.scope || DESKTOP_SCOPE,
   };
+}
+
+/**
+ * The one line in this file that needs Electron, loaded when it is reached.
+ *
+ * A dynamic import so the module above can be imported by a suite that has no
+ * Electron; the bundler leaves `electron` external, so the packaged app resolves
+ * it from the runtime exactly as a static import would.
+ */
+async function openInSystemBrowser(href: string): Promise<void> {
+  const { shell } = await import("electron");
+  await shell.openExternal(href);
 }
 
 /**
