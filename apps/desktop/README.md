@@ -81,6 +81,20 @@ is the contract**: 0 only if it initialised, created a window and printed one
 did not finish in ten seconds. It needs no network — the assertion is that the
 window was *created*, not that the page loaded.
 
+`pnpm smoke` also runs the one row nothing offline can see: **offline, with a
+mirror on disk, the app must exit 0.** It launches the app online once on a
+throwaway profile, so the real snapshot path writes a real mirror, then launches
+again on that same profile behind `--proxy-server=127.0.0.1:9` — the discard
+port, so every request fails — and asserts that `--smoke-load` exits 0 with
+`mirrorServed:true`. That is the shape of a bug that shipped twice: "no network"
+wearing "broken app"'s exit code, green in every pure test both times, because
+the navigation sequence Chromium really raises had an event in it that no
+hand-written `EventEmitter` contained. On a machine with no route to the console
+there is no mirror to seed and nothing honest to assert, so the row prints a
+`SKIP` line naming the reason and the summary says how many were skipped — never
+a silent pass. Offline is only ever that dead proxy; nothing here touches the
+machine's own network settings.
+
 The one failure it cannot exit on is the one it was written for. A throw during
 module evaluation happens before any line of the app runs; Electron answers that
 with a modal dialog and an indefinite wait, so **whatever runs `--smoke` must

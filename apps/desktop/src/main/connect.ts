@@ -93,6 +93,28 @@ import type { ConnectionRecord, RefreshedTokens } from "../core/sync/connection.
  */
 export const DESKTOP_SCOPE = "context:write context:private";
 
+/**
+ * What this software *is*, declared at registration as RFC 7591's
+ * `software_id` — as opposed to `client_name`, which is what this one machine
+ * calls itself (`Context on <hostname>`).
+ *
+ * It exists for one reader: `approveOwnMachineGrant` in the control plane mints
+ * this machine's grant with no approve screen, and refuses to do that for a
+ * client that did not declare itself the shell. **It is client-asserted and
+ * nothing pretends otherwise** — registration is unauthenticated by
+ * construction, so anything that can register can claim this string. What it
+ * buys is scope rather than authentication: the conditions that actually bound
+ * the convenience are that the code can only be delivered to a loopback
+ * listener on this machine and that the request is exactly `DESKTOP_SCOPE`.
+ * `docs/decisions/identity-and-access.md` carries the argument.
+ *
+ * Its twin is `DESKTOP_SOFTWARE_ID` in
+ * `apps/convex/functions/lib/machineGrant.ts`. Neither app can import the
+ * other, so each suite reads the other's file and asserts the pair — the way
+ * `linkParity.test.ts` already holds the link engine's twin in the gateway.
+ */
+export const DESKTOP_SOFTWARE_ID = "lc.context.desktop";
+
 export interface ConnectOptions {
   /** The MCP endpoint, as the person typed it. */
   endpoint: string;
@@ -148,6 +170,11 @@ export async function connectMachine(options: ConnectOptions): Promise<Connectio
     // console's connections list.
     clientName: `Context on ${hostname()}`,
     scope: DESKTOP_SCOPE,
+    // See `DESKTOP_SOFTWARE_ID`. Declared so the control plane can mint this
+    // machine's grant without an approve screen, and declared honestly: it
+    // narrows which clients that convenience applies to and authenticates
+    // nothing.
+    softwareId: DESKTOP_SOFTWARE_ID,
     fetchImpl,
   });
 

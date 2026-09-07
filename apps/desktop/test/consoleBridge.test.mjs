@@ -273,6 +273,8 @@ const QUEUE = Object.freeze({ pending: 2, parked: 0, lastError: null });
 function mainBridge(overrides = {}) {
   const calls = [];
   const written = [];
+  /** Every answer the page gave about a parked machine approval. */
+  const answered = [];
   /** Every `startCapture` request as the reader built it. */
   const requested = [];
   const window = overrides.window ?? fakeWindow();
@@ -313,6 +315,14 @@ function mainBridge(overrides = {}) {
     },
     connect: () => void calls.push("connect"),
     disconnect: () => void calls.push("disconnect"),
+    pendingApproval: () => {
+      calls.push("pendingApproval");
+      return overrides.pending ?? null;
+    },
+    resolveApproval: (result) => {
+      calls.push("resolveApproval");
+      answered.push(result);
+    },
     outbox: () => {
       calls.push("outbox");
       return { ...QUEUE };
@@ -334,6 +344,7 @@ function mainBridge(overrides = {}) {
     window,
     calls,
     written,
+    answered,
     requested,
     movePin: (next) => {
       pinned = next;
@@ -351,6 +362,8 @@ const HANDLED = [
   BRIDGE_CHANNELS.connectionGet,
   BRIDGE_CHANNELS.connectionConnect,
   BRIDGE_CHANNELS.connectionDisconnect,
+  BRIDGE_CHANNELS.connectionPendingApproval,
+  BRIDGE_CHANNELS.connectionResolveApproval,
   BRIDGE_CHANNELS.outboxStatus,
   BRIDGE_CHANNELS.outboxDrain,
   BRIDGE_CHANNELS.meetingsWrite,
@@ -394,8 +407,11 @@ export async function runConsoleBridgeChecks(check) {
     had appeared beside them — and this app grew its IPC surface three times in
     a day.
 
-    THIS IS THE THIRD SHAPE OF IT, and each earlier one was a lower bound
-    wearing an equals sign.
+    EVERY EARLIER SHAPE OF IT WAS A LOWER BOUND WEARING AN EQUALS SIGN, and
+    the count of shapes is deliberately not written down here: three separate
+    numbers for it were live in this file and in `docs/decisions/desktop.md` at
+    once, which is the same staleness this census exists to catch, in the prose
+    describing the census.
 
     The first read three files and one syntax. Measured, three forms grew the
     surface at 784 PASS / 0 FAIL: a registration in a file it did not read,
@@ -421,8 +437,10 @@ export async function runConsoleBridgeChecks(check) {
     reddens 1 — with the offending mention named in the failure, because a
     census that says only "the number moved" leaves somebody grepping.
 
-    A legitimate `import { ipcMain as … }` rename reddens nothing. The previous
-    shape reddened 3 on it, which is the other way a scan is wrong.
+    An `import { ipcMain as … }` rename reddens, by name. An earlier version of
+    this comment said it reddened nothing and called that legitimate — the hole
+    described as the feature, which the block below already says in its own
+    words while this sentence went on contradicting it.
 
     Recursive, and over every extension the bundler will load, because "under
     `src/main`" is what the sentence says and a non-recursive `.ts`-only scan is
@@ -435,7 +453,61 @@ export async function runConsoleBridgeChecks(check) {
     them.
   */
   {
+    /*
+      TWO SCOPES, BECAUSE THE TWO CHECKS CAN DO DIFFERENT THINGS.
+
+      The raw count walks all of `src/` and the bundled packages with it: a
+      registration in `src/core/` was measured invisible simply because the
+      directory was not walked, and so was one in `packages/desktop-bridge/src/`,
+      which esbuild pulls into this same bundle. A main-process module landing
+      one level out is an accident rather than an attack. Counting bytes works
+      anywhere, so there is no reason to stop at a boundary nobody maintains.
+
+      The lexed classification stays on `src/main`, where it was written and
+      where every mention is a registration, a teardown, an import or the
+      hand-off. Pointed at `src/core` it reports `contract.ts` as ending mid
+      block-comment — a lexer bug, on a file with no `ipcMain` in it at all, and
+      the fourth time this lexer has been wrong about something. It is the
+      diagnostic; the count is the guard.
+    */
+    const srcDir = new URL("../src/", import.meta.url);
     const mainDir = new URL("../src/main/", import.meta.url);
+    /*
+      WHAT THIS WALKS: this app's `src/`, and EVERY workspace package, found by
+      reading the directory rather than by being told.
+
+      esbuild bundles `src/main/index.ts` with only `electron` external, so a
+      registration in a workspace package is a registration in the main process
+      — `main/connect.ts` imports `@supa-media/context-hook/src/oauth.js`, which
+      is how that stopped being hypothetical.
+
+      **Three shapes of this tried to model the bundle and all three were wrong
+      in the same direction**, each one measured rather than argued: walking
+      `<pkg>/src` missed a live registration in `packages/hook/bin`, which this
+      app can deep-import; reading `dependencies` missed a package moved to
+      `devDependencies`; and reading `apps/desktop/package.json` at all missed
+      both a package reached *transitively* through another workspace package
+      and one still imported after being dropped from the manifest. The
+      manifest is a near-neighbour of what the bundler reads and never the same
+      fact: esbuild resolves by **import**, not by dependency class or by
+      distance.
+
+      So this stops modelling the bundle. It reads `packages/` and walks all of
+      it, which is **deliberately wider** than the main process — most of what
+      it covers is not in that bundle at all. Wider is the affordable mistake
+      here: the cost is a false red when somebody writes the identifier in a
+      package nothing imports, and the thing it buys is that no dependency
+      edge, in either direction, can move first-party code out of the census.
+      Nothing is hand-listed, so there is no list to go stale and nothing to
+      throw about.
+
+      `desktop-bridge/src/contract.ts` mentions the identifier in prose, which
+      is why the total below is 28 rather than 27.
+    */
+    const packagesDir = new URL("../../../packages/", import.meta.url);
+    const bundled = readdirSync(packagesDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name !== "node_modules")
+      .map((entry) => new URL(`${entry.name}/`, packagesDir));
 
     /*
       Strings out first, then comments. A regex that strips comments before
@@ -500,12 +572,28 @@ export async function runConsoleBridgeChecks(check) {
       return { text: out, ended: mode };
     };
 
-    const walk = (dir) =>
-      readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
-        entry.isDirectory()
-          ? walk(new URL(`${entry.name}/`, dir))
-          : [new URL(entry.name, dir)],
-      );
+    /*
+      `node_modules` at any depth, because walking a package root without it
+      reads the whole store. Generated output ONLY as a direct child of a
+      walked root, because that is where a package's own build lands.
+
+      The difference is not pedantry: a previous shape skipped `dist`, `build`
+      and `coverage` at every depth, and a review put a real registration in
+      `src/main/dist/` — a hand-written source directory that merely shares a
+      name with an output one — and watched it stay green while appearing in
+      the bundler's own input list. **A filter on a directory's NAME is not a
+      filter on whether it is generated**, so it is applied only where the
+      answer is structural.
+    */
+    const ALWAYS_SKIP = new Set(["node_modules", ".git"]);
+    const OUTPUT_AT_ROOT = new Set(["dist", "build", "coverage"]);
+    const walk = (dir, atRoot = true) =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        if (!entry.isDirectory()) return [new URL(entry.name, dir)];
+        if (ALWAYS_SKIP.has(entry.name)) return [];
+        if (atRoot && OUTPUT_AT_ROOT.has(entry.name)) return [];
+        return walk(new URL(`${entry.name}/`, dir), false);
+      });
 
     let registrations = 0;
     let handoffs = 0;
@@ -564,8 +652,8 @@ export async function runConsoleBridgeChecks(check) {
     /*
       THE ONE ASSERTION THAT CANNOT BE FOOLED BY LEXING, because it does not lex.
 
-      Four shapes of this census have had holes, and the last two were in the
-      lexer itself: a regex literal containing a quote swallowed the next
+      Every shape of this census so far has had holes, and two of them were in
+      the lexer itself: a regex literal containing a quote swallowed the next
       registration, and the regex/division rule added to fix that opened the
       mirror-image hole. `return /^[a-z']+$/i` divides — the character before
       the slash is the `n` of `return` — so the apostrophe opens string mode, a
@@ -583,16 +671,146 @@ export async function runConsoleBridgeChecks(check) {
       A guard that complains when the surface is DESCRIBED differently is
       cheaper than one that stays silent when the surface IS different.
 
+      WHAT IT STILL CANNOT SEE, said plainly rather than claimed away. Every
+      shape of this census so far has been described as exhaustive and none was,
+      so this list is what a reviewer MEASURED rather than what its author
+      believed:
+
+        - **a registration that never spells the identifier.**
+          `electron["ipc" + "Main"].on(...)` passes, and no text scan will ever
+          catch it — the name is not in the bytes.
+        - **an aliased receiver.** `const { ipc } = win.webContents;` followed by
+          `ipc.handle(...)` spells neither `ipcMain` nor `.ipc.`, and was
+          measured green. Telling that binding from any other `ipc` needs the
+          import graph this suite does not have.
+
+      Both need a real build step to close, and the list is written
+      open-endedly because every closed form of it has been wrong — four
+      rounds, and each round's new sentence was false in a way the round before
+      had just claimed to fix.
+
+      What reviews DID close, each by measuring the hole rather than arguing
+      about it: `handleOnce` and `addListener`, because the method name was a
+      list of three verbs; a registration in a workspace package, including one
+      outside that package's `src/`, one reached only transitively, and one in
+      a package the manifest had stopped naming — which is why the walk no
+      longer reads a manifest at all; a source directory named `dist`, which a
+      name-based skip could not tell from an output one; and a registration
+      paid for by a balancing edit somewhere else, which is what the map above
+      is for and what a bare total could never catch.
+
+      So the claim is the smaller true one: **this guard is for the accident,
+      not the adversary.** It catches a channel somebody adds without thinking
+      about the gate, in every spelling anybody has actually written. It does
+      not catch somebody hiding one on purpose. That is worth having and is not
+      worth overstating.
+
       The classification below keeps its place as the diagnostic — it names
       which mention is unrecognised, which is what a person needs — but it is no
       longer what stands between a new ungated channel and a green run.
     */
+    /*
+      `webContents.ipc` AND `webFrameMain.ipc` ARE IPC TOO, and neither spells
+      `ipcMain`. They are Electron's documented way to scope a channel to one
+      window, so a registration through them is idiomatic rather than obscure —
+      and it was invisible here until a review measured it.
+
+      THE METHOD NAME IS NOT ENUMERATED, and the first version of this check
+      enumerated it: `(?:on|once|handle)\(` is the three verbs somebody thought
+      of, and `IpcMain` also declares `handleOnce`, `addListener`,
+      `removeListener` and `off`. A review wrote `win.webContents.ipc.handleOnce(
+      …)` into this tree and it passed green. So the name is now `[A-Za-z_$][\w$]*`
+      — any member call on an `.ipc` receiver — which is a count of a surface
+      rather than a list of the parts of it anybody remembered.
+    */
+    /*
+      A TOTAL IS NOT A LOCATION, and two rounds of this census learned it the
+      same way. `mentions === 28` and `scoped === 5` say how many there are and
+      nothing about where, so a new registration passes green as long as
+      something else in the walk shrinks by as much in the same commit. Both
+      halves of that were MEASURED: a real `win.webContents.ipc.handle(...)` in
+      a second file *named* `consoleBridge.ts` with one teardown call aliased
+      away, and a re-export shim with one prose mention deleted to pay for it.
+      The first defeated a locality check that keyed on the **basename**.
+
+      So the census is a map, and the map is compared whole. Every file that
+      mentions the identifier or calls through an `.ipc.` receiver is named
+      here with its counts, by repository-relative path. A file added, removed,
+      renamed, or changed in either count is a diff against this literal, so a
+      balancing edit puts **both** of its halves in the drift list rather than
+      cancelling out. (One red check with two entries, not two red checks — the
+      failure line prints the first, and the totals beside it say which
+      direction the surface moved.)
+    */
+    const CENSUS = {
+      "apps/desktop/src/core/shell/bridge.ts": "1 mention, 0 ipc calls",
+      "apps/desktop/src/core/shell/console.ts": "1 mention, 0 ipc calls",
+      "apps/desktop/src/main/capture.ts": "8 mentions, 0 ipc calls",
+      "apps/desktop/src/main/consoleBridge.ts": "3 mentions, 5 ipc calls",
+      "apps/desktop/src/main/index.ts": "14 mentions, 0 ipc calls",
+      "packages/desktop-bridge/src/contract.ts": "1 mention, 0 ipc calls",
+    };
     let mentions = 0;
-    for (const file of walk(mainDir)) {
+    let scoped = 0;
+    const census = {};
+    for (const file of [...walk(srcDir), ...bundled.flatMap(walk)]) {
       if (!/\.(?:[cm]?[jt]sx?)$/.test(file.pathname)) continue;
-      mentions += (readFileSync(file, "utf8").match(/\bipcMain\b/g) ?? []).length;
+      const raw = readFileSync(file, "utf8");
+      const seen = (raw.match(/\bipcMain\b/g) ?? []).length;
+      const calls = (raw.match(/\.ipc\.[A-Za-z_$][\w$]*\(/g) ?? []).length;
+      mentions += seen;
+      scoped += calls;
+      if (seen === 0 && calls === 0) continue;
+      const relative = file.pathname.replace(/^.*?\/(apps|packages)\//, "$1/");
+      census[relative] =
+        `${seen} mention${seen === 1 ? "" : "s"}, ${calls} ipc call${calls === 1 ? "" : "s"}`;
     }
-    check(`EVERY MENTION OF ipcMain UNDER src/main IS ACCOUNTED FOR — ${mentions} of 25`, mentions === 25);
+    // 28 and not 25: widening to `src/` picks up two mentions in prose, in
+    // `core/shell/bridge.ts` and `core/shell/console.ts`, and widening to the
+    // bundled packages picks up a third in `desktop-bridge/src/contract.ts` —
+    // all three comments about this very guard. That is exactly the false
+    // positive this check accepts by design: the number moves when the surface
+    // is DESCRIBED differently, which is cheaper than silence when it IS
+    // different.
+    //
+    // "IN THE WALK" and not "IN THE MAIN BUNDLE", because the walk is a
+    // directory list and the bundle is what esbuild resolves. They agree on
+    // this tree and a check should not claim the stronger of two things it
+    // cannot tell apart.
+    check(
+      `EVERY MENTION OF ipcMain IN THE WALK IS ACCOUNTED FOR — ${mentions} of 28`,
+      mentions === 28,
+    );
+    /*
+      Named for what it counts, after a review found the old name false twice
+      over. It said PER-WINDOW and there are no per-window registrations in this
+      tree: the two it matched are `deps.ipc.handle(` and `deps.ipc.on(` in
+      `consoleBridge.ts`, and `deps.ipc` is handed the **global** `ipcMain` at
+      `main/index.ts`. They match by shape. It also said "any third is new
+      surface", and the widened method name makes it five — the same two helpers
+      plus the bridge's own teardown calls, which are not registrations at all.
+
+      So the claim is the one this can actually carry: every `.ipc.` member call
+      **in the walk** is inside `consoleBridge.ts`, where the gate is. One
+      written anywhere else moves the number, whichever verb it uses. "In the
+      walk" and not "in the main bundle" for the reason the check above is
+      named that way, and this sentence said the wrong one of those until a
+      review read the two together.
+    */
+    check(
+      `EVERY .ipc. CALL IN THE WALK IS IN THE GUARDED BRIDGE — ${scoped} of 5`,
+      scoped === 5,
+    );
+    const censusDrift = [
+      ...Object.keys(census).filter((path) => census[path] !== CENSUS[path]),
+      ...Object.keys(CENSUS).filter((path) => census[path] === undefined),
+    ];
+    check(
+      `AND EACH ONE IS IN THE FILE THE CENSUS SAYS${
+        censusDrift.length ? ` — ${censusDrift[0]}: ${census[censusDrift[0]] ?? "gone"}` : ""
+      }`,
+      censusDrift.length === 0,
+    );
 
     check(
       `EVERY \`ipcMain\` UNDER src/main IS A FORM THIS CENSUS RECOGNISES${unrecognised.length ? ` — ${unrecognised[0]}` : ""}`,
@@ -616,7 +834,7 @@ export async function runConsoleBridgeChecks(check) {
     );
     check(
       "...and the census adds up, so neither side can drift unnoticed",
-      registrations + gatedAsync + gatedSync === 28,
+      registrations + gatedAsync + gatedSync === 30,
     );
   }
 
@@ -911,6 +1129,76 @@ export async function runConsoleBridgeChecks(check) {
     shell.emit(BRIDGE_CHANNELS.trayCommand, "record");
     shell.emit(BRIDGE_CHANNELS.trayCommand, "launch-a-shell");
     check("a tray command outside the contract's list is dropped", trays.length === 1 && trays[0] === "record");
+  }
+
+  /* --- the machine approval the page answers ------------------------------ */
+  //
+  // Version 3. The shell hands the page a parked authorization request and the
+  // page answers it with the session it already holds — `core/shell/autoGrant.ts`
+  // is the argument. What this file owns is the boundary: what the page is
+  // handed is one field, and what it hands back is read against the contract
+  // before it reaches the process that owns the credential.
+
+  {
+    const { ipc } = mainBridge({ pending: { requestId: "req_this_mac" } });
+    const answer = await ipc.handlers.get(BRIDGE_CHANNELS.connectionPendingApproval)(
+      sender(),
+      null,
+    );
+    check(
+      "the page is handed the parked request, and one field of it",
+      answer.ok === true && Object.keys(answer.value).join() === "requestId",
+    );
+    check("...and its value is the id the shell is waiting on", answer.value.requestId === "req_this_mac");
+  }
+
+  {
+    const { ipc } = mainBridge();
+    const answer = await ipc.handlers.get(BRIDGE_CHANNELS.connectionPendingApproval)(
+      sender(),
+      null,
+    );
+    check(
+      "a shell with nothing in flight hands over nothing",
+      answer.ok === true && answer.value === null,
+    );
+  }
+
+  {
+    const { ipc, answered } = mainBridge({ pending: { requestId: "req_this_mac" } });
+    await ipc.handlers.get(BRIDGE_CHANNELS.connectionResolveApproval)(sender(), {
+      requestId: "req_this_mac",
+      approved: true,
+      // A third field, which must not reach the main process.
+      code: "an-authorization-code",
+    });
+    check(
+      "AN ANSWER REACHES THE SHELL AS TWO FIELDS AND NEVER THREE",
+      answered.length === 1 &&
+        Object.keys(answered[0]).sort().join() === "approved,requestId",
+    );
+    check("...carrying what the page said", answered[0].requestId === "req_this_mac" && answered[0].approved === true);
+  }
+
+  {
+    const { ipc, answered } = mainBridge({ pending: { requestId: "req_this_mac" } });
+    for (const payload of [null, {}, { approved: true }, { requestId: 42 }, { requestId: "x".repeat(300) }]) {
+      await ipc.handlers.get(BRIDGE_CHANNELS.connectionResolveApproval)(sender(), payload);
+    }
+    check(
+      "A MALFORMED ANSWER IS DROPPED RATHER THAN FORWARDED",
+      answered.length === 0,
+    );
+    // `approved` is read with `=== true`, like every other boolean crossing
+    // this boundary: a truthy string is not an approval.
+    await ipc.handlers.get(BRIDGE_CHANNELS.connectionResolveApproval)(sender(), {
+      requestId: "req_this_mac",
+      approved: "yes",
+    });
+    check(
+      "...and a truthy answer that is not `true` is a refusal",
+      answered.length === 1 && answered[0].approved === false,
+    );
   }
 
   /* --- the main process re-checks the sender ----------------------------- */
@@ -1370,7 +1658,9 @@ export async function runConsoleBridgeChecks(check) {
       const payload =
         channel === BRIDGE_CHANNELS.meetingsWrite
           ? { ...WRITE }
-          : { sessionId: "mtg_abcdefghjkmnpqrstvwx", mic: true, systemAudio: true };
+          : channel === BRIDGE_CHANNELS.connectionResolveApproval
+            ? { requestId: "a-parked-request-id", approved: false }
+            : { sessionId: "mtg_abcdefghjkmnpqrstvwx", mic: true, systemAudio: true };
       answers.push(await ipc.handlers.get(channel)(sender(), payload));
     }
     check("the pinned console window is answered on every channel", answers.every((answer) => answer?.ok === true));

@@ -82,6 +82,12 @@ import {
   createApprovalRoute,
   returnAfterApproval,
 } from "../core/shell/approval.ts";
+import type { ApprovalTarget } from "../core/shell/approval.ts";
+import {
+  createApprovalHandover,
+  isParkingRedirect,
+  parkedRequestFrom,
+} from "../core/shell/autoGrant.ts";
 import { createConsoleBridge } from "./consoleBridge.ts";
 import type { ConsoleBridge } from "./consoleBridge.ts";
 import { createConsoleMirror, registerMirrorScheme } from "./consoleMirror.ts";
@@ -91,6 +97,7 @@ import type {
   CaptureStateUpdate,
   CaptureSummary,
   DesktopCapabilities,
+  MachineApprovalResult,
   MeetingWrite,
   MeetingWriteAck,
   OutboxStatus,
@@ -340,6 +347,15 @@ let consoleLoadSettled: Promise<boolean> | null = null;
  */
 const approval = createApprovalRoute();
 
+/**
+ * The parked request this machine has handed to the page, while it holds one.
+ *
+ * Module-level and single for `approval`'s reason — one console window, one
+ * connect at a time. `core/shell/autoGrant.ts` is the argument and
+ * `test/autoGrant.test.mjs` is the check.
+ */
+const handover = createApprovalHandover();
+
 let connectError: string | null = null;
 
 /**
@@ -360,7 +376,18 @@ const CONSOLE_NOTICES = Object.freeze({
   blocked:
     "You asked this app never to record the app you are in, so it did not start. Change that in the menu bar if you meant to.",
   permissions:
-    "macOS has not granted this app the microphone yet, so nothing was recorded. Open the menu bar to grant it.",
+    "macOS has not granted this app the microphone yet, so nothing was recorded. Open System Settings → Privacy & Security → Microphone, enable Context, and record again.",
+  /*
+    Distinct from `permissions` on purpose: that one means macOS refused the
+    request; this one means macOS already granted it and the input still would
+    not open. Found on real hardware — the microphone was granted mid-run, but
+    the already-running process kept behaving on the answer it saw the first
+    time it asked. Telling that person to open System Settings again sends
+    them to a toggle that is already on, so the recovery here is the one that
+    actually works: quit and relaunch.
+  */
+  staleMicrophoneGrant:
+    "Quit and reopen Context to pick up the microphone permission.",
   captureFailed:
     "The Context app on this machine could not open an input, so this meeting is typed. Your notes still land in your bucket.",
   nothingToOpen:
@@ -916,6 +943,12 @@ async function main(): Promise<void> {
       // panel where there is one, a message box where there is not.
       missingPermissions = [...(result.missing ?? [])];
       explain(CONSOLE_NOTICES.permissions);
+    } else if (result.why === "stale-permission") {
+      // Granted, per macOS — the input just would not open in this already-
+      // running process. Sending this person to System Settings again would
+      // point at a toggle that is already on.
+      missingPermissions = [];
+      explain(CONSOLE_NOTICES.staleMicrophoneGrant);
     }
     push();
     return result;
@@ -1191,7 +1224,9 @@ async function main(): Promise<void> {
       throw new Error(
         result?.why === "permissions"
           ? CONSOLE_NOTICES.permissions
-          : CONSOLE_NOTICES.captureFailed,
+          : result?.why === "stale-permission"
+            ? CONSOLE_NOTICES.staleMicrophoneGrant
+            : CONSOLE_NOTICES.captureFailed,
       );
     }
 
@@ -1386,6 +1421,11 @@ async function main(): Promise<void> {
       connection: () => uiState().connection,
       connect: () => void connectThisMachine(),
       disconnect: () => void disconnectThisMachine(),
+      pendingApproval: () => {
+        const pending = handover.pending();
+        return pending === null ? null : { requestId: pending.requestId };
+      },
+      resolveApproval: (result) => answerFromConsole(result),
       outbox: outboxStatus,
       drain: () => void drain(),
       writeMeeting: writeMeetingFromConsole,
@@ -1531,6 +1571,128 @@ async function main(): Promise<void> {
   }
 
   /**
+   * How long the page gets to answer a parked approval before this falls back.
+   *
+   * Not a guess at how fast a mutation is — the page answers either way, and
+   * both answers arrive in milliseconds. It is for the pages that *cannot*
+   * answer: a shell hosting a bundle older than version 3, a window serving the
+   * offline mirror, a page mid-navigation when the push went out. Without it,
+   * those wait out the loopback listener's five minutes staring at a console
+   * that says "Connecting". Four seconds is far past a round trip and far
+   * short of somebody giving up.
+   */
+  const APPROVAL_ANSWER_MS = 4_000;
+
+  /**
+   * Ask the page to approve this machine with the session it already has.
+   *
+   * `true` when the page has been handed the parked request and this connect is
+   * now waiting on the loopback listener; `false` when there was nothing to
+   * hand over, and the caller falls back to the approve screen in this window —
+   * which is #312's flow, unchanged, and still the only thing a tray-only
+   * launch has.
+   *
+   * The whole of what is new is the first three lines: the gateway's
+   * `/oauth/authorize` **parks** the request and answers `302 Location:` the
+   * consent screen, so following that one hop here — in the main process, with
+   * no credential in the request and none in the answer — yields the request
+   * id without sending the window anywhere. `core/shell/autoGrant.ts` carries
+   * the argument, including why the id is read only from the pinned origin.
+   */
+  async function askConsoleToApprove(href: string, target: ApprovalTarget): Promise<boolean> {
+    const win = liveConsoleWindow();
+    if (win === null || consoleAddress === null || consoleBridge === null) return false;
+
+    let parked: string | null = null;
+    try {
+      const response = await fetch(href, { redirect: "manual" });
+      if (isParkingRedirect(response.status)) {
+        parked = parkedRequestFrom(
+          response.headers.get("location") ?? "",
+          consoleOrigin(consoleAddress),
+        );
+      }
+    } catch {
+      /*
+        The network, most likely, and the fallback is the same one it has
+        always been: `approveInConsoleWindow` navigates the window to the same
+        URL, which fails the same way and lands on the mirror or the failure
+        page. Nothing is lost by having tried.
+      */
+      parked = null;
+    }
+    if (parked === null) return false;
+
+    let from = "";
+    try {
+      from = win.webContents.getURL();
+    } catch {
+      from = "";
+    }
+    /*
+      The loopback allowance is opened *before* the page is told, and it is the
+      same allowance as ever: `approval.begin` holds this flow's own callback
+      address and `endApproval` closes it on every path out of the connect. The
+      page's navigation to the redirect the control plane hands it is the one
+      navigation this feature makes, and it is bounded by exactly the rule
+      #312's approve screen was.
+    */
+    approval.begin(target, returnAfterApproval(from, consoleAddress, consoleOrigin(consoleAddress)));
+    handover.begin({ requestId: parked, authorize: target.authorize });
+    consoleBridge.emitPendingApproval({ requestId: parked });
+    // The window is not navigated and not raised: the person is already looking
+    // at the console, and this is meant to be a thing that happened rather than
+    // a thing they were interrupted by.
+    setTimeout(() => {
+      const stale = handover.take(parked);
+      if (stale === null) return;
+      // Nobody answered. That is a page that could not, so the person gets the
+      // screen — the same one they would have got before any of this existed.
+      void fallBackToApproveScreen(stale.authorize);
+    }, APPROVAL_ANSWER_MS).unref?.();
+    return true;
+  }
+
+  /**
+   * The page has answered a parked approval.
+   *
+   * Only ever about the one this machine is waiting on: `take` answers `null`
+   * for anything else, so a page that reloaded, a second window, or a message
+   * about a connect that is already over does nothing at all.
+   *
+   * An `approved: true` closes the handover and waits — the code is on its way
+   * to the loopback listener, and `connectMachine` is what receives it. An
+   * `approved: false` is a page that could not, and the person gets the approve
+   * screen rather than a dead end.
+   */
+  function answerFromConsole(result: MachineApprovalResult): void {
+    const pending = handover.take(result.requestId);
+    if (pending === null) return;
+    consoleBridge?.emitPendingApproval(null);
+    if (result.approved) return;
+    void fallBackToApproveScreen(pending.authorize);
+  }
+
+  /**
+   * Put #312's approve screen in this window after all.
+   *
+   * The parked request the page could not answer is left where it is — it
+   * expires on its own in ten minutes and nothing can be spent against it —
+   * and the window is navigated to the authorize URL, which parks a second
+   * one. That is honest rather than tidy: the alternative is this process
+   * inventing a way to un-park somebody else's row, and the flow already
+   * survives a request nobody answers.
+   */
+  async function fallBackToApproveScreen(href: string): Promise<void> {
+    consoleBridge?.emitPendingApproval(null);
+    if (await approveInConsoleWindow(href)) return;
+    await openInSystemBrowser(href).catch(() => {
+      // A machine whose browser will not open is a real case. The URL was
+      // logged when the flow started and the listener is still waiting.
+    });
+  }
+
+  /**
    * Put the window back where it was, and close the loopback allowance with it.
    *
    * Both halves matter and they are one call because forgetting either is the
@@ -1539,6 +1701,15 @@ async function main(): Promise<void> {
    * "Connected" page is a person stranded on a page whose server has closed.
    */
   function endApproval(): void {
+    /*
+      The handover closes with the allowance, and for the same reason: an
+      approval this machine is no longer waiting on must not be answerable, and
+      a card left offering to mint a grant for a connect that is over is a
+      button whose only outcome is a refusal. Both are idempotent, so every
+      path out of `connectThisMachine` can call this.
+    */
+    handover.end();
+    consoleBridge?.emitPendingApproval(null);
     const back = approval.end();
     if (back === null) return;
     const win = liveConsoleWindow();
@@ -1591,6 +1762,23 @@ async function main(): Promise<void> {
         endpoint: settings.gatewayEndpoint,
         log: (message) => console.log(message),
         openBrowser: async (href) => {
+          /*
+            Three ways to put this in front of the person, in the order that
+            asks them for the least.
+
+            The first is new and is the whole of this change: the console in
+            this window is signed in as them, so the parked request is handed
+            to *it* and answered with that session — no screen, no browser, no
+            second sign-in. `docs/decisions/desktop.md` is the argument and
+            `core/shell/autoGrant.ts` is the mechanism.
+
+            The second is #312's, unchanged, and is what every refusal falls
+            back to: the approve screen, in this window. The third is the
+            system browser, for a tray-only launch with no window to show
+            anything in.
+          */
+          const target = approvalTargetFor(href);
+          if (target !== null && (await askConsoleToApprove(href, target))) return;
           if (await approveInConsoleWindow(href)) return;
           await openInSystemBrowser(href);
         },
@@ -1874,7 +2062,12 @@ async function main(): Promise<void> {
       rather than re-deriving the rule here; see `core/shell/mirror.ts`.
     */
     if (SMOKE_LOAD) {
-      const failure = smokeLoadFailure({ loaded, mirrorServed, deadlineMs: SMOKE_LOAD_DEADLINE_MS });
+      const failure = smokeLoadFailure({
+        loaded,
+        mirrorServed,
+        snapshotIsHtmlDocument,
+        deadlineMs: SMOKE_LOAD_DEADLINE_MS,
+      });
       if (failure !== null) return endSmoke(1, failure);
     }
     return endSmoke(0, "the app started, opened a window, and is exiting cleanly");

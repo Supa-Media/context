@@ -90,10 +90,24 @@ const CRASH_MARKERS = [
 ];
 
 let failures = 0;
+/**
+ * Checks this run could not ask, counted so the summary line has to admit them.
+ *
+ * A skip here is never silent: it prints its own `SKIP` line with the reason,
+ * and the last line of the run says how many there were. A green run that
+ * skipped the offline row proves less than a green run that did not, and the
+ * output has to say which one it was — otherwise the skip is a way of passing.
+ */
+let skipped = 0;
 
 function check(label, condition, detail) {
   if (!condition) failures += 1;
   console.log(`${condition ? "PASS" : "FAIL"}  ${label}${condition || !detail ? "" : ` — ${detail}`}`);
+}
+
+function skip(label, why) {
+  skipped += 1;
+  console.log(`SKIP  ${label} — ${why}`);
 }
 
 function argValue(flag) {
@@ -132,8 +146,15 @@ function electronBinary() {
   return binary;
 }
 
-/** Start it, collect everything it said, and answer how it ended. */
-function launch({ command, args, userDataDir }) {
+/**
+ * Start it, collect everything it said, and answer how it ended.
+ *
+ * `flags` is what this launch is *for* — `--smoke` for the ordinary run, and
+ * `--smoke-load` plus a dead proxy for the offline row at the bottom of this
+ * file. Everything else about the launch is identical on purpose: the same
+ * binary, the same `--fake-signals`, the same throwaway profile.
+ */
+function launch({ command, args, userDataDir, flags = ["--smoke"] }) {
   return new Promise((resolvePromise) => {
     /*
       `ELECTRON_RUN_AS_NODE` is *deleted* rather than merely not set — see this
@@ -144,7 +165,7 @@ function launch({ command, args, userDataDir }) {
     */
     const env = { ...process.env, ELECTRON_ENABLE_LOGGING: "1" };
     delete env.ELECTRON_RUN_AS_NODE;
-    const child = spawn(command, [...args, "--fake-signals", "--smoke", `--user-data-dir=${userDataDir}`], {
+    const child = spawn(command, [...args, "--fake-signals", ...flags, `--user-data-dir=${userDataDir}`], {
       env,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -179,6 +200,16 @@ function smokeReport(output) {
   } catch {
     return null;
   }
+}
+
+/**
+ * The sentence the app exited with — `[smoke] <why>`, the one `endSmoke` prints
+ * that is not the JSON report. It is what a failing offline row should quote,
+ * because "exit code 1" on its own sends a person back to the log.
+ */
+function lastSmokeLine(output) {
+  const lines = output.split("\n").filter((each) => each.includes("[smoke] ") && !each.includes("[smoke] {"));
+  return lines.length === 0 ? "(no `[smoke]` verdict line)" : lines[lines.length - 1].trim();
 }
 
 const { command, args, packaged, what } = target();
@@ -286,9 +317,109 @@ check(
   `it is ${JSON.stringify(report.consoleUrl)}`,
 );
 
+// ── DEFECT 4: offline with a mirror on disk must be a pass ────────────────
+/*
+  THE ONE ROW NO PURE TEST HAS EVER BEEN ABLE TO SEE.
+
+  `--smoke-load` reported `mirrorServed:false` in every case, so an app that
+  was offline while a perfectly good mirror served the console exited 1 —
+  "no network" wearing "broken app"'s exit code, which is the single confusion
+  the mirror exists to answer. **Two fixes shipped for it and both failed on
+  hardware while their own tests passed** (#317, #318), and they passed for the
+  same reason each time: every check that could see the bug modelled Electron's
+  navigation events with an `EventEmitter` a test author wrote, so each fix was
+  checked against the sequence its author already believed in. The sequence
+  Chromium actually raises had an event in it nobody had modelled — the failed
+  live navigation's *own* error document finishing loading, at the dead live
+  address, 37ms after the failure and a second and a half before the mirror
+  committed. `test/mirror.test.mjs` now models that too, and it only does
+  because a real launch printed it.
+
+  So this is the check that would have caught both: a real Electron process, a
+  real mirror on disk, a real dead network, reading the real exit code. It is
+  the only kind that could have worked, for the same reason this whole file
+  exists.
+
+  **How the mirror gets there: an online launch on the same profile, not a
+  hand-written manifest.** Writing `mirror/v1/` directly would be faster and
+  would need no network — and it would give `MirrorStore`'s on-disk format a
+  second author. A change to that format would leave this check green against a
+  shape nothing in the app produces any more, which is precisely the failure
+  mode that shipped twice: a test agreeing with its author instead of with the
+  machine. Seeding it by launching the app online means the mirror under test
+  is the one the app really writes, snapshot path and all.
+
+  **Offline is a dead proxy, never the machine's network settings.** Port 9 is
+  the discard port: `--proxy-server=127.0.0.1:9` makes every request this app
+  makes fail with `ERR_PROXY_CONNECTION_FAILED` and touches nothing outside the
+  process. `--user-data-dir` keeps the whole thing in a directory that is
+  deleted afterwards.
+
+  **When it cannot run, it says so and does not pass.** No network on this
+  machine means no mirror to seed, and there is nothing honest to assert; that
+  is a visible `SKIP` line and a count in the summary, never a silent pass. A
+  runner with no route to the console is the ordinary case in CI, which is why
+  the skip exists at all — but a green run that skipped this row proves less
+  than one that ran it, and the output has to admit which it was.
+*/
+{
+  const OFFLINE = "--proxy-server=127.0.0.1:9"; // the discard port: nothing answers.
+  const label = "OFFLINE, WITH A MIRROR ON DISK, IT EXITS 0";
+  const profile = mkdtempSync(join(tmpdir(), "context-desktop-mirror-"));
+  try {
+    console.log("\nSeeding a mirror: one online launch on a second throwaway profile.");
+    const seed = await launch({ command, args, userDataDir: profile, flags: ["--smoke-load"] });
+    const seeded = smokeReport(seed.output);
+    const why =
+      seeded === null
+        ? "the seeding launch printed no `[smoke]` line"
+        : seeded.loaded !== true
+          ? "the seeding launch never loaded the live console — this machine has no route to it"
+          : seeded.snapshotIsHtmlDocument !== true
+            ? "the seeding launch loaded but mirrored no text/html index"
+            : null;
+    if (why !== null) {
+      skip(label, `${why}, so there is no mirror to be offline with`);
+      skip("...AND REPORTS mirrorServed:true", "same reason");
+    } else {
+      console.log(`Relaunching on that profile with ${OFFLINE}, so every request fails.`);
+      const offline = await launch({
+        command,
+        args,
+        userDataDir: profile,
+        flags: ["--smoke-load", OFFLINE],
+      });
+      const offlineReport = smokeReport(offline.output);
+      check(label, offline.code === 0, `exit code ${offline.code}: ${lastSmokeLine(offline.output)}`);
+      check(
+        "...AND REPORTS mirrorServed:true",
+        offlineReport?.mirrorServed === true,
+        `the report says ${JSON.stringify({
+          loaded: offlineReport?.loaded,
+          snapshotIsHtmlDocument: offlineReport?.snapshotIsHtmlDocument,
+          mirrorServed: offlineReport?.mirrorServed,
+        })}`,
+      );
+      /*
+        `loaded:false` is the half that makes the row mean anything. A pass on
+        `loaded:true` would mean the proxy never took hold and the app simply
+        went online — the same green, proving the opposite thing.
+      */
+      check(
+        "...on a launch where the live console really did fail",
+        offlineReport?.loaded === false,
+        `loaded is ${JSON.stringify(offlineReport?.loaded)} — did ${OFFLINE} take effect?`,
+      );
+    }
+  } finally {
+    rmSync(profile, { recursive: true, force: true });
+  }
+}
+
 if (failures) {
   console.log("\nEverything the app printed:\n");
   console.log(result.output.trim() || "(nothing)");
 }
-console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
+const skips = skipped ? ` (${skipped} SKIPPED — see the SKIP lines above)` : "";
+console.log(failures ? `\n${failures} FAILURES${skips}` : `\nALL PASS${skips}`);
 process.exit(failures ? 1 : 0);

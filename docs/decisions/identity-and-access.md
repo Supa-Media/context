@@ -120,6 +120,96 @@ Adding a scope means adding it to `SUPPORTED_SCOPES` in `session.js` — which
 about it separately. A client that follows discovery to a scope the
 authorization endpoint then rejects is a client that concludes the server lied.
 
+### A first-party signed shell may have its own grant approved by the session hosting it
+
+The owner, on the first end-to-end desktop capture (2026-09-07): *"I don't love
+this setup; when installing Granola I didn't have to 'connect' a machine, things
+just worked."* He was signed in inside the app's own window — #312 had already
+moved the approve screen there — and the app still asked him to authorise the
+same person, on the same machine, to the same context.
+
+The step goes and the grant stays. `approveOwnMachineGrant` approves a parked
+authorization request for the caller's **own** session, with no screen, and
+everything the grant is is unchanged: an `oauthAuthorizations` row armed by the
+same `arm` the consent screen's approval uses, one OAuth client per machine,
+`context:write context:private` and nothing wider, an audit row naming the
+person and the machine, and the same revocation path in the connections list.
+Non-negotiable #4 is about grants being per-client and revocable, and it is
+untouched. What is new is who answered the question.
+
+**What makes that acceptable here, in the order it matters.**
+
+1. **The code can only be delivered to the person's own machine.** Every
+   registered redirect URI, and the request's own, must be
+   `http://127.0.0.1[:port]/<path>` — the literal, never `localhost`, which is a
+   name somebody else's DNS can answer. This is the condition that carries the
+   weight: an attacker off this machine has nowhere to receive the code, whatever
+   else they arrange, and PKCE still binds it to the process that started the
+   flow.
+2. **The person is signed in, in a window at the pinned origin, in a binary
+   they installed.** The session is the console's own, at our origin, in the
+   shell's `persist:console` partition. Nothing about it is sent anywhere: the
+   page calls a mutation as itself, and the shell receives only its own grant.
+3. **The request is exactly the default.** Set equality with `context:write
+   context:private`, so a request that added `context:read`, dropped the tier,
+   or spelled it `*` is a different question and gets the screen that asks it.
+4. **The approver's role can grant that tier.** An editor or a member cannot
+   hand over `context:private`, and auto-approving them would mint the narrower
+   grant they never chose — which is the tier defect amended above, arriving by
+   another door. They get the screen.
+
+**What auto-approving *any* client would cost, which is why none of this is a
+general mechanism.** Consent is the one moment a person sees which client is
+asking, what it wants, and which context is at stake. Auto-approve on "the
+caller is signed in" and an OAuth client becomes something that gets access by
+asking at a moment when a browser tab happened to be open — the confused-deputy
+shape the whole consent screen exists to prevent, with our name on it. The four
+conditions above are the opposite of a general rule: they say *this* software,
+delivering to *this* machine, at *the* default, for somebody whose role already
+covers it. Everything else, including the desktop shell itself asking for
+anything wider, goes through the screen.
+
+**The declaration is client-asserted, and this file says so rather than
+implying otherwise.** The shell registers RFC 7591's `software_id`
+(`DESKTOP_SOFTWARE_ID`, plumbed through `packages/hook`'s `registerClient` and
+the gateway's `/oauth/register`), and registration is unauthenticated by
+construction — so anything that can register can claim the string. What it buys
+is **scope**, not authentication: no client that did not declare itself the
+shell is ever auto-approved, so the blast radius of this feature is one declared
+id rather than "every OAuth client that reaches a signed-in console". A hostile
+local client that *does* claim it still has to (a) get the code to a loopback
+listener on the person's own machine, (b) settle for the default scope, and (c)
+have code running as the console origin call the mutation for its request id —
+and anything with (c) could already have driven the Approve button.
+
+**The link (c) hangs from is that the request id reaches the page over the
+bridge and nowhere else**, so it is held by a test rather than by the shape of
+the current code: `apps/mobile/__tests__/meetingsDesktop.test.ts` drives the
+card with `?request_id=`, a fragment, a `postMessage` and a global all naming a
+forged request, and reads both source files for a second way to learn one. A
+deep link that seeded this card from a URL would be a confused deputy with a
+signed-in session behind it, and it goes red there.
+
+**The residual, stated rather than left to be found.** Somebody signed in who
+holds a live request id can *spend* it — it grants **their** context, never the
+person whose machine parked it, and the code it produces needs a PKCE verifier
+that never left that machine. What it costs the other person is the approve
+screen on a second parked request, which is where every other refusal here ends
+too. Getting the id in the first place means being the process that followed the
+parking redirect, or code running as the console origin — and either of those
+could already have driven the Approve button.
+
+**Rate limited on successful mints, three an hour per person.** A refusal rolls
+the counter back with its transaction, which is the right unit: every success is
+a permanent client row and a live credential, and connecting machines is
+something a person does once per machine.
+
+`functions/lib/machineGrant.ts` is the decision as a pure function,
+`__tests__/ownMachineGrant.test.ts` proves each refusal, and the flow's two
+halves are `apps/desktop/src/core/shell/autoGrant.ts` and
+`apps/mobile/features/meetings/machineApproval.ts`. `docs/decisions/desktop.md`
+carries what the shell gives up for it and what it deliberately does not.
+
 ### One connection reaches every context its person belongs to
 
 Asked for by the owner (2026-09-02) after somebody invited into a brain found

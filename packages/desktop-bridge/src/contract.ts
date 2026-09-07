@@ -58,17 +58,20 @@ export type { TranscriptSegment };
  * the **UI** is the half that has to be backward compatible, because it is the
  * half that can be updated in an afternoon.
  */
-export const BRIDGE_VERSION = 2;
+export const BRIDGE_VERSION = 3;
 
 /**
  * The oldest bridge this bundle will still talk to.
  *
- * **Still 1 now that `BRIDGE_VERSION` is 2**, and that is the whole reason it
+ * **Still 1 now that `BRIDGE_VERSION` is 3**, and that is the whole reason it
  * was written as a second constant: raising the ceiling is not the same edit as
  * dropping support for the shells already installed, and a shell somebody
  * installed in March answers `1` and is doing nothing wrong. A version-1 shell
  * has no `meetings` — see `DesktopBridge.meetings` — so the page keeps the
- * writer it already had, which is the browser's, and nothing degrades.
+ * writer it already had, which is the browser's, and nothing degrades. A
+ * version-2 shell has no `connection.pendingApproval`, so the page never offers
+ * to mint its machine grant and that shell keeps approving in its own window,
+ * which is what #312 shipped and what still happens whenever this is refused.
  */
 export const MIN_BRIDGE_VERSION = 1;
 
@@ -272,6 +275,32 @@ export interface ConnectionView {
   error: string | null;
 }
 
+/**
+ * A machine grant waiting for the page to approve it with its own session.
+ *
+ * One field, and it is deliberate that there is only one: everything else about
+ * the flow — the scope, the tier, the redirect, the verifier, the state — stays
+ * in the main process, where it was already. What the page is handed is the
+ * address of a question the control plane is holding for it, and the control
+ * plane decides whether that question can be answered without a screen.
+ */
+export interface PendingMachineApproval {
+  /** The parked authorization request, as the consent screen addresses it. */
+  requestId: string;
+}
+
+/** What the page did about a `PendingMachineApproval`. */
+export interface MachineApprovalResult {
+  /** Which pending approval this is about. A stale id is ignored. */
+  requestId: string;
+  /**
+   * True when the control plane approved and the page is on its way to the
+   * loopback redirect. False for every other outcome, and false is a fallback
+   * rather than a failure — the shell shows the approve screen instead.
+   */
+  approved: boolean;
+}
+
 /** What the queue is holding. Counts, never contents. */
 export interface OutboxStatus {
   /** Writes not yet acknowledged by the gateway. */
@@ -449,6 +478,45 @@ export interface DesktopBridge {
     /** Give the grant up. The queue keeps whatever it is holding. */
     disconnect(): void;
     onChange(handler: (view: ConnectionView) => void): Unsubscribe;
+
+    /**
+     * The parked authorization request this machine is waiting on. **Version 3.**
+     *
+     * Optional for `MIN_BRIDGE_VERSION`'s reason: a shell installed before this
+     * shipped has no such member, and a page checks for it rather than
+     * inferring it from the fact that a bridge is present.
+     *
+     * ## What this is, and what it deliberately is not
+     *
+     * It is a **request id** — the same one the control plane's consent screen
+     * is addressed by, which is why the page can answer it with the session it
+     * already holds. It is not a credential, not a code, and not a step in the
+     * OAuth flow: PKCE's verifier and the loopback listener stay in the main
+     * process, so the page can no more complete this flow on its own than the
+     * system browser could.
+     *
+     * The reason it crosses at all is the owner's, 2026-09-07: *"when
+     * installing Granola I didn't have to 'connect' a machine, things just
+     * worked."* The person is signed in **in this window**; handing the page
+     * the id lets it approve the machine with that session and no screen, and
+     * `docs/decisions/desktop.md` carries what that trades and what it does
+     * not.
+     */
+    pendingApproval?(): Promise<PendingMachineApproval | null>;
+    /** Version 3. Pushed when a connect parks one, and when it is over. */
+    onPendingApproval?(
+      handler: (pending: PendingMachineApproval | null) => void,
+    ): Unsubscribe;
+    /**
+     * Version 3. What the page did about it.
+     *
+     * `approved: false` is the ordinary answer from a page that could not — no
+     * session, a control plane that refused, a client this deployment will not
+     * auto-approve — and the shell answers it by putting the approve screen in
+     * this window, which is what it did before any of this existed. So a page
+     * that says no costs a person one screen, never a grant.
+     */
+    resolveApproval?(result: MachineApprovalResult): Promise<void>;
   };
 
   /** The queue that outlives the window. Counts and a nudge. */
@@ -537,6 +605,11 @@ export const BRIDGE_CHANNELS = Object.freeze({
   connectionConnect: "context:connection-connect",
   connectionDisconnect: "context:connection-disconnect",
 
+  /** Version 3. The parked request this machine is waiting on, or null. */
+  connectionPendingApproval: "context:connection-pending-approval",
+  /** Version 3. What the page did about it. */
+  connectionResolveApproval: "context:connection-resolve-approval",
+
   outboxStatus: "context:outbox-status",
   outboxDrain: "context:outbox-drain",
 
@@ -548,6 +621,8 @@ export const BRIDGE_CHANNELS = Object.freeze({
   level: "context:on-level",
   captureState: "context:on-capture-state",
   connectionChange: "context:on-connection",
+  /** Version 3. Main → page: a parked approval opened, or closed. */
+  pendingApprovalChange: "context:on-pending-approval",
   outboxChange: "context:on-outbox",
   detection: "context:on-detection",
   trayCommand: "context:on-tray-command",

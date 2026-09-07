@@ -774,13 +774,16 @@ The version here removes strings and comments with a lexer rather than a regex
 (each misleads the other), removes import clauses whole rather than guessing
 from punctuation, counts the single hand-off to `createConsoleBridge` explicitly
 so it cannot become two, and walks `src/main` recursively over every extension
-the bundler loads. Measured as deltas rather than against a total, for the
-reason the sabotage paragraph above gives: a plain new `ipcMain.on` reddens 2, a
-registration in a new subdirectory with a new extension 2, a `//`-in-a-string
-hiding place 2, and each of `.bind`, an argument, an object property and
-`Reflect.get` reddens 1 — naming the offending mention in the failure. An
-`import { ipcMain as … }` rename **reddens 1**, by name, and that is the third
-hole this scan has had: deleting the import clause and then looking for the
+the bundler loads. Every form named here reddens and names the offending
+mention in the failure; **the counts are not repeated in this paragraph.** The
+last version repeated them and every one was a count short within a day, because
+a later check reddens alongside each and nobody re-measured the list — the ninth
+time a tree-dependent number in this file went stale, two paragraphs below its
+own argument against them. The forms are the durable part; a current count lives
+in the suite's output, where it cannot be wrong.
+
+An `import { ipcMain as … }` rename reddens by name, and that is the third hole
+this scan has had: deleting the import clause and then looking for the
 identifier means a file that binds it under another name has no mentions left to
 find, so `electronIpc.on(...)` registered a channel at 906 / 0. An earlier draft
 of this paragraph reported that silence as "reddens nothing", which is a hole
@@ -800,17 +803,69 @@ registration in that file passed at 916 / 0. Idiomatic TypeScript. Telling a
 regex from a division needs a parser, and this suite takes no dependencies.
 
 So the load-bearing check does not lex: it counts every occurrence of the
-identifier in the raw bytes, comments and strings included, and requires the
-total. Nothing about how a file lexes can move that number. Writing the
+identifier in the raw bytes of every file it walks, comments and strings
+included. Nothing about how a file lexes can move that number: writing the
 identifier in a new comment reddens it, and the fix is to update the number on
 purpose — **a guard that complains when the surface is described differently is
 cheaper than one that stays silent when the surface is different.** The
 classification stays as the diagnostic that names the offending mention.
 
-Four shapes of one census, three of them holes. The lesson worth keeping is not
-about lexers: it is that a guard which must understand a language is a guard
-that inherits every ambiguity of that language, and a cruder check with no
-ambiguity to inherit is worth more than a clever one.
+A second count covers `webContents.ipc` and `webFrameMain.ipc` — Electron's
+documented way to scope a channel to one window, idiomatic, spelling no
+`ipcMain`, and invisible here until it was asked for. What the walk covers, and
+the claim it is careful not to make:
+
+- **It does not model the bundle, and three shapes of it that tried were each
+  wrong in the same direction.** Walking `<pkg>/src` missed a live registration
+  in `packages/hook/bin`, which this app can deep-import. Reading
+  `dependencies` missed a package moved to `devDependencies`. Reading
+  `apps/desktop/package.json` at all missed a package reached *transitively*
+  through another workspace package, and one still imported after being dropped
+  from the manifest. esbuild resolves by **import** — not by dependency class,
+  and not by distance — so a manifest is a near-neighbour of what it reads and
+  never the same fact.
+- **So it reads `packages/` and walks all of it**, which is deliberately wider
+  than the main process; most of what it covers is not in that bundle. Wider is
+  the affordable mistake: the cost is a false red for the identifier written in
+  a package nothing imports, and what it buys is that no dependency edge, in
+  either direction, can move first-party code out of the census. Nothing is
+  hand-listed, so there is no list to go stale.
+- **The method name is any member call**, not the three verbs somebody thought
+  of, because `handleOnce` and `addListener` are on the same interface and
+  passed green.
+- **Generated directories are skipped only as a direct child of a walked
+  root.** An earlier shape skipped `dist`, `build` and `coverage` at every
+  depth; a review put a real registration in `src/main/dist/` — a hand-written
+  source directory sharing a name with an output one — and watched it stay
+  green while appearing in the bundler's own input list. A filter on a
+  directory's *name* is not a filter on whether it is generated.
+
+Alongside the two totals, the counts are asserted as a **map of file to counts,
+compared whole** — not by basename. A total says how many there are and nothing
+about where, so a new registration passes as long as something else shrinks by
+as much in the same commit. Both halves of that were measured: a registration
+in a second file *named* `consoleBridge.ts` with a teardown call aliased away,
+which defeated a locality check keyed on the basename; and a re-export shim
+paid for by deleting one prose mention. Against a map, both halves of a
+balancing edit land in the drift list instead of cancelling.
+
+**What it still does not see is written open-endedly, because every closed form
+of that list has been wrong.** A registration that never spells the identifier —
+`electron["ipc" + "Main"].on(...)` — passes, and no text scan will catch it. So
+does an aliased receiver: `const { ipc } = win.webContents` followed by
+`ipc.handle(...)` spells neither name. Both need a real import graph. Every
+shape of this census has been described as exhaustive and none was — **including
+each shape that shipped to fix that** — which is why the two named here are the
+ones somebody wrote and ran rather than the ones its author believed in. The
+claim is the smaller true one: **this guard is for the accident, not the
+adversary.**
+
+The lesson worth keeping is not about lexers: it is that a guard which must
+understand a language is a guard that inherits every ambiguity of that language,
+and a cruder check with no ambiguity to inherit is worth more than a clever one.
+The second lesson is newer and is about this file: every numbered claim about
+how many shapes the census has had went stale, including the one inside the
+paragraph warning that they go stale.
 
 That check is the answer to how this section came to describe a layer nobody had
 built. A guard tells you about the code it is pointed at; nothing was pointed at
@@ -1025,6 +1080,157 @@ tier this machine asked for. Sabotage there, as failing tests across
 `apps/mobile`: `defaultTierFor` back to always `team` **3**, and always
 `private` **11** — the second is larger because defaulting private for a client
 that asked for nothing is the older, wider bug.
+
+### And then the approval stopped happening at all, which is the point
+
+The owner, on the first end-to-end desktop capture, 2026-09-07: *"I don't love
+this setup; when installing Granola I didn't have to 'connect' a machine, things
+just worked."*
+
+He was signed in **in the window the approve screen was drawn in**, and the app
+still asked him to authorise the same person, on the same machine, to the same
+context. The section above moved that screen out of a browser and called it "one
+click"; a click is one more than zero, and zero is what a person who is already
+signed in has actually consented to being asked for.
+
+So the step goes and the grant stays. On first launch, once the console inside
+the shell has a session, the shell obtains its machine grant from that session
+automatically. Signed out, nothing is minted and the person meets the screen
+above, which begins with the console's own sign-in.
+
+**The shape, and it is a narrowing of the section above rather than an
+addition.** The gateway's `/oauth/authorize` **parks** the request and answers
+`302 Location:` the consent screen. So the shell follows that one hop itself —
+in the main process, `redirect: "manual"`, no credential in the request and none
+in the answer — reads `request_id` out of the `Location`, and hands **the page**
+that id over the bridge. The page calls `approveOwnMachineGrant` with its own
+session and navigates to the redirect it is given, which is this flow's own
+loopback listener. The window is never sent to the authorization server at all:
+this feature makes *fewer* off-console navigations than the approve screen did,
+and the one it makes is the same one, bounded by the same
+`createApprovalRoute()` allowance, to the same address.
+
+#### The four things that did not move
+
+- **The shell never receives the console's session**, and the page never
+  receives the machine's PKCE verifier, its `state`, or anything the shell
+  stores. What crosses the bridge is one request id out and `{requestId,
+  approved}` back. The authorization code arrives at the loopback listener in
+  the main process, where the verifier that redeems it lives — so *Nothing
+  credential-shaped crosses the bridge* is unchanged, and is now the reason the
+  page navigates rather than handing the shell a URL.
+- **The grant is still the machine's.** `context:write context:private`, one
+  client per machine (`Context on <hostname>`), in `safeStorage`, spent by a
+  queue that drains with no window open. Every reason in *Sign-in stays in the
+  page, the grant stays in the main process* still holds; what that section
+  refused was the console's session **standing in for** the machine's grant, and
+  nothing here does that.
+- **The control plane decides.** `approveOwnMachineGrant` refuses a client that
+  did not declare itself the shell, a redirect that is not loopback, a scope
+  that is not exactly the default, and an approver whose role cannot grant the
+  tier — and it is rate limited.
+  `docs/decisions/identity-and-access.md`, *A first-party signed shell may have
+  its own grant approved by the session hosting it*, is the argument and says
+  what auto-approving any client would cost.
+- **`grantCoversMeetings` and hold-not-park are untouched.** A machine that ends
+  up without the tier still refuses to send, still holds the meeting with its
+  reason on the card, and still drains itself when the grant is fixed.
+
+#### Every refusal costs a screen, and never a grant
+
+That is the property the whole design is arranged around, because it is what
+makes a new failure mode impossible rather than unlikely. A page that is signed
+out, a control plane that refuses, a `Location` at an origin this window is not
+pinned to, a network that failed, a bundle older than bridge version 3, a window
+serving the offline mirror, a page that answers nothing at all — every one of
+them ends with `approveInConsoleWindow`, which is exactly what shipped in #312,
+and then with the system browser for a tray-only launch. The page-that-answers-
+nothing case is a four-second timeout in the shell rather than a hope: without
+it, an old bundle would wait out the listener's five minutes on a console that
+says "Connecting".
+
+**A self-hoster who split the console and the consent screen onto different
+origins** lands in that same fallback, deliberately. `parkedRequestFrom` reads
+the id only from the origin the window is pinned to, because the session that
+can answer it belongs to an origin — and the section above already chose this
+direction when the pin refused a hop: *a pin a server can move is not a pin.*
+
+**And it refuses the opaque origin by name, on both sides of that comparison.**
+`new URL("data:/authorize?request_id=…").origin` is the *string* `"null"`, as is
+a `file:` URL's, so two opaque origins compare equal to each other. The pin
+cannot be opaque today — `consoleUrl` admits only `https` and loopback `http` —
+but *Nothing that can start a recording may come from an origin we did not pin*
+already refuses `"null"` by name in `shouldExposeBridge` for this exact reason,
+and `parkedRequestFrom` was the one origin comparison in the shell that did not.
+
+#### What `apps/mobile` learned, and the sentence that reverses
+
+*"Nothing in `apps/mobile` learned that it is inside the shell"* was the measure
+of #312 being the small change. This reverses it, and the reversal is bounded to
+where it cannot become a second code path through the consent screen:
+
+- the **consent screen is untouched** — no bridge member, no
+  `getDesktopBridge()` branch, no shell-shaped variant. It is still what every
+  other client, and every refusal here, goes through;
+- what learned about the shell is **`ThisMachineCard`**, a component that only
+  renders inside the shell in the first place, and the rule for when it may mint
+  is a pure function (`features/meetings/machineApproval.ts`) rather than three
+  `if`s in a component.
+
+The card's line names the context the control plane resolved — "This machine can
+write to @name" — because that slug is a fact the page has and the shell has
+not: a `ConnectionRecord` holds a gateway base URL and never a name. Naming the
+context the console merely happens to be *showing* would be a sentence about the
+wrong thing on the one card whose job is saying where meetings go.
+
+#### The tests that fail if any of it is loosened
+
+`apps/desktop/test/autoGrant.test.mjs` drives the two pure pieces and then the
+whole flow through `connectMachine` with a page-shaped opener, so what is
+asserted is the app's own path: the window is never navigated to the
+authorization server, the page is handed one request id and nothing else, and
+the code comes back through `mayNavigateConsoleWindow` to this flow's own
+listener. `apps/convex/__tests__/ownMachineGrant.test.ts` proves each refusal in
+the control plane, including that somebody else's parked request grants *their*
+context and never yours. `apps/mobile/__tests__/meetingsDesktop.test.ts` proves
+the page mints once, tells the shell either way, and draws itself against a
+version-2 shell without calling members it never promised.
+
+Sabotage, measured as failing tests across each suite. Desktop:
+`parkedRequestFrom` not comparing the origin **3**, not comparing the path
+**1**, accepting any id shape **1**, answering for an empty console origin
+**0**, not refusing the opaque origin by name **1**; `isParkingRedirect`
+accepting a 200 **1**; `ApprovalHandover.take`
+ignoring the id **2** or not clearing **1**; `endApproval` not closing the
+handover **2**; the fallback chain reordered **1**. Convex:
+`decideMachineApproval` answering `ok` unconditionally **12**, dropping the
+software-id condition **2**, the loopback condition **3**, the scope condition
+**5**, the tier condition **2**; `isLoopbackRedirect` accepting any hostname
+**1** or `https` **1**; the mutation skipping `requireWorkspaceAccess` **1**,
+its `pending` check **2**, its expiry check **1**; the rate limit removed **1**;
+`arm` not writing `grantedScope` **13**. Mobile: `decideMachineApproval`
+minting unconditionally **13**, ignoring `answered` **9**, `auth.isLoading`
+**2**, an already-connected machine **2**; the card not telling the shell about
+a refusal **1** or a success **2**; not navigating to the redirect **1**; the
+refusal line naming what the control plane said **2**; the card seeding a
+pending approval from `?request_id=` **2**.
+
+**The mobile rows were measured as zero on the first attempt**, and the reason
+is recorded in `meetingsDesktop.test.ts` rather than quietly fixed: the harness
+read the suite's stdout and Jest writes its summary to stderr. A sabotage run
+that cannot see a failure reports a guard that does not exist as a guard that
+is not needed, which is the exact failure mode this whole practice exists to
+avoid — so the number to distrust in any sabotage record is a zero that arrived
+without an explanation beside it.
+
+Two rows are worth reading twice. `arm` is the largest because both approvals
+share that function, which is why it is one function — a refactor that stops
+recording what was granted reddens the consent screen's tests as well. And the
+desktop **0** is a real zero, kept rather than deleted: an empty console origin
+already fails the origin comparison on the line below it, so that early return
+cannot change an answer on its own. It stays because it names what the case
+means and because it is what keeps that true if the comparison is rewritten;
+`autoGrant.test.mjs` records the same row with the same reasoning.
 
 ### Offline is what the outbox was always for, plus a tray that needs no page
 
@@ -2024,6 +2230,102 @@ or when no window was created at all. The release gate still runs plain
 `--smoke`, unchanged. Sabotaging the rule back to `loaded` alone — the exact
 bug — reddens exactly one check, `test/mirror.test.mjs`'s `OFFLINE WITH A
 USABLE MIRROR IS ALSO A PASS`.
+
+### The microphone is asked for just-in-time, and never a dialog that points at the wrong place
+
+Found on the owner's first desktop recording, on hardware: macOS granted the
+microphone mid-session, capture still could not open an input, and the session
+degraded to an empty typed note. The panel's explanation was *"Open the menu
+bar to grant it."* The menu bar cannot grant a TCC permission — only System
+Settings can — so the one sentence this app showed about the failure sent the
+person somewhere that does nothing, and a wrong instruction that looks like an
+instruction is worse than none: it reads as followed.
+
+**The just-in-time half of this was already correct**, and is worth stating
+rather than re-deriving, because the fix here is narrower than it first looks.
+Every real way to start a recording — the tray's Record, the panel's "Take
+notes", and the console's `startCapture` — folds through one function,
+`beginMeeting`, which calls `MeetingController.begin()`, which calls
+`ensureCapturePermissions` and **awaits** it before either the transcriber or
+the recorder is ever started (`core/capture/permissions.ts`,
+`core/recording/controller.ts`). `not-determined` or an unreadable `unknown`
+raises the system dialog and waits for the answer; `granted` proceeds;
+`denied` or `restricted` refuses outright, with no dialog, because macOS
+ignores a second prompt to a permission it already refused. The state only
+ever moves to `recording` — the tray's red dot, the always-on indicator —
+*after* that promise resolves and the recorder has actually opened, so there
+is no window in which the indicator is on before the input is. A typed
+meeting (`capturePlan` answered no channels) asks for nothing at all, which is
+the other half of "never start a session that will silently produce an empty
+note": a typed meeting is an honest, first-class outcome, never a fallback a
+failed capture quietly lands on.
+
+**The actual defect was one string.** `CONSOLE_NOTICES.permissions` in
+`main/index.ts` — the sentence `explain()` shows in a message box when
+`beginMeeting` reports `why: "permissions"`, and the one `startFromConsole`
+throws for the page to render — read *"Open the menu bar to grant it."* It now
+reads *"Open System Settings → Privacy & Security → Microphone, enable
+Context, and record again."* The last three words are load-bearing rather than
+decoration: `ensureCapturePermissions` re-checks `status()` fresh on every
+`begin()`, so a person who grants it in System Settings and presses Record
+again is not re-asked and is not told to restart the app — the sentence's own
+instruction is what actually recovers the session, and `controller.test.mjs`
+now checks the other direction of that promise as well: a permission already
+`granted` before a session starts raises no dialog either, only
+`not-determined` (or `unknown`) ever calls `request`.
+
+Never assembled at the call site, like every sentence in `CONSOLE_NOTICES` and
+`PLAN_NOTICES` — both are frozen closed sets for exactly this reason, stated in
+`main/index.ts`'s own comment beside them: *"none is assembled here, for the
+reason those sets exist."* A message box is exactly where a channel name or a
+fragment of a payload ends up if a sentence is built rather than looked up.
+`appShell.test.mjs` reads the frozen object as text and checks every key whose
+name contains "permission": none may mention the menu bar, all must name
+System Settings, all must say "record again". A key added next year for
+Screen Recording specifically is covered by the same regex without this file
+being edited to know it exists.
+
+**The Mac confirmation**, for the one thing no offline suite can check: a real
+TCC prompt, raised at the right moment, on real hardware.
+
+```
+tccutil reset Microphone lc.context.desktop
+```
+
+then launch the app and press Record. The system dialog must appear before the
+tray's dot turns red — never after, and never silently skipped — and answering
+it must be what decides whether the dot turns red at all. A build that shows
+the red indicator, or reports `recording`, before that dialog has been
+answered is the defect this section exists to close, whatever the panel's
+copy says.
+
+**A grant that still cannot open is not the same failure as a refusal, and
+does not get the same sentence.** The same hardware session that found the
+wrong string found a second one once the first was fixed: the app was already
+running when macOS recorded the grant, mid-session, and every attempt after it
+— for the rest of that process's life — still could not open an input, while
+the panel kept showing *"macOS has not granted this app the microphone
+yet... record again"*, even though TCC's own answer was `granted`. That
+sentence's own instruction is what a person had just done; showing it again
+reads as "that didn't work" about an instruction that was never wrong.
+
+`status()` is not the liar here — `getMediaAccessStatus` is asked fresh on
+every `begin()`, exactly as the section above describes, and it honestly
+answers `granted`. What lags is AVFoundation's own per-process authorization,
+which can hold the answer a running process observed the first time it asked
+until that process relaunches. So `ensureCapturePermissions` can report `ok`
+and the recorder's own `start()` can still throw, and `MeetingController.begin`
+now tells the two failures apart by `why`: a refusal is still `"permissions"`,
+and its recovery is still System Settings; a grant the recorder still could
+not use is `"stale-permission"`, reported with an empty `missing` — nothing is
+missing, this process is — and its recovery is `CONSOLE_NOTICES
+.staleMicrophoneGrant`, *"Quit and reopen Context to pick up the microphone
+permission"*, the one instruction that actually works. Collapsing the two
+back into one `why` is the exact regression: `controller.test.mjs` pins it with
+a broker whose status flips from `not-determined` to `granted` between two
+`begin()` calls on the same process while the recorder keeps refusing to open,
+and `appShell.test.mjs` pins the sentence itself, the same way it pins
+`permissions`'s.
 
 ### What is deliberately not built
 

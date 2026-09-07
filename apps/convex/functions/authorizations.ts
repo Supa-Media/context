@@ -49,12 +49,15 @@ import {
   action,
   internalMutation,
   query,
+  type MutationCtx,
   type QueryCtx,
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
 import { AUTHORIZATION_TTL_MS, randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
+import { consumeRateLimit } from "./lib/rateLimit";
+import { decideMachineApproval } from "./lib/machineGrant";
 import { getMembership, requireWorkspaceAccess } from "./lib/workspaceAuth";
 import {
   SCOPE_PRIVATE,
@@ -498,36 +501,286 @@ export const applyApproval = internalMutation({
     );
     if (!hasOperationScope(granted)) throw noScopesGranted();
 
-    const now = Date.now();
-    await ctx.db.patch(request._id, {
-      status: "approved",
-      hashedCode: args.hashedCode,
-      workspaceId,
-      userId: args.actorUserId,
-      // What the person approved, which is what the token exchange will read.
-      // The requested `scope` is left as it was: the row keeps both halves of
-      // "asked for X, got Y".
-      grantedScope: formatScopeList(granted),
-      approvedAt: now,
-      // The code gets its own fresh ten minutes from the moment of approval,
-      // rather than inheriting whatever is left of the request's window.
-      expiresAt: now + AUTHORIZATION_TTL_MS,
-    });
-
-    await recordAudit(ctx, {
+    await arm(ctx, request, {
       workspaceId,
       actorUserId: args.actorUserId,
-      actorClientId: request.clientId,
-      action: "oauth.authorized",
-      details: {
-        scope: request.scope,
-        // Both, so the trail shows a narrowing rather than only its result.
-        grantedScope: formatScopeList(granted),
-        tier: visibilityTierOf(granted),
-      },
+      hashedCode: args.hashedCode,
+      granted,
     });
 
     return { redirectUri: request.redirectUri, state: request.state };
+  },
+});
+
+/**
+ * Arm a pending request with a code, and record what was granted.
+ *
+ * The one place a request becomes `approved`, shared by the consent screen's
+ * approval and by the desktop shell's own-machine approval below. Both must
+ * write the same row in the same shape — same status, same fresh window, same
+ * pair of "asked for X, got Y" fields, same audit action — and two copies of
+ * that is how one of them quietly stops recording the narrowing.
+ *
+ * `details` is merged **over** nothing: the three fields every approval records
+ * are written here, and a caller may add facts of its own (how it was
+ * approved, which machine) without being able to overwrite the scope trail.
+ */
+async function arm(
+  ctx: MutationCtx,
+  request: Doc<"oauthAuthorizations">,
+  input: {
+    workspaceId: Id<"workspaces">;
+    actorUserId: Id<"users">;
+    hashedCode: string;
+    granted: readonly string[];
+    details?: Record<string, string>;
+  },
+): Promise<void> {
+  const now = Date.now();
+  await ctx.db.patch(request._id, {
+    status: "approved",
+    hashedCode: input.hashedCode,
+    workspaceId: input.workspaceId,
+    userId: input.actorUserId,
+    // What the person approved, which is what the token exchange will read.
+    // The requested `scope` is left as it was: the row keeps both halves of
+    // "asked for X, got Y".
+    grantedScope: formatScopeList(input.granted),
+    approvedAt: now,
+    // The code gets its own fresh ten minutes from the moment of approval,
+    // rather than inheriting whatever is left of the request's window.
+    expiresAt: now + AUTHORIZATION_TTL_MS,
+  });
+
+  await recordAudit(ctx, {
+    workspaceId: input.workspaceId,
+    actorUserId: input.actorUserId,
+    actorClientId: request.clientId,
+    action: "oauth.authorized",
+    details: {
+      ...(input.details ?? {}),
+      scope: request.scope,
+      // Both, so the trail shows a narrowing rather than only its result.
+      grantedScope: formatScopeList(input.granted),
+      tier: visibilityTierOf(input.granted),
+    },
+  });
+}
+
+/**
+ * How many machine grants one person may mint with no approve screen per hour.
+ *
+ * Not a defence against a hostile caller — a refusal rolls the counter back
+ * with the rest of the transaction, exactly as `lib/rateLimit.ts` describes, so
+ * what this counts is **successful** grants. That is the right unit here:
+ * every success is a live credential and a permanent client row, and somebody
+ * legitimately connecting machines does it once per machine rather than four
+ * times a minute. What it bounds is a loop that registers a client and
+ * auto-approves it, over and over, from a page that already has a session.
+ */
+const MACHINE_APPROVAL_LIMIT = 3;
+const MACHINE_APPROVAL_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * This request cannot be approved without the screen, so the screen is what the
+ * person gets.
+ *
+ * A distinct code rather than the collapsed not-found one, and collapsing it
+ * would buy nothing: any signed-in caller with a context can already tell a
+ * live request id from a dead one by calling `getAuthorizationRequest`, which
+ * answers a payload or `null`. What must never leak is anything about
+ * **somebody else's context**, and this names only properties of a client and a
+ * request the caller was already holding. The shell reads it as "fall back to
+ * the approve screen", which is the whole of what it means.
+ */
+function machineApprovalRefused(
+  reason: string,
+): ConvexError<{ code: string; message: string; reason: string }> {
+  return new ConvexError({
+    code: "MACHINE_APPROVAL_REFUSED",
+    message: "This machine has to be approved on the consent screen.",
+    reason,
+  });
+}
+
+/**
+ * Mint this machine's grant from the session the person is already signed in
+ * with, in the app's own window, with no approve screen.
+ *
+ * The owner's reaction to the first end-to-end desktop capture, 2026-09-07:
+ * *"I don't love this setup; when installing Granola I didn't have to 'connect'
+ * a machine, things just worked."* The step went. The grant did not.
+ *
+ * **What is unchanged, and it is the whole of non-negotiable #4.** One OAuth
+ * grant per machine, at `context:write context:private` and nothing wider,
+ * revocable on its own from the connections list, with an audit entry naming
+ * the person and the machine. The code is minted, hashed and armed by the same
+ * `arm` the consent screen's approval uses, delivered by redirect to a loopback
+ * listener on the person's own machine, and still bound to the process that
+ * started the flow by PKCE.
+ *
+ * **What is different is who answered.** `approveAuthorization` records a
+ * decision a person made on a screen. This records that the four conditions in
+ * `lib/machineGrant.ts` held: the client declared itself the desktop shell, the
+ * code can only be delivered to a loopback listener on this machine, the
+ * request is exactly the default with nothing added, and the approver's own
+ * role can grant the tier that default names. Any one of them false and the
+ * person gets the screen — this refuses to decide *for* somebody, and never
+ * refuses them anything.
+ *
+ * An **action** for `approveAuthorization`'s reason: minting the code means
+ * hashing it, and hashing is Web Crypto.
+ */
+export const approveOwnMachineGrant = action({
+  args: { requestId: v.string() },
+  returns: v.object({
+    redirectTo: v.string(),
+    /** Which context this machine may now write to, so the card can say so. */
+    workspaceSlug: v.string(),
+  }),
+  // Annotated rather than inferred: this handler calls back into its own
+  // module through `internal.functions.authorizations.…`.
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ redirectTo: string; workspaceSlug: string }> => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) {
+      throw new ConvexError({
+        code: "NOT_AUTHENTICATED",
+        message: "Not authenticated",
+      });
+    }
+
+    const code = randomOpaqueToken(32);
+    const approved: {
+      redirectUri: string;
+      state: string | null;
+      workspaceSlug: string;
+    } = await ctx.runMutation(
+      internal.functions.authorizations.applyOwnMachineApproval,
+      {
+        actorUserId: userId as Id<"users">,
+        requestId: args.requestId,
+        hashedCode: await hashToken(code),
+      },
+    );
+
+    const url = new URL(approved.redirectUri);
+    url.searchParams.set("code", code);
+    if (approved.state !== null) url.searchParams.set("state", approved.state);
+    return { redirectTo: url.toString(), workspaceSlug: approved.workspaceSlug };
+  },
+});
+
+/**
+ * The transactional half: check everything, then arm the code.
+ *
+ * Internal, like `applyApproval`, and for its reasons — the plaintext code
+ * never reaches here, only its hash, and `actorUserId` comes from the calling
+ * action rather than from auth because nothing outside this module can call it.
+ * Membership is what authorizes, and it is read in this transaction against the
+ * workspace actually being granted.
+ */
+export const applyOwnMachineApproval = internalMutation({
+  args: {
+    actorUserId: v.id("users"),
+    requestId: v.string(),
+    hashedCode: v.string(),
+  },
+  returns: v.object({
+    redirectUri: v.string(),
+    state: v.union(v.string(), v.null()),
+    workspaceSlug: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    // Keyed on the caller and consumed before anything is read, so it can never
+    // become a signal about the request id: a caller out of budget is refused
+    // whether or not the id was real.
+    await consumeRateLimit(ctx, {
+      key: `oauth.machineGrant:${args.actorUserId}`,
+      limit: MACHINE_APPROVAL_LIMIT,
+      windowMs: MACHINE_APPROVAL_WINDOW_MS,
+    });
+
+    // The same ordering rule as everything else in this file: the caller's own
+    // situation is resolved before the request row is touched.
+    const fallback = await resolveConsentWorkspace(ctx, args.actorUserId, null);
+    if (fallback === null) throw noGrantableWorkspace();
+
+    const request = await ctx.db
+      .query("oauthAuthorizations")
+      .withIndex("by_requestId", (q) => q.eq("requestId", args.requestId))
+      .unique();
+    if (request === null) throw authorizationRequestNotFound();
+    // Single-approval and expiry, enforced here as they are on every other
+    // write: a request that already produced a code, was refused, or ran out of
+    // time cannot produce a second outcome through this door either.
+    if (request.status !== "pending") throw authorizationRequestNotFound();
+    if (request.expiresAt <= Date.now()) throw authorizationRequestNotFound();
+
+    const client = await ctx.db
+      .query("oauthClients")
+      .withIndex("by_clientId", (q) => q.eq("clientId", request.clientId))
+      .unique();
+    if (client === null) throw authorizationRequestNotFound();
+
+    // The context this grants, resolved exactly as the screen would have
+    // resolved it, and then checked through the one function that expresses the
+    // tenant boundary.
+    const resolved = await resolveConsentWorkspace(
+      ctx,
+      args.actorUserId,
+      request.requestedWorkspaceSlug,
+    );
+    if (resolved === null) throw noGrantableWorkspace();
+    const { membership } = await requireWorkspaceAccess(
+      ctx,
+      resolved._id,
+      args.actorUserId,
+    );
+
+    const decision = decideMachineApproval({
+      clientSoftwareId: client.softwareId ?? null,
+      clientRedirectUris: client.redirectUris,
+      requestRedirectUri: request.redirectUri,
+      requestScope: request.scope,
+      role: membership.role,
+    });
+    if (!decision.ok) throw machineApprovalRefused(decision.reason);
+
+    // Clamped again against the role read in this transaction.
+    // `decideMachineApproval` already refused a role that cannot grant the
+    // tier, so this removes nothing today — it is here because the day those
+    // two disagree, what gets stored must be the narrower of them rather than
+    // whatever a decision function happened to return.
+    const granted = clampScopes(decision.scopes, membership.role);
+    if (!hasOperationScope(granted)) throw noScopesGranted();
+
+    await arm(ctx, request, {
+      workspaceId: resolved._id,
+      actorUserId: args.actorUserId,
+      hashedCode: args.hashedCode,
+      granted,
+      /*
+        The trail says how this was approved, and names the machine.
+
+        `actorUserId` and `actorClientId` already carry the person and the
+        client id; `clientName` is `Context on <hostname>`, which is what
+        somebody scanning their own trail recognises as a laptop. `approval` is
+        what makes an auto-approved grant visibly different from one somebody
+        pressed a button for — a trail that cannot tell those apart cannot
+        answer "did I approve this?", which is the one question this feature
+        makes worth asking.
+      */
+      details: { approval: "own-machine", clientName: client.clientName },
+    });
+
+    return {
+      redirectUri: request.redirectUri,
+      state: request.state,
+      workspaceSlug: resolved.slug,
+    };
   },
 });
 

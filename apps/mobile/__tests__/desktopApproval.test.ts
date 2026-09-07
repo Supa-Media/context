@@ -7,6 +7,11 @@ import {
 } from "../features/consent/state";
 import { isSafeRedirect } from "../features/consent/redirectSafety";
 import { describeMachine } from "../features/meetings/thisMachine";
+import {
+  decideMachineApproval,
+  machineApprovalLine,
+  type MachineApprovalInputs,
+} from "../features/meetings/machineApproval";
 
 /**
  * Approving a Mac inside the desktop shell's own window.
@@ -18,6 +23,20 @@ import { describeMachine } from "../features/meetings/thisMachine";
  * authorize URL — `apps/desktop/src/core/shell/approval.ts` is the guard that
  * makes the loopback return trip one address rather than a hole in the origin
  * pin, and `docs/decisions/desktop.md` is the decision.
+ *
+ * **That sentence has since been reversed, on purpose, and the reversal is
+ * bounded.** The owner's reaction to the first end-to-end capture, 2026-09-07:
+ * *"I don't love this setup; when installing Granola I didn't have to 'connect'
+ * a machine, things just worked."* So the shell now hands the parked request to
+ * the console **card** — a component that only exists inside the shell in the
+ * first place — which answers it with the session this page already holds. The
+ * consent screen below is untouched, has no shell branch, and is still what
+ * every other client and every refusal goes through. The decision about when a
+ * page may mint a credential is `decideMachineApproval`, checked at the foot of
+ * this file, and `docs/decisions/desktop.md` carries the argument.
+ *
+ * What the paragraph below said when the approval first moved into the window,
+ * kept because it is still true of this screen:
  *
  * **Nothing in `apps/mobile` had to learn that it is inside the shell for this
  * to work, and that is the finding this file records rather than a gap in it.**
@@ -196,5 +215,123 @@ describe("approving this machine inside the desktop shell's window", () => {
     expect(view.sentence).not.toMatch(/browser/i);
     // Still no second control while one approval is open.
     expect(view.action).toBeNull();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * WHEN THIS PAGE MAY MINT A MACHINE GRANT, AS A PURE FUNCTION.
+ *
+ * `decideMachineApproval` is what stands between "the person is signed in in
+ * this window" and a credential being minted for the machine they are sitting
+ * at. The card renders what it returns and decides nothing, for the reason
+ * `features/console/capabilities.ts` records in one line: *every guard
+ * expressed inside a component in this app was held by nothing.*
+ *
+ * Every refusal here is a refusal to **act**, never a refusal of the person:
+ * each one ends with the shell putting the approve screen in the same window,
+ * which is what #312 shipped and what the consent screen above still is.
+ */
+describe("when this page mints the machine's grant, and when it declines to", () => {
+  const inputs = (
+    overrides: Partial<MachineApprovalInputs> = {},
+  ): MachineApprovalInputs => ({
+    pending: { requestId: "req_this_mac" },
+    connection: {
+      state: "disconnected",
+      gateway: null,
+      encrypted: true,
+      connecting: true,
+      error: null,
+    },
+    auth: { isLoading: false, isAuthenticated: true },
+    minting: false,
+    answered: null,
+    ...overrides,
+  });
+
+  test("a signed-in session and a parked request mints it", () => {
+    expect(decideMachineApproval(inputs())).toEqual({
+      kind: "mint",
+      requestId: "req_this_mac",
+    });
+  });
+
+  test("nothing parked is the ordinary state of this app", () => {
+    expect(decideMachineApproval(inputs({ pending: null }))).toEqual({ kind: "idle" });
+  });
+
+  test("A SESSION STILL RESOLVING DECIDES NOTHING", () => {
+    // Answering "signed out" for somebody who is signed in costs them a screen
+    // they did not need, which is the whole thing this feature removes.
+    expect(
+      decideMachineApproval(inputs({ auth: { isLoading: true, isAuthenticated: false } })),
+    ).toEqual({ kind: "idle" });
+  });
+
+  test("no session tells the shell at once, so the screen opens rather than a wait", () => {
+    expect(
+      decideMachineApproval(inputs({ auth: { isLoading: false, isAuthenticated: false } })),
+    ).toEqual({ kind: "declineSignedOut", requestId: "req_this_mac" });
+  });
+
+  test("A REQUEST IS ANSWERED ONCE, WHATEVER THE RENDER LOOP DOES", () => {
+    expect(decideMachineApproval(inputs({ answered: "req_this_mac" }))).toEqual({
+      kind: "idle",
+    });
+    expect(decideMachineApproval(inputs({ minting: true }))).toEqual({ kind: "idle" });
+    // A different request is a different question, and is answered.
+    expect(decideMachineApproval(inputs({ answered: "req_another_mac" })).kind).toBe("mint");
+  });
+
+  test("a machine that already has a grant does not get a second one", () => {
+    expect(
+      decideMachineApproval(
+        inputs({
+          connection: {
+            state: "connected",
+            gateway: "https://gateway.invalid",
+            encrypted: true,
+            connecting: false,
+            error: null,
+          },
+        }),
+      ),
+    ).toEqual({ kind: "idle" });
+  });
+
+  test("...but a revoked one does, because that is a machine with a queue waiting", () => {
+    expect(
+      decideMachineApproval(
+        inputs({
+          connection: {
+            state: "revoked",
+            gateway: "https://gateway.invalid",
+            encrypted: true,
+            connecting: false,
+            error: null,
+          },
+        }),
+      ).kind,
+    ).toBe("mint");
+  });
+
+  test("a shell whose connection has not been read yet is not a reason to wait", () => {
+    // The card asks the bridge and subscribes; the answer can arrive after the
+    // push. Refusing to act until it lands would mean a connect that started
+    // before the card mounted is never answered.
+    expect(decideMachineApproval(inputs({ connection: null })).kind).toBe("mint");
+  });
+
+  test("THE LINE THE CARD SHOWS NAMES THE CONTEXT, AND NEVER THE REFUSAL", () => {
+    expect(machineApprovalLine("minting", null)).toMatch(/Connecting this machine/);
+    expect(machineApprovalLine("granted", "seyi")).toBe("This machine can write to @seyi.");
+    expect(machineApprovalLine("granted", null)).toBe("This machine can write to your context.");
+    // Every refusal ends the same way for the person: the approve screen, in
+    // this window, a moment later. Which condition failed is machinery.
+    expect(machineApprovalLine("refused", "seyi")).toBe(
+      "Asking you to approve this machine instead…",
+    );
   });
 });
