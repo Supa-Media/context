@@ -87,6 +87,9 @@ importers:
 
   apps/mobile:
     dependencies:
+      '@codemirror/autocomplete':
+        specifier: ^6
+        version: 6.20.3
       '@codemirror/commands':
         specifier: ^6
         version: 6.11.0

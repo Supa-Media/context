@@ -29,6 +29,7 @@ import {
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, redo, undo } from "@codemirror/commands";
 import { livePreview, markdownLanguage } from "./livePreview";
+import { noteCompletion } from "./linkComplete";
 import { noteLinks, type NoteLinkRef } from "./noteLinks";
 import type { EditorCommand } from "./webview/protocol";
 
@@ -334,7 +335,14 @@ export function editorExtensions(options: {
   return [
     markdownLanguage(),
     livePreview(),
-    ...(links === undefined ? [] : [noteLinks(links)]),
+    /*
+      Both halves of "a link to another note": drawing one as a link and
+      following it, and offering the notes a `[[` could mean. One ref feeds
+      both — what the completion offers and what the resolver will accept have
+      to be the same set of paths, or the editor suggests destinations it then
+      refuses to draw as links.
+    */
+    ...(links === undefined ? [] : [noteLinks(links), noteCompletion(links)]),
     history(),
     EditorView.lineWrapping,
     placeholder(EDITOR_PLACEHOLDER),
