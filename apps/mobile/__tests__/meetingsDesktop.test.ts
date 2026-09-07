@@ -3,6 +3,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { fakeDesktopBridge, type FakeDesktopBridge } from "@context/desktop-bridge/fake";
@@ -58,6 +60,18 @@ import { fakeDesktopBridge, type FakeDesktopBridge } from "@context/desktop-brid
  *   `resume` allowed after a stop                                             1
  *   the controller not passing the meeting id to `start`                      1
  *   the `ending` flag dropped, so every End reports a failure                 1
+ *   the platform half of detection dropped, so a phone with a shell uses it   1
+ *   a native-resolved capture module importing `./desktop`                    1
+ *
+ * The last two were added by review, because the first of them measured **0**
+ * against the suite as written: *"a phone asked of the web module is still a
+ * phone"* runs with no shell on the page, so deleting `platform !== "web"` from
+ * `resolveRecorder` changed nothing it could see. The rule is
+ * `Platform.OS === "web" && getDesktopBridge() !== null` and both halves are
+ * load-bearing — `window.desktop` is a web-only concept by construction — so
+ * the phone case now runs with a real, valid shell installed, and the import
+ * boundary that keeps `capture/desktop.ts` out of the iOS bundle is read off
+ * the source, which is the only place a bundling rule is visible.
  *
  * Two of those numbers are large for a reason worth reading. **20** and **18**
  * are not this file being thorough: they are the rest of the suite falling over
@@ -230,6 +244,49 @@ describe("a browser with no shell is unchanged", () => {
   });
 
   /**
+   * ...and it stays a phone with a shell sitting right there.
+   *
+   * The detection rule is `Platform.OS === "web" && getDesktopBridge() !== null`
+   * and the first half is not decoration: `window.desktop` is a web-only
+   * concept by construction — on a phone the Expo binary *is* the native
+   * surface — so a bridge that somehow existed there must change nothing. The
+   * check above passes with no shell on the page at all, which means it would
+   * go on passing if the platform half of the rule were deleted. This one puts
+   * a real, valid shell in front of it first, and nothing about the answer
+   * moves.
+   */
+  test("...and a shell on the page does not turn a phone into a desktop", async () => {
+    const shell = fakeDesktopBridge({ capabilities: { mic: true, systemAudio: true } });
+    installShell(shell);
+
+    const recorder = await resolveRecorder("ios");
+    expect(recorder.capability.audio).toBe(false);
+    expect(recorder.capability.systemAudio).toBe(false);
+
+    await recorder.start({ sessionId: "mtg_phone", systemAudio: true });
+    expect(shell.calls).toEqual([]);
+  });
+
+  /**
+   * And the native half of the split cannot reach the shell recorder at all.
+   *
+   * Read off the source rather than driven, because what is being asserted is
+   * about a bundle Metro builds rather than about a call: `capture/desktop.ts`
+   * is reached only through `audio.web.ts`, which Metro hands to the web build
+   * and never to a phone. A `./desktop` import in any other capture module puts
+   * an Electron-shaped surface in the iOS bundle to describe a global that
+   * cannot exist there — and no runtime check inside this app would notice,
+   * because on a phone the answer would simply be `null` forever.
+   */
+  test("only the web half of the split imports the shell recorder", () => {
+    const dir = join(__dirname, "..", "features", "meetings", "capture");
+    const offenders = readdirSync(dir)
+      .filter((name) => name.endsWith(".ts") && name !== "audio.web.ts" && name !== "desktop.ts")
+      .filter((name) => /from\s+"\.\/desktop"/.test(readFileSync(join(dir, name), "utf8")));
+    expect(offenders).toEqual([]);
+  });
+
+  /**
    * Detection is `getDesktopBridge()`, not `"desktop" in window`.
    *
    * An object a page put there itself is not a shell: it is not frozen, and the
@@ -361,7 +418,12 @@ describe("inside the shell, the shell records", () => {
     await recorder.stop();
   });
 
-  /** The rule the lifted state machine holds, once, for five recorders. */
+  /**
+   * The rule the lifted state machine holds — for the three recorders that
+   * answer to it. The two that hold a real device still hold it by hand, each
+   * with its own test of the same name; `packages/meetings/src/recorder.js`
+   * says why and names converting them as the next step.
+   */
   test("a meeting that ended does not reopen the microphone", async () => {
     const shell = fakeDesktopBridge({ capabilities: { mic: true } });
     installShell(shell);
@@ -569,6 +631,71 @@ describe("the meeting's own id goes to the shell", () => {
 
     await controller.start({ title: "Standup" });
     expect(recorder.startedWith?.systemAudio).toBe(false);
+  });
+});
+
+describe("the shell records it, and the app's own gateway writes it", () => {
+  /**
+   * WHERE A DESKTOP MEETING IS ACTUALLY WRITTEN, TODAY.
+   *
+   * Step 3 replaced the *recorder* and nothing else, so the two halves of a
+   * meeting in the shell take two different credentials, and it is worth one
+   * test saying so out loud rather than three files implying it:
+   *
+   *  - **the audio** is captured by the shell and transcribed in the main
+   *    process with *this machine's* revocable grant, which is what makes it
+   *    attributable and bounded (`docs/decisions/meetings.md`);
+   *  - **the note** is written by the same gateway a browser uses —
+   *    `convexGateway.ts`, the console's own control-plane session, through
+   *    `files.writeNote`. The shell's grant and its window-less outbox are not
+   *    on this path yet: `desktopGateway.ts` is the deferred half of step 3 and
+   *    `docs/decisions/desktop.md` names it as the next step.
+   *
+   * What that costs is what `convexGateway.ts` already lists — no enhancement
+   * pass, no `.meetings/` session record, no `list_meetings` — and it costs it
+   * identically on a Mac and in a browser, which is the point of one runtime.
+   * The end-to-end check is that a meeting captured entirely over the bridge
+   * still lands as exactly one note.
+   */
+  test("a meeting captured over the bridge is written by the gateway the app configures", async () => {
+    const shell = fakeDesktopBridge({ capabilities: { mic: true } });
+    installShell(shell);
+
+    const recorder = await resolveRecorder("web");
+    const gateway = fakeGateway();
+    const controller = new MeetingsController();
+    await controller.configure({
+      workspaceId: "ws_1",
+      store: memoryStore(),
+      gateway,
+      recorder,
+      device: { platform: "web" },
+    });
+
+    const id = await controller.start({ title: "Standup" });
+    shell.emitSegment({
+      id: "seg-1",
+      startMs: 0,
+      endMs: 2_000,
+      text: "we should ship it",
+      speaker: null,
+      channel: "mic",
+      confidence: null,
+    });
+    await controller.end();
+
+    // The shell held the input, and this page never asked for one.
+    expect(shell.lastStart?.sessionId).toBe(id);
+    expect(shell.calls).toContain("stopCapture");
+    expect(getUserMediaCalls).toBe(0);
+    expect(recorderInstances).toBe(0);
+
+    // And the note came out of the app's gateway, under the id the app minted,
+    // with the words the shell produced in it.
+    expect(gateway.calls).toContain("finalize");
+    expect(gateway.notesWritten()).toBe(1);
+    expect(gateway.held.get(id)?.state).toBe("complete");
+    expect(gateway.held.get(id)?.notePath).not.toBeNull();
   });
 });
 

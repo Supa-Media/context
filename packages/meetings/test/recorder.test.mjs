@@ -2,12 +2,19 @@
  * WHAT THE DEVICE IS DOING — `src/recorder.js`.
  *
  * This table is small enough that the temptation is to trust it by reading it.
- * The reason not to: it is now the *shared* answer for five recorders in two
- * processes — `expo-audio` on a phone, `MediaRecorder` in a browser, the honest
- * notes-only one, the fake a test drives, and the desktop shell across an IPC
- * boundary — and each of those used to keep its own. A rule that is wrong here
- * is wrong in all five at once, which is the price of sharing and the reason
- * the sharing has to be checked rather than assumed.
+ * The reason not to: it is the *shared* answer for three recorders in two
+ * processes — the honest notes-only one, the fake a test drives, and the
+ * desktop shell across an IPC boundary — and each of those used to keep its
+ * own. A rule that is wrong here is wrong in all three at once, which is the
+ * price of sharing and the reason the sharing has to be checked rather than
+ * assumed.
+ *
+ * **Three, not five.** `capture/audio.ts` and `capture/audio.web.ts` — the two
+ * that hold a real device — still keep their own assignments, because a failed
+ * `start` puts them back to `idle` and this table has no verb for that. The
+ * header of `src/recorder.js` says so at length and names converting them as
+ * the next step; the count is written here too because "five recorders agree
+ * with this file" is the kind of sentence a reader would rely on.
  *
  * The two rules with a real cost behind them:
  *

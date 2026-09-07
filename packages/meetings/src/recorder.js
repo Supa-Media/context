@@ -28,6 +28,29 @@
  * app, because the shell cannot import the app: it is a separate process, in a
  * separate bundle, that shares only what is in `packages/`.
  *
+ * **Three of the five answer to this table today**, and the count is written
+ * down rather than rounded up: `capture/notesOnly.ts`, `capture/fake.ts` and
+ * `capture/desktop.ts`. The two that actually hold a device — `capture/audio.ts`
+ * and `capture/audio.web.ts` — still keep their own assignments, and they are
+ * not an oversight to be quietly counted as converted:
+ *
+ *  - they carry a move this table has no verb for. A `start` whose first chunk
+ *    will not open returns the recorder to **`idle`**, not to `recording` and
+ *    not to `stopped`, so the person can press Record again; `start`, `pause`,
+ *    `resume` and `stop` cannot express that.
+ *  - they are more permissive than this table in one place — `pause` from
+ *    `idle` lands on `paused` there and stays `idle` here — and their own
+ *    suites pin the conditional they wrote it with (`meetingsCapture.test.ts`
+ *    measured 3 failures for making that assignment unconditional).
+ *
+ * So the rule that matters most is currently held in three places rather than
+ * one: here, and by hand in each of those two files, each with its own test
+ * named *"resuming a meeting that ended does not reopen the microphone"*.
+ * Converting them needs a fifth action for the failed start and a re-run of
+ * three suites, and it is the **next step** for this file — recorded here
+ * because a shared table that two of its five callers ignore is exactly the
+ * kind of half-done consolidation that reads as finished.
+ *
  * Plain ESM with JSDoc types and no imports, like everything else here, so the
  * Worker, Metro and Electron can all read it.
  *

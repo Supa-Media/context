@@ -14,48 +14,29 @@
  * be exercised by launching an app is a guard nobody has checked.
  */
 
-/**
- * The bridge's shape, and the only number the web UI compares against.
- *
- * It moves when the interface changes, never when the app is released — a shell
- * shipped in March and one shipped today both answer `1` if they expose the same
- * surface. What a *particular* build can do is `capabilities()`, asked at
- * runtime, because an unsigned build and a notarised one share this number and
- * differ on whether macOS will give them system audio.
- */
-export const BRIDGE_VERSION = 1;
+/*
+  THE BRIDGE'S SHAPE COMES FROM THE PACKAGE, AND IS NOT DECLARED AGAIN HERE.
 
-/**
- * What this build can actually do, as the page is allowed to see it.
- *
- * Everything is `false` in this step: the window loads, the probe answers, and
- * nothing is wired. That is the point of shipping it first — a UI that reads
- * capabilities gets honest "no"s from a shell that has not been built yet,
- * which is the same thing it will get from a shell that is simply older.
- */
-export interface DesktopCapabilities {
-  /** The machine's own audio, via ScreenCaptureKit. Needs a notarised build. */
-  systemAudio: boolean;
-  /** The microphone, through the shell rather than through `getUserMedia`. */
-  mic: boolean;
-  /** Meeting detection: this shell watches for a call and says so. */
-  detection: boolean;
-  /** A menu-bar presence that can start and end a recording with no window. */
-  tray: boolean;
-  /** A queue in the main process that outlives the page. */
-  outbox: boolean;
-  /** This machine holds its own revocable grant on the gateway. */
-  connection: boolean;
-}
+  `BRIDGE_VERSION`, `DesktopCapabilities` and `NO_CAPABILITIES` were written out
+  in this file when `packages/desktop-bridge` did not exist yet (#266 landed
+  before #269). They are the shell's half of a contract the web build compares
+  against, and two declarations of one contract is the failure
+  `core/contract.ts` already names about the meetings protocol: *"a local copy
+  of `TranscriptSegment` that drifts by one field is a wire bug that
+  typechecks."* A shell answering `version: 1` from its own constant while the
+  page checks the package's would be exactly that bug, with a process boundary
+  through it.
 
-export const NO_CAPABILITIES: Readonly<DesktopCapabilities> = Object.freeze({
-  systemAudio: false,
-  mic: false,
-  detection: false,
-  tray: false,
-  outbox: false,
-  connection: false,
-});
+  Re-exported rather than imported-and-forwarded so that `preload/console.ts`
+  and `test/shell.test.mjs` keep importing what they already import: this file
+  stays the shell's one door to the contract, and the contract now has one
+  author.
+*/
+export {
+  BRIDGE_VERSION,
+  NO_CAPABILITIES,
+  type DesktopCapabilities,
+} from "@context/desktop-bridge";
 
 /** The address the shell hosts when nothing overrides it. */
 export const DEFAULT_CONSOLE_URL = "https://context.lc/console";
