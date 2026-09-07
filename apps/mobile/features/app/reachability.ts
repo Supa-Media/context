@@ -344,7 +344,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
               green over a press that no longer replaces. The needle a claim
               rests on has to be unique to the wiring it claims.
             */
-            contains: ["slug === current?.slug ? browseHref(slug) : contextHrefFrom(slug)"],
+            contains: ["onOpen={(slug) => router.replace(contextHrefFrom(slug))}"],
           },
         ],
         region: "contextStrip",

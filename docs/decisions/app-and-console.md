@@ -899,26 +899,29 @@ minus what a phone already says:
   heading, so a trailing segment is the same words twice.
 - **No visibility chip.** A note carries it as a Properties row and a folder
   states it in a sentence directly beneath, both fuller than the brief chip.
-- **No context segment, and this is the half that changed back.** It was here,
-  pressable, on the argument that it is not a label but the way *up* — without
-  it the bar bottoms out one level short of home — and that the duplication it
-  cost was refunded by the leaf and the chip being gone. That was true while the
-  contexts were a slot in the frame's top bar, two rows away. They are the row
-  directly above this one now (see *The contexts moved into the scroller*
-  below), so the segment was `@seyi` said twice in consecutive lines, on the
-  surface with the least room to say anything once. The way up went with it and
-  is the lit pill, which opens its own context at its root rather than at the
-  place the device last had open there.
+- **The context is not a segment, it is the button in front of them.** It was a
+  monospace segment, pressable, on the argument that it is not a label but the
+  way *up* — without it the bar bottoms out one level short of home. That
+  argument survives; what carries it changed.
+
+  **This shipped wrong once and the record of that is the point.** The first
+  answer was to *delete* the segment, on the reasoning that the strip above
+  already named the context. That removed the duplication and the way up
+  together: a top-level folder has no ancestors, so the path row was empty and
+  nothing on the screen led back to the root of your own context. A thing that
+  is in two places is moved to one, not removed from both — see *The context you
+  are in moved to the breadcrumb* below.
 - **And it scrolls horizontally.** `3-resources/books/reading-notes/…` is wider
   than 390pt within three segments; wrapping makes the band a variable number of
   rows and ellipsising leaves the segment you are standing next to unreadable.
   `ContextStrip`'s rule, one row down: nothing truncates, the row gets longer,
   the scroll absorbs it.
 
-A top-level folder therefore draws no path row at all — its ancestors are empty
-and the pill above says where it is — rather than a band holding one word.
-`FolderView` still takes a `contextLabel` for the root, which is the one folder
-with no name of its own: a context's root folder *is* the context.
+A top-level folder therefore draws no *segments* — its ancestors are empty — and
+the row is the context button alone, which is exactly right: that button is the
+folder above it. `FolderView` still takes a `contextLabel` for the root, which
+is the one folder with no name of its own: a context's root folder *is* the
+context.
 
 **It is built once and handed to two surfaces**, because a note and a folder
 scroll in different containers on a phone: `NoteEditor` owns its own scroller so
@@ -970,12 +973,35 @@ lit pill, and the path below starts at the first folder.
 
 Three consequences that are decisions rather than placement:
 
-- **The lit pill is the way up.** Dropping the context segment took the route
-  from a top-level folder back to the root with it. Pressing the current
-  context's pill carries that now — it resolves to `browseHref` rather than to
-  `contextHrefFrom`, which is the one press on the strip that used to do nothing
-  you could see, since "where you last were" in the context you are standing in
-  is where you are.
+- **The context you are in moved to the breadcrumb, and the strip is what you
+  can switch *to*.** `stripOrder` drops the current context; `CurrentContextPill`
+  draws it at the head of the path row, as the same pill object, and pressing it
+  opens the context's **root** (`browseHref`, never `contextHrefFrom` — "where
+  you last were" in the context you are standing in is where you are). One name,
+  one place, and the press does something.
+
+  The owner's description is the specification, and it is quoted in `NavBand`
+  because the first implementation got it backwards: *"the button for that
+  workspace should essentially move to the breadcrumb… that workspace button
+  removes from the workspace column, but is put in the breadcrumbs column. So
+  I'm still able to get to the root."*
+
+  Three consequences. The strip has no lit pill and nothing on it is
+  `aria-selected`, because every pill goes somewhere you are not. `stripEntries`
+  draws the row at one entry rather than two, since none of them is a label any
+  more — and somebody with one brain and no workspaces now gets **no** strip and
+  their name at the head of the path, which is the better trade. And the
+  long-press menu moved with the pill: context Settings is reached on a phone
+  through that menu and nowhere else, so leaving it behind would have taken
+  `/console/[slug]/settings` off the phone entirely.
+- **Row two is one scroller.** The button and the segments are one line — *this
+  context, then this folder* — and two scrollers would let the button sit still
+  while its own path slid out from under it. So `NavBand` owns the `ScrollView`
+  and `Breadcrumb.pathOnly` returns bare segments into it. It carries the
+  strip's falloff for the strip's reason, and that was found in a browser rather
+  than by a test: a deep path overflows this row far more often than the
+  contexts overflow the one above, so the row that needed the fade most was the
+  one that shipped without it.
 - **The strip is built by the layout and passed down, not rebuilt at the leaf.**
   It needs the context list, the recently-visited log and the router, and it has
   to be drawn two levels below. A second one assembled where it is drawn is two
@@ -1777,3 +1803,102 @@ console screen; neither is worth guessing at from a phone recording. What is
 already true is that content scrolls *under* the bar rather than being pushed by
 it, which is the reference's own behaviour — so what is being asked for is a
 hide-on-scroll, and it wants its own decision.
+
+### The console autosaves, and the prompt that is left is about a decision
+
+The editor had one route from a draft to the customer's bucket — the Save
+button, or ⌘S — and three separate interruptions arranged around it: a refusal
+to open another note, a confirm before closing a tab, and the browser's
+"leave site?" on every unsaved draft. The owner's words for that: *"it's
+something people are used to already in every note taking app, so it's so
+necessary, stop bugging people to save."*
+
+**Two timers, and the second one is not decoration.** The draft is written
+`AUTOSAVE_IDLE_MS` (2s) after it stops changing, and at latest
+`AUTOSAVE_MAX_WAIT_MS` (15s) after the first edit of a burst, whichever comes
+first. An idle-only debounce is the obvious design and it never fires for iOS
+dictation, which inserts a partial result every few hundred milliseconds — a
+dictated paragraph would sit unwritten for as long as somebody kept talking.
+The ceiling is measured from the first edit and is not pushed back by later
+ones, or it is a second debounce.
+
+**The numbers are a cost decision, on somebody else's quota.** One save is a
+Convex action → the gateway → one conditional PUT against the customer's bucket
+plus a LIST to refresh the note's folder: two requests. At these intervals
+ordinary composing costs about what the Save presses it replaces did, and
+continuous input is bounded to four saves a minute. A save per keystroke is the
+version of this feature that is not shippable, which is why the scheduler is a
+module with its own tests rather than an effect.
+
+**What autosave refuses is the whole safety argument** (`autosaves` in
+`editor.ts`, asked again when the timer fires rather than trusted from when it
+was armed):
+
+- **`conflict`, never.** The draft is based on an etag somebody else has moved
+  past. Writing it automatically is a refusal every two seconds against a
+  bucket that does conditional writes, and a **silent clobber** against one
+  that can only read-compare. The three answers in `ConflictResolver` stay the
+  only way out, untouched.
+- **`error`, once and no retry loop.** A save that failed for a reason nobody
+  has read does not get retried every two seconds. It re-arms by itself the
+  moment somebody types, because `edited` moves `error` back to `dirty` — what
+  every editor does, and why there is no retry logic.
+- **`queued`**, because the offline queue already holds the newest text and
+  supersedes; and anything read-only, clean or already in flight.
+
+**Every autosaved write is the same conditional write Save makes**, carrying
+the etag the draft was typed against. There is no force flag, no unconditional
+branch and no second write path in `useFileBrowser`. Relaxing this is how
+autosave becomes the feature that quietly overwrote somebody's Obsidian.
+
+**The scheduler hands back the path it was armed with, and the caller compares
+it.** `autosaveNow` reads the text and etag off the editor, so a timer that
+fired after a note switch without that comparison writes **the new note's text
+to the old note's path, against the new note's etag** — a conditional write the
+server has every reason to accept. The reachable sequence is not exotic: the
+read for the next note is a round trip, and typing during it arms a timer for a
+note that is about to be replaced.
+
+**Allowing navigation during a save is what made the settlement path-aware.**
+The editor reducer describes the *open* note, and until now nothing could leave
+a note with a write in flight, so `saveSucceeded`, `saveFailed` and
+`saveTimedOut` could be dispatched blind. Each is now gated on the editor still
+holding the note the write was for — a late success would otherwise mark
+another note's real draft clean against an etag it was never based on — and the
+save generation and its timeout are keyed by path so two writes in the air
+cannot discard each other's answers. A save that ends for a note nobody is
+looking at reports itself in the notice line, naming the note and saying its
+draft is on the device.
+
+**`guardLeaving` keeps exactly one job: `needsDecision`.** A conflict and a
+failed save are the states nothing writes for you, so they are the only ones
+worth interrupting somebody for. Everything else is flushed on the way out:
+`select` writes what is pending before the selection moves, closing a tab does
+the same by path (`closeIntent`), and on web `visibilitychange`/`pagehide`
+flush while `beforeunload` prompts only for the two. That last one makes the
+prompt *better* rather than merely rarer — browsers increasingly decline to
+show it for a page that always asks, so asking on every draft was spending the
+browser's patience on the case that was never in danger.
+
+**The flush is best-effort and is not the guarantee.** A write issued from a
+page being torn down may not leave the machine. What makes a draft safe is
+`features/offline`: every keystroke is on the device, and `restoreFor` puts it
+back — as a conflict if the bucket moved on — when the note is reopened.
+
+The copy follows the behaviour, because a status line that still says "Unsaved
+changes" over a draft that is being written is the same nag in a smaller font:
+"Saving soon" (quiet) → "Saving…" → "Saved in your bucket", and a resting
+button that says "Saved" rather than offering a dim "Save". It still says
+"Save" over a body read off the device, where "Saved" would vouch for a bucket
+nothing has spoken to.
+
+**What a reversal costs, and the tests that fail.** Dropping the ceiling loses
+dictation entirely (`autosave.test.ts`); autosaving a conflict is a clobber
+somebody was never shown (`autosaveEditor.test.ts`, twice over); dropping the
+path comparison writes one note's words into another file
+(`autosaveEditor.test.ts`, "a timer armed for one note cannot write into
+another that is also dirty"); dropping the path check on a settlement marks a
+real draft clean (`saveTimeout.test.ts`). One guard is recorded in
+`autosaveEditor.test.ts` as *not* covered rather than quietly claimed:
+`performSave` cancelling the timer it supersedes is redundant with the
+fire-time `autosaves` check, and nothing can distinguish the two.

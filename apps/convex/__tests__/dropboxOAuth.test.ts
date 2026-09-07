@@ -48,6 +48,7 @@ import {
 
 /** A Dropbox app key is public by construction, but this one is still fake. */
 const FAKE_CLIENT_ID = "notarealdropboxkey";
+const FAKE_CLIENT_SECRET = "notarealdropboxsecret";
 const FAKE_REDIRECT_URI = "https://app.context.invalid/connect/dropbox";
 /** Distinctive enough that a substring search for it cannot match by accident. */
 const FAKE_CODE = "FAKE-AUTHORIZATION-CODE-zzzzzzzzzzzz";
@@ -327,8 +328,30 @@ describe("code exchange", () => {
     expect(call.body.get("code_verifier")).toBe(FAKE_VERIFIER);
     expect(call.body.get("client_id")).toBe(FAKE_CLIENT_ID);
     expect(call.body.get("redirect_uri")).toBe(FAKE_REDIRECT_URI);
-    // A public client has no secret, and sending an empty one is a 400.
+    // Absent because none was passed, and sending an empty one is a 400 —
+    // omitted entirely rather than sent as "".
     expect(call.body.get("client_secret")).toBeNull();
+  });
+
+  /**
+   * The confidential-client hardening: a deployment with `DROPBOX_APP_SECRET`
+   * configured sends it, and one without still gets the call above — a public
+   * client, exactly as before. Both directions matter, because a version of
+   * this that always sent `client_secret: options.clientSecret` would send the
+   * literal string `"undefined"` the day somebody forgot the `?? ""` in the
+   * caller, which Dropbox refuses exactly like an empty string does.
+   */
+  test("sends client_secret when the caller provides one", async () => {
+    const { impl, calls } = stubFetch(200, SUCCESS_BODY);
+    await exchangeDropboxCode({
+      clientId: FAKE_CLIENT_ID,
+      clientSecret: FAKE_CLIENT_SECRET,
+      code: FAKE_CODE,
+      verifier: FAKE_VERIFIER,
+      redirectUri: FAKE_REDIRECT_URI,
+      fetchImpl: impl,
+    });
+    expect(calls[0].body.get("client_secret")).toBe(FAKE_CLIENT_SECRET);
   });
 
   test("an absent expires_in reads as already expired, never as NaN", async () => {
@@ -407,6 +430,23 @@ describe("refresh", () => {
     expect(calls[0].body.get("refresh_token")).toBe(FAKE_REFRESH_TOKEN);
     expect(calls[0].body.get("client_id")).toBe(FAKE_CLIENT_ID);
     expect(calls[0].url).not.toContain("?");
+    // No secret was passed, so none is sent — the public-client shape a
+    // deployment with no `DROPBOX_APP_SECRET` still gets.
+    expect(calls[0].body.get("client_secret")).toBeNull();
+  });
+
+  test("sends client_secret on a refresh too, when the caller provides one", async () => {
+    const { impl, calls } = stubFetch(200, {
+      access_token: FAKE_ACCESS_TOKEN,
+      expires_in: 14400,
+    });
+    await refreshDropboxToken({
+      clientId: FAKE_CLIENT_ID,
+      clientSecret: FAKE_CLIENT_SECRET,
+      refreshToken: FAKE_REFRESH_TOKEN,
+      fetchImpl: impl,
+    });
+    expect(calls[0].body.get("client_secret")).toBe(FAKE_CLIENT_SECRET);
   });
 
   test("surfaces a rotated refresh token when one comes back", async () => {
@@ -454,12 +494,13 @@ describe("errors", () => {
    * hostile — it contains the code, the verifier and both tokens — and the
    * assertion is over the entire flattened error object, not just `.message`.
    */
-  test("no code, verifier, or token reaches anything loggable", async () => {
+  test("no code, verifier, token, or client secret reaches anything loggable", async () => {
     const hostile = [
       FAKE_CODE,
       FAKE_VERIFIER,
       FAKE_ACCESS_TOKEN,
       FAKE_REFRESH_TOKEN,
+      FAKE_CLIENT_SECRET,
     ].join(" ");
     const { impl } = stubFetch(400, {
       error: "invalid_grant",
@@ -468,6 +509,7 @@ describe("errors", () => {
 
     const error = await exchangeDropboxCode({
       clientId: FAKE_CLIENT_ID,
+      clientSecret: FAKE_CLIENT_SECRET,
       code: FAKE_CODE,
       verifier: FAKE_VERIFIER,
       redirectUri: FAKE_REDIRECT_URI,
@@ -481,6 +523,7 @@ describe("errors", () => {
       FAKE_VERIFIER,
       FAKE_ACCESS_TOKEN,
       FAKE_REFRESH_TOKEN,
+      FAKE_CLIENT_SECRET,
     ]) {
       expect(loggable).not.toContain(secret);
     }

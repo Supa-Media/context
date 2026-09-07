@@ -273,6 +273,40 @@ export function isTabDirty(state: TabsState, path: string): boolean {
   return state.tabs.some((tab) => tab.path === path && tab.dirty);
 }
 
+/**
+ * What closing a tab should actually do.
+ *
+ * Three answers, because a dirty tab is no longer one situation:
+ *
+ *  - `close` — nothing is owed. Nearly every tab, and one press.
+ *  - `flush` — there is a draft, and autosave will write it: hand it over on
+ *    the way out (`FileBrowser.flushAutosave`, by path) and close. This is the
+ *    case that used to raise a confirm, and the confirm's honest answer was
+ *    always "yes, obviously save it" — which is how a person learns to dismiss
+ *    the dialog without reading it, including the time it mattered.
+ *  - `confirm` — the draft is one nothing will write: a conflict, or a save
+ *    that failed. Ask.
+ *
+ * Three booleans rather than an `EditorState`, so this file stays what its
+ * header says it is — tabs as data, with no idea an editor exists — and so the
+ * decision is testable one row at a time. `undecided` is `needsDecision` in
+ * `editor.ts`, and `open` matters because the console holds a draft for the
+ * note in the editor and no other: a conflict cannot be waiting inside a tab
+ * that is not the one on screen.
+ */
+export function closeIntent(input: {
+  /** This tab carries unsaved changes. */
+  dirty: boolean;
+  /** The editor is holding this tab's note. */
+  open: boolean;
+  /** That note is in a state autosave refuses to write. */
+  undecided: boolean;
+}): "close" | "flush" | "confirm" {
+  if (!input.dirty) return "close";
+  if (input.open && input.undecided) return "confirm";
+  return "flush";
+}
+
 export function dirtyCount(state: TabsState): number {
   return state.tabs.reduce((count, tab) => count + (tab.dirty ? 1 : 0), 0);
 }

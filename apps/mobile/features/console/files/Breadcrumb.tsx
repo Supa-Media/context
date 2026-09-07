@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { densityFor } from "../../app/frame";
 import { PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
@@ -63,23 +63,30 @@ import type { Visibility } from "./types";
  * - **No visibility chip.** A note carries it as a Properties row and a folder
  *   states it in a sentence directly beneath. Both are fuller than the brief
  *   chip, and both are already on screen.
- * - **No context segment, which is the half of this that changed back.** It
- *   was here, pressable, on the argument that it is not a label but the way
- *   *up* from a top-level folder, and that the duplication was paid for by the
- *   leaf and the chip being gone. The premise expired when the contexts moved
- *   into the scroller: the lit pill is now the line directly above this one, so
- *   the segment was the same word twice again — the thing this whole component
- *   is careful about — on the surface with the least room for it. The way up
- *   went with it and is that pill, which opens its own context at the root
- *   (`console/_layout`). See `NavBand`.
+ * - **No context segment, because it is not a segment any more — it is the
+ *   button in front of these.** `NavBand` draws `CurrentContextPill` at the
+ *   head of this row, so the context is named once, is pressable, and opens its
+ *   own root: the way *up* that the segment used to be, drawn as a control
+ *   rather than as monospace.
  *
- * ## And it scrolls, because a path is longer than a phone
+ *   This is the second answer to that question and the first one was wrong.
+ *   The segment was simply deleted, on the reasoning that the strip above named
+ *   the context already — which removed the duplication and the way up
+ *   together, leaving a top-level folder with an empty path row and no route to
+ *   its own root. A thing that is in two places is moved to one, not removed
+ *   from both.
+ *
+ * ## It returns bare segments, and `NavBand` owns the scroller
  *
  * `3-resources/books/reading-notes/…` is wider than 390pt within three
- * segments, and the two ways to fit it are both worse than moving it: wrapping
+ * segments, and the two ways to fit it are both worse than scrolling: wrapping
  * makes the band a variable number of rows, ellipsising leaves the segment you
- * are standing next to unreadable. Same rule as `ContextStrip`'s and for the
- * same reason — nothing truncates, the row gets longer, the scroll absorbs it.
+ * are standing next to unreadable. Same rule as `ContextStrip`'s — nothing
+ * truncates, the row gets longer, the scroll absorbs it.
+ *
+ * The scroller is one level up because the context button scrolls **with** these
+ * segments: they are one line, and a button that stayed still while its own path
+ * slid out from under it is two controls pretending to be one.
  */
 export function Breadcrumb({
   path,
@@ -136,31 +143,25 @@ export function Breadcrumb({
 
   if (pathOnly === true) {
     /*
-      A folder page's own folder is its heading, so the crumb is its ancestors
-      — which means a top-level folder has none, and the row would be an empty
-      band under the contexts. The pill above is where you are and the way up
-      from here, so there is nothing left to draw.
+      A folder page's own folder is its heading, so the crumb is its ancestors —
+      which means a top-level folder has none. That is not an empty row any
+      more: `NavBand` draws the context button in front of these, so what is
+      returned here is the *rest* of the line and `null` is a complete answer.
     */
     if (folders.length === 0) return null;
     return (
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={[styles.bar, styles.barCompact, styles.barPath]}
-        testID="breadcrumb-path-scroll"
-      >
+      <>
         {folders.map((segment, index) => {
           const folder = segments.slice(0, index + 1).join("/");
           return (
             <Fragment key={folder}>
               {/*
-                No separator in front of the first segment. There is nothing to
-                its left now the context is gone, and an unconditional one
-                renders the path as "/ 1-projects / note" — a leading slash
-                reading as an absolute path into the bucket root, which is not
-                the addressing this product uses. Same rule as the full line's.
+                A separator in front of every segment, the first included —
+                because the thing to its left is the context button, and
+                `@seyi 1-projects` with nothing between them reads as two
+                unrelated controls rather than as a path.
               */}
-              {index === 0 ? null : <Separator />}
+              <Separator />
               <PressRow
                 accessibilityLabel={`Open ${folder}`}
                 onPress={() => onSelectFolder?.(folder)}
@@ -175,7 +176,7 @@ export function Breadcrumb({
             </Fragment>
           );
         })}
-      </ScrollView>
+      </>
     );
   }
 

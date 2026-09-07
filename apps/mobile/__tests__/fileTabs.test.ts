@@ -15,6 +15,7 @@ import { describe, expect, test } from "@jest/globals";
 import type { FolderListing } from "../features/console/files/types";
 import {
   MAX_REOPENABLE,
+  closeIntent,
   dirtyCount,
   emptyTabs,
   isTabDirty,
@@ -568,6 +569,33 @@ describe("isTabDirty — the question the close confirm asks", () => {
 
     expect(isTabDirty(state, "b.md")).toBe(true);
     expect(isTabDirty(state, "a.md")).toBe(false);
+  });
+
+  test("closing a tab with an ordinary draft writes it instead of asking", () => {
+    /*
+      The confirm this used to raise had one honest answer — "yes, obviously
+      save it" — which is how somebody learns to dismiss a dialog without
+      reading it, including the time it mattered. Autosave writes the draft on
+      the way out, so the question is only asked about a draft nothing will
+      write.
+    */
+    expect(closeIntent({ dirty: true, open: true, undecided: false })).toBe("flush");
+    expect(closeIntent({ dirty: true, open: false, undecided: false })).toBe("flush");
+    // A conflict or a failed save in the note on screen: still asked about.
+    expect(closeIntent({ dirty: true, open: true, undecided: true })).toBe("confirm");
+    /*
+      And not asked about for a tab that is *not* the one in the editor, even
+      while the editor is stuck on one of those. The console holds a draft for
+      the open note and no other, so `undecided` there is a fact about a
+      different file — asking would be a dialog about a note the person is not
+      closing.
+    */
+    expect(closeIntent({ dirty: true, open: false, undecided: true })).toBe("flush");
+  });
+
+  test("a clean tab closes on one press, whatever the editor is doing", () => {
+    expect(closeIntent({ dirty: false, open: true, undecided: true })).toBe("close");
+    expect(closeIntent({ dirty: false, open: false, undecided: false })).toBe("close");
   });
 
   test("a tab that is not open is not dirty", () => {

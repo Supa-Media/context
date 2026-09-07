@@ -90,6 +90,16 @@ import {
 } from "./lib/d1";
 import { PROJECTION_CHAIN } from "./lib/fastSearch";
 import {
+  type BlendSource,
+  decodeCursor,
+  depthFor,
+  encodeCursor,
+  fuse,
+  pageOf,
+  queryFingerprint,
+  resolveScope,
+} from "./lib/blendedSearch";
+import {
   DELETE_CONFIRMATION,
   FileOpError,
   type FileStore,
@@ -291,6 +301,60 @@ const searchResultsValidator = v.object({
 });
 
 /**
+ * One blended answer: a page of results, and one row per context it asked.
+ *
+ * Every count in here is taken **after** the caller's own `canSee` — in
+ * `searchNotes`, which is where the single-context answer takes it too. A
+ * blended total assembled from candidate counts would be the subtraction attack
+ * `search/CONTRACT.md` names, run once per context and then summed, which is
+ * strictly worse than running it once: the differences would tell a member
+ * which of several contexts holds the notes they cannot read.
+ */
+const blendedResultsValidator = v.object({
+  results: v.array(
+    v.object({
+      workspaceId: v.id("workspaces"),
+      slug: v.string(),
+      displayName: v.string(),
+      path: v.string(),
+      title: v.string(),
+      /** The explanatory line, or `""` where the index had none to give. */
+      snippet: v.string(),
+    }),
+  ),
+  /** Visible matches across every context asked. A floor when any source's is. */
+  matchCount: v.number(),
+  matchCountIsFloor: v.boolean(),
+  /** Opaque, and `null` when there is no next page. Never carries the query. */
+  cursor: v.union(v.string(), v.null()),
+  /**
+   * One row per context searched — the scope, as the server resolved it.
+   *
+   * This is what makes a partial failure useful rather than invisible: a source
+   * that timed out is a row saying so beside the results from the sources that
+   * answered, and retrying it is the same call with that one id in `contexts`.
+   */
+  sources: v.array(
+    v.object({
+      workspaceId: v.id("workspaces"),
+      slug: v.string(),
+      displayName: v.string(),
+      state: v.union(v.literal("ok"), v.literal("indexing"), v.literal("failed")),
+      matchCount: v.number(),
+      matchCountIsFloor: v.boolean(),
+    }),
+  ),
+  /**
+   * How many contexts this viewer could search at all, whatever they selected.
+   *
+   * Zero is its own state on screen — "no context has fast search on" is a
+   * different sentence from "nothing matched", and collapsing them would tell
+   * somebody their notes are not there when nothing looked.
+   */
+  eligibleCount: v.number(),
+});
+
+/**
  * What one maintenance pass got through. Counts about the index's own
  * progress, and deliberately nothing about the notes it read: an indexing pass
  * is scope-blind, so a field naming a path or a term here would be an
@@ -349,6 +413,18 @@ const operationValidator = v.union(
     kind: v.literal("search"),
     query: v.string(),
     prefix: v.optional(v.string()),
+    /**
+     * How far down the ranked list this answer reads. Absent is ten, the
+     * palette's depth; the search page's later pages ask for more. Clamped by
+     * `pageDepth` below this, at `MAX_RESULTS` — the rank the ranker stops at.
+     */
+    limit: v.optional(v.number()),
+    /**
+     * Whether a miss may buy one bucket listing and ask again. Absent is true,
+     * which is what a single-context search has always done. The fan-out sets
+     * it false; `searchNotes` carries the arithmetic for why.
+     */
+    refreshOnMiss: v.optional(v.boolean()),
   }),
   /**
    * Bring the search index a pass further. Scheduled, never called by a client
@@ -419,7 +495,13 @@ const operationValidator = v.union(
 type FileOperation =
   | { kind: "list"; path: string }
   | { kind: "read"; path: string }
-  | { kind: "search"; query: string; prefix?: string }
+  | {
+      kind: "search";
+      query: string;
+      prefix?: string;
+      limit?: number;
+      refreshOnMiss?: boolean;
+    }
   | { kind: "maintainIndex"; passes?: number }
   | { kind: "projectIndex"; passes?: number }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
@@ -892,7 +974,13 @@ export async function executeOperation(
       case "search": {
         const results = await searchNotes(
           store,
-          { query: operation.query, prefix: operation.prefix, scope },
+          {
+            query: operation.query,
+            prefix: operation.prefix,
+            scope,
+            limit: operation.limit,
+            refreshOnMiss: operation.refreshOnMiss,
+          },
           projection,
         );
         return { kind: "searchResults", ...results };
@@ -1039,6 +1127,70 @@ function toConvexError(error: unknown): ConvexError<{
 /* -------------------------------------------------------------------------- */
 
 /**
+ * How long one context in a blended search may take before the page goes on
+ * without it.
+ *
+ * Under the console's own ten-second client timeout, so a blended page ends as
+ * a partial answer somebody can act on rather than as the spinner that cannot
+ * stop — `useContextSearch` documents that failure at length and this is the
+ * server-side half of not causing it. Comfortably above what a projection read
+ * costs (one D1 round trip) and above the R2 fall-through a miss pays for,
+ * which is what it is really bounding.
+ */
+const SOURCE_DEADLINE_MS = 7_000;
+
+/** What `searchContexts` answers. Mirrors `blendedResultsValidator` exactly. */
+type BlendedAnswer = {
+  results: {
+    workspaceId: Id<"workspaces">;
+    slug: string;
+    displayName: string;
+    path: string;
+    title: string;
+    snippet: string;
+  }[];
+  matchCount: number;
+  matchCountIsFloor: boolean;
+  cursor: string | null;
+  sources: {
+    workspaceId: Id<"workspaces">;
+    slug: string;
+    displayName: string;
+    state: "ok" | "indexing" | "failed";
+    matchCount: number;
+    matchCountIsFloor: boolean;
+  }[];
+  eligibleCount: number;
+};
+
+/**
+ * One source's answer, or `null` because it did not arrive in time or at all.
+ *
+ * Both halves matter. The timer is cleared in a `finally` so a page that ends
+ * early does not leave one pending per context; and the work is wrapped in its
+ * own `catch` **before** the race rather than after it, because a promise that
+ * rejects after the timeout has already won is an unhandled rejection — which
+ * in a Convex action is a log line about somebody's bucket, attached to no
+ * request, in a deployment where the request it belonged to succeeded.
+ */
+async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work.then(
+        (value) => value,
+        () => null,
+      ),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
  * The signed-in user, or a `ConvexError` a client can act on.
  *
  * A plain `Error` would be scrubbed to "Server Error" and dead-end the person
@@ -1157,6 +1309,216 @@ export const searchContext = action({
       });
     }
     return result;
+  },
+});
+
+/**
+ * One search across several contexts, blended into one list.
+ *
+ * ## Why the fan-out is here
+ *
+ * Because the per-context search already is. This action resolves a scope,
+ * calls `runFileOperation`'s `search` once per context, and blends the answers
+ * — and every part it does not do is the point: it does not open a bucket, does
+ * not know what a projection is, does not rank, does not cut a snippet, and
+ * **does not contain a privacy filter.** `searchNotes` owns all of that, once,
+ * for the console and for `search_notes` alike, exactly as
+ * `docs/decisions/search.md` requires. A blended search that re-derived who may
+ * see a hit would be a third copy of `canSee` and the one most likely to be
+ * wrong, because it is the one nobody would think to test per tier.
+ *
+ * The gateway was the alternative home and it is the wrong one twice: a Worker
+ * has a fifty-subrequest ceiling per invocation, which a fan-out over eight
+ * customers' buckets walks into by itself, and the console would need a request
+ * per context per page — which is the "the client makes one request per page"
+ * property this exists to give it.
+ *
+ * ## Every page re-checks everything
+ *
+ * Membership, role and fast-search state are re-read on every page of every
+ * query: `searchableContextsFor` is a live read, `authorizeFileAccess` runs per
+ * context per page, and the scope the caller asked for can only narrow that.
+ * So somebody removed from a workspace between page one and page two gets page
+ * two without it — no cached scope, no cursor-carried permission. The cursor
+ * carries offsets and nothing else, and `decodeCursor` says at length why.
+ *
+ * ## What it deliberately does not do
+ *
+ * **It schedules no index maintenance.** `searchContext` does, because a person
+ * searching one context is the cheapest possible trigger for catching that
+ * context's index up. Multiplying that by the width of a scope would put a full
+ * bucket listing per context behind every keystroke on this page, billed to
+ * every one of those customers — and it would buy nothing here, because every
+ * context in scope has a projection the control plane already calls `ready`,
+ * kept current by the gateway riding its own searches.
+ *
+ * **It logs no query text.** Nothing in this function writes the words
+ * somebody typed anywhere: not to audit, not to a structured log, not into the
+ * cursor. `docs/decisions/search.md` records that as a decision rather than an
+ * omission — a search over several people's contexts is a much better guess at
+ * what somebody is working on than any single note read.
+ */
+export const searchContexts = action({
+  args: {
+    query: v.string(),
+    /**
+     * The scope, as workspace ids. Absent or empty means every eligible
+     * context. An id this caller may not search is **dropped**, identically to
+     * one that never existed — see `resolveScope`.
+     */
+    contexts: v.optional(v.array(v.id("workspaces"))),
+    /** A cursor from a previous page of this same query, or nothing. */
+    cursor: v.optional(v.string()),
+  },
+  returns: blendedResultsValidator,
+  handler: async (ctx, args): Promise<BlendedAnswer> => {
+    const actorUserId = await callerId(ctx);
+    const eligible = await ctx.runQuery(
+      internal.functions.fastSearch.searchableContextsFor,
+      { actorUserId },
+    );
+
+    const query = args.query.trim();
+    const scope = resolveScope(eligible, args.contexts);
+    if (query === "" || scope.length === 0) {
+      // An empty query and an empty scope are both "nothing was asked", and
+      // both answer with an empty page rather than an error. `eligibleCount`
+      // is what lets the page tell the two apart on screen.
+      return {
+        results: [],
+        matchCount: 0,
+        matchCountIsFloor: false,
+        cursor: null,
+        sources: [],
+        eligibleCount: eligible.length,
+      };
+    }
+
+    const fingerprint = queryFingerprint(query);
+    const read = decodeCursor(args.cursor, fingerprint);
+    const offsets = read.kind === "page" ? read.offsets : {};
+
+    /*
+      ONE DEADLINE PER SOURCE, AND A SLOW CONTEXT COSTS ONLY ITSELF.
+
+      `Promise.all` over a list where each entry has already been wrapped, so
+      the whole page is bounded by the slowest source that answers *in time*
+      rather than by the slowest source. A bucket that has stopped answering
+      would otherwise hold every other context's results behind it, which is
+      the failure mode a blended list makes worse rather than better: one
+      unreachable context and the page has nothing on it.
+    */
+    const answered = await Promise.all(
+      scope.map(async (context) => {
+        const offset = offsets[context.workspaceId] ?? 0;
+        const asked = depthFor(offset);
+        const settled = await withDeadline(
+          (async () => {
+            // The one authorization function, per context, per page. The
+            // eligible list already established membership; this re-establishes
+            // it through the same query every other file action uses, so a
+            // blended search cannot come to disagree with a single one about
+            // what role means what scope.
+            const { scope: tier } = await ctx.runQuery(
+              internal.functions.files.authorizeFileAccess,
+              {
+                actorUserId,
+                workspaceId: context.workspaceId as Id<"workspaces">,
+                minimum: "member" as const,
+              },
+            );
+            return (await ctx.runAction(internal.functions.files.runFileOperation, {
+              workspaceId: context.workspaceId as Id<"workspaces">,
+              scope: tier,
+              operation: {
+                kind: "search" as const,
+                query,
+                limit: asked,
+                // See `searchNotes`: a fan-out misses in most of its contexts
+                // by construction, and one listing per miss is the cost of a
+                // rule written for a single spinner.
+                refreshOnMiss: false,
+              },
+            })) as Extract<OperationResult, { kind: "searchResults" }>;
+          })(),
+          SOURCE_DEADLINE_MS,
+        );
+        return { context, offset, asked, settled };
+      }),
+    );
+
+    const sources: BlendSource[] = [];
+    const rows: BlendedAnswer["sources"] = [];
+    let matchCount = 0;
+    let matchCountIsFloor = false;
+    for (const { context, offset, asked, settled } of answered) {
+      if (settled === null) {
+        // A refusal, a timeout and a thrown storage error are one state on
+        // screen, and deliberately: what a person can do about each is press
+        // retry on that row. The reason is not carried because it would be a
+        // provider's sentence about somebody else's bucket.
+        //
+        // **And the blended total stops claiming to be exact.** A source that
+        // was never read is a walk cut short, which is the condition under
+        // which every other count in this system reports itself as a floor —
+        // `search/CONTRACT.md`'s rule, and the census's own language. Summing
+        // the sources that answered and calling the result a total would be a
+        // confident number over a scope only half searched, and the one place
+        // that understatement matters most is the page whose whole promise is
+        // "everything you can reach".
+        matchCountIsFloor = true;
+        rows.push({
+          workspaceId: context.workspaceId as Id<"workspaces">,
+          slug: context.slug,
+          displayName: context.displayName,
+          state: "failed",
+          matchCount: 0,
+          matchCountIsFloor: false,
+        });
+        continue;
+      }
+      sources.push({
+        key: context.workspaceId,
+        hits: settled.hits,
+        offset,
+        asked,
+      });
+      matchCount += settled.matchCount;
+      matchCountIsFloor = matchCountIsFloor || settled.matchCountIsFloor;
+      rows.push({
+        workspaceId: context.workspaceId as Id<"workspaces">,
+        slug: context.slug,
+        displayName: context.displayName,
+        // An index that has not caught up is not "no matches here", and a
+        // blended list is where that lie is easiest to tell: nine contexts
+        // answer, the tenth is still indexing, and its silence reads as an
+        // answer about somebody's notes.
+        state: settled.indexMissing || settled.indexIncomplete ? "indexing" : "ok",
+        matchCount: settled.matchCount,
+        matchCountIsFloor: settled.matchCountIsFloor,
+      });
+    }
+
+    const page = pageOf(fuse(sources), sources);
+    const named = new Map(scope.map((context) => [context.workspaceId, context]));
+    return {
+      results: page.rows.map((row) => {
+        const context = named.get(row.key)!;
+        return {
+          workspaceId: context.workspaceId as Id<"workspaces">,
+          slug: context.slug,
+          displayName: context.displayName,
+          path: row.path,
+          title: row.title,
+          snippet: row.snippet,
+        };
+      }),
+      matchCount,
+      matchCountIsFloor,
+      cursor: page.next === null ? null : encodeCursor(fingerprint, page.next),
+      sources: rows,
+      eligibleCount: eligible.length,
+    };
   },
 });
 

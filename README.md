@@ -83,6 +83,15 @@ folders with note counts. It is the difference between an AI client that knows
 you already have a project on this and one that asks you to explain yourself
 again.
 
+That instruction lives in the connection, though, not in the client — a fresh
+chat can still forget to act on it. To make it permanent, paste this into the
+client's own custom instructions, system prompt, or rules file (the connect
+screen shows you exactly where, per client):
+
+> Always orient using the Context MCP (call `orient`) before answering
+> anything about me or my work, and save what you learn with `save_context`
+> before you finish.
+
 Most of what `orient` returns is derived from the bucket and rebuilt on every
 call. One part is not: `index.md`, an ordinary Markdown file at the root of your
 bucket that you own. Setting up a new brain writes a starting one describing
@@ -130,7 +139,7 @@ Two answers, and you want both:
 - **A session-end hook**, for when the agent does not call it:
 
   ```sh
-  npx -y @context-lc/hook install
+  npx -y @supa-media/context-hook install
   ```
 
   Signs you in once and adds a `SessionEnd` hook to Claude Code. From then on a
@@ -157,7 +166,7 @@ anonymous tier.
 | `apps/mobile/`    | Expo app (iOS, Android, web) — onboarding and dashboard         |
 | `apps/mcp/`       | The MCP gateway Worker — tools, privacy engine, storage adapter |
 | `packages/shared/`| Types and constants shared across apps                          |
-| `packages/hook/`  | `npx @context-lc/hook` — the session-end hook                    |
+| `packages/hook/`  | `npx @supa-media/context-hook` — the session-end hook                    |
 
 ## Development
 

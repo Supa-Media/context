@@ -411,23 +411,26 @@ describe("the path bar", () => {
     expect(app.find2(`Open ${DEEP}`)).toBeNull();
   });
 
-  test("the context is not a segment, because the pill above it is", () => {
+  test("the context is a button at the head of the path, not a segment", () => {
     /*
-      It used to be the first segment, pressable, on the argument that a
-      top-level folder has no ancestors and the bar would otherwise bottom out
-      one level short of home. That was true while the contexts were a slot in
-      the frame's top bar. They are the row directly above this one now
-      (`NavBand`), so the segment was `@seyi` twice on a 390pt screen — and the
-      way up is the lit pill, which opens its own context at the root.
+      It was a monospace segment, pressable, and the argument for it was that a
+      top-level folder has no ancestors so the bar would otherwise bottom out
+      one level short of home. That argument survives; what changed is what
+      carries it.
 
-      A top-level folder therefore draws no path row at all rather than a band
-      holding one word.
+      Deleting the segment — the first attempt — took the way up with it, and a
+      top-level folder was left with an empty path row and no route to its own
+      root. The context is *moved* now: off the strip, onto the head of this
+      row, as the same pill the strip draws, whose press opens the root.
     */
     const app = mountConsole(dataWith({}, { kind: "folder", path: "3-resources", name: "3-resources" }));
+    // Not a monospace segment...
     expect(app.find2("Open @seyi")).toBeNull();
-    expect(app.find("breadcrumb-path-scroll")).toBeNull();
-    // And the contexts are there, one row up, saying it once.
-    expect(app.find("context-strip")).not.toBeNull();
+    // ...a button, and the only place `@seyi` is named.
+    const pill = app.find("nav-context-seyi");
+    expect(pill).not.toBeNull();
+    expect(pill!.getAttribute("role")).toBe("button");
+    expect(app.find("context-strip-seyi")).toBeNull();
   });
 
   test("pressing a segment selects that folder", () => {
@@ -444,13 +447,23 @@ describe("the path bar", () => {
   });
 
   test("the path scrolls rather than wrapping or truncating", () => {
-    // `3-resources/books/reading-notes/…` is wider than a phone within three
-    // segments. Same rule as the contexts above it: nothing truncates, the row
-    // gets longer, the scroll absorbs it.
+    /*
+      `3-resources/books/reading-notes/…` is wider than a phone within three
+      segments. Same rule as the contexts above it: nothing truncates, the row
+      gets longer, the scroll absorbs it.
+
+      The scroller is `NavBand`'s rather than the breadcrumb's own, because the
+      context button scrolls *with* these segments — they are one line, and a
+      button that stayed still while its path slid out from under it is two
+      controls pretending to be one.
+    */
     const app = mountConsole(dataWith({}, { path: DEEP, name: "the-lean-startup.md" }));
-    const row = app.find("breadcrumb-path-scroll");
+    const row = app.find("nav-band-trail");
     expect(row).not.toBeNull();
     expect(getComputedStyle(row!).flexDirection).not.toBe("column");
+    // The button and the first segment are both inside it.
+    expect(row!.contains(app.find("nav-context-seyi")!)).toBe(true);
+    expect(row!.contains(app.find2("Open 3-resources")!)).toBe(true);
   });
 
   test("a pointer layout keeps the full line instead, chip and all", () => {

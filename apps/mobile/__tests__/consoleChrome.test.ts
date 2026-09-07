@@ -526,7 +526,7 @@ describe("search", () => {
  * `layout.minTouchTarget` rather than from a literal.
  */
 describe("the phone reaches a destination with nothing opened first", () => {
-  test("a context is one press on the strip, and the press raises no panel", () => {
+  test("a context is one press in the band, and the press raises no panel", () => {
     const app = mountConsole(390);
 
     // Nothing is up before, which is the whole point: this is the resting
@@ -534,15 +534,22 @@ describe("the phone reaches a destination with nothing opened first", () => {
     expect(app.find("frame-nav-sheet")).toBeNull();
     expect(app.find("frame-scrim")).toBeNull();
 
-    const pill = app.find("context-strip-seyi");
+    /*
+      The button for the context you are IN, at the head of the breadcrumb —
+      this fixture has exactly one context, so there is no pill for it on the
+      strip and this is the whole of the navigation to a context on this screen.
+      It is also the way to that context's root, which is the press that was
+      missing when the segment was deleted instead of moved.
+    */
+    const pill = app.find("nav-context-seyi");
     expect(pill).not.toBeNull();
     app.press(pill);
 
-    // Still nothing. A strip is furniture; there is no dismissal to wire up
+    // Still nothing. The band is furniture; there is no dismissal to wire up
     // and therefore none to forget.
     expect(app.find("frame-nav-sheet")).toBeNull();
     expect(app.find("frame-scrim")).toBeNull();
-    expect(app.find("context-strip")).not.toBeNull();
+    expect(app.find("nav-band")).not.toBeNull();
 
     app.unmount();
   });

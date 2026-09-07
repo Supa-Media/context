@@ -372,6 +372,133 @@ export const disable = mutation({
   },
 });
 
+/* -------------------------------------------------------------------------- */
+/*                     which contexts a blended search may ask                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Contexts one person may search at once.
+ *
+ * The same order of magnitude as `listMyWorkspaces`' own cap and for the same
+ * reason: a bounded read rather than a scan whose cost is somebody's
+ * membership count. A fan-out has a second reason — every context in this list
+ * is a request to a customer's storage, so the number is also the width of the
+ * widest search anybody can cause with one keystroke.
+ */
+const SEARCHABLE_CONTEXT_CAP = 50;
+
+/** A context the blended search may include, and what the page renders it as. */
+export interface SearchableContext {
+  workspaceId: Id<"workspaces">;
+  slug: string;
+  displayName: string;
+  kind: string;
+  role: string;
+}
+
+const searchableContextValidator = v.object({
+  workspaceId: v.id("workspaces"),
+  slug: v.string(),
+  displayName: v.string(),
+  kind: v.string(),
+  role: v.string(),
+});
+
+/**
+ * The contexts this person may run a blended search over.
+ *
+ * Two conditions, and both are live:
+ *
+ *  1. **A membership row exists right now.** Not "existed when the page
+ *     loaded" — the search page re-asks this on every page of every query, so
+ *     somebody removed from a workspace between two pages stops being able to
+ *     search it, rather than keeping the scope chip they already had.
+ *  2. **Fast search is serving.** `searchProjectionState(...) === "ready"` is
+ *     the same composed gate `projectionTargetForWorkspace` applies — owner
+ *     opted in, entitled, provisioned, schema on it. A `backfilling` context
+ *     is excluded on purpose: its projection answers a query about a note it
+ *     has not copied yet with a silence a blended list would render as
+ *     "nothing here", which is the one thing search must never say wrongly.
+ *
+ * ## Why the fan-out is fast-search-only, and what it costs
+ *
+ * A context without a projection answers from the R2 shard index in the
+ * customer's own bucket: a manifest read, some shard reads, and a snippet read
+ * per hit. That is fine for one context with a person watching one spinner, and
+ * it does not fan out — eight contexts is eight buckets' worth of round trips
+ * inside one request's deadline, most of them for contexts the word is not in.
+ *
+ * So the blended page searches the contexts that can answer from a database.
+ * The cost is honest and has to be said on screen rather than hidden: a
+ * context whose owner has not turned fast search on is **not searched and not
+ * silently missing** — the page names the eligible set it searched, and a
+ * person with no eligible contexts is told that rather than shown an empty
+ * list. `docs/decisions/search.md` records the trade.
+ *
+ * A context is named here only because the caller is in it, so this list is
+ * not an oracle: it enumerates the caller's own memberships, which
+ * `listMyWorkspaces` already returns in full.
+ */
+async function searchableFor(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+): Promise<SearchableContext[]> {
+  const memberships = await ctx.db
+    .query("workspaceMembers")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .take(SEARCHABLE_CONTEXT_CAP);
+
+  const searchable: SearchableContext[] = [];
+  for (const membership of memberships) {
+    const workspace = await ctx.db.get(membership.workspaceId);
+    if (workspace === null) continue;
+    const binding = await bindingFor(ctx, membership.workspaceId);
+    if (searchProjectionState(workspace, binding) !== "ready") continue;
+    searchable.push({
+      workspaceId: workspace._id,
+      slug: workspace.slug,
+      displayName: workspace.displayName,
+      kind: workspace.kind,
+      role: membership.role,
+    });
+  }
+  return searchable.sort((a, b) => a.slug.localeCompare(b.slug));
+}
+
+/**
+ * The scope picker's list: every context this viewer can search.
+ *
+ * Public, and readable by any member — it names contexts the caller belongs to
+ * and nothing else. It carries no counts: how many notes a context holds is the
+ * census `status` keeps owner-only, and a list of contexts with note totals
+ * beside them would be that census in a different shape.
+ */
+export const searchableContexts = query({
+  args: {},
+  returns: v.array(searchableContextValidator),
+  handler: async (ctx): Promise<SearchableContext[]> => {
+    const userId = await requireUserId(ctx);
+    return await searchableFor(ctx, userId);
+  },
+});
+
+/**
+ * The same list, for the blended search action to resolve its scope from.
+ *
+ * INTERNAL, and `actorUserId` comes from the session in the public action that
+ * calls it — the arrangement `authorizeFileAccess` documents. It exists
+ * separately from the query above because an action cannot call a public query
+ * with the caller's identity attached, and because the two must not drift: a
+ * scope picker that offered a context the fan-out would refuse, or the reverse,
+ * is a chip that does nothing.
+ */
+export const searchableContextsFor = internalQuery({
+  args: { actorUserId: v.id("users") },
+  returns: v.array(searchableContextValidator),
+  handler: async (ctx, args): Promise<SearchableContext[]> =>
+    await searchableFor(ctx, args.actorUserId),
+});
+
 // -- internals ------------------------------------------------------------
 
 /** Contexts one sweep may restart. See `sweepStalledBackfills`. */

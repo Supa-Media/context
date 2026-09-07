@@ -125,6 +125,27 @@ describe("the one line in the editor that promises durability", () => {
     expect(rendered).toContain("Read from this device");
   });
 
+  test("a draft on its way does not read as a debt", () => {
+    /*
+      The dirty line used to say "Unsaved changes", beside a button that said
+      "Save": two ways of telling somebody they owed the app an action. With
+      autosave the draft is written a couple of seconds after they stop typing,
+      so the three states of a note being worked on read as one progression —
+      "Saving soon", "Saving…", "Saved in your bucket".
+
+      Mounted rather than asserted on `statusLine`, which is private, and on
+      `saveButton`, which is pure and covered in `autosave.test.ts`: what this
+      file is for is the words a person actually sees together.
+    */
+    const dirty = editorReducer(opened, { type: "edited", text: "# Pilot\n\nStill typing.\n" });
+    const rendered = textOf(dirty);
+
+    expect(rendered).toContain("Saving soon");
+    expect(rendered).not.toContain("Unsaved changes");
+    // The resting note says it is saved rather than offering a dim Save.
+    expect(textOf(opened)).toContain("Saved");
+  });
+
   test("a queued draft can still be let go", () => {
     /*
       Save is dead in `queued` — the queue already holds the newest text — so
