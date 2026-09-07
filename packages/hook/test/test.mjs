@@ -789,7 +789,23 @@ await installHook({ clientId: "claude-code", endpoint: server.endpoint });
 const renamed = JSON.parse(await readFile(settingsPath, "utf8"));
 check(
   "an entry written under the old package name is replaced, not stacked beside",
-  renamed.hooks.SessionEnd.filter(isOurEntry).length === 1
+  /*
+    THE TOTAL, and then how many of them are ours — in that order, because the
+    second number alone cannot see this bug.
+
+    `filter(isOurEntry).length === 1` was the whole of this check and it was
+    dead: `isOurEntry` matches the CURRENT name, so it reads 1 whether the
+    legacy entry was replaced or left sitting beside the new one, and it stayed
+    green with `isOurs` hard-wired to `false`. That is the same "a count of
+    what we recognise cannot see what we failed to recognise" the marker
+    fixture two blocks up was rewritten for, shipped again one block later.
+
+    The length of the list is the number this test can compute without using
+    the thing under test: two entries, ours and the person's. Stacked, it is
+    three.
+  */
+  renamed.hooks.SessionEnd.length === 2 &&
+    renamed.hooks.SessionEnd.filter(isOurEntry).length === 1
 );
 check(
   "...and the person's own hook is still there",
@@ -798,6 +814,66 @@ check(
 check(
   "...and nothing is left invoking the name we stopped publishing",
   !JSON.stringify(renamed).includes("@context-lc/hook")
+);
+
+/*
+  AND SOMEBODY ELSE'S HOOK THAT MERELY CONTAINS ONE OF OUR NAMES IS NOT OURS.
+
+  `uninstall` deletes what it matches, out of a file the person owns, so the
+  matcher decides what this tool is allowed to destroy. An unanchored
+  `includes` reads `@supa-media/context-hook-extras` and `@context-lc/hooks-lint`
+  as us — different packages, published by whoever registered those names — and
+  a person's own `echo` mentioning the retired name in prose as us too.
+  MEASURED against the unanchored version: three of the four below were
+  deleted.
+
+  Recognising a retired name forever widens the blast radius of a loose match,
+  so the match is a whole token: preceded by a space or the start of the
+  command, followed by a space or the end of it — which is exactly how
+  `hookCommand` writes it and is not how any of these spell it.
+*/
+const NOT_OURS = [
+  "npx -y @context-lc/hooks-lint check",
+  "npx -y @supa-media/context-hook-extras run",
+  "echo 'migrated off @context-lc/hook'",
+  "npx -y @somebody-else/hook run",
+];
+await writeFile(
+  settingsPath,
+  JSON.stringify({
+    hooks: { SessionEnd: NOT_OURS.map((command) => ({ hooks: [{ type: "command", command }] })) },
+  })
+);
+/*
+  Installed first, so the same `uninstall` has to tell OUR OWN command apart
+  from four that merely contain one of our names. Asserting the strangers
+  survive on their own would leave the anchor free to match nothing at all;
+  this way the one number covers both directions.
+*/
+await installHook({ clientId: "claude-code", endpoint: server.endpoint });
+const strangers = await uninstallHook({ clientId: "claude-code" });
+const survivors = JSON.parse(await readFile(settingsPath, "utf8"));
+check(
+  "UNINSTALL DELETES NOBODY ELSE'S HOOK, INCLUDING ONES OUR NAMES ARE A SUBSTRING OF",
+  /*
+    Two, because `installHook` writes one entry per event in the client's map —
+    `SessionStart` and `SessionEnd`.
+
+    MEASURED: this line is NOT the one that catches an unanchored match, and
+    the pair below it only looks like a second opinion. `mergeHooks` filters on
+    the same `isOurs`, so an over-matching install has already deleted the
+    strangers before `uninstall` is reached, and `removed` is back to 2 —
+    green, over a file three hooks lighter. The `every` check underneath is the
+    load-bearing one. Kept anyway, because it is what would catch the opposite
+    failure: an anchor so tight that it stops recognising our own command.
+  */
+  strangers.removed === 2
+);
+check(
+  "...and all four are still in the file, which is the half `removed` cannot say",
+  NOT_OURS.every((command) =>
+    (survivors.hooks?.SessionEnd ?? []).some((entry) => entry.hooks[0].command === command)
+  )
 );
 
 await writeFile(

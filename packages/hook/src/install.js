@@ -72,6 +72,30 @@ export const HOOK_MARKER = "context-hook";
 const PUBLISHED_NAMES = ["@supa-media/context-hook", "@context-lc/hook"];
 
 /**
+ * Each name as a whole token, because `uninstall` deletes what this matches.
+ *
+ * The match runs over a command in a file the person owns, and a substring test
+ * reads three different things as us: another package whose name merely starts
+ * with one of ours (`@supa-media/context-hook-extras`, `@context-lc/hooks-lint`
+ * — names anybody may register), and a person's own command that mentions one
+ * in prose. MEASURED against the unanchored version, `uninstall` deleted three
+ * of four hooks that were nobody's business but their owner's.
+ *
+ * Recognising a name forever is what makes the looseness expensive: the retired
+ * name is now permanently in the matcher, so every superstring of it is
+ * permanently at risk. A space or the string's edge on both sides is exactly
+ * how `hookCommand` writes the name and is not how any of those spell it.
+ *
+ * `\s` rather than a literal space so a command joined with a tab or a newline
+ * is still recognised — those are ours to have written, and a hook that becomes
+ * unremovable because somebody reformatted their settings file is the failure
+ * this list exists to prevent.
+ */
+const PUBLISHED_NAME_TOKENS = PUBLISHED_NAMES.map(
+  (name) => new RegExp(`(?:^|\\s)${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$)`)
+);
+
+/**
  * All three write the same nested shape:
  *
  *     { "hooks": { "<Event>": [ { "hooks": [ { "type": "command", "command": … } ] } ] } }
@@ -148,7 +172,10 @@ export function clientById(id) {
  * secret.
  */
 export function hookCommand({ endpoint, client, command = "capture" }) {
-  return `npx -y @supa-media/context-hook ${command} --client ${shellArg(client)} --endpoint ${shellArg(endpoint)}`;
+  // `PUBLISHED_NAMES[0]` rather than the literal, so the name this package
+  // writes and the newest name it recognises cannot come apart. Written twice,
+  // the next rename updates one of them and the substring match hides it.
+  return `npx -y ${PUBLISHED_NAMES[0]} ${command} --client ${shellArg(client)} --endpoint ${shellArg(endpoint)}`;
 }
 
 function shellArg(value) {
@@ -199,7 +226,7 @@ function isOurs(matcher) {
     (entry) =>
       entry?.[HOOK_MARKER] === true ||
       (typeof entry?.command === "string" &&
-        PUBLISHED_NAMES.some((name) => entry.command.includes(name)))
+        PUBLISHED_NAME_TOKENS.some((token) => token.test(entry.command)))
   );
 }
 
