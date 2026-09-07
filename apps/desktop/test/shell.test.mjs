@@ -116,15 +116,20 @@ export function runShellChecks(check) {
 
     It said: "The main process re-checks the sender on every channel it handles
     … this one decides what is exposed, that one decides what is answered, and
-    either alone leaves a hole." MEASURED at the time: `senderFrame` and
-    `event.sender` appeared nowhere in `apps/desktop/src`, and not one of the
-    fourteen `ipcMain` handlers looked at who was asking. The layer was prose.
+    either alone leaves a hole", and `docs/decisions/desktop.md` specified it as
+    guard 3 beside a named test and a sabotage record for that test. MEASURED at
+    the time: `senderFrame` and `event.sender` appeared nowhere in
+    `apps/desktop/src`, not one of the SEVENTEEN `ipcMain` handlers looked at
+    who was asking, and the named test did not exist.
 
-    Nothing leaked — both console channels answer public values, and every other
-    renderer in this app loads a local file with a preload that exposes no way
-    to send. But the sentence is the one a person adding the NEXT channel reads,
-    and the next channels are the ones this docblock calls "the only route from
-    a page to this app's microphone". So it is a check now.
+    Nothing leaked, and not for the reason it is tempting to write: the console
+    channels answer values that are already public, and the twelve `COMMANDS.*`
+    channels are safe because every window holding a preload that can send them
+    is a `loadFile` of this app's own HTML — `preload/index.ts` exposes twelve
+    send verbs, `record` and `connect` among them. But the sentence is the one a
+    person adding the NEXT channel reads, and the next channels are the ones
+    that docblock calls "the only route from a page to this app's microphone".
+    So it is a check now.
 
     The evidence is frame IDENTITY rather than the sender's origin, and that is
     deliberate: identity is unambiguous at preload time, where an origin the
@@ -166,7 +171,25 @@ export function runShellChecks(check) {
     source is read: every `ipcMain.on` for a console channel must have the gate
     on it. Counted rather than merely matched, so deleting one handler's gate
     cannot be hidden by the other one still having it.
+
+    COMMENTS ARE STRIPPED FIRST, AND THE ASSIGNMENT IS MATCHED RATHER THAN THE
+    NAME. MEASURED: with a bare `body.includes("mayAnswerSender(")` over raw
+    source, deleting the gate from a handler and leaving
+
+        // TODO: re-apply mayAnswerSender( ... ) once the lifecycle is settled
+
+    in its place left the suite at 562 PASS, 0 FAIL, ALL PASS. The gate was gone
+    and the guard was green. `docs/decisions/desktop.md` records this package
+    learning exactly that once already, about `packaging.test.mjs` "reading the
+    config as text" and passing "when the value is only discussed in a comment"
+    — so this is the second time, in the file whose whole subject is a check
+    that was only ever discussed.
+
+    Commenting a guard out while debugging is not a contrived attack. It is
+    Tuesday.
   */
+  const withoutComments = (text) =>
+    text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
   const consoleHandlers = [...mainSource.matchAll(/ipcMain\.on\(CONSOLE_[A-Z_]+_CHANNEL, \(event\) => \{\n(.*?)\n  \}\);/gs)];
   check(
     "BOTH CONSOLE CHANNELS ARE REGISTERED, so this check is reading something",
@@ -175,7 +198,9 @@ export function runShellChecks(check) {
   check(
     "...and every one of them refuses a sender the gate rejects",
     consoleHandlers.length === 2 &&
-      consoleHandlers.every(([, body]) => body.includes("mayAnswerSender(")),
+      consoleHandlers.every(([, body]) =>
+        /event\.returnValue\s*=\s*mayAnswerSender\(/.test(withoutComments(body)),
+      ),
   );
 
   // --- what the shell is willing to load ------------------------------------

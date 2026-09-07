@@ -190,8 +190,22 @@ export async function runCaptureWindowChecks(check) {
   await handlers.stop();
   await settle();
   check("stopping hands over the partial chunk that was open", chunks.length === 3);
-  check("...measured rather than assumed to be a full rotation", chunks[2].durationMs < SEGMENT_MS);
-  check("...and starting from where the last one ended", chunks[2].atMs === SEGMENT_MS * 2);
+  /*
+    READ DEFENSIVELY, because the two lines below used to dereference
+    `chunks[2]` on the strength of the line above.
+
+    When that check failed the next line threw, node stopped the whole file at
+    check 273 of 562, and the run reported ONE failure — which is the shape this
+    repository has been caught by before ("a crash is not a pass, and it is not
+    a usable failure either", `packages/hook`'s sabotage record, note 6). It
+    cost two sabotage measurements in `#272` before it was recognised, both
+    times looking like the mutation under test had reddened nothing.
+
+    A missing chunk is now three named failures instead of a stack trace and
+    289 checks that never ran.
+  */
+  check("...measured rather than assumed to be a full rotation", chunks[2]?.durationMs < SEGMENT_MS);
+  check("...and starting from where the last one ended", chunks[2]?.atMs === SEGMENT_MS * 2);
   check("no recorder is opened after a stop", recorders.length === openRecorders);
   check("EVERY TRACK IS STOPPED, so the microphone indicator cannot outlive the capture",
     tracks.every((one) => one.stopped));

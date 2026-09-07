@@ -664,7 +664,9 @@ function openConsoleWindowIfAsked(): void {
   */
   const senderEvidence = (event: Electron.IpcMainEvent) => ({
     isConsoleWindow: event.sender === win.webContents,
-    isMainFrame: event.senderFrame === event.sender.mainFrame,
+    // `?.` because `senderFrame` is `null` for a frame that has gone away, and
+    // `undefined === null` is false — which is the answer that refuses.
+    isMainFrame: event.senderFrame?.parent === null,
   });
   ipcMain.on(CONSOLE_ORIGIN_CHANNEL, (event) => {
     event.returnValue = mayAnswerSender(senderEvidence(event)) ? origin : null;

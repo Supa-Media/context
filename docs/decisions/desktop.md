@@ -328,12 +328,15 @@ extended to a window that now loads a **remote** origin, which the panel and the
 notepad never did. That is the whole of what is new, and it is enough to warrant
 three independent guards rather than one:
 
-1. **The preload refuses to expose the bridge off-origin.** The pinned origin is
-   passed to the preload through `webPreferences.additionalArguments` at
-   construction, and `shouldExposeBridge(pinned, location.origin, isTopFrame)`
-   is a pure function that answers false for a different origin, for an
-   `about:blank`, and for **any subframe** — a preload runs in every frame, so
-   an iframe on a page is otherwise a bridge.
+1. **The preload refuses to expose the bridge off-origin.**
+   `shouldExposeBridge({ pinned, origin, isTopFrame })` is a pure function that
+   answers false for a different origin, for an `about:blank`, and for **any
+   subframe** — a preload runs in every frame, so an iframe on a page is
+   otherwise a bridge. The pin reaches the preload by a `sendSync` to the main
+   process and deliberately **not** through
+   `webPreferences.additionalArguments`, which this paragraph specified and the
+   code never did: a sandboxed preload asks, so the pin has one source and it is
+   the main process.
 2. **The window cannot navigate off it.** `will-navigate` is cancelled and
    `setWindowOpenHandler` returns `{ action: "deny" }` and hands the URL to
    `shell.openExternal`, so a link inside somebody's note opens in their browser
@@ -343,11 +346,34 @@ three independent guards rather than one:
    a page choosing what this app asks macOS to open is the hazard rather than
    the feature. An unparseable target is refused by both guards rather than
    waved through, which is the direction a `try` around a `new URL` has to fail.
-3. **The main process re-checks the sender on every channel.** Each
-   `ipcMain.handle` compares `event.senderFrame.url`'s origin to the pinned one
-   and refuses otherwise. This exists precisely because guard 1 lives in the
-   renderer process: a compromised renderer is the threat model, and a check
-   inside it is a check the attacker owns.
+3. **The main process answers only its own console window's main frame.**
+   `mayAnswerSender` in `core/shell/console.ts`, applied in `main/index.ts` to
+   both console channels: `event.sender === win.webContents` and
+   `event.senderFrame?.parent === null`, and `null` to anything else — which the
+   preload already fails closed on. This exists precisely because guard 1 lives
+   in the renderer process: a compromised renderer is the threat model, and a
+   check inside it is a check the attacker owns.
+
+   **This paragraph used to specify an origin comparison on
+   `event.senderFrame.url`, and it was never built.** For its whole life the
+   main process answered whoever asked, on all **seventeen** `ipcMain` handlers
+   — a layer described in three places and present in none, which `#272` found
+   and closed. Nothing leaked while it was missing: the two console channels
+   answer values that are already public, and the twelve `COMMANDS.*` channels
+   are reachable only from windows that `loadFile` this app's own HTML. Not,
+   note, because their preload cannot send — `preload/index.ts` exposes twelve
+   send verbs including `record` and `connect`.
+
+   **Identity rather than the origin this paragraph asked for, and the reason is
+   a measurement rather than a preference.** Driving the real Electron 33.4.11
+   binary: `senderFrame.origin` is readable at preload time, so that is not the
+   objection — but a second `BrowserWindow` opened at the same address reports
+   the same origin as the console, so an origin comparison admits any other
+   window this app opens there. That is the case an answering-side check most
+   obviously exists to refuse, and identity refuses it. `parent === null` rather
+   than `senderFrame === sender.mainFrame` because Electron's own typings
+   caution that distinct `WebFrameMain` instances may refer to one frame; both
+   were measured to work, and only one of them is documented behaviour.
 
 And one rule that is stronger than any of them: **the console window is never
 granted a media permission.** Its session's
@@ -361,12 +387,24 @@ cannot open a microphone directly, and it cannot record invisibly
 ([meetings](./meetings.md), *Consent is the customer's, and the product may
 never make recording invisible*).
 
-The test the owner asked for, and it is two: `a foreign origin gets no bridge`
-drives `shouldExposeBridge` through the origin, subframe and `about:blank` cases
-with no Electron in sight; `startCapture from a foreign sender is refused`
-drives the channel guard with a fake `event.senderFrame`. Both are sabotage
-tested — delete the origin comparison in either and exactly one of them must go
-red, which is what proves they are not the same check written twice.
+The test the owner asked for, and it is two, in `test/shell.test.mjs` with no
+Electron in sight: `shouldExposeBridge` is driven through the origin, subframe
+and `about:blank` cases, and `mayAnswerSender` through the foreign-window,
+subframe and absent-evidence cases. Both are sabotage tested — the gate
+returning true unconditionally reddens 4, dropping either of its arms reddens
+exactly 1, and each is a different check, which is what proves they are not the
+same check written twice.
+
+**A third check reads `main/index.ts` as text**, because that file imports
+Electron at the top level and the suite cannot load it: a predicate nothing
+calls is the same prose in a different font, which is the failure this whole
+section is a record of. It counts the handlers before checking them, so removing
+one gate cannot be hidden by the other keeping its; it strips comments first and
+matches the assignment rather than the name, because MEASURED without that,
+deleting a gate and leaving `// TODO: re-apply mayAnswerSender( ... )` in its
+place left the suite green — the same "reading the config as text passes when
+the value is only discussed in a comment" this package records above, in the
+section whose subject is a guard that was only ever discussed.
 
 ### Offline is what the outbox was always for, plus a tray that needs no page
 

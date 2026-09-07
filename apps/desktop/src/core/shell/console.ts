@@ -151,8 +151,8 @@ export interface BridgeExposure {
  * applies to the sender of every console channel, and the two are not one check
  * written twice. **That one decides which renderer is answered — by frame
  * identity, which the page cannot spell — and this one decides which document
- * is trusted.** Either alone leaves a hole, and for ten days after this
- * paragraph was first written the second one existed only in this paragraph.
+ * is trusted.** Either alone leaves a hole, and until `#272` the second one
+ * existed only in a sentence here saying that it did not.
  */
 export function shouldExposeBridge(exposure: BridgeExposure): boolean {
   const { pinned, origin, isTopFrame } = exposure;
@@ -173,7 +173,17 @@ export function shouldExposeBridge(exposure: BridgeExposure): boolean {
 export interface SenderEvidence {
   /** `event.sender === consoleWindow.webContents`. */
   isConsoleWindow: boolean;
-  /** `event.senderFrame === event.sender.mainFrame`. */
+  /**
+   * `event.senderFrame?.parent === null`.
+   *
+   * `parent` and not `event.senderFrame === event.sender.mainFrame`, though
+   * both were measured to work: Electron's own typings caution that "distinct
+   * `WebFrameMain` instances that refer to the same underlying frame will have
+   * the same `routingId`", which is the API telling you not to lean on `===`
+   * between frames. `parent === null` for the top frame is documented
+   * behaviour rather than an identity invariant. A `senderFrame` of `null` —
+   * a frame that has gone away — gives `undefined === null`, which is false.
+   */
   isMainFrame: boolean;
 }
 
@@ -183,31 +193,43 @@ export interface SenderEvidence {
  * ## This is the half `shouldExposeBridge`'s docblock claimed already existed
  *
  * It said the main process "re-checks the sender on every channel it handles",
- * and that the two together are what keeps a hole from opening. MEASURED when
- * that sentence was read against the tree: `senderFrame` and `event.sender`
- * appeared nowhere in `apps/desktop/src`, and none of the fourteen `ipcMain`
- * handlers looked at who was asking. The layer was prose.
+ * and `docs/decisions/desktop.md` specified it as guard 3 — "each
+ * `ipcMain.handle` compares `event.senderFrame.url`'s origin to the pinned one"
+ * — beside a named test and a sabotage record for it. MEASURED when those were
+ * read against the tree: `senderFrame` and `event.sender` appeared nowhere in
+ * `apps/desktop/src`, **none of the seventeen** `ipcMain` handlers looked at who
+ * was asking, and the named test did not exist. The layer was prose, and so was
+ * the sabotage that was supposed to have proved it.
  *
- * Nothing had leaked. Both console channels answer values that are public — the
- * origin is in the window's own URL, the shell info is a name and a version —
- * and every other renderer in this app loads a local file behind a preload that
- * exposes no way to send at all. But a claim that a check exists is read by the
- * next person adding a channel, and the next channels are the ones that
- * docblock calls "the only route from a page to this app's microphone".
+ * Nothing had leaked, and the reason is not the one it is tempting to write.
+ * Both console channels answer values that are already public — the origin is in
+ * the window's own URL, the shell info is a name and a version. What protects
+ * the twelve `COMMANDS.*` channels is **not** a sendless preload:
+ * `preload/index.ts` exposes twelve send verbs, `record` and `connect` among
+ * them. It is that every window holding that preload is a `loadFile` of HTML
+ * this app ships, and the one window that loads a remote origin gets
+ * `preload/console.ts`, which exposes no way to send at all.
  *
  * ## Why identity and not the sender's origin
  *
- * `WebFrameMain.origin` would be the tempting evidence and it is the wrong one
- * *here*: what it reports for a frame the main process is asked about during
- * preload is a lifecycle question no suite in this package can answer, and a
- * guard that refuses the real console on a timing assumption is an outage this
- * app inflicts on itself. Frame identity is unambiguous at every moment.
+ * Not because the origin is unreadable. MEASURED on Electron 33.4.11, driving
+ * the real binary: `event.senderFrame.origin` is already correct at preload
+ * time, on the initial load and after a reload.
+ *
+ * Because it is **weaker**. The same measurement put a second `BrowserWindow`
+ * on the same origin as the console, and its main frame reported that origin
+ * exactly as the console's did — so the comparison guard 3 specified admits any
+ * other window this app opens at that address, which is the case an
+ * answering-side check most obviously exists to refuse. Identity refuses it:
+ * `sender === win.webContents` was false for it and true for the console,
+ * across the initial load, a reload and a cross-process navigation.
  *
  * The origin comparison keeps its place in `shouldExposeBridge`, where
  * `location.origin` is the document's own and is exactly what a redirect has to
- * get past: after a redirect off the pin, the preload re-runs in the new
- * document, sees a different origin and exposes nothing — so the main process
- * answering that frame with a public string costs nothing.
+ * get past: `will-navigate` does not fire for redirects, so a 3xx off the pin
+ * lands a foreign document in this window — and the preload re-runs there, sees
+ * a different origin, and exposes nothing. The main process answering that
+ * frame with a public string costs nothing.
  *
  * So the two layers are: **this one decides which renderer is answered, that
  * one decides which document is trusted.** Neither is the other written twice.
