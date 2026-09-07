@@ -206,10 +206,34 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GATEWAY_SECRET: ${{ secrets.GATEWAY_SECRET }}
           CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
+          TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
+          TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
         run: |
           set -euo pipefail
           printf '%s' "$GATEWAY_SECRET" | pnpm exec wrangler secret put GATEWAY_SECRET --config "$MCP_WRANGLER_CONFIG"
           printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONTROL_PLANE_URL --config "$MCP_WRANGLER_CONFIG"
+
+          # Transcription: both, or neither, and absent is a working state.
+          #
+          # The desktop recorder reaches `POST /meetings/sessions/:id/transcribe`
+          # with its own grant; the gateway forwards the audio to the same
+          # `context-transcribe` Worker the control plane uses and keeps none of
+          # it. With neither variable set the route answers 501 and every
+          # recorder degrades to typed notes — which is the right answer for a
+          # self-hosted install and the reason this is not a required secret
+          # here. A URL with no secret would post meeting audio to an endpoint
+          # unauthenticated, so a half-configured pair is refused rather than
+          # deployed.
+          if [ -n "${TRANSCRIBE_WORKER_URL:-}" ] && [ -n "${TRANSCRIBE_WORKER_SECRET:-}" ]; then
+            printf '%s' "$TRANSCRIBE_WORKER_URL" | pnpm exec wrangler secret put TRANSCRIBE_WORKER_URL --config "$MCP_WRANGLER_CONFIG"
+            printf '%s' "$TRANSCRIBE_WORKER_SECRET" | pnpm exec wrangler secret put TRANSCRIBE_WORKER_SECRET --config "$MCP_WRANGLER_CONFIG"
+            echo "OK — transcription is configured for this gateway."
+          elif [ -n "${TRANSCRIBE_WORKER_URL:-}" ] || [ -n "${TRANSCRIBE_WORKER_SECRET:-}" ]; then
+            echo "ERROR: TRANSCRIBE_WORKER_URL and TRANSCRIBE_WORKER_SECRET must be set together."
+            exit 1
+          else
+            echo "OK — no transcription configured; meetings on the desktop will be typed."
+          fi
           echo "OK — the Worker's secrets match this repository's."
 
       - name: Deploy gateway

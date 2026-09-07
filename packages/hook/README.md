@@ -1,11 +1,11 @@
-# @context-lc/hook
+# @supa-media/context-hook
 
 Brackets an AI coding session with your [Context](https://context.lc): the
 orientation goes in at the start, what was learned comes back at the end, and
 neither depends on the agent remembering to.
 
 ```sh
-npx -y @context-lc/hook install
+npx -y @supa-media/context-hook install
 ```
 
 That signs you in once in your browser and adds two hooks to
@@ -34,7 +34,7 @@ a credential that lives on your laptop unattended. That is why it is a flag you
 type rather than a default you discover later.
 
 ```sh
-npx -y @context-lc/hook install --orient
+npx -y @supa-media/context-hook install --orient
 ```
 
 Neither version ever asks for `context:private`. A hook that could read every
@@ -97,9 +97,9 @@ carries no secret.
 ## Commands
 
 ```sh
-npx -y @context-lc/hook install      # sign in, then add the hook
-npx -y @context-lc/hook status       # is this machine signed in?
-npx -y @context-lc/hook uninstall    # remove the hook, forget the credential
+npx -y @supa-media/context-hook install      # sign in, then add the hook
+npx -y @supa-media/context-hook status       # is this machine signed in?
+npx -y @supa-media/context-hook uninstall    # remove the hook, forget the credential
 ```
 
 `--endpoint <url>` points it at your own gateway if you self-host.
@@ -112,8 +112,8 @@ carrying `session_id`, `transcript_path` and `cwd`, and an `additionalContext`
 field at session start that injects text into the model's context.
 
 ```sh
-npx -y @context-lc/hook install --client codex
-npx -y @context-lc/hook install --client gemini-cli
+npx -y @supa-media/context-hook install --client codex
+npx -y @supa-media/context-hook install --client gemini-cli
 ```
 
 They differ in three details this package handles for you: the file

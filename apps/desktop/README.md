@@ -18,13 +18,14 @@ src/core/        no Electron anywhere in it — this is what CI tests
   settings.ts      what the app remembers, and how a broken file is repaired
   consent/         the blocklist, and the gate that decides if capture may start
   detection/       collectors, the poll loop, the panel's evidence list
-  capture/         permissions, the recorder interface, the transcriber interface
+  capture/         permissions, the recorder, the cloud engine, and the plan
+                   that decides what may be opened at all
   recording/       one meeting, from "yes" to a note in the bucket
-  sync/            the offline queue, the gateway client, the keychain seam
+  sync/            the offline queue, the gateway client, the grant's own life
   tray/            what the menu bar says, as a pure function
 src/platform/    the macOS collectors — ps, System Events, ioreg, Calendar
 src/main/        Electron: tray, windows, IPC, capture window, disk
-src/preload/     the nine functions a window is allowed to call
+src/preload/     the twelve verbs a window is allowed to send — no credential
 src/renderer/    the panel and the notepad, from the approved mockups
 test/            offline, no Electron, no network, no meeting required
 ```
@@ -40,11 +41,8 @@ The wire shapes, the routes, the error codes and the thresholds all come from
 
 ## Running it
 
-Dependencies are declared but **not installed in this checkout** — see "what I
-could not run" below. Once someone has run `pnpm install` at the repository
-root:
-
 ```sh
+pnpm install                             # once, at the repository root
 pnpm --filter @context/desktop build     # esbuild → dist/
 pnpm --filter @context/desktop start     # electron dist/main/index.js
 pnpm --filter @context/desktop dev       # rebuild on change; start in another shell
@@ -53,9 +51,35 @@ pnpm --filter @context/desktop typecheck
 ```
 
 `start` accepts `--fake-signals`, which runs the whole app against the
-deterministic collectors and the fake recorder and transcriber in
-`src/core/**/fakes`. That is how the panel, the tray and the notepad are worked
-on without being in a meeting, and it captures nothing.
+deterministic collectors and the fake recorder and transcriber. That is how the
+panel, the tray and the notepad are worked on without being in a meeting, and it
+captures nothing and stores no credential.
+
+### The first run, in order
+
+1. **Connect this machine.** Menu bar → *Connect this machine…*. Your browser
+   opens, you approve it, and the machine gets its own OAuth grant — registered
+   as its own client, so this laptop is revocable on its own. It asks for
+   `context:write context:private` and nothing else; the second scope is what
+   files your meetings as **private** rather than team-visible, and the first is
+   what lets a finalize write the note. It never asks to read your context.
+   The endpoint defaults to the product gateway; a self-hoster edits
+   `gatewayEndpoint` in the settings file and everything else is discovered from
+   it.
+2. **Say where the audio goes.** Immediately after connecting, the app asks
+   whether to transcribe through your gateway. Answering "not now" is a real
+   answer: meetings are then **typed** — nothing opens your microphone — and the
+   notes still land in your bucket.
+3. **Record.** Menu bar → *Record a meeting*, or press *Take notes* on the panel
+   when the app notices one. The notepad opens; type into it.
+4. **End & write up.** The queue drains and the note appears at
+   `0-inbox/meetings/YYYY-MM-DD-<slug>-<shortId>.md` in your own bucket, where
+   every AI client you have connected can read it.
+
+The credential lives in the OS keychain (`safeStorage` over a 0600 file in
+`userData`), never in the settings file, never in a URL, and never in a
+renderer. On a machine whose OS offers no encrypted storage the app holds it for
+that launch only and says so on the panel rather than writing a token to disk.
 
 ## Building a `.dmg`
 
@@ -130,7 +154,7 @@ the settings file, put in a URL, or exposed to a renderer.
 
 ## What is real, and what is not
 
-### Real, and checked by the suite (298 checks, offline, no network)
+### Real, and checked by the suite (492 checks, offline, no network)
 
 - The detection loop against fake collectors, including the flicker cases: one
   poll of a conferencing app does not start a recording, a two-poll blip does
@@ -159,26 +183,59 @@ failures is written down. Three of them originally *crashed* the suite instead
 of failing it — zero FAIL lines, which reads like coverage if you count
 failures — and the checks were rewritten until each sabotage reports itself.
 
-### Real, but unverifiable here
+- The credential's whole life: one refresh at a time however many callers ask
+  (a rotated refresh token spent twice signs the machine out for good), a
+  network failure never read as a revocation, `invalid_grant` cleared and
+  reported as "reconnect", and the refreshed pair persisted before it is handed
+  out.
+- The transcription client: what a chunk request carries, that the token is a
+  header and appears nowhere else, and which refusals stop the sending for the
+  rest of a meeting rather than repeating a sentence every twenty seconds.
+- The capture plan: no grant, or on-device chosen, means **no microphone is
+  opened at all** and no permission dialog is raised — and every sentence a
+  person is shown comes from a closed set.
+- **The credential at rest**, against a fake keychain and a real temporary
+  directory: the plaintext token never reaches the file, the file is 0600, a
+  machine with no keyring gets **no file at all** rather than a token in the
+  clear, a file this keychain cannot open reads as "not connected" instead of
+  crashing the launch, and disconnecting removes the file rather than emptying
+  it.
+- **How this machine gets its grant**, against a real loopback listener on
+  `127.0.0.1`: the scope asked for, PKCE with S256, a callback carrying the
+  wrong state refused *before* the code is exchanged, a plaintext endpoint
+  refused before a single request leaves, and nothing thrown carrying a token.
+- **The capture window**, against a fake browser: each chunk is a whole
+  recording started with **no timeslice** — the bug that would transcribe the
+  first twenty seconds of a meeting and silence after — offsets that are
+  contiguous arithmetic rather than a clock, system audio degrading to mic-only
+  rather than failing the meeting, and every track stopped on every exit path.
+
+### Real, but only a person on a Mac can confirm it
 
 - The Electron main process, tray, windows, IPC and preloads. They compile and
-  bundle; they have not been run, because Electron is not installed in this
-  checkout.
-- `src/main/capture.ts` and `src/renderer/capture.ts` — the hidden capture
-  window, `setDisplayMediaRequestHandler` with `audio: "loopback"`, two
-  `MediaRecorder`s, chunks streamed to the main process, tracks stopped on
-  every exit path.
+  bundle; nothing here can run them, because there is no display.
+- `src/main/capture.ts` — the hidden window itself and
+  `setDisplayMediaRequestHandler` with `audio: "loopback"`. The renderer half's
+  rotation, offsets and degradation are checked above against a fake browser;
+  what no suite here can see is whether the real Chromium inside Electron
+  produces a file a decoder will open from it.
+- The browser half of the OAuth flow: the system browser opening, the loopback
+  listener answering, and the grant appearing in the console's connections.
+- Whether macOS hands *this* build a system-audio track. It will not, until the
+  app is signed and notarised — the app treats that as mic-only and says so
+  rather than failing the meeting.
 
 ### Stubbed, and what each one actually needs
 
 | What | What is missing |
 | --- | --- |
-| **System audio capture** | Electron **≥ 31** for `audio: "loopback"` (declared: 33). A **signed, notarised** build with the hardened runtime — an unsigned dev build gets a microphone and silence from the loopback tap. `com.apple.security.device.audio-input` in the entitlements, and `NSMicrophoneUsageDescription` / `NSCalendarsUsageDescription` in `Info.plist`. None of this is a source file; it is a packaging step this repository does not have yet. |
-| **Transcription** | Both engines. On-device needs a speech model shipped with the app (macOS 26 `SpeechAnalyzer`, or a bundled Whisper build) behind a native addon — a build-system decision. Cloud needs a streaming endpoint on the gateway, reached with the workspace's own grant so the audio is transient and attributable. The interface, the swap and the "on device" pill that reads off the engine are all in place; `unavailableTranscriber` throws rather than silently recording nothing. |
+| **System audio capture** | Electron **≥ 31** for `audio: "loopback"` (declared: 33). A **signed, notarised** build with the hardened runtime — an unsigned dev build gets a microphone and silence from the loopback tap, which the app now detects and degrades to mic-only for, out loud. `com.apple.security.device.audio-input` in the entitlements, and `NSMicrophoneUsageDescription` / `NSAudioCaptureUsageDescription` / `NSCalendarsUsageDescription` in `Info.plist`. None of this is a source file; it is a packaging step. |
+| **Transcription — on device** | Still unbuilt: it needs a speech model shipped with the app (macOS 26 `SpeechAnalyzer`, or a bundled Whisper build) behind a native addon, which is a build-system decision. It is the **default setting**, so a fresh install records nothing until somebody chooses cloud transcription — deliberately, because the alternative is a first meeting that streams audio off the machine because nobody was asked. |
+| **Transcription — cloud** | Built. `POST /meetings/sessions/:id/transcribe` on the gateway, reached with this machine's own grant: the audio is forwarded to the same transcription service the phone's path uses and is never written, cached or logged. It is **off unless the gateway is configured for it** (`TRANSCRIBE_WORKER_URL` + `TRANSCRIBE_WORKER_SECRET`), and an unconfigured gateway answers 501 — one honest sentence and a typed meeting, rather than a message every twenty seconds. |
 | **Microphone-in-use** | `ioreg` sees IOAudioEngine objects, which is a real answer on Intel and on external interfaces, and often **no answer at all** on Apple Silicon. The collector distinguishes "engines present, none running" (a real negative) from "no engines visible" (throws, and the loop reports the collector as degraded). The honest fix is a tiny native addon reading CoreAudio's `kAudioDevicePropertyDeviceIsRunningSomewhere`. |
 | **Calendar** | Drives Calendar.app over JXA, which needs Automation permission and is slow. Attendees come back empty rather than invented. The right implementation is EventKit through a native helper, which also gets change notifications instead of a five-second poll. |
-| **The gateway credential** | `memoryTokenStore` is wired in `main/index.ts`. The real one is Electron's `safeStorage` over the OS keychain, behind the same `TokenStore` interface. Until a machine is connected, meetings queue rather than fail — which is the correct behaviour either way. |
-| **Onboarding** | There is no "connect this machine to your context" flow yet, so `gatewayBaseUrl` is null on a fresh install and the queue simply holds everything. |
+| **Packaging** | There is no `.app`, no `.dmg`, no entitlements file, no notarisation hook and no release workflow. That is the whole of what stands between this and system audio, and it is a separate change. |
+| **Onboarding beyond connecting** | There is a connect flow, a Record command and a transcription question, and that is all: no settings window, no way to edit the blocklist from the panel, no way to change the endpoint without editing the settings file. |
 | **Fonts** | Onest, Instrument Sans and JetBrains Mono are named with real fallback stacks; the font files are not bundled. A machine without them renders in the system UI face at the same sizes. |
 | **Tray icons** | Drawn as inline SVG in `main/tray.ts` rather than shipped as assets. The recording mark is deliberately **not** a template image, so it stays red instead of inverting with the menu bar. |
 | **Windows and Linux** | `src/platform/macos/` implements four functions. A port implements the same four and nothing above that line changes. |

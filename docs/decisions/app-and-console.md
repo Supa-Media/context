@@ -1804,6 +1804,110 @@ already true is that content scrolls *under* the bar rather than being pushed by
 it, which is the reference's own behaviour — so what is being asked for is a
 hide-on-scroll, and it wants its own decision.
 
+### The palette is a navigator, the search page is a place, and one row joins them
+
+The command palette answers *"take me to that note"*: ten rows, no scrolling,
+gone the moment you press Enter. It is very good at that and it is the wrong
+shape for the other question people bring to a set of notes — *"what do we know
+about the review cycle"* — where the reader has no destination in mind, needs to
+read several results next to each other, will narrow the scope halfway through,
+and will open one, read it, and come back. Every one of those wants a URL, and
+none of them survives an overlay that closes on the first press.
+
+So `/console/search` exists and the overlay keeps its ten rows. What joins them
+is one row at the bottom of the palette's own list.
+
+**A row, not a button in the chrome.** The chrome is not on the path a keyboard
+takes: a "See all results" button beside the input is reachable by a mouse and
+invisible to the arrows, which is the same defect as a control drawn where a
+phone cannot see it. As the last row it is in the one flat list that `selected`,
+the wrap-around and the scroll arithmetic all walk — ↑ from the top reaches it
+in one keystroke, and with nothing matching it is the only row there is, which
+is exactly when "Enter opens the search page" is unambiguously what somebody
+meant. **Enter elsewhere still opens the highlighted note.** The obvious wrong
+implementation makes Enter always open the page; it looks correct until somebody
+presses ↓, which is why `paletteRender.test.ts` moves the highlight before it
+presses Enter.
+
+The synthetic row is intercepted inside the palette rather than handed to
+`onChoose`. A palette that leaked its own sentinel id to callers would have
+every caller writing the same guard, and the one that forgot would try to open a
+note named after it.
+
+**The handoff carries the query and deliberately not the scope.** The palette
+searched the context you are standing in; the page defaults to every context you
+can reach, because that is the question the page is for. Narrowing back to one
+is a chip away and lands in the URL when you do it.
+
+### The search page's state is its URL, and that is a trade taken on purpose
+
+`/console/search?q=review%20cycle&in=seyi,lk`. The route holds no state of its
+own: the pane reads the query and the scope as props and writes them back
+through the router. Typing `replace`s and changing the scope `push`es — pushing
+a history entry per keystroke would make Back a way to delete letters, while
+going back to the previous scope is a real thing to want.
+
+The cost is that the words somebody typed are in browser history, in anything
+they paste, and in any referrer a link from the page sends. It is worth it: a
+search page that cannot be reloaded, linked, or returned to after opening a
+result is a modal wearing a URL, and those are three of the four things people
+do with one. What makes the trade defensible is that it is bounded to text a
+person deliberately typed into a visible field — the *cursor* beside it carries
+a fingerprint of the query and never the query, because nobody reads a cursor
+and nobody chose to put one anywhere. See `docs/decisions/search.md`.
+
+**The scope is slugs and never workspace ids.** `?in=seyi,lk` is the console's
+own public addressing, the same as `/console/@seyi`, and a URL somebody may
+paste into a chat should not carry database identifiers. It also degrades
+usefully: a slug the recipient cannot reach resolves to nothing on their side,
+exactly as the server drops an id they cannot search, so a shared link narrows
+to whatever the reader can actually see rather than erroring.
+
+### Four ways to have no results, and each is a different sentence
+
+A page that spans several contexts has more ways to be empty than a palette
+does, and collapsing them is how a search tells somebody their notes are not
+there when nothing looked:
+
+- **Nothing is searchable** — no context this person can reach has fast search
+  on. `eligibleCount: 0` comes back from the server for exactly this, and it
+  outranks even "type something to search", because there is nothing to type
+  into. The copy points at the setting.
+- **The scope was narrowed** to contexts that had nothing. Widening is one press
+  away and the sentence says so.
+- **Everything was searched and nothing matched** — the only case where "no
+  matches" is true.
+- **Part of it could not be reached** — results from four contexts and a timeout
+  on the fifth, which is neither "no matches" nor a failed search. It is a
+  partial answer with a retry beside the row that failed, and the retry is the
+  same blended call narrowed to that one context, so it goes through the same
+  authorization and the same filter.
+
+A context whose index is still catching up gets its own line for the same reason
+the palette has an `indexing` state: a blended list is where "this context said
+nothing" is most easily misread as an answer, because the other contexts
+answering makes the silence look like a result.
+
+They are one enum in `features/console/search/results.ts` rather than a chain of
+ternaries in the pane, so each case is named, tested, and a fifth cannot fall
+silently into the "no matches" arm.
+
+### Search is in the app's navigation, and it disappears only on a measured zero
+
+It is app level rather than a context's, because the question spans contexts — a
+Search *inside* a context would default its scope to that one, which is the
+search that already lives behind the palette.
+
+The row is drawn only where something would answer it: a person whose contexts
+all have fast search off has a destination that can only apologise. But
+`appSectionsFor(undefined)` **draws** the row, and that asymmetry is the rule.
+The eligible count arrives from a Convex query a beat after the first paint, so
+treating absence as zero would make Search flicker into existence on every load,
+and a navigation item that appears late is one people learn not to look for. It
+also keeps the demo console and the reachability registry honest: neither has a
+live query behind it, and neither should have to fake one to draw the app's own
+navigation.
+
 ### The console autosaves, and the prompt that is left is about a decision
 
 The editor had one route from a draft to the customer's bucket — the Save

@@ -125,7 +125,7 @@ export function clientById(id) {
  * secret.
  */
 export function hookCommand({ endpoint, client, command = "capture" }) {
-  return `npx -y @context-lc/hook ${command} --client ${shellArg(client)} --endpoint ${shellArg(endpoint)}`;
+  return `npx -y @supa-media/context-hook ${command} --client ${shellArg(client)} --endpoint ${shellArg(endpoint)}`;
 }
 
 function shellArg(value) {
@@ -175,7 +175,7 @@ function isOurs(matcher) {
   return entries.some(
     (entry) =>
       entry?.[HOOK_MARKER] === true ||
-      (typeof entry?.command === "string" && entry.command.includes("@context-lc/hook"))
+      (typeof entry?.command === "string" && entry.command.includes("@supa-media/context-hook"))
   );
 }
 

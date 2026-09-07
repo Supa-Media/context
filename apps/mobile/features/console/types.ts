@@ -29,6 +29,21 @@ export interface ConsoleContext {
   status: StatusTone;
 }
 
+/**
+ * How many contexts this viewer can run a blended search over.
+ *
+ * **Optional, and `undefined` is not zero.** It arrives from a Convex query a
+ * beat after the first paint, and it decides whether "Search" appears in the
+ * app's own navigation — so treating absence as zero would make the row flicker
+ * into existence on every load, and a navigation item that appears late is one
+ * people learn not to look for. `appSectionsFor` draws the row for `undefined`
+ * and hides it only for a measured zero.
+ *
+ * A count rather than the list: nothing outside the search page needs the
+ * names, and the page reads them from the control plane itself.
+ */
+export type SearchableContextCount = number | undefined;
+
 /** One connected AI client on the Connections pane. */
 export interface ConsoleClient {
   id: string;
@@ -216,6 +231,11 @@ export interface ConsoleData {
    * caller has nothing to route — the auth gate does it.
    */
   deleteAccount?: () => Promise<void>;
+  /**
+   * How many contexts this viewer can run a blended search over — see
+   * `SearchableContextCount` for why `undefined` is not zero.
+   */
+  searchableContexts?: SearchableContextCount;
   graph: MapGraph;
   stats: ConsoleStat[];
   clients: ConsoleClient[];

@@ -22,6 +22,57 @@ Open source from the first commit. That raises the bar in three concrete ways:
   working context without us. Keep `apps/mcp` dependency-free and its setup
   documented.
 
+## Every package this org publishes is `@supa-media/*`, through the framework's pipeline
+
+`packages/hook` publishes as `@supa-media/context-hook`, not `@context-lc/hook`
+(its name for one PR, before anyone had asked the question out loud). There is
+exactly one npm scope this org publishes under — `@supa-media` — and exactly
+one pipeline: `supa-framework`'s `release.yml` (changesets + `NPM_TOKEN` via
+`NODE_AUTH_TOKEN`, `publishConfig.registry` pointed at
+`https://registry.npmjs.org`). A product-specific scope is not a second option
+sitting next to that one; it does not exist, in the same way `PRIVATE_TOKEN` /
+`TEAM_TOKEN` is not a second auth model sitting next to grants. `context.lc` is
+a product name and a domain; it is not an npm identity, and it was never asked
+to be one.
+
+`supa-framework` has no `workflow_call` reusable workflow for "publish one
+package from a consumer repo" — `release.yml` runs `changeset publish` over
+its own monorepo's workspace, which is not this repo's shape. So this repo
+keeps its own `publish-hook.yml` rather than calling into the framework, but
+aligned to the framework's actual mechanism rather than inventing a second
+one: the same `NODE_AUTH_TOKEN`/`registry-url`/`scope` shape `setup-node` uses
+in `release.yml`, and the same secret name, `NPM_TOKEN` — so the org's
+existing npm automation token (the one that already publishes every
+`@supa-media/*` package from `supa-framework`) is the one this workflow reads
+too. Reusing the *value* means reusing the *item* in each app's own
+1Password vault, per `supa-framework`'s "one vault per app" model: an
+`NPM_TOKEN` Secure Note in the `Context` vault, same three fields
+(`dev`/`staging`/`production`) as every other secret there, carrying the same
+token value already used elsewhere. `NPM_TOKEN` was already in
+`scripts/secrets-allowlist.json` as optional before this decision was written
+down — this section is what makes that placement a decision rather than an
+accident.
+
+**What a "simplification" of this would cost:** a product picks its own scope
+(`@context-lc`, or a bare unscoped name) because it feels like its own thing.
+That is exactly the shared-token-model mistake in miniature — a boundary drawn
+per-product instead of per-org, for a resource (an npm scope, a publish
+credential) that is org-level by nature. It costs a second npm org to create
+and secure, a second automation token to mint and rotate, a second "who can
+publish under this scope" question to answer, and an install experience that
+no longer matches every other `@supa-media/*` package a person already has in
+a lockfile. It also produces exactly the sequence that happened here: a
+package ships named for a product before anyone checks whether the org
+already has a publishing story, and it has to be renamed — ideally before its
+first publish, not after, when the old name has downloads depending on it.
+
+**The test that fails if this is reversed:** `packages/hook/test/test.mjs`
+asserts `package.json`'s `name` starts with `@supa-media/`. Rename the
+package to any other scope, or drop the scope, and that assertion fails —
+loudly, in the same suite that runs before every publish
+(`prepublishOnly`), not silently in a registry nobody checks until an install
+breaks.
+
 Work goes through pull requests. Do not push to `main` — the PR is the record
 of what changed and why, and it is what makes the history readable by somebody
 who was not here.

@@ -322,6 +322,235 @@ outright and which does not matter at this size. And nothing here meters
 *spend*: this caps requests, not dollars, and a budget that stops at a number of
 dollars does not exist and is not pretended to.
 
+### The desktop is an OAuth client of the gateway, and it asks for the tier its meetings are filed at
+
+The phone writes a meeting the way it writes a note, through the control plane,
+because that is the credential it holds — `apps/mobile/features/meetings/convexGateway.ts`
+argues that at length and it has not changed. The desktop app holds the other
+kind, and the reason is not symmetry:
+
+**A laptop app that could read every context its owner belongs to is a much
+larger thing to lose than one holding a revocable grant on one.** A
+control-plane session reaches every workspace a person is a member of; a grant
+is minted per machine, appears in the console beside the AI clients, and is
+revoked on its own. So the desktop registers itself as its own OAuth client
+through the same reviewed flow `packages/hook` ships — RFC 9728 discovery,
+dynamic registration, a loopback redirect on `127.0.0.1`, PKCE with S256, a
+constant-time state comparison, and a refusal to walk to any URL that is not
+https or loopback. It imports that module rather than copying it, because a
+second PKCE implementation is a second chance to get the state comparison wrong.
+
+**The scope is `context:write context:private`, and the second half is not
+decoration.** `visibilityTierForGrant` reads a grant without `context:private`
+as `team`, and `publishMeetingNote` files a meeting at the connection's own
+tier — so a recorder that asked for the narrower thing would file every meeting
+its owner recorded as team-visible. That is a privacy default nobody chose,
+arrived at by asking for less, and it is exactly the shape of mistake this
+section exists to stop somebody making again as a "tightening". It does not ask
+for `context:read`: this app never reads the context, and a laptop credential
+that could read every note its owner ever wrote is past what the feature is
+worth.
+
+**The credential is in the OS keychain and the renderer cannot reach it.**
+`safeStorage` over a 0600 file created at open time, written atomically; a
+machine whose OS offers no encrypted storage holds it for that launch only and
+says so on the panel, rather than writing a bearer token to disk in the clear.
+Those rules live in `core/sync/encryptedFileStore.ts` rather than beside the
+Electron import, for the same reason `connect.ts` moved its: they were prose in
+a header no suite could load. `test/tokenStore.test.mjs` drives them against a
+fake keychain and a real directory — `THE PLAINTEXT TOKEN IS NOT ON DISK`,
+`THE FILE IS 0600`, `NO KEYRING MEANS NO FILE AT ALL` and
+`A FILE THIS KEYCHAIN CANNOT OPEN READS AS 'NOT CONNECTED', NOT AS A CRASH`.
+`main/tokenStore.ts` is now the one line that names `safeStorage`.
+No preload channel reads it, and the base URL requests go to is stored *with*
+the credential, so a token cannot be posted to a gateway other than the one it
+was minted for.
+
+A "simplification" here has three tempting shapes and each costs something
+specific: dropping `context:private` silently changes what every meeting is
+filed as; falling back to a plaintext file on a machine with no keyring breaks
+*credentials never live on a device*; and reusing a token another application
+holds is the design this repository has already refused. The checks are
+`test/connection.test.mjs`'s whole file — in particular
+`three callers racing an expired token refresh ONCE`,
+`A CAPTIVE PORTAL IS NOT A REVOCATION` and
+`...BY THE TIME THE TOKEN WAS HANDED OUT, so a crash cannot spend a token nobody saved`.
+
+**And the acquisition half is checked too, which took moving one import.**
+`main/connect.ts` held a top-level `import { shell } from "electron"`, so no
+suite on plain Node could load it and sabotaging its state comparison failed
+nothing anywhere in this repository — an auth path with no check behind it,
+which is the one thing CLAUDE.md names outright. The Electron call is a dynamic
+import inside the default browser opener now, for the reason `main/transcribe.ts`
+already gave for holding none, and `test/connect.test.mjs` drives the real flow
+against a real `127.0.0.1` listener: `A CALLBACK CARRYING THE WRONG STATE IS
+REFUSED`, `...AND THE CODE IS NEVER EXCHANGED, so an injected code buys no
+grant`, `THE SCOPE ASKED FOR IS WRITE AND PRIVATE`, `A PLAINTEXT GATEWAY IS
+REFUSED` and `THE LISTENER ANSWERS ONCE AND CLOSES`. Putting the static import
+back is not a tidy-up; it deletes those five checks.
+
+### A recorder that holds a grant transcribes at the gateway, and the meeting's own record is the ceiling
+
+The section above settles the cloud path for a client with a *control-plane*
+session. `POST /meetings/sessions/:id/transcribe` is the same question answered
+for a client with a **grant**, which the control plane's own file said was open
+and warned against answering sideways — minting a grant-shaped credential over
+there would have been answering it in the one place where getting it wrong is a
+token on a device.
+
+Everything about it is the same promise: audio exists for the life of one
+request, is forwarded to the same `context-transcribe` Worker, and is never
+written, cached, queued or logged. The gateway is handed a forwarder built from
+the environment, so the module that touches audio reads no secret, and the
+service is told the audio, its container and its length — never the session, the
+chunk id, the offset or the workspace.
+
+**The ceiling is the interesting part, because this Worker has no database.**
+The gateway is stateless by construction and that property is worth more than
+this feature, so the count lives where the request is already going: in the
+meeting's own session record, in the customer's own bucket, under the same
+conditional write as every other change to a session. Three bounds follow, and
+each is a bound rather than a hope:
+
+- a chunk must belong to a session that **exists in the caller's own context**
+  and is not complete, so inference cannot be bought by somebody who is not
+  recording anything;
+- a session has a chunk budget, consumed **before** the audio is forwarded, so a
+  refused caller costs zero inference — the same ordering the control plane's
+  limit uses, for the same reason;
+- spend is attributable through an HMAC of the workspace id under the shared
+  secret, never the id.
+
+Two costs, named rather than discovered. A chunk whose transcription *fails*
+still spent its budget — the right direction, since the alternative is spending
+inference for free by making it fail — and the budget is per session rather than
+per account, so it bounds a client in a loop rather than somebody who opens many
+meetings. The second is the same signup-gate problem the control-plane limit
+has, and it is not this seam's to solve either.
+
+**A third cost, and it is the one a reader will otherwise assume away: this
+count is not tamper-evident, and on customer-owned storage it cannot be.** The
+record lives in a bucket whose owner holds the credential by construction —
+non-negotiable #1 — so the person being metered can open `.meetings/<id>.json`
+in Obsidian and set `transcribedChunks` back to zero. Nothing in the gateway
+can stop that and nothing should try; a counter we could keep out of their
+reach would be a counter kept somewhere we promised not to keep anything.
+
+What that does and does not mean, precisely. It is **not** a tenant-isolation
+bound and none of the three above weaken: the session must exist in the
+*caller's own* context (`a neighbour holding the id cannot transcribe into it`),
+the counter survives every fold the gateway itself performs — `applyEvent`
+spreads the record, so an upsert or a segment batch carries it, which
+`THE BUDGET SURVIVES AN EVENT FOLD` pins — and spend stays attributable through
+the HMAC whatever the count says. What it is is a **billing** bound that an
+account holder can lift on their own account, and the honest statement is that
+on this path there is then nothing under it: the transcribe Worker's own
+limiter is measured-absent (see `infra/transcribe-worker/src/rateLimit.ts`, and
+the section above), and `consumeTranscribeBudget` guards the *control plane's*
+route, not this one. Same standard as that section: treat this as attribution
+plus a bound on a client in a loop, not as a spend cap. A real cap for a
+grant-holding recorder needs a counter somewhere we own, which is a control-plane
+round trip per chunk and a decision nobody has taken.
+
+**An unconfigured deployment answers 501, not 503.** Every self-hosted install
+is unconfigured, and a client that read the refusal as temporary would ask again
+every twenty seconds for the length of a meeting; 501 is what turns that into
+one honest sentence and a typed meeting. A URL with no secret would post meeting
+audio to an endpoint unauthenticated, so the pair is both-or-neither at the
+deploy as well as in the code.
+
+Reversing any of it costs: without the session anchor there is no ceiling at all
+on a stateless Worker, and the checks that fail are
+`a neighbour holding the id cannot transcribe into it` with
+`...AND BUYS NO INFERENCE DOING SO`,
+`a meeting that has spent its budget is refused, and not with a retry code` with
+`...COSTING ZERO INFERENCE`, and
+`a gateway with no transcription configured refuses, permanently`.
+
+### Pressing Record is the same yes, and the blocklist sees less of it
+
+Detection cannot see two people at a table: an in-person conversation is not a
+process, a window title or a calendar event. So the desktop offers *Record a
+meeting*, and it mints its own consent episode — pressing it is the same
+sentence the panel asks for, given first rather than in answer.
+
+One consequence is uncomfortable and is written here rather than left to be
+discovered. **The blocklist can only refuse what the detector is currently
+reporting.** Blocked apps are stripped out of the signals before `detect()` sees
+them — that is the stronger half of the promise, and it is why a blocked app
+never becomes a source, a tooltip, an evidence line or a log entry — so on the
+manual path there is nothing to match against. Press Record during a call in a
+blocked app and the recording starts.
+
+That is the trade rather than a gap to close later: the blocklist means *never
+record this app for me, automatically*, and it cannot also mean *refuse an
+instruction I gave with the app in front of me* without watching the app it
+promised not to watch. Closing it would require observing blocked apps, which is
+the one thing the setting exists to prevent.
+
+`captureEnabled` is the switch that does apply to both paths, and it had no way
+to become true — nothing in the app set it, so every route to a recording was
+closed on a fresh install. Connecting a machine turns it on, in the dialog where
+somebody says this machine records their meetings.
+
+### A microphone is never opened for a meeting nothing will transcribe
+
+The desktop has two states in which it cannot produce a transcript: no grant on
+the machine, and on-device chosen with no on-device engine built. In both, the
+app records **nothing** — no `getUserMedia`, no permission dialog — and says
+which one it is in a sentence naming the fix. The notes still become a note.
+
+This is the phone's own answer (`notesOnlyRecorder`) rather than a second one,
+and the argument is the same twice over: a meeting recorded with no transcriber
+is a meeting somebody thinks they have and does not, and it is also somebody's
+audio held open for no purpose. It has a third consequence here that the phone
+does not have — macOS remembers a refusal, so raising the microphone dialog for
+a session that will not open a microphone spends the one prompt a person ever
+gets.
+
+System audio is the same rule at a smaller scale. An unsigned build asks macOS
+for the loopback tap and gets nothing; that is not a failure, it is mic-only,
+and the panel says the far side of a call on headphones will not be in the
+transcript. The probe *is* the attempt — there is no API that answers the
+question without asking it — so the answer is remembered for the rest of the
+launch and deliberately not persisted, because a signed build installed over an
+unsigned one would otherwise inherit the old answer forever.
+
+A "simplification" that opened the microphone anyway and let the transcript come
+out empty would fail `an unconnected machine opens NO audio at all`,
+`NO PERMISSION IS REQUESTED FOR A MEETING THAT OPENS NO MICROPHONE` and
+`a build macOS will not give system audio to still records`.
+
+### A chunk of audio is a whole file, and every recorder cuts on the same clock
+
+`MediaRecorder.start(timeslice)` emits a blob every interval and only the first
+one carries the container's headers. Every chunk after it is a fragment no
+decoder and no transcription engine can read — so a recorder that streams
+timeslices produces audio that looks fine in a log and transcribes to nothing.
+The desktop capture window did exactly that, and nothing had noticed because
+there was no transcriber on the other end yet; it would have transcribed the
+first second of every meeting and silence after.
+
+So a chunk is a whole recording — stop, hand over, start again — and the cost is
+the few milliseconds of somebody still talking between the two, which is the
+smaller one. Both mobile recorders already worked this way; the desktop now
+does, and `SEGMENT_MS`, `MAX_INFLIGHT_CHUNKS`, `chunkIdFor` and `segmentIdFor`
+moved to `@context/meetings/chunks` so there is one copy. An offset is the sum
+of the durations before a chunk, so a second `SEGMENT_MS` on the laptop would be
+a transcript whose `startMs` means something different from the phone's — the
+kind of drift nobody sees until two clients disagree about when something was
+said.
+
+The checks are `packages/meetings/test/chunks.test.mjs` and, on the client side,
+`its id is derived from the chunk, never taken from the answer` and
+`a second chunk goes out while the first is still unanswered` — plus
+`apps/desktop/test/captureWindow.test.mjs`, which drives the real capture module
+against a fake browser, because this is a bug that hides: the fragments look
+fine in a log and the failure presents later as "the first twenty seconds
+transcribe and then it goes quiet". `A RECORDER IS STARTED WITH NO TIMESLICE`,
+`EACH CHUNK IS A WHOLE RECORDING` and `OFFSETS ARE CONTIGUOUS ARITHMETIC` are
+the three that fail if it comes back.
+
 ### A client-supplied id is bounded where it enters — and, since 2026-09-05, where it lands as well
 
 **Amended.** This section used to end at "where it enters", and its premise was

@@ -10,7 +10,8 @@
     "./protocol": "./src/protocol.js",
     "./note": "./src/note.js",
     "./paths": "./src/paths.js",
-    "./detect": "./src/detect.js"
+    "./detect": "./src/detect.js",
+    "./chunks": "./src/chunks.js"
   },
   "scripts": {
     "test": "node test/test.mjs",
