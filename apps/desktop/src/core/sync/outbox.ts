@@ -32,9 +32,19 @@
  * it.** `meeting_invalid` and `meeting_forbidden` mean a person has to do
  * something — reconnect, re-grant, or send us a bug report. The transcript
  * stays queued either way.
+ *
+ * **A `finalize` entry that has been stuck too long is not left stuck.** A
+ * session in `finalizing` has no timeout at the gateway — most of the time it
+ * is one request away from `complete` — so a lost response, a crash between
+ * queuing `session` and `finalize`, or a deterministic refusal nobody has
+ * looked at yet all look identical from here: a `finalize` entry that never
+ * clears. `recoverStaleFinalize` is the glue around `checkFinalizeTimeout`
+ * (`@context/meetings/recovery`, the pure rule): a first stale sighting gets
+ * one forced retry, and a session still stuck a full timeout window after that
+ * gets a queued `fail` — never a silent "Finalizing" forever.
  */
 
-import { ERRORS } from "../contract.ts";
+import { FINALIZE_TIMEOUT_MS, checkFinalizeTimeout, ERRORS } from "../contract.ts";
 import type { TranscriptSegment } from "../contract.ts";
 
 export type OutboxKind = "session" | "segments" | "notes" | "finalize";
@@ -79,6 +89,13 @@ export interface OutboxEntry {
   /** Set when parked; shown to the person who asks why a meeting is stuck. */
   parked?: { code: string; message: string; noticedAt: number };
   lastError?: string;
+  /**
+   * When `recoverStaleFinalize` last forced a retry of this entry, so a second
+   * stale sighting can tell "still within its one retry's own window" from
+   * "the retry did not help either" — see `checkFinalizeTimeout`'s own
+   * `retriedAt`. Only ever set on a `finalize` entry.
+   */
+  retriedAt?: number;
 }
 
 export interface Outbox {
@@ -243,7 +260,9 @@ export function queueWrite(outbox: Outbox, input: QueueInput): Outbox {
     updatedAt: input.now,
     ...(existing.state === "parked"
       ? {}
-      : { attempts: 0, nextAttemptAt: input.now, lastError: undefined }),
+      : // New content is a new attempt at finalizing, so the timeout clock
+        // (and whatever retry it already earned) restarts with it.
+        { attempts: 0, nextAttemptAt: input.now, lastError: undefined, retriedAt: undefined }),
   };
   return { ...outbox, entries: outbox.entries.map((entry) => (entry.id === id ? next : entry)) };
 }
@@ -410,4 +429,71 @@ export function pendingFor(outbox: Outbox, sessionId: string): OutboxEntry[] {
 /** A person deleted a meeting. The only path that discards queued content. */
 export function forgetSession(outbox: Outbox, sessionId: string): Outbox {
   return { ...outbox, entries: outbox.entries.filter((entry) => entry.sessionId !== sessionId) };
+}
+
+/**
+ * Act on every `finalize` entry that has been sitting too long, per
+ * `checkFinalizeTimeout` — the pure rule this function is glue around.
+ *
+ * Called on a drain tick and once on launch, both with the same function:
+ * "on app launch, any `finalizing` session older than the bound is handled
+ * the same way" is true for free when launch is just another tick with a
+ * queue that survived a restart on disk.
+ *
+ * **`retry`** forces the entry back to `pending` with its backoff cleared and
+ * stamps `retriedAt`, so the very next drain sends it again regardless of how
+ * much of its backoff window remains — a stuck entry does not get to wait out
+ * a minute of exponential backoff on top of the ten it has already lost.
+ *
+ * **`fail`** queues a `session` write carrying a `fail` event — `session`
+ * drains ahead of `finalize` in `KIND_ORDER`, so the gateway learns the
+ * session failed before anything else about it is attempted — and then drops
+ * the stale `finalize` entry. Left in place, that entry would ask this
+ * function to fail the same session again on every future tick forever: once
+ * a client has said `fail`, an entry proposing to retry the *original*
+ * finalize is superseded, not merely postponed. A person pressing Retry from
+ * here on queues a fresh finalize the ordinary way, through `end()`.
+ */
+export function recoverStaleFinalize(
+  outbox: Outbox,
+  now: number,
+  options: { timeoutMs?: number } = {},
+): Outbox {
+  let next = outbox;
+  for (const entry of outbox.entries) {
+    if (entry.kind !== "finalize") continue;
+    const endedAt = typeof entry.body["endedAt"] === "string" ? (entry.body["endedAt"] as string) : null;
+    const outcome = checkFinalizeTimeout(
+      { state: "finalizing", endedAt },
+      now,
+      { timeoutMs: options.timeoutMs, retriedAt: entry.retriedAt ?? null },
+    );
+
+    if (outcome.action === "none") continue;
+
+    if (outcome.action === "retry") {
+      next = {
+        ...next,
+        entries: next.entries.map((candidate) =>
+          candidate.id === entry.id
+            ? { ...candidate, retriedAt: now, state: "pending" as const, nextAttemptAt: now, attempts: 0 }
+            : candidate,
+        ),
+      };
+      continue;
+    }
+
+    next = queueWrite(next, {
+      sessionId: entry.sessionId,
+      kind: "session",
+      context: entry.context,
+      body: {
+        id: entry.sessionId,
+        events: [{ type: "fail", at: new Date(now).toISOString(), reason: outcome.reason }],
+      },
+      now,
+    });
+    next = { ...next, entries: next.entries.filter((candidate) => candidate.id !== entry.id) };
+  }
+  return next;
 }

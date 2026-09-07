@@ -140,6 +140,7 @@ export function seedSession(input: SeedInput): MeetingSession {
     transcription: input.transcription,
     notePath: null,
     failureReason: null,
+    emptyReason: null,
   };
 }
 
@@ -150,6 +151,17 @@ export function seedProjection(input: SeedInput): MeetingProjection {
 /** Whether `MEETING_TRANSITIONS` allows this move. The UI draws its controls from this. */
 export function can(from: MeetingState, to: MeetingState): boolean {
   return MEETING_TRANSITIONS[from].includes(to);
+}
+
+/**
+ * Whether this session captured nothing a note could hold — no transcript,
+ * no typed notes. The mirror of `hasNothingCaptured` in `session.js`, and the
+ * rule `controller.end()` checks before ever asking the gateway to finalize:
+ * if this device already knows a session is empty, there is no request worth
+ * making and no note the far end could write anyway.
+ */
+export function hasNothingCaptured(session: MeetingSession): boolean {
+  return session.transcript.length === 0 && session.notes.trim() === "";
 }
 
 /**
@@ -310,6 +322,30 @@ export function applyMeetingEvent(
           ...session,
           state: "failed",
           failureReason: event.reason,
+          recordedMs: closed(projection, event.at),
+        },
+        runningSince: null,
+      };
+    }
+
+    case "empty": {
+      /*
+        Mirrors `session.js`'s own guard on `empty`: refused, not merely
+        ignored, when the session this is folded onto actually captured
+        something. `written` and `enhanced` arrive from a gateway this app
+        trusts, and this one does too — it is folded from the gateway's own
+        finalize answer, never sent — but the check costs nothing and it is
+        the one place a bug upstream would otherwise make a real transcript
+        vanish from the screen silently rather than loudly.
+      */
+      if (!can(session.state, "empty")) return projection;
+      if (!hasNothingCaptured(session)) return projection;
+      return {
+        session: {
+          ...session,
+          state: "empty",
+          emptyReason: event.reason,
+          notePath: null,
           recordedMs: closed(projection, event.at),
         },
         runningSince: null,

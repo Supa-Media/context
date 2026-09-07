@@ -47,7 +47,11 @@ import {
   meetingNotePath,
   normalizeMeetingFolder,
 } from "../../../../packages/meetings/src/paths.js";
-import { normalizeFlag, normalizeTranscription } from "../../../../packages/meetings/src/session.js";
+import {
+  hasNothingCaptured,
+  normalizeFlag,
+  normalizeTranscription,
+} from "../../../../packages/meetings/src/session.js";
 import { SCOPE_READ, SCOPE_WRITE, hasScope } from "../session.js";
 import { transcribeChunk } from "./transcribe.js";
 import {
@@ -440,6 +444,12 @@ function methodNotAllowed() {
  * late quietly rewrite a note. It is not an error either — the client is
  * replaying a log it correctly kept — so the ack says `complete` and the note
  * path, and the client stops.
+ *
+ * An `empty` session is refused the same re-opening for the same reason,
+ * `complete`'s own terminal move over again: there is no note for a re-sent
+ * title to disagree with, but there is nothing left to fold either, and a
+ * client replaying its log past an `empty` finalize should see the answer it
+ * already has rather than a session quietly alive again.
  */
 async function upsertSession(request, store, tier) {
   const body = await readJsonBody(request);
@@ -448,7 +458,7 @@ async function upsertSession(request, store, tier) {
   let observed = null;
   const result = await updateSession(store, body.id, (current) => {
     observed = current;
-    if (current && current.state === "complete") return null;
+    if (current && (current.state === "complete" || current.state === "empty")) return null;
     let next = current ? foldMetadata(current, body) : openSession({ ...body, id: body.id });
     next = foldLog(next, body.events);
     return assertSessionWithinLimits(next);
@@ -478,6 +488,9 @@ async function appendSegments(request, store, id, tier) {
     if (current.state === "complete") {
       throw invalid("this session is already complete; its transcript is in the note");
     }
+    if (current.state === "empty") {
+      throw invalid("this session was finalized as empty; start a new meeting instead");
+    }
     return assertSessionWithinLimits(fold(current, { type: "segments", segments }));
   }, tier);
   return ack(store, result.session, unusable ? { rejected: unusable } : {});
@@ -494,6 +507,9 @@ async function replaceNotes(request, store, id, tier) {
     if (!current) throw notFound();
     if (current.state === "complete") {
       throw invalid("this session is already complete; edit the note instead");
+    }
+    if (current.state === "empty") {
+      throw invalid("this session was finalized as empty; start a new meeting instead");
     }
     return fold(current, { type: "notes", markdown });
   }, tier);
@@ -581,6 +597,17 @@ async function replaceNotes(request, store, id, tier) {
  * the meeting. Only 400 and 403 release — a 503 or a storage throw keeps the
  * claim, which is the crash-retry property, unchanged and still checked by
  * `the retry lands on the path the first finalize claimed`.
+ *
+ * ## A session with nothing in it is not filed
+ *
+ * Checked immediately after the auto-`end`, before a path is ever claimed:
+ * `hasNothingCaptured` asks the record this handler holds — no transcript, no
+ * typed notes — and a session that qualifies folds straight to `empty` and
+ * returns. Nothing is written to the bucket, so there is no note write to fail
+ * and no claim for `releaseClaim` to give back; the record itself is the
+ * answer, the same way a finished note's record is. A retry of an already-empty
+ * finalize answers with the same reason rather than re-deriving one — the same
+ * idempotence `alreadyComplete` gives a written note.
  */
 async function finalizeSession(request, store, session, id, publishNote) {
   const body = await readJsonBody(request);
@@ -602,10 +629,15 @@ async function finalizeSession(request, store, session, id, publishNote) {
   const namedFolder = body.folder !== undefined && body.folder !== null;
 
   let alreadyComplete = null;
+  let alreadyEmpty = null;
   const claim = await updateSession(store, id, async (current) => {
     if (!current) throw notFound();
     if (current.state === "complete") {
       alreadyComplete = current;
+      return null;
+    }
+    if (current.state === "empty") {
+      alreadyEmpty = current;
       return null;
     }
     let next = foldMetadata(current, body);
@@ -617,6 +649,20 @@ async function finalizeSession(request, store, session, id, publishNote) {
     if (next.state !== "finalizing") {
       const at = typeof body.endedAt === "string" ? body.endedAt : new Date().toISOString();
       next = fold(next, { type: "end", at });
+    }
+    /*
+      A session that captured nothing — no transcript, no typed notes — is not
+      filed. This is checked against the record this handler actually holds,
+      never against anything a client claims, which is what keeps a client's
+      optional `emptyReason` a hint about *why* rather than a lever over
+      *whether*: see `hasNothingCaptured` and `FinalizeBody.emptyReason`.
+
+      No path is ever claimed for this session, so there is nothing for
+      `releaseClaim` to give back and no note write to attempt below.
+    */
+    if (hasNothingCaptured(next)) {
+      const at = typeof body.endedAt === "string" ? body.endedAt : new Date().toISOString();
+      return assertSessionWithinLimits(fold(next, { type: "empty", at, reason: emptyReasonFrom(body, next) }));
     }
     if (!next.notePath) {
       let candidate;
@@ -645,6 +691,20 @@ async function finalizeSession(request, store, session, id, publishNote) {
       ...flag(alreadyComplete.notePath),
       etag: alreadyComplete.noteEtag ?? undefined,
     });
+  }
+
+  // Idempotent the same way: a session already marked empty stays empty, and a
+  // retry answers with the reason that was already recorded rather than
+  // re-deriving one, or worse, refusing because there is no longer anything to
+  // fold `end` onto.
+  if (alreadyEmpty) {
+    return ack(store, alreadyEmpty, { emptyReason: alreadyEmpty.emptyReason ?? undefined });
+  }
+
+  // The claim folded straight to `empty` above: nothing was written, and there
+  // is no path to release — the claim never reserved one.
+  if (claim.session.state === "empty") {
+    return ack(store, claim.session, { emptyReason: claim.session.emptyReason ?? undefined });
   }
 
   // Marked complete *before* it is rendered, so the note's own frontmatter says
@@ -676,7 +736,20 @@ async function finalizeSession(request, store, session, id, publishNote) {
       });
     }
     if (fresh) {
-      const merged = fold(fresh.session, { type: "written", notePath: published.path });
+      /*
+        The other writer may have been a client's *own recovery* giving up on
+        this very finalize: `checkFinalizeTimeout` answers `fail` for a
+        finalize this slow, and a queued `fail` is an ordinary `session` write
+        that can land in exactly this window. The note is in the bucket by the
+        time we are here, so the record has to say so — folding `written` onto
+        a `failed` session would refuse the move, leave the note orphaned with
+        nothing pointing at it, and answer the client with a deterministic 400
+        it will park. `failed -> finalizing` is legal and is the same `end` the
+        claim folds; `reopenFailed` puts the meeting's own `endedAt` back
+        afterwards, so recovering a finalize never rewrites when it ended.
+      */
+      const reopened = fresh.session.state === "failed" ? reopenFailed(fresh.session) : fresh.session;
+      const merged = fold(reopened, { type: "written", notePath: published.path });
       /*
         A segment batch that landed between the claim and the note write is in
         the record and not in the file. Folding it into a receipt that drops the
@@ -721,6 +794,54 @@ function folderFlag(namedFolder, folder, notePath) {
   if (!namedFolder) return {};
   if (typeof notePath !== "string") return {};
   return isMeetingNotePath(notePath, { folder }) ? {} : { folderRejected: true };
+}
+
+/**
+ * Take a session a client's own recovery failed back to `finalizing`, without
+ * moving when the meeting ended.
+ *
+ * Only ever reached from the one window where it matters: the note is already
+ * in the customer's bucket and the record has changed underneath the claim.
+ * `end` is the legal `failed -> finalizing` move — the same one the claim
+ * folds — and it restamps `endedAt`, so the meeting's own end time is put back
+ * afterwards. It cannot simply be re-sent at the original timestamp: the
+ * reducer ignores a replayed `end` at or before the one it already folded,
+ * which would leave the session in `failed` and the note orphaned.
+ */
+function reopenFailed(session) {
+  const ended = session.endedAt;
+  const reopened = fold(session, { type: "end", at: new Date().toISOString() });
+  return typeof ended === "string" ? { ...reopened, endedAt: ended } : reopened;
+}
+
+/**
+ * Why a session marked `empty` says it captured nothing.
+ *
+ * Client-supplied and capped — never trusted for *whether* a session is
+ * empty, only for *why*: `hasNothingCaptured` in `finalizeSession` is the only
+ * thing that decides whether this is reached at all, from the transcript and
+ * notes the gateway actually holds. A client that named a reason
+ * ("microphone not granted") reads better on a badge than the sentence this
+ * function would otherwise invent, and a client that sent none — an older
+ * build, or one with nothing to say — gets that sentence instead of an empty
+ * one. Never quoted back to a client that sent something unusable, and there
+ * is nothing here that could be: a truncation is not a refusal.
+ *
+ * **Except when this gateway itself took the audio.** `transcribedChunks` is
+ * spent before a byte is forwarded (`transcribe.js`), so a session carrying
+ * one has had audio through this process whatever came back — a transcription
+ * service that answered with nothing, or with an error, on every chunk. "The
+ * microphone was never granted" is then wrong in the one direction a person
+ * acts on: they would go looking at their permissions for a recording that
+ * really happened. The gateway's own knowledge wins over the device's guess
+ * here, which is what "the gateway's to accept or replace" means.
+ */
+function emptyReasonFrom(body, session) {
+  const chunks = typeof session?.transcribedChunks === "number" ? session.transcribedChunks : 0;
+  if (chunks > 0) return "Audio was recorded, but none of it could be transcribed.";
+  const raw = typeof body.emptyReason === "string" ? body.emptyReason.trim() : "";
+  if (!raw) return "Nothing was captured during this meeting.";
+  return raw.slice(0, LIMITS.emptyReasonChars);
 }
 
 /**

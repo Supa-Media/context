@@ -6,6 +6,7 @@ import { MeetingGatewayError, type MeetingAddress, type MeetingsGateway } from "
 import { renderMeetingNote } from "./note";
 import { ERRORS } from "./protocol";
 import type { IngestAck, MeetingSession, MeetingSessionSummary } from "./protocol";
+import { hasNothingCaptured } from "./session";
 
 /**
  * The writer this app uses: a meeting becomes a note the same way a note does.
@@ -197,6 +198,26 @@ export function createConvexGateway(options: ConvexGatewayOptions): MeetingsGate
     }),
 
     async finalize(to: MeetingAddress, session: MeetingSession): Promise<IngestAck> {
+      /*
+        A defensive backstop, not the primary decision: `controller.end()`
+        checks `hasNothingCaptured` before this is ever called and folds
+        `empty` locally, so `pendingSteps` never queues a finalize for a
+        session already marked empty. This exists for the same reason the
+        gateway's own `finalizeSession` checks it too rather than trusting
+        whoever called it — a bug in an earlier step should not become a real,
+        empty note in somebody's bucket.
+      */
+      if (hasNothingCaptured(session)) {
+        return {
+          sessionId: session.id,
+          state: "empty",
+          segmentCount: 0,
+          conflictSafe: false,
+          notePath: null,
+          emptyReason: "Nothing was captured during this meeting.",
+        };
+      }
+
       const workspaceId = options.resolveWorkspaceId(to?.contextSlug ?? null);
       if (workspaceId === null) {
         /*

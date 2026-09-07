@@ -14,6 +14,29 @@ works.
 Sabotage-test rather than trusting a green run: break the invariant deliberately
 and confirm the right tests fail.
 
+### A hand-scan is not a fix for something that has already recurred
+
+Two rounds removed numbered pointers into a document this repository does not
+contain from this public tree, each by reading for the phrasing whoever was
+scanning happened to remember. The first found the two lead-ins that named it
+and left five bare ordinals behind — including, in a file it was editing, a
+sentence *using* one of the numbers three lines below the sentence that had
+defined it. The second found those five by scanning for the shape instead. Both
+were correct and neither was a guard, which is why the class came back.
+
+`scripts/check-no-identifiers.mjs` rule 4 is the guard, and the rule for the next
+one of these is the ordering: **a class that has recurred gets a checker in the
+same change that cleans it up, not a promise to look harder.** Measured against
+the tree before the fix it finds all seven occurrences, and against the tree
+after it finds none; its own self-test carries the spellings, with invented row
+numbers, because a fixture that quotes the real pointer republishes it.
+
+Two limits, stated rather than left to be found. The scan reads `git ls-files`,
+so **commit messages and pull-request bodies are outside it** — and the commit
+that removed the pointers put one in its own message. And the rule matches the
+noun, so prose *about* the rule trips it; the first thing it caught was a comment
+in `ci.yml` describing it.
+
 ### WebKit in CI proves the JavaScript engine, not the OS gesture recogniser
 
 Every iOS-only editor bug in `docs/decisions/app-and-console.md`'s "A long

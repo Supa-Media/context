@@ -54,6 +54,8 @@
  *   the bridge taking a hidden-capture-window channel name back               1
  *   the closed console window leaving its handlers registered                 1
  *   `meetingWriteFrom` trusting the payload rather than reading it            1
+ *   the capture-state normaliser dropping `notice`                            2
+ *   the summary normaliser dropping `frames`                                  1
  *   ...accepting a `kind` outside the protocol's four routes                  1
  *   the preload defaulting an unknown `kind` to `session`                     2
  *   an empty `context` read as this machine's own, in the main process        1
@@ -105,7 +107,10 @@
  * one number as three independent guards.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   getDesktopBridge,
   inspectDesktopBridge,
@@ -493,16 +498,18 @@ export async function runConsoleBridgeChecks(check) {
       distance.
 
       So this stops modelling the bundle. It reads `packages/` and walks all of
-      it, which is **deliberately wider** than the main process: measured, the
-      walk visits 107 files and 61 of them are first-party inputs of the main
-      bundle, so a bit under half of what it covers is not in that bundle.
-      (An earlier version of this sentence said "most", which was a guess
-      standing where a measurement belonged, in the paragraph about not
-      guessing.) Wider is the affordable mistake here: the cost is a false red
-      when somebody writes the identifier in a package nothing imports, and
-      what it buys is that no dependency edge, in either direction, can move
-      first-party code out of the census. Nothing is hand-listed, so there is
-      no list to go stale and nothing to throw about.
+      it, which is **deliberately wider** than the main process: measured, a bit
+      under half of what the walk covers is not in that bundle at all. (An
+      earlier version said "most", which was a guess standing where a
+      measurement belonged, in the paragraph about not guessing. The version
+      after that printed the two file counts — and merging one day of `main`
+      moved both of them, because nothing here asserts either number. A count
+      in a comment is the same habit one paragraph up, one round later, so the
+      ratio stays and the digits go.) Wider is the affordable mistake here: the
+      cost is a false red when somebody writes the identifier in a package
+      nothing imports, and what it buys is that no dependency edge, in either
+      direction, can move first-party code out of the census. Nothing is
+      hand-listed, so there is no list to go stale and nothing to throw about.
 
       `desktop-bridge/src/contract.ts` mentions the identifier in prose, which
       is why the total below is 28 rather than 27.
@@ -604,6 +611,77 @@ export async function runConsoleBridgeChecks(check) {
         if (ALWAYS_SKIP.has(entry.name)) return [];
         return walk(new URL(`${entry.name}/`, dir));
       });
+
+    /*
+      THE WALK IS CHECKED HERE, NOT ONLY USED BELOW.
+
+      Three shapes of this walk have been wrong, each one blind rather than
+      noisy, and each one found by a person hand-writing a registration into a
+      directory and watching the suite stay green. A hand-sabotage that is not
+      committed proves the shape of the day and nothing about the next one, so
+      the walk now runs against a tree built for the purpose: a file at the
+      root, one under each of the three names two earlier shapes skipped, one
+      under a nested `dist/`, and one under each of the two names that ARE
+      skipped. Set equality, so a name silently added to `ALWAYS_SKIP` reddens
+      exactly as a name silently removed from it does.
+
+      The third check is the third shape stated as an assertion.
+      `bundled.flatMap(walk)` handed the array index in as a second parameter,
+      so the first package root was walked with a falsy `atRoot` and the rest
+      with a truthy one, and the same registration reddened in one package and
+      passed in another by `readdirSync` order. So the walk is called the way
+      `flatMap` would call it — with an index — and has to answer the same
+      thing. **Not `walk.length === 1`**: measured, the shape that carried the
+      bug was `(dir, atRoot = true)`, and a defaulted parameter does not count
+      toward `length`, so that check passes on the exact code it claims to
+      refuse. A guard that cannot see the bug it is named for is the failure
+      this whole file is a record of.
+    */
+    const probeRoot = mkdtempSync(join(tmpdir(), "console-census-walk-"));
+    try {
+      for (const relative of [
+        "at-root.ts",
+        "build/generated-name.ts",
+        "coverage/generated-name.ts",
+        "dist/generated-name.ts",
+        "src/main/dist/nested.ts",
+        "node_modules/a-package/index.ts",
+        ".git/objects/blob.ts",
+      ]) {
+        const full = join(probeRoot, relative);
+        mkdirSync(join(full, ".."), { recursive: true });
+        writeFileSync(full, "// probe\n");
+      }
+      const probeUrl = pathToFileURL(`${probeRoot}/`);
+      const found = walk(probeUrl)
+        .map((file) => file.pathname.slice(probeUrl.pathname.length))
+        .sort();
+      check(
+        `THE WALK SKIPS node_modules AND .git AND NOTHING ELSE — ${found.length} files, ${found.join(", ")}`,
+        found.join("\n") ===
+          ["at-root.ts", "build/generated-name.ts", "coverage/generated-name.ts", "dist/generated-name.ts", "src/main/dist/nested.ts"]
+            .sort()
+            .join("\n"),
+      );
+      check(
+        "...so a registration in a directory NAMED like build output is still counted",
+        found.includes("build/generated-name.ts") &&
+          found.includes("coverage/generated-name.ts") &&
+          found.includes("dist/generated-name.ts"),
+      );
+      const asFlatMapWouldCall = [0, 1, 4].map((index) =>
+        walk(probeUrl, index, [])
+          .map((file) => file.pathname.slice(probeUrl.pathname.length))
+          .sort()
+          .join("\n"),
+      );
+      check(
+        "THE WALK ANSWERS THE SAME THING WHATEVER flatMap HANDS IT as an index",
+        asFlatMapWouldCall.every((answer) => answer === found.join("\n")),
+      );
+    } finally {
+      rmSync(probeRoot, { recursive: true, force: true });
+    }
 
     let registrations = 0;
     let handoffs = 0;
@@ -930,7 +1008,7 @@ export async function runConsoleBridgeChecks(check) {
         }),
         [BRIDGE_CHANNELS.stopCapture]: {
           ok: true,
-          value: { sessionId: "m_1", endedAtMs: 9, durationMs: 4, segments: 2, pending: 1 },
+          value: { sessionId: "m_1", endedAtMs: 9, durationMs: 4, segments: 2, frames: 7, pending: 1 },
         },
         [BRIDGE_CHANNELS.connectionGet]: { ok: true, value: { ...CONNECTED } },
         [BRIDGE_CHANNELS.outboxStatus]: { ok: true, value: { ...QUEUE } },
@@ -961,6 +1039,16 @@ export async function runConsoleBridgeChecks(check) {
     await shell.bridge.resumeCapture();
     const summary = await shell.bridge.stopCapture();
     check("`stopCapture` answers a summary with counts and no audio in it", summary.segments === 2 && summary.durationMs === 4);
+    /*
+      FRAMES AND SEGMENTS ARE TWO NUMBERS, AND THE PAIR IS THE DIAGNOSIS.
+
+      `frames: 0` is a microphone that produced nothing; `frames: 7,
+      segments: 0` is audio the far end would not take. Different faults,
+      different fixes, and indistinguishable from this payload until the field
+      existed — which is why finding the SEGMENT_MS/DRAIN_INTERVAL_MS race
+      needed `fetch` patched by hand in the main process.
+    */
+    check("...including how much audio was produced, separately from how much came back", summary.frames === 7);
     check(
       "pause and resume reach their own channels",
       shell.invoked.some((c) => c.channel === BRIDGE_CHANNELS.pauseCapture) &&
@@ -1104,6 +1192,57 @@ export async function runConsoleBridgeChecks(check) {
     check("a pushed segment reaches the handler", seen[0]?.text === "hello");
 
     for (const off of offs) off();
+  }
+
+  /* --- and the sentence a meeting acquires reaches the page ---------------- */
+  //
+  // `CaptureStateUpdate` was `{state, capturing, fault}`, and a notice is not a
+  // fault — so `CAPTURE_NOTICES.refused`, "this meeting is not being
+  // transcribed", had no member to travel on. The shell said it to its own tray
+  // while the console drew a perfectly healthy recording, which is why a defect
+  // that killed the transcript of every desktop recording survived a day of
+  // use. The field is read through the real normaliser here, not a fake.
+  {
+    const shell = installed();
+    const seen = [];
+    const off = shell.bridge.onCaptureState((update) => seen.push(update));
+
+    shell.emit(BRIDGE_CHANNELS.captureState, {
+      state: "recording",
+      capturing: true,
+      fault: null,
+      notice: "This meeting is not being transcribed.",
+    });
+    check(
+      "A NOTICE THE SHELL RAISES MID-MEETING REACHES THE PAGE",
+      seen[0]?.notice === "This meeting is not being transcribed.",
+    );
+    check("...without being mistaken for a fault, which would end the recording", seen[0]?.fault === null);
+
+    /*
+      And every notice, not only the refusal. The transcriber raises three —
+      `dropped`, `failed` and `refused` — and `capturePlan` raises its own about
+      system audio. All four are one field on the shell's `SessionView`, so all
+      four cross; a field that carried only the worst one would be a second
+      decision about which sentences matter, made in the wrong process.
+    */
+    for (const sentence of ["a few seconds were not transcribed", "only your microphone", ""]) {
+      shell.emit(BRIDGE_CHANNELS.captureState, { state: "recording", capturing: true, fault: null, notice: sentence });
+    }
+    check(
+      "...and it is the shell's sentence verbatim, whichever of them it is",
+      seen[1]?.notice === "a few seconds were not transcribed" && seen[2]?.notice === "only your microphone",
+    );
+    check("...with nothing to say reading as nothing to say", seen[3]?.notice === null);
+
+    /*
+      A shell older than the field says nothing rather than breaking the page.
+      `MIN_BRIDGE_VERSION` is still 1, so this is a build in the estate today.
+    */
+    shell.emit(BRIDGE_CHANNELS.captureState, { state: "recording", capturing: true, fault: null });
+    check("a shell built before the field simply has no notice", seen[4]?.notice === null);
+
+    off();
     check("UNSUBSCRIBING REMOVES THE IPC LISTENER — the count returns to zero", shell.listenerCount() === 0);
 
     const before = seen.length;

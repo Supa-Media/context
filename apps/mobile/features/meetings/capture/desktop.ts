@@ -96,6 +96,15 @@ export function desktopRecorder(
    * the kind of noise that teaches somebody to ignore the one time it is true.
    */
   let ending = false;
+  /**
+   * The last notice put on the glass, so it is put there once.
+   *
+   * `onCaptureState` fires on every move of the shell's recorder — which is
+   * every segment — and the notice rides along unchanged on all of them.
+   * Reporting it each time would rebuild the app's snapshot per segment for a
+   * sentence that has not changed.
+   */
+  let shownNotice: string | null = null;
 
   function report(error: RecorderError): void {
     for (const listener of errorListeners) {
@@ -123,6 +132,9 @@ export function desktopRecorder(
    */
   function attach(): void {
     detach?.();
+    // Per meeting, not per recorder: the same sentence about a second meeting
+    // is a new thing to say.
+    shownNotice = null;
     const offs = [
       bridge.onSegment(emit),
       bridge.onCaptureState((update) => {
@@ -138,6 +150,23 @@ export function desktopRecorder(
         if (update.fault !== null) report(update.fault);
         else if (!ending && state === "stopped" && !update.capturing) {
           report({ recoverable: false, message: DESKTOP_MESSAGES.lost });
+        }
+        /*
+          And the sentence that is not a failure, which is the one this whole
+          screen was missing.
+
+          A meeting that stops being transcribed part way through — the gateway
+          would not take the audio, the far end has no transcription configured —
+          is not a fault: the recording continues and the notes still become a
+          note. But it is the single most important thing the person is not
+          otherwise told, because the only other place it shows up is a
+          transcript that turns out empty when it is too late to do anything.
+          `recoverable: true` because the meeting genuinely goes on; the sentence
+          itself says what has stopped.
+        */
+        if (update.notice !== shownNotice) {
+          shownNotice = update.notice;
+          if (update.notice !== null) report({ recoverable: true, message: update.notice });
         }
       }),
     ];
@@ -219,6 +248,10 @@ export function desktopRecorder(
         report({ recoverable: true, message: DESKTOP_MESSAGES.micOnly });
       }
       if (started.notice !== null) {
+        // Recorded as shown, so the first `onCaptureState` — which carries the
+        // very same sentence, because `capturePlan` is where both come from —
+        // does not say it twice.
+        shownNotice = started.notice;
         report({ recoverable: true, message: started.notice });
       }
     },
