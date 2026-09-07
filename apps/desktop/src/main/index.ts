@@ -887,11 +887,25 @@ async function main(): Promise<void> {
       shell: () => ({ app: app.getName(), version: app.getVersion(), platform: "macos" }),
       capabilities: shellCapabilities,
       startCapture: startFromConsole,
+      /*
+        Guarded on the state, so an out-of-order press is a no-op rather than a
+        transition error.
+
+        `#moveTo` asserts the contract's table and throws on an illegal move —
+        which is right, and is checked — but the string it throws
+        ("illegal meeting transition idle -> paused") is written for whoever is
+        debugging this process, and `createConsoleBridge` would put it in an
+        answer bound for a page served over the network. The page already
+        guards its own state; this is the same guard on the side that owns the
+        recorder, so the developer sentence has no way to cross.
+      */
       pauseCapture: async () => {
+        if (controller.view()?.state !== "recording") return;
         await controller.pause();
         push();
       },
       resumeCapture: async () => {
+        if (controller.view()?.state !== "paused") return;
         await controller.resume();
         push();
       },
