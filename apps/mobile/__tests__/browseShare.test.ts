@@ -143,6 +143,14 @@ function dataWith(over: Partial<FileBrowser> = {}, entry: Partial<FolderListing[
   const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
   const files = {
     canEdit: true,
+    /*
+      The browser has caught up with the context the console selected, which is
+      what a console anybody is looking at looks like. `BrowsePane` draws no
+      breadcrumb and no note action row until it has — the pill and the folders
+      come from two places, and for the commits after a switch they name two
+      different contexts. Absent here, this fixture was a console mid-switch.
+    */
+    contextId: "w1",
     loading: false,
     busy: false,
     listings: {
@@ -593,9 +601,17 @@ describe("who does not get it", () => {
       name: "privacy.md",
       readOnly: true,
     });
-    // The note IS open — otherwise this would pass for the wrong reason, which
-    // is what the first version of this test did.
-    expect(pane.textContent).toContain("privacy.md");
+    /*
+      The note IS open — otherwise this would pass for the wrong reason, which
+      is what the first version of this test did.
+
+      `privacy`, not `privacy.md`: the breadcrumb's leaf drops the extension on
+      both densities now, which is the trim `noteHeading` has always made when
+      it falls back to a filename. The chip beside it is what says this file is
+      the access map.
+    */
+    expect(pane.textContent).toContain("privacy");
+    expect(pane.textContent).toContain("the access map");
     expect(pane.querySelector('[data-testid="browse-share"]')).toBeNull();
   });
 

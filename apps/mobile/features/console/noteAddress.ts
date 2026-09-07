@@ -38,12 +38,29 @@
  * **A URL that changed wins.** Somebody followed a link, and a link that lands
  * on the note you already had open is a link that did not work.
  *
- * **Otherwise the selection wins**, including when the URL *lost* its note. A
- * console URL with no note, over a console with a note open, is stale rather
- * than an instruction: there is no "close the note" for it to be expressing —
- * `select` takes a path and the file browser has no deselect — so treating it
- * as one would leave the address bar disagreeing with the screen, which is the
- * state this module exists to end. It is re-addressed instead.
+ * **A URL that lost its note wins too**, and closes the note. That is the half
+ * of this rule that was wrong for as long as `FileBrowser` had no inverse of
+ * `select`: with no "close the note" to express, such a URL was read as stale
+ * and re-addressed. The reasoning was right about the mechanism and the cost
+ * was a dead control — the phone's lit context pill navigates to
+ * `/console/@slug` with no note, because that is what "open its root" *is*, and
+ * the mirror put the note straight back before anybody saw the root. Pressing
+ * the one thing on the screen labelled as the way up did nothing.
+ *
+ * `deselect` exists now, so the rule is symmetric: **a URL that changed is a
+ * navigation**, honoured whichever way it went. A URL that did *not* change is
+ * not one, which is the distinction doing the work — somebody tapping a note at
+ * `/console/@seyi` produces a commit where `note` is `null` and the selection
+ * has moved, and reading that as a close would shut every note one commit after
+ * it opened. The `seen` pair is what tells the two apart, and it is the same
+ * pair that already told a followed link from an echo of the last one.
+ *
+ * A refused close leaves the note open, and `useNoteAddress` puts the address
+ * back on it rather than leaving the two disagreeing — which a refused `select`
+ * deliberately does not get. That asymmetry is a real one and the reason is
+ * there.
+ *
+ * **Otherwise the selection wins.**
  *
  * ## …and neither side wins across a context switch
  *
@@ -117,6 +134,13 @@ export type AddressStep =
   | { action: "open"; path: string }
   /** The selection moved. Put it in the URL — `null` clears `?note=`. */
   | { action: "address"; note: string | null }
+  /**
+   * The URL dropped its note. Close the open one and stand at the root.
+   *
+   * Carries no path: there is exactly one thing open and the browser knows
+   * which. Passing one would invite a caller to close something else.
+   */
+  | { action: "close" }
   /** They already agree. */
   | { action: "hold" };
 
@@ -152,8 +176,14 @@ export function nextAddressStep(inputs: AddressInputs): AddressStep {
     return note === null ? { action: "address", note: selected } : { action: "open", path: note };
   }
 
-  // A URL that changed is somebody following a link, and it wins. A URL that
-  // lost its note is stale rather than a request; see the module comment.
-  if (note !== seen.note && note !== null) return { action: "open", path: note };
+  /*
+    A URL that changed is a navigation, and it wins — a link followed if it
+    names a note, a move to the context's root if it names none. A URL that did
+    **not** change is not a navigation, whatever it says: the selection moved
+    under it and the address is what has to catch up.
+  */
+  if (note !== seen.note) {
+    return note === null ? { action: "close" } : { action: "open", path: note };
+  }
   return { action: "address", note: selected };
 }

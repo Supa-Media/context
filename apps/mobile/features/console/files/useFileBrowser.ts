@@ -778,6 +778,36 @@ export function useFileBrowser(options: {
   );
 
   /**
+   * Close what is open. The inverse of `select`, and see `browser.ts` for why
+   * its absence was a shipped defect rather than a gap in the interface.
+   *
+   * The same three moves `select` makes on the way out of a note — flush the
+   * autosave, ask the guard, clear the notice — and then `null` instead of a
+   * path. `closed` empties the editor; `setOpening(null)` because a read that
+   * was still in flight is a read for a note nobody is looking at any more, and
+   * leaving the flag set would hold the region blank over an empty selection.
+   *
+   * The read itself is not cancelled — nothing here can cancel a Convex action
+   * — and it does not need to be: `openNote` dispatches `opened`, which
+   * `editorReducer` applies to a buffer nothing is rendering, and the next
+   * `select` overwrites it. What must not happen is the *selection* coming
+   * back, and it cannot: `selectedPath` is only ever written by `select`.
+   */
+  const deselect = useCallback((): boolean => {
+    autosave.flush();
+    const guard = guardLeaving(editorRef.current);
+    if (!guard.allowed) {
+      setNotice(guard.prompt ?? null);
+      return false;
+    }
+    setSelectedPath(null);
+    setOpening(null);
+    setNotice(null);
+    dispatch({ type: "closed" });
+    return true;
+  }, [autosave]);
+
+  /**
    * Run one mutating operation.
    *
    * The shape is the same every time — refuse if this console cannot edit,
@@ -2018,6 +2048,7 @@ export function useFileBrowser(options: {
       selectedPath,
       opening,
       select,
+      deselect,
       search,
       editor,
       setDraft,
@@ -2118,6 +2149,7 @@ export function useFileBrowser(options: {
       save,
       search,
       select,
+      deselect,
       selectedPath,
       opening,
       setDraft,
