@@ -473,22 +473,33 @@ export async function runConsoleBridgeChecks(check) {
     const srcDir = new URL("../src/", import.meta.url);
     const mainDir = new URL("../src/main/", import.meta.url);
     /*
-      THE WALK IS THE BUNDLE, NOT THE DIRECTORY — and it is READ FROM THE
-      MANIFEST rather than listed here, which took two reviews.
+      WHAT THIS WALKS, AND THE CLAIM IT IS CAREFUL NOT TO MAKE.
 
-      esbuild bundles `src/main/index.ts` with only `electron` external, so
-      every `workspace:*` dependency of this app compiles into the main process
-      and a registration written in one is a registration in the main process.
-      The first version of this census walked `src/main`. The second walked
-      `src/`. The third named two packages by hand — and a review found the
-      third: `main/connect.ts` imports `@supa-media/context-hook/src/oauth.js`,
-      which the bundler pulls in and the enumeration did not.
+      esbuild bundles `src/main/index.ts` with only `electron` external, so a
+      registration written in any workspace package this app depends on is a
+      registration in the main process. `main/connect.ts` imports
+      `@supa-media/context-hook/src/oauth.js`, which is how that stopped being
+      hypothetical.
 
-      So the list is not written down. `dependencies` in `package.json` is the
-      same fact the bundler reads, and a package added there is walked without
-      anybody remembering to add it here. **A hand-written list of what a
-      bundler includes is a boundary nobody maintains**, which is the exact
-      thing widening this walk was supposed to stop doing.
+      An earlier shape of this said "THE WALK IS THE BUNDLE, NOT THE DIRECTORY"
+      and it was false twice over, which is why the sentence is gone rather than
+      repaired. **This is a directory list.** It is derived from the manifest so
+      that a workspace package cannot be added without this file either walking
+      it or refusing to run, but esbuild resolves by *import*, not by dependency
+      class, so the manifest is a near-neighbour of what the bundler reads and
+      not the same fact. `devDependencies` are read for that reason: a package
+      moved between the two blocks is still bundled, and used to fall silently
+      out of the walk.
+
+      An unmapped workspace dependency **throws**. That is the honest behaviour
+      for a hand-maintained map — it cannot walk a directory it was not told
+      about, so it stops rather than reporting a green census of a tree it did
+      not read.
+
+      Package roots, not `<pkg>/src`: `packages/hook` ships a `bin/` that this
+      app can deep-import, and a review put a live registration there and
+      watched this pass. `node_modules` and build output are skipped because
+      they are not sources.
 
       `desktop-bridge/src/contract.ts` mentions the identifier in prose, which
       is why the total below is 28 rather than 27.
@@ -501,15 +512,15 @@ export async function runConsoleBridgeChecks(check) {
       "@context/desktop-bridge": "desktop-bridge",
       "@context/meetings": "meetings",
     };
-    const bundled = Object.entries(manifest.dependencies ?? {})
-      .filter(([, range]) => range.startsWith("workspace:"))
+    const bundled = Object.entries({
+      ...(manifest.dependencies ?? {}),
+      ...(manifest.devDependencies ?? {}),
+    })
+      .filter(([, range]) => typeof range === "string" && range.startsWith("workspace:"))
       .map(([name]) => {
-        // A `workspace:*` dependency whose directory this map does not know is
-        // a package in the bundle that would go unwalked, which is the hole
-        // this whole block exists to close. Louder than skipping it.
         const dir = workspaceDirs[name];
         if (dir === undefined) throw new Error(`unmapped workspace dependency: ${name}`);
-        return new URL(`../../../packages/${dir}/src/`, import.meta.url);
+        return new URL(`../../../packages/${dir}/`, import.meta.url);
       });
 
     /*
@@ -575,10 +586,15 @@ export async function runConsoleBridgeChecks(check) {
       return { text: out, ended: mode };
     };
 
+    // `node_modules` and build output are not sources, and walking a package
+    // root without skipping them reads the whole store.
+    const SKIP = new Set(["node_modules", "dist", "build", ".git", "coverage"]);
     const walk = (dir) =>
       readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
         entry.isDirectory()
-          ? walk(new URL(`${entry.name}/`, dir))
+          ? SKIP.has(entry.name)
+            ? []
+            : walk(new URL(`${entry.name}/`, dir))
           : [new URL(entry.name, dir)],
       );
 
@@ -671,14 +687,15 @@ export async function runConsoleBridgeChecks(check) {
           measured green. Telling that binding from any other `ipc` needs the
           import graph this suite does not have.
 
-      Both need a real build step to close. What reviews DID close, each by
-      measuring the hole rather than arguing about it: `handleOnce` and
-      `addListener` (the method name is no longer a list of three verbs); a
-      registration in a workspace package the bundler compiles in (the walk
-      reads `package.json` now, so it covers `packages/hook` — which a
-      hand-written list of two packages missed — and anything added after this);
-      and a registration that hides behind a balancing edit elsewhere (the file
-      names are asserted, not just the total).
+      Both need a real build step to close, and the list is written
+      open-endedly because every closed form of it has been wrong. What reviews
+      DID close, each by measuring the hole rather than arguing about it:
+      `handleOnce` and `addListener`, because the method name was a list of
+      three verbs; a registration in a workspace package the bundler compiles
+      in, including one outside that package's `src/`; a workspace dependency
+      that moved to `devDependencies` and fell silently out of the walk; and a
+      registration paid for by a balancing edit somewhere else, which is what
+      the map above is for and what a bare total could never catch.
 
       So the claim is the smaller true one: **this guard is for the accident,
       not the adversary.** It catches a channel somebody adds without thinking
@@ -704,16 +721,44 @@ export async function runConsoleBridgeChecks(check) {
       — any member call on an `.ipc` receiver — which is a count of a surface
       rather than a list of the parts of it anybody remembered.
     */
+    /*
+      A TOTAL IS NOT A LOCATION, and two rounds of this census learned it the
+      same way. `mentions === 28` and `scoped === 5` say how many there are and
+      nothing about where, so a new registration passes green as long as
+      something else in the walk shrinks by as much in the same commit. Both
+      halves of that were MEASURED: a real `win.webContents.ipc.handle(...)` in
+      a second file *named* `consoleBridge.ts` with one teardown call aliased
+      away, and a re-export shim with one prose mention deleted to pay for it.
+      The first defeated a locality check that keyed on the **basename**.
+
+      So the census is a map, and the map is compared whole. Every file that
+      mentions the identifier or calls through an `.ipc.` receiver is named
+      here with its counts, by repository-relative path. A file added, removed,
+      renamed, or changed in either count is a diff against this literal — and a
+      balancing edit reddens twice rather than cancelling out.
+    */
+    const CENSUS = {
+      "apps/desktop/src/core/shell/bridge.ts": "1 mention, 0 ipc calls",
+      "apps/desktop/src/core/shell/console.ts": "1 mention, 0 ipc calls",
+      "apps/desktop/src/main/capture.ts": "8 mentions, 0 ipc calls",
+      "apps/desktop/src/main/consoleBridge.ts": "3 mentions, 5 ipc calls",
+      "apps/desktop/src/main/index.ts": "14 mentions, 0 ipc calls",
+      "packages/desktop-bridge/src/contract.ts": "1 mention, 0 ipc calls",
+    };
     let mentions = 0;
     let scoped = 0;
-    const scopedFiles = new Set();
+    const census = {};
     for (const file of [...walk(srcDir), ...bundled.flatMap(walk)]) {
       if (!/\.(?:[cm]?[jt]sx?)$/.test(file.pathname)) continue;
       const raw = readFileSync(file, "utf8");
-      mentions += (raw.match(/\bipcMain\b/g) ?? []).length;
+      const seen = (raw.match(/\bipcMain\b/g) ?? []).length;
       const calls = (raw.match(/\.ipc\.[A-Za-z_$][\w$]*\(/g) ?? []).length;
+      mentions += seen;
       scoped += calls;
-      if (calls > 0) scopedFiles.add(file.pathname.split("/").pop());
+      if (seen === 0 && calls === 0) continue;
+      const relative = file.pathname.replace(/^.*?\/(apps|packages)\//, "$1/");
+      census[relative] =
+        `${seen} mention${seen === 1 ? "" : "s"}, ${calls} ipc call${calls === 1 ? "" : "s"}`;
     }
     // 28 and not 25: widening to `src/` picks up two mentions in prose, in
     // `core/shell/bridge.ts` and `core/shell/console.ts`, and widening to the
@@ -722,8 +767,13 @@ export async function runConsoleBridgeChecks(check) {
     // positive this check accepts by design: the number moves when the surface
     // is DESCRIBED differently, which is cheaper than silence when it IS
     // different.
+    //
+    // "IN THE WALK" and not "IN THE MAIN BUNDLE", because the walk is a
+    // directory list and the bundle is what esbuild resolves. They agree on
+    // this tree and a check should not claim the stronger of two things it
+    // cannot tell apart.
     check(
-      `EVERY MENTION OF ipcMain IN THE MAIN BUNDLE IS ACCOUNTED FOR — ${mentions} of 28`,
+      `EVERY MENTION OF ipcMain IN THE WALK IS ACCOUNTED FOR — ${mentions} of 28`,
       mentions === 28,
     );
     /*
@@ -740,23 +790,18 @@ export async function runConsoleBridgeChecks(check) {
       written anywhere else moves the number, whichever verb it uses.
     */
     check(
-      `EVERY .ipc. CALL IN THE MAIN BUNDLE IS INSIDE THE GUARDED BRIDGE — ${scoped} of 5`,
+      `EVERY .ipc. CALL IN THE WALK IS IN THE GUARDED BRIDGE — ${scoped} of 5`,
       scoped === 5,
     );
-    /*
-      A TOTAL IS NOT A LOCATION, which is the same mistake the old name made in
-      a different place. `scoped === 5` says how many there are and nothing
-      about where: MEASURED, a real `win.webContents.ipc.handle(...)` in a new
-      `src/main` file passes green if one teardown call in `consoleBridge.ts` is
-      spelled through an alias in the same commit. Two wrongs, one total.
-
-      So the file names are asserted too. `consoleBridge.ts` is where the gate
-      is; a `.ipc.` call anywhere else in the bundle is new surface whether or
-      not the count happens to balance.
-    */
+    const censusDrift = [
+      ...Object.keys(census).filter((path) => census[path] !== CENSUS[path]),
+      ...Object.keys(CENSUS).filter((path) => census[path] === undefined),
+    ];
     check(
-      `...AND ALL OF THEM ARE IN ONE FILE — ${[...scopedFiles].join(", ") || "none"}`,
-      scopedFiles.size === 1 && scopedFiles.has("consoleBridge.ts"),
+      `AND EACH ONE IS IN THE FILE THE CENSUS SAYS${
+        censusDrift.length ? ` — ${censusDrift[0]}: ${census[censusDrift[0]] ?? "gone"}` : ""
+      }`,
+      censusDrift.length === 0,
     );
 
     check(

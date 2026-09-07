@@ -803,47 +803,54 @@ registration in that file passed at 916 / 0. Idiomatic TypeScript. Telling a
 regex from a division needs a parser, and this suite takes no dependencies.
 
 So the load-bearing check does not lex: it counts every occurrence of the
-identifier in the raw bytes of every file the main-process bundle is built
-from, comments and strings included, and requires the total. Nothing about how
-a file lexes can move that number: writing the identifier in a new comment
-reddens it, and the fix is to update the number on purpose — **a guard that
-complains when the surface is described differently is cheaper than one that
-stays silent when the surface is different.** The classification stays as the
-diagnostic that names the offending mention.
+identifier in the raw bytes of every file it walks, comments and strings
+included. Nothing about how a file lexes can move that number: writing the
+identifier in a new comment reddens it, and the fix is to update the number on
+purpose — **a guard that complains when the surface is described differently is
+cheaper than one that stays silent when the surface is different.** The
+classification stays as the diagnostic that names the offending mention.
 
 A second count covers `webContents.ipc` and `webFrameMain.ipc` — Electron's
 documented way to scope a channel to one window, idiomatic, spelling no
-`ipcMain`, and invisible here until it was asked for. Three widenings, each made
-only after a review measured the hole rather than argued for it, and each one
-correcting the shape before it:
+`ipcMain`, and invisible here until it was asked for. What the walk covers, and
+the claim it is careful not to make:
 
-- **The walk follows the bundle**, because esbuild compiles every `workspace:*`
-  dependency into the main process and a registration in one is a registration
-  in the main process.
-- **It reads that list from `package.json` rather than naming the packages.**
-  Naming them was the third shape and it was wrong within the hour: it listed
-  two and `main/connect.ts` imports a third, `@supa-media/context-hook`. **A
-  hand-written list of what a bundler includes is a boundary nobody maintains**
-  — which is what widening the walk was supposed to stop doing.
+- **It is a directory list.** An earlier shape called it "the bundle, not the
+  directory" and that was false twice over, so the sentence is gone rather than
+  repaired. esbuild resolves by *import*; a manifest is a near-neighbour of that
+  and not the same fact.
+- **The list is derived from the manifest anyway**, so a workspace package
+  cannot be added without this walking it or **refusing to run** — an unmapped
+  dependency throws, because a hand-maintained map cannot walk a directory
+  nobody told it about and should not report a green census of a tree it did
+  not read. `devDependencies` are read too: a package moved between the two
+  blocks is still bundled, and used to fall silently out of the walk.
+- **Package roots, not `<pkg>/src`.** `packages/hook` ships a `bin/` this app
+  can deep-import, and a review put a live registration there and watched this
+  pass.
 - **The method name is any member call**, not the three verbs somebody thought
   of, because `handleOnce` and `addListener` are on the same interface and
   passed green.
 
-The count is also asserted **per file**, not only as a total. A total says how
-many there are and nothing about where: measured, a real registration in a new
-`src/main` file passes if one teardown call in `consoleBridge.ts` is aliased
-away in the same commit. Two wrongs, one total, and a name that claimed
-locality it was not checking.
+The counts are asserted as a **map of file to counts, compared whole** — not as
+totals, and not by basename. A total says how many there are and nothing about
+where, so a new registration passes as long as something else shrinks by as
+much in the same commit. Both halves of that were measured: a registration in a
+second file *named* `consoleBridge.ts` with a teardown call aliased away, which
+defeated a locality check keyed on the basename; and a re-export shim paid for
+by deleting one prose mention. Against a map, a balancing edit reddens twice
+instead of cancelling.
 
-**Two things it still does not see, both measured rather than reasoned about.**
-A registration that never spells the identifier — `electron["ipc" + "Main"]
-.on(...)` passes, and no text scan will catch it. And an aliased receiver:
-`const { ipc } = win.webContents` followed by `ipc.handle(...)` spells neither
-name. Closing either needs a real import graph. Every shape of this census has
-been described as exhaustive and none was — **including the one that shipped to
-fix that**, which is why the two above are the ones somebody wrote and ran
-rather than the ones its author believed in. So the claim is the smaller true
-one: **this guard is for the accident, not the adversary.**
+**What it still does not see is written open-endedly, because every closed form
+of that list has been wrong.** A registration that never spells the identifier —
+`electron["ipc" + "Main"].on(...)` — passes, and no text scan will catch it. So
+does an aliased receiver: `const { ipc } = win.webContents` followed by
+`ipc.handle(...)` spells neither name. Both need a real import graph. Every
+shape of this census has been described as exhaustive and none was — **including
+each shape that shipped to fix that** — which is why the two named here are the
+ones somebody wrote and ran rather than the ones its author believed in. The
+claim is the smaller true one: **this guard is for the accident, not the
+adversary.**
 
 The lesson worth keeping is not about lexers: it is that a guard which must
 understand a language is a guard that inherits every ambiguity of that language,
