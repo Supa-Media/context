@@ -58,6 +58,19 @@ import { fetchAllPages, normalizeGoogleEvent, SyncTokenExpiredError } from "./ca
  * @property {(path: string) => Promise<void>} delete
  */
 
+/*
+ * NOT YET DONE: conditional writes. The real storage adapter's `put` takes an
+ * `ifMatch` etag and its `get` returns one — "reads return a version, writes
+ * pass it back" (`CLAUDE.md`'s own engineering standard) — and this narrowed
+ * `NoteStore` does not carry either. It is safe as far as this module's own
+ * behaviour goes (nothing else in this product's control plane writes a
+ * calendar-day path concurrently with a sync, the way two note edits from two
+ * devices legitimately can), but wiring this into the real adapter should
+ * pass `existing`'s etag through to `put` rather than dropping it, the same
+ * way `write_note` already does — named here so it is a decision for that
+ * wiring, not a gap discovered after it lands.
+ */
+
 /**
  * Sync one connection's calendar into its own workspace's notes.
  *
@@ -166,9 +179,21 @@ export async function syncCalendarAccount({ connection, store, fetchImpl, now })
       events: dayEvents,
       now,
       origin: "calendar-sync",
-      // The nonce only has to be unpredictable to someone who has never seen
-      // this day's note; deriving it from the day and account keeps
-      // regeneration stable rather than rotating on every sync for no reason.
+      // A placeholder nonce, not a solved one: deriving it from the account
+      // and date keeps regeneration idempotent (the point tested throughout
+      // this file), but both values end up visible in the note itself — an
+      // inviter who knows which account they invited and what day their
+      // invite landed on could compute it, which is weaker than the fence's
+      // own design goal of a nonce nobody outside this bucket could guess.
+      // `apps/mcp/src/communications/gmailSync.js` has exactly the same gap
+      // (`options.nonce` is caller-supplied there too, with nothing yet
+      // generating or persisting a real one) — this is a cross-cutting,
+      // not-yet-wired question for whoever builds the live sync trigger for
+      // either channel, not something decided here. The real fix keeps the
+      // property this needs (stable across regeneration) by reading the
+      // *existing* note's own nonce back out and reusing it, minting a fresh
+      // random one only the first time a day is written — named so it is a
+      // decision for that wiring, not a gap discovered after it lands.
       nonce: `${connection.account}:${date}`,
     });
     if (existing && existing.text === text) continue;

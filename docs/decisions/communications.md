@@ -1293,6 +1293,20 @@ exercised entirely against a fake, stateful Calendar API server
 see "The Gmail restricted scope is Google's decision" above for the same
 argument about testing ahead of a credential nobody can grant an agent yet.
 
+**The fence nonce is a placeholder, and the same gap already exists in the
+Gmail sync.** `calendar-sync.js` derives it from the connection's account and
+the day (`account:date`), which keeps regeneration idempotent but is weaker
+than the fence's own design goal — both values end up visible in the
+rendered note, so an inviter who knows which account they invited and what
+day their invite landed on could compute it. `gmailSync.js` has exactly the
+same gap: its nonce is caller-supplied (`options.nonce`) with nothing yet
+generating or persisting a real one, because neither sync is wired to a live
+trigger yet. The fix that keeps both properties — unpredictable, and stable
+across a regeneration — reads the *existing* note's own nonce back out and
+reuses it, minting a fresh random one only the first time a day is written;
+named here as a decision for whoever builds the live sync trigger for either
+channel, not a gap discovered after one lands.
+
 Also not built, named so a future reader knows these were considered rather
 than missed: RSVP/response writes (v1 is read-only, matching the read-only
 mail decision above); a scheduling or free/busy feature; a per-calendar (as
