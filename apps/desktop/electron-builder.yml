@@ -24,11 +24,36 @@
 # what is captured and what happens to it. `NSCalendarsUsageDescription` is the
 # same for the detector, which reads events to name a meeting and correlate one.
 #
+# ## The zip target is not cosmetic
+#
+# macOS `electron-updater` applies an update through Squirrel.Mac, and Squirrel.Mac
+# reads a `.zip`, never a `.dmg` — a release with only a dmg and no
+# `latest-mac.yml` is one the updater finds nothing in and reports no error
+# about. So the mac target is `[dmg, zip]`: the dmg is still built, because a dmg
+# is what a person installs the first time, and the zip plus `latest-mac.yml` are
+# what every launch after that one checks against. `writeUpdateInfo` is left at
+# its default (on) so that file is produced by every build, signed or not —
+# generating it costs nothing, and only a signed build can ever have it acted on
+# (`docs/decisions/desktop.md`, "The shell updates itself").
+#
+# ## `publish`, and why it names a release rather than a draft
+#
+# `releaseType: release` publishes the moment `deploy-desktop.yml` asks
+# electron-builder to (`--publish always`), rather than leaving a draft for a
+# person to click. The alternative was considered and rejected: `autoUpdater`'s
+# GitHub provider looks at the *latest published* release, and a draft simply
+# is not one — it exists in the repository's UI and nowhere the update check
+# can see, which would make this whole step build correctly and update nobody.
+# `owner`/`repo` are pinned to this repository rather than read from `package.json`
+# (which has none, being private) so a fork publishes to itself with no edit
+# needed anywhere but here.
+#
 # ## What is deliberately not here
 #
-# No auto-updater, no publish target, no code-signing identity. A release is a
-# `.dmg` a person downloads; shipping updates is a decision with a hosting bill
-# and a signing-key rotation story attached, and it is not this change.
+# No code-signing identity in this file — that stays the workflow's job (see its
+# own header) — and no channel other than "latest": every signed build the
+# workflow publishes is the one every installed shell checks against, because
+# there is exactly one distribution today.
 
 appId: lc.context.desktop
 productName: Context
@@ -38,9 +63,10 @@ directories:
   output: release
   buildResources: build
 
-# `dist/` is what esbuild produced; `node_modules` is not copied because this
-# app has no runtime dependencies — `@context/meetings` is bundled into the main
-# process by esbuild, which is also why `asar` has nothing to unpack.
+# `dist/` is what esbuild produced; `node_modules` is not copied because every
+# runtime dependency — `@context/meetings` and `electron-updater` — is bundled
+# into the main process by esbuild, which is also why `asar` has nothing to
+# unpack.
 files:
   - dist/**/*
   - package.json
@@ -60,6 +86,10 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   target:
     - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
       arch:
         - arm64
         - x64
@@ -87,4 +117,12 @@ afterSign: build/notarize.cjs
 dmg:
   # Nothing custom: the default window with the app and an Applications alias.
   # A background image is a design decision nobody has taken.
-  writeUpdateInfo: false
+
+# GitHub Releases, published only when `deploy-desktop.yml` passes
+# `--publish always` — see the header for why `release` and not `draft`, and why
+# owner/repo are pinned here.
+publish:
+  provider: github
+  owner: Supa-Media
+  repo: context
+  releaseType: release

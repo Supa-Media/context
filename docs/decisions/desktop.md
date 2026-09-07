@@ -337,6 +337,53 @@ manifest, not only a dmg` — the last one belongs beside
 `packaging.test.mjs`'s existing sabotage record, which already learned that
 reading the config as text passes when the value is only discussed in a comment.
 
+### Step 7 landed: a release, not a draft, and the meeting always wins
+
+Step 7 shipped `apps/desktop/src/core/update/policy.ts`, `src/main/updater.ts`,
+the `zip`/`publish` halves of `electron-builder.yml`, and a `publish` input on
+`deploy-desktop.yml`. Two decisions the sections above left open, closed here
+because building them surfaced a question each:
+
+**`releaseType: release`, not `draft`.** `autoUpdater`'s GitHub provider reads
+the *latest published* release; a draft is not one — it exists in this
+repository's UI and nowhere the update check can see. Publishing a draft would
+make every future dispatch build correctly, sign correctly, notarise
+correctly, and update nobody, silently, because nothing failed. **The test
+that fails if this is reversed**: `packaging.test.mjs`'s `"...as a real
+release, not a draft the update check can never see"` reads
+`electron-builder.yml` for `releaseType: release`; flip it to `draft` locally
+and that check goes red with nothing else changed.
+
+**An update downloaded mid-meeting is deferred, never dropped.** The state
+machine has no path from `deferred-for-recording` back to `idle` — the only
+way out is `capture-ended`, fired from `MeetingController.end()` once the note
+is queued. A "simplification" here would be tempting in exactly one direction:
+discarding a deferred update and re-checking later, on the theory that the next
+poll six hours on will pick it up anyway. It would not, not promptly — a
+person who ends a four-hour meeting would wait up to six more hours for the
+tray to notice again, having already paid the download. **The test that fails
+if this is reversed**: `updatePolicy.test.mjs`'s `"DEFERRED INSTALL FIRES ONLY
+AFTER THE MEETING ENDS"` asserts `transition("deferred-for-recording",
+{ type: "capture-ended" }) === "ready"`; a version of `transition` that instead
+resets a deferred update to `"idle"` on `capture-ended` passes every other
+check in the file and fails only that one — which is the point of naming it
+rather than folding it into the sweep.
+
+A third call worth recording even though it was not asked for by name: the
+build job's `permissions` block moves from `contents: read` to `contents:
+write` rather than splitting into a second job, because GitHub Actions grants
+permissions per job-declaration, not per dispatch input, and a second job that
+only exists to hold a narrower scope would duplicate the entire
+certificate-and-keychain sequence above it — twice the signing surface for a
+scope that is exercised, in practice, on the one dispatch a maintainer marks
+`publish: true`. **The test that fails if the gate is removed instead of the
+scope**: `packaging.test.mjs`'s `"publishing is decided once, from the
+dispatch input AND both credentials"` requires all three of
+`PUBLISH_REQUESTED`, `SIGNED` and `NOTARIZED` to be true before `--publish
+always` is ever passed to electron-builder; deleting either credential check
+and leaving only the dispatch input passes that regex's first half and fails
+its second.
+
 ### Nothing that can start a recording may come from an origin we did not pin
 
 `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, and no
@@ -448,7 +495,8 @@ one environment variable.
    badge, the first-run failure page. *(~250 lines)*
 7. **`electron-updater`.** The zip target, `publish: github`, a release job in
    `deploy-desktop.yml`, armed only when signed, never installing during a
-   recording. *(~250 lines and a workflow)*
+   recording. *(~250 lines and a workflow)* **Landed** — see "Step 7 landed: a
+   release, not a draft, and the meeting always wins" above.
 
 Steps 1 and 2 are ordered before 3 deliberately: the shell must be able to
 answer the bridge before the UI is allowed to ask, or the first thing a person

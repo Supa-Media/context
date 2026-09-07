@@ -47,6 +47,8 @@ export interface TrayActions {
   toggleDetection: () => void;
   connect: () => void;
   disconnect: () => void;
+  /** "Restart to update" — refused by `DesktopUpdater.install()` mid-meeting. */
+  installUpdate: () => void;
   quit: () => void;
 }
 
@@ -55,12 +57,18 @@ export interface TrayMenuState {
   recording: boolean;
   detectionEnabled: boolean;
   connected: boolean;
+  /**
+   * An update finished downloading and nothing is recording — `DesktopUpdater`
+   * reached `"ready"`. False while idle, while a capture holds it at
+   * `"deferred-for-recording"`, and once nothing more is armed at all.
+   */
+  updateReady: boolean;
 }
 
 export class AppTray {
   #tray: Tray;
   #actions: TrayActions;
-  #state: TrayMenuState = { recording: false, detectionEnabled: false, connected: false };
+  #state: TrayMenuState = { recording: false, detectionEnabled: false, connected: false, updateReady: false };
 
   constructor(actions: TrayActions) {
     this.#actions = actions;
@@ -83,7 +91,7 @@ export class AppTray {
    * meetings when it is not.
    */
   #menu(): Electron.Menu {
-    const { recording, detectionEnabled, connected } = this.#state;
+    const { recording, detectionEnabled, connected, updateReady } = this.#state;
     return Menu.buildFromTemplate([
       ...(recording
         ? [{ label: "End & write up", click: () => this.#actions.end() }]
@@ -100,6 +108,13 @@ export class AppTray {
       connected
         ? { label: "Disconnect this machine…", click: () => this.#actions.disconnect() }
         : { label: "Connect this machine…", click: () => this.#actions.connect() },
+      // Offered only once an update is actually ready to apply — never while a
+      // meeting is recording, because `updateReady` cannot be true then (see
+      // `DesktopUpdater`/`core/update/policy.ts`), and `install()` refuses the
+      // click again regardless, in case this menu is ever stale.
+      ...(updateReady
+        ? [{ type: "separator" as const }, { label: "Restart to update", click: () => this.#actions.installUpdate() }]
+        : []),
       { type: "separator" as const },
       { label: "Quit Context", click: () => this.#actions.quit() },
     ]);

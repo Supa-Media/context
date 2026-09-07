@@ -23,6 +23,8 @@ src/core/        no Electron anywhere in it — this is what CI tests
   recording/       one meeting, from "yes" to a note in the bucket
   sync/            the offline queue, the gateway client, the grant's own life
   tray/            what the menu bar says, as a pure function
+  update/          when to check, and when an update may install — never
+                   during a recording
 src/platform/    the macOS collectors — ps, System Events, ioreg, Calendar
 src/main/        Electron: tray, windows, IPC, capture window, disk
 src/preload/     the twelve verbs a window is allowed to send — no credential
@@ -107,8 +109,11 @@ installs on the machine that built it, and
 
 `.github/workflows/deploy-desktop.yml` is the same build on a runner —
 `workflow_dispatch` only, because a binary somebody installs is a decision
-somebody takes rather than something a merge does. It uploads the dmg as an
-artifact and prints a warning when the build is unsigned.
+somebody takes rather than something a merge does. By default it uploads the
+dmg, zip and update manifest as a workflow artifact and prints a warning when
+the build is unsigned; see "Cutting a release" below for the `publish: true`
+path that turns a signed, notarised build into a GitHub Release every
+installed shell updates from.
 
 ### What signing needs, and who can do it
 
@@ -142,6 +147,56 @@ rather than a hang — and, driven against a fake Apple, that a submission Apple
 the private key the hook writes for `notarytool` is gone from the runner
 afterwards even when the submission failed.
 
+## Cutting a release
+
+`deploy-desktop.yml` has a `publish` dispatch input, default `false`. With it
+`false` (or omitted) the run behaves exactly as before: a signed-if-possible
+build, uploaded as the `context-desktop-release` workflow artifact (dmg, zip
+and `latest-mac.yml`) for a person to download and try by hand — nothing is
+published, and nothing needs the version bumped.
+
+To ship an update every installed shell will find on its own:
+
+1. **Bump `apps/desktop/package.json`'s `version`.** This workflow never bumps
+   it for you, and it refuses to publish a version that already has a release —
+   so an unbumped re-dispatch is a safe no-op, not a silent overwrite.
+2. **Commit that bump** (a normal pull request; nothing about it deploys —
+   see CLAUDE.md's "merging a desktop change ships nothing").
+3. **Dispatch `Deploy Desktop` with `publish: true`.** It builds, signs and
+   notarises exactly as an ordinary dispatch does, and if — and only if — the
+   result is both signed and notarised, electron-builder is asked to
+   `--publish always`: it creates the GitHub Release (tag `v<version>`, e.g.
+   `v0.1.2`), and uploads the dmg, the zip and `latest-mac.yml`. Ask for
+   `publish: true` on an unsigned or un-notarised build and the run says so in
+   a warning and falls back to uploading the artifact only — it never fails
+   the build over it.
+4. **Every installed, signed shell finds it on its own** — once at launch
+   (after a short delay) and every six hours after that — downloads it, and
+   installs on quit unless a meeting is recording, in which case it waits
+   until the meeting ends and the note is written, then offers **Restart to
+   update** from the tray.
+
+There is no channel, no beta track and no rollback command: the latest
+published release is the one every shell checks against, and pulling a bad
+release out of GitHub is the same "delete the release" any electron-builder
+app would need. `docs/decisions/desktop.md`'s "Step 7 landed" records why a
+release rather than a draft, and why a deferred install can only ever resume,
+never quietly drop.
+
+### What a Mac has to confirm, because nothing here can
+
+- **An installed `0.1.0` sees a published `0.1.1` and updates itself.** Install
+  a signed build, publish a newer version, wait for the six-hourly check (or
+  relaunch, which checks after a short delay), and watch the tray offer
+  **Restart to update** once the download finishes.
+- **An update downloaded mid-recording waits.** Start a recording, publish a
+  release, let it download in the background, and confirm the tray does *not*
+  offer to restart until *after* "End & write up" completes — then confirm it
+  does immediately after.
+- **An unsigned or dev build never checks at all.** `pnpm start` (unpackaged)
+  and a dispatch with no certificate configured should both leave the tray
+  silent about updates; `[update] not armed` in the log is the honest reason.
+
 ## Consent, because this app watches what you are doing
 
 Five rules, each enforced in code with a check beside it rather than promised
@@ -172,7 +227,7 @@ the settings file, put in a URL, or exposed to a renderer.
 
 ## What is real, and what is not
 
-### Real, and checked by the suite (555 checks, offline, no network)
+### Real, and checked by the suite (625 checks, offline, no network)
 
 - The detection loop against fake collectors, including the flicker cases: one
   poll of a conferencing app does not start a recording, a two-poll blip does
@@ -245,6 +300,11 @@ failures — and the checks were rewritten until each sabotage reports itself.
 - Whether macOS hands *this* build a system-audio track. It will not, until the
   app is signed and notarised — the app treats that as mic-only and says so
   rather than failing the meeting.
+- `src/main/updater.ts` — `electron-updater` itself, Squirrel.Mac's signature
+  check, and the actual download and install. The policy it calls
+  (`core/update/policy.ts`: when to check, when a download may install, never
+  during a recording) is checked above with a fake clock; whether a real
+  Mac finds a real release and applies it is "What a Mac must confirm", below.
 
 ### Stubbed, and what each one actually needs
 

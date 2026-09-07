@@ -53,6 +53,11 @@ on:
         description: "Why this build exists — it goes in the run's title"
         required: false
         default: "a build to try on a Mac"
+      publish:
+        description: "Publish a GitHub Release (needs a signed, notarised build; a version already released is refused)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -70,6 +75,26 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 45
     environment: production
+    # `contents: write`, overriding the workflow's own `contents: read` above,
+    # because a `publish: true` dispatch hands electron-builder `GH_TOKEN` and
+    # asks it to create a GitHub Release. GitHub Actions has no conditional
+    # permission — a job declares one scope for every run it will ever have,
+    # not one per input — so the choice is between this override and a second
+    # job that duplicates the entire certificate-and-build sequence above it
+    # just to hold a narrower scope. That duplication is the worse trade: twice
+    # the signing surface, two keychains to leak instead of one, and a copy of
+    # ~180 lines that drifts the day only one of them is edited. What actually
+    # keeps this scope narrow is downstream of here rather than in this key:
+    # the token this run receives is minted for this run alone and expires with
+    # it, dispatching this workflow at all already requires write access to the
+    # repository, and the API call the elevated scope would allow is reached
+    # from exactly one place — the `--publish` flag on the Build step below —
+    # gated on `publish == 'true'` AND a signed AND notarised build. Every
+    # dispatch that leaves `publish` at its default touches nothing this scope
+    # adds. See docs/decisions/desktop.md, "The shell updates itself", for the
+    # test that fails if that gate is ever removed instead of the scope.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
 
@@ -134,6 +159,7 @@ jobs:
       # keychain ended up holding. Each of those tells one failure from another,
       # and none of them identifies anybody.
       - name: Check the certificate, and make the keychain to sign from
+        id: certificate
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -148,6 +174,11 @@ jobs:
             # Without this, electron-builder looks for an identity in the
             # runner's own keychain and fails on a machine that has none.
             echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+            # Read by "Decide whether to publish" below — an unsigned build has
+            # nothing Squirrel.Mac can verify, so `updater.ts`'s own arming rule
+            # (`shouldArmUpdater`) would refuse it anyway; this is that same
+            # refusal, one step earlier, before any network call is attempted.
+            echo "signed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -247,6 +278,7 @@ jobs:
           echo "SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
           echo "CSC_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
           echo "CSC_IDENTITY_AUTO_DISCOVERY=true" >> "$GITHUB_ENV"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
 
           if [ -n "${ASC_API_KEY_P8:-}" ]; then
             echo "This build will be signed and notarised."
@@ -268,6 +300,7 @@ jobs:
       # instead of a second copy of it in shell. The key stays inside that
       # process: it is not written, echoed or exported.
       - name: Check the notarisation key
+        id: notarize_check
         working-directory: apps/desktop
         env:
           ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
@@ -276,6 +309,63 @@ jobs:
         run: |
           set -euo pipefail
           node build/notarize.cjs --check
+          # "Decide whether to publish" reads this rather than re-deriving it:
+          # `credentials()` in that file is "all three, or nothing", and this is
+          # the one place that already ran it.
+          if [ -n "${ASC_API_KEY_P8:-}" ] && [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ]; then
+            echo "notarized=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "notarized=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Whether this run may create a release, decided once rather than
+      # inlined into the Build step below. `publish` asked for a release that
+      # `signed`/`notarized` cannot deliver is a warning and an artifact-only
+      # build, never a failure — the same honesty this file already gives an
+      # unsigned dispatch.
+      - name: Decide whether to publish
+        id: decide
+        env:
+          PUBLISH_REQUESTED: ${{ inputs.publish }}
+          SIGNED: ${{ steps.certificate.outputs.signed }}
+          NOTARIZED: ${{ steps.notarize_check.outputs.notarized }}
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISH_REQUESTED" = "true" ] && [ "$SIGNED" = "true" ] && [ "$NOTARIZED" = "true" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "This build will publish a GitHub Release."
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            if [ "$PUBLISH_REQUESTED" = "true" ]; then
+              echo "::warning::publish was requested but this build is $( [ "$SIGNED" = "true" ] && echo unnotarised || echo unsigned ) — uploading an artifact only, no release."
+            fi
+          fi
+
+      # A version this workflow already released, refused before forty-five
+      # minutes of signing and notarising rather than after — and before
+      # electron-builder gets anywhere near overwriting a release somebody may
+      # already have pointed people at. `apps/desktop/package.json`'s version is
+      # never bumped by this workflow; bump it, commit it, then dispatch again.
+      - name: Read the app version
+        id: version
+        working-directory: apps/desktop
+        run: echo "value=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse to publish a version already released
+        if: steps.decide.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # electron-builder's own default tag scheme (`vPrefixedTagName`, on by
+          # default) — not renamed here, because the tag this step checks has to
+          # be the exact one electron-builder will look for and reuse below.
+          TAG: v${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::$TAG already has a release. This workflow never overwrites one — bump the version in apps/desktop/package.json and dispatch again."
+            exit 1
+          fi
+          echo "$TAG has no release yet; this dispatch may create it."
 
       # The signing half arrives as `CSC_KEYCHAIN` and
       # `CSC_IDENTITY_AUTO_DISCOVERY` from the step above, through `GITHUB_ENV`
@@ -297,17 +387,36 @@ jobs:
           ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          # Baked into the main process bundle by `scripts/build.mjs` — see its
+          # header — never read live by the packaged app. `steps.certificate`
+          # already decided this; this is that decision reaching the code that
+          # arms `autoUpdater`.
+          CONTEXT_DESKTOP_SIGNED: ${{ steps.certificate.outputs.signed }}
+          # Present on every run; only load-bearing when the line below passes
+          # `--publish always`. Unused, it is inert — electron-builder makes no
+          # network call for a `--publish never` build, signed or not.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISH: ${{ steps.decide.outputs.publish }}
         run: |
           set -o pipefail
           pnpm run build
-          pnpm exec electron-builder --mac --config electron-builder.yml 2>&1 \
+          if [ "$PUBLISH" = "true" ]; then
+            publish_policy=always
+          else
+            publish_policy=never
+          fi
+          pnpm exec electron-builder --mac --config electron-builder.yml --publish "$publish_policy" 2>&1 \
             | sed -E 's/(identityName=)[^\n]*( identityHash=)[0-9A-Fa-f]+/\1[redacted]\2[redacted]/'
 
       - name: What was produced
         working-directory: apps/desktop
+        env:
+          PUBLISHED: ${{ steps.decide.outputs.publish }}
+          VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
           ls -la release/*.dmg
+          ls -la release/*.zip release/latest-mac.yml 2>/dev/null || true
           # `spctl` says whether Gatekeeper would accept this on another Mac. It
           # is expected to refuse an unsigned build, so this reports rather than
           # gates: a red X on an unsigned build is the truth, not a failure.
@@ -315,14 +424,28 @@ jobs:
             echo "— $dmg"
             spctl --assess --type open --context context:primary-signature -v "$dmg" 2>&1 || true
           done
+          if [ "$PUBLISHED" = "true" ]; then
+            echo "Published v$VERSION to GitHub Releases — electron-builder's own log above named the assets it uploaded."
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: context-desktop-dmg
-          path: apps/desktop/release/*.dmg
+          # Everything a Mac needs to install this build or test the updater
+          # against it by hand: the dmg for a first install, the zip and
+          # `latest-mac.yml` that `electron-updater` reads on every launch
+          # after that one. Produced by every build now, signed or not —
+          # `writeUpdateInfo` is on by default and costs nothing to generate;
+          # only a signed, notarised build can ever have it acted on.
+          name: context-desktop-release
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/latest-mac.yml
           if-no-files-found: error
           # A build to try, not a release to keep. Long retention on an unsigned
-          # binary is how somebody installs last month's app.
+          # binary is how somebody installs last month's app. A *published*
+          # build's durable copy is the GitHub Release itself, not this
+          # artifact.
           retention-days: 14
 
       # The private key does not outlive the job that needed it. `always()`
