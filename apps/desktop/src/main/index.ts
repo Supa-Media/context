@@ -65,7 +65,7 @@ import {
   positionPanelUnderTray,
   revealNotepadQuietly,
 } from "./windows.ts";
-import { consoleOrigin, consoleUrl } from "../core/shell/console.ts";
+import { consoleOrigin, consoleUrl, desktopUiMode } from "../core/shell/console.ts";
 import { darwinMajorFrom, systemAudioCapability } from "../core/shell/capabilities.ts";
 import { createConsoleBridge } from "./consoleBridge.ts";
 import type { ConsoleBridge } from "./consoleBridge.ts";
@@ -90,17 +90,25 @@ import type { DesktopSettings } from "../core/settings.ts";
 /** `--fake-signals` runs the whole app against the deterministic collectors. */
 const FAKE = process.argv.includes("--fake-signals");
 /**
- * Which UI this shell hosts. `renderer` is the panel and the notepad in
- * `src/renderer/`; `console` additionally opens `apps/mobile`'s web build.
+ * Which UI this shell hosts, and **the default is now the console**.
  *
- * Default unchanged on purpose: `docs/decisions/desktop.md`'s step 4 is what
- * flips it, and this is not that step. What has changed is what the window
- * gets: the bridge behind it is the whole version-1 surface over the shell's
- * real capture, connection and queue, so a launch with this set is a launch
- * where the console can actually record. Until the default moves, the panel and
- * the notepad are still what a person sees.
+ * `docs/decisions/desktop.md`'s step 4: the window hosts `apps/mobile`'s web
+ * build, so a screen ships with the web deploy and reaches a browser, a phone
+ * and this Mac at once. `CONTEXT_DESKTOP_UI=renderer` puts the panel and the
+ * notepad back, which is what makes this step revertible by one environment
+ * variable — step 5 deletes them, and it waits on a Mac.
+ *
+ * In console mode the panel and the notepad are **not created at all** rather
+ * than created and hidden. Two UIs answering the same meeting is worse than
+ * either: a popover asking "take notes?" over a console that is already showing
+ * the detection is two consents for one meeting, and whichever is pressed the
+ * other is stale. What replaces them is stated where it happens — the tray
+ * raises the console window, and the detection reaches the page through the
+ * bridge's `onDetection` rather than through a popover.
  */
-const CONSOLE_UI = process.env.CONTEXT_DESKTOP_UI === "console";
+const UI_MODE = desktopUiMode(process.env);
+const CONSOLE_UI = UI_MODE === "console";
+const RENDERER_UI = UI_MODE === "renderer";
 const RENDERER_DIR = join(import.meta.dirname, "..", "renderer");
 const DRAIN_INTERVAL_MS = 30_000;
 
@@ -141,8 +149,12 @@ let consoleMirror: ConsoleMirror | null = null;
 let connectError: string | null = null;
 
 /**
- * Everything the bridge may put in front of a person that `plan.ts` does not
+ * Everything this file may put in front of a person that `plan.ts` does not
  * already own, and the whole of it.
+ *
+ * Read by the bridge's answers *and* — since the panel stopped existing on a
+ * default launch — by `explain()`, which is the tray's way of saying why a
+ * press did nothing.
  *
  * The same closed-set rule as `PLAN_NOTICES` and the phone's
  * `CAPTURE_MESSAGES`: a sentence assembled from an upstream error is how a
@@ -159,6 +171,10 @@ const CONSOLE_NOTICES = Object.freeze({
     "The Context app on this machine could not open an input, so this meeting is typed. Your notes still land in your bucket.",
   nothingToOpen:
     "There is nothing for this machine to record, so this meeting is typed. Your notes still land in your bucket.",
+  captureDisabled:
+    "This machine is not recording meetings yet. Connect it from the menu bar — that dialog is where you say this machine may record, and it is what turns recording on.",
+  noConsole:
+    "This machine could not open its window, so the menu bar is the whole app for now. Recording still works from here, and anything it records is queued until it can be sent.",
 });
 
 async function main(): Promise<void> {
@@ -181,8 +197,10 @@ async function main(): Promise<void> {
   const tokens = FAKE ? memoryTokenStore(null) : keychainTokenStore(app.getPath("userData"));
   const connection = new GatewayConnection({ store: tokens, refresh: browserlessRefresher() });
   await connection.load();
-  const panel = createPanel(RENDERER_DIR);
-  const notepad = createNotepad(RENDERER_DIR);
+  // `null` in console mode. Every use below is guarded rather than the flag
+  // being read a second time — see `UI_MODE`.
+  const panel = RENDERER_UI ? createPanel(RENDERER_DIR) : null;
+  const notepad = RENDERER_UI ? createNotepad(RENDERER_DIR) : null;
 
   const capture = FAKE ? null : new DesktopCaptureRecorder(RENDERER_DIR);
   const recorder: AudioRecorder = capture ?? fakeRecorder();
@@ -262,13 +280,85 @@ async function main(): Promise<void> {
    * by quitting the app.
    */
   function showPanel(): void {
-    if (panel.isDestroyed()) return;
+    if (panel === null || panel.isDestroyed()) return;
     positionPanelUnderTray(panel, tray.bounds());
     panel.showInactive();
   }
 
+  /**
+   * Bring the console window forward, which is what the tray points at now.
+   *
+   * `show()` rather than `showInactive()`: unlike the panel, this is not a
+   * popover that appears *during* a meeting on its own — it opens because
+   * somebody clicked the menu bar, and a window that answers a click by
+   * appearing behind what they were doing reads as a window that did not open.
+   *
+   * A window that is *gone* is `openConsoleWindow`'s business, not this
+   * function's: the panel is hidden when somebody dismisses it, while the
+   * console window is destroyed, and which of "raise it" and "build it again"
+   * a caller means is exactly what the two names carry.
+   *
+   * Answers whether there is a window now, so a caller can say why there is not
+   * rather than doing nothing at all.
+   */
+  function showConsoleWindow(): boolean {
+    if (consoleWindow === null || consoleWindow.isDestroyed()) return false;
+    consoleWindow.show();
+    consoleWindow.focus();
+    return true;
+  }
+
+  /**
+   * The window a menu-bar click asks for, built again if it is gone.
+   *
+   * Separate from `showConsoleWindow` because the two callers want different
+   * things: `explain()` raises a window that already exists behind a sentence
+   * and must not conjure one for a refusal, while the menu-bar click *is* the
+   * request for the window and has nowhere else to go.
+   */
+  function openConsoleWindow(): boolean {
+    if (consoleWindow === null || consoleWindow.isDestroyed()) openConsoleWindowIfAsked();
+    return showConsoleWindow();
+  }
+
+  /**
+   * Say why a press did nothing.
+   *
+   * The panel used to be the whole answer — it renders the state and the reason
+   * with it — and on a default launch there is no panel. "The button did
+   * nothing" is the worst outcome available here, and the console has no
+   * channel for a sentence that is not attached to a capture, so the tray's
+   * refusals are said in a message box with the window raised behind them.
+   *
+   * Every sentence comes from `CONSOLE_NOTICES` or `PLAN_NOTICES`; none is
+   * assembled here, for the reason those sets exist.
+   */
+  function explain(sentence: string): void {
+    if (panel !== null) {
+      showPanel();
+      return;
+    }
+    showConsoleWindow();
+    void dialog.showMessageBox({
+      type: "info",
+      title: "Context",
+      message: sentence,
+      buttons: ["OK"],
+    });
+  }
+
   const tray = new AppTray({
     togglePanel: (bounds) => {
+      /*
+        No panel means the console is the window this app has, so the menu-bar
+        click raises that — and says why when there is none to raise, which is
+        the only way this launch can have no UI: `consoleUrl` refused the
+        address it was given, and that was logged where nobody is looking.
+      */
+      if (panel === null) {
+        if (!openConsoleWindow()) explain(CONSOLE_NOTICES.noConsole);
+        return;
+      }
       if (panel.isVisible()) {
         panel.hide();
         return;
@@ -276,7 +366,13 @@ async function main(): Promise<void> {
       positionPanelUnderTray(panel, bounds);
       panel.showInactive();
     },
-    openNotepad: () => revealNotepadQuietly(notepad),
+    openNotepad: () => {
+      if (notepad !== null) {
+        revealNotepadQuietly(notepad);
+        return;
+      }
+      if (!openConsoleWindow()) explain(CONSOLE_NOTICES.noConsole);
+    },
     record: () => void pressed("record", () => recordNow()),
     end: () => void pressed("end", () => endMeeting()),
     connect: () => void connectThisMachine(),
@@ -406,7 +502,7 @@ async function main(): Promise<void> {
       }),
     );
     for (const window of [panel, notepad]) {
-      if (!window.isDestroyed()) window.webContents.send(CHANNELS.state, state);
+      if (window !== null && !window.isDestroyed()) window.webContents.send(CHANNELS.state, state);
     }
     /*
       The same change, in the vocabulary the contract uses.
@@ -435,7 +531,7 @@ async function main(): Promise<void> {
   async function onDetection(current: DetectionUpdate): Promise<void> {
     if (current.transition === "cleared") {
       consent = forgetEpisode(consent, consent.episode);
-      if (!panel.isDestroyed()) panel.hide();
+      if (panel !== null && !panel.isDestroyed()) panel.hide();
       push();
       return;
     }
@@ -509,12 +605,15 @@ async function main(): Promise<void> {
           controller.notice(capturePlan({ settings, connected: true, systemAudio: false }).notice);
         }
       }
-      if (!panel.isDestroyed()) panel.hide();
-      revealNotepadQuietly(notepad);
+      if (panel !== null && !panel.isDestroyed()) panel.hide();
+      // In console mode the page is already open and already recording; there
+      // is nothing to reveal and nothing to steal focus for.
+      if (notepad !== null) revealNotepadQuietly(notepad);
     } else if (result.why === "permissions") {
-      // The panel explains, rather than the app silently doing nothing.
+      // Something explains, rather than the app silently doing nothing: the
+      // panel where there is one, a message box where there is not.
       missingPermissions = [...(result.missing ?? [])];
-      showPanel();
+      explain(CONSOLE_NOTICES.permissions);
     }
     push();
     return result;
@@ -554,12 +653,12 @@ async function main(): Promise<void> {
       rather than the press doing nothing.
     */
     if (!settings.captureEnabled) {
-      showPanel();
+      explain(CONSOLE_NOTICES.captureDisabled);
       return;
     }
     const source = lastUpdate?.state.source ?? null;
     if (source && isBlockedSource(source, settings.blocklist)) {
-      showPanel();
+      explain(CONSOLE_NOTICES.blocked);
       return;
     }
     const episode = `manual:${Date.now()}`;
@@ -1009,7 +1108,7 @@ async function main(): Promise<void> {
   });
   ipcMain.on(COMMANDS.decline, (_event, episode: string) => {
     consent = answered(episode, "declined");
-    panel.hide();
+    panel?.hide();
     push();
   });
   ipcMain.on(COMMANDS.pause, () => void pressed("pause", () => controller.pause().then(push)));

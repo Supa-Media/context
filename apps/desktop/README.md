@@ -55,17 +55,54 @@ pnpm --filter @context/desktop test      # offline; no Electron needed
 pnpm --filter @context/desktop typecheck
 ```
 
-`CONTEXT_DESKTOP_UI=console` opens a third window that hosts `apps/mobile`'s web
-build — `CONTEXT_DESKTOP_UI_URL` says where from, defaulting to
-`http://localhost:8081` outside production so `expo start` is what you develop
-against. It carries the whole bridge from `@context/desktop-bridge` — capture,
-connection, outbox, and the meeting writes of version 2 — over this app's real
-plumbing: `preload/console.ts` is four statements over `core/shell/bridge.ts`,
-and `main/consoleBridge.ts` answers each channel only for the console window's
-own top frame at the pinned origin. That is `docs/decisions/desktop.md`'s plan:
-the UI moves out of this app and ships with the web deploy, and the shell keeps
-the tray, the audio, the credential and the queue. The default is still
-`renderer` — the panel and the notepad — until that document's step 4.
+### Which UI a launch hosts
+
+**The default is the console**, which is `docs/decisions/desktop.md`'s step 4:
+the window hosts `apps/mobile`'s web build, so a screen ships with the web
+deploy and reaches a browser, a phone and this Mac at once.
+
+```sh
+pnpm --filter @context/desktop start                      # the console (default)
+CONTEXT_DESKTOP_UI=renderer pnpm --filter @context/desktop start   # the old panel + notepad
+CONTEXT_DESKTOP_UI_URL=https://context.example/console \
+  pnpm --filter @context/desktop start                    # a self-hoster's own origin
+```
+
+`CONTEXT_DESKTOP_UI_URL` says where the console comes from, defaulting to
+`http://localhost:8081` outside production so **`expo start` is what you develop
+against** — start it first, or the window will show the offline page because
+there is nothing at that address yet. Anything other than `renderer` in
+`CONTEXT_DESKTOP_UI` is read as `console`: a misspelt mode is not a reason to
+start an app with no UI at all.
+
+The console window carries the whole bridge from `@context/desktop-bridge` —
+capture, connection, outbox, and the meeting writes of version 2 — over this
+app's real plumbing: `preload/console.ts` is four statements over
+`core/shell/bridge.ts`, and `main/consoleBridge.ts` answers each channel only
+for the console window's own top frame at the pinned origin.
+
+In console mode **the panel and the notepad are not created at all**: two UIs
+answering one meeting is two consents for one meeting, and whichever is pressed
+the other is stale. The menu-bar click raises the console window instead of the
+popover, *Open notes* raises it instead of the notepad, and a detected meeting
+reaches the page through the bridge rather than through a popover. Nothing
+records until somebody presses Record — on the tray or in the page — and both
+go through the same consent gate and capture plan as before.
+
+The panel was also where a refused press was explained, so with no panel those
+three refusals — capture switched off, an app on your blocklist, a macOS
+permission never granted — are shown in a message box with the window raised
+behind it, in the same words the panel used. A button that silently does nothing
+is the outcome that was not acceptable.
+
+Closing the console window is not the end of this app's UI: unlike the panel it
+is *destroyed* rather than hidden, so the next menu-bar click builds it again.
+If it cannot be built — the only way that happens is a `CONTEXT_DESKTOP_UI_URL`
+this app refuses — the click says so rather than doing nothing.
+
+`CONTEXT_DESKTOP_UI=renderer` puts the old windows back, unchanged, until
+`docs/decisions/desktop.md`'s step 5 deletes them — and that step is waiting on
+the confirmations only a Mac can give.
 
 A meeting the console records is **written by this machine's grant**, not by the
 page's own session: the page composes and hands each of the meetings protocol's
@@ -264,7 +301,7 @@ the settings file, put in a URL, or exposed to a renderer.
 
 ## What is real, and what is not
 
-### Real, and checked by the suite (853 checks, offline, no network)
+### Real, and checked by the suite (895 checks, offline, no network)
 
 - The detection loop against fake collectors, including the flicker cases: one
   poll of a conferencing app does not start a recording, a two-poll blip does
