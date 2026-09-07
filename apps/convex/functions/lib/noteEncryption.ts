@@ -56,10 +56,18 @@ export const ENCRYPTION_MARKER_KEY = "context_encryption";
  * recoverable.
  */
 export function isEncryptedNote(text: unknown): boolean {
-  if (typeof text !== "string" || !text.startsWith("---")) return false;
-  const end = text.indexOf("\n---", 3);
+  if (typeof text !== "string") return false;
+  // A byte-order mark is the one thing that can sit in front of `---` and still
+  // be frontmatter to everything that reads it — editors on Windows add one on
+  // save, and Obsidian parses through it. Without this line a BOM'd envelope
+  // answers `false` and the console saves plaintext over it. A leading
+  // *newline* is deliberately not tolerated: frontmatter that does not start at
+  // the first byte is not frontmatter. The gateway's copy says the same.
+  const body = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  if (!body.startsWith("---")) return false;
+  const end = body.indexOf("\n---", 3);
   if (end < 0) return false;
   return new RegExp(`^\\s*${ENCRYPTION_MARKER_KEY}\\s*:\\s*v?\\d+\\s*$`, "m").test(
-    text.slice(3, end),
+    body.slice(3, end),
   );
 }
