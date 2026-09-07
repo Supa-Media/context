@@ -1203,20 +1203,62 @@ of them execute a single instruction of it.
 
 **The fix is not a smarter static check — it is running the thing.** The Mac
 session's own pull request gives the app a `--smoke` mode: initialise, open
-the console window, log one line, exit 0 within 10 seconds; exit non-zero on
-any uncaught error or if no window was created. This decision is the other
-half, owned here: a step in `deploy-desktop.yml`, *"Launch the app it just
-built"*, that runs `Context.app/Contents/MacOS/Context --smoke` against the
-exact binary electron-builder just produced, on a 30-second deadline enforced
-with `perl -e 'alarm 30; exec @ARGV'` (macOS ships no `timeout(1)`, and `exec`
-keeps the same PID so there is no wrapper process left to reap), and fails the
-job on a non-zero exit, on the process still running past the deadline
-(`alarm`'s `SIGALRM` surfaces as exit 142), or on the captured log naming
-`Uncaught Exception`, `A JavaScript error occurred`, or `Dynamic require` —
-the exact three strings a caught-and-swallowed crash can still leave behind
-after exiting 0.
+the console window, log one line, exit 0 inside its own deadline; exit
+non-zero on any uncaught error, if no window was created, if the console
+address disagrees with `app.isPackaged`, or if the application menu is missing
+its clipboard and undo roles. This decision is the other half, owned here: a
+step in `deploy-desktop.yml`, *"Launch the app it just built"*, that runs
+`Context.app/Contents/MacOS/Context --smoke` against the exact binary
+electron-builder just produced, on a 60-second deadline it enforces itself,
+and fails the job on a non-zero exit, on the process still being alive at the
+deadline, or on the captured log naming `Uncaught Exception`, `A JavaScript
+error occurred`, or `Dynamic require` — the exact three strings a
+caught-and-swallowed crash can still leave behind after exiting 0.
 
-Four decisions inside that one step.
+Five decisions inside that one step.
+
+**The deadline is `SIGKILL`, because the state it exists to catch is a process
+that has stopped answering.** Found in review, changed before merge. The first
+version was `perl -e 'alarm 30; exec @ARGV'`: macOS ships no `timeout(1)`,
+`alarm` schedules `SIGALRM`, and `exec` replaces perl's image with the app in
+place so there is no wrapper left to reap. It is the tidier shape and it rests
+on three assumptions nobody could check: that a pending `alarm(2)` survives
+`execve(2)` on Darwin, that nothing in Electron, Chromium, libuv or Node
+catches, blocks or ignores `SIGALRM`, and that a process parked in a modal
+`NSAlert` run loop dies of it anyway. **`SIGALRM` is catchable**, and the
+failure this gate exists for is precisely an app that has stopped responding —
+the Mac session measured it, alive and silent at sixty seconds behind
+Electron's crash dialog. A deadline the app can catch is not a deadline, and
+what it produces is worse than no gate at all: a release job that hangs for its
+full 45 minutes on a build that cannot start.
+
+So the step launches the app in the background, `wait`s for it, and arms a
+watchdog that sends signal 9 at the deadline. `SIGKILL` cannot be caught,
+blocked or ignored, and it does not care what run loop the main thread is in.
+The watchdog touches a marker file, so *"still alive at the deadline"* is
+reported as itself rather than inferred from an exit code that could mean
+something else. Sixty seconds rather than thirty because `--smoke` now arms its
+own 30-second deadline once its bundle evaluates: this one is the backstop for
+what that timer cannot see, a crash *during* module evaluation, which is the
+crash that shipped. A good launch was measured at 12 seconds. **The tests that
+fail if this is reversed** are in `packaging.test.mjs`: `THE DEADLINE IS
+kill -9, WHICH A CRASH DIALOG CANNOT CATCH, BLOCK OR IGNORE`, and beside it
+`...and it is not a catchable signal exec'd into the app, which is what this
+replaced`, which goes red the moment `alarm` comes back.
+
+**The launch deletes `ELECTRON_RUN_AS_NODE` rather than merely not setting
+it.** That variable makes the Electron binary run as plain Node: it swaps the
+module loader, hands the bundle a real CommonJS `require`, and never creates an
+`app` object at all — so the build that shipped, the one that threw `Dynamic
+require of "events"`, loads under it without a word. It is the single
+environment variable that turns this gate into a check that proves nothing, and
+a runner image, a composite action or a future `env:` block on this job could
+all supply it. `test/launch.smoke.mjs` deletes it for the same reason on the
+other path. `NODE_ENV` is deliberately not set either: the app chooses its
+console address from `app.isPackaged`, and a workflow that supplied `NODE_ENV`
+would be proving a packaged launch works under a variable no packaged launch
+has — which is the exact shape of the unit checks that were green while every
+installed build opened a blank window.
 
 **It runs on the unsigned path too, unconditionally.** `spctl`'s refusal is a
 check against the quarantine attribute a *download* sets; a binary this same

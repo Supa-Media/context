@@ -529,8 +529,10 @@ jobs:
       # docs/decisions/desktop.md, "a release is a build that started". `--smoke`
       # is the app's own contribution (`apps/desktop/src/main/index.ts`, a
       # separate pull request): initialise, open the console window, log one
-      # line, and exit 0 within 10 seconds; exit non-zero on any uncaught error
-      # or if no window was created. This step is what makes that mode
+      # line, and exit 0 inside its own 30s deadline; exit non-zero on any
+      # uncaught error, if no window was created, if the console address
+      # disagrees with `app.isPackaged`, or if the application menu is missing
+      # its clipboard and undo roles. This step is what makes that mode
       # load-bearing rather than merely present: it is the first time anything
       # in this repository has started the app it just built, and it runs
       # before the artifact this job hands anybody exists as far as the rest of
@@ -554,14 +556,56 @@ jobs:
       # fake. If a future `--smoke` needs a flag of its own, it is passed on the
       # command line below and named in this comment; none is needed today.
       #
-      # ## Why `perl -e 'alarm N; exec @ARGV'` and not `timeout`
+      # ## Why a background launch and `kill -9`, and not `perl -e 'alarm N; exec'`
       #
-      # macOS ships no `timeout(1)`. `alarm` schedules `SIGALRM`, `exec`
-      # replaces perl's own process image with the app in place — same PID — so
-      # there is no wrapper left over to reap, and the signal reaches the app
-      # itself if it is still running when the deadline passes (exit 128+14, so
-      # the exit-code check below already covers it — the separate message is
-      # for a human reading the log, not a second control path).
+      # macOS ships no `timeout(1)`, so the deadline has to be built here. The
+      # first version of this step was `perl -e 'alarm 30; exec @ARGV'`: perl
+      # schedules `SIGALRM`, `exec` replaces its process image with the app in
+      # place, and the signal reaches the app if it is still running. Neat, and
+      # it rests on three assumptions this step cannot afford:
+      #
+      #   1. that a pending `alarm(2)` survives `execve(2)` on Darwin;
+      #   2. that nothing anywhere in Electron, Chromium, libuv or Node
+      #      catches, blocks or ignores `SIGALRM` — a *catchable* signal, in a
+      #      process that installs handlers for its own reasons;
+      #   3. that a signal whose handler ran would still end a process sitting
+      #      in a modal `NSAlert` run loop, which is the exact state this gate
+      #      exists to catch.
+      #
+      # A deadline that can be caught is not a deadline, and the failure it
+      # produces is the one thing worse than no gate: a release job that hangs
+      # for its full 45 minutes on a build that cannot start. The Mac session
+      # measured that state — the crash dialog, alive and silent at sixty
+      # seconds.
+      #
+      # So: launch in the background, `wait` for it, and have a watchdog send
+      # `SIGKILL` at the deadline. **`SIGKILL` cannot be caught, blocked or
+      # ignored**, by Electron or by anything else, and it does not care what
+      # run loop the main thread is in. The watchdog touches a marker file so
+      # "still alive at the deadline" is reported as itself, in words, rather
+      # than inferred from an exit code that could mean something else.
+      #
+      # Sixty seconds and not thirty: `--smoke` arms its own 30s deadline once
+      # its bundle evaluates, so this one is the backstop for the case that
+      # timer cannot see — a crash *during* module evaluation, before any line
+      # of the app's own code runs. A good launch was measured at 12s.
+      #
+      # ## Why `env -u ELECTRON_RUN_AS_NODE`
+      #
+      # Deleted, not merely left unset. That variable makes the Electron binary
+      # run as plain Node: it swaps the module loader, hands the bundle a real
+      # CommonJS `require`, and never creates an `app` object at all — so the
+      # build that shipped, the one that threw `Dynamic require of "events"`,
+      # loads under it without complaint and `--smoke` never gets far enough to
+      # find anything wrong. It is the one environment variable that turns this
+      # gate into a check that proves nothing, and a runner, an action, or a
+      # future `env:` block on this job could all set it. `NODE_ENV` is
+      # deliberately not set either: the app chooses its console address from
+      # `app.isPackaged`, and a workflow that supplied `NODE_ENV` would be
+      # proving a packaged launch works under a variable no packaged launch
+      # has. `test/launch.smoke.mjs` deletes the same variable for the same
+      # reason, and `test/packaging.test.mjs` asserts both halves of this
+      # paragraph against this file.
       #
       # ## Why this gates publishing too, not just the artifact upload
       #
@@ -589,20 +633,44 @@ jobs:
           # 0 anyway.
           CRASH_STRINGS='Uncaught Exception|A JavaScript error occurred|Dynamic require'
 
+          # The app's own `--smoke` deadline is 30s, armed once its bundle
+          # evaluates. This one is the backstop for what that timer cannot see.
+          SMOKE_DEADLINE_S=60
+
           launch() {
             local app_path="$1" log_file="$2"
             if [ ! -x "$app_path" ]; then
               echo "FAIL: $app_path is missing or not executable — electron-builder did not produce it where this step expected it."
               return 1
             fi
-            local started
+            local started killed_marker app_pid watchdog_pid status elapsed
             started="$(date +%s)"
-            perl -e 'alarm 30; exec @ARGV' "$app_path" --smoke > "$log_file" 2>&1
-            local status=$?
-            local elapsed=$(( $(date +%s) - started ))
+            killed_marker="$log_file.killed"
+            rm -f "$killed_marker"
 
-            if [ "$status" -eq 142 ]; then
-              echo "FAIL: $app_path was still running past the 30s deadline and was killed — --smoke is meant to exit within 10s."
+            # `env -u ELECTRON_RUN_AS_NODE`: see the comment above this step.
+            # Inherited from anywhere, it turns this gate into a check that
+            # proves nothing.
+            env -u ELECTRON_RUN_AS_NODE "$app_path" --smoke > "$log_file" 2>&1 &
+            app_pid=$!
+
+            # SIGKILL, because the state this gate exists to catch is a modal
+            # crash dialog, and a signal the app can catch is not a deadline.
+            # Its own output goes to /dev/null so that the `sleep` this leaves
+            # orphaned on the fast path is holding no handle on this step's
+            # stdout — an orphan on the runner's log pipe is its own way of
+            # keeping a job open past the work being finished.
+            ( sleep "$SMOKE_DEADLINE_S"; kill -9 "$app_pid" 2>/dev/null && touch "$killed_marker" ) >/dev/null 2>&1 &
+            watchdog_pid=$!
+
+            wait "$app_pid"
+            status=$?
+            elapsed=$(( $(date +%s) - started ))
+            kill "$watchdog_pid" 2>/dev/null || true
+            wait "$watchdog_pid" 2>/dev/null || true
+
+            if [ -f "$killed_marker" ]; then
+              echo "FAIL: $app_path was still alive ${SMOKE_DEADLINE_S}s after it was started and had to be killed with SIGKILL. That is what a launch crash looks like: Electron raises a modal dialog and waits forever, so this build never got as far as printing a verdict."
               return 1
             fi
             if [ "$status" -ne 0 ]; then

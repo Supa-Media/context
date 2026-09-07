@@ -42,6 +42,10 @@
  *   the publish-the-release step removed outright                             8
  *   that step moved to before the launch/smoke step                           1
  *   the smoke-outcome gate dropped from the publish step's `if:`              1
+ *   `env -u ELECTRON_RUN_AS_NODE` dropped from the launch command            1
+ *   the deadline back to `perl -e 'alarm 30; exec @ARGV'`, no SIGKILL        2
+ *   the deadline shortened below the app's own `--smoke` timer               1
+ *   "still alive at the deadline" no longer failing the step                 1
  *
  * The first one was measured at **0** before these checks were asked of the
  * plist\'s keys rather than of its text: that file\'s header discusses every
@@ -867,9 +871,58 @@ export async function runPackagingChecks(check) {
     "A NON-ZERO EXIT FAILS THE STEP",
     launchStep !== undefined && /-ne 0/.test(launchStep),
   );
+  /*
+    ── THE DEADLINE IS A DEADLINE, NOT A REQUEST ────────────────────────────
+
+    macOS has no `timeout(1)`, so this step builds its own. The first version
+    was `perl -e 'alarm 30; exec @ARGV'` — elegant, and resting on three things
+    nobody could check from a Linux container: that a pending `alarm(2)`
+    survives `execve(2)` on Darwin, that nothing in Electron, Chromium, libuv
+    or Node catches or blocks `SIGALRM`, and that a handler-bearing process
+    parked in a modal `NSAlert` run loop would still die of it. `SIGALRM` is a
+    catchable signal; the state this gate exists to catch is precisely a
+    process that has stopped responding to ordinary events.
+
+    So the deadline is a background launch, a watchdog and **`SIGKILL`**, which
+    cannot be caught, blocked or ignored by anything. What is asserted is the
+    property and not the spelling: the app is started in the background, and
+    something sends it signal 9 at a deadline.
+  */
   check(
-    "...AND SO DOES STILL RUNNING PAST THE DEADLINE — macOS has no timeout(1), so this is `perl -e 'alarm N; exec @ARGV'`, exec'd into the app itself",
-    launchStep !== undefined && /alarm 30/.test(launchStep) && /exec @ARGV/.test(launchStep) && /-eq 142/.test(launchStep),
+    "...AND SO DOES STILL RUNNING PAST THE DEADLINE",
+    launchStep !== undefined && /still alive/.test(launchStep) && /return 1/.test(launchStep),
+  );
+  check(
+    "THE DEADLINE IS `kill -9`, WHICH A CRASH DIALOG CANNOT CATCH, BLOCK OR IGNORE",
+    launchStep !== undefined &&
+      /kill -9 "\$app_pid"/.test(launchStep) &&
+      /SMOKE_DEADLINE_S=\d+/.test(launchStep) &&
+      /wait "\$app_pid"/.test(launchStep),
+  );
+  check(
+    "...and it is not a catchable signal exec'd into the app, which is what this replaced",
+    launchStep !== undefined && !/alarm \d/.test(launchStep) && !/SIGALRM/.test(launchStep),
+  );
+  check(
+    "...and the deadline is longer than the app's own, so it is a backstop rather than a race",
+    launchStep !== undefined && Number(/SMOKE_DEADLINE_S=(\d+)/.exec(launchStep)?.[1] ?? 0) >= 60,
+  );
+  /*
+    `ELECTRON_RUN_AS_NODE` makes the Electron binary run as plain Node: the
+    module loader is swapped, the bundle gets a real CommonJS `require`, and no
+    `app` object is ever created — so the build that shipped, the one that threw
+    `Dynamic require of "events"`, loads under it without a word. It is the one
+    variable that turns this whole gate into a check that proves nothing, and it
+    is deleted rather than merely not set, because a runner, an action or a
+    future `env:` block on this job could all supply it.
+  */
+  check(
+    "THE LAUNCH DELETES `ELECTRON_RUN_AS_NODE`, WHICH WOULD MAKE THIS GATE PROVE NOTHING",
+    launchStep !== undefined && /env -u ELECTRON_RUN_AS_NODE "\$app_path" --smoke/.test(launchStep),
+  );
+  check(
+    "...and it does not set `NODE_ENV`, which no packaged launch has and which nothing may prove a build works under",
+    launchStep !== undefined && !/NODE_ENV=/.test(launchStep),
   );
   check(
     "IT RUNS ON BOTH THE SIGNED AND THE UNSIGNED PATH — nothing here is gated on steps.certificate or steps.notarize_check",
