@@ -735,6 +735,54 @@ describe("the shell records it, and the shell writes it", () => {
     expect((segments?.body.segments as { text: string }[])[0].text).toBe("we should ship it");
   });
 
+  /**
+   * THE EMPTY-NOTES RACE, AS CLOSE TO END-TO-END AS THIS SIDE OF THE IPC GOES.
+   *
+   * This is what `BeginInput.queueWrites: false` exists to prevent, seen from
+   * the page: with two writers on one meeting, the shell's `end()` queues an
+   * **empty** `notes` and a finalize and drains them, and the gateway writes the
+   * note before the person's typed Markdown has left this process. The note
+   * somebody opens afterwards has the transcript and none of their notes in it.
+   *
+   * The shell half is checked in `apps/desktop`'s controller suite — a
+   * console-started meeting queues nothing there. This is the other half: one
+   * meeting, one session id, and the writes that reach the machine carry the
+   * transcript *and* the typed notes, with exactly one finalize behind them.
+   */
+  test("ONE MEETING, ONE SESSION, AND BOTH THE TRANSCRIPT AND THE TYPED NOTES REACH IT", async () => {
+    const shell = writingShell();
+    installShell(shell);
+
+    const controller = new MeetingsController();
+    await controller.configure({
+      workspaceId: "ws_1",
+      store: memoryStore(),
+      gateway: meetingsWriterFor(fakeGateway()),
+      recorder: await resolveRecorder("web"),
+      device: { platform: "web" },
+    });
+
+    const id = await controller.start({ title: "Standup" });
+    shell.emitSegment(segment("seg-1", "we should ship it"));
+    controller.setNotes(id, "- ship it\n- tell everyone");
+    await controller.end();
+
+    const sessions = new Set(shell.writes.map((write) => write.sessionId));
+    expect([...sessions]).toEqual([id]);
+
+    const segments = shell.writes.filter((write) => write.kind === "segments");
+    const notes = shell.writes.filter((write) => write.kind === "notes");
+    const finalizes = shell.writes.filter((write) => write.kind === "finalize");
+
+    expect(
+      segments.flatMap((write) => (write.body.segments as { text: string }[]) ?? []).map((one) => one.text),
+    ).toContain("we should ship it");
+    expect(notes.map((write) => write.body.markdown)).toContain("- ship it\n- tell everyone");
+    // Not an empty one before them, which is the race written as an assertion.
+    expect(notes.every((write) => write.body.markdown !== "")).toBe(true);
+    expect(finalizes).toHaveLength(1);
+  });
+
   test("...and the note path the gateway chose is what the record ends up holding", async () => {
     const shell = writingShell("5-meetings/2026-09-07-standup.md");
     installShell(shell);
