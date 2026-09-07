@@ -120,7 +120,17 @@ function withoutComments(source) {
   return source.replace(/\/\*[\s\S]*?\*\//g, "");
 }
 
-function withoutYamlComments(source) {
+/**
+ * The same idea for YAML, where a comment is `#` to end of line.
+ *
+ * Exported because `packaging.test.mjs` needs it too. `electron-builder.yml`'s
+ * comments now argue about the app icon at length — naming `icon.icns`, the
+ * default path and `CFBundleIconFile` — so a check for the icon run against the
+ * raw file would pass on the paragraph explaining the icon rather than on the
+ * key that sets it. One stripper with one self-test, rather than a second copy
+ * over there that nothing checks.
+ */
+export function withoutYamlComments(source) {
   return source
     .split("\n")
     .map((line) => line.replace(/(^|\s)#.*$/, ""))
