@@ -529,11 +529,37 @@ async function answerFromIndex(store, options) {
     }
   });
   const hits = read.filter(Boolean);
+  /*
+    THE COUNT MUST NOT COUNT WHAT THE HITS DO NOT SHOW.
+
+    `matchCount` was `visible.length`, taken before the read above drops
+    encrypted notes — so a term that ranks one by its PATH (the index holds its
+    body as the empty string, but the path still ranks) produced
+    "2 matching notes — the 1 best shown" with the second note not existing to
+    be paged to. MEASURED against a note at `1-projects/moved-secret.md` and a
+    query of "moved".
+
+    Nothing leaked: `rankedVisibleTo` runs first, so only notes this caller may
+    see are ever counted, and the byte-identical answer
+    `docs/decisions/encryption.md` promises a team-tier caller is untouched.
+    What was wrong is that "search does not find encrypted notes" is stated
+    flatly while the count still counted them.
+
+    **And the correction is partial, which is worth saying rather than
+    implying.** Only the notes inside the page are read, so only the encrypted
+    ones inside the page can be subtracted; an encrypted note ranked below the
+    limit is still counted, because knowing it is encrypted would mean reading
+    every match — the full-bucket read this whole path exists to avoid. The
+    count is exact for the common case and still high in the tail, which is the
+    same direction `matchCountIsFloor` already documents for the opposite
+    reason.
+  */
+  const withheld = read.length - hits.length;
 
   return {
     indexed: true,
     hits,
-    matchCount: visible.length,
+    matchCount: Math.max(hits.length, visible.length - withheld),
     // The floor is read off the *visible* list and never off `ranked`, and
     // `MAX_RESULTS` is imported rather than mirrored, because a scoring cap
     // retyped here is a rule stated twice with nothing running both.
