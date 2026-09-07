@@ -32,7 +32,12 @@
  *
  * Comments are stripped first because every deploy workflow's header narrates
  * this exact bug in prose, mentioning both commands — a checker that read
- * comments as code would flag its own explanation.
+ * comments as code would flag its own explanation. That is not the only place
+ * these words appear outside a real invocation: several deploy workflows'
+ * Cloudflare-preflight steps print a diagnostic string containing "wrangler
+ * deploy" (not a YAML comment, so stripping comments alone does not remove
+ * it), which is why both patterns below require the `pnpm exec` prefix every
+ * real invocation in this repository actually uses.
  *
  * Run: `node scripts/check-workflow-secret-order.mjs`
  * Self-test: `node scripts/check-workflow-secret-order.mjs --self-test`
@@ -44,8 +49,18 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WORKFLOWS_DIR = join(ROOT, ".github/workflows");
 
-const SECRET_PUT = /\bwrangler\s+secret\s+put\b/;
-const DEPLOYS_LIVE = /\bwrangler\s+(?:pages\s+)?deploy\b|\bwrangler\s+versions\s+upload\b/;
+// Anchored on `pnpm exec wrangler …` rather than a bare `wrangler …` anywhere
+// in the line. Every real invocation in this repository goes through `pnpm
+// exec`, and several deploy workflows carry a Cloudflare-preflight step whose
+// diagnostic text — `console.error("... wrangler deploy below needs ...")` —
+// says "wrangler deploy" in an ordinary string, well before the real deploy
+// step. A bare match found THAT line first in deploy-mcp.yml (index 194
+// against the real deploy at 229): this ordering check kept passing, but for
+// the wrong reason — it was comparing the real secret push against a false
+// "deploy" that happened to sit early, not against the command that actually
+// runs. `pnpm exec` never appears inside that prose.
+const SECRET_PUT = /\bpnpm\s+exec\s+wrangler\s+secret\s+put\b/;
+const DEPLOYS_LIVE = /\bpnpm\s+exec\s+wrangler\s+(?:pages\s+)?deploy\b|\bpnpm\s+exec\s+wrangler\s+versions\s+upload\b/;
 
 function stripComments(text) {
   return text
@@ -188,6 +203,33 @@ function selfTest() {
   ].join("\n");
   expect("multiple secret puts after deploy are not flagged", findOutOfOrderSecretPut(multipleSecretsAfter) === null);
 
+  // The actual live shape this anchor was tightened for: every deploy
+  // workflow's Cloudflare-preflight step prints diagnostic TEXT that mentions
+  // "wrangler deploy" in an ordinary string, well before the real deploy
+  // step — `console.error("... wrangler deploy below needs ...")`. A bare
+  // `\bwrangler\s+deploy\b` match found that line FIRST in deploy-mcp.yml
+  // (index 194 vs. the real deploy at 229) and this checker kept reporting
+  // clean, but for the wrong reason: it was comparing the real secret push
+  // against a false "deploy" that happened to sit early, not the command
+  // that actually runs. If a real secret push ever landed between that
+  // diagnostic text and the real deploy step, this bare match would have
+  // missed it entirely.
+  const preflightTextBeforeRealDeploy = [
+    "jobs:",
+    "  deploy:",
+    "    steps:",
+    "      - run: |",
+    '          node -e \'console.error("wrangler deploy below needs Workers Scripts: Edit")\'',
+    "      - run: |",
+    "          printf '%s' \"$X\" | pnpm exec wrangler secret put X",
+    "      - run: pnpm exec wrangler deploy",
+  ].join("\n");
+  const preflightHit = findOutOfOrderSecretPut(preflightTextBeforeRealDeploy);
+  expect(
+    "diagnostic text mentioning 'wrangler deploy' does not stand in for the real deploy step",
+    preflightHit !== null && preflightHit.deployLine === 8,
+  );
+
   // The live repository, post-fix, must have nothing left to report.
   const live = readWorkflows(WORKFLOWS_DIR);
   const liveHits = live
@@ -201,7 +243,7 @@ function selfTest() {
     for (const failure of failures) console.error(`  - ${failure}`);
     process.exit(1);
   }
-  console.log(`Self-test passed (${9} checks).`);
+  console.log(`Self-test passed (${10} checks).`);
 }
 
 if (process.argv.includes("--self-test")) selfTest();

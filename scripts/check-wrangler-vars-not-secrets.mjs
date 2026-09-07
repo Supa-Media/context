@@ -41,17 +41,50 @@
  * Run: `node scripts/check-wrangler-vars-not-secrets.mjs`
  * Self-test: `node scripts/check-wrangler-vars-not-secrets.mjs --self-test`
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WORKFLOWS_DIR = join(ROOT, ".github/workflows");
 
-/** Every `wrangler secret put NAME`, wherever in the file it appears. */
+// Anchored on `pnpm exec wrangler …` rather than a bare `wrangler …` anywhere
+// in the line, and for the same reason as `check-workflow-secret-order.mjs`:
+// several deploy workflows' Cloudflare-preflight steps print a diagnostic
+// string containing "wrangler deploy" — not a YAML comment, so
+// `stripComments` alone does not remove it — well before the real deploy
+// step. A bare match found that line first in deploy-mcp.yml, resolved no
+// `working-directory:` above it (the false match sits outside any
+// `working-directory`-scoped step), and silently gave up on checking
+// apps/mcp/wrangler.toml at all — the exact config this check exists for.
+// Every real invocation in this repository goes through `pnpm exec`.
+const DEPLOYS_LIVE = /\bpnpm\s+exec\s+wrangler\s+(?:pages\s+)?deploy\b|\bpnpm\s+exec\s+wrangler\s+versions\s+upload\b/;
+
+/**
+ * Comments blanked to empty strings rather than removed, so every other
+ * line's index — and therefore everything below that searches "the nearest
+ * line above" or "the first matching line" — stays aligned with the
+ * ORIGINAL file. Every deploy workflow's header narrates this exact bug in
+ * prose, mentioning both `wrangler deploy` and `wrangler secret put`; reading
+ * comments as code would make a checker trip over its own explanation.
+ */
+function stripComments(text) {
+  return text
+    .split("\n")
+    .map((line) => (line.trim().startsWith("#") ? "" : line))
+    .join("\n");
+}
+
+/**
+ * Every `wrangler secret put NAME`, wherever in the file it appears.
+ * Anchored on `pnpm exec wrangler …`, same reasoning as `DEPLOYS_LIVE` above:
+ * every real invocation goes through `pnpm exec`, and this stays consistent
+ * with it rather than relying on a captured NAME being enough on its own to
+ * rule out a false match in prose.
+ */
 export function secretNamesPushed(text) {
   const names = new Set();
-  for (const m of text.matchAll(/\bwrangler\s+secret\s+put\s+([A-Za-z0-9_]+)/g)) {
+  for (const m of stripComments(text).matchAll(/\bpnpm\s+exec\s+wrangler\s+secret\s+put\s+([A-Za-z0-9_]+)/g)) {
     names.add(m[1]);
   }
   return [...names];
@@ -160,8 +193,11 @@ export function findVarsThatAreSecrets(files) {
     const pushed = secretNamesPushed(text);
     if (pushed.length === 0) continue;
 
-    const lines = text.split("\n");
-    const deployLine = lines.findIndex((l) => /\bwrangler\s+(?:pages\s+)?deploy\b|\bwrangler\s+versions\s+upload\b/.test(l));
+    // Comments blanked (not removed — line numbers stay aligned) before
+    // searching: every one of these headers narrates "wrangler deploy" and
+    // "wrangler secret put" in prose, well above the real steps.
+    const lines = stripComments(text).split("\n");
+    const deployLine = lines.findIndex((l) => DEPLOYS_LIVE.test(l));
     if (deployLine === -1) continue;
 
     const dir = workingDirectoryAbove(lines, deployLine);
@@ -230,17 +266,49 @@ function selfTest() {
   // secretNamesPushed
   expect(
     "secret names are collected across multiple lines",
-    JSON.stringify(secretNamesPushed('printf a | wrangler secret put A\nprintf b | wrangler secret put B --config wrangler.toml\n')) ===
+    JSON.stringify(secretNamesPushed("printf a | pnpm exec wrangler secret put A\nprintf b | pnpm exec wrangler secret put B --config wrangler.toml\n")) ===
       JSON.stringify(["A", "B"]),
   );
-  expect("a file that pushes nothing yields no names", secretNamesPushed("wrangler deploy\n").length === 0);
+  expect("a file that pushes nothing yields no names", secretNamesPushed("pnpm exec wrangler deploy\n").length === 0);
+  expect(
+    "prose mentioning `wrangler secret put NAME` is not itself a push — every header narrates this bug by name",
+    secretNamesPushed("# past: `wrangler secret put OLD_NAME` ran before deploy\npnpm exec wrangler deploy\n").length === 0,
+  );
 
-  // findVarsThatAreSecrets: the #302 regression fixture, and its fix.
-  const dirs = { "test-worker": "wrangler.toml" };
-  // Build a fake filesystem in-memory by writing to the real one is overkill
-  // for a unit test; instead exercise the pure functions directly and, for
-  // the end-to-end path, assert the resolver refuses to guess a config it
-  // cannot find rather than silently reporting nothing as a pass.
+  // The actual bug this file was fixed for while writing it: every deploy
+  // workflow's header narrates "wrangler deploy" in prose ABOVE the real
+  // step (deploy-mcp.yml does it three times), and its Cloudflare-preflight
+  // step separately prints a diagnostic STRING containing "wrangler deploy" —
+  // not a YAML comment, so stripping "#" lines alone does not remove it.
+  // Finding the first line that merely MENTIONS the command, instead of the
+  // real one, resolved no working-directory above it and silently gave up —
+  // the exact shape that let this check skip apps/mcp/wrangler.toml entirely
+  // without reporting anything wrong. Both false shapes are in this fixture.
+  const narratedDeploy = [
+    "# See `wrangler deploy` below for why this matters.",
+    "jobs:",
+    "  deploy:",
+    "    steps:",
+    "      - run: |",
+    '          node -e \'console.error("wrangler deploy needs Workers Scripts: Edit")\'',
+    "      - working-directory: fixture-worker",
+    "        run: pnpm exec wrangler secret put X",
+    "      - working-directory: fixture-worker",
+    "        run: pnpm exec wrangler deploy",
+  ].join("\n");
+  expect(
+    "neither the comment nor the diagnostic string stands in for the real deploy step",
+    (() => {
+      const lines = stripComments(narratedDeploy).split("\n");
+      const deployLine = lines.findIndex((l) => DEPLOYS_LIVE.test(l));
+      // Line 0 (the comment) and line 5 (the console.error string) must NOT
+      // be picked; the real step is line 9.
+      return deployLine === 9;
+    })(),
+  );
+
+  // The resolver must refuse to guess a config it cannot find rather than
+  // silently reporting nothing as a pass.
   expect(
     "resolveConfigPath returns null rather than reading a nonexistent file",
     (() => {
@@ -248,19 +316,51 @@ function selfTest() {
       return resolveConfigPath(lines, 1, "nonexistent-dir-xyz") === null;
     })(),
   );
-  void dirs;
 
   // The live repository, post-fix, must have nothing left to report — the
   // assertion that actually gates CI, run against the real files.
-  const liveProblems = findVarsThatAreSecrets(readWorkflows());
+  const liveFiles = readWorkflows();
+  const liveProblems = findVarsThatAreSecrets(liveFiles);
   expect(`the live deploy workflows have no secret-as-var collisions (found: ${liveProblems.join(" | ") || "none"})`, liveProblems.length === 0);
+
+  // Sabotage-test the whole path end to end, using the REAL deploy-mcp.yml's
+  // text (comments, narrated "wrangler deploy" mentions, and all) but a
+  // config file written to a scratch directory rather than the tracked
+  // apps/mcp/wrangler.toml — this exercises the exact bug fixed above (the
+  // deploy line resolving to a comment, `dir` coming back empty, the check
+  // silently giving up) without a self-test ever mutating a file this
+  // repository tracks.
+  const deployMcp = liveFiles.find((f) => f.name === "deploy-mcp.yml");
+  // Created UNDER ROOT, and referenced by its path RELATIVE to ROOT — real
+  // `working-directory:` values are always relative (e.g. "apps/mcp"), and
+  // resolveConfigPath's `join(ROOT, dir, value)` does not reset to root for
+  // an absolute `dir` the way `path.resolve` would, so an OS tmpdir here
+  // would silently fail to resolve regardless of whether the real bug is
+  // fixed — this mirrors production instead of tripping a second, unrelated
+  // one.
+  const scratchDir = mkdtempSync(join(ROOT, ".wrangler-vars-selftest-"));
+  try {
+    const scratchConfig = join(scratchDir, "wrangler.toml");
+    writeFileSync(scratchConfig, '[vars]\nCONTROL_PLANE_URL = "https://example-deployment.convex.site"\n');
+    const relativeDir = scratchDir.slice(ROOT.length + 1);
+    const rewritten = deployMcp.text
+      .replace(/working-directory:\s*apps\/mcp/g, `working-directory: ${relativeDir}`)
+      .replace(/--config\s+"\$MCP_WRANGLER_CONFIG"/g, `--config wrangler.toml`);
+    const sabotagedProblems = findVarsThatAreSecrets([{ name: "deploy-mcp.yml", text: rewritten }]);
+    expect(
+      "a CONTROL_PLANE_URL var collision is caught through deploy-mcp.yml's own text, comments and all",
+      sabotagedProblems.some((p) => p.startsWith("deploy-mcp.yml") && p.includes("CONTROL_PLANE_URL")),
+    );
+  } finally {
+    rmSync(scratchDir, { recursive: true, force: true });
+  }
 
   if (failures.length > 0) {
     console.error("Self-test failed:");
     for (const failure of failures) console.error(`  - ${failure}`);
     process.exit(1);
   }
-  console.log(`Self-test passed (${8} checks).`);
+  console.log(`Self-test passed (${12} checks).`);
 }
 
 if (process.argv.includes("--self-test")) selfTest();
