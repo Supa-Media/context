@@ -140,7 +140,33 @@ const FAKE = process.argv.includes("--fake-signals");
  * whatever launched this, and a packaged `.app` double-clicked from the Dock
  * carries no arguments at all.
  */
-const SMOKE = process.argv.includes("--smoke");
+const SMOKE = process.argv.includes("--smoke") || process.argv.includes("--smoke-load");
+/**
+ * `--smoke-load` is `--smoke` that also waits for the console to really load.
+ *
+ * Plain `--smoke` deliberately proves *the window was created*, not that the
+ * page loaded — that is the whole point of its own docblock, and it is why
+ * the release gate can run with no network at all. But that same honesty
+ * meant `--smoke`'s report always said `loaded: false`, which is not a lie —
+ * it never waited to find out — and it is also not the check that would have
+ * caught the console being refused by its own `Cache-Control: private`, which
+ * the release gate's offline runner could never have seen either way.
+ *
+ * So this is a second, opt-in flag for a machine with real network: it waits
+ * for the console window's first navigation to settle — loaded or failed,
+ * {@link SMOKE_LOAD_DEADLINE_MS} either way — then asks the mirror what it
+ * wrote and reports whether the snapshot's own index is a `text/html`
+ * document, which is the fact this whole fix is about. **The release gate
+ * keeps using plain `--smoke`**: a runner's network is not part of what that
+ * gate promises, and a `--smoke-load` run failing because a CI runner has no
+ * route to `context.lc` would be exactly the false alarm `SMOKE_DEADLINE_MS`'s
+ * own docblock already argues against. This flag is for a person, on a real
+ * machine, online and then offline — the two runs `docs/decisions/desktop.md`
+ * asks for after a signed build.
+ */
+const SMOKE_LOAD = process.argv.includes("--smoke-load");
+/** How long `--smoke-load` waits for the console's first navigation to settle. */
+const SMOKE_LOAD_DEADLINE_MS = 30_000;
 
 /**
  * The whole of a `--smoke` run, from module evaluation to the exit code.
@@ -161,6 +187,19 @@ const SMOKE = process.argv.includes("--smoke");
  * `test/launch.smoke.mjs` both stop the process themselves at sixty seconds.
  */
 const SMOKE_DEADLINE_MS = 30_000;
+/**
+ * The deadline actually armed below.
+ *
+ * A `--smoke-load` run has its own wait — up to {@link SMOKE_LOAD_DEADLINE_MS}
+ * for the console to settle, plus whatever `awaitSnapshot()` takes — layered
+ * *inside* the ordinary smoke path rather than replacing it. Arming the
+ * ordinary {@link SMOKE_DEADLINE_MS} underneath that would end the run with
+ * "nothing finished within 30000ms" while `--smoke-load` was still waiting on
+ * purpose, which is a false alarm about the same shape `SMOKE_DEADLINE_MS`'s
+ * own widening already argues against. So `--smoke-load` gets both budgets,
+ * back to back, as one outer limit.
+ */
+const EFFECTIVE_SMOKE_DEADLINE_MS = SMOKE_LOAD ? SMOKE_DEADLINE_MS + SMOKE_LOAD_DEADLINE_MS : SMOKE_DEADLINE_MS;
 
 /**
  * Say why, and stop — never `app.quit()`.
@@ -258,6 +297,18 @@ let consoleAddress: string | null = null;
  * `app://console` *instead of* the live origin, never as well as it.
  */
 let consoleMirror: ConsoleMirror | null = null;
+/**
+ * Resolves once the console window's first navigation has settled — `true` for
+ * `did-finish-load`, `false` for a main-frame `did-fail-load` (the mirror or
+ * the failure page takes over from there, and this promise does not follow it:
+ * the question `--smoke-load` is asking is whether *this* launch reached the
+ * live console, not whether the fallback also finished loading).
+ *
+ * `null` on a launch that never opened a console window at all —
+ * `CONTEXT_DESKTOP_UI=renderer`, or a `CONTEXT_DESKTOP_UI_URL` this app
+ * refused — which `--smoke-load` reads as "there was nothing to wait for".
+ */
+let consoleLoadSettled: Promise<boolean> | null = null;
 
 let connectError: string | null = null;
 
@@ -1282,6 +1333,32 @@ async function main(): Promise<void> {
     // Before the load can finish or fail: the mirror owns `did-fail-load`, and
     // a fallback wired after the first load is a fallback that misses it.
     consoleMirror.attach(consoleWindow);
+    /*
+      Registered here, at creation, rather than wherever `--smoke-load` reads
+      it: the window's `loadURL` is already under way inside
+      `createConsoleWindow`, so a listener attached any later than this is a
+      listener that can lose the race to a fast local load. `.once` on both
+      events, so whichever fires first is the answer — a later navigation to
+      the mirror or the failure page is the fallback taking over and is
+      deliberately not what this promise reports.
+    */
+    const settlingWindow = consoleWindow;
+    consoleLoadSettled = new Promise<boolean>((resolveSettled) => {
+      let settled = false;
+      const finish = (loaded: boolean): void => {
+        if (settled) return;
+        settled = true;
+        resolveSettled(loaded);
+      };
+      settlingWindow.webContents.once("did-finish-load", () => finish(true));
+      settlingWindow.webContents.once(
+        "did-fail-load",
+        (_event, _errorCode, _errorDescription, _failedUrl, isMainFrame) => {
+          if (isMainFrame) finish(false);
+        },
+      );
+      settlingWindow.once("closed", () => finish(false));
+    });
     consoleWindow.once("ready-to-show", () => consoleWindow?.show());
     consoleWindow.on("closed", () => {
       /*
@@ -1491,6 +1568,41 @@ async function main(): Promise<void> {
     const menuRoles: string[] = (menu?.items ?? []).flatMap((item) =>
       (item.submenu?.items ?? []).map((entry) => entry.role).filter((role) => role != null),
     );
+
+    /*
+      `loaded` is honest about what plain `--smoke` never waited to find out.
+      With no `--smoke-load`, this is simply whatever the window's own loading
+      flag says *right now* — almost always `false`, because a remote console
+      is nowhere near finished by the time `main()` reaches its last line, and
+      that is the truth rather than a placeholder. `--smoke-load` is the flag
+      that actually waits, up to `SMOKE_LOAD_DEADLINE_MS`, for the first
+      navigation to settle one way or the other.
+    */
+    let loaded = consoleWindow !== null && !consoleWindow.webContents.isLoading();
+    if (SMOKE_LOAD && consoleLoadSettled !== null) {
+      loaded = await Promise.race([
+        consoleLoadSettled,
+        new Promise<boolean>((resolveTimedOut) => setTimeout(() => resolveTimedOut(false), SMOKE_LOAD_DEADLINE_MS)),
+      ]);
+      // A load that succeeded triggers `consoleMirror`'s own snapshot inside its
+      // `did-finish-load` handler; give that its own `await`s before asking what
+      // it wrote, or this would be asking the question before the write ran.
+      if (loaded) await consoleMirror?.awaitSnapshot();
+    }
+
+    /*
+      The fact this whole fix is about: not merely "was something mirrored",
+      but "is the *document* — the one thing a navigation can fall back to —
+      really `text/html`". `mirrorIsUsable` asks the same question of a
+      manifest already on disk; this asks it of the manifest this process is
+      holding right now, which on `--smoke-load` is the one this launch just
+      wrote.
+    */
+    const mirroredManifest = consoleMirror?.currentManifest() ?? null;
+    const snapshotIndexType = mirroredManifest?.entries[mirroredManifest.index]?.contentType ?? null;
+    const snapshotIsHtmlDocument =
+      snapshotIndexType === null ? null : snapshotIndexType.toLowerCase().startsWith("text/html");
+
     console.log(
       `[smoke] ${JSON.stringify({
         ready: true,
@@ -1511,6 +1623,13 @@ async function main(): Promise<void> {
         */
         rendererDir: RENDERER_DIR,
         rendererDirExists: existsSync(RENDERER_DIR),
+        // `false` on plain `--smoke`, honestly — see this field's own comment
+        // above. `--smoke-load` is the flag that actually waits for it.
+        loaded,
+        // `null` when nothing was ever mirrored (no console window, or
+        // `--smoke-load` never got a chance to run); otherwise whether the
+        // mirror's own index is a real document.
+        snapshotIsHtmlDocument,
       })}`,
     );
     if (windows < 1) return endSmoke(1, "no window was created");
@@ -1551,6 +1670,26 @@ async function main(): Promise<void> {
       if (missing.length > 0)
         return endSmoke(1, `the application menu is missing ${missing.join(", ")}`);
     }
+
+    /*
+      Only `--smoke-load` fails on these — plain `--smoke` never waited for
+      `loaded` to mean anything, and asking it to pass "the console really
+      loaded" on a runner with no route to `context.lc` would just be a second,
+      slower way to fail every offline CI run for a reason that has nothing to
+      do with a crash.
+    */
+    if (SMOKE_LOAD) {
+      if (!loaded)
+        return endSmoke(
+          1,
+          `the live console did not finish loading within ${SMOKE_LOAD_DEADLINE_MS}ms (offline, refused, or genuinely hung — the report line above says which, and \`snapshotIsHtmlDocument\` says whether a mirror from a previous run is still standing in for it)`,
+        );
+      if (snapshotIsHtmlDocument !== true)
+        return endSmoke(
+          1,
+          `the mirror's index is not a text/html document (${JSON.stringify(snapshotIndexType)})`,
+        );
+    }
     return endSmoke(0, "the app started, opened a window, and is exiting cleanly");
   }
 }
@@ -1578,7 +1717,10 @@ if (CONSOLE_UI) registerMirrorScheme();
 if (SMOKE) {
   // Never cleared: every way out of a `--smoke` run goes through `endSmoke`,
   // which exits the process. A timer that outlives that has nothing to fire in.
-  setTimeout(() => endSmoke(1, `nothing finished within ${SMOKE_DEADLINE_MS}ms`), SMOKE_DEADLINE_MS);
+  setTimeout(
+    () => endSmoke(1, `nothing finished within ${EFFECTIVE_SMOKE_DEADLINE_MS}ms`),
+    EFFECTIVE_SMOKE_DEADLINE_MS,
+  );
   process.on("uncaughtException", (error) => endSmoke(1, `uncaught exception: ${error.message}`));
   process.on("unhandledRejection", (reason) => endSmoke(1, `unhandled rejection: ${String(reason)}`));
 }
