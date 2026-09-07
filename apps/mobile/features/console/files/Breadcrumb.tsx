@@ -11,7 +11,7 @@ import { PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { fonts, layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
-import { crumbsFor, type Crumb } from "./crumbs";
+import { CHAR_WIDTH_PX, crumbsFor, type Crumb } from "./crumbs";
 import type { Visibility } from "./types";
 
 /**
@@ -113,6 +113,55 @@ import type { Visibility } from "./types";
  * segments: they are one line, and a button that stayed still while its own path
  * slid out from under it is two controls pretending to be one.
  */
+/**
+ * The characters `crumbsFor` may spend on the phone's row, given the screen
+ * it is drawn on and the pill in front of it.
+ *
+ * A pixel budget rather than a character one is what the screen actually
+ * offers, so this is the one place that converts — everything downstream of
+ * it, in `crumbs.ts`, is plain arithmetic on a number of characters and has no
+ * idea a screen exists. Every constant here is an estimate of a real style
+ * elsewhere, kept in points and named for what it stands for rather than
+ * folded into one guess, so the next person to retune it can tell which piece
+ * moved:
+ *
+ * - **The band's own margin**, `layout.readingMargin` on both sides —
+ *   `NavBand`'s `gutter` prop, which is what `BrowsePane` passes it.
+ * - **The trailing fade**, 24pt — `NavBand`'s own number for the same falloff,
+ *   duplicated with a comment rather than imported because it is a decoration
+ *   this module has no other reason to depend on.
+ * - **The pill**, estimated rather than measured: `space.x2` of padding on
+ *   each side, the 6pt gap before its label, an 8pt dot, and the label itself
+ *   at `wsSwitch`'s 13px body face. Body glyphs run wider than the row's own
+ *   11px monospace, so this is deliberately generous — a budget that assumes
+ *   a bigger pill than the real one leaves the row *more* room than it has,
+ *   which is the wrong direction to be wrong in. Erring the other way here
+ *   would spend characters `crumbs.ts` does not actually have.
+ * - **A flat safety margin**, `SLACK_PX`. `breadcrumb-shots.ts` photographed
+ *   this against the real font before that constant existed and the leaf was
+ *   still fading out under `NavBand`'s gradient — every other number here was
+ *   individually a fair estimate, and the row still ran 18pt over, which is
+ *   what a flex row's own gaps cost between segments and none of these
+ *   estimates were charged for. The margin is what stops the next rounding
+ *   error from being a fade nobody sees coming; `crumbs.ts`'s `SEPARATOR_CHARS`
+ *   is the corresponding correction on the *characters* side of the divide.
+ *
+ * Conservative is the only direction this is allowed to be wrong in: the
+ * whole point is that the leaf fits, so a number that overestimates the room
+ * available is the one defect this function must never have. `CHAR_WIDTH_PX`
+ * carries the same bias for the row's own glyphs. `breadcrumb-shots.ts` is
+ * where this gets checked against a real browser rather than arithmetic.
+ */
+function phoneRowBudget(windowWidthPx: number, contextLabel: string): { chars: number } {
+  const gutterPx = layout.readingMargin * 2;
+  const fadePx = 24;
+  const pillChromePx = space.x2 * 2 + 6 + 8;
+  const pillLabelPx = contextLabel.length * 7.5; // ~13px body glyph, generously
+  const slackPx = 12;
+  const availablePx = windowWidthPx - gutterPx - fadePx - pillChromePx - pillLabelPx - slackPx;
+  return { chars: Math.max(0, Math.floor(availablePx / CHAR_WIDTH_PX)) };
+}
+
 export function Breadcrumb({
   path,
   title,
@@ -162,7 +211,8 @@ export function Breadcrumb({
   pathOnly?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const compact = densityFor(useWindowDimensions().width) === "compact";
+  const windowWidth = useWindowDimensions().width;
+  const compact = densityFor(windowWidth) === "compact";
   /*
     The whole path, leaf included, and capped only where the width demands it.
 
@@ -171,8 +221,18 @@ export function Breadcrumb({
     see `crumbs.ts` for why scrolling is not an answer for the one segment that
     says where you are. The pointer layout asks for no cap: it has the width for
     the whole path and a visibility chip beside it.
+
+    A cap **bounds** the row; it does not fit it — a scroll is still how a long
+    but ordinary path is read. `budget` is the difference: on a phone the leaf's
+    fit is not left to a scroll and a fade, it is guaranteed, so it is passed
+    only here. `phoneRowBudget` turns the screen this is actually drawn on into
+    the characters `crumbsFor` spends.
   */
-  const crumbs = crumbsFor(path, { title, maxFolders: pathOnly === true ? undefined : null });
+  const crumbs = crumbsFor(path, {
+    title,
+    maxFolders: pathOnly === true ? undefined : null,
+    budget: pathOnly === true ? phoneRowBudget(windowWidth, contextLabel) : null,
+  });
 
   if (pathOnly === true) {
     /*
@@ -332,6 +392,14 @@ function Segment({
         style={leafStyle}
         numberOfLines={1}
         testID="breadcrumb-leaf"
+        /*
+          Only set when a width budget shortened the label — a screen reader
+          gets the whole name, which the screen itself no longer has room for.
+          `undefined` rather than always passing `crumb.label` twice: a real
+          `accessibilityLabel` on a plain word is a second thing that can drift
+          from the visible one.
+        */
+        accessibilityLabel={crumb.fullLabel}
       >
         {crumb.label}
       </Text>

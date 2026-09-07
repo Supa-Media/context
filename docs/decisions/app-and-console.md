@@ -2204,6 +2204,44 @@ was" in the report. `BrowsePane` draws the path only while
 which is honest and is where the switch is going. Restoring the other context's
 place is unchanged and is still the good half.
 
+#### 4. A count cannot guarantee a fit, so a width budget does
+
+**Two, not three** (above) said the honest thing about `MAX_FOLDER_CRUMBS`: a
+cap bounds the row, it does not fit it, because segment names are the
+customer's and no count is a width. That honesty shipped as two screenshots —
+`1-note-two-folders-deep.png` had the leaf's last two letters under the
+trailing fade, and `5-deep-path-elided.png` cut "the-lean-startup" to
+"the-lean-sta…" — on the one segment the whole row exists to state. "Scroll to
+see the rest" is a real answer for a folder somebody mostly reads by shape; it
+is not one for the note's own name.
+
+So a caller that needs the fit guaranteed — today, only the phone's `pathOnly`
+row — passes `crumbs.ts` a character `budget`, converted from the screen's own
+width by `Breadcrumb`'s `phoneRowBudget`, and the leaf becomes the thing that
+is protected rather than the thing that goes missing. Folders give way first,
+and **from the front, one ancestor at a time**, rather than in one jump to a
+bare `…`: the immediate parent is the folder worth keeping pressable
+longest — it is where "step back" actually goes, which the pill in front of
+this row does not reach — so it survives until the width genuinely has no room
+even for it alone. Only when a single `…` standing for the whole path still
+does not leave the leaf room is the leaf's own label shortened, and it is
+shortened in the **middle** (`the-lean…tup`) rather than at an edge, so it
+keeps both the word somebody typed and the word they would search for.
+
+Every pixel constant this needs — the band's margin, the trailing fade, the
+pill's own footprint, a flat safety margin — is named for the real style it
+estimates rather than folded into one guess, and every one of them is biased to
+**overestimate** the room the pill and the chrome take: a budget that thinks
+the row has less space than it really does costs a folder that could have
+stayed live, never a leaf that spills past the edge it was computed for. That
+bias is not a preference, it was found the hard way — the first cut of this fix
+priced a separator at one glyph and left the row 18pt over anyway, because
+`NavBand`'s flex row puts a 6pt gap on *both* sides of every separator and
+nothing had charged for it. `SEPARATOR_CHARS` (`crumbs.ts`) and `SLACK_PX`
+(`Breadcrumb.tsx`) are that correction, kept as named constants rather than
+folded back into `CHAR_WIDTH_PX` so the next person tuning this can tell which
+piece moved.
+
 #### The tests that fail if any of it is reversed
 
 Sabotage record — each applied as a local edit, run, reverted. Counts are
@@ -2223,13 +2261,25 @@ pill press end to end (it closes the note, the device stops remembering it, a
 refused close comes back, and pressing *another* context still restores where
 you were there), `noteChrome.test.ts` the rendered band, `linkedNote.test.ts`
 the close against the real `useFileBrowser`, and `settingsClose.test.ts` the
-one href a tidy-up would undo.
+one href a tidy-up would undo. `breadcrumbPath.test.ts`'s own "protecting the
+leaf with a character budget" block carries the sabotages for §4 above — the
+budget ignored past the cap, the leaf-truncation branch skipped, a leaf cut
+from an edge instead of the middle — each a local edit to the width-budget
+fallback, run and reverted, with the count in the test's own comment rather
+than repeated here: the model they are against moves with `CHAR_WIDTH_PX` and
+`SEPARATOR_CHARS`, and a number copied out here would drift from the one
+somebody can actually reproduce.
 
 **What is not covered here**: the numbers came from Chromium at 390x844 driving
 the real components against the landing page's demo data, not from a device.
-Whether two folder segments plus a leaf plus a pill is the right budget on a
-320pt phone, and whether the trailing fade reads as "there is more" to somebody
-who has not been told, are questions for a phone in a hand — a number to
-revisit, not an invariant. The screenshots that settled the count are attached
-to the pull request rather than committed: they are evidence for one decision,
-not a fixture anything reads.
+`phoneRowBudget`'s constants are estimates of real styles, checked against one
+browser's rendering of one font stack — a different platform's font metrics
+could still put the leaf a few points off from where this aims, which is why
+every estimate in it is biased to assume *less* room than the real row has
+rather than more. Whether that bias is generous enough on a 320pt phone, and
+whether the trailing fade still reads as "there is more" once it is only ever
+covering a folder and never the leaf, are questions for a phone in a hand — a
+number to revisit, not an invariant. The screenshots that settled the original
+count, and the ones that settled this fix, are attached to the pull requests
+rather than committed: they are evidence for a decision, not a fixture anything
+reads.

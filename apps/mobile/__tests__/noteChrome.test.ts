@@ -109,6 +109,25 @@ const FILE = [
   "",
 ].join("\n");
 
+/**
+ * The same shape as `FILE`, with a title short enough that it never needs
+ * `crumbs.ts`'s width budget to give a folder up — for the tests below whose
+ * claim is about a folder segment being *pressable*, not about what happens
+ * when the row runs out of room for one. `noteChrome.test.ts`'s own "a deep
+ * path elides its middle" test is where that second claim is made, against
+ * `FILE`'s own sentence-length title.
+ */
+const SHORT_FILE = [
+  "---",
+  'subject: "Notes"',
+  "visibility: private",
+  "status: unprocessed",
+  "---",
+  "",
+  "Short.",
+  "",
+].join("\n");
+
 const ENTRY: FolderListing["entries"][number] = {
   kind: "file",
   path: NOTE,
@@ -420,7 +439,12 @@ describe("the path bar", () => {
   const DEEP = "3-resources/books/the-lean-startup.md";
 
   test("every ancestor is a target, and the note is the last segment", () => {
-    const app = mountConsole(dataWith({}, { path: DEEP, name: "the-lean-startup.md" }));
+    const app = mountConsole(
+      dataWith(
+        { editor: { ...emptyEditor, status: "clean", path: DEEP, baseline: SHORT_FILE, draft: SHORT_FILE } } as never,
+        { path: DEEP, name: "the-lean-startup.md" },
+      ),
+    );
 
     expect(app.find2("Open 3-resources")).not.toBeNull();
     expect(app.find2("Open 3-resources/books")).not.toBeNull();
@@ -434,7 +458,7 @@ describe("the path bar", () => {
       rung ladder the inline title uses — because a captured note's filename is
       a content hash and a crumb ending in one names nothing.
     */
-    expect(app.find("breadcrumb-leaf")!.textContent).toBe("The storage binding");
+    expect(app.find("breadcrumb-leaf")!.textContent).toBe("Notes");
     expect(app.find2(`Open ${DEEP}`)).toBeNull();
   });
 
@@ -462,20 +486,23 @@ describe("the path bar", () => {
 
   test("a deep path elides its middle and keeps the last segment", () => {
     /*
-      The row scrolls, and the segment that scrolls off the trailing edge is the
-      leaf — the one the line exists to state. So the count of folders is capped
-      (`crumbs.ts`), never a label's own text.
+      Nothing here fits without giving something up: four real folder names
+      beside `FILE`'s sentence-length title run well past 390pt, so the row
+      protects the leaf and gives up folders from the *front* — the immediate
+      parent (`a/b/c/d`) is the one worth keeping pressable longest, because it
+      is what "step back" actually reaches, and it is the last one to go.
     */
     const deep = "a/b/c/d/the-lean-startup.md";
     const app = mountConsole(dataWith({}, { path: deep, name: "the-lean-startup.md" }));
 
     expect(app.find("breadcrumb-gap")).not.toBeNull();
-    // The root folder and the immediate parent, both still pressable.
-    expect(app.find2("Open a")).not.toBeNull();
+    // The root is folded away first...
+    expect(app.find2("Open a")).toBeNull();
     expect(app.find2("Open a/b")).toBeNull();
     expect(app.find2("Open a/b/c")).toBeNull();
+    // ...and the immediate parent is the one still live.
     expect(app.find2("Open a/b/c/d")).not.toBeNull();
-    expect(app.find("breadcrumb-leaf")).not.toBeNull();
+    expect(app.find("breadcrumb-leaf")!.textContent).toBe("The storage binding");
   });
 
   test("the context is a button at the head of the path, not a segment", () => {
@@ -503,10 +530,13 @@ describe("the path bar", () => {
   test("pressing a segment selects that folder", () => {
     const chosen: string[] = [];
     const app = mountConsole(
-      dataWith({ select: (path: string) => chosen.push(path) } as never, {
-        path: DEEP,
-        name: "the-lean-startup.md",
-      }),
+      dataWith(
+        {
+          select: (path: string) => chosen.push(path),
+          editor: { ...emptyEditor, status: "clean", path: DEEP, baseline: SHORT_FILE, draft: SHORT_FILE },
+        } as never,
+        { path: DEEP, name: "the-lean-startup.md" },
+      ),
     );
 
     app.press(app.find2("Open 3-resources/books"));
@@ -524,7 +554,12 @@ describe("the path bar", () => {
       button that stayed still while its path slid out from under it is two
       controls pretending to be one.
     */
-    const app = mountConsole(dataWith({}, { path: DEEP, name: "the-lean-startup.md" }));
+    const app = mountConsole(
+      dataWith(
+        { editor: { ...emptyEditor, status: "clean", path: DEEP, baseline: SHORT_FILE, draft: SHORT_FILE } } as never,
+        { path: DEEP, name: "the-lean-startup.md" },
+      ),
+    );
     const row = app.find("nav-band-trail");
     expect(row).not.toBeNull();
     expect(getComputedStyle(row!).flexDirection).not.toBe("column");
