@@ -1503,6 +1503,77 @@ exact flash `/console` stopped being the Map to remove.
 `consoleLanding.test.ts`'s "the Map is never mounted on the way through" is the
 test that fails.
 
+### A URL is a context and a note, and half of one is not an instruction
+
+"I'll change between workspaces and it will say file not found." Reported from a
+phone against the feature above, a week after it shipped, and the mirror was
+doing exactly what it was written to do.
+
+**A switch moves the URL first.** The rail replaces the address with
+`/console/@supa`, the phone's strip with `/console/@supa?note=<the path that
+context was last left at>`, and only then does the console layout select the
+context the URL names, and only then does `useFileBrowser` reset under it —
+parent effects after the route's, which is the same ordering `FileBrowser.contextId`
+already exists for. For those commits the console holds two honest values about
+two different places: the note comes from the **new** address and the open note
+belongs to the **old** context.
+
+`nextAddressStep` was given only the first of those, and paired it with the
+context out of the console's own state. So the rule reached its last clause —
+"a URL that merely lost its note is stale, and is re-addressed" — and wrote
+`@seyi`'s note onto `/console/@supa`. That URL then read back as a link into a
+context that has never had that file, `select` opened it, and the editor said
+*That file does not exist* to somebody who had pressed a workspace. On a phone
+it was worse than a wrong address: the strip carries the *new* context's note,
+so the same commit called `select` on one context's path while the browser was
+still pointed at the other's bucket.
+
+**And it did not stop at the address bar.** `/console/@:slug` records where
+somebody is so that a cold relaunch and the strip can come back to it, and it
+builds that record out of the URL. Handed a URL that had just been given the
+wrong note, it filed `@seyi`'s path under `@supa`'s slug — on the device, where
+the next navigation does not correct it. Every later switch to `@supa` restored
+a path `@supa` has never had. That is why the complaint was about switching
+*between* workspaces rather than about one bad navigation.
+
+So `urlContextId` is an input to the rule, and nothing is reconciled until the
+URL, the console and the file browser all name the same context. Three things
+about that are decisions:
+
+- **The URL's context, resolved against the list, and not the slug.** The rule
+  compares ids because that is what the other two sides are; `contextIdForSlug`
+  answers `null` for a slug the account cannot reach *and* for one whose list
+  has not landed, because both mean *do not act on this address yet* — and
+  telling them apart is `resolveContextRoute`'s job, which is the one place that
+  decides whether a dead link redirects.
+- **A deep link is not a switch.** `/console/@supa?note=…` typed, pasted, or
+  redirected from `/note/@supa/…` names `@supa` from its first commit, so it is
+  never the mismatched pair: it waits for the console to catch up and then opens
+  exactly what it names. The distinction is not "did the context change" — it is
+  *whose* context the note in this address belongs to.
+- **The record needs no second guard, because both halves come from the URL.**
+  `placeFor` takes the addressed note rather than the browser's selection, and
+  the slug beside it comes from the same address in the same commit, so the pair
+  cannot name two places unless the address itself is wrong. Adding an "and the
+  browser has arrived" flag was tried and reverted: measured, it changed nothing
+  a test could observe (the write it suppresses is repeated a commit later with
+  the same values), and a guard nobody has checked is not a guard.
+
+`v3` of the log's key is the other half of the fix and is a purge rather than a
+shape change. A poisoned entry cannot be told from a good one without a round
+trip to somebody's bucket — it is a real path under a real slug, and the only
+thing wrong with it is which context it names — so devices that already carry
+one are given a fresh file. It costs one navigation per context, which is what
+losing this record has always cost.
+
+`noteAddress.test.ts` drives the rule and `linkedNote.test.ts` the wiring
+against the real `useFileBrowser`; `contextSwitchRecord.test.ts` mounts the
+route and asserts the device, and reversing the rule puts `@seyi`'s note in
+`@supa`'s entry there — the reported bug, in a store, in a test. What still
+happens on purpose: a `?note=` naming a file the context genuinely does not have
+lands on the editor's own refusal and stays there, which is where a stale link,
+a note deleted from another device, and a hand-typed path all land.
+
 ### A note link is a path with a keyword in front, because a scheme has a host
 
 `context://note/@supa/1-projects/context-lc-file-page-persistence/overview.md`

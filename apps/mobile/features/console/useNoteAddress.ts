@@ -36,13 +36,27 @@ import { nextAddressStep, type Reconciled } from "./noteAddress";
  */
 export function useNoteAddress(
   files: FileBrowser,
-  note: string | null,
+  /**
+   * What the URL says, both halves of it.
+   *
+   * A context and a note, taken from the same address in the same commit.
+   * Passing only the note — which is what this took — let the rule pair it
+   * with the console's own context, which lags the URL across a switch. See
+   * `noteAddress.ts`.
+   */
+  url: {
+    /** The context the URL names, resolved against the list. */
+    contextId: string | null;
+    /** `?note=`, already validated by `noteFromQuery`. */
+    note: string | null;
+  },
   selectedContextId: string | null,
   /** Write the URL. `null` clears `?note=` rather than naming an empty note. */
   address: (note: string | null) => void,
 ): void {
   const seen = useRef<Reconciled | null>(null);
   const { select, contextId, selectedPath } = files;
+  const { contextId: urlContextId, note } = url;
 
   /*
     Held in a ref and read inside the effect, so a caller that rebuilds the
@@ -57,6 +71,7 @@ export function useNoteAddress(
     const step = nextAddressStep({
       contextId,
       selectedContextId,
+      urlContextId,
       note,
       selected: selectedPath,
       seen: seen.current,
@@ -69,5 +84,5 @@ export function useNoteAddress(
 
     if (step.action === "open") select(step.path);
     else if (step.action === "address") addressRef.current(step.note);
-  }, [contextId, note, select, selectedContextId, selectedPath]);
+  }, [contextId, note, select, selectedContextId, selectedPath, urlContextId]);
 }
