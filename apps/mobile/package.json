@@ -18,6 +18,9 @@
   "dependencies": {
     "@codemirror/autocomplete": "^6",
     "@codemirror/commands": "^6",
+    "@codemirror/lang-css": "^6",
+    "@codemirror/lang-html": "^6",
+    "@codemirror/lang-javascript": "^6",
     "@codemirror/lang-markdown": "^6",
     "@codemirror/language": "^6",
     "@codemirror/state": "^6",
@@ -29,6 +32,7 @@
     "@convex-dev/auth": "^0.0.90",
     "@expo/metro-runtime": "~6.1.2",
     "@lezer/common": "^1",
+    "@lezer/highlight": "^1",
     "@lezer/markdown": "^1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "11.4.1",
