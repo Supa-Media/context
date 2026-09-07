@@ -70,7 +70,7 @@ await runControllerChecks(check);
 runTrayChecks(check);
 runPlatformChecks(check);
 await runContractChecks(check, skip);
-runPackagingChecks(check);
+await runPackagingChecks(check);
 
 console.log(
   failures

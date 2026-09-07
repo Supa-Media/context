@@ -49,8 +49,10 @@ asar: true
 
 mac:
   category: public.app-category.productivity
-  # A menu-bar app with no dock icon. Without this macOS puts it in the dock and
-  # in the app switcher, which is not what a tray app is.
+  # `distribution`, not `development`: it decides which certificate
+  # electron-builder looks for and which provisioning rules apply. It is NOT
+  # what makes this a menu-bar app — `LSUIElement` below is, and the two are
+  # easy to conflate into deleting the one that matters.
   type: distribution
   hardenedRuntime: true
   gatekeeperAssess: false
@@ -62,6 +64,8 @@ mac:
         - arm64
         - x64
   extendInfo:
+    # A menu-bar app with no dock icon. Without this macOS puts it in the dock
+    # and in the app switcher, which is not what a tray app is.
     LSUIElement: true
     NSMicrophoneUsageDescription: >-
       Context records the meetings you ask it to. Your microphone is opened only

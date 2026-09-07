@@ -121,8 +121,11 @@ already declares `com.apple.security.device.audio-input`, and
 that can be checked without a Mac: the entitlement is *granted* rather than
 mentioned, the hardened runtime is on, the helper processes inherit the
 entitlements, the three `Info.plist` usage strings exist and say what happens to
-the audio, and the notarisation hook treats two-of-three credentials as a skip
-rather than a hang.
+the audio, the notarisation hook treats two-of-three credentials as a skip
+rather than a hang — and, driven against a fake Apple, that a submission Apple
+*refuses* fails the build rather than producing a quiet unsigned dmg, and that
+the private key the hook writes for `notarytool` is gone from the runner
+afterwards even when the submission failed.
 
 ## Consent, because this app watches what you are doing
 
@@ -154,7 +157,7 @@ the settings file, put in a URL, or exposed to a renderer.
 
 ## What is real, and what is not
 
-### Real, and checked by the suite (492 checks, offline, no network)
+### Real, and checked by the suite (529 checks, offline, no network)
 
 - The detection loop against fake collectors, including the flicker cases: one
   poll of a conferencing app does not start a recording, a two-poll blip does

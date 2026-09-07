@@ -28,6 +28,10 @@
  *   the notarize hook notarising with only two of the three ASC values          1
  *   `entitlementsInherit` dropped (the helper processes lose the mic)           1
  *   a `<key>` left behind with its `<true/>` deleted                            2
+ *   the runtime-dependency rule matching a scope prefix instead of `workspace:` 1
+ *   a notarisation Apple refused caught and logged instead of thrown            1
+ *   `rmSync` in the hook's `finally` made a no-op (the key stays on the runner) 2
+ *   the `electronPlatformName !== "darwin"` guard removed                       1
  *
  * The first one was measured at **0** before these checks were asked of the
  * plist\'s keys rather than of its text: that file\'s header discusses every
@@ -35,7 +39,7 @@
  * the prose after the key itself was gone.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -47,7 +51,7 @@ const require = createRequire(import.meta.url);
 const BUILDER = readFileSync(join(ROOT, "electron-builder.yml"), "utf8");
 const ENTITLEMENTS = readFileSync(join(ROOT, "build/entitlements.mac.plist"), "utf8");
 
-export function runPackagingChecks(check) {
+export async function runPackagingChecks(check) {
   // -- the entitlement that decides whether this app can hear anything -------
   /*
     Asked of the plist's own keys, never of the file's text. The header of that
@@ -170,7 +174,106 @@ export function runPackagingChecks(check) {
   */
   check(
     "every runtime dependency is one of ours, in this repository",
-    Object.keys(manifest.dependencies).every((name) => name.startsWith("@context/") || name.startsWith("@context-lc/")),
+    // `workspace:` rather than a scope prefix, and the difference is not
+    // cosmetic: the first version matched `@context/` and `@context-lc/`, and
+    // #263 renamed the hook to `@supa-media/context-hook` — a package that is
+    // still ours, still in this repository, and would have turned this check
+    // red for a rename. What is being asserted is "resolved from this
+    // workspace, not downloaded", and pnpm spells that `workspace:`.
+    Object.values(manifest.dependencies).every((range) => String(range).startsWith("workspace:")),
   );
   check("...and there is at least one, so that rule is checking something", Object.keys(manifest.dependencies).length > 0);
+  check(
+    "...and it would notice a real one — a registry range is not a workspace range",
+    !["^1.0.0", "1.0.0", "latest", "npm:left-pad@1"].some((range) => String(range).startsWith("workspace:")),
+  );
+
+  // -- the hook when Apple says no -------------------------------------------
+  /*
+    The other half of "all three, or nothing". A hook that swallowed a failed
+    notarisation would produce a dmg that Gatekeeper refuses and macOS gives no
+    microphone to, with a green build behind it — which is the same silent
+    outcome every other check in this file exists to stop, arriving by a
+    different door.
+
+    And with it, the one credential this repository writes to a disk it does not
+    own. `ASC_API_KEY_P8` is a private key; the hook writes it 0600 into a
+    private temp directory so `notarytool` can read it, and removes it in a
+    `finally`. A failed submission is exactly when a `finally` gets dropped, so
+    the failing path is where it is checked.
+  */
+  const notarizeModule = require.resolve("@electron/notarize");
+  const realNotarize = require.cache[notarizeModule];
+  let submitted = null;
+  require.cache[notarizeModule] = {
+    id: notarizeModule,
+    filename: notarizeModule,
+    loaded: true,
+    exports: {
+      notarize: async (options) => {
+        submitted = options;
+        throw new Error("HTTP status code: 401. Invalid credentials.");
+      },
+    },
+  };
+  // Required after the fake is in place, and out of the cache first: the
+  // `credentials` export above was reached through the real module.
+  delete require.cache[require.resolve(join(ROOT, "build/notarize.cjs"))];
+  const hook = require(join(ROOT, "build/notarize.cjs")).default;
+
+  const context = {
+    electronPlatformName: "darwin",
+    appOutDir: ROOT,
+    packager: { appInfo: { productFilename: "Context" } },
+  };
+  const saved = { ...process.env };
+  process.env.ASC_API_KEY_P8 = "-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n";
+  process.env.ASC_KEY_ID = "fake-key-id";
+  process.env.ASC_ISSUER_ID = "fake-issuer-id";
+  let thrown = null;
+  try {
+    await hook(context);
+  } catch (error) {
+    thrown = error;
+  }
+  check(
+    "A NOTARISATION APPLE REFUSED FAILS THE BUILD — it is never a quiet unsigned dmg",
+    thrown instanceof Error && /401/.test(thrown.message),
+  );
+  check("...and it did submit, so the failure is Apple's answer and not a typo here", submitted !== null);
+  check("...it was submitted with notarytool and the key on disk", submitted?.tool === "notarytool" && typeof submitted?.appleApiKey === "string");
+  check(
+    "THE PRIVATE KEY IS GONE AFTER A FAILED SUBMISSION, not left on the runner",
+    submitted !== null && !existsSync(submitted.appleApiKey),
+  );
+  check("...and the directory it was written into with it", submitted !== null && !existsSync(dirname(submitted.appleApiKey)));
+
+  // Credentials still set, so what stops this one is the platform guard and
+  // nothing else — with them cleared first, the skip below would pass whether
+  // the guard existed or not, which is a check that reads as coverage and is
+  // not.
+  submitted = null;
+  let notMac = true;
+  try {
+    await hook({ ...context, electronPlatformName: "win32" });
+  } catch {
+    notMac = false;
+  }
+  check("nothing is submitted off macOS, credentials or no credentials", notMac && submitted === null);
+
+  process.env.ASC_API_KEY_P8 = "";
+  process.env.ASC_KEY_ID = "";
+  process.env.ASC_ISSUER_ID = "";
+  submitted = null;
+  let skipped = true;
+  try {
+    await hook(context);
+  } catch {
+    skipped = false;
+  }
+  check("with no credentials the same hook returns quietly", skipped && submitted === null);
+
+  Object.assign(process.env, saved);
+  if (realNotarize) require.cache[notarizeModule] = realNotarize;
+  else delete require.cache[notarizeModule];
 }
