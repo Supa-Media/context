@@ -19,8 +19,10 @@
  * Run as temporary local edits and reverted:
  *
  *   the token appended as `?token=` rather than a header                       2
- *   a 404 classified as temporary (a message every twenty seconds)             1
+ *   a bare 404 classified as temporary (a message every twenty seconds)        1
  *   every refusal classified as permanent (one blip ends the transcript)       4
+ *   404 + `meeting_forbidden` classified as permanent (the shipped defect)     2
+ *   `sessionUnknown` widened to every 404 (a dead route retried all meeting)   2
  *   the route spelled locally instead of taken from ROUTES                     1
  *   the network failure's own message relayed (it can quote the URL)           1
  */
@@ -94,6 +96,40 @@ export async function runTranscribeRequestChecks(check) {
       const error = await refusal(transcribeChunk(connection(), request, impl));
       check(`${why} stops the sending`, error instanceof TranscribeRefused && error.permanent === true);
     }
+  }
+
+  // -- the one 404 that means "not yet" -------------------------------------
+  //
+  // `sessionGone()` in the gateway answers 404 + `meeting_forbidden` for three
+  // different worlds and cannot tell them apart: another workspace's meeting,
+  // one that never existed, and **one that has not been written yet**. The
+  // third is the ordinary case here, because the session row and the audio are
+  // two different requests sent by two different mechanisms. Read as permanent,
+  // one of them discarded an entire meeting's audio.
+  {
+    const impl = fakeFetch([{ status: 404, body: { error: ERRORS.forbidden } }]);
+    const error = await refusal(transcribeChunk(connection(), request, impl));
+    check(
+      "A SESSION THE GATEWAY HAS NOT HEARD OF IS NOT A PERMANENT REFUSAL",
+      error instanceof TranscribeRefused && error.permanent === false,
+    );
+    check("...and says which refusal it is, so the caller can bound it", error?.sessionUnknown === true);
+  }
+
+  // -- and the neighbours it must not swallow -------------------------------
+  {
+    const bare = fakeFetch([{ status: 404, body: {} }]);
+    const noRoute = await refusal(transcribeChunk(connection(), request, bare));
+    check(
+      "a bare 404 is still a gateway with no transcription route, and still permanent",
+      noRoute?.permanent === true && noRoute?.sessionUnknown === false,
+    );
+    const denied = fakeFetch([{ status: 403, body: { error: ERRORS.forbidden } }]);
+    const forbidden = await refusal(transcribeChunk(connection(), request, denied));
+    check(
+      "a 403 is the grant being refused, not the meeting being unknown, and stays permanent",
+      forbidden?.permanent === true && forbidden?.sessionUnknown === false,
+    );
   }
 
   // -- refusals worth trying the next chunk for -----------------------------

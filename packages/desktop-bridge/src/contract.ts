@@ -239,6 +239,34 @@ export interface CaptureStateUpdate {
   /** True while an input is actually open — what the tray's dot means. */
   capturing: boolean;
   fault: CaptureFault | null;
+  /**
+   * THE ONE SENTENCE ABOUT WHAT THIS MEETING IS *NOT* DOING, OR `null`.
+   *
+   * Not a fault: the capture is fine and the meeting continues. This is the
+   * shell's `SessionView.notice` — "system audio was not available", "this
+   * meeting is not being transcribed" — which the shell already shows in its
+   * own tray and its own panel and, until this field existed, showed nowhere
+   * else.
+   *
+   * **The field is here because its absence hid a defect for a day.** The
+   * transcriber raises `CAPTURE_NOTICES.refused` when a meeting stops being
+   * transcribed mid-recording, and with `{state, capturing, fault}` as the whole
+   * of this payload there was no member it could travel on: the shell said the
+   * sentence to itself, the console drew a recording that looked perfectly
+   * healthy, and the only place the truth appeared was a transcript that came
+   * out empty afterwards. `CaptureStarted.notice` carries the sentence a meeting
+   * *starts* with; nothing carried one it acquires.
+   *
+   * A plain string rather than a second `CaptureFault`, deliberately. The
+   * recoverable bit would be the only other thing to carry, nothing in
+   * `apps/mobile` reads it, and each of these sentences already says what it
+   * means for the rest of the meeting. What is on the wire is what is on the
+   * glass.
+   *
+   * Additive: a shell built before this field answers without it and
+   * `getDesktopBridge`'s normaliser reads that as `null`, so no version moves.
+   */
+  notice: string | null;
 }
 
 /**

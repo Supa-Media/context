@@ -41,8 +41,47 @@ const TIMEOUT_MS = 45_000;
  * that must not produce a message every twenty seconds for an hour.
  */
 function permanent(status: number, code: string): boolean {
+  // The one answer a single reply cannot settle, and the exception is stated
+  // first so the two functions below cannot drift into disagreeing. See
+  // `sessionUnknown`.
+  if (sessionUnknown(status, code)) return false;
   if (status === 404 || status === 405 || status === 501) return true;
   return code === ERRORS.forbidden || code === ERRORS.invalid;
+}
+
+/**
+ * THE ONE REFUSAL THAT MEANS "NOT YET" AS OFTEN AS IT MEANS "NEVER".
+ *
+ * `apps/mcp/src/meetings/transcribe.js`'s `sessionGone()` answers **404 with
+ * `meeting_forbidden`** for three different worlds and says so in its own
+ * comment: another workspace's session, one that never existed, and one that
+ * has not been written yet. The third is not an edge case on this path — the
+ * session row and the audio are two different requests, sent by two different
+ * mechanisms (the outbox and this file), and this client does not control which
+ * lands first. It is the shape of a race, not of a permission.
+ *
+ * Read as permanent, one such answer discards **the entire meeting's audio**:
+ * `gatewayTranscriber` sets `givenUp` and silently drops every remaining chunk,
+ * including all the ones that would have succeeded the moment the session
+ * arrived. That is what shipped, and with `SEGMENT_MS` (20 s) under
+ * `DRAIN_INTERVAL_MS` (30 s) it happened on the first chunk of every recording.
+ *
+ * So it is **not permanent** — one reply cannot make it so — and it is carried
+ * as its own fact besides, so the caller can spend a small budget of them before
+ * concluding "never". Both, rather than either: dropping it out of `permanent`
+ * alone would leave a genuinely forbidden meeting uploading a full chunk of
+ * audio every twenty seconds for its whole length, and carrying only the extra
+ * flag would leave `permanent` asserting something a single answer cannot know —
+ * which is how the next reader of that bit alone loses a meeting again.
+ *
+ * Deliberately narrow. A **bare** 404 — no meetings error code — is still
+ * permanent and still means "this gateway has no transcription route", which is
+ * a different sentence about a different thing. So is a 403 with
+ * `meeting_forbidden`, which is the grant being refused rather than the meeting
+ * being unknown.
+ */
+function sessionUnknown(status: number, code: string): boolean {
+  return status === 404 && code === ERRORS.forbidden;
 }
 
 export async function transcribeChunk(
@@ -80,7 +119,11 @@ export async function transcribeChunk(
       const code = typeof body.error === "string" ? body.error : "";
       // Deliberately not the server's own prose: `gatewayTranscriber` has a
       // closed set of sentences and this is one of the inputs to it.
-      throw new TranscribeRefused(`the gateway refused a chunk (${response.status})`, permanent(response.status, code));
+      throw new TranscribeRefused(
+        `the gateway refused a chunk (${response.status})`,
+        permanent(response.status, code),
+        sessionUnknown(response.status, code),
+      );
     }
 
     const body = (await response.json()) as { segments?: unknown };

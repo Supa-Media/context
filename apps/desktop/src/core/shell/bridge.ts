@@ -184,6 +184,9 @@ function captureStateFrom(payload: unknown): CaptureStateUpdate {
       source.fault === null || source.fault === undefined
         ? null
         : { recoverable: fault.recoverable === true, message: text(fault.message) },
+    // Absent on a shell built before the field existed, which reads as "nothing
+    // to say" — the same answer that shell would have given if it could.
+    notice: sentence(source.notice),
   };
 }
 

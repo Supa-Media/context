@@ -2285,6 +2285,169 @@ a broker whose status flips from `not-determined` to `granted` between two
 and `appShell.test.mjs` pins the sentence itself, the same way it pins
 `permissions`'s.
 
+### Twenty is less than thirty, and every recording died of it
+
+Found on the owner's own hardware, driven by the real Record button over a
+27-second meeting, with `globalThis.fetch` patched in the main process. Four
+requests, in this order:
+
+```
+1. POST /meetings/sessions/mtg_76b6…/transcribe  → 404  error="meeting_forbidden"
+2. POST /meetings/sessions                       ← the session row, AFTER the audio
+3. POST /meetings/sessions
+4. POST /meetings/sessions/mtg_76b6…/finalize
+```
+
+One transcribe attempt in twenty-seven seconds, for two chunks of audio. **Every
+desktop recording was transcription-dead from its first chunk, on every machine,
+deterministically.** Capture itself was perfect: the microphone was live at
+48 kHz with real signal, `dataavailable` fired at +24 s carrying 322 kB, the
+rotation reopened correctly and the stop chunk assembled in a millisecond. The
+audio was captured and then thrown away by the gateway, and the client then
+permanently gave up on the meeting.
+
+The whole of it is three numbers in three files:
+
+```
+packages/meetings/src/chunks.js   SEGMENT_MS        = 20_000   ← chunks rotate here
+core/sync/drain.ts                DRAIN_INTERVAL_MS = 30_000   ← the outbox drains here
+main/index.ts                     a session write waited for that timer
+```
+
+**20 < 30, always.** So the first chunk of audio reached a gateway that had never
+heard of the session, `sessionGone()` answered `404 meeting_forbidden`,
+`main/transcribe.ts`'s `permanent()` read the 404 as final, `gatewayTranscriber`
+set `givenUp`, and every remaining chunk of the meeting was **silently dropped**
+— including all the ones that would have succeeded the moment the row landed at
+t≈30 s.
+
+#### Two fixes, and neither is sufficient alone
+
+**The session row does not wait for the timer.** `drainUrgency` in
+`core/sync/drain.ts` answers `"now"` for a `session`, `"await"` for a `finalize`
+and `"timer"` for the other two, and both writers read it: `MeetingController`
+for a meeting the tray started, `writeMeetingFromConsole` for one the page
+started. It matters that both do — the one-line version of this fix, in
+`main/index.ts` alone, would have left every **tray-only** recording (the reason
+the shell exists at all) broken exactly as it was.
+
+**And it hangs off `begin()`, not off the queue call.** Found reviewing this
+change rather than while writing it, and it is the reason that line is not the
+tidier one inside `#queue`: `#queue("session", …)` also runs from `title()`,
+which the notepad calls on **every keystroke of the title field**. A drain
+attached there would be one HTTP request per keystroke — the exact failure
+`SYNC_THROTTLE_MS` and `reconcileDrain` both exist to avoid, introduced while
+fixing a different one. What races the first chunk of audio is the *first*
+session write of a meeting, and `begin()` is the only place that happens. **The
+test that fails if this is reversed**: `sessionOrder.test.mjs`'s *"TYPING A TITLE
+IS NOT A REQUEST PER KEYSTROKE"*, which is green on `main` (nothing drains) and
+green now, and red for exactly the one placement in between.
+
+It is a **fire-and-forget** drain rather than an awaited one, and that is the
+trade worth naming rather than discovering. Awaiting a network round trip on the
+path that starts a meeting would chain behind whatever drain is already in
+flight — up to twenty-five requests on a machine that just came back online —
+and hold up the press of Record for all of it. Nothing is bought by waiting: the
+recorder is already open by then, `drain()` is chained so at most one pass is
+ever out, a failure earns the queue's own backoff rather than a storm, and the
+page already learns about a parked meeting at the next write it makes. What it
+costs, stated: on a long queue the new session entry is at the back of
+`nextDrain`'s ordering and may not make it into this pass, in which case it goes
+out on the timer as before — which is the case the second fix exists for.
+
+**A 404 is not a permission.** `sessionGone()`'s own comment says it answers the
+same way for "another workspace's", "never existed" **and** "not written yet",
+so no single reply can settle it — and a client that concluded "never" from one
+of them discarded a whole meeting's audio. `sessionUnknown(status, code)` now
+names that case narrowly (404 **and** `meeting_forbidden`; a bare 404 is still a
+gateway with no transcription route, and a 403 is still the grant being refused),
+`permanent` answers false for it, and `gatewayTranscriber` spends
+`UNKNOWN_SESSION_GRACE = 3` of them — a minute of audio, longer than a full
+`DRAIN_INTERVAL_MS` — before giving up.
+
+Both, rather than either: taking it out of `permanent` alone leaves a genuinely
+forbidden meeting uploading audio all meeting, and carrying only the extra flag
+leaves `permanent` asserting something a single answer cannot know, which is how
+the next reader of that bit alone loses a meeting again.
+
+The budget is a bound rather than an absence on purpose. "The meeting really is
+another workspace's" is a real state, and without a ceiling this would upload a
+full 300 kB chunk every twenty seconds for the length of a meeting to a gateway
+refusing every one. Three is about a megabyte before it stops.
+
+The two fixes are independent by construction, and the checks show it: the
+arithmetic fix makes the row *early*, the 404 fix makes a late row *survivable*,
+and sabotaging either one alone still reddens `sessionOrder.test.mjs`.
+
+#### The reason nobody could see it, which is the durable part
+
+`CaptureStateUpdate` was `{state, capturing, fault}`. The transcriber raises
+`CAPTURE_NOTICES.refused` — *"this meeting is not being transcribed"* — and there
+was **no member on the bridge for it to travel on**: the shell said the sentence
+to its own tray and its own panel, and the console drew a recording that looked
+perfectly healthy. `CaptureStarted.notice` carried the sentence a meeting
+*starts* with; nothing carried one it acquired. So the only place this defect
+surfaced was an empty transcript, afterwards, and it survived a day of use.
+
+The field is now `notice: string | null`, which is the shell's own
+`SessionView.notice` — the same value the panel and the tray have always read,
+rather than a second one. A plain string and not a second `CaptureFault`: the
+recoverable bit would be the only other thing to carry, nothing in `apps/mobile`
+reads it, and each of these sentences already says what it means for the rest of
+the meeting. Additive, so `MIN_BRIDGE_VERSION` does not move — an older shell
+answers without the field and `captureStateFrom` reads that as `null`.
+
+#### What no existing check could have caught, and the one that now does
+
+**No test in this repository would have failed on any of it**, and that is the
+real finding. Every piece was covered and every piece was correct:
+`captureWindow.test.mjs` fakes `window.capture`, `controller.test.mjs` drives
+`fakeRecorder`, `transcriber.test.mjs` drives a fake `send`, `outbox.test.mjs`
+drives the reducer. **Nothing ran two of them against one clock**, and the defect
+lived exactly in the seam — the same shape as the census that came to describe a
+layer nobody had built: a guard tells you about the code it is pointed at, and
+nothing was pointed here.
+
+`test/sessionOrder.test.mjs` composes the real controller, the real queue, the
+real drain, the real transcriber and the real `transcribeChunk` against one fake
+gateway that records the order of what arrives **and refuses a chunk for a
+session it has not been told about**, exactly as the real one does. That last
+part is what makes an ordering assertion mean something rather than express a
+preference. It also runs the same harness with the fix withheld, so "20 < 30" is
+a recorded observation in the suite rather than a claim in this file.
+
+And one check holds the comparison itself, because the whole defect is one:
+
+```js
+SEGMENT_MS >= DRAIN_INTERVAL_MS || drainUrgency("session") !== "timer"
+```
+
+Lengthen a chunk, shorten the timer, or decide a session write can wait like the
+other three, and it reddens. **The tests that fail if this is reversed** are that
+line and `THE SESSION ROW REACHED THE GATEWAY BEFORE THE FIRST CHUNK OF AUDIO`.
+Sabotage, measured, counting `sessionOrder.test.mjs` alone: withholding
+`requestDrain` reddens **5**, `drainUrgency("session") === "timer"` **6**,
+reading 404 + `meeting_forbidden` as permanent again **4**, cutting the grace to
+one **3**, spending the whole budget on the first answer **4**, and moving the
+drain from `begin()` into `#queue` **1**. Dropping the notice at its consumer
+reddens **1** in `meetingsDesktop.test.ts`. Each is a different set of checks,
+which is what says these are separate properties rather than one written six
+times.
+
+`DRAIN_INTERVAL_MS` moved out of `main/index.ts` and into `core/sync/drain.ts` to
+make any of that possible: the suite cannot load a file that imports Electron, so
+a constant kept there is a constant no check can see. That is the smaller,
+transferable rule — **a number that is half of an invariant does not belong in a
+file the suite cannot read.**
+
+**What is not verified, and cannot be from here.** Nobody has recorded a meeting
+on a signed build with these changes. The end-to-end proof needs a person and a
+Mac, and the specific thing to watch for is the first `POST /meetings/sessions`
+preceding the first `POST …/transcribe` in the patched-`fetch` log, followed by
+segments actually arriving and a `## Transcript` in the note. Everything above is
+the suite and a typecheck, which is exactly the class of evidence that was green
+while this shipped.
+
 ### What is deliberately not built
 
 Not built, and none of them foreclosed:

@@ -49,6 +49,7 @@ import type { AudioRecorder } from "../capture/recorder.ts";
 import type { Transcriber, TranscriptionStream } from "../capture/transcriber.ts";
 import { queueWrite } from "../sync/outbox.ts";
 import type { Outbox } from "../sync/outbox.ts";
+import { drainUrgency } from "../sync/drain.ts";
 
 /** What the notepad and the tray render. No audio, no credentials. */
 export interface SessionView {
@@ -97,6 +98,21 @@ export interface ControllerDeps {
   /** Read and written whole; the caller persists it. */
   outbox: () => Outbox;
   setOutbox: (outbox: Outbox) => void;
+  /**
+   * Send what was just queued, without waiting for the caller's timer.
+   *
+   * Called for exactly one kind — `session` — and `drainUrgency` is what says
+   * so, in one place both this object and the console's write path read. The
+   * reason is arithmetic and it is written out there: chunks of audio rotate
+   * faster than the outbox timer fires, so a session row that waits for the
+   * timer always arrives *after* the first chunk that needs it, and the gateway
+   * answers that chunk with a 404 for a meeting it has never heard of.
+   *
+   * Deliberately synchronous and returning nothing: this is on the path that
+   * opens a microphone, and a round trip awaited here would be a Record button
+   * that waits for somebody's gateway before it records anything.
+   */
+  requestDrain?: () => void;
   now: () => Date;
   onChange?: (view: SessionView) => void;
   /**
@@ -326,6 +342,22 @@ export class MeetingController {
     // before any segment references it — and so a meeting that crashes the app
     // ten seconds in is still a meeting somebody can find.
     this.#queue("session", this.#sessionBody());
+    /*
+      And it is *sent* first, rather than queued first and sent whenever.
+
+      Here rather than inside `#queue`, and that placement is the whole of the
+      care in this line. `#queue("session", …)` also runs from `title()` — which
+      the notepad calls on every keystroke of the title field — and from `end()`,
+      which drains on its own path anyway. A drain hung off the queue call would
+      be one HTTP request per keystroke, which is the failure `SYNC_THROTTLE_MS`
+      and `reconcileDrain` both exist to avoid, introduced while fixing a
+      different one. What races the first chunk of audio is the **first** session
+      write of a meeting, and this is the only place that happens.
+
+      `drainUrgency` is asked rather than assumed, so this and
+      `writeMeetingFromConsole` cannot drift on which kinds are urgent.
+    */
+    if (this.#queues && drainUrgency("session") === "now") this.#deps.requestDrain?.();
     return { ok: true, view: this.#view };
   }
 

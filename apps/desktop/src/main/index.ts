@@ -47,7 +47,7 @@ import { electronPermissionBroker } from "./permissions.ts";
 import { DesktopStore } from "./store.ts";
 import { emptyOutbox, queueWrite, reconcileDrain } from "../core/sync/outbox.ts";
 import type { Outbox } from "../core/sync/outbox.ts";
-import { drainOnce } from "../core/sync/drain.ts";
+import { DRAIN_INTERVAL_MS, drainOnce, drainUrgency } from "../core/sync/drain.ts";
 import { memoryTokenStore } from "../core/sync/tokenStore.ts";
 import {
   GatewayConnection,
@@ -277,7 +277,6 @@ const RENDERER_UI = UI_MODE === "renderer";
  * exists so that failure is loud rather than silent.
  */
 const RENDERER_DIR = join(__dirname, "..", "renderer");
-const DRAIN_INTERVAL_MS = 30_000;
 
 let settings: DesktopSettings = DEFAULT_SETTINGS;
 let outbox: Outbox = emptyOutbox();
@@ -535,6 +534,18 @@ async function main(): Promise<void> {
       outbox = next;
       void store.writeOutbox(next);
     },
+    /*
+      The session row goes out now, not on the thirty-second timer.
+
+      `SEGMENT_MS` is twenty seconds and `DRAIN_INTERVAL_MS` is thirty, so a
+      session write that waited for the timer arrived *after* the first chunk of
+      audio it exists to make legal — every time, on every machine. The gateway
+      answered that chunk with a 404 for a meeting it had never heard of, and
+      the transcriber gave the whole meeting up. Fire-and-forget on purpose: the
+      microphone is already open by the time this runs and nothing here may make
+      the recorder wait for a network. See `drainUrgency`.
+    */
+    requestDrain: () => void drain(),
     now: () => new Date(),
     onChange: () => push(),
     /*
@@ -1131,7 +1142,7 @@ async function main(): Promise<void> {
   /** The recorder's four words, from the controller's own state machine. */
   function captureStateUpdate(): CaptureStateUpdate {
     const view = controller.view();
-    if (view === null) return { state: "idle", capturing: false, fault: null };
+    if (view === null) return { state: "idle", capturing: false, fault: null, notice: null };
     const state =
       view.state === "recording" || view.state === "paused"
         ? view.state
@@ -1145,6 +1156,18 @@ async function main(): Promise<void> {
         view.state === "failed"
           ? { recoverable: false, message: view.failureReason ?? CONSOLE_NOTICES.captureFailed }
           : null,
+      /*
+        The sentence this meeting acquired, which had nowhere to go until the
+        contract grew a member for it.
+
+        `capturePlan` puts the first one here and the *transcriber* puts every
+        later one — including `CAPTURE_NOTICES.refused`, "this meeting is not
+        being transcribed", which is the sentence a console page could not see
+        while every desktop recording was quietly producing no transcript at
+        all. The panel and the tray have always read `view.notice`; this is the
+        console reading the same field rather than a second one.
+      */
+      notice: view.notice,
     };
   }
 
@@ -1272,15 +1295,28 @@ async function main(): Promise<void> {
     push();
 
     /*
-      A finalize drains now; the other three wait for the timer.
+      A finalize is awaited, a session goes out now, and the other two wait for
+      the timer. `drainUrgency` holds that rule and the argument for it, in the
+      one place both this path and `MeetingController` read it from.
 
-      Not an optimisation in either direction. Draining on every `segments`
-      write would be a request per twenty seconds of audio against somebody's
-      own gateway, and the queue's whole design is that a meeting is sent in one
-      pass. Draining on the finalize is what turns "queued" into a note path
-      while the person is still looking at the screen that ended the meeting.
+      Not an optimisation in any of the three directions. Draining on every
+      `segments` write would be a request per twenty seconds of audio against
+      somebody's own gateway, and the queue's whole design is that a meeting is
+      sent in one pass. Draining on the finalize is what turns "queued" into a
+      note path while the person is still looking at the screen that ended the
+      meeting.
+
+      The **session** is the one that changed, and it is not awaited. The page
+      calls this on the path that starts a meeting; awaiting would chain behind
+      whatever drain is already in flight — up to twenty-five requests on a
+      machine that just came back online — and hold up the press of Record for
+      all of it. Nothing is lost by not waiting: the three answers below are
+      unchanged, and the page already learns about a park at the next write it
+      makes, which is what this docblock says above.
     */
-    if (write.kind === "finalize") await drain();
+    const urgency = drainUrgency(write.kind);
+    if (urgency === "await") await drain();
+    else if (urgency === "now") void drain();
 
     const parked = outbox.entries.find(
       (entry) => entry.sessionId === write.sessionId && entry.state === "parked",

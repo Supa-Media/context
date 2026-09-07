@@ -67,11 +67,22 @@ export interface TranscribeRequest {
  */
 export class TranscribeRefused extends Error {
   readonly permanent: boolean;
+  /**
+   * The gateway does not know this meeting — which is as often "not yet" as it
+   * is "never".
+   *
+   * A separate bit from `permanent` because the two answer different questions
+   * and only one of them can be answered from a single response.
+   * `main/transcribe.ts`'s `sessionUnknown` is where it is set and where the
+   * whole argument is written down; what it buys is below, in the `catch`.
+   */
+  readonly sessionUnknown: boolean;
 
-  constructor(message: string, permanent: boolean) {
+  constructor(message: string, permanent: boolean, sessionUnknown = false) {
     super(message);
     this.name = "TranscribeRefused";
     this.permanent = permanent;
+    this.sessionUnknown = sessionUnknown;
   }
 }
 
@@ -91,10 +102,36 @@ export const CAPTURE_NOTICES = Object.freeze({
     "This meeting is not being transcribed — the gateway would not accept the audio. Your notes and the meeting still land in your bucket.",
 });
 
+/**
+ * HOW MANY "NO SUCH MEETING" ANSWERS A MEETING SURVIVES.
+ *
+ * The session row and the audio are two different requests. The row goes
+ * through the outbox; the audio comes straight from here — so between the first
+ * chunk leaving and the row landing there is a window in which the gateway
+ * honestly does not know this meeting and says so with a 404. Treating the
+ * first such answer as final is what made every desktop recording
+ * transcription-dead: one refusal, and `givenUp` silently dropped the rest of
+ * the meeting.
+ *
+ * Three, because a chunk is `SEGMENT_MS` (20 s) of audio and the outbox's own
+ * timer is `DRAIN_INTERVAL_MS` (30 s): three chunks is a minute, which outlasts
+ * a full timer period even on a shell whose session write is only ever sent by
+ * the timer. So this holds on its own, without depending on the session write
+ * being drained early — the two fixes are independent by construction.
+ *
+ * And it is a *bound* rather than an absence, because "the meeting really is
+ * another workspace's" is a real state: without one, this would go on uploading
+ * a full chunk of audio every twenty seconds, for the length of a meeting, to a
+ * gateway that refuses each one. Three is roughly a megabyte before it stops.
+ */
+export const UNKNOWN_SESSION_GRACE = 3;
+
 export interface GatewayTranscriberDeps {
   send: SendChunk;
   /** Bounded for the suite; the default is the shared one every recorder uses. */
   maxInFlight?: number;
+  /** Bounded for the suite; the default is `UNKNOWN_SESSION_GRACE`. */
+  unknownSessionGrace?: number;
 }
 
 /**
@@ -106,6 +143,7 @@ export interface GatewayTranscriberDeps {
  */
 export function gatewayTranscriber(deps: GatewayTranscriberDeps): Transcriber {
   const limit = deps.maxInFlight ?? MAX_INFLIGHT_CHUNKS;
+  const grace = deps.unknownSessionGrace ?? UNKNOWN_SESSION_GRACE;
 
   return {
     id: "cloud",
@@ -119,6 +157,8 @@ export function gatewayTranscriber(deps: GatewayTranscriberDeps): Transcriber {
       /** Per channel, so mic chunk 3 and system chunk 3 are different files. */
       const counters = new Map<string, number>();
       let givenUp = false;
+      /** How many chunks this meeting's session row was not there for yet. */
+      let unknownSession = 0;
 
       function notice(value: TranscriptionNotice): void {
         try {
@@ -185,6 +225,26 @@ export function gatewayTranscriber(deps: GatewayTranscriberDeps): Transcriber {
               });
             })
             .catch((error: unknown) => {
+              /*
+                "No such meeting" is checked before `permanent`, and it is the
+                only refusal with a budget.
+
+                The gateway cannot tell "not written yet" from "never existed" —
+                `sessionGone()` says so in its own comment — so this side spends
+                `grace` chunks before believing the second one. Every chunk of
+                the meeting used to be thrown away on the first of these, which
+                is a race read as a permission.
+              */
+              if (error instanceof TranscribeRefused && error.sessionUnknown) {
+                unknownSession += 1;
+                if (unknownSession < grace) {
+                  notice({ recoverable: true, message: CAPTURE_NOTICES.failed });
+                  return;
+                }
+                givenUp = true;
+                notice({ recoverable: false, message: CAPTURE_NOTICES.refused });
+                return;
+              }
               if (error instanceof TranscribeRefused && error.permanent) {
                 // Made true rather than repeated: giving up is what stops this
                 // being the same sentence every twenty seconds.

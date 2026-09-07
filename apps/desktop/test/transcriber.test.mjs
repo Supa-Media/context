@@ -21,6 +21,8 @@
  *
  *   the in-flight bound removed (a backlog with no ceiling, no notice)         4
  *   a permanent refusal treated as recoverable                                 4
+ *   `sessionUnknown` believed on the first answer (the shipped defect)         4
+ *   the unknown-session budget removed entirely (audio uploaded all meeting)   3
  *   segment ids taken from the answer instead of derived                       1
  *   the channel taken from the answer instead of stamped by the machine        1
  *   `base64` dropping the padding                                              2
@@ -228,6 +230,65 @@ export async function runTranscriberChecks(check) {
     check("...and is said exactly once", notices.length === 1);
     check("...as 'nothing more will be transcribed'", notices[0]?.recoverable === false);
     check("...in one of its own sentences, never the server's", notices[0]?.message === CAPTURE_NOTICES.refused);
+  }
+
+  // -- "no such meeting" is spent from a budget, not believed at once -------
+  //
+  // The session row and the audio are two different requests. Between the first
+  // chunk leaving and the row landing, the gateway honestly does not know this
+  // meeting — and believing that answer once threw away every remaining chunk,
+  // which is what made every desktop recording produce an empty transcript.
+  {
+    const notices = [];
+    let sends = 0;
+    const stream = await gatewayTranscriber({
+      unknownSessionGrace: 3,
+      send: async () => {
+        sends += 1;
+        if (sends < 3) throw new TranscribeRefused("the gateway refused a chunk (404)", false, true);
+        return said("the row landed");
+      },
+    }).start({
+      sessionId: SESSION,
+      sampleRate: 16_000,
+      onSegment: () => {},
+      onNotice: (notice) => notices.push(notice),
+    });
+    for (let i = 0; i < 3; i += 1) {
+      stream.push(frame({ atMs: i * 20_000 }));
+      await stream.finish();
+    }
+    check("A CHUNK REFUSED FOR AN UNKNOWN SESSION DOES NOT END THE MEETING", sends === 3);
+    check("...it is reported as one that might not happen again", notices.every((notice) => notice.recoverable));
+    check("...never as 'nothing more will be transcribed'", !notices.some((n) => n.message === CAPTURE_NOTICES.refused));
+  }
+
+  // -- and the budget is finite, because "never" is a real state ------------
+  {
+    const notices = [];
+    let sends = 0;
+    const stream = await gatewayTranscriber({
+      unknownSessionGrace: 3,
+      send: async () => {
+        sends += 1;
+        throw new TranscribeRefused("the gateway refused a chunk (404)", false, true);
+      },
+    }).start({
+      sessionId: SESSION,
+      sampleRate: 16_000,
+      onSegment: () => {},
+      onNotice: (notice) => notices.push(notice),
+    });
+    for (let i = 0; i < 6; i += 1) {
+      stream.push(frame({ atMs: i * 20_000 }));
+      await stream.finish();
+    }
+    check(
+      "a meeting the gateway will never know stops the sending, rather than uploading audio all meeting",
+      sends === 3,
+    );
+    check("...and says so once it has stopped", notices[notices.length - 1]?.message === CAPTURE_NOTICES.refused);
+    check("...as 'nothing more will be transcribed'", notices[notices.length - 1]?.recoverable === false);
   }
 
   // -- nothing is sent for nothing ------------------------------------------
