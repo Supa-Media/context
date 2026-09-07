@@ -187,6 +187,43 @@ exports.privateKey = privateKey;
  * not to a log, not to a file, not to `GITHUB_ENV`.
  */
 if (require.main === module) {
+  // TEMPORARY diagnostic, never merged: structural facts only — lengths,
+  // booleans, counts, and the two standard PEM label strings (not secret;
+  // "PRIVATE KEY" / "EC PRIVATE KEY" are fixed vocabulary, never the key
+  // material) — to find out which exact shape a live secret is in without
+  // ever reading or printing the base64 body itself.
+  if (process.env.ASC_API_KEY_P8) {
+    const raw = process.env.ASC_API_KEY_P8;
+    const normalized = raw.replace(/\r\n?/g, "\n").trim();
+    console.log(
+      `[diagnose] rawLength=${raw.length} normalizedLength=${normalized.length} lines=${normalized.split("\n").length}`,
+    );
+    console.log(
+      `[diagnose] startsWithBEGIN=${normalized.startsWith("-----BEGIN")} endsWithDashes=${normalized.endsWith("-----")}`,
+    );
+    console.log(
+      `[diagnose] includesLiteralBackslashN=${raw.includes("\\n")} includesCR=${raw.includes("\r")} ` +
+        `includesTab=${raw.includes("\t")} includesQuote=${raw.includes('"') || raw.includes("'")}`,
+    );
+    const beginMatch = /^-----BEGIN ([A-Z ]+)-----/.exec(normalized);
+    const endMatch = /-----END ([A-Z ]+)-----$/.exec(normalized);
+    console.log(
+      `[diagnose] beginLabel=${beginMatch ? JSON.stringify(beginMatch[1]) : "none"} ` +
+        `endLabel=${endMatch ? JSON.stringify(endMatch[1]) : "none"} labelsMatch=${
+          beginMatch && endMatch ? beginMatch[1] === endMatch[1] : "n/a"
+        }`,
+    );
+    if (beginMatch && endMatch && normalized.length > beginMatch[0].length + endMatch[0].length) {
+      const middle = normalized.slice(beginMatch[0].length, normalized.length - endMatch[0].length);
+      const whitespaceCount = (middle.match(/\s/g) ?? []).length;
+      const nonBase64NonWsCount = (middle.match(/[^A-Za-z0-9+/=\s]/g) ?? []).length;
+      console.log(
+        `[diagnose] middleLength=${middle.length} whitespaceCount=${whitespaceCount} ` +
+          `nonBase64NonWhitespaceCount=${nonBase64NonWsCount} ` +
+          `middleStartsWithDash=${middle.startsWith("-")} middleEndsWithDash=${middle.endsWith("-")}`,
+      );
+    }
+  }
   try {
     const asc = credentials(process.env);
     if (asc === null) {
