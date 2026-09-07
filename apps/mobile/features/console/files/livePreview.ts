@@ -436,15 +436,79 @@ export function hangingIndents(state: EditorState, frontEnd = 0): HangingIndent[
     .sort((a, b) => a.from - b.from);
 }
 
-/** A piece of list syntax drawn as the thing it means. */
-export interface ListGlyph {
-  readonly from: number;
-  readonly to: number;
-  /** What is drawn in its place. */
-  readonly glyph: string;
-  readonly kind: "bullet" | "task";
-  /** A task glyph, and whether its box is ticked. */
-  readonly checked?: boolean;
+/**
+ * A piece of list syntax drawn as the thing it means.
+ *
+ * A union rather than one shape with optional fields, because the two are not
+ * variations of each other: a bullet is a **character** standing in for a
+ * character, and a checkbox is a **control** standing in for three. The first
+ * version gave both a `glyph: string` and drew ☐ for a task, which is how a
+ * checkbox came to be a piece of text in a text font — thin, differently shaped
+ * on every platform, and not obviously pressable. See `TaskWidget`.
+ */
+export type ListGlyph =
+  | { readonly kind: "bullet"; readonly from: number; readonly to: number }
+  | {
+      readonly kind: "task";
+      readonly from: number;
+      readonly to: number;
+      /** `[x]` rather than `[ ]`. Decides both the box and its line's text. */
+      readonly checked: boolean;
+    };
+
+/**
+ * Is this `TaskMarker` ticked?
+ *
+ * "Anything that is not `[ ]`" rather than "is `[x]`", which reads as though it
+ * were generous and is not: lezer's GFM grammar recognises only `[ ]`, `[x]`
+ * and `[X]` as a `TaskMarker`, so a plugin's `[-]` for a cancelled task is
+ * never a `Task` node and never reaches here. The phrasing is for the `[X]`
+ * that a capital-writing editor produces, and the limit is pinned by a test —
+ * a comment claiming the generous reading was written first and was wrong.
+ */
+function isTicked(
+  doc: { sliceString: (from: number, to: number) => string },
+  from: number,
+  to: number,
+): boolean {
+  return doc.sliceString(from, to).toLowerCase() !== "[ ]";
+}
+
+/**
+ * The text of every finished task, so it can be drawn as finished.
+ *
+ * The other half of a checkbox, and the half a glyph could never have: in
+ * Obsidian a completed task's text is struck through and dimmed, which is what
+ * lets somebody skim a list and see what is left without reading it. The box
+ * alone says the same thing in a space one character wide.
+ *
+ * **Unconditional, unlike the box.** The markup a task is written in hides when
+ * the caret leaves its line and comes back when it enters — that is the reveal
+ * rule, and it applies to `[x]` because those are three characters somebody may
+ * want to edit. Whether the task is *done* is not markup; it is what the note
+ * says. So the strikethrough stays put while the caret moves through the line,
+ * exactly as a heading stays large while you edit it. "Styling is unconditional
+ * — that is the 'live' in Live Preview."
+ *
+ * The range starts after the marker and its one following space: a strikethrough
+ * over leading whitespace draws a line into the gap before the first word.
+ */
+export function completedTasks(state: EditorState, frontEnd = 0): TextRange[] {
+  const done: TextRange[] = [];
+  syntaxTree(state).iterate({
+    from: 0,
+    to: state.doc.length,
+    enter(node) {
+      if (node.from < frontEnd) return;
+      if (node.name !== "Task") return;
+      const marker = node.node.getChild("TaskMarker");
+      if (marker === null || !isTicked(state.doc, marker.from, marker.to)) return;
+      const from = swallowTrailingSpace(state.doc, marker.to);
+      if (from >= node.to) return;
+      done.push({ from, to: node.to });
+    },
+  });
+  return done;
 }
 
 /**
@@ -485,18 +549,16 @@ export function listGlyphs(
         // `1.` is a number, not a marker to redraw. See above.
         if (parent === null || parent.parent?.name !== "BulletList") return;
         if (revealed(node.from)) return;
-        glyphs.push({ from: node.from, to: node.to, glyph: "•", kind: "bullet" });
+        glyphs.push({ kind: "bullet", from: node.from, to: node.to });
         return;
       }
       if (node.name !== "TaskMarker") return;
       if (revealed(node.from)) return;
-      const checked = state.doc.sliceString(node.from, node.to).toLowerCase() !== "[ ]";
       glyphs.push({
+        kind: "task",
         from: node.from,
         to: node.to,
-        glyph: checked ? "☑" : "☐",
-        kind: "task",
-        checked,
+        checked: isTicked(state.doc, node.from, node.to),
       });
     },
   });
@@ -539,41 +601,95 @@ export function tableLines(state: EditorState, frontEnd = 0): number[] {
 }
 
 /**
- * A glyph drawn in place of the characters that mean it.
+ * A bullet, drawn in place of the `-` that means it.
  *
- * Fixed-width by class rather than by the glyph's own metrics: `[ ]` is three
- * characters and `☐` is one, so a checkbox that took its natural width would
- * pull the rest of the line two columns left of where the hanging indent above
- * expects it, and a wrapped task would not line up with its own text.
+ * Fixed-width by class rather than by the character's own metrics, so the
+ * hanging indent above stays true on a wrapped line: a bullet stands in for
+ * exactly one character and has to occupy exactly one character's worth of
+ * room.
  */
-class GlyphWidget extends WidgetType {
-  constructor(
-    private readonly glyph: string,
-    private readonly className: string,
-  ) {
-    super();
-  }
-  eq(other: GlyphWidget): boolean {
-    return other.glyph === this.glyph && other.className === this.className;
+class BulletWidget extends WidgetType {
+  eq(): boolean {
+    // Every bullet is the same bullet. Returning `true` lets CodeMirror reuse
+    // the DOM across every redraw rather than rebuilding a span per list item
+    // per keystroke.
+    return true;
   }
   toDOM(): HTMLElement {
     const span = document.createElement("span");
-    span.className = this.className;
-    span.textContent = this.glyph;
+    span.className = "cm-lp-bullet";
+    span.textContent = "\u2022";
     return span;
   }
-  /*
-    A checkbox is clicked, so the event has to reach the handler below rather
-    than being swallowed as "inside a widget". The bullet gets the same answer
-    because a click landing on it should still place the caret on that line.
-  */
+  /* A click on a bullet should still place the caret on that line. */
   ignoreEvent(): boolean {
     return false;
   }
 }
 
 /**
- * Tick and untick a checkbox by clicking it.
+ * A checkbox, drawn as a checkbox.
+ *
+ * ## Why this is not a character
+ *
+ * The first version of this drew ☐ and ☑, and they are *text*: they take the
+ * body font's weight, they are a different shape in every font that has them at
+ * all, several fonts do not and fall back to a box the reader has seen used for
+ * "missing glyph", and none of them looks like something you press. The
+ * complaint that followed was that checklists "just get rendered as plain
+ * text", which was exactly right — they were rendered as text, because they
+ * were text.
+ *
+ * So the box is **drawn**: a border, a radius, and a tick built from two
+ * borders on a rotated pseudo-element. That is Obsidian's construction and it
+ * is the reason it reads as a control — it does not depend on the reader having
+ * a font, and it does not change weight when the surrounding text does.
+ *
+ * ## The three characters it stands in for
+ *
+ * The outer span is `3ch` wide and holds a box of about one em inside it, so
+ * `[ ]` and the drawn box occupy the same room and `hangingIndents` stays true
+ * for a wrapped task. The box is centred in that space rather than left in it,
+ * because a `-` and a `[ ]` are different widths and a column of mixed items
+ * should still have its text in one column.
+ *
+ * ## Accessibility
+ *
+ * `role="checkbox"` with `aria-checked`, because it is one — a screen reader
+ * over the raw text would otherwise hear "left bracket x right bracket". It is
+ * deliberately not focusable: the editor owns the caret, and a tab stop inside
+ * the document would take Tab away from the text.
+ */
+class TaskWidget extends WidgetType {
+  constructor(private readonly checked: boolean) {
+    super();
+  }
+  /*
+    Compared on `checked`, and this is load-bearing rather than an optimisation:
+    a widget that reported itself equal to a differently-ticked one would keep
+    its old DOM when the box was pressed, so the buffer would say `[x]` and the
+    screen would show an empty box until something else forced a redraw.
+  */
+  eq(other: TaskWidget): boolean {
+    return other.checked === this.checked;
+  }
+  toDOM(): HTMLElement {
+    const span = document.createElement("span");
+    span.className = this.checked ? "cm-lp-task cm-lp-task-on" : "cm-lp-task";
+    span.setAttribute("role", "checkbox");
+    span.setAttribute("aria-checked", this.checked ? "true" : "false");
+    const box = document.createElement("span");
+    box.className = "cm-lp-task-box";
+    span.append(box);
+    return span;
+  }
+  ignoreEvent(): boolean {
+    return false;
+  }
+}
+
+/**
+ * Tick and untick a checkbox by pressing it.
  *
  * A drawn checkbox that does nothing when it is pressed is worse than the `[ ]`
  * it replaced, because the `[ ]` never looked like a control. This edits the
@@ -584,6 +700,43 @@ class GlyphWidget extends WidgetType {
  * states: `changeFilter` would drop the change anyway, but a refused
  * transaction still moves the selection and lands in the history.
  */
+const taskToggle = EditorView.domEventHandlers({
+  mousedown(event, view) {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return false;
+    /*
+      `closest`, not `classList.contains`: the press usually lands on the drawn
+      box *inside* the widget rather than on the widget itself, and the first
+      version tested the class on the target alone — so the checkbox answered a
+      press only on the sliver of padding around it.
+    */
+    const widget = target.closest(".cm-lp-task");
+    if (widget === null) return false;
+    if (view.state.readOnly) return false;
+    /*
+      `posAtDOM` answers where the widget sits, which is where the marker it
+      replaced starts. Resolving one character in rather than at the boundary
+      is what lands inside the node instead of beside it.
+    */
+    const at = view.posAtDOM(widget) + 1;
+    const marker = nodeAt(syntaxTree(view.state).resolveInner(at, 1), "TaskMarker");
+    if (marker === null) return false;
+    view.dispatch({
+      changes: {
+        from: marker.from,
+        to: marker.to,
+        insert: isTicked(view.state.doc, marker.from, marker.to) ? "[ ]" : "[x]",
+      },
+      userEvent: "input",
+    });
+    // Claimed, so the press does not also drop a caret in the middle of the
+    // three characters it just rewrote — which would reveal the markup and
+    // replace the box the person is looking at with `[x]`.
+    event.preventDefault();
+    return true;
+  },
+});
+
 /** `node`, or its nearest ancestor of that name, or `null`. */
 function nodeAt(node: SyntaxNode | null, name: string): SyntaxNode | null {
   for (let current = node; current !== null; current = current.parent) {
@@ -591,34 +744,6 @@ function nodeAt(node: SyntaxNode | null, name: string): SyntaxNode | null {
   }
   return null;
 }
-
-const taskToggle = EditorView.domEventHandlers({
-  mousedown(event, view) {
-    const target = event.target;
-    if (!(target instanceof HTMLElement) || !target.classList.contains("cm-lp-task")) {
-      return false;
-    }
-    if (view.state.readOnly) return false;
-    /*
-      `posAtDOM` answers where the widget sits, which is where the marker it
-      replaced starts. Resolving one character in rather than at the boundary
-      is what lands inside the node instead of beside it.
-    */
-    const at = view.posAtDOM(target) + 1;
-    const marker = nodeAt(syntaxTree(view.state).resolveInner(at, 1), "TaskMarker");
-    if (marker === null) return false;
-    const ticked = view.state.doc.sliceString(marker.from, marker.to).toLowerCase() !== "[ ]";
-    view.dispatch({
-      changes: { from: marker.from, to: marker.to, insert: ticked ? "[ ]" : "[x]" },
-      userEvent: "input",
-    });
-    // Claimed, so the click does not also drop a caret in the middle of the
-    // three characters it just rewrote.
-    event.preventDefault();
-    return true;
-  },
-});
-
 
 /**
  * Build the full decoration set for a state.
@@ -685,6 +810,17 @@ export function decorationsFor(state: EditorState): DecorationSet {
     lines.push(Decoration.line({ class: "cm-lp-table" }).range(from));
   }
 
+  /*
+    A finished task's text, drawn as finished. In the *unconditional* pass and
+    not with the box, because being done is what the note says rather than
+    markup somebody is editing — see `completedTasks`. Collected here so it
+    sorts with the other marks; `styles` below is built in tree order and this
+    is not.
+  */
+  const doneText = completedTasks(state, frontEnd).map((range) =>
+    Decoration.mark({ class: "cm-lp-task-done" }).range(range.from, range.to),
+  );
+
   const styles: Range<Decoration>[] = [];
   tree.iterate({
     from: 0,
@@ -714,10 +850,8 @@ export function decorationsFor(state: EditorState): DecorationSet {
   for (const glyph of listGlyphs(state, selection, frontEnd)) {
     hides.push(
       Decoration.replace({
-        widget: new GlyphWidget(
-          glyph.glyph,
-          glyph.kind === "bullet" ? "cm-lp-bullet" : "cm-lp-task",
-        ),
+        widget:
+          glyph.kind === "bullet" ? new BulletWidget() : new TaskWidget(glyph.checked),
       }).range(glyph.from, glyph.to),
     );
   }
@@ -725,7 +859,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
   // `sort: true` because the two lists interleave: a heading's style starts
   // before its own `##` mark ends, so neither list alone is in document order
   // once they are concatenated.
-  return RangeSet.of([...lines, ...styles, ...hides], true);
+  return RangeSet.of([...lines, ...styles, ...doneText, ...hides], true);
 }
 
 /**
@@ -814,7 +948,7 @@ export const livePreviewStyles = `
 */
 .cm-lp-list-mark { color: var(--lp-muted); }
 /*
-  Both glyphs hold the width of the characters they replaced, so the hanging
+  Both widgets hold the width of the characters they replaced, so the hanging
   indent above stays true on a wrapped line. A bullet stands in for one
   character and a checkbox for three.
 */
@@ -823,11 +957,69 @@ export const livePreviewStyles = `
   width: 1ch;
   color: var(--lp-muted);
 }
+/*
+  The checkbox, and the reason it is drawn rather than written.
+
+  It used to be the character U+2610, which is text: it takes the body font's
+  weight, it is a different shape in every font that has it, plenty of fonts do
+  not have it at all, and none of them looks like something you press. A border
+  and a radius do not depend on a font being installed and do not change weight
+  when the text around them does.
+
+  The outer span is the three columns the source characters occupied and the box
+  is centred in them, so a list mixing tasks and plain items keeps its text in
+  one column.
+*/
 .cm-lp-task {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 3ch;
   cursor: pointer;
+  /* The press is the whole point; the system callout is the other thing that
+     answers a long press over it. */
+  -webkit-touch-callout: none;
+}
+.cm-lp-task-box {
+  position: relative;
+  box-sizing: border-box;
+  width: 0.95em;
+  height: 0.95em;
+  border: 1.5px solid var(--lp-muted);
+  border-radius: 3px;
+  /* A hair below the text baseline, where a checkbox sits beside a line of
+     prose rather than floating in the middle of it. */
+  transform: translateY(0.04em);
+}
+.cm-lp-task-on .cm-lp-task-box {
+  background: var(--lp-link);
+  border-color: var(--lp-link);
+}
+/*
+  The tick: two borders on a rotated box, which is the construction that needs
+  no font and no image. Drawn in the editor background so it reads as cut out of
+  the filled square rather than painted on it.
+*/
+.cm-lp-task-on .cm-lp-task-box::after {
+  content: "";
+  position: absolute;
+  left: 0.27em;
+  top: 0.09em;
+  width: 0.17em;
+  height: 0.40em;
+  border: solid var(--lp-bg);
+  border-width: 0 1.6px 1.6px 0;
+  transform: rotate(45deg);
+}
+/*
+  A finished task, drawn as finished — the half of a checkbox that a one-column
+  glyph could never carry. This is what lets somebody skim a list and see what
+  is left without reading it.
+*/
+.cm-lp-task-done {
   color: var(--lp-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
 }
 /*
   A table is not laid out — the pipes are still the author's — but it is drawn

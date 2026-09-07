@@ -191,6 +191,21 @@ function ensureStyles(colors: Colors): void {
   --lp-link: ${colors.codeKey};
   --lp-code-bg: ${colors.well};
   --lp-mono: ${fonts.mono};
+  /*
+    What the note is drawn *on*, which this half did not declare until something
+    needed to draw in it.
+
+    The guest bundle has always set it (webview/styles.ts) and this half had
+    only the four above, so a rule using it was fine on iOS and silently wrong
+    in the browser — an unknown custom property makes its declaration invalid at
+    computed-value time, so a colour falls back to currentColor rather than to
+    nothing visible. The checkbox's tick is cut out of the filled box in this
+    colour; without it the tick took the text colour and vanished into the fill.
+
+    The editor itself is transparent (below), so this names the surface behind
+    it rather than painting one.
+  */
+  --lp-bg: ${colors.surface};
   height: 100%;
 }
 .cm-lp-root .cm-editor { height: 100%; background: transparent; }

@@ -23,6 +23,7 @@ import { syntaxTree } from "@codemirror/language";
 import {
   decorationsFor,
   frontmatterRange,
+  completedTasks,
   hangingIndents,
   listGlyphs,
   markdownLanguage,
@@ -418,21 +419,26 @@ describe("a list is drawn as a list", () => {
     const selection = state.selection.ranges.map((r) => ({ from: r.from, to: r.to }));
     return listGlyphs(state, selection).map((glyph) => [
       state.doc.sliceString(glyph.from, glyph.to),
-      glyph.glyph,
+      /*
+        What is drawn, named rather than quoted. A checkbox is no longer a
+        character — it is a drawn box, and its two states are the thing to
+        assert. See `TaskWidget`.
+      */
+      glyph.kind === "bullet" ? "bullet" : glyph.checked ? "box:on" : "box:off",
     ]);
   }
 
   test("a bullet is drawn as a bullet", () => {
     expect(glyphs(`- one\n- two${ELSEWHERE}`, AWAY)).toEqual([
-      ["-", "\u2022"],
-      ["-", "\u2022"],
+      ["-", "bullet"],
+      ["-", "bullet"],
     ]);
   });
 
   test("`*` and `+` are bullets too", () => {
     expect(glyphs(`* one\n+ two${ELSEWHERE}`, AWAY)).toEqual([
-      ["*", "\u2022"],
-      ["+", "\u2022"],
+      ["*", "bullet"],
+      ["+", "bullet"],
     ]);
   });
 
@@ -447,18 +453,18 @@ describe("a list is drawn as a list", () => {
 
   test("a checkbox is drawn as one, ticked or not", () => {
     expect(glyphs(`- [ ] todo\n- [x] done${ELSEWHERE}`, AWAY)).toEqual([
-      ["-", "\u2022"],
-      ["[ ]", "\u2610"],
-      ["-", "\u2022"],
-      ["[x]", "\u2611"],
+      ["-", "bullet"],
+      ["[ ]", "box:off"],
+      ["-", "bullet"],
+      ["[x]", "box:on"],
     ]);
   });
 
   test("the markup comes back on the line the cursor is on", () => {
     // Cursor on the first line: that line is source, the second is still drawn.
     expect(glyphs("- [ ] todo\n- [x] done", 3)).toEqual([
-      ["-", "\u2022"],
-      ["[x]", "\u2611"],
+      ["-", "bullet"],
+      ["[x]", "box:on"],
     ]);
   });
 
@@ -470,7 +476,107 @@ describe("a list is drawn as a list", () => {
       and the bullet on its first stays drawn.
     */
     const doc = "- one\n  still one";
-    expect(glyphs(doc, doc.length)).toEqual([["-", "\u2022"]]);
+    expect(glyphs(doc, doc.length)).toEqual([["-", "bullet"]]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A FINISHED TASK IS DRAWN AS FINISHED, AND THAT IS NOT THE BOX'S RULE.
+ *
+ * The box obeys the reveal rule — `[x]` is three characters somebody may want
+ * to edit, so it comes back when the caret enters its line. Whether the task is
+ * **done** is not markup; it is what the note says. So the strikethrough is
+ * unconditional, exactly as a heading stays large while you edit it.
+ *
+ * Getting this backwards is not a cosmetic error: a list whose completed items
+ * un-strike themselves as you move the caret through it is a list you cannot
+ * skim, which is the entire reason the treatment exists.
+ *
+ * ## Sabotage record
+ *
+ * Run as temporary local edits and reverted. Counts are failing tests in this
+ * file.
+ *
+ *   the strikethrough made conditional on the selection, like the box    1
+ *   an unticked task struck through as well                             2
+ *   the space after the marker included in the range                    1
+ */
+describe("a finished task is drawn as finished", () => {
+  /** The struck-through text, as strings. */
+  function struck(doc: string, cursor?: number): string[] {
+    const state = stateFor(doc, cursor);
+    return completedTasks(state).map((range) => state.doc.sliceString(range.from, range.to));
+  }
+
+  const LIST = "- [ ] still to do\n- [x] already done";
+
+  test("only the finished one", () => {
+    expect(struck(LIST, 0)).toEqual(["already done"]);
+  });
+
+  test("the marker and the space after it are not struck through", () => {
+    // A line drawn through leading whitespace runs into the gap before the
+    // first word, which reads as a rule rather than as a struck task.
+    expect(struck("- [x] done")).toEqual(["done"]);
+  });
+
+  test("`[X]` counts — the check is on the marker, not on a literal `[x]`", () => {
+    expect(struck("- [X] done")).toEqual(["done"]);
+  });
+
+  test("and a marker the grammar does not recognise is not a task at all", () => {
+    /*
+      Worth pinning because it is the *limit* of the rule above, and the first
+      version of that rule's comment claimed the opposite. `isTicked` reads
+      "anything that is not `[ ]`", which sounds as though a plugin's `[-]` for
+      a cancelled task would draw as done — and it does not, because lezer's GFM
+      `TaskMarker` matches only `[ ]`, `[x]` and `[X]`. `- [-] dropped` never
+      becomes a `Task` node, so nothing here sees it: it stays exactly the text
+      somebody wrote, which is the honest outcome for syntax this editor does
+      not understand.
+    */
+    expect(struck("- [-] dropped")).toEqual([]);
+    // And nothing is drawn over it either — only the bullet, which is a list
+    // marker and has nothing to do with the brackets after it.
+    const doc = "- [-] dropped\n\nelsewhere";
+    const state = stateFor(doc, doc.length);
+    expect(listGlyphs(state, [{ from: doc.length, to: doc.length }])).toEqual([
+      { kind: "bullet", from: 0, to: 1 },
+    ]);
+  });
+
+  test("it stays struck through with the caret on its own line", () => {
+    /*
+      The whole point. The box on this line is revealed as `[x]` — that is
+      markup — and the text stays struck, because being done is not markup.
+    */
+    const at = LIST.indexOf("already done") + 3;
+    expect(struck(LIST, at)).toEqual(["already done"]);
+  });
+
+  test("an empty task list strikes nothing", () => {
+    expect(completedTasks(stateFor("- [ ] a\n- [ ] b"))).toEqual([]);
+  });
+
+  test("a task with nothing after the marker strikes nothing", () => {
+    // `- [x]` alone. A zero-width mark decoration is a range-set error rather
+    // than a no-op, so this is a guard and not tidiness.
+    expect(completedTasks(stateFor("- [x]"))).toEqual([]);
+  });
+
+  test("the real decoration set carries it, and carries it once", () => {
+    // The wiring, not the pass: `decorationsFor` has to put this in the
+    // unconditional list, and putting it in the conditional one would pass
+    // every assertion above.
+    const state = stateFor(LIST, LIST.length);
+    const classes: string[] = [];
+    decorationsFor(state).between(0, state.doc.length, (_from, _to, value) => {
+      const spec = value.spec as { class?: string };
+      if (spec.class === "cm-lp-task-done") classes.push(spec.class);
+    });
+    expect(classes).toEqual(["cm-lp-task-done"]);
   });
 });
 
