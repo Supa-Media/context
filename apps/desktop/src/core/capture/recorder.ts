@@ -15,13 +15,37 @@
  * `--dev` run against, and it is a complete implementation of this interface.
  */
 
-/** One slice of audio, as it came off the device. */
+/**
+ * One slice of audio, as it came off the device.
+ *
+ * A **complete, self-contained file**, not a fragment of a longer one. That is
+ * the most important sentence in this module and it was learned the hard way on
+ * the phone: `MediaRecorder.start(timeslice)` emits a blob every interval and
+ * only the first one carries the container's headers, so every chunk after it
+ * is unreadable by any decoder and by every transcription engine. A recorder
+ * that streams timeslices produces audio that looks fine in a log and
+ * transcribes to nothing. So recorders **rotate** — stop, hand over, start
+ * again — and each frame here is one whole recording.
+ *
+ * The clock is arithmetic rather than a reading: `atMs` is the sum of the
+ * durations before this chunk, and a full rotation contributes exactly
+ * `SEGMENT_MS` (`@context/meetings/chunks`, shared with the phone).
+ */
 export interface AudioFrame {
   /** Which stream this came from. Mirrors `TranscriptSegment.channel`. */
   channel: "mic" | "system";
-  /** Milliseconds from session start — the same clock `startMs` uses. */
+  /** Milliseconds from session start to the START of this chunk. */
   atMs: number;
-  /** Interleaved PCM or an encoded chunk; the transcriber says which it wants. */
+  /** How long this chunk is. `atMs + durationMs` is where the next one starts. */
+  durationMs: number;
+  /**
+   * What the platform actually produced — `audio/webm;codecs=opus`,
+   * `audio/mp4`. The recorder's own answer, never what it asked for: a browser
+   * may accept a request for one container and hand back another, and the
+   * engine on the far end names the upload from this.
+   */
+  mimeType: string;
+  /** The whole encoded file. Never written to disk; see `main/capture.ts`. */
   data: Uint8Array;
 }
 
@@ -93,11 +117,22 @@ export function fakeRecorder(): AudioRecorder & {
       // the property `recordedMs` promises — "audio actually captured,
       // excluding pauses" — and the one a real implementation gets wrong.
       if (!capturing || paused) return;
+      // The chunk that is handed over covers the interval that has just
+      // passed, so it is stamped with where it STARTED. Stamping it with the
+      // clock after the advance would put every chunk one rotation late, which
+      // is exactly the off-by-one that makes a transcript drift.
+      const startedAt = elapsed;
       elapsed += ms;
       for (const each of channels) {
         if (channel && each !== channel) continue;
         frames += 1;
-        sink?.({ channel: each, atMs: elapsed, data: new Uint8Array([frames & 0xff]) });
+        sink?.({
+          channel: each,
+          atMs: startedAt,
+          durationMs: ms,
+          mimeType: "audio/webm;codecs=opus",
+          data: new Uint8Array([frames & 0xff]),
+        });
       }
     },
     summary: () => ({ recordedMs: elapsed, frames }),

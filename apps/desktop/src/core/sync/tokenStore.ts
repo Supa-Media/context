@@ -34,6 +34,21 @@ export interface TokenStore {
   readonly encrypted: boolean;
 }
 
+/**
+ * The OS's encrypted storage, as the two calls this app makes of it.
+ *
+ * Electron's `safeStorage`, narrowed to an interface so the file half below can
+ * be checked without one. The narrowing is the point: what a keychain does for
+ * this app is exactly "is there one" and "encrypt/decrypt this string", and a
+ * seam that admitted more would be a seam a test could not stand in for
+ * honestly.
+ */
+export interface EncryptedStorage {
+  isEncryptionAvailable(): boolean;
+  encryptString(value: string): Buffer;
+  decryptString(value: Buffer): string;
+}
+
 /** In-memory, for the suite and for `--dev`. Never persisted. */
 export function memoryTokenStore(initial: string | null = null): TokenStore {
   let token = initial;

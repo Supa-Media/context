@@ -45,13 +45,41 @@ export interface DesktopSettings {
   /** Apps that are never recorded, and never even reported as evidence. */
   blocklist: string[];
   transcription: TranscriptionMode;
-  /** Base URL of the gateway this machine posts to. Null until connected. */
+  /**
+   * The MCP endpoint this machine connects to, e.g. `https://…/mcp`.
+   *
+   * A *setting* rather than a constant, because self-hosting is a supported
+   * path: somebody who deployed the gateway at their own bucket types their own
+   * URL here and everything else — the authorization server, the token
+   * endpoint, the meeting routes — is discovered from it. The default is the
+   * product deployment, which is the same URL for every customer; what differs
+   * is the grant a person approves after signing in.
+   */
+  gatewayEndpoint: string;
+  /**
+   * Origin the meeting routes hang off, once this machine is connected.
+   *
+   * Derived from the endpoint at connect time and kept here so the UI can name
+   * where meetings go without unlocking the keychain. The value the requests
+   * actually use is the one stored *with* the credential
+   * (`GatewayConnection.baseUrl`), so a settings file somebody edited cannot
+   * redirect a token to another host.
+   */
   gatewayBaseUrl: string | null;
   /** Shown in the note as "which device recorded this". */
   deviceName: string | null;
 }
 
 export const SETTINGS_VERSION = 1;
+
+/**
+ * The product deployment, and the one value in this file that is a URL.
+ *
+ * Overridable by editing the settings file, because a self-hoster's gateway is
+ * their own. It is not a secret and not a credential: it is the address a
+ * person's browser is sent to in order to approve this machine.
+ */
+export const DEFAULT_GATEWAY_ENDPOINT = "https://mcp.context.lc/mcp";
 
 /**
  * The safe resting state.
@@ -67,7 +95,18 @@ export const DEFAULT_SETTINGS: DesktopSettings = Object.freeze({
   captureEnabled: false,
   askBeforeEveryMeeting: true,
   blocklist: [],
+  /*
+    On device, which is where audio stays until somebody says otherwise.
+
+    Kept as the default even though it is the engine that does **not** exist
+    yet, and that is deliberate: the alternative is a fresh install whose first
+    meeting streams audio off the machine because nobody was asked. So a fresh
+    install records nothing and says why, and cloud transcription is chosen out
+    loud — the connect flow asks, in a dialog that says where the audio goes,
+    and `capturePlan` refuses to open a microphone until one of the two is real.
+  */
   transcription: "on-device",
+  gatewayEndpoint: DEFAULT_GATEWAY_ENDPOINT,
   gatewayBaseUrl: null,
   deviceName: null,
 });
@@ -134,6 +173,10 @@ export function normalizeSettings(raw: unknown): DesktopSettings {
     askBeforeEveryMeeting: bool(source["askBeforeEveryMeeting"], true),
     blocklist,
     transcription: source["transcription"] === "cloud" ? "cloud" : "on-device",
+    // The same guard as the base URL: https, or a loopback address for a local
+    // gateway. A settings file naming an `http://` endpoint would otherwise
+    // send an authorization code across the network in the clear.
+    gatewayEndpoint: acceptableGatewayUrl(source["gatewayEndpoint"]) ?? DEFAULT_GATEWAY_ENDPOINT,
     gatewayBaseUrl: acceptableGatewayUrl(source["gatewayBaseUrl"]),
     deviceName: str(source["deviceName"]),
   };
