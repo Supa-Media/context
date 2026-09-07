@@ -49,7 +49,7 @@ The wire shapes, the routes, the error codes and the thresholds all come from
 ```sh
 pnpm install                             # once, at the repository root
 pnpm --filter @context/desktop build     # esbuild → dist/
-pnpm --filter @context/desktop start     # electron dist/main/index.js
+pnpm --filter @context/desktop start     # electron dist/main/index.cjs
 pnpm --filter @context/desktop dev       # rebuild on change; start in another shell
 pnpm --filter @context/desktop test      # offline; no Electron needed
 pnpm --filter @context/desktop typecheck

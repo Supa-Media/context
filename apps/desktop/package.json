@@ -4,9 +4,9 @@
   "private": true,
   "description": "Meeting capture on the desktop — notices the meeting, records it without a bot joining the call, and writes the note into the customer's own bucket",
   "type": "module",
-  "main": "dist/main/index.js",
+  "main": "dist/main/index.cjs",
   "scripts": {
-    "start": "electron dist/main/index.js",
+    "start": "electron dist/main/index.cjs",
     "dev": "node scripts/build.mjs --watch",
     "build": "node scripts/build.mjs",
     "test": "node --experimental-strip-types test/test.mjs",

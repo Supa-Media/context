@@ -109,7 +109,17 @@ const FAKE = process.argv.includes("--fake-signals");
 const UI_MODE = desktopUiMode(process.env);
 const CONSOLE_UI = UI_MODE === "console";
 const RENDERER_UI = UI_MODE === "renderer";
-const RENDERER_DIR = join(import.meta.dirname, "..", "renderer");
+/**
+ * Where the preloads and the renderer's HTML are, relative to the bundle.
+ *
+ * `__dirname` and not `import.meta.dirname`, because `scripts/build.mjs` builds
+ * this entry as **CommonJS** — see the long comment there for why an ESM main
+ * process shipped an app that could not start. In a CJS build esbuild warns
+ * about `import.meta` and then empties it, which would make every preload path
+ * relative to the process's working directory: a window that loads, looks
+ * right, and has no bridge on it.
+ */
+const RENDERER_DIR = join(__dirname, "..", "renderer");
 const DRAIN_INTERVAL_MS = 30_000;
 
 let settings: DesktopSettings = DEFAULT_SETTINGS;
