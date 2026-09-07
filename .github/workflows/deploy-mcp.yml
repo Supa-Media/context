@@ -213,6 +213,28 @@ jobs:
         if: steps.config.outputs.found == 'true'
         run: pnpm install --filter "./apps/mcp..." --frozen-lockfile
 
+      # DEPLOY FIRST, secrets after — the ordering `deploy-router.yml` and
+      # `deploy-email-worker.yml` fixed for the same reason (#302).
+      # `wrangler secret put` acts on whatever version of the script is
+      # CURRENTLY LIVE. If a future edit to `wrangler.toml` ever declares
+      # `CONTROL_PLANE_URL` or `GATEWAY_SECRET` under `[vars]` — the exact
+      # mistake `infra/router/wrangler.jsonc` made — running the secret push
+      # before this step would collide with that plaintext var on every run,
+      # forever, because the one step that retires it (`wrangler deploy`)
+      # would never get to run: Cloudflare 10053, "Binding name '<NAME>'
+      # already in use". Nothing in `wrangler.toml` declares either name as a
+      # var today (see its `[vars]` block), so this file has not hit that
+      # failure — but the ordering that prevents it costs nothing and matches
+      # its two siblings, so it is applied here too rather than left as the
+      # one deploy workflow that still assumes the collision can't happen.
+      - name: Deploy gateway
+        if: steps.config.outputs.found == 'true'
+        working-directory: apps/mcp
+        run: pnpm exec wrangler deploy --config "$MCP_WRANGLER_CONFIG"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       # Push the Worker's secrets from GitHub on every deploy, so the live
       # gateway is reproducible from this repository rather than from whatever
       # somebody once typed at a terminal. `wrangler secret put` is idempotent
@@ -259,14 +281,6 @@ jobs:
             echo "OK — no transcription configured; meetings on the desktop will be typed."
           fi
           echo "OK — the Worker's secrets match this repository's."
-
-      - name: Deploy gateway
-        if: steps.config.outputs.found == 'true'
-        working-directory: apps/mcp
-        run: pnpm exec wrangler deploy --config "$MCP_WRANGLER_CONFIG"
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       # A deploy that reports success without the endpoint answering is exactly
       # how this gateway stayed undeployed for weeks. Ask the public URL.
