@@ -33,6 +33,7 @@ import {
   type DesktopCapabilities,
   type DesktopShell,
   type DetectionView,
+  type ImessageStatus,
   type MachineApprovalResult,
   type MeetingWrite,
   type MeetingWriteAck,
@@ -55,6 +56,8 @@ export interface FakeDesktopBridge {
   writes: MeetingWrite[];
   /** Every answer the page gave about a parked machine approval, in order. */
   approvals: MachineApprovalResult[];
+  /** Every `setEnabled` the page asked for, in order. */
+  imessageSetEnabledCalls: boolean[];
   emitSegment(segment: TranscriptSegment): void;
   emitLevel(level: AudioLevel): void;
   emitCaptureState(update: CaptureStateUpdate): void;
@@ -64,6 +67,8 @@ export interface FakeDesktopBridge {
   emitTrayCommand(command: TrayCommand): void;
   /** Push a parked machine approval at the page, or `null` to say it is over. */
   emitPendingApproval(pending: PendingMachineApproval | null): void;
+  /** Push a new iMessage status at the page. */
+  emitImessage(status: ImessageStatus): void;
   /** How many handlers are attached, so a test can prove teardown detached them. */
   listenerCount(): number;
 }
@@ -111,6 +116,25 @@ export interface FakeBridgeOptions {
    * them. An explicit `version` still wins, so the refusal can be staged too.
    */
   noMachineApproval?: boolean;
+  /** The status `imessage.status()` and the initial push answer. */
+  imessage?: ImessageStatus;
+  /**
+   * Answer no `imessage` member at all — a shell older than **version 5**,
+   * which is every shell in anybody's Applications folder today.
+   *
+   * The version it answers is **4**, not 3: the shell this stages is the one
+   * that shipped complete just before iMessage import existed, and tagging it
+   * with the highest version that legitimately has no `imessage` is what makes
+   * it that shell rather than an older one that also happens to lack the
+   * member. (Rows 3 and 4 of the required-member table are the identical list,
+   * so 3 would validate too — it would just be staging a different shell than
+   * the name says.)
+   *
+   * The same reason `noMeetings` and `noMachineApproval` exist: a page must
+   * notice the member is missing rather than call it and get a `TypeError` a
+   * real shell would never have let it reach in the first place.
+   */
+  noImessage?: boolean;
 }
 
 const DEFAULT_CONNECTION: ConnectionView = {
@@ -135,8 +159,16 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
   const calls: string[] = [];
   const writes: MeetingWrite[] = [];
   const approvals: MachineApprovalResult[] = [];
+  const imessageSetEnabledCalls: boolean[] = [];
   const pendingApprovals = new Set<(pending: PendingMachineApproval | null) => void>();
+  const imessageListeners = new Set<(status: ImessageStatus) => void>();
   let pending: PendingMachineApproval | null = options.pendingApproval ?? null;
+  let imessageStatus: ImessageStatus = options.imessage ?? {
+    enabled: false,
+    permission: "unknown",
+    lastSyncedAt: null,
+    lastError: null,
+  };
   const capabilities: DesktopCapabilities = { ...NO_CAPABILITIES, ...options.capabilities };
   let connectionView = options.connection ?? DEFAULT_CONNECTION;
   let outboxStatus = options.outbox ?? DEFAULT_OUTBOX;
@@ -158,7 +190,13 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
     */
     version:
       options.version ??
-      (options.noMeetings === true ? 1 : options.noMachineApproval === true ? 2 : BRIDGE_VERSION),
+      (options.noMeetings === true
+        ? 1
+        : options.noMachineApproval === true
+          ? 2
+          : options.noImessage === true
+            ? 4
+            : BRIDGE_VERSION),
     shell:
       options.shell === undefined
         ? { app: "Context", version: "0.0.0-test", platform: "macos" as const }
@@ -290,6 +328,30 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
             },
           }),
         }),
+
+    /*
+      Absent entirely under `noImessage`, rather than present and answering
+      nothing — the same rule `meetings` and the machine-approval trio follow,
+      and for the same reason: a shell older than version 5 does not have this
+      member, and a fake that had it and refused would let a page pass by
+      catching an error it should never have been in a position to throw.
+    */
+    ...(options.noImessage === true
+      ? {}
+      : {
+          imessage: Object.freeze({
+            async status(): Promise<ImessageStatus> {
+              calls.push("imessage.status");
+              return { ...imessageStatus };
+            },
+            async setEnabled(enabled: boolean): Promise<void> {
+              calls.push(`imessage.setEnabled:${enabled}`);
+              imessageSetEnabledCalls.push(enabled);
+              imessageStatus = { ...imessageStatus, enabled };
+            },
+            onChange: (handler: (status: ImessageStatus) => void) => subscribe(imessageListeners, handler),
+          }),
+        }),
   });
 
   return {
@@ -297,6 +359,7 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
     calls,
     writes,
     approvals,
+    imessageSetEnabledCalls,
     get lastStart() {
       return lastStart;
     },
@@ -327,6 +390,10 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
       pending = value;
       for (const handler of pendingApprovals) handler(value);
     },
+    emitImessage(status) {
+      imessageStatus = status;
+      for (const handler of imessageListeners) handler(status);
+    },
     listenerCount() {
       return (
         segments.size +
@@ -336,7 +403,8 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
         outboxes.size +
         detections.size +
         trayCommands.size +
-        pendingApprovals.size
+        pendingApprovals.size +
+        imessageListeners.size
       );
     },
   };

@@ -58,12 +58,12 @@ export type { TranscriptSegment };
  * the **UI** is the half that has to be backward compatible, because it is the
  * half that can be updated in an afternoon.
  */
-export const BRIDGE_VERSION = 4;
+export const BRIDGE_VERSION = 5;
 
 /**
  * The oldest bridge this bundle will still talk to.
  *
- * **Still 1 now that `BRIDGE_VERSION` is 4**, and that is the whole reason it
+ * **Still 1 now that `BRIDGE_VERSION` is 5**, and that is the whole reason it
  * was written as a second constant: raising the ceiling is not the same edit as
  * dropping support for the shells already installed, and a shell somebody
  * installed in March answers `1` and is doing nothing wrong. A version-1 shell
@@ -77,7 +77,10 @@ export const BRIDGE_VERSION = 4;
  * `null` and `0` — rather than members to be guarded. The number moved anyway,
  * because the ceiling records what a shell can be asked to say, and "this build
  * cannot tell you why it stopped transcribing" is a fact about a shell that
- * somebody staring at an empty transcript has to be able to read.
+ * somebody staring at an empty transcript has to be able to read. A version-4
+ * shell has no `imessage` — see `DesktopBridge.imessage` — so the console
+ * never offers the iMessage toggle on it and that shell keeps whatever the
+ * tray's own checkbox last set.
  */
 export const MIN_BRIDGE_VERSION = 1;
 
@@ -605,6 +608,51 @@ export interface DesktopBridge {
   meetings?: {
     write(write: MeetingWrite): Promise<MeetingWriteAck>;
   };
+
+  /**
+   * Whether this machine imports iMessage history, and the one fact it needs
+   * from the person before it can. **Version 5.**
+   *
+   * Optional on the type for `MIN_BRIDGE_VERSION`'s reason, same as
+   * `meetings` above: a shell that shipped before this existed answers a
+   * version below 5 and has no `imessage` member, so the console's iMessage
+   * toggle checks for the member rather than assuming it because a bridge is
+   * present at all.
+   *
+   * There is no `enable()`/`disable()` pair here on purpose — `setEnabled`
+   * mirrors `toggleDetection`'s own shape (`docs/decisions/desktop.md`'s
+   * "Watch for meetings" toggle), because turning iMessage import on is the
+   * same kind of decision as turning detection on: reversible, off by
+   * default, and something the tray offers exactly as it offers detection.
+   */
+  imessage?: {
+    status(): Promise<ImessageStatus>;
+    /** Turn import on or off. Never opens a system dialog — see `docs/decisions/communications.md`. */
+    setEnabled(enabled: boolean): Promise<void>;
+    onChange(handler: (status: ImessageStatus) => void): Unsubscribe;
+  };
+}
+
+/**
+ * What the console may know about iMessage import. Never a path, never a
+ * message, never a contact — only whether it is on, whether this Mac has
+ * granted the one permission it needs, and when it last actually wrote
+ * something.
+ */
+export interface ImessageStatus {
+  enabled: boolean;
+  /**
+   * Full Disk Access cannot be requested, only attempted — see
+   * `core/imessage/permission.ts`. `"unknown"` covers both "never tried yet"
+   * and "tried, and the failure was not clearly a permission refusal" (a
+   * `chat.db` that does not exist yet, for instance); it is never shown as a
+   * more alarming "denied" than the evidence supports.
+   */
+  permission: "granted" | "denied" | "unknown";
+  /** Epoch milliseconds of the last completed sync attempt, or `null` before the first one. */
+  lastSyncedAt: number | null;
+  /** The shell's own words for the last thing that went wrong, or `null`. */
+  lastError: string | null;
 }
 
 /**
@@ -666,6 +714,10 @@ export const BRIDGE_CHANNELS = Object.freeze({
   /** Version 2. One write about a meeting, into the shell's own queue. */
   meetingsWrite: "context:meetings-write",
 
+  /** Version 5. */
+  imessageStatus: "context:imessage-status",
+  imessageSetEnabled: "context:imessage-set-enabled",
+
   /** Main → page. Pushed; the page subscribes through the bridge. */
   segment: "context:on-segment",
   level: "context:on-level",
@@ -674,6 +726,8 @@ export const BRIDGE_CHANNELS = Object.freeze({
   /** Version 3. Main → page: a parked approval opened, or closed. */
   pendingApprovalChange: "context:on-pending-approval",
   outboxChange: "context:on-outbox",
+  /** Version 5. Main → page: enabled/permission/last-sync state changed. */
+  imessageChange: "context:on-imessage",
   detection: "context:on-detection",
   trayCommand: "context:on-tray-command",
 });
