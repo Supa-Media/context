@@ -9,7 +9,6 @@ import type { AudioMode, AudioRecorder, RecordingStatus } from "expo-audio";
 import { Directory, File, Paths } from "expo-file-system";
 import type { TranscriptSegment } from "../protocol";
 import type { MeetingRecorder, RecorderError, RecorderState } from "./index";
-import { notesOnlyRecorder } from "./notesOnly";
 import { MAX_INFLIGHT_CHUNKS, SEGMENT_MS, chunkIdFor } from "./segments";
 import { resolveTranscriber } from "./transcriber";
 
@@ -132,21 +131,58 @@ import { resolveTranscriber } from "./transcriber";
  * that is being written.
  *
  * ────────────────────────────────────────────────────────────────────────────
- * 6. WHAT IS STILL NOT HERE.
+ * 6. ANDROID: PREPARED, NOT SHIPPED.
  * ────────────────────────────────────────────────────────────────────────────
  *
- * **Android.** `audioRecorder("android")` still answers `notesOnlyRecorder`.
- * Recording while backgrounded on Android 14+ needs `FOREGROUND_SERVICE` and
- * `FOREGROUND_SERVICE_MICROPHONE` *and* a foreground service with the
- * `microphone` type actually started — a notification the person can see, which
- * is the platform being right about consent. That is a native target, not a
- * config line, and shipping capture without it would give Android users a
- * recorder that stops the moment they look away.
+ * Owner's call (2026-09-07): no keystore, no build, no store submission yet —
+ * see `docs/decisions/meetings.md`. This section used to say
+ * `audioRecorder("android")` answers `notesOnlyRecorder`, because a foreground
+ * service with the `microphone` type actually started was assumed to be a
+ * native target this app would have to build. It turned out already built:
+ * `expo-audio`'s own installed Android module bundles
+ * `android/src/main/java/expo/modules/audio/service/AudioRecordingService.kt`
+ * (in the installed `expo-audio` package), which declares that
+ * service in its own `AndroidManifest.xml` (merged into this app's manifest on
+ * every Android build, unconditionally — nothing in `app.config.js` has to ask
+ * for it), creates its own notification channel the first time a recording
+ * starts, and calls `startForeground` with the `microphone` service type
+ * itself. So `audioRecorder("android")` now answers a *real* `expoAudioRecorder`
+ * the same as iOS, with one difference threaded through: `allowsBackgroundRecording:
+ * true` in the `AudioMode` handed to `setAudioModeAsync`, which is what tells
+ * that native module to actually start the service (`AudioRecorder.kt`'s
+ * `useForegroundService` field, set from `AudioMode.allowsBackgroundRecording`
+ * — see `AudioModule.kt`). iOS's own `MEETING_AUDIO_MODE` is untouched: that
+ * field is Android's own switch, not a shared one, and mixing it into the
+ * object iOS reads would be a behaviour change nobody asked for.
+ *
+ * **`interruptionMode: "mixWithOthers"` already does the right thing on
+ * Android too, unchanged.** The worry going in was that "mixing" needed its
+ * own Android answer — a second field, a second decision. It does not:
+ * `expo-audio`'s Android `AudioModule.kt` reads the same `interruptionMode`
+ * value to decide whether to request audio focus at all, and `mixWithOthers`
+ * is the one value that skips the request entirely
+ * (`requestAudioFocus()` returns immediately when
+ * `interruptionMode == InterruptionMode.MIX_WITH_OTHERS`). So the same object,
+ * for the same reason, keeps a Zoom call's microphone on Android exactly as it
+ * does on iOS — verified against the library's own source, not assumed from
+ * the name.
+ *
+ * **What is genuinely still not here: the foreground notification's words.**
+ * `AudioRecordingService.kt` posts "Recording audio" / "Tap to return to app",
+ * hard-coded in Kotlin with no option this version of `expo-audio` exposes to
+ * override. The product copy this feature would want there — "Recording a
+ * meeting" — cannot be wired up from this repo without either a newer
+ * `expo-audio` release that adds that option, or a native patch of its own,
+ * neither of which belongs in a "no build yet" change. Said here rather than
+ * quietly worked around: the first Android build ships the library's own
+ * words on that notification until one of those two things happens.
  *
  * **iOS cannot capture another app's audio.** There is no API for it and there
  * will not be one. A phone recording a Zoom call is recording the room through
  * the microphone: fine for a call on speaker, useless for one on headphones.
- * That is a fact to say on the screen, not a bug to fix.
+ * That is a fact to say on the screen, not a bug to fix. The same is true of
+ * Android, for the same reason — no loopback tap on either phone platform, and
+ * `capability.systemAudio` says so on both.
  *
  * **On-device transcription** (the free tier) is a second `ChunkTranscriber`,
  * not a second recorder — see `transcriber.ts`. On iOS it is
@@ -179,6 +215,23 @@ export const MEETING_AUDIO_MODE: Partial<AudioMode> = Object.freeze({
 export const FOREGROUND_AUDIO_MODE: Partial<AudioMode> = Object.freeze({
   ...MEETING_AUDIO_MODE,
   shouldPlayInBackground: false,
+});
+
+/**
+ * The same session, plus the one field that is Android's own switch.
+ *
+ * Not exported, and not merged into `MEETING_AUDIO_MODE` itself: that object
+ * is what `meetingsCapture.test.ts` pins byte-for-byte against what iOS reads,
+ * and `allowsBackgroundRecording` is documented `@platform android` in
+ * `expo-audio`'s own types for a reason — on iOS it gates whether a recorder
+ * pauses when the app backgrounds, a decision this file has never touched and
+ * is not touching now. On Android it is what tells `expo-audio`'s native
+ * module to start its own bundled foreground service — see point 6 in the
+ * header comment.
+ */
+const ANDROID_MEETING_AUDIO_MODE: Partial<AudioMode> = Object.freeze({
+  ...MEETING_AUDIO_MODE,
+  allowsBackgroundRecording: true,
 });
 
 /**
@@ -266,12 +319,15 @@ sweepLeftovers();
 /**
  * The recorder this build has.
  *
- * Android is answered honestly rather than half-served — see point 6 above.
- * Everything else on a phone gets real capture.
+ * Real capture on both phone platforms — see point 6 above for what changed
+ * on Android and why the switch was safe to flip with no native work of this
+ * repo's own. `"web"` falls to the iOS-shaped session for the same reason it
+ * always did: this module is never the one Metro hands a web bundle
+ * (`audio.web.ts` is), so that arm is type-safety for a case that cannot be
+ * reached, not a real answer for a browser.
  */
 export function audioRecorder(platform: "ios" | "android" | "web"): MeetingRecorder {
-  if (platform === "android") return notesOnlyRecorder("android");
-  return expoAudioRecorder();
+  return expoAudioRecorder(platform === "android" ? "android" : "ios");
 }
 
 /**
@@ -295,7 +351,7 @@ export async function resolveRecorder(
   return audioRecorder(platform);
 }
 
-function expoAudioRecorder(): MeetingRecorder {
+function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
   const segmentListeners = new Set<(segment: TranscriptSegment) => void>();
   const errorListeners = new Set<(error: RecorderError) => void>();
 
@@ -677,8 +733,9 @@ function expoAudioRecorder(): MeetingRecorder {
     capability: {
       audio: true,
       // A phone hears the room and your own side of a call. There is no
-      // loopback tap on iOS and there is not going to be one: system audio is
-      // the desktop shell's job, and no copy anywhere may imply otherwise.
+      // loopback tap on either phone platform and there is not going to be
+      // one: system audio is the desktop shell's job, and no copy anywhere
+      // may imply otherwise.
       systemAudio: false,
       transcribesAt: "cloud",
       unavailableReason: null,
@@ -690,7 +747,7 @@ function expoAudioRecorder(): MeetingRecorder {
     async start() {
       if (state === "recording") return;
       if (!(await ensurePermission())) throw new Error(MIC_DENIED);
-      await configureAudioSession();
+      await configureAudioSession(platform);
 
       sessionKey = String(Date.now());
       chunkIndex = 0;
@@ -811,11 +868,19 @@ function expoAudioRecorder(): MeetingRecorder {
  * background-capable session, and the honest response is a foreground-only
  * recorder rather than a version comparison — the manifest that carries a
  * version is the half that updated over the air, and the binary is the half
- * that did not.
+ * that did not. That is an iOS-only history — there has never been a shipped
+ * Android binary for an install to be older than — but the same fallback
+ * shape costs nothing to keep for Android too, if `setAudioModeAsync` ever
+ * throws there for a reason of its own.
+ *
+ * `platform` picks which mode is the first attempt: Android's carries
+ * `allowsBackgroundRecording`, iOS's does not, and this is the one place that
+ * difference is applied — see `ANDROID_MEETING_AUDIO_MODE`.
  */
-async function configureAudioSession(): Promise<void> {
+async function configureAudioSession(platform: "ios" | "android"): Promise<void> {
+  const mode = platform === "android" ? ANDROID_MEETING_AUDIO_MODE : MEETING_AUDIO_MODE;
   try {
-    await setAudioModeAsync(MEETING_AUDIO_MODE);
+    await setAudioModeAsync(mode);
   } catch {
     await setAudioModeAsync(FOREGROUND_AUDIO_MODE);
   }

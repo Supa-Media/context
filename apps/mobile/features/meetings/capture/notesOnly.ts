@@ -4,21 +4,21 @@ import type { MeetingRecorder, RecorderState } from "./index";
 /**
  * The recorder that records nothing, and says so.
  *
- * The reason differs by platform because the *work* differs by platform, and a
- * single vague sentence would hide that from whoever picks this up next:
+ * **Not Android any more.** This function still takes `"android"` as a valid
+ * `platform` for type compatibility with every caller that switches on the
+ * same three-way union, but `audio.ts`'s `audioRecorder` stopped routing
+ * Android here once `expo-audio`'s own bundled native module turned out to
+ * already carry the foreground service Android 14+ backgrounded recording
+ * needs — see the header comment in `audio.ts`, point 6. Nothing in this repo
+ * calls `notesOnlyRecorder("android")` today; it stays reachable by name
+ * rather than deleted in case a future build ever needs an explicit
+ * notes-only opt-out on that platform too.
  *
- *  - On **Android** the native side is only half paid for. `expo-audio` is in
- *    the baseline and `RECORD_AUDIO` comes with its plugin, but recording while
- *    the app is backgrounded on Android 14+ additionally needs a foreground
- *    service with the `microphone` type actually started — a notification the
- *    person can see, which is the platform being right about consent. That is a
- *    native target rather than a config line, and shipping the half without it
- *    would give somebody a recorder that stops the moment they look away.
- *  - On the **web** this is now the *fallback* rather than the whole story.
- *    `audio.web.ts` records the microphone through `getUserMedia`, so this
- *    branch is what a browser gets when it has no `MediaRecorder` or no
- *    `mediaDevices` at all — an old embedded webview, or a page served over
- *    plain HTTP, where the API is genuinely absent.
+ * On the **web** this is the *fallback* rather than the whole story.
+ * `audio.web.ts` records the microphone through `getUserMedia`, so this branch
+ * is what a browser gets when it has no `MediaRecorder` or no `mediaDevices`
+ * at all — an old embedded webview, or a page served over plain HTTP, where
+ * the API is genuinely absent.
  *
  * The web sentence is unchanged and still true, and the distinction inside it
  * is worth keeping straight: what a browser cannot hear is **system** audio.
