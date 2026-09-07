@@ -82,6 +82,26 @@
  * alone — reverting the exact bug — reddens exactly one check: **OFFLINE WITH
  * A USABLE MIRROR IS ALSO A PASS**.
  *
+ * Found on a Mac session, on hardware, against a packaged build, after the row
+ * above had already shipped:
+ *
+ *   `awaitFallbackSettled` reading `getURL()` before the fallback landed       3
+ *
+ * **That row is the third finding, and it is about *when* `mirrorServed` is
+ * allowed to ask.** Offline, with a good mirror already on disk, `--smoke-load`
+ * still exited `1` — `loaded:false, snapshotIsHtmlDocument:true,
+ * mirrorServed:false` — while the window, read over CDP a moment later, had
+ * really landed on `app://console/` and mounted. `main/consoleMirror.ts` used
+ * to `await win.loadURL(target)` from inside the *live* navigation's own
+ * `did-fail-load` handler and trust that promise's own timing; on real hardware
+ * it settled before the fallback's `did-navigate`/`did-finish-load` had fired,
+ * so `wasMirrorServed` read the window's URL one event too early.
+ * `awaitFallbackSettled` below is `consoleLoadSettled`'s own fix (listen for
+ * the raw events, never trust a promise from `loadURL`) applied to the
+ * fallback instead of the live load. Sabotaging it back to "resolve as soon as
+ * `loadURL` is called" — modelled below as *trusting that promise's own
+ * timing* — reddens the check named **REPRODUCES THE HARDWARE FINDING**.
+ *
  * **The `private` row is the finding, stated as a test.** `context.lc/console`
  * is served with `must-revalidate, private, max-age=0`; refusing `private`
  * refused the document on every load, so the only thing ever mirrored was the
@@ -121,6 +141,8 @@
  * check that names it is the one about a snapshot with no files.
  */
 
+import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -134,6 +156,7 @@ import {
   MIRROR_ORIGIN,
   MIRROR_REFUSALS,
   OFFLINE_NOTICE_ID,
+  awaitFallbackSettled,
   declaresTooManyBytes,
   failurePage,
   fitsInBudget,
@@ -541,6 +564,153 @@ export async function runMirrorChecks(check) {
   check(
     "the failure names the deadline that was actually armed",
     smokeLoadFailure({ loaded: false, mirrorServed: false, deadlineMs: DEADLINE })?.includes(String(DEADLINE)),
+  );
+
+  // --- the fallback navigation has to actually finish before it is trusted ---
+
+  /*
+    A minimal stand-in for Electron's `webContents`: an event emitter whose
+    `getURL()` only changes when something in the test explicitly `commit`s a
+    new one. The real bug was entirely about *when* that happens relative to
+    the promise `loadURL()` returns, so that is the one thing this fake has to
+    get right — everything else is exactly Node's own `EventEmitter`.
+  */
+  function fakeWebContents(initialUrl) {
+    const emitter = new EventEmitter();
+    let url = initialUrl;
+    return {
+      events: emitter,
+      getURL: () => url,
+      emit: (name, ...args) => emitter.emit(name, ...args),
+      commit: (nextUrl) => {
+        url = nextUrl;
+      },
+    };
+  }
+
+  /**
+   * The OLD code, modelled exactly: `main/consoleMirror.ts` called
+   * `win.loadURL(target)` and `await`ed the promise *that call* returned. This
+   * fake reproduces the measured mismatch — the promise settles now, while the
+   * navigation it started (`did-navigate`, then `did-finish-load`, a real
+   * `app://` protocol round trip and not a synchronous DOM write) lands a real
+   * tick later.
+   */
+  function loadURLTrustingItsOwnPromise(win, target, { landsAfterMs = 4 } = {}) {
+    setTimeout(() => {
+      win.commit(target);
+      win.emit("did-navigate", {}, target);
+      win.emit("did-finish-load");
+    }, landsAfterMs);
+    return Promise.resolve();
+  }
+
+  check(
+    "REPRODUCES THE HARDWARE FINDING — awaiting `loadURL`'s own promise reads the window's URL before the fallback actually lands",
+    await (async () => {
+      const win = fakeWebContents(`${LIVE}/console`);
+      // This is the line that shipped in #317: `await win.loadURL(target)`.
+      await loadURLTrustingItsOwnPromise(win, `${MIRROR_ORIGIN}/`);
+      // The window has not navigated yet — `wasMirrorServed` asked here reads
+      // exactly what `--smoke-load` read on hardware: `false`, on a launch
+      // that a moment later really did land on a good mirror.
+      return wasMirrorServed(win.getURL(), true) === false;
+    })(),
+  );
+
+  check(
+    "THE EXACT HARDWARE EVENT SEQUENCE, END TO END, WITH THE FIX APPLIED",
+    await (async () => {
+      const win = fakeWebContents(`${LIVE}/console`);
+      // did-start-navigation(live) -> did-fail-load(live, ERR_PROXY_CONNECTION_FAILED)
+      win.emit("did-start-navigation", {}, `${LIVE}/console`);
+      win.emit("did-fail-load", {}, -130, "ERR_PROXY_CONNECTION_FAILED", `${LIVE}/console`, true);
+      // Only now, from *inside* that handler in the real code, does the shell
+      // start waiting for the fallback it is about to kick off.
+      const settled = awaitFallbackSettled({
+        events: win.events,
+        getURL: win.getURL,
+        targetOrigin: MIRROR_ORIGIN,
+        deadlineMs: 1_000,
+      });
+      // the app calls loadURL("app://console/...") -> did-start-navigation(app://console)
+      // -> did-navigate(app://console) -> did-finish-load
+      setTimeout(() => {
+        win.emit("did-start-navigation", {}, `${MIRROR_ORIGIN}/`);
+        win.commit(`${MIRROR_ORIGIN}/`);
+        win.emit("did-navigate", {}, `${MIRROR_ORIGIN}/`);
+        win.emit("did-finish-load");
+      }, 5);
+      return (await settled) === true && wasMirrorServed(win.getURL(), true) === true;
+    })(),
+  );
+
+  check(
+    "THE FALLBACK ITSELF CAN FAIL TOO, AND THAT IS A CLEAN `false` RATHER THAN A HANG",
+    await (async () => {
+      const win = fakeWebContents(`${LIVE}/console`);
+      const settled = awaitFallbackSettled({
+        events: win.events,
+        getURL: win.getURL,
+        targetOrigin: MIRROR_ORIGIN,
+        deadlineMs: 1_000,
+      });
+      setTimeout(
+        () => win.emit("did-fail-load", {}, -106, "ERR_INTERNET_DISCONNECTED", `${MIRROR_ORIGIN}/`, true),
+        5,
+      );
+      return (await settled) === false;
+    })(),
+  );
+
+  check(
+    "A FALLBACK THAT NEVER SETTLES TIMES OUT RATHER THAN HANGING THE LAUNCH FOREVER",
+    await (async () => {
+      const win = fakeWebContents(`${LIVE}/console`);
+      const settled = awaitFallbackSettled({
+        events: win.events,
+        getURL: win.getURL,
+        targetOrigin: MIRROR_ORIGIN,
+        deadlineMs: 20,
+      });
+      // Nothing ever fires.
+      return (await settled) === false;
+    })(),
+  );
+
+  check(
+    "A did-navigate TO SOMEWHERE ELSE ENTIRELY DOES NOT COUNT AS THE FALLBACK SETTLING",
+    await (async () => {
+      const win = fakeWebContents(`${LIVE}/console`);
+      const settled = awaitFallbackSettled({
+        events: win.events,
+        getURL: win.getURL,
+        targetOrigin: MIRROR_ORIGIN,
+        deadlineMs: 200,
+      });
+      setTimeout(() => {
+        win.commit("https://attacker.invalid/");
+        win.emit("did-navigate", {}, "https://attacker.invalid/");
+      }, 5);
+      return (await settled) === false;
+    })(),
+  );
+
+  /*
+    `main/consoleMirror.ts` imports `electron`'s `protocol` at module scope, so
+    it cannot be imported directly by this offline suite (the same reason
+    `appShell.test.mjs` reads `main/index.ts` as text rather than executing
+    it) — proven, not assumed: a static `import { protocol } from "electron"`
+    throws `SyntaxError: Named export 'protocol' not found` under plain Node,
+    because the `electron` package resolves to a string (the binary's path)
+    outside the Electron runtime. So the wiring is checked the same way
+    `appShell.test.mjs` checks `main/index.ts`'s smoke block: as source.
+  */
+  const consoleMirrorSource = readFileSync(new URL("../src/main/consoleMirror.ts", import.meta.url), "utf8");
+  check(
+    "`main/consoleMirror.ts` AWAITS THE FALLBACK'S OWN SETTLEMENT RATHER THAN `loadURL`'S RETURNED PROMISE",
+    consoleMirrorSource.includes("awaitFallbackSettled(") &&
+      !/await\s+win\.loadURL\(target\)/.test(consoleMirrorSource),
   );
 
   // --- which file answers a request -----------------------------------------
