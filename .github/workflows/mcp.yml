@@ -241,7 +241,6 @@ jobs:
           node scripts/check-workflow-cloudflare-preflight.mjs --self-test
           node scripts/check-workflow-cloudflare-preflight.mjs
 
-
   no-nul-bytes:
     name: Source stays diffable
     runs-on: ubuntu-latest
