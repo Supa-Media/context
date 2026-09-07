@@ -1,0 +1,15 @@
+{
+  "workspaceId": "ws_fixture_0000000000000000",
+  "passphrase": "correct horse battery staple",
+  "kdf": {
+    "id": "argon2id",
+    "v": 19,
+    "m": 19456,
+    "t": 2,
+    "p": 1,
+    "salt": "ABEiM0RVZneImaq7zN3u_w"
+  },
+  "kek": "zNlY8+rVrxPryRQjL30GJ7r4tOgZLsK6gVRDMWy/cD0=",
+  "plaintext": "---\ntitle: A pinned passphrase vector\ntags: [fixture]\n---\n\nOnly the passphrase beside this opens it, and nothing we run ever will.\n",
+  "document": "---\ncontext_encryption: v1\n---\n\n> [!NOTE] This note is encrypted.\n> Its content is stored as ciphertext and cannot be read here. Open it in\n> Context, or decrypt it yourself with the spec in\n> docs/decisions/encryption.md.\n\n```context-encrypted\n{\"v\":1,\"alg\":\"A256GCM\",\"iv\":\"GiFwQonHoC1TGhyf\",\"ct\":\"poWbs2Y5YRmOwkU_UM3lVkCwcu9_mbdvpq2v_K0uM1i9MNw7e08EjV3MxgUyrs5GpUzs46TKqjFoboSHly7cZ4CoBa9BnL-2qqP00Z2dQ7HPEbV-oJIlEve0NVu8Ilc5PD8ebNzlKKuabixKJth0sAcPGuiGw21gQIretZysSsLvGKKm_AsdJRn_kwollZN9mSbm\",\"aad\":\"context-note-v1:ws_fixture_0000000000000000\",\"recipients\":[{\"kind\":\"passphrase\",\"id\":\"p1\",\"alg\":\"A256GCM\",\"iv\":\"qYPQawZ7X6R66lk_\",\"wrapped\":\"xZPUOkaRZJzbyoPD5RFLE4wSG1LtVM0G6sB9Q6qet6X9FZofOhljwIFaz1sY4PpA\",\"kdf\":{\"id\":\"argon2id\",\"v\":19,\"m\":19456,\"t\":2,\"p\":1,\"salt\":\"ABEiM0RVZneImaq7zN3u_w\"}}]}\n```\n"
+}

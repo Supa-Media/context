@@ -425,6 +425,14 @@ async function listNoteObjects(store, budget, reserve, isIndexable) {
  *   listingTruncated: boolean,
  *   spent: number,
  * }>} `pending` is stale notes this pass did not get to.
+ *
+ * **Nothing calls this.** The v1 index it maintains was replaced by the sharded
+ * one in `shards.js`, and `syncShardedIndex` is the pass every search and every
+ * scheduled sweep runs. It is kept because the v1 format is still readable and
+ * the loop is still the reference for what a pass costs — but do not read a
+ * guard off it. Its `indexableText` call once stood as the evidence that an
+ * encrypted note reaches no index, while the live pass read bodies raw for
+ * months. A guard in a function nobody calls is not a guard.
  */
 export async function syncIndex(
   store,

@@ -70,13 +70,18 @@ jobs:
 
       # Same discipline, a different failure shape: an account identifier
       # (Apple Developer Team ID, EAS project id, Convex deployment hostname)
-      # committed in plaintext rather than a secret going un-synced. See
-      # scripts/check-no-identifiers.mjs's own header for what shipped and why
-      # this repository does not commit any of the three.
+      # committed in plaintext rather than a secret going un-synced — and, on
+      # the same scan and for the same reason, a numbered pointer into a
+      # document this repository does not contain, which is a disclosure with
+      # no identifier in it. (Phrased around the noun on purpose: the rule
+      # matches that noun, and a comment about the rule is the first thing it
+      # ever caught.) See
+      # scripts/check-no-identifiers.mjs's own header for what shipped, what
+      # recurred twice, and what this scan still cannot reach.
       - name: The identifier checker catches what it claims to
         run: node scripts/check-no-identifiers.mjs --self-test
 
-      - name: No account identifier is committed
+      - name: No account identifier or private-register pointer is committed
         run: node scripts/check-no-identifiers.mjs
 
   # ── THE COMMITTED EDITOR BUNDLE IS CHECKED HERE AND NOWHERE ELSE ──────────

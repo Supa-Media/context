@@ -150,11 +150,21 @@ export function collectShardCandidates(shardIndex, queryTerms, isVisible) {
   // -- pass 1: which docs in this shard can this caller see at all, plus the
   // length totals every visible doc contributes to global avglen regardless
   // of whether it matches any query term.
+  //
+  // `isVisible` runs on **`doc.notePath`, never on the doc's own key** — the
+  // containing note decides, per CONTRACT.md's own rule for the index as a
+  // whole and `docs/decisions/communications.md`'s "canSee runs on the
+  // containing note and never per message". A channel-day sub-document's key
+  // is `<notePath>#<anchor>`, which is not a path `canSee` was ever asked
+  // about; checking it directly would either mismatch every exact-note
+  // override in `privacy.md` (a rule naming the note exactly would never
+  // match `note.md#msg-…`) or, worse, coincidentally match something else.
   const visiblePaths = new Set();
   const lenTotals = { title: 0, headings: 0, tags: 0, body: 0 };
   let visibleN = 0;
   for (const [path, doc] of docs) {
-    if (!isVisible(path)) continue;
+    const notePath = typeof doc?.notePath === "string" ? doc.notePath : path;
+    if (!isVisible(notePath)) continue;
     visiblePaths.add(path);
     visibleN++;
     const len = doc?.len;
@@ -169,7 +179,17 @@ export function collectShardCandidates(shardIndex, queryTerms, isVisible) {
   function noteMeta(path) {
     if (meta.has(path)) return;
     const doc = docs.get(path);
-    meta.set(path, { uploaded: doc?.uploaded ?? null, len: { ...(doc?.len || EMPTY_LEN) } });
+    meta.set(path, {
+      uploaded: doc?.uploaded ?? null,
+      len: { ...(doc?.len || EMPTY_LEN) },
+      // Carried through to the final result so a caller can build the deep
+      // link and cut the snippet from the right place without re-deriving
+      // either from the doc key — see the `isVisible` comment above for why
+      // the key itself is never parsed for this.
+      notePath: typeof doc?.notePath === "string" ? doc.notePath : path,
+      anchor: typeof doc?.anchor === "string" ? doc.anchor : null,
+      comms: doc?.comms ?? null,
+    });
   }
 
   // -- pass 2: walk this shard's vocabulary once. For each term, restrict its
@@ -497,7 +517,18 @@ export function scoreCollected(perShardCollections, query, { now } = {}) {
     score *= recencyMultiplier(meta.get(path)?.uploaded, now);
     if (!Number.isFinite(score) || score <= 0) continue;
 
-    results.push({ path, score, matchedTerms: [...matchedTerms].sort() });
+    const docMeta = meta.get(path);
+    results.push({
+      path,
+      score,
+      matchedTerms: [...matchedTerms].sort(),
+      // Defaults mirror an ordinary doc whose `meta` entry was never recorded
+      // (only direct/expansion hits get one via `noteMeta`) — its own path is
+      // its note, and it is not a channel-day sub-document.
+      notePath: docMeta?.notePath ?? path,
+      anchor: docMeta?.anchor ?? null,
+      comms: docMeta?.comms ?? null,
+    });
   }
 
   results.sort((a, b) => b.score - a.score || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
