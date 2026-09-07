@@ -1242,6 +1242,19 @@ the one that matters most: the first version of those checks read the
 entitlements file as text, so deleting the entitlement left them green because
 the file's own header discusses it.
 
+**The notarisation hook's *failing* path is checked too, and it is the other
+half of "all three or none".** A skip when there is nothing to notarise with is
+the friendly half; the load-bearing half is that a submission Apple *refuses*
+fails the build, because a `catch` added later "to be resilient" produces a
+green run and a dmg Gatekeeper rejects and macOS grants no microphone to —
+which is the same silent-success outcome every other check here exists to stop,
+arriving through a different door. And the `ASC_API_KEY_P8` private key the hook
+must write to disk for `notarytool` is checked as *gone afterwards on the failing
+path*, since a failed submission is exactly where a `finally` gets dropped:
+`A NOTARISATION APPLE REFUSED FAILS THE BUILD` and
+`THE PRIVATE KEY IS GONE AFTER A FAILED SUBMISSION`, both driven against a fake
+Apple.
+
 ### What is deliberately not built
 
 Not built, and none of them foreclosed:
