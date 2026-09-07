@@ -1982,23 +1982,48 @@ describe("/gateway/clients/register and /gateway/clients/get", () => {
       wrote down, so adding a limiter with an inline literal breaks it.
     */
     /*
+      EVERY CALL SITE MUST RESOLVE, rather than "at least nine of them".
+
+      Two versions of this floor were calibrated to what the scan happened to
+      return rather than to what is present, and both let through exactly the
+      thing the scan exists to catch. The first asserted `>= 8` against ten
+      constants. The second dropped unresolvable sites with a `.filter` and
+      asserted `>= 9` — so a TENTH call site whose window the scan cannot read
+      (a shorthand property, a local, a value from elsewhere) passed silently,
+      measured green by review.
+
+      So the sites are selected first and every one of them must resolve. The
+      selector requires `ctx,` and so does not match `consumeRateLimit`'s own
+      definition, whose signature is `ctx: MutationCtx` — no fudge factor, and
+      no number anybody has to keep in step with the tree.
+
       Scanned forward from the call rather than matched as one expression: the
-      `key` above `windowMs` is a template literal, and `${...}` puts a `}`
-      inside the object — so a `\{[^}]*windowMs` pattern stops at the key and
-      finds 2 of 9. The floor below is what caught that, on its first run.
+      `key` line above `windowMs` is a template literal, and `${...}` puts a
+      `}` inside the object, so a `\{[^}]*windowMs` pattern stops at the key
+      and finds 2 of 9. That was the first floor doing its job.
     */
     const callSites = sources.flatMap((source) =>
-      source
-        .split("consumeRateLimit(")
-        .slice(1)
-        .map((rest) => /windowMs:\s*([A-Za-z0-9_.]+)/.exec(rest.slice(0, 400)))
-        .filter((match): match is RegExpExecArray => match !== null),
+      [...source.matchAll(/consumeRateLimit\(\s*ctx,\s*\{/g)].map((match) => {
+        /*
+          BOUNDED TO THIS CALL'S OWN OBJECT LITERAL, not to a fixed distance.
+
+          A flat 400-character window BLEEDS INTO THE NEXT CALL SITE: I proved
+          it by injecting an unresolvable site immediately above a resolvable
+          one, and the scan read the neighbour's `windowMs:` and passed. An
+          unresolvable call site standing next to a resolvable one is exactly
+          the arrangement somebody writes when they copy the call below and
+          edit it, so that is not a hypothetical ordering.
+        */
+        const rest = source.slice(match.index);
+        const end = rest.indexOf("});");
+        return rest.slice(0, end === -1 ? 400 : end);
+      }),
     );
     expect(sources.length).toBeGreaterThanOrEqual(50);
     expect(callSites.length).toBeGreaterThanOrEqual(9);
     for (const site of callSites) {
-      const named = site[1];
-      expect([named, windows.has(named)]).toEqual([named, true]);
+      const named = /windowMs:\s*([A-Za-z0-9_.]+)/.exec(site)?.[1] ?? "unresolved";
+      expect([site.slice(0, 60), windows.has(named)]).toEqual([site.slice(0, 60), true]);
     }
     for (const [name, ms] of windows) {
       expect([name, ms <= MAX_RATE_LIMIT_WINDOW_MS]).toEqual([name, true]);
