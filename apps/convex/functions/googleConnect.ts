@@ -402,7 +402,21 @@ export const startGmailConnect = action({
  * RFC 6749 §10.12 — and it never travels through Google.
  */
 export const completeGmailConnect = action({
-  args: { state: v.string(), code: v.string(), completionSecret: v.string() },
+  args: {
+    state: v.string(),
+    code: v.string(),
+    /*
+      Optional, and defaulted to the empty string rather than required.
+
+      A required arg makes a browser still running yesterday's bundle fail with
+      a Convex validator error instead of this flow's one refusal — a
+      distinguishable answer, for the length of a deploy, on the one path whose
+      whole point is that its four failures look identical. The empty string
+      fails the comparison exactly as a wrong secret does, so nothing is
+      loosened by accepting it.
+    */
+    completionSecret: v.optional(v.string()),
+  },
   returns: v.object({ workspaceId: v.id("workspaces") }),
   handler: async (ctx, args): Promise<{ workspaceId: Id<"workspaces"> }> => {
     requireMailConnectEnabled();
@@ -411,7 +425,7 @@ export const completeGmailConnect = action({
       {
         hashedState: await hashToken(args.state),
         code: args.code,
-        hashedCompletion: await hashToken(args.completionSecret),
+        hashedCompletion: await hashToken(args.completionSecret ?? ""),
       },
     );
     if (consumed === null) refuseAttempt();

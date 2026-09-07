@@ -17,10 +17,14 @@
  *
  * ## Why the client never sees a verifier, a code challenge, or the app key
  *
- * `startDropboxConnect` returns a URL and nothing else. Everything that proves
- * the flow — the PKCE verifier, the state, the app key — is parked in the
- * control plane. So there is nothing here to steal from, and nothing here that
- * has to be kept out of a public repository's bundle.
+ * Everything that **proves** the flow — the PKCE verifier, the state, the app
+ * key — is parked in the control plane, so none of it has to be kept out of a
+ * public repository's bundle.
+ *
+ * The one thing this client does hold is `completionSecret`, and it is not a
+ * proof: it says *this browser started the flow*, which `state` cannot say
+ * because `state` travels through Dropbox. It opens nothing without the
+ * `state`, which is never stored here. See `keepCompletionSecret`.
  *
  * ## Why the redirect URI is chosen from a fixed list rather than built
  *
@@ -187,6 +191,22 @@ export function browserCompletionStore(): CompletionStore | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether this browser can hold the value a connect needs to finish.
+ *
+ * Read **locally**, and used only to change what the failure screen says. The
+ * refusal itself is unchanged and stays identical to every other one — the
+ * control plane still cannot tell these apart and must not.
+ *
+ * The distinction is worth drawing because the ordinary copy is *"start it
+ * again"*, and for a browser with site data blocked that advice is false: it
+ * will fail the same way every time, forever. Telling somebody to retry
+ * something that cannot succeed is not degrading honestly.
+ */
+export function canKeepCompletionSecret(): boolean {
+  return browserCompletionStore() !== null;
 }
 
 /** Keep the secret the control plane just handed this browser. */

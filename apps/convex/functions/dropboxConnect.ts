@@ -7,14 +7,22 @@
  * a payment method before it will hand out a free bucket, and that is the
  * largest drop-off in the funnel. It is not the token paste.
  *
- * ## Why the browser never holds anything
+ * ## What the browser holds, and what it does not
  *
- * `start` returns a URL and nothing else. The PKCE verifier is parked here,
- * server-side, and the app key is read from the environment rather than
- * shipped in a bundle. That is stronger than the usual public-client flow, in
- * which the verifier lives in the page that started it: a script injected into
- * that page, or an extension reading it, has the whole proof. Here there is
- * nothing in the page to steal.
+ * **The proof stays here.** The PKCE verifier is parked server-side and the
+ * app key is read from the environment rather than shipped in a bundle. That
+ * is stronger than the usual public-client flow, in which the verifier lives
+ * in the page that started it: a script injected into that page, or an
+ * extension reading it, has the whole proof.
+ *
+ * **One value does live in the browser**, and this header used to say nothing
+ * did: `completionSecret`, kept in `localStorage` between the start and the
+ * callback. It is not part of the proof — it is what says *this browser is the
+ * one that started the flow*, which `state` cannot say because `state` travels
+ * through Dropbox and is therefore known to whoever built the authorize URL.
+ * On its own it opens nothing: completing needs the `state` as well, and that
+ * is never stored client-side. A script that could read it already owns the
+ * page it was going to be used from.
  *
  * ## Why `state` is a row and not a query parameter
  *
@@ -186,7 +194,8 @@ export const requireOwner = internalQuery({
 });
 
 /**
- * Begin a connect. Returns a URL to send the person to, and nothing else.
+ * Begin a connect. Returns a URL to send the person to, and the one value the
+ * starting browser has to keep — see `completionSecret` below.
  */
 export const startDropboxConnect = action({
   args: {
@@ -347,7 +356,21 @@ export const startDropboxConnect = action({
  * bucket path already does after `bindStorage`.
  */
 export const completeDropboxConnect = action({
-  args: { state: v.string(), code: v.string(), completionSecret: v.string() },
+  args: {
+    state: v.string(),
+    code: v.string(),
+    /*
+      Optional, and defaulted to the empty string rather than required.
+
+      A required arg makes a browser still running yesterday's bundle fail with
+      a Convex validator error instead of this flow's one refusal — a
+      distinguishable answer, for the length of a deploy, on the one path whose
+      whole point is that its four failures look identical. The empty string
+      fails the comparison exactly as a wrong secret does, so nothing is
+      loosened by accepting it.
+    */
+    completionSecret: v.optional(v.string()),
+  },
   returns: v.object({
     workspaceId: v.id("workspaces"),
     resumeTo: v.optional(v.literal("onboarding")),
@@ -366,7 +389,7 @@ export const completeDropboxConnect = action({
         code: args.code,
         // Hashed here rather than compared here: the raw value never reaches a
         // mutation argument, exactly as the state does not.
-        hashedCompletion: await hashToken(args.completionSecret),
+        hashedCompletion: await hashToken(args.completionSecret ?? ""),
       },
     );
     if (consumed === null) refuseAttempt();

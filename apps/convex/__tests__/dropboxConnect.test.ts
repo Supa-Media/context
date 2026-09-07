@@ -12,7 +12,7 @@
  * the control and this file goes red, or the control is not guarded.
  */
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import {
   asUser,
@@ -222,6 +222,75 @@ describe("which redirect URIs this deployment answers on", () => {
   });
 });
 
+describe("the secret that is minted is the secret that is parked", () => {
+  /**
+   * **THE LINK BETWEEN THE TWO HALVES, which nothing else checks.**
+   *
+   * A review measured it: make `parkAttempt` store no hash at all, or have
+   * `startDropboxConnect` park the hash of a *different* token than the one it
+   * returns, and the whole convex suite stayed green. Both are fail-closed —
+   * every real connect breaks — but "the flow stops working for its owner" is
+   * the failure this repository has already been burned by once, and a guard
+   * nobody has checked is not a guard.
+   *
+   * Nothing reached this path before because `requireAppKey()` throws without
+   * `DROPBOX_APP_KEY`, so `startDropboxConnect` could never get as far as
+   * parking anything. One env var buys the round trip.
+   */
+  test("A CONNECT STARTED FOR REAL COMPLETES WITH THE SECRET IT WAS HANDED", async () => {
+    vi.stubEnv("DROPBOX_APP_KEY", "test-app-key");
+    try {
+      const { t, owner, workspaceId } = await scenario();
+      const { authorizeUrl, completionSecret } = await asUser(t, owner).action(
+        api.functions.dropboxConnect.startDropboxConnect,
+        { workspaceId, redirectUri: `${APP}/storage/dropbox/callback` },
+      );
+
+      // The state is in the URL — it travels through Dropbox. The secret is
+      // not, and that is the whole property.
+      const state = new URL(authorizeUrl).searchParams.get("state");
+      expect(state).toBeTruthy();
+      expect(authorizeUrl).not.toContain(completionSecret);
+
+      const consumed = await t.mutation(
+        internal.functions.dropboxConnect.consumeAttemptAndExchange,
+        {
+          hashedState: await hashToken(state as string),
+          code: "code-1",
+          hashedCompletion: await hashToken(completionSecret),
+        },
+      );
+      expect(consumed?.workspaceId).toBe(workspaceId);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("...and a different secret does not, however real the start was", async () => {
+    vi.stubEnv("DROPBOX_APP_KEY", "test-app-key");
+    try {
+      const { t, owner, workspaceId } = await scenario();
+      const { authorizeUrl } = await asUser(t, owner).action(
+        api.functions.dropboxConnect.startDropboxConnect,
+        { workspaceId, redirectUri: `${APP}/storage/dropbox/callback` },
+      );
+      const state = new URL(authorizeUrl).searchParams.get("state") as string;
+
+      const consumed = await t.mutation(
+        internal.functions.dropboxConnect.consumeAttemptAndExchange,
+        {
+          hashedState: await hashToken(state),
+          code: "code-1",
+          hashedCompletion: await hashToken("not-the-one-it-handed-out"),
+        },
+      );
+      expect(consumed).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
 describe("the browser that started the connect is the one that may finish it", () => {
   /**
    * **The attack this closes, stated plainly so nobody removes the check
@@ -323,12 +392,20 @@ describe("who may answer a connect", () => {
    * not access. The check cost the flow one more way to fail for its owner, and
    * on the first real run it was the only thing that did.
    *
-   * What makes that safe is what this block pins instead: the binding goes to
-   * the workspace the ATTEMPT names, with the starter as `boundBy`, and a
-   * caller supplies neither. The attack the check appeared to stop — an
-   * attacker's workspace binding to the victim's Dropbox — was never stopped by
-   * it (the attacker really did start their own attempt); it is stopped by the
-   * redirect pin above.
+   * What this block pins is still true: the binding goes to the workspace the
+   * ATTEMPT names, with the starter as `boundBy`, and a caller supplies
+   * neither.
+   *
+   * **The sentence that used to follow it was false, and it is worth leaving
+   * its correction here rather than deleting it.** It said the attack the
+   * `startedBy` check appeared to stop — an attacker's workspace binding to
+   * the victim's Dropbox — "is stopped by the redirect pin above". It is not.
+   * The redirect pin stops an attacker sending somebody else's code to a
+   * server they control; it says nothing about an attacker who uses the
+   * **legitimate** redirect, which is what that attack does. Removing
+   * `startedBy` really was right — a session wall here burns a single-use code
+   * — but nothing replaced what it had been standing next to until
+   * `completionSecret` did. See the block below.
    */
   test("the workspace and the actor come from the attempt, never from the caller", async () => {
     const { t, owner, workspaceId } = await scenario();
@@ -413,6 +490,16 @@ describe("who may answer a connect", () => {
         hashedCompletion: await hashToken(COMPLETION),
       }),
     );
+    // The fourth, added when a fifth failure joined the set: a completion
+    // whose secret is wrong must not be the one answer that reads differently.
+    const wrongSecret = await parkedAttempt(t, workspaceId, owner);
+    answers.push(
+      await t.mutation(internal.functions.dropboxConnect.consumeAttemptAndExchange, {
+        hashedState: await hashToken(wrongSecret),
+        code: "c",
+        hashedCompletion: await hashToken("not-the-one-this-browser-kept"),
+      }),
+    );
     const expired = await parkedAttempt(t, workspaceId, owner, { expiresAt: Date.now() - 1 });
     answers.push(
       await t.mutation(internal.functions.dropboxConnect.consumeAttemptAndExchange, {
@@ -421,7 +508,7 @@ describe("who may answer a connect", () => {
         hashedCompletion: await hashToken(COMPLETION),
       }),
     );
-    expect(answers).toEqual([null, null, null]);
+    expect(answers).toEqual([null, null, null, null]);
   });
 });
 

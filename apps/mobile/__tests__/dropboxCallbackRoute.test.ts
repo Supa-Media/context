@@ -174,6 +174,83 @@ describe("the Dropbox callback route", () => {
   });
 
   /**
+   * A browser that cannot keep the value is told the truth about it.
+   *
+   * The control plane's refusal is unchanged and still one answer for all five
+   * causes — this branch is decided locally, from a fact only this browser
+   * has. It exists because "start it again" is false advice for a browser with
+   * site data blocked: it fails identically every time, and telling somebody
+   * to retry something that cannot succeed is not degrading honestly.
+   */
+  test("a browser that cannot keep the value is not told to try again", async () => {
+    reset();
+    mockAction = () => {
+      throw new ConvexError({ code: "CONNECT_ATTEMPT_INVALID", message: "no" });
+    };
+    const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("site data blocked");
+      },
+    });
+    try {
+      mockParams = { code: "c1", state: "s1" };
+      const screen = await mount();
+      await screen.rerender();
+      expect(screen.text).toContain("This browser can't finish a connection");
+      expect(screen.text).not.toContain("Start it again from your context's storage settings");
+      screen.unmount();
+    } finally {
+      if (original) Object.defineProperty(globalThis, "localStorage", original);
+      else delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
+  });
+
+  /**
+   * **THE CLIENT HALF OF THE BINDING, END TO END.**
+   *
+   * A review measured what the assertions above do not cover: hardcode
+   * `completionSecret: ""` in the screen, or delete the `keepCompletionSecret`
+   * call in `useDropboxStart`, and the whole mobile suite stayed green — while
+   * every live Dropbox connect would break, permanently, for everyone. The
+   * server guard is held; what keeps the flow *working* was not, and a flow
+   * that fails for its owner is the exact failure `#76` exists because of.
+   *
+   * The assertions above run with no `localStorage` at all — jest's environment
+   * is `node` — so `""` there means "nothing was kept", which is
+   * indistinguishable from "the wiring is gone". This one gives the screen a
+   * real store with a value in it, so only a screen that actually reads it can
+   * pass.
+   */
+  test("THE SECRET THIS BROWSER KEPT IS THE ONE THE EXCHANGE IS GIVEN", async () => {
+    reset();
+    const held = new Map<string, string>([["context.dropbox.completion", "kept-by-this-browser"]]);
+    const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => held.get(key) ?? null,
+        setItem: (key: string, value: string) => void held.set(key, value),
+        removeItem: (key: string) => void held.delete(key),
+      },
+    });
+    try {
+      mockParams = { code: "c1", state: "s1" };
+      const screen = await mount();
+      expect(mockActionCalls).toEqual([
+        { state: "s1", code: "c1", completionSecret: "kept-by-this-browser" },
+      ]);
+      // And it is spent: a second connect must not inherit the first's proof.
+      expect(held.size).toBe(0);
+      screen.unmount();
+    } finally {
+      if (original) Object.defineProperty(globalThis, "localStorage", original);
+      else delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
+  });
+
+  /**
    * "Nothing else" is now three fields rather than two, and the third is the
    * point of this assertion rather than an exception to it.
    *

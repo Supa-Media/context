@@ -15,9 +15,10 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { CONSOLE_ROUTE } from "../../auth/redirect";
 import { CONNECT_TIMEOUT_MS, type WatchedBinding } from "../../onboarding/verify";
 import { EMPTY_QUERY_SPEC } from "../querySpec";
-import { describeThrownStorageError } from "./errors";
+import { convexErrorParts, describeStorageFailure, describeThrownStorageError } from "./errors";
 import {
   browserCompletionStore,
+  canKeepCompletionSecret,
   firstParam,
   parseDropboxCallback,
   resolveDropboxCallbackView,
@@ -117,7 +118,19 @@ export function DropboxCallbackScreen() {
         });
         setAttempt({ kind: "queued", workspaceId: result.workspaceId, resumeTo: result.resumeTo });
       } catch (error) {
-        setAttempt({ kind: "failed", failure: describeThrownStorageError(error, "dropbox") });
+        /*
+          One refusal from the control plane, two sentences here — and the
+          difference is decided locally, from a fact only this browser has.
+          "Start it again" is the right advice for an expired or spent attempt
+          and false for a browser that cannot keep the value at all: that one
+          fails identically every time. Nothing about which is shown reaches
+          the server, and the refusal itself is unchanged.
+        */
+        const failure =
+          convexErrorParts(error).code === "CONNECT_ATTEMPT_INVALID" && !canKeepCompletionSecret()
+            ? describeStorageFailure("CONNECT_ATTEMPT_INVALID_NO_STORAGE", undefined, "dropbox")
+            : describeThrownStorageError(error, "dropbox");
+        setAttempt({ kind: "failed", failure });
       }
     })();
   }, [callback, complete]);
