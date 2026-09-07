@@ -51,7 +51,24 @@ jest.mock("react-native-safe-area-context", () => ({
  * belongs there; whether it is a target a thumb can hit belongs here.
  */
 jest.mock("expo-router", () => ({
-  Slot: () => null,
+  /*
+    The smallest thing a real pane is, and it has to be one.
+
+    The contexts are no longer a slot in the frame's top bar — they are the
+    first row of `NavBand`, drawn inside whatever scroller the pane below owns,
+    which is what stops a phone's navigation lying across the note. So a `Slot`
+    that renders `null` is not "the layout without a pane", it is a layout with
+    the navigation missing, and every assertion about the strip below would be
+    testing the fixture. `NavBand` with no path is exactly what `BrowsePane`
+    renders at a context root and what `EditorRegion` renders on Map,
+    Connections and Settings.
+  */
+  Slot: () => {
+    const { createElement: h } = require("react") as typeof import("react");
+    const { NavBand } =
+      require("../features/console/NavBand") as typeof import("../features/console/NavBand");
+    return h(NavBand);
+  },
   useRouter: () => ({ replace: () => {}, push: () => {} }),
   usePathname: () => mockPathname,
 }));
@@ -406,26 +423,36 @@ describe("on a phone", () => {
     app.unmount();
   });
 
-  test("the top row is three slots: an account, the contexts, a capsule", () => {
+  test("the top row is an account and a capsule, and the contexts are below it", () => {
     /*
       The two-rows-of-chrome complaint, at the console level.
       `appFrameRender.test.ts` pins the frame's own geometry; this pins what the
       console hands it.
 
-      **What this used to assert was `the top bar carries no words at all — a
-      toggle, and nothing beside it`**, and its reason was that "the context
-      chip that used to sit here is the vault switcher at the foot of the file
-      tree". That footer is gone with the tree, so the chip did not go back to
-      the middle of the bar — the contexts became a scrolling strip that *is*
-      the middle, and the round toggle at the leading edge became the account.
-      One row is still one row; what is in it changed.
+      **This asserted three slots — an account, the contexts, a capsule — and
+      the middle one has moved.** A floating top bar means the document runs
+      behind whatever is in it, which the note's own verbs earn and navigation
+      does not: a row of context pills lay across somebody's note at every
+      scroll position, and named the context a second time one line above a
+      breadcrumb that already did. The contexts are the first row of `NavBand`
+      now, inside the scroller. One row of chrome is still one row; what is in
+      it is smaller.
     */
     const app = mountConsole(390);
 
-    // Leading: the account. Middle: the contexts. The trailing capsule holds
-    // the note's own actions and is `noteChrome.test.ts`'s.
+    // Leading: the account. Trailing: the capsule with the note's own actions,
+    // which is `noteChrome.test.ts`'s.
     expect(app.find("account-sign-out")).not.toBeNull();
-    expect(app.find("context-strip")).not.toBeNull();
+
+    // The contexts are on the screen, and not in the bar. `topBarCompact` is
+    // the bar's own testID-free container, so the check is the band: the strip
+    // is inside it, and the band is inside the pane.
+    const strip = app.find("context-strip");
+    expect(strip).not.toBeNull();
+    expect(strip!.closest('[data-testid="nav-band"]')).not.toBeNull();
+    expect(strip!.closest('[data-testid="app-frame"] > div')).not.toBe(
+      app.find("account-sign-out")!.closest('[data-testid="app-frame"] > div'),
+    );
 
     // The two controls that used to be here, and the chip that never was.
     expect(app.find("frame-drawer-toggle")).toBeNull();

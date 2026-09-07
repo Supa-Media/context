@@ -211,10 +211,12 @@ describe("regions", () => {
    * the map after signing in was the end of the session".
    *
    * The *reason* expired, not the requirement. A phone's navigation is no
-   * longer behind a control: the context strip runs along the top of every
-   * compact layout and the bottom row sits within thumb reach below it, neither
-   * is a panel, and neither has to be summoned. `compact` answers
-   * `rail: "hidden"` again — with two things in its place instead of nothing.
+   * longer behind a control: the context strip is the first thing in every
+   * compact layout's scroller (`features/console/NavBand.tsx` — it was a slot
+   * in this frame's top bar until a floating bar meant the note ran behind it)
+   * and the bottom row sits within thumb reach below, neither is a panel, and
+   * neither has to be summoned. `compact` answers `rail: "hidden"` again — with
+   * two things in its place instead of nothing.
    *
    * So the rule is restated as what is now true, and deliberately as the same
    * *shape* of claim. Asserting the toggles are merely *absent* would be the
@@ -232,9 +234,10 @@ describe("regions", () => {
       if (density !== "compact") continue;
       const regions = regionsFor(density, state, { hasExplorer });
 
-      // The top band the strip lives in. It is the compact top row, and
-      // `statusBar: false` is the same fact from the other end — the bottom
-      // edge is the toolbar's, so the top one is the chrome's.
+      // The compact top row, and `statusBar: false` is the same fact from the
+      // other end — the bottom edge is the toolbar's, so the top one is the
+      // chrome's. The strip is not in it any more; what this pins is the shape
+      // of the frame the band is drawn inside.
       expect(regions.statusBar).toBe(false);
       // The bottom row, which is what carries the seventh key.
       expect(regions.bottomBar).toBe(true);

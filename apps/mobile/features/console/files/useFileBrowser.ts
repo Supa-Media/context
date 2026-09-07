@@ -24,6 +24,7 @@ import { ConvexError } from "convex/values";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
+import { onBucketWrite } from "./bucketWrites";
 import { isServerRefusal, toFileError, type FileBrowser } from "./browser";
 import type { NoteShare } from "./shares";
 import { shareUrl } from "./shares";
@@ -1393,6 +1394,73 @@ export function useFileBrowser(options: {
       reportRefreshFailure,
     );
   }, [expanded, listings, refresh, reportRefreshFailure, selectedPath]);
+
+  /**
+   * Somebody else wrote to this bucket, so the folder it landed in is stale.
+   *
+   * Every write the console makes refreshes its own folder — `save`, `create`,
+   * `move`, `archive`. A meeting is the first write that reaches the same
+   * bucket from outside this hook (`features/meetings/convexGateway.ts`), and
+   * until it announced itself the listing simply stayed as it was: the note was
+   * in the customer's bucket, visible on any client that had not read that
+   * folder yet, and absent on the phone that had. `bucketWrites.ts` carries the
+   * whole argument, including why this hook does not know what a meeting is.
+   *
+   * The workspace check is not a formality. One device is signed into several
+   * contexts and this hook is mounted for exactly one of them, so a write to
+   * another one must refresh nothing here — the folder path means a different
+   * folder in a different bucket, and reloading `0-inbox` because a meeting
+   * landed in somebody else's `0-inbox` is a request that answers a question
+   * nobody asked.
+   *
+   * It refreshes rather than invalidating: a listing dropped and not refetched
+   * is a folder that empties on screen. `refresh` writes the answer through to
+   * the device cache on its way past, so the stale copy is gone as well.
+   *
+   * ## The parent is not the only stale folder, and on the first meeting it is
+   * not the stale one at all
+   *
+   * A write into a folder that did not exist changes its **grandparent** too:
+   * the new folder is a new row there. The first version of this refreshed
+   * `parentPath` alone, which was the whole fix for the second meeting and none
+   * of it for the first — a person watching `0-inbox` records a meeting, the
+   * default destination creates `0-inbox/meetings` under them, and the listing
+   * they are actually looking at never learns it has a new folder in it. That
+   * is the same symptom this effect exists to remove, one level up, and it was
+   * reachable by exactly the path this change to the default makes ordinary.
+   *
+   * So it refreshes the parent **and every ancestor the browser is already
+   * holding**, up to and including the root. Held, rather than all of them:
+   * `refresh` on a folder nothing has asked for is a request whose answer
+   * nothing draws. The parent stays unconditional because it is the folder that
+   * certainly changed.
+   *
+   * `listingsRef` rather than `listings` in the dependency array: a listing
+   * changes on every refresh, and an effect that re-subscribed each time would
+   * tear down and rebuild the subscription inside its own callback's effects —
+   * the render loop `consoleRenderLoop.test.ts` exists to catch.
+   */
+  const listingsRef = useRef(listings);
+  listingsRef.current = listings;
+
+  useEffect(() => {
+    if (workspaceId === null) return;
+    return onBucketWrite((write) => {
+      if (write.workspaceId !== workspaceId) return;
+      const held = listingsRef.current;
+      const parent = parentPath(write.path);
+      /*
+        `""` is prepended because `ancestorsOf` starts at the first segment and
+        never yields the root — right for auto-expanding a tree to a selection,
+        wrong here, where a meeting filed into a brand new top-level folder
+        makes the root listing the stale one.
+      */
+      const stale = ["", ...ancestorsOf(write.path)].filter(
+        (folder) => folder === parent || held[folder] !== undefined,
+      );
+      void refresh([...new Set(stale)]).catch(reportRefreshFailure);
+    });
+  }, [refresh, reportRefreshFailure, workspaceId]);
 
   /* ------------------------------- sharing ------------------------------- */
 

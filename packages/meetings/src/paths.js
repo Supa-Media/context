@@ -36,8 +36,8 @@ export const MEETINGS_FOLDER = "0-inbox/meetings";
  * meeting filed at a key that function refuses is a note no tool can read,
  * move or share — so the bound exists to keep the *whole* key addressable, not
  * because a long folder is dangerous by itself. 128 leaves ~380 characters for
- * the customer's root, `YYYY/MM/` and a filename, against a real workload of
- * two or three short segments.
+ * the customer's root and a filename, against a real workload of two or three
+ * short segments.
  */
 export const MAX_FOLDER_LENGTH = 128;
 
@@ -252,7 +252,7 @@ export function normalizeMeetingFolder(folder) {
       `..` — and that is the right rule for a prefix. It is not the gateway's
       rule for a key: `normalizePath` refuses `..` anywhere in the string at
       all. So `a..b` used to pass here, the finalize claimed
-      `a..b/YYYY/MM/….md` into the session record under a conditional write,
+      `a..b/….md` into the session record under a conditional write,
       and the note write then answered 400 `meeting_invalid` — the code a
       client does not retry — for the life of that meeting, with nothing to
       clear the claimed path. Only a `null` from this function reaches the
@@ -340,14 +340,14 @@ export function normalizeMeetingFolder(folder) {
 }
 
 /**
- * `<folder>/YYYY/MM/YYYY-MM-DD-<slug>-<shortId>.md`, defaulting to
+ * `<folder>/YYYY-MM-DD-<slug>-<shortId>.md`, defaulting to
  * `0-inbox/meetings/…`.
  *
  * The date comes from `startedAt` in UTC — never from the reader's clock or
  * locale, so the same session resolves to the same key on every device that
  * syncs the bucket.
  *
- * ## The folder replaces the whole default, and the date folders stay
+ * ## The folder replaces the whole default, and a meeting is dumped in it
  *
  * `MEETINGS_FOLDER` is one concept — "where meetings are filed" — that happens
  * to be spelled in two segments, so a chosen folder replaces both. Appending
@@ -355,11 +355,19 @@ export function normalizeMeetingFolder(folder) {
  * not ask for, and the decision record's own example of a customer who has
  * changed this has no `meetings` segment in it.
  *
- * `YYYY/MM` is not part of that choice and is kept. Those folders "exist for
- * humans and for Obsidian" — a folder that accumulates every meeting a person
- * ever records is unusable in a file browser — and nothing in the gateway
- * parses them to *find* a meeting, so keeping them costs the customer nothing
- * they cannot undo by moving a note.
+ * **There are no `YYYY/MM` folders under it, and that reversed a decision.**
+ * They were kept "for humans and for Obsidian", on the reasoning that one
+ * folder holding every meeting somebody ever recorded is unusable in a file
+ * browser. In use it is the tree that is unusable: a person who records twice a
+ * month gets two directory levels per meeting, every folder holding one or two
+ * notes, and the owner has to open two folders to reach a note whose *filename*
+ * already starts with its date. Sorting a flat folder by name is the same
+ * ordering the tree was drawn to give, one level up. So the folder somebody
+ * chooses is the folder the note lands in, whatever it is.
+ *
+ * Meetings already filed under `YYYY/MM/` stay where they are and stay
+ * readable: nothing parses a path to *find* a meeting, and `isMeetingNotePath`
+ * still recognises the dated shape — see its own note.
  *
  * A folder `normalizeMeetingFolder` refuses is a `TypeError` here rather than a
  * silent fallback: the caller is the one that can tell whoever sent it, and a
@@ -387,8 +395,27 @@ export function meetingNotePath(session, options = {}) {
   const folder = normalizeMeetingFolder(options.folder);
   if (folder === null) throw new TypeError("options.folder is not a folder a meeting can be filed into");
 
-  return `${normalizeRoot(options.root)}${folder}/${year}/${month}/${file}`;
+  return `${normalizeRoot(options.root)}${folder}/${file}`;
 }
+
+/**
+ * The tail of a meeting key, relative to the folder it was filed into.
+ *
+ * `YYYY-MM-DD-<slug>-<shortId>.md` is what `meetingNotePath` writes today; the
+ * optional `YYYY/MM/` in front of it is what it wrote until the date folders
+ * were dropped, and is read for the reason `isMeetingNotePath` gives.
+ *
+ * **`[^/]+` and never `.+`, because `.` matches a separator.** This was `.+`,
+ * and the slug therefore ate any number of path segments: with the flat shape
+ * accepted, `0-inbox/meetings/2026-03-04-offsite/agenda.md` answered true —
+ * somebody's ordinary note, inside a folder they happened to name after a date,
+ * listed and read as a meeting. The dated branch had the same hole before the
+ * flat one existed (`…/2026/03/2026-03-04-offsite/agenda.md`), so this closes a
+ * latent case as well as the one it opened. A meeting is one file directly in
+ * the folder it was filed into; the whole point of `meetingNotePath` no longer
+ * nesting is that there is nothing under it.
+ */
+const MEETING_FILE = /^(?:\d{4}\/\d{2}\/)?\d{4}-\d{2}-\d{2}-[^/]+\.md$/;
 
 /**
  * Is this key the shape this module writes into that folder?
@@ -411,6 +438,19 @@ export function meetingNotePath(session, options = {}) {
  * *moves*: it stops being listed and stays a note, "which is the correct
  * behaviour for a product whose whole claim is that the files are theirs".
  *
+ * ## It recognises the `YYYY/MM/` shape too, and that is not symmetry
+ *
+ * `meetingNotePath` stopped writing date folders; every meeting recorded before
+ * that is still sitting under one. This function is what "list my meetings"
+ * is built out of — there is no meetings table — so a version that recognised
+ * only the flat shape would not migrate anybody's bucket, it would make their
+ * existing meetings stop being meetings, in place, with no way to tell.
+ *
+ * Reading the old shape is therefore permanent rather than a transition, and it
+ * costs one alternation. The pair's contract is unchanged in the direction that
+ * matters: `isMeetingNotePath(meetingNotePath(s, o), o)` still holds for every
+ * `o`, because what was added is accepted *in addition* to what is written.
+ *
  * @param {string} path
  * @param {{root?: string, folder?: string}} [options]
  * @returns {boolean}
@@ -421,5 +461,5 @@ export function isMeetingNotePath(path, options = {}) {
   if (folder === null) return false;
   const prefix = `${normalizeRoot(options.root)}${folder}/`;
   if (!path.startsWith(prefix)) return false;
-  return /^\d{4}\/\d{2}\/\d{4}-\d{2}-\d{2}-.+\.md$/.test(path.slice(prefix.length));
+  return MEETING_FILE.test(path.slice(prefix.length));
 }

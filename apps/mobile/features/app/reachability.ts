@@ -335,7 +335,16 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         navigation: [
           {
             file: CONSOLE_LAYOUT,
-            contains: ["onOpen={(slug) => router.replace(contextHrefFrom(slug))}"],
+            /*
+              One needle, and it is the whole expression rather than its two
+              halves. Split as `["contextHrefFrom(slug)", "router.replace("]`
+              this guard was nearly vacuous: the layout holds seven
+              `router.replace(` calls, so that half matched whatever the strip's
+              own handler became — swapping it for `router.push` left the claim
+              green over a press that no longer replaces. The needle a claim
+              rests on has to be unique to the wiring it claims.
+            */
+            contains: ["slug === current?.slug ? browseHref(slug) : contextHrefFrom(slug)"],
           },
         ],
         region: "contextStrip",

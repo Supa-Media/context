@@ -55,9 +55,11 @@ their first occurrence and `## Transcript` its last, so a user who types
 `## Transcript` into their own notes keeps every word.
 
 **Tenancy is bucket-level, never prefix-level.** A note lives at
-`<folder>/YYYY/MM/YYYY-MM-DD-<slug>-<shortId>.md`, where `<folder>` is
-`MEETINGS_FOLDER` (`0-inbox/meetings`) unless the person recording named another
-one — see `normalizeMeetingFolder`, and
+`<folder>/YYYY-MM-DD-<slug>-<shortId>.md`, where `<folder>` is `MEETINGS_FOLDER`
+(`0-inbox/meetings`) unless the person recording named another one — and there is
+nothing between the two: a meeting is dumped straight into the folder it was
+filed into, because the filename already starts with its date. See
+`normalizeMeetingFolder`, and
 [meetings](../../docs/decisions/meetings.md), *A meeting lands at an ordinary
 path*. What never appears in a key is anything derived from a workspace, an
 account or a username: no `tenants/<id>/`, no `workspaces/<slug>/`, ever. The one

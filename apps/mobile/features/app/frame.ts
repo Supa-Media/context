@@ -62,10 +62,17 @@
  * **no left panel at all** — no rail sheet, no file-tree drawer, no toggle for
  * either and no scrim from either — because navigation moved to two surfaces
  * that are always on the glass and are not panels: a horizontally scrolling
- * **context strip** along the top (`AppFrame`'s `contextStrip` slot, beside a
- * pinned `accountSlot`) and a seventh key on the bottom row. Neither has to be
- * summoned, so neither can be missing; a person is never one press away from
+ * **context strip** (`features/console/NavBand.tsx`, at the top of the
+ * scroller, above the path) and a seventh key on the bottom row. Neither has to
+ * be summoned, so neither can be missing; a person is never one press away from
  * navigation, they are looking at it.
+ *
+ * **The strip was a slot in this frame's top bar and is not any more**, which
+ * changes where it is drawn and nothing about the invariant: a floating bar
+ * means the document runs behind whatever is in it, which the note's own verbs
+ * earn and navigation does not. It is in the scroller now, so it scrolls away
+ * with the document. What is left pinned in the top row is the `accountSlot`
+ * and the trailing capsule.
  *
  * The old invariant — "every compact layout offers `navToggle` or
  * `drawerToggle`" — is therefore retired rather than dropped, and

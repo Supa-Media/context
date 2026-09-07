@@ -12,7 +12,7 @@ import { destinationKey } from "./keys";
  * ## Why this is a question at all
  *
  * A meeting is a capture, and until now the answer was implicit: the gateway
- * derived `0-inbox/meetings/YYYY/MM/…` from the session and nothing on the
+ * derived `0-inbox/meetings/…` from the session and nothing on the
  * device ever said a word about it (`packages/meetings/src/paths.js`). That is
  * a fine default and a bad *only* answer, because the person recording is
  * usually looking at something — a project folder, a note — and the meeting
@@ -25,8 +25,9 @@ import { destinationKey } from "./keys";
  * convenience. Somebody reading a note in a shared workspace who presses record
  * is, on any "current context" default, dropping a transcript of a conversation
  * they have not read yet into a folder their colleagues are watching. So the
- * first offer is always `@their-handle / 0-inbox`, it is always the fallback,
- * and the current page is the *second* offer with the audience named on it.
+ * first offer is always `@their-handle / 0-inbox/meetings`, it is always the
+ * fallback, and the current page is the *second* offer with the audience named
+ * on it.
  *
  * "Their own" is `ownPersonalContext` — `kind === "personal"` **and**
  * `role === "owner"` — and the second half is load-bearing rather than
@@ -90,16 +91,28 @@ import { destinationKey } from "./keys";
  */
 
 /**
- * The inbox, taken from where this product already files an unfiled capture.
+ * `0-inbox/meetings` — the inbox, and the drawer in it that holds meetings.
  *
- * `DEFAULT_TARGET_FOLDER` is where forwarded mail lands, and a meeting is the
- * same kind of thing — captured, unfiled, moved later by a person. Deriving it
- * rather than typing `"0-inbox"` a second time is the difference between one
- * decision and two spellings that drift; the trailing slash is that constant's
- * (it names a *prefix* for the ingestion settings) and a folder here has none,
- * because it is joined to a path rather than prepended to a key.
+ * ## It used to be the inbox itself, and that was the defect
+ *
+ * `DEFAULT_TARGET_FOLDER` is where forwarded mail lands, and this was derived
+ * from it on the reasoning that a meeting is the same kind of thing: captured,
+ * unfiled, moved later by a person. True about the *inbox*, wrong about the
+ * folder, because of a rule one layer down that this file already documents:
+ * **a chosen folder replaces the whole default.** So offering `0-inbox` did not
+ * mean "the default, unchanged" — it meant "not `0-inbox/meetings`", and a
+ * meeting recorded on the default row landed loose in the inbox beside the
+ * mail. Nobody chose that and the sheet never said it.
+ *
+ * The fix is to name the folder rather than derive a wrong one: `0-inbox` is
+ * where unfiled things arrive, and what arrives there is sorted by *what it
+ * is* — `0-inbox/meetings`, `0-inbox/sessions`, mail next. One decision, one
+ * spelling, and it is `MEETINGS_FOLDER`'s spelling: the constant is restated
+ * here rather than imported for the reason the whole module gives about
+ * `normalizeMeetingFolder`, and `meetingsDestination.test.ts` — which does
+ * import the real package — is what holds the two together.
  */
-export const INBOX_FOLDER = DEFAULT_TARGET_FOLDER.replace(/\/+$/, "");
+export const INBOX_FOLDER = `${DEFAULT_TARGET_FOLDER.replace(/\/+$/, "")}/meetings`;
 
 /** What a person can see, and what they can see it in. `Only you` / warn. */
 export const ONLY_YOU = "Only you";
@@ -118,8 +131,8 @@ export const READ_ONLY_REFUSAL =
  * "an empty folder is refused rather than filing a meeting at the bucket root".
  * Its reason is the on-bucket layout, which non-negotiable #3 calls a stable
  * format rather than an internal detail: `index.md` and `privacy.md` live at
- * the root, and a `2026/09/` tree of meetings beside them is not a layout
- * anybody's vault expects.
+ * the root, and a pile of meeting notes beside them is not a layout anybody's
+ * vault expects.
  *
  * Until this refusal existed the sheet offered that root anyway. Standing at a
  * context root is the state a phone *arrives in* — nothing is selected, so the
@@ -352,7 +365,7 @@ const MAX_FOLDER_LENGTH = 128;
  *
  *  - **`..` anywhere in a segment**, not only a segment that *is* `..`. The
  *    gateway's `normalizePath` refuses `..` anywhere in a key, and a folder
- *    named `a..b` cost a real meeting: the claim wrote `a..b/YYYY/MM/….md` into
+ *    named `a..b` cost a real meeting: the claim wrote `a..b/….md` into
  *    the session record and the note write then answered 400 `meeting_invalid`
  *    — the code no client retries — for the life of that meeting.
  *  - **A segment that percent-DECODES to `.` or `..`.** A different rule
@@ -463,11 +476,17 @@ export function chooseOffer(
  *
  * **`kind` is deliberately not compared, and neither is `label`.** Both are
  * facts about how somebody arrived at a folder, and the note cannot tell the
- * difference: standing in your own `0-inbox` and pressing record offers the
- * page and the inbox as one row, not the same row twice, and a choice
- * remembered as one reads as the other next time. Comparing the discriminator
- * would make the sheet draw a duplicate and make a remembered choice miss its
- * own row.
+ * difference: a folder that is both the default and the page you are standing
+ * on is one row, not the same row twice, and a choice remembered as one reads
+ * as the other next time. Comparing the discriminator would make the sheet draw
+ * a duplicate and make a remembered choice miss its own row.
+ *
+ * The example this used to give was standing in your own `0-inbox`, and the
+ * default has moved out from under it: the inbox row is `0-inbox/meetings` now,
+ * so that page and that default are genuinely two destinations and are drawn as
+ * two rows. Standing in `0-inbox/meetings` is the same case the sentence always
+ * described. What the move *does* strand is a device that remembered the old
+ * default — see `forgetRetiredDefault`.
  */
 export function sameDestination(a: MeetingDestination, b: MeetingDestination): boolean {
   return a.contextSlug === b.contextSlug && a.folder === b.folder;
@@ -598,6 +617,48 @@ export function parseDestination(value: unknown): MeetingDestination | null {
   return { kind, contextSlug, folder, label };
 }
 
+/**
+ * The inbox folder this module offered until the default moved into
+ * `0-inbox/meetings`, and which a device may still have written down.
+ *
+ * See `forgetRetiredDefault`. Named rather than inlined so the two things it
+ * has to stay equal to — the old constant, and nothing else — are one string.
+ */
+const RETIRED_INBOX_FOLDER = "0-inbox";
+
+/**
+ * A remembered choice that is really the *old default* is not a choice.
+ *
+ * Moving the default from `0-inbox` to `0-inbox/meetings` would otherwise not
+ * reach anybody who had already recorded a meeting, and would reach them in the
+ * worst available way: the remembered `0-inbox` no longer matches the inbox
+ * row, but it *does* match the current-page row for somebody standing in their
+ * own `0-inbox` — so `preselect` opens the sheet on the row that files the
+ * meeting loose in the inbox, selected, with nothing saying why. A default that
+ * moves for new devices and silently persists on old ones is two products.
+ *
+ * **`personalInbox` only, and that is what makes this a default rather than a
+ * decision.** Until this change the inbox row and the page row deduped whenever
+ * they named the same folder (`sameDestination`), so standing in `0-inbox` and
+ * pressing record offered exactly one row — this one. There was no separate,
+ * deliberate "file it loose in the inbox" to preserve, because there was no
+ * second row to press. A `currentPage` choice is a real decision about a folder
+ * somebody navigated to and is kept, `0-inbox` included.
+ *
+ * Forgetting is a one-way door and it costs one press: a person who does want
+ * the bare inbox picks it once and it is remembered again, this time as the
+ * page they were standing on.
+ */
+function forgetRetiredDefault(
+  destination: MeetingDestination | null,
+): MeetingDestination | null {
+  if (destination === null) return null;
+  if (destination.kind === "personalInbox" && destination.folder === RETIRED_INBOX_FOLDER) {
+    return null;
+  }
+  return destination;
+}
+
 /** What this device chose last, or `null`. Validated by `parseDestination`. */
 export async function recallDestination(
   store: KeyValueStore,
@@ -611,7 +672,7 @@ export async function recallDestination(
   if (raw === null) return null;
 
   try {
-    return parseDestination(JSON.parse(raw));
+    return forgetRetiredDefault(parseDestination(JSON.parse(raw)));
   } catch {
     return null;
   }

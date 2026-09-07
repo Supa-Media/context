@@ -1,5 +1,6 @@
 import { api } from "@context/convex/_generated/api";
 import { MEETINGS_FOLDER, meetingNotePath } from "@context/meetings/paths";
+import { announceBucketWrite } from "../console/files/bucketWrites";
 import { toFileError } from "../console/files/browser";
 import { MeetingGatewayError, type MeetingAddress, type MeetingsGateway } from "./gateway";
 import { renderMeetingNote } from "./note";
@@ -487,6 +488,17 @@ export function writeNoteThrough(client: {
       path: args.path,
       text: args.text,
     })) as { path: string };
+    /*
+      Tell the console its folder changed.
+
+      This is the only write in the product that reaches somebody's bucket from
+      outside the file browser, and until it said so the browser kept whatever
+      listing it already had for the folder — one that is now missing a file.
+      Announced *after* the action resolves, so a failed write announces
+      nothing; see `bucketWrites.ts` for why this is a bus and not a call, and
+      why it carries the path rather than the text.
+    */
+    announceBucketWrite({ workspaceId: args.workspaceId, path: result.path });
     return result;
   };
 }

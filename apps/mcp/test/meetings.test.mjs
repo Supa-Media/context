@@ -768,7 +768,11 @@ export async function runMeetingChecks(check) {
   const notePath = finalized.body?.notePath || "";
   check(
     "at a path derived from the meeting's own UTC date",
-    notePath.startsWith("0-inbox/meetings/2026/09/2026-09-01-") && notePath.endsWith(".md")
+    notePath.startsWith("0-inbox/meetings/2026-09-01-") && notePath.endsWith(".md")
+  );
+  check(
+    "...dumped straight into the folder, with no date tree above it",
+    notePath.slice("0-inbox/meetings/".length).includes("/") === false
   );
   check("and hands back the note's etag", typeof finalized.body?.etag === "string" && finalized.body.etag !== "");
 
@@ -1752,8 +1756,8 @@ export async function runMeetingChecks(check) {
   const filedPath = filed.body?.notePath || "";
   check("a finalize can name the folder the person picked", filed.status === 200 && filed.body?.state === "complete");
   check(
-    "...and the note lands there, with the date folders still under it",
-    filedPath === `2-areas/team/2026/09/2026-09-06-filed-by-hand-${SESSION_FILED.slice(-8)}.md`
+    "...and the note lands in it, dumped straight in rather than under a date tree",
+    filedPath === `2-areas/team/2026-09-06-filed-by-hand-${SESSION_FILED.slice(-8)}.md`
   );
   check("...carrying what the person typed", (recorder.get(filedPath)?.body || "").includes("filed where the person pointed it"));
   check("...and the ack claims nothing was refused", filed.body?.folderRejected === undefined);
@@ -1851,7 +1855,7 @@ export async function runMeetingChecks(check) {
   check(
     "a re-finalize with a changed title rewrites one note rather than adding a second",
     renamed.status === 200 &&
-      renamed.body?.notePath === `0-inbox/meetings/2026/09/2026-09-06-standup-${SESSION_RETITLED.slice(-8)}.md`
+      renamed.body?.notePath === `0-inbox/meetings/2026-09-06-standup-${SESSION_RETITLED.slice(-8)}.md`
   );
   check(
     "...so the rename adds no second key to the bucket",

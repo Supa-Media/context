@@ -89,7 +89,7 @@ const { fakeGateway } =
   require("../features/meetings/fakeGateway") as typeof import("../features/meetings/fakeGateway");
 const { fakeRecorder } =
   require("../features/meetings/capture/fake") as typeof import("../features/meetings/capture/fake");
-const { rememberDestination, recallDestination } =
+const { INBOX_FOLDER, rememberDestination, recallDestination } =
   require("../features/meetings/destination") as typeof import("../features/meetings/destination");
 const { memoryStore } =
   require("../features/offline/memory") as typeof import("../features/offline/memory");
@@ -475,7 +475,7 @@ describe("confirming is what starts the recording", () => {
     expect(meetings.getSnapshot().live!.destination).toEqual({
       kind: "personalInbox",
       contextSlug: "testagent1",
-      folder: "0-inbox",
+      folder: INBOX_FOLDER,
     });
     mounted.unmount();
   });
@@ -523,7 +523,7 @@ describe("confirming is what starts the recording", () => {
     expect(started!.destination).toEqual({
       kind: "personalInbox",
       contextSlug: "testagent1",
-      folder: "0-inbox",
+      folder: INBOX_FOLDER,
     });
     mounted.unmount();
   });

@@ -715,7 +715,7 @@ The check is `re-enhancing a meeting leaves the human's notes byte-identical`.
 
 ### A meeting lands at an ordinary path, and nothing about it is namespaced
 
-`0-inbox/meetings/2026/09/2026-09-05-<slug>-<suffix>.md`, where `<suffix>` is the
+`0-inbox/meetings/2026-09-05-<slug>-<suffix>.md`, where `<suffix>` is the
 stable tail of the session id. It is an ordinary note under the customer's
 ordinary folders: no `meetings/` bucket, no tenant prefix, no reserved
 directory, nothing to migrate ([non-negotiable 2](../../CLAUDE.md)).
@@ -724,11 +724,43 @@ Two consequences that are decisions rather than accidents. The folder is a
 **default the customer can change**, because PARA is a suggestion and someone who
 files meetings under `2-areas/team/` should keep doing that — and the moment
 they move a note, the note *stays* moved, because nothing holds a second copy of
-its path. And the date folders exist for humans and for Obsidian, not for us:
-nothing in the gateway parses a path to find a meeting, because a path that has
-to parse is a path that cannot be moved.
+its path. And nothing in the gateway parses a path to find a meeting, because a
+path that has to parse is a path that cannot be moved.
 
 The check is `moving a meeting note does not break reading it`.
+
+**There were `YYYY/MM/` folders under that path and there are not any more.**
+They were kept "for humans and for Obsidian", against one folder accumulating
+every meeting a person ever recorded. Used for a while, the tree is the half
+that is unusable: somebody recording twice a month gets two directory levels per
+meeting, most of them holding one note, in front of a filename that already
+opens with the same date — so reaching a meeting is two folders deep and a
+listing of the year shows twelve folders instead of the meetings. A flat folder
+sorted by name is the ordering the tree was drawn to give, one level up.
+
+Reversing it costs nothing to reverse *again* — the folder is the customer's and
+the notes are files — and it changes what the two path functions do, in opposite
+directions. `meetingNotePath` writes `<folder>/<file>` and nothing between.
+`isMeetingNotePath` reads **both** shapes, permanently: `list_meetings` is built
+out of it and out of no index, so a recogniser that read only the flat shape
+would not migrate anybody's bucket, it would silently stop calling their
+existing meetings meetings while the files sat there untouched.
+
+**And the slug in that pattern is one segment.** It was `.+`, which matches a
+separator, so accepting the flat shape also accepted
+`0-inbox/meetings/2026-03-04-offsite/agenda.md` — an ordinary note, inside a
+folder somebody happened to name after a date, listed and read as a meeting. The
+dated branch had the same hole before the flat one existed, so `[^/]+` closes a
+latent case as well as the one this change opened. It is the same claim the
+folder rule makes from the other side: a meeting is one file directly in the
+folder it was filed into, and the point of no longer nesting is that there is
+nothing under it. `list_meetings`
+also sorts on the *filename* rather than the whole key for the same reason —
+`/` sorts above `-`, so whole-key order put every dated-folder meeting ahead of
+every flat one regardless of date. The checks are
+`no date folders: the key is the folder and a filename, nothing between`,
+`a meeting filed under the old YYYY/MM folders is still recognised`, and
+`...but a deeper tree than either shape is still not a meeting`.
 
 **"A default the customer can change" was a sentence for a while and is now a
 field.** A phone can ask a person where a meeting's notes should go, and the
@@ -754,15 +786,45 @@ field on this body to mean that the connection does not already say. Three
 decisions in the folder half, each of which could reasonably have gone the other
 way:
 
-**The chosen folder replaces the whole default, and `YYYY/MM` stays.**
+**The chosen folder replaces the whole default, and the note is dumped in it.**
 `MEETINGS_FOLDER` is one concept — where meetings are filed — spelled in two
-segments, so `2-areas/team` gives `2-areas/team/2026/09/<file>` rather than
-`2-areas/team/meetings/2026/09/<file>`. The alternative hands a person a folder
-they did not ask for, and the example this section already used for a customer
-who has changed it has no `meetings` segment in it. The date folders are not
-part of the choice: they are for humans and for Obsidian, one folder holding
-every meeting somebody ever recorded is unusable in a file browser, and nothing
-parses them.
+segments, so `2-areas/team` gives `2-areas/team/<file>` rather than
+`2-areas/team/meetings/<file>`. The alternative hands a person a folder they did
+not ask for, and the example this section already used for a customer who has
+changed it has no `meetings` segment in it. Nothing is interposed under the
+chosen folder either — see the date folders above.
+
+**Which is why the phone's default row is `0-inbox/meetings` and not
+`0-inbox`.** It was the latter, derived from `DEFAULT_TARGET_FOLDER` — where
+forwarded mail lands — on the reasoning that a meeting is the same kind of
+unfiled capture. True about the inbox, wrong about the folder, because of the
+rule in the paragraph directly above: a chosen folder replaces the whole
+default, so offering the bare inbox did not mean "the default, unchanged", it
+meant "not `0-inbox/meetings`". Every meeting recorded on the default row landed
+loose in the inbox beside the mail, and the sheet showed a folder the person had
+not chosen and would not have. `0-inbox` is where unfiled things arrive and what
+arrives there is sorted by what it *is* — `0-inbox/meetings`,
+`0-inbox/sessions`, mail beside them. The check is
+`the default is the meetings folder inside the inbox, not the inbox itself`, and
+`the offered default is exactly what the gateway files into when nobody chooses`
+imports the real `MEETINGS_FOLDER` so the phone's spelling cannot drift from the
+gateway's.
+
+**Moving a default has to reach the devices that already recorded a meeting, and
+this one would have reached them the worst way.** A remembered `0-inbox` no
+longer matches the inbox row — but it *does* match the current-page row for
+somebody standing in their own `0-inbox`, so the sheet would open preselected on
+the row that files the meeting loose in the inbox, silently, exactly where the
+old default used to be. A default that moves for new devices and persists on old
+ones is two products. `recallDestination` therefore forgets a remembered
+`personalInbox` naming the old folder, and only that: until this change the
+inbox row and the page row deduped whenever they named the same folder, so
+standing in `0-inbox` and pressing record offered *one* row — there was no
+separate deliberate choice to preserve. A `currentPage` choice is a decision
+about a folder somebody navigated to and survives, `0-inbox` included. The
+checks are `a device that remembered the old default gets the new one, not the
+old row` and `...but a folder somebody actually navigated to is still
+remembered`.
 
 **A folder the gateway will not file into is refused by
 `normalizeMeetingFolder`, which delegates to `normalizeRoot` rather than being a
@@ -795,7 +857,7 @@ argument for reading a count as a checklist against the code rather than as
 prose. `normalizeRoot` refuses
 the traversal *shapes*, which is the right rule for a prefix; the gateway's own
 `normalizePath` is blunter and refuses `..` anywhere in a key at all. So `a..b`
-passed the folder check, the claim wrote `a..b/YYYY/MM/….md` into the session
+passed the folder check, the claim wrote `a..b/….md` into the session
 record under a conditional write, and the note write then answered 400
 `meeting_invalid` — the code no client retries — for the life of that meeting,
 with nothing to clear the claimed path. Only a `null` from
@@ -820,7 +882,7 @@ is the same defect as filing into one it could not, pointed the other way.
 **The empty string is refused as well**, and it is a difference of *meaning*
 from `normalizeRoot` rather than an addition to it: `""` is that function's
 answer for "no prefix at all", which is a legal root and is not a folder. Filing
-there would put a `YYYY/MM` tree of meetings beside `index.md` and
+there would put a pile of meeting notes beside `index.md` and
 `privacy.md`, and the on-bucket layout is a stable format rather than an
 internal detail (CLAUDE.md, non-negotiable 3). The phone's destination sheet
 refuses to *offer* the root for the same reason rather than letting the fallback
@@ -859,8 +921,8 @@ carries `notePath`, and the completion receipt keeps it, which is what makes a
 retry land on one note. What no index records is the reverse mapping: there is no
 list of meeting paths to scan, by the decision above, so `list_meetings` has
 nothing to consult and reads the default folder off the bucket instead. Scanning
-the whole bucket for `YYYY/MM/YYYY-MM-DD-*.md` would call somebody's ordinary
-dated note a meeting.
+the whole bucket for `YYYY-MM-DD-*.md` would call somebody's ordinary dated
+note a meeting.
 
 So `list_meetings` does not list a meeting filed elsewhere, which is the
 behaviour a *moved* meeting already has and which this section already calls

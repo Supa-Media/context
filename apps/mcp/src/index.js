@@ -5724,6 +5724,11 @@ async function publishMeetingNote(store, scope, { path, markdown, segmentCount }
   return { path: notePath, etag: put.etag, visibility };
 }
 
+/** The last segment of a key: `…/2026-03-04-sync-8h9jkmnp.md` → the filename. */
+function meetingFileName(key) {
+  return key.slice(key.lastIndexOf("/") + 1);
+}
+
 /**
  * The meetings this connection can see, newest first.
  *
@@ -5738,7 +5743,7 @@ async function publishMeetingNote(store, scope, { path, markdown, segmentCount }
  * is the same case reached a step earlier, and it is why no folder is passed
  * here. `isMeetingNotePath` answers about the folder it is given; there is no
  * meetings table recording where any given meeting went, by decision, and
- * scanning the whole bucket for `YYYY/MM/YYYY-MM-DD-*.md` would call somebody's
+ * scanning the whole bucket for `YYYY-MM-DD-*.md` would call somebody's
  * ordinary dated note a meeting. So this lists the default folder, and every
  * other tool reaches the rest.
  *
@@ -5750,9 +5755,19 @@ async function toolListMeetings(store, scope, rules, overrides, limitArg) {
   if (limit < 1 || limit > 25) return toolError("limit must be between 1 and 25");
   const visible = (await listAllKeys(store, `${MEETINGS_FOLDER}/`))
     .filter(({ key }) => isMeetingNotePath(key) && canSee(key, scope, rules, overrides))
-    // The path opens with the meeting's own UTC date, so newest-first is the
-    // reverse key order and costs no reads.
-    .sort((a, b) => b.key.localeCompare(a.key))
+    /*
+      Newest first, off the FILENAME rather than the whole key, and costing no
+      reads either way: every meeting note is named `YYYY-MM-DD-…` in UTC.
+
+      The whole key used to be the sort, which was right while every meeting sat
+      at the same depth. It stopped being right the day the date folders were
+      dropped: a legacy `…/2026/03/2026-03-04-x.md` and a current
+      `…/2026-03-04-x.md` differ at the character after the year, where `/`
+      sorts above `-`, so reverse key order put every old meeting ahead of every
+      new one whatever their dates said. The filename is the half that never
+      moved.
+    */
+    .sort((a, b) => meetingFileName(b.key).localeCompare(meetingFileName(a.key)) || b.key.localeCompare(a.key))
     .slice(0, limit);
   if (!visible.length) return toolText("(no meetings recorded yet)");
 

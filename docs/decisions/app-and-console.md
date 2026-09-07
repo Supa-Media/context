@@ -899,15 +899,26 @@ minus what a phone already says:
   heading, so a trailing segment is the same words twice.
 - **No visibility chip.** A note carries it as a Properties row and a folder
   states it in a sentence directly beneath, both fuller than the brief chip.
-- **The context segment comes back, pressable.** The full line drops it because
-  the switcher above says it; here it is not a label but the way *up*, and
-  without it the bar bottoms out one level short of home. What that duplication
-  argument was paying for — a line that ellipsised at both ends — is refunded by
-  the leaf and the chip being gone.
+- **No context segment, and this is the half that changed back.** It was here,
+  pressable, on the argument that it is not a label but the way *up* — without
+  it the bar bottoms out one level short of home — and that the duplication it
+  cost was refunded by the leaf and the chip being gone. That was true while the
+  contexts were a slot in the frame's top bar, two rows away. They are the row
+  directly above this one now (see *The contexts moved into the scroller*
+  below), so the segment was `@seyi` said twice in consecutive lines, on the
+  surface with the least room to say anything once. The way up went with it and
+  is the lit pill, which opens its own context at its root rather than at the
+  place the device last had open there.
+- **And it scrolls horizontally.** `3-resources/books/reading-notes/…` is wider
+  than 390pt within three segments; wrapping makes the band a variable number of
+  rows and ellipsising leaves the segment you are standing next to unreadable.
+  `ContextStrip`'s rule, one row down: nothing truncates, the row gets longer,
+  the scroll absorbs it.
 
-Selecting the root is what that segment does, so the root needs a name:
-`baseName("")` is empty, and `FolderView` takes a `contextLabel` for the one
-folder with no name of its own. A context's root folder *is* the context.
+A top-level folder therefore draws no path row at all — its ancestors are empty
+and the pill above says where it is — rather than a band holding one word.
+`FolderView` still takes a `contextLabel` for the root, which is the one folder
+with no name of its own: a context's root folder *is* the context.
 
 **It is built once and handed to two surfaces**, because a note and a folder
 scroll in different containers on a phone: `NoteEditor` owns its own scroller so
@@ -928,11 +939,76 @@ reason, and the one sentence that has stopped being true is "the only way to
 another folder was the drawer". The section below is what that removal cost
 elsewhere.
 
+### The contexts moved into the scroller, because navigation is not a verb
+
+The context strip was a slot in the phone's floating top bar. Two things about
+that arrangement were reported from a phone by the person using it, and they
+are one decision:
+
+**A floating bar means the document runs behind it, and navigation has not
+earned that.** The frame's shape at `compact` is deliberate — a full-bleed
+document with chrome lying over both ends, so the first line can be scrolled out
+from under the top and the last out from under the toolbar. The bottom toolbar
+earns its place there because its keys are verbs about the note in front of you,
+and a verb you cannot reach is a verb you do not have. A row of context pills is
+not a verb about anything: it lay across the twentieth line of somebody's note
+at every scroll position, with no scroll position that clears it. "The top
+workspaces should scroll with the note; to change workspace I should have to
+scroll up."
+
+**And it said the context twice.** The strip named the current context one line
+above a breadcrumb whose first segment named it again — on a 390pt screen, two
+of the few rows it has.
+
+So the contexts went to where the path already was. `features/console/NavBand.tsx`
+is the band: the contexts on top, the path under them, both inside whatever
+scroller the surface owns — `BrowsePane`'s on a note or a folder,
+`EditorRegion`'s on Map, Connections and Settings. It scrolls away with the
+document and comes back by scrolling up, which is what was asked for. The
+duplication is gone because the band names the context in exactly one place, the
+lit pill, and the path below starts at the first folder.
+
+Three consequences that are decisions rather than placement:
+
+- **The lit pill is the way up.** Dropping the context segment took the route
+  from a top-level folder back to the root with it. Pressing the current
+  context's pill carries that now — it resolves to `browseHref` rather than to
+  `contextHrefFrom`, which is the one press on the strip that used to do nothing
+  you could see, since "where you last were" in the context you are standing in
+  is where you are.
+- **The strip is built by the layout and passed down, not rebuilt at the leaf.**
+  It needs the context list, the recently-visited log and the router, and it has
+  to be drawn two levels below. A second one assembled where it is drawn is two
+  copies of a control, which is how one of them ends up with a handler the other
+  does not have — the failure `NoteEditor.pathBar` already exists to prevent one
+  layer down. It travels as a `ReactNode` through a context (`NavBandProvider`).
+- **The band pays the horizontal gutter for both of its rows, and the caller
+  decides the number.** The strip took the top bar's `space.x3` while it lived
+  there and had no padding of its own; dropped into a scroller it sat flush
+  against the glass, a row of pills a quarter-inch to the left of the note under
+  it. Which number is right depends on what the band is above and only the
+  caller knows — `layout.readingMargin` over a document, nothing at all inside a
+  pane whose content container already pays one — so `Breadcrumb.barPath` gives
+  its own up and takes the band's.
+- **The frame's top row is two slots now, not three.** The account mark stays
+  pinned at the leading edge because it is the product's only sign-out and a
+  control you have to scroll to find is one somebody concludes is missing; the
+  trailing capsule is untouched, because the scope and Share act on what is on
+  screen and were never navigation. `appFrameRender.test.ts` asserts the pair
+  and their order; `consoleChrome.test.ts` asserts that the strip is on the
+  screen and inside the band rather than in the bar.
+
+What did **not** change is the landmark: the strip is still the phone's single
+`role="navigation"`, labelled `Contexts`, and the bottom row is still a toolbar.
+Moving a landmark down the tree does not remove it, and
+`consoleChrome.test.ts` still counts exactly one on a mounted phone console.
+
 ### A phone has no left panel, so the one thing its footer said had to move
 
 The rail sheet, the file-tree drawer, both toggles and their scrim are gone at
-`compact`; navigation is a context strip along the top and a seven-key bottom
-row, neither of which has to be summoned. `features/app/frame.ts` carries the
+`compact`; navigation is a context strip (in the scroller, above the path — see
+the section above) and a seven-key bottom row, neither of which has to be
+summoned. `features/app/frame.ts` carries the
 whole of that decision and amends its own paragraphs in place.
 
 What that removal cost is one line, and it is worth naming because deleting it
@@ -1014,7 +1090,7 @@ correctly while the density renders none of it is the failure this replaces.
 **Sign-out moved with the panels and had to grow.** It is the only sign-out
 control in the product; it was at the foot of the rail, which a phone can no
 longer reach, and it is now the pinned account slot at the leading end of the
-top row. The mark stays `layout.accountAvatar` (34) and the pressable around it
+top row — since the contexts left that row, the only thing in it at that end. The mark stays `layout.accountAvatar` (34) and the pressable around it
 is `layout.minTouchTarget` — it had been padding by 4, so the target was 34 and
 under the floor, and the row's width budget in `tokens.ts` and `AppFrame` was
 written against the mark rather than the target. Both are corrected there.
@@ -1059,6 +1135,62 @@ The `execCommand` fallback also had to be fixed to work on the platform it
 exists for: `readonly` plus `select()` is the recipe every snippet shows and the
 one iOS ignores — it refuses to select a read-only field, so the copy takes
 whatever was selected before, usually nothing.
+
+### A write from outside the file browser has to say so
+
+The console refreshes a folder whenever **it** writes into one — `save`,
+`create`, `move`, `archive` each end with `refresh([parentPath(path)])`. Every
+one of those is the browser changing the bucket and telling itself, which worked
+for exactly as long as the browser was the only thing that wrote.
+
+A meeting is the first write in this product that reaches the same bucket from
+somewhere else. It went unannounced, and the symptom is the shape that makes
+this a decision rather than a fix: **the phone that had already read the folder
+was the one that did not show the note.** A client that had never opened
+`0-inbox/meetings` fetched it on the way in and drew the meeting immediately;
+the device that recorded it kept the listing it was holding. "After saving the
+meeting it did not show up on the mobile app, but it showed up on the web app."
+Nothing was lost — the note was in the customer's bucket the whole time — which
+is precisely why nothing surfaced it.
+
+`features/console/files/bucketWrites.ts` is the seam, and it is a bus rather
+than a call for a reason in each direction. **The console must not know that
+meetings exist**: it is a file browser over a bucket, and the second outside
+writer must not need a second branch in it. **The meetings gateway must not hold
+a console hook**: it runs from a screen the console does not own. Both import a
+module that knows about neither.
+
+Four things about it are decisions:
+
+- **It carries the workspace and the path, and never the text.** This is a
+  signal that a listing is stale, not a second channel for note bodies — a
+  subscriber taking content from here would hold a copy the cache never saw, at
+  a clearance nobody checked ([*A copy on the device is bounded by who read it*](#a-copy-on-the-device-is-bounded-by-who-read-it-when-and-whether-the-server-said-no)).
+- **The reader checks the workspace.** One device is signed into several
+  contexts and `useFileBrowser` is mounted for one of them; the same folder path
+  is a different folder in a different bucket.
+- **It refreshes the parent and every ancestor already held, not the parent
+  alone.** A write into a folder that did not exist changes its *grandparent*
+  too, and that is the ordinary case rather than the exotic one: the first
+  meeting anybody records creates `0-inbox/meetings` under the `0-inbox` they
+  are looking at, so a parent-only refresh fixed the second meeting and none of
+  the first — the same symptom one level up. Held rather than all, because a
+  refresh of a folder nothing has asked for is a request whose answer nothing
+  draws; and the root is prepended by hand, because `ancestorsOf` starts at the
+  first segment and never yields it.
+- **It announces after the write resolves.** An announcement of a write that
+  then failed makes every listener reload a folder to learn nothing, and raises
+  the console's own "the file list did not reload" notice about an operation
+  that never happened.
+- **Nothing is buffered or replayed.** A console that mounts *after* the write
+  reads the folder fresh on the way in; replaying would make it reload a folder
+  it has just loaded.
+
+The checks are `a meeting landing in a folder the console is holding reloads
+that folder`, `a write to another context refreshes nothing here`,
+`a meeting note announces the folder it landed in`, and `a write that failed
+announces nothing` — the first two sabotage-tested against the effect and
+against its workspace guard separately.
 
 ### A copy on the device is bounded by who read it, when, and whether the server said no
 

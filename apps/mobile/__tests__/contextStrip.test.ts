@@ -523,30 +523,33 @@ describe("what is on the strip", () => {
   });
 
   /**
-   * The row never wraps, and the strip never pushes the capsule.
+   * The row never wraps, and it never grows a second one.
    *
-   * **The first version of this asserted `min-width: 0` on the strip and was
-   * vacuous.** react-native-web puts `min-width: 0` in the base style of every
-   * `View`, so it resolved to `0px` whether the declaration was there or not —
-   * measured by deleting the declaration and watching this pass. The
-   * declaration is gone now and what is asserted is the thing that is actually
-   * this component's: `flex: 1`, so the strip takes what the account mark and
-   * the trailing capsule leave and no more, with a scroller inside it that does
-   * not size to its content.
+   * **This asserted `flex: 1` and that is now the wrong rule.** The strip was
+   * the flexible middle of the frame's top row, taking what the pinned account
+   * mark and the trailing capsule left; it is the first row of `NavBand` now,
+   * inside the scroller, where the only thing along its axis is the width of
+   * the surface. `flex: 1` there is a child of a *column* asking for the
+   * remaining height of a container that has none — a row that collapses to
+   * nothing — so the width rule is `align-self: stretch` and the height is the
+   * pills'.
    *
-   * SABOTAGE: `flex: 1` → `flexShrink: 0` on `strip` (the shape that lets a
-   * long row grow). Fails here.
+   * (An earlier version asserted `min-width: 0` and was vacuous:
+   * react-native-web puts it in the base style of every `View`, so it resolved
+   * whether the declaration was there or not. Measured by deleting it and
+   * watching this pass.)
+   *
+   * SABOTAGE: `alignSelf: "stretch"` → `alignSelf: "flex-start"` on `strip`
+   * (the shape that stops the row using the width it has). Fails here.
    */
-  test("the row never wraps, and the strip takes only what is left", () => {
+  test("the row never wraps, and the strip takes the width it is given", () => {
     const strip = mountStrip();
     expect(styleOf(strip.need("context-strip-scroll"), "flex-direction")).not.toBe("column");
     const band = strip.need("context-strip");
-    // `flex: 1` — grow into the space the account mark and the capsule leave.
-    // Only `flex-grow` is asserted through `getComputedStyle`: react-native-web
-    // compiles the shorthand into atomic classes and jsdom resolves the ones it
-    // can parse, which is this one. The class carries the rest.
-    expect(styleOf(band, "flex-grow")).toBe("1");
-    expect(band.className).toContain("r-flex");
+    expect(styleOf(band, "align-self")).toBe("stretch");
+    // Not the flexible middle of a row any more: growing here would be asking
+    // a column for height it does not have.
+    expect(styleOf(band, "flex-grow")).not.toBe("1");
     // The pills are what refuse to shrink; the scroller absorbs the overflow.
     expect(styleOf(strip.need("context-strip-seyi"), "flex-shrink")).toBe("0");
   });
