@@ -1,0 +1,31 @@
+<!-- Generated outputs come from this file. Edit the vector, never the PNG.
+     See ./README.md for the one command that regenerates every asset.
+
+     macOS, and why this is not icon.svg scaled down. macOS does not mask an
+     app icon — whatever shape this draws is the shape in the Dock — so, like
+     favicon.svg, it draws its own rounded ground. iOS applies its own mask, so
+     icon.svg is a full bleed square and would appear in the Dock as one.
+
+     The geometry is Apple's: the body is 824x824 inside a 1024x1024 canvas,
+     leaving the 100px of transparent margin every macOS icon has so that the
+     Dock's own spacing, shadow and bounce have somewhere to happen. An icon
+     drawn edge to edge sits visibly larger than every neighbour beside it.
+
+     The accent is favicon.svg's #52A9FE rather than the #3B82F6 in
+     features/design/tokens.ts, for favicon.svg's reason: this mark is drawn on
+     its own dark ground at sizes down to 16px, where the token blue goes muddy.
+     The two surfaces that carry their own ground are the two that lift it. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs><linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#15151A"/><stop offset="1" stop-color="#050506"/>
+  </linearGradient></defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#ground)"/>
+  <g transform="translate(242,242) scale(5.4)">
+  <g fill="none" stroke="#52A9FE" stroke-width="12" stroke-linecap="round">
+    <path d="M40 7 L30 93"/>
+    <path d="M70 7 L60 93"/>
+    <path d="M13 36 L93 36"/>
+    <path d="M7 66 L87 66"/>
+  </g>
+  </g>
+</svg>
