@@ -34,6 +34,7 @@
  *   the `electronPlatformName !== "darwin"` guard removed                       1
  *   the `publish` input's default flipped to `true`                            1
  *   the build job's `contents: write` override dropped back to `read`          1
+ *   the exact-pin regex given its `\^?` back, and `electron-updater` re-floated 1
  *
  * The first one was measured at **0** before these checks were asked of the
  * plist\'s keys rather than of its text: that file\'s header discusses every
@@ -285,7 +286,16 @@ export async function runPackagingChecks(check) {
   );
   check(
     "...and the exception is pinned to an exact version, not left to float in a signed binary",
-    /^\^?\d+\.\d+\.\d+$/.test(String(manifest.dependencies["electron-updater"])),
+    // No leading `^`, `~`, or anything else that lets a registry resolve to a
+    // version nobody reviewed: `^6.3.9` reads as "pinned" in the manifest and
+    // is not one, because that range still matches `6.4.0`. This check was
+    // itself the hole once — `/^\^?\d+\.\d+\.\d+$/` made the caret optional
+    // and so accepted the very range it existed to refuse.
+    /^\d+\.\d+\.\d+$/.test(String(manifest.dependencies["electron-updater"])),
+  );
+  check(
+    "...and a caret range is what this check exists to catch, not something it would wave through",
+    !/^\d+\.\d+\.\d+$/.test("^6.3.9"),
   );
   check(
     "...and it is exactly one exception, not a name that quietly grew a second meaning",
