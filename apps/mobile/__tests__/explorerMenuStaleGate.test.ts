@@ -87,6 +87,7 @@ function browser(canSetVisibility: boolean): FileBrowser {
     // `select` answers whether the unsaved-changes guard let go; these
     // fixtures have no draft, so it always does.
     select: () => true,
+    deselect: () => true,
     search: async () => ({ hits: [], indexMissing: false, indexIncomplete: false }),
     // `emptyEditor` rather than a hand-written literal. The first version of
     // this fixture was copied from a shape `EditorState` no longer has — it was
