@@ -518,6 +518,155 @@ jobs:
             echo "::warning::Not every check passed, but this build is not both signed and notarised — Gatekeeper is expected to refuse it elsewhere. See PASS/FAIL lines above."
           fi
 
+      # 922 checks passed on a build that had never opened a window — see
+      # docs/decisions/desktop.md, "a release is a build that started". `--smoke`
+      # is the app's own contribution (`apps/desktop/src/main/index.ts`, a
+      # separate pull request): initialise, open the console window, log one
+      # line, and exit 0 within 10 seconds; exit non-zero on any uncaught error
+      # or if no window was created. This step is what makes that mode
+      # load-bearing rather than merely present: it is the first time anything
+      # in this repository has started the app it just built, and it runs
+      # before the artifact this job hands anybody exists as far as the rest of
+      # the job is concerned.
+      #
+      # ## Why the unsigned path gets this too
+      #
+      # `spctl`'s refusal is a check against the quarantine attribute a
+      # download sets; a binary this runner just built and executes by its own
+      # path, in the same job, never has one. So an unsigned build launches
+      # here exactly as a signed one does, which is what makes this step a real
+      # gate on the artifact-only path — the one most dispatches actually
+      # produce, `publish` defaulting to false. Nothing below is conditioned on
+      # `steps.certificate.outputs.signed` or `steps.notarize_check.outputs.notarized`.
+      #
+      # ## Why a runner is not a screen, and why that is fine here
+      #
+      # A GitHub-hosted `macos-latest` runner carries a real window server, so
+      # `BrowserWindow` construction does not need `--no-sandbox` or a virtual
+      # display the way it would on headless Linux — there is no framebuffer to
+      # fake. If a future `--smoke` needs a flag of its own, it is passed on the
+      # command line below and named in this comment; none is needed today.
+      #
+      # ## Why `perl -e 'alarm N; exec @ARGV'` and not `timeout`
+      #
+      # macOS ships no `timeout(1)`. `alarm` schedules `SIGALRM`, `exec`
+      # replaces perl's own process image with the app in place — same PID — so
+      # there is no wrapper left over to reap, and the signal reaches the app
+      # itself if it is still running when the deadline passes (exit 128+14, so
+      # the exit-code check below already covers it — the separate message is
+      # for a human reading the log, not a second control path).
+      #
+      # ## What this cannot check, same honesty as the step above it
+      #
+      # `--publish always` runs *inside* `electron-builder --mac` in the Build
+      # step above — electron-builder's own GitHub provider uploads as part of
+      # building, not as a step this workflow could still refuse to reach. A
+      # `publish: true` dispatch of a build that fails this gate has therefore
+      # already been uploaded to a GitHub Release by the time this step runs,
+      # the same limitation `docs/decisions/desktop.md` now records: this step
+      # still fails the job — red CI, an `::error::` line, nobody merges or
+      # trusts that run — which is the same shape as the Gatekeeper check right
+      # above it, checking a dmg whose contents were, by construction, already
+      # written to disk. What this step unconditionally prevents is the
+      # artifact upload two steps down, on every dispatch, signed or not,
+      # publishing or not.
+      - name: Launch the app it just built
+        working-directory: apps/desktop
+        run: |
+          set -uo pipefail
+
+          # A crash caught and printed rather than left to a bare exit code:
+          # Electron's default uncaught-exception dialog and the CommonJS
+          # `require` failure that started this whole gate both say one of
+          # these three things, and none of them is expected to appear whether
+          # `--smoke` failed loudly (non-zero exit) or limped along and exited
+          # 0 anyway.
+          CRASH_STRINGS='Uncaught Exception|A JavaScript error occurred|Dynamic require'
+
+          launch() {
+            local app_path="$1" log_file="$2"
+            if [ ! -x "$app_path" ]; then
+              echo "FAIL: $app_path is missing or not executable — electron-builder did not produce it where this step expected it."
+              return 1
+            fi
+            local started
+            started="$(date +%s)"
+            perl -e 'alarm 30; exec @ARGV' "$app_path" --smoke > "$log_file" 2>&1
+            local status=$?
+            local elapsed=$(( $(date +%s) - started ))
+
+            if [ "$status" -eq 142 ]; then
+              echo "FAIL: $app_path was still running past the 30s deadline and was killed — --smoke is meant to exit within 10s."
+              return 1
+            fi
+            if [ "$status" -ne 0 ]; then
+              echo "FAIL: $app_path exited $status after ${elapsed}s."
+              return 1
+            fi
+            if grep -qE "$CRASH_STRINGS" "$log_file"; then
+              echo "FAIL: $app_path exited 0 but its log names a crash — a caught exception is still a crash."
+              return 1
+            fi
+            echo "PASS: $app_path started, ran --smoke, and exited 0 after ${elapsed}s."
+            return 0
+          }
+
+          # Only the last 40 lines, and through the same redaction script the
+          # Build step's own output goes through: a crash log is exactly the
+          # kind of output somebody pastes into an issue, and electron-builder's
+          # signing-identity line (redacted above, for a signed build) can
+          # appear again here if Electron's own crash reporter echoes recent
+          # log output on the way out.
+          show_log() {
+            local log_file="$1" label="$2"
+            echo "--- last 40 lines of the $label log (redacted) ---"
+            if [ -f "$log_file" ]; then
+              tail -n 40 "$log_file" | bash build/redact-signing-log.sh
+            else
+              echo "(no log — the app never started)"
+            fi
+          }
+
+          status=0
+
+          arm64_log="$RUNNER_TEMP/smoke-arm64.log"
+          if ! launch "release/mac-arm64/Context.app/Contents/MacOS/Context" "$arm64_log"; then
+            status=1
+          fi
+          show_log "$arm64_log" "arm64"
+
+          # This runner is arm64 (`macos-latest` has been an Apple Silicon
+          # image since macos-14), so the x64 build under `release/mac/` needs
+          # Rosetta to run at all — and GitHub's arm64 runner images do not
+          # carry it by default. Probed rather than assumed: `arch -x86_64`
+          # against a no-op fails cleanly with "Bad CPU type in executable"
+          # when Rosetta is absent, and that failure is reported as a skip, not
+          # folded into `status`, because it is a fact about the runner rather
+          # than about the app. If a later runner image ships Rosetta, or
+          # `macos-latest` ever means an Intel image again, this starts
+          # covering the x64 artifact with no edit needed here.
+          runner_arch="$(uname -m)"
+          if [ "$runner_arch" != "arm64" ]; then
+            echo "Runner reports $runner_arch, not arm64 — running the x64 build natively."
+            run_x64=true
+          elif arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
+            echo "Rosetta is available on this arm64 runner — running the x64 build under it too."
+            run_x64=true
+          else
+            echo "::warning::Rosetta is not installed on this arm64 runner, so the x64 build cannot be launched here. The arm64 launch above is what gates this job; the x64 artifact ships unverified by this step until Rosetta is available on this image or a Mac confirms it by hand."
+            run_x64=false
+          fi
+
+          if [ "$run_x64" = "true" ]; then
+            x64_log="$RUNNER_TEMP/smoke-x64.log"
+            if ! launch "release/mac/Context.app/Contents/MacOS/Context" "$x64_log"; then
+              status=1
+            fi
+            show_log "$x64_log" "x64"
+          fi
+
+          exit "$status"
+
       - uses: actions/upload-artifact@v4
         with:
           # Everything a Mac needs to install this build or test the updater

@@ -1043,6 +1043,101 @@ THE MACHINE'S OWN GRANT"*: the shell records, every write reaches
 a shell takes three tests red; acking a queued finalize as written takes one;
 dropping an unroutable destination instead of refusing it takes one.
 
+### A release is a build that started
+
+A Mac session's report on 2026-09-07 is why this section exists: the signed,
+notarised artifact that `deploy-desktop.yml` had been producing crashed on
+launch —
+`Dynamic require of "events"`, from `electron-updater`'s inlined CommonJS —
+and nothing in this repository had ever started the app it packages. 922
+checks passed on a build that could not open a window, because every one of
+them checks what the build *contains*, not whether it *runs*. The Gatekeeper
+verification `#285` added (*"Verify the signed app inside each dmg"*) comes
+closest and still is not this: `spctl`, `codesign --verify` and
+`stapler validate` all judge the app's signature and its packaging, and none
+of them execute a single instruction of it.
+
+**The fix is not a smarter static check — it is running the thing.** The Mac
+session's own pull request gives the app a `--smoke` mode: initialise, open
+the console window, log one line, exit 0 within 10 seconds; exit non-zero on
+any uncaught error or if no window was created. This decision is the other
+half, owned here: a step in `deploy-desktop.yml`, *"Launch the app it just
+built"*, that runs `Context.app/Contents/MacOS/Context --smoke` against the
+exact binary electron-builder just produced, on a 30-second deadline enforced
+with `perl -e 'alarm 30; exec @ARGV'` (macOS ships no `timeout(1)`, and `exec`
+keeps the same PID so there is no wrapper process left to reap), and fails the
+job on a non-zero exit, on the process still running past the deadline
+(`alarm`'s `SIGALRM` surfaces as exit 142), or on the captured log naming
+`Uncaught Exception`, `A JavaScript error occurred`, or `Dynamic require` —
+the exact three strings a caught-and-swallowed crash can still leave behind
+after exiting 0.
+
+Four decisions inside that one step.
+
+**It runs on the unsigned path too, unconditionally.** `spctl`'s refusal is a
+check against the quarantine attribute a *download* sets; a binary this same
+runner just built and executes by its own path never carries one, so an
+unsigned build launches here exactly as a signed one does. Nothing in the step
+is gated on `steps.certificate.outputs.signed` or
+`steps.notarize_check.outputs.notarized` — which matters because `publish`
+defaults to `false` and most dispatches never reach a signed, notarised build
+at all. Gating the launch on either would have left the common path — the one
+the original crash report actually came from — exactly as unguarded as it was
+before this decision.
+
+**It sits before the artifact upload, and after the point where a requested
+publish already happened — stated rather than hidden.** `electron-builder
+--mac --config electron-builder.yml --publish always` runs *inside* the Build
+step; electron-builder's own GitHub provider uploads to the release as part of
+building, not as something a later workflow step can still refuse to reach. So
+a `publish: true` dispatch of a build that fails this gate has, by the time
+this step runs, already shipped a release — the same shape the Gatekeeper
+check directly above it already lives with, verifying a dmg whose bytes are,
+by construction, already on disk. What this step *does* unconditionally
+prevent is the artifact upload two steps below it (`actions/upload-artifact`),
+on every dispatch, and it still fails the job in red on a publish that already
+went out, which is what stops that release being trusted or merged around
+rather than what stops it existing. Closing the second half — never letting
+electron-builder publish before this gate runs — needs decoupling build from
+publish (build once with `--publish never`, gate, then publish the exact
+smoke-tested files with a separate `gh release create` rather than a second
+electron-builder invocation, which would re-sign and re-notarise a different
+set of bytes than the ones just tested). That is real surgery on a
+security-relevant path and is deliberately not bundled into this change;
+flagged here as the next step rather than done silently or claimed as already
+done.
+
+**The x64 launch is attempted only where the runner can actually run it.**
+`macos-latest` has been an Apple Silicon image since macos-14, and an arm64
+runner needs Rosetta to execute the x64 build under `release/mac/` at all —
+GitHub's arm64 images do not carry it by default. `arch -x86_64 /usr/bin/true`
+probes for it rather than assuming either way; its absence is a named
+`::warning::` skip, not folded into the job's pass/fail, because it is a fact
+about the runner rather than about the app. The **arm64 launch is what
+actually gates this job** — it is unconditional — and the x64 skip means that
+build ships with this one check unverified until Rosetta lands on the image or
+a person confirms it by hand, exactly as honestly stated as every other gap
+this file already documents (system audio, Gatekeeper trust on somebody else's
+Mac).
+
+**Only the last 40 lines of the captured log reach a public log, through the
+same `build/redact-signing-log.sh` the Build step already pipes through.** A
+crash log is exactly the kind of thing somebody pastes into an issue, and
+Electron's own crash reporter can echo recent log output on the way out —
+including, in principle, the signing-identity line `#285` already redacts
+once. Reusing the one shared script rather than a second copy of its pattern
+is the same reasoning `#285`'s own decision gives for that script existing at
+all: two copies of a regex are two chances for them to drift, and the exact
+way this repository's own redaction bug shipped once already.
+
+**The test that fails if this is reversed**: `packaging.test.mjs`'s
+`"IT PRECEDES THE ARTIFACT UPLOAD — nothing that fails this gate is ever
+kept"` reads the step order in `deploy-desktop.yml` and fails if the launch
+step is not strictly before `actions/upload-artifact@v4`; deleting the step
+outright takes twelve checks in that file red at once, and dropping any one of
+the three crash strings from its grep takes exactly one red — both counted by
+sabotaging the actual workflow file and restoring it, not guessed at.
+
 ### What is deliberately not built
 
 Not built, and none of them foreclosed:

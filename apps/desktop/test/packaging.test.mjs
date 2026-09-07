@@ -35,6 +35,9 @@
  *   the `publish` input's default flipped to `true`                            1
  *   the build job's `contents: write` override dropped back to `read`          1
  *   the exact-pin regex given its `\^?` back, and `electron-updater` re-floated 1
+ *   the launch-the-built-app step removed outright                             12
+ *   that step moved to after the artifact upload                               1
+ *   `Dynamic require` dropped from the launch step's crash-string grep         1
  *
  * The first one was measured at **0** before these checks were asked of the
  * plist\'s keys rather than of its text: that file\'s header discusses every
@@ -716,6 +719,84 @@ export async function runPackagingChecks(check) {
   check(
     "nothing about a branch triggers this workflow, signing or no signing",
     /^on:\n  workflow_dispatch:/m.test(WORKFLOW) && !/^\s*(push|pull_request):/m.test(WORKFLOW),
+  );
+
+  // -- the app it just built is started, not just signed --------------------
+  /*
+    A Mac session found that the signed, notarised artifact this workflow had
+    been producing crashed on launch (`Dynamic require of "events"`, from
+    electron-updater's inlined CommonJS) and that nothing in this repository
+    had ever started the app it publishes: 922 checks passing on a build that
+    could not open a window. `--smoke` (a separate pull request, owned there —
+    initialise, open the console window, log one line, exit 0 within 10s;
+    non-zero on any uncaught error or if no window was created) is the app's
+    half; this is the workflow's: a step that actually runs the binary
+    electron-builder just produced and fails the job if it did not survive.
+  */
+  const uploadStep = steps.find((step) => /upload-artifact@v4/.test(step));
+  const launchStep = steps.find((step) => /--smoke/.test(step));
+
+  check("a step launches the app that was just built, with --smoke", launchStep !== undefined);
+  check(
+    "...running the arm64 build electron-builder actually produced, not a guessed path",
+    launchStep !== undefined && /release\/mac-arm64\/Context\.app\/Contents\/MacOS\/Context/.test(launchStep),
+  );
+  check(
+    "IT PRECEDES THE ARTIFACT UPLOAD — nothing that fails this gate is ever kept",
+    launchStep !== undefined &&
+      uploadStep !== undefined &&
+      steps.indexOf(launchStep) < steps.indexOf(uploadStep),
+  );
+  /*
+    The one thing this cannot do, stated rather than hidden: `--publish always`
+    runs INSIDE `electron-builder --mac` in the Build step, so a `publish: true`
+    dispatch has already uploaded to a GitHub Release by the time any step
+    after Build runs — the same shape as the Gatekeeper check directly above
+    this one, which also verifies a dmg whose contents are, by construction,
+    already written to disk. What is asserted here is what is actually true:
+    the launch step runs after Build (so it exercises the exact bits Build
+    produced) and before the artifact upload, on every dispatch — so it still
+    fails the job, in red, on a build that cannot start, whether or not
+    electron-builder had already shipped it to a release the moment before.
+  */
+  check(
+    "...and it runs after Build, so it is testing the exact bits that were produced, not a stale copy",
+    launchStep !== undefined && buildStep !== undefined && steps.indexOf(buildStep) < steps.indexOf(launchStep),
+  );
+  check(
+    "IT GREPS THE LOG FOR ALL THREE CRASH STRINGS FROM THE MAC SESSION'S REPORT",
+    launchStep !== undefined &&
+      /Uncaught Exception/.test(launchStep) &&
+      /A JavaScript error occurred/.test(launchStep) &&
+      /Dynamic require/.test(launchStep),
+  );
+  check(
+    "...even when the process exits 0 — a caught crash logged and swallowed is still a crash",
+    launchStep !== undefined && /grep -qE "\$CRASH_STRINGS"/.test(launchStep) && /log_file/.test(launchStep),
+  );
+  check(
+    "A NON-ZERO EXIT FAILS THE STEP",
+    launchStep !== undefined && /-ne 0/.test(launchStep),
+  );
+  check(
+    "...AND SO DOES STILL RUNNING PAST THE DEADLINE — macOS has no timeout(1), so this is `perl -e 'alarm N; exec @ARGV'`, exec'd into the app itself",
+    launchStep !== undefined && /alarm 30/.test(launchStep) && /exec @ARGV/.test(launchStep) && /-eq 142/.test(launchStep),
+  );
+  check(
+    "IT RUNS ON BOTH THE SIGNED AND THE UNSIGNED PATH — nothing here is gated on steps.certificate or steps.notarize_check",
+    launchStep !== undefined && !/steps\.certificate/.test(launchStep) && !/steps\.notarize_check/.test(launchStep),
+  );
+  check(
+    "the x64 build is attempted only where the runner can actually run it — an arm64 runner without Rosetta is a skip, not a false pass",
+    launchStep !== undefined && /arch -x86_64/.test(launchStep) && /release\/mac\/Context\.app\/Contents\/MacOS\/Context/.test(launchStep),
+  );
+  check(
+    "...and the skip is a warning that names the gap, not a silent no-op",
+    launchStep !== undefined && /::warning::/.test(launchStep) && /Rosetta/.test(launchStep),
+  );
+  check(
+    "the captured log is shown only as its last 40 lines, through the same shared redaction script the Build step uses",
+    launchStep !== undefined && /tail -n 40/.test(launchStep) && /redact-signing-log\.sh/.test(launchStep),
   );
 
   // -- the hook when Apple says no -------------------------------------------
