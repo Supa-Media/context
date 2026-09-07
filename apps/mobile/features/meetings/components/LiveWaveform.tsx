@@ -1,4 +1,4 @@
-import { useAudioLevel } from "../capture/level";
+import { useAudioLevel } from "../capture";
 import { Waveform } from "./Waveform";
 
 /**
