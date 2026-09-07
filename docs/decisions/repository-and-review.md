@@ -41,17 +41,25 @@ its own monorepo's workspace, which is not this repo's shape. So this repo
 keeps its own `publish-hook.yml` rather than calling into the framework, but
 aligned to the framework's actual mechanism rather than inventing a second
 one: the same `NODE_AUTH_TOKEN`/`registry-url`/`scope` shape `setup-node` uses
-in `release.yml`, and the same secret name, `NPM_TOKEN` — so the org's
-existing npm automation token (the one that already publishes every
-`@supa-media/*` package from `supa-framework`) is the one this workflow reads
-too. Reusing the *value* means reusing the *item* in each app's own
-1Password vault, per `supa-framework`'s "one vault per app" model: an
-`NPM_TOKEN` Secure Note in the `Context` vault, same three fields
+in `release.yml` — so the org's existing npm automation token (the one that
+already publishes every `@supa-media/*` package from `supa-framework`) is the
+one this workflow reads too. Reusing the *value* means reusing the *item* in
+each app's own 1Password vault, per `supa-framework`'s "one vault per app"
+model: a Secure Note in the `Context` vault, same three fields
 (`dev`/`staging`/`production`) as every other secret there, carrying the same
-token value already used elsewhere. `NPM_TOKEN` was already in
-`scripts/secrets-allowlist.json` as optional before this decision was written
-down — this section is what makes that placement a decision rather than an
-accident.
+token value already used elsewhere.
+
+The GitHub secret name is `NPMJS_SECRET`, not `NPM_TOKEN` (confirmed
+2026-09-07 by reading `supa-framework`'s own `release.yml`, which does read
+`NPM_TOKEN` — that name is correct for *that* repo's own vault item). The
+`Context` vault's item for this token is named `NPMJS_SECRET`; each app vault
+names its own items independently, and `scripts/secrets-allowlist.json` /
+`sync-secrets.yml` map an allowlist name straight to the vault item of that
+same name, so `publish-hook.yml` and the allowlist follow the `Context`
+vault's actual name rather than the framework's. `NPMJS_SECRET` was already
+in `scripts/secrets-allowlist.json` as optional before this decision was
+written down — this section is what makes that placement a decision rather
+than an accident.
 
 **What a "simplification" of this would cost:** a product picks its own scope
 (`@context-lc`, or a bare unscoped name) because it feels like its own thing.
