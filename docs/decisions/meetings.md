@@ -1199,6 +1199,62 @@ silent redirection this whole seam exists to close. Neither is obviously right,
 so neither is taken. The person's notes are on the device and are not lost; what
 they cannot do is get them into the bucket without discarding and re-recording.
 
+### The Mac app is signed by a workflow nobody's branch can start, and builds honestly unsigned until then
+
+System audio is the reason a desktop app exists — the machine hears the meeting
+so no bot has to join it — and macOS will not hand it to an app it has not
+verified. That makes packaging load-bearing rather than a chore: a hardened
+runtime, `com.apple.security.device.audio-input`, three `Info.plist` usage
+strings, a Developer ID signature and a notarisation ticket. Without them the
+app records the microphone, degrades out loud, and the far side of a call on
+headphones is not in the transcript.
+
+Three decisions, and the first is the one that could have gone the other way.
+
+**It builds with no credentials at all.** The certificate and the App Store
+Connect key do not exist yet and only the account holder can create them. A
+pipeline that could not run until they did would be a pipeline nobody had ever
+run, so the unsigned path is a first-class outcome: a real `.dmg`, a printed
+warning saying it is unsigned and will get no system audio, and the same
+dispatch signing the day five environment values appear. What that costs is that
+"the build worked" is a weaker statement than it sounds, which is why the
+workflow says which kind of build it made rather than leaving it to be
+discovered on somebody's Mac.
+
+**`workflow_dispatch` only.** Merging deploys the Convex functions, the gateway
+and an OTA bundle, because those are reversible by the next merge. A binary
+somebody downloads and installs is not, and CLAUDE.md already names "a native
+build" as what a merge cannot do on its own. `deploy-mobile-native.yml` set the
+precedent and this follows it, including the consequence: **merging a desktop
+change ships nothing** until somebody dispatches.
+
+**electron-builder rather than Forge**, because the whole job is signing,
+entitlements, notarisation and a dmg, and that is one file rather than a plugin
+per step. `@supa-media/desktop` (supa-framework#56) is not published, so
+upstream-first is a direction rather than an option today; the config is small
+so adopting it later is a deletion.
+
+A "simplification" that dropped `entitlementsInherit` would leave the renderer
+that holds the microphone without the entitlement while the app kept it — a
+build that signs, notarises, opens, and records silence. The checks are in
+`apps/desktop/test/packaging.test.mjs`, and the sabotage record there includes
+the one that matters most: the first version of those checks read the
+entitlements file as text, so deleting the entitlement left them green because
+the file's own header discusses it.
+
+**The notarisation hook's *failing* path is checked too, and it is the other
+half of "all three or none".** A skip when there is nothing to notarise with is
+the friendly half; the load-bearing half is that a submission Apple *refuses*
+fails the build, because a `catch` added later "to be resilient" produces a
+green run and a dmg Gatekeeper rejects and macOS grants no microphone to —
+which is the same silent-success outcome every other check here exists to stop,
+arriving through a different door. And the `ASC_API_KEY_P8` private key the hook
+must write to disk for `notarytool` is checked as *gone afterwards on the failing
+path*, since a failed submission is exactly where a `finally` gets dropped:
+`A NOTARISATION APPLE REFUSED FAILS THE BUILD` and
+`THE PRIVATE KEY IS GONE AFTER A FAILED SUBMISSION`, both driven against a fake
+Apple.
+
 ### What is deliberately not built
 
 Not built, and none of them foreclosed:
