@@ -55,11 +55,17 @@ function mount(doc: string, cursor: number, extra: Extension[] = []): EditorView
   return view;
 }
 
-/** Dispatch a real `keydown` at the content DOM, the way a keyboard does. */
-function press(view: EditorView, key: string, shift = false): void {
-  view.contentDOM.dispatchEvent(
-    new KeyboardEvent("keydown", { key, shiftKey: shift, bubbles: true, cancelable: true }),
-  );
+/**
+ * Dispatch a real `keydown` at the content DOM, the way a keyboard does.
+ * Returns whether the event's default was prevented — CodeMirror only calls
+ * `preventDefault()` when a binding actually handled the key, so this is how
+ * a test tells "Tab moved focus" (unhandled) from "Tab was intercepted"
+ * (handled) without a real DOM to observe focus movement in.
+ */
+function press(view: EditorView, key: string, shift = false): boolean {
+  const event = new KeyboardEvent("keydown", { key, shiftKey: shift, bubbles: true, cancelable: true });
+  view.contentDOM.dispatchEvent(event);
+  return event.defaultPrevented;
 }
 
 describe("K1 — Tab indents a list item, Shift-Tab outdents it", () => {
@@ -101,6 +107,27 @@ describe("K1 — Tab indents a list item, Shift-Tab outdents it", () => {
     press(view, "Tab");
     expect(view.state.doc.toString()).toBe("- one");
   });
+
+  test("Tab outside a list keeps its previous behaviour: unhandled, document untouched", () => {
+    // Two paragraphs separated by a blank line, so the second is not a lazy
+    // continuation of any list — plain prose with no list ancestor at all.
+    const doc = "- one\n\nplain paragraph";
+    const view = mount(doc, doc.indexOf("plain") + 2);
+    const prevented = press(view, "Tab");
+    // Unhandled: CodeMirror never called `preventDefault`, so the browser's
+    // own Tab behaviour (move focus to the next control) still applies —
+    // exactly what happened here before K1 added any binding at all.
+    expect(prevented).toBe(false);
+    expect(view.state.doc.toString()).toBe(doc);
+  });
+
+  test("Shift-Tab outside a list is equally unhandled", () => {
+    const doc = "plain paragraph, no list anywhere in this note";
+    const view = mount(doc, 5);
+    const prevented = press(view, "Tab", true);
+    expect(prevented).toBe(false);
+    expect(view.state.doc.toString()).toBe(doc);
+  });
 });
 
 describe("P1 — the note editor accepts spellcheck", () => {
@@ -111,5 +138,38 @@ describe("P1 — the note editor accepts spellcheck", () => {
     // since a missing attribute and `spellcheck="true"` both read `true` off
     // the property in some environments.
     expect(view.contentDOM.getAttribute("spellcheck")).toBe("true");
+  });
+});
+
+describe("R3 — highlighting never edits the buffer", () => {
+  test("opening a note with JS, HTML and CSS fences leaves the buffer byte-identical", () => {
+    // Through the real, mounted editor rather than `decorationsFor` alone —
+    // `livePreview.test.ts` already proves the pure decoration functions
+    // don't touch the doc; this proves the same of the whole configuration
+    // `editorExtensions` assembles, `codeHighlighting()` included, the way a
+    // note actually opens.
+    const doc = [
+      "# Notes",
+      "",
+      "```js",
+      "const x = 1; // running total",
+      "```",
+      "",
+      "```html",
+      "<div class=\"x\">hi</div>",
+      "```",
+      "",
+      "```css",
+      ".x { color: red; }",
+      "```",
+    ].join("\n");
+    const view = mount(doc, 0);
+    // Moving the caret through the document is what a person opening a note
+    // and reading it does, and it's also what makes Live Preview recompute
+    // its decorations — the moment a stray edit would show up if one existed.
+    for (let pos = 0; pos <= doc.length; pos += 7) {
+      view.dispatch({ selection: { anchor: pos } });
+    }
+    expect(view.state.doc.toString()).toBe(doc);
   });
 });
