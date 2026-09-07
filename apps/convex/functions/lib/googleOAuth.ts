@@ -218,6 +218,21 @@ export function googleAuthorizeUrl(options: {
   // omits the refresh token on a silent re-approval regardless, which is the
   // failure `access_type=offline` above exists to prevent.
   url.searchParams.set("prompt", "consent");
+  // WITHOUT THIS, ADDING A SECOND PRODUCT SILENTLY DROPS THE FIRST ONE'S
+  // MAIL ACCESS. Google grants exactly what one request asks for — a
+  // Calendar-only "add Calendar" request to an account that already granted
+  // Gmail comes back with a refresh token covering Calendar alone, and the
+  // next Gmail sync fails with a scope it no longer has. This tells Google's
+  // authorization server to fold in whatever this account already granted
+  // this client, so the resulting grant is the union rather than the
+  // request. It costs nothing on a first connect (there is nothing prior to
+  // include) and is exactly what an "add a product" flow needs on every
+  // later one — see `googleConnect.ts`'s `applyGmailConnectionBinding` for
+  // the other half of this: every product's scope slice is still recomputed
+  // from whatever Google actually returns, never assumed from what was
+  // requested, so a downgraded consent still shows up honestly even with
+  // this set.
+  url.searchParams.set("include_granted_scopes", "true");
   url.searchParams.set("scope", options.scopes.join(" "));
   url.searchParams.set("state", options.state);
   return url.toString();

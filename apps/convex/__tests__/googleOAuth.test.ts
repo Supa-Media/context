@@ -174,6 +174,33 @@ describe("the authorize URL", () => {
     expect(url.searchParams.get("scope")).toBe(GMAIL_REQUEST_SCOPES.join(" "));
   });
 
+  /**
+   * WITHOUT THIS, adding a second product to an account silently drops the
+   * first: Google grants exactly what one request asks for, so a
+   * Calendar-only "add Calendar" to an account that already granted Gmail
+   * comes back covering Calendar alone. This is the shared half of the fix —
+   * `googleConnect.ts`'s per-connection tests cover the app-side union that
+   * backs it up.
+   *
+   * Sabotage, measured: commenting out the `include_granted_scopes` line in
+   * `googleAuthorizeUrl` fails this test and `calendarConnect.test.ts`'s
+   * "also carries include_granted_scopes" test — 2 failures across the two
+   * files, both landing on this exact line; every other test in both files
+   * stays green.
+   */
+  test("always requests the union of previously granted scopes, not just this request's", () => {
+    const url = new URL(
+      googleAuthorizeUrl({
+        clientId: FAKE_CLIENT_ID,
+        redirectUri: FAKE_REDIRECT_URI,
+        challenge: RFC7636_CHALLENGE,
+        state: FAKE_STATE,
+        scopes: GMAIL_REQUEST_SCOPES,
+      }),
+    );
+    expect(url.searchParams.get("include_granted_scopes")).toBe("true");
+  });
+
   test("refuses a URL with no state — an optional CSRF token is one that gets omitted", () => {
     expect(() =>
       googleAuthorizeUrl({

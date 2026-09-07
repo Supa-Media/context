@@ -144,7 +144,14 @@ export const DEFAULT_ATTACHMENT_RETENTION_DAYS = 90;
 type AttachmentMode = "metadata-only" | "store";
 type AttachmentRetention = number | "forever";
 
-function requireGoogleClientId(): string {
+// The four helpers below are exported for `calendarConnect.ts` (and Chat's
+// sibling module): one OAuth client id, one client secret, one "who is
+// calling" check, one "that attempt is gone" refusal — true of every
+// product's connect flow because it is the same client and the same parked
+// attempt shape, not a Gmail-specific fact. Reusing them is what keeps "how
+// do we know who is calling" from becoming a second implementation the day
+// it needs to change.
+export function requireGoogleClientId(): string {
   const id = process.env[GOOGLE_CLIENT_ID_ENV_VAR];
   if (typeof id !== "string" || id.length === 0) {
     throw new ConvexError({
@@ -156,12 +163,12 @@ function requireGoogleClientId(): string {
 }
 
 /** Optional, like Dropbox's app secret — see `googleOAuth.ts` for why PKCE covers the flow either way. */
-function readGoogleClientSecret(): string | undefined {
+export function readGoogleClientSecret(): string | undefined {
   const secret = process.env[GOOGLE_CLIENT_SECRET_ENV_VAR];
   return typeof secret === "string" && secret.length > 0 ? secret : undefined;
 }
 
-async function requireActor(ctx: {
+export async function requireActor(ctx: {
   auth: { getUserIdentity: () => Promise<unknown> };
 }): Promise<Id<"users">> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -172,7 +179,7 @@ async function requireActor(ctx: {
   return userId as Id<"users">;
 }
 
-function refuseAttempt(): never {
+export function refuseAttempt(): never {
   throw new ConvexError({
     code: "CONNECT_ATTEMPT_INVALID",
     message: "That connection attempt has expired. Start it again.",
