@@ -852,7 +852,7 @@ describe("the chunk id a client may send", () => {
       "chunk#1",
       "chunk%2e%2e",
       "<script>",
-      "‮evil",
+      "\u202eevil",
     ]) {
       const { error, requests } = await withChunkId(chunkId);
       expect(errorCode(error), JSON.stringify(chunkId)).toBe("INVALID_CHUNK_ID");
@@ -863,7 +863,7 @@ describe("the chunk id a client may send", () => {
   test("the refusal names the field without quoting what was sent", async () => {
     // The value is caller-supplied text and this message goes back to a client;
     // echoing it is how a refusal becomes a reflection.
-    const marker = "‮reflected-marker-value";
+    const marker = "\u202ereflected-marker-value";
     const { error } = await withChunkId(marker);
     const message = (error as { data?: { message?: string } })?.data?.message ?? "";
     expect(message.toLowerCase()).toContain("chunk");

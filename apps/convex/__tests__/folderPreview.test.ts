@@ -663,20 +663,20 @@ describe("a private subfolder is not named by an upward-visible child", () => {
 describe("format characters do not reach a card", () => {
   test("a bidi override in a filename is stripped, not escaped", async () => {
     const store = await bucket();
-    store.seed("1-projects/transition/a‮gnp.exe‭.md", "# spoofed\n");
+    store.seed("1-projects/transition/a\u202egnp.exe\u202d.md", "# spoofed\n");
     const children = await childrenOf(store, "1-projects/transition");
     const named = children.find((name) => name.includes("gnp"));
     expect(named, "the file must still be named").toBeDefined();
-    for (const hostile of ["‮", "‭", "⁦", "⁩", "​"]) {
+    for (const hostile of ["\u202e", "\u202d", "\u2066", "\u2069", "\u200b"]) {
       expect(named).not.toContain(hostile);
     }
   });
 
   test("a zero-width space cannot hide inside a name", async () => {
     const store = await bucket();
-    store.seed("1-projects/transition/a​b.md", "# split\n");
+    store.seed("1-projects/transition/a\u200bb.md", "# split\n");
     const children = await childrenOf(store, "1-projects/transition");
-    expect(children.some((name) => name.includes("​"))).toBe(false);
+    expect(children.some((name) => name.includes("\u200b"))).toBe(false);
   });
 });
 

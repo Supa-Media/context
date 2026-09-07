@@ -68,7 +68,25 @@ export const FENCE_MARKER = "context:untrusted-communication";
 /** What a message with no subject is called, so a heading is never empty. */
 export const NO_SUBJECT = "(no subject)";
 
-const ENCODER = new TextEncoder();
+/*
+  Constructed on first use, not at module load.
+
+  `utf8Length` is the only caller, and it is a *rendering* concern (the split
+  planner's byte budget) — a reader that only ever parses a day back, this
+  console's own `parseChannelDayMessages` included, never reaches it. Some
+  jsdom-backed test environments do not expose `TextEncoder` as a global at
+  all (`jest-environment-jsdom` does not polyfill it), so building one eagerly
+  turned "import this package's parser" into a crash on every screen that
+  merely imports `@context/communications` under such an environment, whether
+  or not the app ever renders a day. A lazily-built singleton pays the
+  construction cost once, on the rendering path that actually needs it, and
+  never on a path that only reads.
+*/
+let cachedEncoder = null;
+function encoder() {
+  if (cachedEncoder === null) cachedEncoder = new TextEncoder();
+  return cachedEncoder;
+}
 
 /**
  * One line, with everything that could end it removed.
@@ -143,7 +161,7 @@ export function defangOutsideFence(text) {
 
 /** How many bytes this string costs in the file. */
 export function utf8Length(text) {
-  return ENCODER.encode(String(text ?? "")).length;
+  return encoder().encode(String(text ?? "")).length;
 }
 
 /**
@@ -236,15 +254,35 @@ function renderMessage(event, nonce) {
 
   const attachments = Array.isArray(event?.attachments) ? event.attachments : [];
   if (attachments.length) {
-    // Described, never copied. Storing bytes is opt-in and goes through the
-    // digest-keyed `.images/` store the email worker already uses; a filename
-    // is a sender-chosen string and stays defanged text in a list.
-    lines.push("", "**Attachments** (not stored):");
+    // Per-item, not a blanket header claim: an attachment the sync job fetched
+    // carries a `path` into the connection's own `attachments/` folder and is
+    // linked; one it never fetched — too large, quota-bound, metadata-only
+    // mode, or expired off retention — is named and sized only. Both are
+    // legitimate outcomes of the same field, so the note says which one this
+    // attachment got rather than asserting "(not stored)" for every row.
+    lines.push("", "**Attachments**:");
     for (const attachment of attachments) {
       const name = defangOutsideFence(singleLine(attachment?.filename)) || "(unnamed)";
       const type = singleLine(attachment?.contentType) || "application/octet-stream";
       const size = Number.isFinite(attachment?.size) ? `${Math.trunc(attachment.size)} bytes` : "unknown size";
-      lines.push(`- ${name} — ${type}, ${size}`);
+      // `[[path|label]]` — the sender-chosen filename is the LABEL, going
+      // through the same defang every other sender string outside a fence
+      // does. The PATH half is supposed to be ours: built from a content hash
+      // and a filename the gateway's `sanitizeAttachmentFilename` already
+      // stripped of `[`, `]`, `|` and `#`. **This renderer does not take that
+      // on trust**, because it is a pure function in a package with several
+      // callers and one of them getting its sanitiser wrong should cost a
+      // broken-looking link, not a second wikilink a stranger chose in a note
+      // presented as the owner's own. A path that still carries link syntax
+      // after that is not defanged into something odd-looking — a storage key
+      // that contains `]]` was never a key this product wrote, so it is
+      // refused outright and the attachment renders as unstored.
+      const path = singleLine(attachment?.path);
+      if (path && !/[[\]|#]/.test(path)) {
+        lines.push(`- [[${path}|${name}]] — ${type}, ${size}`);
+      } else {
+        lines.push(`- ${name} — ${type}, ${size} (not stored)`);
+      }
     }
   }
 
@@ -479,4 +517,148 @@ export function parseChannelDayNote(text) {
     if (heading) messages.push({ anchor: heading[2], summary: heading[1].trim(), thread });
   }
   return { frontmatter, title, messages, anchors: messages.map((entry) => entry.anchor) };
+}
+
+/** `## Thread — ` in a rendered note, standing alone so both readers agree with the renderer. */
+const THREAD_HEADING_PREFIX = "## Thread — ";
+
+/** The line `renderMessage` puts before every attachment list. */
+const ATTACHMENTS_LABEL = "**Attachments** (not stored):";
+
+/** One `- filename — type, N bytes` line, read back into its three fields. */
+const ATTACHMENT_LINE = /^-\s(.*)\s—\s(\S+),\s(.*)$/;
+
+/**
+ * Read a channel-day note back **with the message bodies**, for a reader that
+ * needs the words rather than the index `parseChannelDayNote` gives.
+ *
+ * The heading is split on " · " into at most three fields the way it is
+ * written — time, sender, subject — with everything past the second
+ * separator kept together as the subject. That is deliberate rather than a
+ * simplification: `senderLabel` is a name or an address and does not contain
+ * one, while a hostile *subject* is exactly the kind of string this corpus is
+ * tested against, and a fixed three-way split would silently move the tail of
+ * an attacker's `"a · b · c"` subject into a field that is shown as the
+ * sender's name. Losing a stray `·` out of a subject is a display detail;
+ * misattributing text a stranger wrote to the name a reader trusts is not.
+ *
+ * A body is returned exactly as it sits between its two fence markers —
+ * `defangFence` only ever *adds* a zero-width space to a forged marker
+ * inside it, so nothing here does the unfencing an attacker could exploit —
+ * and it is still fenced content: a caller renders it as a quotation, never
+ * as an instruction or as navigable markup, the same rule the note's own
+ * preamble states in prose. See `docs/decisions/app-and-console.md` for why
+ * the console that reads this back does not turn a body's `[[...]]` or
+ * `[...](...)` into a link: that defence is the one thing a renderer of
+ * *this* value must not undo.
+ *
+ * @param {string} text
+ * @returns {{
+ *   frontmatter: Record<string, string>,
+ *   title: string,
+ *   messages: Array<{
+ *     anchor: string, thread: string, time: string, sender: string,
+ *     subject: string, body: string,
+ *     attachments: Array<{filename: string, contentType: string, size: string}>,
+ *   }>,
+ * }}
+ */
+export function parseChannelDayMessages(text) {
+  const source = String(text ?? "");
+  const frontmatter = {};
+  let body = source;
+
+  if (source.startsWith("---\n")) {
+    const end = source.indexOf("\n---", 3);
+    if (end !== -1) {
+      for (const line of source.slice(4, end).split("\n")) {
+        const colon = line.indexOf(":");
+        if (colon === -1) continue;
+        const key = line.slice(0, colon).trim();
+        const raw = line.slice(colon + 1).trim();
+        let value = raw;
+        if (raw.startsWith('"')) {
+          try {
+            value = JSON.parse(raw);
+          } catch {
+            value = raw;
+          }
+        }
+        frontmatter[key] = String(value);
+      }
+      body = source.slice(end + 4);
+    }
+  }
+
+  const title = /^#\s+(.+)$/m.exec(body)?.[1]?.trim() ?? "";
+
+  const messages = [];
+  let thread = "";
+  let inFence = false;
+  let inAttachments = false;
+  /** @type {ReturnType<typeof messages[number]> | null} */
+  let current = null;
+  let bodyLines = [];
+
+  function flush() {
+    if (current === null) return;
+    current.body = bodyLines.join("\n").trim();
+    messages.push(current);
+    current = null;
+    bodyLines = [];
+    inAttachments = false;
+  }
+
+  for (const line of body.split("\n")) {
+    // A heading or a thread line inside the fence is a stranger's words that
+    // merely look like one — the same rule `parseChannelDayNote` follows, and
+    // for the same reason: only the renderer's own headings, outside every
+    // fence, are real structure.
+    if (!inFence && line.startsWith(THREAD_HEADING_PREFIX)) {
+      flush();
+      thread = line.slice(THREAD_HEADING_PREFIX.length).trim();
+      continue;
+    }
+    const heading = !inFence ? /^###\s(.*)\s\{#(msg-[0-9a-f]+)\}\s*$/.exec(line) : null;
+    if (heading) {
+      flush();
+      const fields = heading[1].split(" · ");
+      current = {
+        anchor: heading[2],
+        thread,
+        time: fields[0] ?? "",
+        sender: fields[1] ?? "",
+        subject: fields.slice(2).join(" · "),
+        body: "",
+        attachments: [],
+      };
+      continue;
+    }
+    if (current === null) continue; // the preamble, before the first message
+
+    if (line.startsWith(`<!-- ${FENCE_MARKER} begin `)) {
+      inFence = true;
+      continue;
+    }
+    if (line.startsWith(`<!-- ${FENCE_MARKER} end `)) {
+      inFence = false;
+      continue;
+    }
+    if (inFence) {
+      bodyLines.push(line);
+      continue;
+    }
+    if (line.trim() === ATTACHMENTS_LABEL) {
+      inAttachments = true;
+      continue;
+    }
+    if (inAttachments) {
+      const match = ATTACHMENT_LINE.exec(line);
+      if (match) current.attachments.push({ filename: match[1], contentType: match[2], size: match[3] });
+      continue;
+    }
+  }
+  flush();
+
+  return { frontmatter, title, messages };
 }
