@@ -382,4 +382,45 @@ describe("the link is drawn as one", () => {
     });
     expect(mounted.content.querySelectorAll(".cm-note-link")).toHaveLength(0);
   });
+
+  /**
+   * L3 (`docs/decisions/app-and-console.md` and the editor-polish sweep): a
+   * touch screen has no hover and no modifier, so the tooltip that tells a
+   * pointer user "⌘-click to open" tells a phone nothing at all. The one
+   * affordance that reaches every input device is the mark itself actually
+   * *looking* clickable — and the class existing is not that: F5→F6→F7's own
+   * lesson is that a control has to be **drawn**, not merely present in the
+   * DOM under a name. The test above only ever checked the name.
+   *
+   * `.cm-note-link`'s underline (`linkTheme` in `noteLinks.ts`) carries no
+   * density condition — no media query, no prop — so it is already exactly
+   * the "always-visible underline" the sweep's recommendation asks for rather
+   * than a heavier accessory-bar target. This is the test that was missing:
+   * it reads the *computed* style CodeMirror's `EditorView.theme` actually
+   * injected, not the class name, so a change that renamed the class or
+   * dropped the CSS rule while leaving the decoration in place would still be
+   * caught.
+   */
+  test("the affordance is actually drawn, not merely named — density-independent", () => {
+    mounted = mount();
+    const mark = mounted.content.querySelector(".cm-note-link");
+    expect(mark).not.toBeNull();
+    const style = getComputedStyle(mark as Element);
+    expect(style.textDecorationLine || style.textDecoration).toContain("underline");
+    expect(style.cursor).toBe("pointer");
+    // No compact/pointer branch exists in `linkTheme` at all, which is what
+    // makes this the phone's affordance too rather than a desktop-only one.
+    // Asserted on the theme's own CSS text so a density conditional added
+    // later would fail this rather than pass it silently.
+    const sheets = [...document.styleSheets].flatMap((sheet) => {
+      try {
+        return [...sheet.cssRules].map((rule) => rule.cssText);
+      } catch {
+        return [];
+      }
+    });
+    const rule = sheets.find((text) => text.includes(".cm-note-link") && text.includes("underline"));
+    expect(rule).toBeDefined();
+    expect(rule).not.toMatch(/@media/);
+  });
 });

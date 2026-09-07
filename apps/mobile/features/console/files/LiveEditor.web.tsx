@@ -38,12 +38,13 @@
  */
 
 import { useEffect, useRef } from "react";
-import { Compartment } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { livePreviewStyles } from "./livePreview";
+import { findInNote } from "./findInNote";
 import {
   editability,
-  editorStateFor,
+  editorExtensions,
   replaceDocument,
   runCommand,
   type HandlerRef,
@@ -362,21 +363,31 @@ export function LiveEditor({
       },
     };
 
-    const state = editorStateFor({
+    const state = EditorState.create({
       doc: value,
-      editable,
-      editableCompartment: editableCompartment.current,
-      handlers: bridged,
-      // Absent when this surface has nowhere to navigate to; the extension is
-      // then not installed at all and links are plain text.
-      links: onOpenNote === undefined && onPressNote === undefined ? undefined : links,
-      /*
-        No `insetBottom`. A mobile browser shrinks the layout viewport when the
-        keyboard opens rather than drawing over the page, so the scroller is
-        already the size of what can be seen and a margin here would push the
-        caret up by a keyboard that is covering nothing. The iOS half needs one
-        because a WKWebView keeps its full height; see `coveredBottom`.
-      */
+      // `editorExtensions` rather than `editorStateFor`: the latter is the
+      // shared entry point `webview/guest.ts` also calls, and K2's find-in-note
+      // keymap (`findInNote`) is web-only — see that module's header for why
+      // it is appended here instead of folded into the shared list.
+      extensions: [
+        ...editorExtensions({
+          editable,
+          editableCompartment: editableCompartment.current,
+          handlers: bridged,
+          // Absent when this surface has nowhere to navigate to; the extension
+          // is then not installed at all and links are plain text.
+          links: onOpenNote === undefined && onPressNote === undefined ? undefined : links,
+          /*
+            No `insetBottom`. A mobile browser shrinks the layout viewport when
+            the keyboard opens rather than drawing over the page, so the
+            scroller is already the size of what can be seen and a margin here
+            would push the caret up by a keyboard that is covering nothing.
+            The iOS half needs one because a WKWebView keeps its full height;
+            see `coveredBottom`.
+          */
+        }),
+        findInNote(),
+      ],
     });
 
     const created = new EditorView({ state, parent: host.current });
