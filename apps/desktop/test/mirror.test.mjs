@@ -63,6 +63,25 @@
  *   `MirrorStore.save` trusting the first response as the index, untyped         3
  *   `MirrorStore.save` writing an index that never fit its own budget            2
  *
+ * Found on a Mac session, offline, after the mirror above was already good:
+ *
+ *   `smokeLoadFailure` reverted to `if (loaded) return null` alone               1
+ *
+ * **That row is the second finding, and it is the one about the exit code
+ * rather than about what gets written to disk.** `--smoke-load` was failing a
+ * launch with no network even when the mirror it had just written (or a good
+ * one from a previous run) served a real `text/html` document in the live
+ * console's place — `loaded:false` was read as a failure on its own, with
+ * `snapshotIsHtmlDocument` never consulted. That is the exact false positive
+ * the x64 CI leg's own fix already argued against, one layer further out:
+ * "no network" must not read as "broken app". `wasMirrorServed` and
+ * `smokeLoadFailure` are the two checks below that this file didn't have
+ * before — the first says whether the window actually ended up showing a
+ * usable mirror, the second says the exit code cares about `loaded ||
+ * mirrorServed` and nothing narrower. Sabotaging the rule back to `loaded`
+ * alone — reverting the exact bug — reddens exactly one check: **OFFLINE WITH
+ * A USABLE MIRROR IS ALSO A PASS**.
+ *
  * **The `private` row is the finding, stated as a test.** `context.lc/console`
  * is served with `must-revalidate, private, max-age=0`; refusing `private`
  * refused the document on every load, so the only thing ever mirrored was the
@@ -126,6 +145,8 @@ import {
   resolveMirrorRequest,
   respondToFailedLoad,
   shouldMirror,
+  smokeLoadFailure,
+  wasMirrorServed,
   withOfflineNotice,
 } from "../src/core/shell/mirror.ts";
 import { MirrorStore } from "../src/main/mirrorStore.ts";
@@ -478,6 +499,49 @@ export async function runMirrorChecks(check) {
     }) === false,
   );
   check("nothing at all is not a mirror", mirrorIsUsable(null, { appVersion: APP_VERSION, liveOrigin: LIVE, nowMs: NOW }) === false);
+
+  // --- whether the window ended up showing a real mirror ---------------------
+
+  check(
+    "THE WINDOW SHOWING app://console WITH A REAL INDEX COUNTS AS SERVED",
+    wasMirrorServed(`${MIRROR_ORIGIN}/`, true) === true,
+  );
+  check(
+    "...but not when the index is not actually html — the poisoned-manifest case",
+    wasMirrorServed(`${MIRROR_ORIGIN}/`, false) === false,
+  );
+  check(
+    "...and not when nothing was ever mirrored — snapshotIsHtmlDocument is null",
+    wasMirrorServed(`${MIRROR_ORIGIN}/`, null) === false,
+  );
+  check(
+    "THE FAILURE PAGE IS NOT A SERVED MIRROR, even though it is on the same origin",
+    wasMirrorServed(`${MIRROR_ORIGIN}${MIRROR_FAILURE_PATH}`, null) === false,
+  );
+  check(
+    "the live console itself is never counted as a served mirror",
+    wasMirrorServed(`${LIVE}/console`, true) === false,
+  );
+
+  // --- `--smoke-load`'s exit rule: `loaded || mirrorServed`, and nothing else -
+
+  const DEADLINE = 30_000;
+  check(
+    "A LIVE LOAD IS A PASS ON ITS OWN, whatever the mirror did",
+    smokeLoadFailure({ loaded: true, mirrorServed: false, deadlineMs: DEADLINE }) === null,
+  );
+  check(
+    "OFFLINE WITH A USABLE MIRROR IS ALSO A PASS — no network is not a broken app",
+    smokeLoadFailure({ loaded: false, mirrorServed: true, deadlineMs: DEADLINE }) === null,
+  );
+  check(
+    "OFFLINE WITH NO MIRROR IS THE ONLY FAILURE",
+    smokeLoadFailure({ loaded: false, mirrorServed: false, deadlineMs: DEADLINE }) !== null,
+  );
+  check(
+    "the failure names the deadline that was actually armed",
+    smokeLoadFailure({ loaded: false, mirrorServed: false, deadlineMs: DEADLINE })?.includes(String(DEADLINE)),
+  );
 
   // --- which file answers a request -----------------------------------------
 
