@@ -61,7 +61,7 @@ import {
   positionPanelUnderTray,
   revealNotepadQuietly,
 } from "./windows.ts";
-import { consoleOrigin, consoleUrl } from "../core/shell/console.ts";
+import { consoleOrigin, consoleUrl, mayAnswerSender } from "../core/shell/console.ts";
 import { CONSOLE_ORIGIN_CHANNEL, CONSOLE_SHELL_CHANNEL } from "../preload/console.ts";
 import { CHANNELS, COMMANDS } from "./ipc.ts";
 import type { UiState } from "./ipc.ts";
@@ -651,13 +651,29 @@ function openConsoleWindowIfAsked(): void {
     return;
   }
   const origin = consoleOrigin(url);
+  const win = createConsoleWindow(url, RENDERER_DIR);
+  /*
+    Who the main process will answer, as `mayAnswerSender` wants it: this
+    window's web contents, and its main frame rather than something it embeds.
+    Both are read off `event` — a page cannot spell either of them.
+
+    `null` is the refusal, and it is the refusal the preload already fails
+    closed on: `pinnedOrigin()` does `String(… ?? "")`, and an empty pin exposes
+    no bridge. `event.returnValue` has to be SET whatever the answer is, because
+    a `sendSync` that no listener answers hangs the renderer.
+  */
+  const senderEvidence = (event: Electron.IpcMainEvent) => ({
+    isConsoleWindow: event.sender === win.webContents,
+    isMainFrame: event.senderFrame === event.sender.mainFrame,
+  });
   ipcMain.on(CONSOLE_ORIGIN_CHANNEL, (event) => {
-    event.returnValue = origin;
+    event.returnValue = mayAnswerSender(senderEvidence(event)) ? origin : null;
   });
   ipcMain.on(CONSOLE_SHELL_CHANNEL, (event) => {
-    event.returnValue = { app: app.getName(), version: app.getVersion(), platform: "macos" };
+    event.returnValue = mayAnswerSender(senderEvidence(event))
+      ? { app: app.getName(), version: app.getVersion(), platform: "macos" }
+      : null;
   });
-  const win = createConsoleWindow(url, RENDERER_DIR);
   win.once("ready-to-show", () => win.show());
 }
 

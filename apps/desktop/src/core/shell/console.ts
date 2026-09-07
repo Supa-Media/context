@@ -146,10 +146,13 @@ export interface BridgeExposure {
  *    on the console page is otherwise a fully-privileged bridge belonging to
  *    whoever the page embedded.
  *
- * The main process re-checks the sender on every channel it handles, because
- * this function runs in the renderer and a compromised renderer is the threat.
- * The two are not one check written twice: this one decides what is *exposed*,
- * that one decides what is *answered*, and either alone leaves a hole.
+ * This function runs in the renderer, and a compromised renderer is the threat,
+ * so it is not the only layer: `mayAnswerSender` below is what the main process
+ * applies to the sender of every console channel, and the two are not one check
+ * written twice. **That one decides which renderer is answered — by frame
+ * identity, which the page cannot spell — and this one decides which document
+ * is trusted.** Either alone leaves a hole, and for ten days after this
+ * paragraph was first written the second one existed only in this paragraph.
  */
 export function shouldExposeBridge(exposure: BridgeExposure): boolean {
   const { pinned, origin, isTopFrame } = exposure;
@@ -157,4 +160,63 @@ export function shouldExposeBridge(exposure: BridgeExposure): boolean {
   if (pinned === "" || pinned === "null") return false;
   if (origin === "" || origin === "null") return false;
   return origin === pinned;
+}
+
+/**
+ * What the main process can see about who sent an IPC message.
+ *
+ * Two facts, both read off `event` in `main/index.ts` and neither of them the
+ * renderer's word for anything — which is the difference between this and
+ * `shouldExposeBridge`, where `location.origin` is what the document says
+ * about itself.
+ */
+export interface SenderEvidence {
+  /** `event.sender === consoleWindow.webContents`. */
+  isConsoleWindow: boolean;
+  /** `event.senderFrame === event.sender.mainFrame`. */
+  isMainFrame: boolean;
+}
+
+/**
+ * May the main process answer this sender on a console channel?
+ *
+ * ## This is the half `shouldExposeBridge`'s docblock claimed already existed
+ *
+ * It said the main process "re-checks the sender on every channel it handles",
+ * and that the two together are what keeps a hole from opening. MEASURED when
+ * that sentence was read against the tree: `senderFrame` and `event.sender`
+ * appeared nowhere in `apps/desktop/src`, and none of the fourteen `ipcMain`
+ * handlers looked at who was asking. The layer was prose.
+ *
+ * Nothing had leaked. Both console channels answer values that are public — the
+ * origin is in the window's own URL, the shell info is a name and a version —
+ * and every other renderer in this app loads a local file behind a preload that
+ * exposes no way to send at all. But a claim that a check exists is read by the
+ * next person adding a channel, and the next channels are the ones that
+ * docblock calls "the only route from a page to this app's microphone".
+ *
+ * ## Why identity and not the sender's origin
+ *
+ * `WebFrameMain.origin` would be the tempting evidence and it is the wrong one
+ * *here*: what it reports for a frame the main process is asked about during
+ * preload is a lifecycle question no suite in this package can answer, and a
+ * guard that refuses the real console on a timing assumption is an outage this
+ * app inflicts on itself. Frame identity is unambiguous at every moment.
+ *
+ * The origin comparison keeps its place in `shouldExposeBridge`, where
+ * `location.origin` is the document's own and is exactly what a redirect has to
+ * get past: after a redirect off the pin, the preload re-runs in the new
+ * document, sees a different origin and exposes nothing — so the main process
+ * answering that frame with a public string costs nothing.
+ *
+ * So the two layers are: **this one decides which renderer is answered, that
+ * one decides which document is trusted.** Neither is the other written twice.
+ */
+export function mayAnswerSender(evidence: SenderEvidence | null | undefined): boolean {
+  // Absent evidence is a refusal, not a default. `event.senderFrame` is `null`
+  // for a frame that has already gone away, and a missing field must not read
+  // as a quiet yes — the same "absence is a refusal" the preload applies to a
+  // window that is not there.
+  if (!evidence || typeof evidence !== "object") return false;
+  return evidence.isConsoleWindow === true && evidence.isMainFrame === true;
 }
