@@ -67,7 +67,7 @@ import { indexByName, rewriteLinks } from "@context/shared/src/links";
 // these run here unmodified over the same store `provisioning.ts` already
 // builds from a binding.
 import { createSearchBudget } from "../../../mcp/src/search/maintain.js";
-import { syncShardedIndex } from "../../../mcp/src/search/shards.js";
+import { loadDocmapPaths, syncShardedIndex } from "../../../mcp/src/search/shards.js";
 import { searchIndexedNotes } from "../../../mcp/src/search/visible.js";
 import { answerFromProjection, pageDepth } from "../../../mcp/src/search/d1/serve.js";
 // The projection, on the same terms. `projectPass`, `loadCensus` and
@@ -2813,6 +2813,47 @@ export interface SearchResults {
  * What a member must not be able to do is *read* more than their scope, and
  * that is `isVisible`, below.
  */
+/**
+ * Every note path this scope may see, for link resolution in the editor —
+ * `docs/decisions/app-and-console.md`, "L1".
+ *
+ * A bare `[[name]]` and the `[[` completion both need the whole bucket's note
+ * paths, and the console's file tree only knows the folders somebody has
+ * expanded. Rather than a second index — a full bucket listing paid for on
+ * the customer's request quota, which is exactly the cost
+ * `1-projects/context-lc-search-performance/overview.md` spent Phase 2
+ * removing from the search path — this reads the search index's own docmap,
+ * which is already maintained behind every search's response.
+ *
+ * **Filtered through the caller's own `canSee`, the same as every hit a
+ * search returns.** The docmap holds every note in the bucket regardless of
+ * who asks, so skipping this filter would leak a private note's *existence* —
+ * its path — to a team member who could not open it, through a completion
+ * list rather than a listing. That is exactly the existence oracle rule #2 at
+ * the top of this file exists to prevent, reached through a different door.
+ *
+ * `null` for every way the index is not there to answer from — nothing has
+ * indexed this bucket, the docmap could not be read, no budget was left —
+ * and deliberately not a partial or wrong answer instead: a link that stays
+ * undrawn until the index catches up is dishonest about *timing*, never about
+ * *destination*.
+ */
+export async function notePathIndex(
+  store: FileStore,
+  scope: Scope,
+  budget: number = CONSOLE_SEARCH_BUDGET,
+): Promise<{ paths: string[] } | null> {
+  const state = await loadPrivacyState(store);
+  const isVisible = (path: string) => canSee(path, scope, state.rules, state.overrides);
+  const found = await loadDocmapPaths(
+    store as unknown as Parameters<typeof loadDocmapPaths>[0],
+    createSearchBudget(budget),
+    0,
+  );
+  if (found === null) return null;
+  return { paths: found.paths.filter((path) => isVisible(path) && !isPlumbing(path)) };
+}
+
 export async function searchNotes(
   store: FileStore,
   options: {

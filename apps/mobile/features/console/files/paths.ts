@@ -252,3 +252,26 @@ export function knownNotePaths(
   }
   return [...paths].sort();
 }
+
+/**
+ * Every note path the editor may resolve a link or `[[` completion against —
+ * `knownNotePaths` unioned with the search index's own docmap. See "L1" in
+ * `docs/decisions/app-and-console.md`.
+ *
+ * A union rather than "prefer the index" in either direction: `listings` is
+ * always current — a note just created in an expanded folder is real *now* —
+ * and `indexed` is complete but a disposable derivative that can be behind or
+ * entirely absent (`null`) for a bucket nothing has indexed yet. Neither one
+ * alone is the honest answer, so both are asked and neither is trusted over
+ * the other.
+ *
+ * Sorted for the same reason `knownNotePaths` is: a stable reference between
+ * renders that learned nothing new, since this crosses the WebView bridge on
+ * native.
+ */
+export function mergeLinkPaths(
+  listings: Readonly<Record<string, { entries: readonly { kind: string; path: string }[] } | undefined>>,
+  indexed: readonly string[] | null,
+): string[] {
+  return [...new Set([...knownNotePaths(listings), ...(indexed ?? [])])].sort();
+}

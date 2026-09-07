@@ -11,7 +11,6 @@ import { Breadcrumb } from "../files/Breadcrumb";
 import { ConflictResolver } from "../files/ConflictResolver";
 import { contextFootLine } from "../files/contextFoot";
 import { FolderView } from "../files/FolderView";
-import { knownNotePaths } from "../files/paths";
 import { NoteEditor } from "../files/NoteEditor";
 import { ShareDialog } from "../files/ShareDialog";
 import { consoleOrigin } from "../files/shareOrigin";
@@ -543,7 +542,13 @@ export function BrowsePane({
           here would be a second set of all three.
         */
         onOpenLink={files.select}
-        notePaths={knownNotePaths(files.listings)}
+        // The file tree's own listings, unioned with the search index's
+        // docmap — see `linkPaths` on `FileBrowser` and "L1" in
+        // `docs/decisions/app-and-console.md`. `knownNotePaths(files.listings)`
+        // alone was the whole answer before the index existed, and was blind
+        // to every note in a folder nobody had expanded — which on a phone,
+        // where no file tree is drawn at all, was close to every note.
+        notePaths={files.linkPaths}
       />
     );
 

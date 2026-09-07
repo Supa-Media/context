@@ -291,6 +291,18 @@ export interface FileBrowser {
    */
   openLinkPaths: ReadonlySet<string>;
   /**
+   * Every note path the editor may resolve a `[[link]]` or `[[` completion
+   * against — see `docs/decisions/app-and-console.md`, "L1".
+   *
+   * The union of what the file tree has actually loaded
+   * (`knownNotePaths(listings)`, always current) and the search index's own
+   * docmap (complete but a disposable derivative that can be behind or
+   * entirely absent for a bucket nothing has indexed yet). Sorted, so a
+   * caller passing this into a CodeMirror extension gets a stable reference
+   * between renders that learned nothing new.
+   */
+  linkPaths: readonly string[];
+  /**
    * Write a working `privacy.md` over one that is missing or unreadable.
    *
    * Present on every browser and inert on most of them, like every other

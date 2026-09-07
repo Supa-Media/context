@@ -111,6 +111,7 @@ function browser(
     setVisibility: noop,
     setScope: noop,
     openLinkPaths: new Set<string>(),
+    linkPaths: [],
     resetPrivacy: noop,
     canResetPrivacy: false,
     canSetVisibility: false,

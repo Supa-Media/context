@@ -628,6 +628,10 @@ describe("a stranger cannot reach another workspace's files", () => {
       // scope, invisible to the suite.
       (workspaceId) =>
         as.action(api.functions.files.searchContext, { workspaceId, query: "shared" }),
+      // Reads the same index `searchContext` does, so it carries the same
+      // cross-tenant risk: a stranger asking for another workspace's note
+      // paths must get `WORKSPACE_NOT_FOUND`, never a real (even empty) list.
+      (workspaceId) => as.action(api.functions.files.notePaths, { workspaceId }),
       // Owner-only, and absent here since it was written. The one exit from a
       // broken `privacy.md`, so reaching it across tenants would rewrite
       // somebody else's access map to all-private.

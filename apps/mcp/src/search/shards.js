@@ -75,6 +75,10 @@ export const MANIFEST_KEY = ".index/v2/manifest.json";
  * manifest re-fetches notes that were already indexed, where a docmap ahead of
  * it would leave a note whose shard nothing ever revisits and whose terms the
  * routing filter never learns.
+ *
+ * Read by the sync, and — since `loadDocmapPaths` below — by link resolution.
+ * Both readers get the same honesty from it: an unreadable or stale docmap is
+ * a note not yet found, never a note reported missing.
  */
 export const DOCMAP_KEY = ".index/v2/docmap.json";
 /** v1's single object, deleted once a v2 manifest exists — dead weight. */
@@ -883,6 +887,50 @@ export async function loadIndexManifest(store, budget, reserve, byteCap = MANIFE
   const bytes = await stored.arrayBuffer();
   if (bytes.byteLength > cap) return null;
   return parseManifest(new TextDecoder().decode(bytes), cap);
+}
+
+/**
+ * Every note path the search index's docmap currently knows about, sorted.
+ *
+ * Built for link resolution (`docs/decisions/app-and-console.md`, "L1"): a
+ * bare `[[name]]` in the editor and the `[[` completion both need the whole
+ * bucket's note paths, and the file tree only knows the folders somebody has
+ * expanded. Rather than a second index — a full bucket listing on its own
+ * budget, paid on the customer's request quota just to learn what this module
+ * already tracks — this reads the *diff surface* the sharded sync already
+ * maintains behind every search's response.
+ *
+ * Two ops: the manifest (for its `shardCount`, which is what tells a docmap
+ * apart from one for a different index layout) and then the docmap itself.
+ * `null` for every way either can fail to arrive — no budget, absent,
+ * refused, oversized, corrupt, or a docmap for a shard count the manifest
+ * does not recognise — because to a caller resolving a link these all mean
+ * the same thing: nothing here to resolve against yet. That is deliberately
+ * an *honest failure* rather than a wrong one — a link that is not drawn yet,
+ * never a link drawn at the wrong path — which is why this never falls back
+ * to a listing: a derivative that is behind is exactly the failure mode this
+ * function exists to report rather than paper over.
+ *
+ * @param {import("../store/index.js").ContextStore} store
+ * @param {ReturnType<typeof createSearchBudget>} budget
+ * @param {number} reserve store ops kept back for the caller's later work
+ * @returns {Promise<{ paths: string[], freshness: ReturnType<typeof emptyManifest>["freshness"] } | null>}
+ */
+export async function loadDocmapPaths(store, budget, reserve) {
+  const manifest = await loadIndexManifest(store, budget, reserve);
+  if (manifest === null) return null;
+  if (!budget.take(reserve)) return null;
+  const stored = await store.get(DOCMAP_KEY);
+  if (!stored) return null;
+  const bytes = await stored.arrayBuffer();
+  if (bytes.byteLength > MANIFEST_PARSE_BYTE_CAP) return null;
+  const docsByShard = parseDocmap(new TextDecoder().decode(bytes), manifest.shardCount);
+  if (docsByShard === null) return null;
+  const paths = new Set();
+  for (const docs of docsByShard) {
+    for (const path of docs.keys()) paths.add(path);
+  }
+  return { paths: [...paths].sort(), freshness: manifest.freshness };
 }
 
 /**
