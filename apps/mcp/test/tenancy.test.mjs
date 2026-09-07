@@ -1074,6 +1074,56 @@ export async function runTenancyChecks(check) {
     return { status: response.status, key: call?.body?.registrantKey };
   };
 
+  /*
+    RFC 7591's `software_id`, stored as declared and bounded on the way in.
+
+    One reader downstream: the control plane mints the desktop shell's machine
+    grant with no approve screen, and refuses to do that for a client that did
+    not declare itself the shell. It is **client-asserted** — registration is
+    unauthenticated by construction — so what is checked here is only that this
+    server carries it faithfully and cannot be used to smuggle anything through
+    on that field. What bounds the convenience is loopback and scope, on the
+    control-plane side, where `machineGrant.ts` holds it.
+  */
+  const declaredBy = async (softwareId) => {
+    const before = controlPlane.calls.length;
+    const response = await worker.fetch(
+      new Request("https://mcp.context.test/oauth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: "Context on a-laptop",
+          redirect_uris: ["http://127.0.0.1/context-hook/callback"],
+          token_endpoint_auth_method: "none",
+          application_type: "native",
+          ...(softwareId === undefined ? {} : { software_id: softwareId }),
+        }),
+      }),
+      env,
+      { waitUntil() {} }
+    );
+    const call = controlPlane.calls
+      .slice(before)
+      .find((entry) => entry.path === "/gateway/clients/register");
+    return { status: response.status, declared: call?.body?.softwareId, body: await response.json() };
+  };
+
+  const declared = await declaredBy("lc.context.desktop");
+  check("a declared software_id reaches the control plane as declared", declared.declared === "lc.context.desktop");
+  check("...and is echoed back, so a client can tell it was kept", declared.body.software_id === "lc.context.desktop");
+  const silent = await declaredBy(undefined);
+  check("a client that declares none sends none", silent.declared === undefined && silent.status === 201);
+  check("...and nothing is echoed for it", silent.body.software_id === undefined);
+  const shouty = await declaredBy("<script>alert(1)</script>");
+  check(
+    "A SOFTWARE_ID OUTSIDE THE ALPHABET IS DROPPED, NOT STORED",
+    shouty.declared === undefined && shouty.status === 201
+  );
+  const long = await declaredBy("x".repeat(200));
+  check("...and so is one past the length bound", long.declared === undefined);
+  const wrongType = await declaredBy(42);
+  check("...and one that is not a string at all", wrongType.declared === undefined);
+
   const { key: keyFromOne } = await registerFrom("203.0.113.7");
   const { key: keyFromOneAgain } = await registerFrom("203.0.113.7");
   const { key: keyFromAnother } = await registerFrom("203.0.113.8");

@@ -282,7 +282,7 @@ export async function runApprovalChecks(check) {
   );
   check(
     "...and the connect hands the authorize URL to the window before the system browser",
-    /openBrowser: async \(href\) => \{\s*if \(await approveInConsoleWindow\(href\)\) return;\s*await openInSystemBrowser\(href\);/.test(
+    /if \(await approveInConsoleWindow\(href\)\) return;\s*await openInSystemBrowser\(href\);/.test(
       index,
     ),
   );

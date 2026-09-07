@@ -256,11 +256,11 @@ export async function discover(endpoint, { fetchImpl = fetch } = {}) {
  * cast at the call site is a consumer asserting what this function takes.
  *
  * @param {{issuer: string, registrationEndpoint: string|null}} discovery
- * @param {{clientName?: string, scope?: string, fetchImpl?: typeof fetch}} [options]
+ * @param {{clientName?: string, scope?: string, softwareId?: string | null, fetchImpl?: typeof fetch}} [options]
  */
 export async function registerClient(
   discovery,
-  { clientName, scope = HOOK_SCOPE, fetchImpl = fetch } = {}
+  { clientName, scope = HOOK_SCOPE, softwareId = null, fetchImpl = fetch } = {}
 ) {
   if (!discovery.registrationEndpoint) {
     throw new Error(
@@ -284,6 +284,17 @@ export async function registerClient(
       // that. The default stays narrow: a caller that names nothing gets
       // capture, never the whole menu.
       scope,
+      /*
+        RFC 7591's `software_id`: what the software *is*, as opposed to what
+        this installation of it calls itself. Omitted unless a caller names
+        one — the hook itself declares none, and a field nobody sends is a
+        field nobody has to reason about.
+
+        `apps/desktop` sends it, and the control plane's one reader treats it
+        as a narrowing rather than as authentication: it is client-asserted,
+        because registration is unauthenticated by construction.
+      */
+      ...(softwareId ? { software_id: softwareId } : {}),
     }),
   });
   if (!response.ok) {

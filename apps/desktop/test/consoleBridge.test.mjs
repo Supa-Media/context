@@ -273,6 +273,8 @@ const QUEUE = Object.freeze({ pending: 2, parked: 0, lastError: null });
 function mainBridge(overrides = {}) {
   const calls = [];
   const written = [];
+  /** Every answer the page gave about a parked machine approval. */
+  const answered = [];
   /** Every `startCapture` request as the reader built it. */
   const requested = [];
   const window = overrides.window ?? fakeWindow();
@@ -313,6 +315,14 @@ function mainBridge(overrides = {}) {
     },
     connect: () => void calls.push("connect"),
     disconnect: () => void calls.push("disconnect"),
+    pendingApproval: () => {
+      calls.push("pendingApproval");
+      return overrides.pending ?? null;
+    },
+    resolveApproval: (result) => {
+      calls.push("resolveApproval");
+      answered.push(result);
+    },
     outbox: () => {
       calls.push("outbox");
       return { ...QUEUE };
@@ -334,6 +344,7 @@ function mainBridge(overrides = {}) {
     window,
     calls,
     written,
+    answered,
     requested,
     movePin: (next) => {
       pinned = next;
@@ -351,6 +362,8 @@ const HANDLED = [
   BRIDGE_CHANNELS.connectionGet,
   BRIDGE_CHANNELS.connectionConnect,
   BRIDGE_CHANNELS.connectionDisconnect,
+  BRIDGE_CHANNELS.connectionPendingApproval,
+  BRIDGE_CHANNELS.connectionResolveApproval,
   BRIDGE_CHANNELS.outboxStatus,
   BRIDGE_CHANNELS.outboxDrain,
   BRIDGE_CHANNELS.meetingsWrite,
@@ -667,7 +680,7 @@ export async function runConsoleBridgeChecks(check) {
     );
     check(
       "...and the census adds up, so neither side can drift unnoticed",
-      registrations + gatedAsync + gatedSync === 28,
+      registrations + gatedAsync + gatedSync === 30,
     );
   }
 
@@ -962,6 +975,76 @@ export async function runConsoleBridgeChecks(check) {
     shell.emit(BRIDGE_CHANNELS.trayCommand, "record");
     shell.emit(BRIDGE_CHANNELS.trayCommand, "launch-a-shell");
     check("a tray command outside the contract's list is dropped", trays.length === 1 && trays[0] === "record");
+  }
+
+  /* --- the machine approval the page answers ------------------------------ */
+  //
+  // Version 3. The shell hands the page a parked authorization request and the
+  // page answers it with the session it already holds — `core/shell/autoGrant.ts`
+  // is the argument. What this file owns is the boundary: what the page is
+  // handed is one field, and what it hands back is read against the contract
+  // before it reaches the process that owns the credential.
+
+  {
+    const { ipc } = mainBridge({ pending: { requestId: "req_this_mac" } });
+    const answer = await ipc.handlers.get(BRIDGE_CHANNELS.connectionPendingApproval)(
+      sender(),
+      null,
+    );
+    check(
+      "the page is handed the parked request, and one field of it",
+      answer.ok === true && Object.keys(answer.value).join() === "requestId",
+    );
+    check("...and its value is the id the shell is waiting on", answer.value.requestId === "req_this_mac");
+  }
+
+  {
+    const { ipc } = mainBridge();
+    const answer = await ipc.handlers.get(BRIDGE_CHANNELS.connectionPendingApproval)(
+      sender(),
+      null,
+    );
+    check(
+      "a shell with nothing in flight hands over nothing",
+      answer.ok === true && answer.value === null,
+    );
+  }
+
+  {
+    const { ipc, answered } = mainBridge({ pending: { requestId: "req_this_mac" } });
+    await ipc.handlers.get(BRIDGE_CHANNELS.connectionResolveApproval)(sender(), {
+      requestId: "req_this_mac",
+      approved: true,
+      // A third field, which must not reach the main process.
+      code: "an-authorization-code",
+    });
+    check(
+      "AN ANSWER REACHES THE SHELL AS TWO FIELDS AND NEVER THREE",
+      answered.length === 1 &&
+        Object.keys(answered[0]).sort().join() === "approved,requestId",
+    );
+    check("...carrying what the page said", answered[0].requestId === "req_this_mac" && answered[0].approved === true);
+  }
+
+  {
+    const { ipc, answered } = mainBridge({ pending: { requestId: "req_this_mac" } });
+    for (const payload of [null, {}, { approved: true }, { requestId: 42 }, { requestId: "x".repeat(300) }]) {
+      await ipc.handlers.get(BRIDGE_CHANNELS.connectionResolveApproval)(sender(), payload);
+    }
+    check(
+      "A MALFORMED ANSWER IS DROPPED RATHER THAN FORWARDED",
+      answered.length === 0,
+    );
+    // `approved` is read with `=== true`, like every other boolean crossing
+    // this boundary: a truthy string is not an approval.
+    await ipc.handlers.get(BRIDGE_CHANNELS.connectionResolveApproval)(sender(), {
+      requestId: "req_this_mac",
+      approved: "yes",
+    });
+    check(
+      "...and a truthy answer that is not `true` is a refusal",
+      answered.length === 1 && answered[0].approved === false,
+    );
   }
 
   /* --- the main process re-checks the sender ----------------------------- */
@@ -1421,7 +1504,9 @@ export async function runConsoleBridgeChecks(check) {
       const payload =
         channel === BRIDGE_CHANNELS.meetingsWrite
           ? { ...WRITE }
-          : { sessionId: "mtg_abcdefghjkmnpqrstvwx", mic: true, systemAudio: true };
+          : channel === BRIDGE_CHANNELS.connectionResolveApproval
+            ? { requestId: "a-parked-request-id", approved: false }
+            : { sessionId: "mtg_abcdefghjkmnpqrstvwx", mic: true, systemAudio: true };
       answers.push(await ipc.handlers.get(channel)(sender(), payload));
     }
     check("the pinned console window is answered on every channel", answers.every((answer) => answer?.ok === true));

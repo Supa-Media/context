@@ -1,5 +1,10 @@
 /**
- * `window.desktop`, version 1, wired to the shell that is actually behind it.
+ * `window.desktop`, wired to the shell that is actually behind it.
+ *
+ * (It said "version 1" until the bridge reached 3, which is a version number
+ * in the one file that never carries one: this preload hands over whatever
+ * `core/shell/bridge.ts` builds, and the contract package is where the number
+ * lives.)
  *
  * Deliberately four statements long. Everything the bridge *is* — the channels,
  * the normalisers, the unsubscribes, the closed set of sentences — lives in

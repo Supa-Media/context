@@ -477,6 +477,10 @@ export const gatewayClientsRegister = gatewayRoute(async (ctx, body) => {
     responseTypes,
     scope,
     applicationType,
+    // RFC 7591's `software_id`, carried as the client sent it. The gateway has
+    // already bounded its length and alphabet; this route stores a string and
+    // draws no conclusion from it.
+    softwareId: stringField(body, "softwareId") ?? undefined,
     // What the registration rate limit is keyed on. Passed through rather than
     // read here, because the connecting address is the gateway's to know: this
     // route's own peer is always the gateway.

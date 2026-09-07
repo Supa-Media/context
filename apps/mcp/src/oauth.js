@@ -575,6 +575,30 @@ export async function handleRegister(request, env, controlPlane) {
       ? body.client_name.trim().slice(0, MAX_CLIENT_NAME_LENGTH)
       : "Unnamed MCP client";
 
+  /*
+    RFC 7591's `software_id`: what the software *is*, across every installation
+    of it, as opposed to `client_name`, which is what this one installation
+    calls itself.
+
+    It is stored because the control plane has one reader — the desktop shell's
+    machine grant is minted without an approve screen, and only for a client
+    that declared itself the shell. It is **client-asserted**, registration is
+    unauthenticated by construction, and neither this file nor the control
+    plane treats it as authentication: it narrows which clients a convenience
+    applies to, and the conditions that actually bound that convenience are the
+    loopback redirect and the exact default scope.
+
+    Bounded here rather than downstream, because this is where a stranger's
+    bytes arrive: a short, boring alphabet, so nothing that lands in the
+    control plane can carry markup, whitespace tricks, or a paragraph. Anything
+    outside it is dropped rather than refused — an unknown `software_id` is not
+    a reason to fail a registration that is otherwise fine.
+  */
+  const softwareId =
+    typeof body.software_id === "string" && /^[A-Za-z0-9._:-]{1,64}$/.test(body.software_id)
+      ? body.software_id
+      : undefined;
+
   const clientId = `mcp_${randomToken(18)}`;
   const clientSecret = normalizedAuthMethod === "none" ? null : `mcs_${randomToken(32)}`;
 
@@ -594,6 +618,7 @@ export async function handleRegister(request, env, controlPlane) {
     responseTypes,
     scope: typeof body.scope === "string" ? body.scope : SUPPORTED_SCOPES.join(" "),
     applicationType: body.application_type === "native" ? "native" : "web",
+    softwareId,
     /*
       WHAT THE REGISTRATION RATE LIMIT IS KEYED ON.
 
@@ -648,6 +673,10 @@ export async function handleRegister(request, env, controlPlane) {
     token_endpoint_auth_method: normalizedAuthMethod,
     scope: SUPPORTED_SCOPES.join(" "),
   };
+  // Echoed only when it survived the check above, so a client can tell that
+  // what it declared was kept rather than quietly dropped (RFC 7591 §3.2.1
+  // asks the response to carry the registered metadata).
+  if (softwareId !== undefined) registered.software_id = softwareId;
   if (clientSecret) {
     registered.client_secret = clientSecret;
     // 0 means "does not expire" (RFC 7591 §3.2.1).
