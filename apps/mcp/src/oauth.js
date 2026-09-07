@@ -163,44 +163,75 @@ export function registrantNetwork(rawAddress) {
   const [head, tail] = halves;
   const left = head === "" ? [] : head.split(":");
   const right = halves.length === 2 ? (tail === "" ? [] : tail.split(":")) : [];
-  const parts = halves.length === 2 ? [...left, ...right] : left;
 
   /*
-    A trailing dotted quad occupies the last TWO hextets, so an address written
-    that way has one fewer text part than one written in hex. Expanded before
-    anything is counted, because otherwise `::ffff:1.2.3.4` and `::ffff:1:2`
-    disagree about how many parts they have.
-  */
-  const last = parts[parts.length - 1];
-  const trailingQuad = last !== undefined && last.includes(".") ? ipv4(last) : null;
-  if (last !== undefined && last.includes(".") && trailingQuad === null) return null;
-  const width = trailingQuad === null ? 8 : 7;
+    EXPANDED TO EIGHT HEXTETS BEFORE ANYTHING IS DECIDED.
 
-  const filled =
-    halves.length === 2
-      ? [...left, ...Array(width - left.length - right.length).fill("0"), ...right]
-      : left;
-  if (filled.length !== width) return null;
-  const hextets = trailingQuad === null ? filled : filled.slice(0, 6);
-  if (hextets.some((part) => !/^[0-9a-f]{1,4}$/.test(part))) return null;
-
-  /*
-    ONLY TWO PREFIXES REALLY NAME AN IPv4 HOST, and taking the quad from any
-    other one lets that network spend the host's budget. `::ffff:0:0/96` is the
-    mapped form and the all-zero prefix is the deprecated compatible form;
-    `64:ff9b::/96` (NAT64) and `::ffff:0:0:0/96` (SIIT) embed the address they
-    are translating *to*, which is a destination and never the source that
-    arrived here.
+    A trailing dotted quad occupies the last two hextets, and the previous
+    version classified from the TEXT — "does the last group contain a dot" —
+    which split one address into two buckets: `::ffff:203.0.113.7` was the IPv4
+    host and `::ffff:cb00:7107`, the same address, was `0:0:0:0::/64`. Expand
+    first, decide from the numbers, and the two spellings cannot disagree.
   */
-  if (trailingQuad !== null) {
-    const prefix = hextets.map((part) => parseInt(part, 16));
-    const mapped = prefix.slice(0, 5).every((part) => part === 0) && prefix[5] === 0xffff;
-    const compatible = prefix.every((part) => part === 0);
-    if (mapped || compatible) return trailingQuad;
+  const hextetsOf = (groups, quadMayEndIt) => {
+    const out = [];
+    for (let index = 0; index < groups.length; index += 1) {
+      const group = groups[index];
+      if (quadMayEndIt && index === groups.length - 1 && group.includes(".")) {
+        const quad = ipv4(group);
+        if (quad === null) return null;
+        out.push(...quadAsHextets(quad));
+        continue;
+      }
+      if (!/^[0-9a-f]{1,4}$/.test(group)) return null;
+      out.push(group);
+    }
+    return out;
+  };
+  const leftHextets = hextetsOf(left, halves.length === 1);
+  const rightHextets = hextetsOf(right, halves.length === 2);
+  if (leftHextets === null || rightHextets === null) return null;
+
+  let filled;
+  if (halves.length === 2) {
+    /*
+      `::` STANDS FOR AT LEAST ONE ZERO GROUP, so an address that already has
+      eight has no room for it. Refused rather than clamped, and this is the
+      line whose absence made `Array(8 - left - right)` go negative and throw
+      `RangeError` — which escaped as a 503 for an address the docblock
+      promises answers `null`.
+    */
+    if (leftHextets.length + rightHextets.length >= 8) return null;
+    filled = [
+      ...leftHextets,
+      ...Array(8 - leftHextets.length - rightHextets.length).fill("0"),
+      ...rightHextets,
+    ];
+  } else {
+    if (leftHextets.length !== 8) return null;
+    filled = leftHextets;
   }
 
-  const full = trailingQuad === null ? hextets : [...hextets, ...quadAsHextets(trailingQuad)];
-  return `${full.slice(0, 4).map((part) => parseInt(part, 16).toString(16)).join(":")}::/64`;
+  const numeric = filled.map((part) => parseInt(part, 16));
+
+  /*
+    ONLY `::ffff:0:0/96` NAMES AN IPv4 HOST.
+
+    The IPv4-COMPATIBLE form `::a.b.c.d` is deprecated by RFC 4291 and is NOT
+    read as one, which is a deliberate change: it is the same address as
+    `::cb00:7107`, and reading it as a host would make `::1` mean host
+    `0.0.0.1`. It stays an ordinary address inside `::/64`.
+
+    `64:ff9b::/96` (NAT64) and `::ffff:0:0:0/96` (SIIT) embed the address being
+    translated TO — a destination, never the source that arrived here — so
+    crediting them to that host would let a translator spend a stranger's
+    budget.
+  */
+  if (numeric.slice(0, 5).every((part) => part === 0) && numeric[5] === 0xffff) {
+    return [numeric[6] >> 8, numeric[6] & 0xff, numeric[7] >> 8, numeric[7] & 0xff].join(".");
+  }
+
+  return `${numeric.slice(0, 4).map((part) => part.toString(16)).join(":")}::/64`;
 }
 
 /**

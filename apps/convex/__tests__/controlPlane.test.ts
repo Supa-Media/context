@@ -1935,32 +1935,73 @@ describe("/gateway/clients/register and /gateway/clients/get", () => {
   test("no caller uses a window the sweep would delete out from under it", async () => {
     /*
       The guard the retention constant cannot give itself. `consumeRateLimit`
-      refuses an over-long window at the call, but a call site that is never
-      exercised in a test would never reach that throw — so this reads the
-      window constants out of the source and checks them directly. It is the
-      only way to notice a NINTH call site added tomorrow with a week-long
-      window.
+      refuses an over-long window at the call, but a call site never exercised
+      by a test would never reach that throw — so this reads the constants out
+      of the source instead.
+
+      THREE WAYS THE FIRST VERSION WAS BLIND, all measured by review:
+      `readdirSync` is not recursive, so it saw 24 of 57 files and missed
+      everything under `functions/lib/` and `functions/meetings/`; the value
+      pattern could not match a numeric separator, so `60_000` read as "no
+      constant here"; and the floor was set to 8, which is what the regex
+      happened to return rather than what is there. A week-long window in
+      `meetings/transcribe.ts` left it fully green.
+
+      So: walk recursively, allow `_`, and derive the floor from the
+      `consumeRateLimit(` call sites the same walk finds — a call site whose
+      window this cannot resolve now breaks the floor instead of passing it.
     */
-    const dir = fileURLToPath(new URL("../functions", import.meta.url));
-    const sources = readdirSync(dir)
-      .filter((name) => name.endsWith(".ts"))
-      .map((name) => readFileSync(join(dir, name), "utf8"));
+    const root = fileURLToPath(new URL("../functions", import.meta.url));
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+        entry.isDirectory()
+          ? walk(join(dir, entry.name))
+          : entry.name.endsWith(".ts")
+            ? [join(dir, entry.name)]
+            : [],
+      );
+    const sources = walk(root).map((file) => readFileSync(file, "utf8"));
 
-    const windows = sources.flatMap((source) =>
-      [...source.matchAll(/_WINDOW_MS\s*=\s*([0-9*\s]+);/g)].map((match) => ({
-        raw: match[1].trim(),
-        ms: match[1]
-          .split("*")
-          .map((part) => Number(part.trim()))
-          .reduce((product, part) => product * part, 1),
-      })),
+    const windows = new Map<string, number>();
+    for (const source of sources) {
+      for (const match of source.matchAll(/(\w*_WINDOW_MS)\s*=\s*([0-9_*\s]+);/g)) {
+        windows.set(
+          match[1],
+          match[2]
+            .split("*")
+            .map((part) => Number(part.trim().replace(/_/g, "")))
+            .reduce((product, part) => product * part, 1),
+        );
+      }
+    }
+
+    /*
+      The positive twins, both of them. A walk that found nothing, or a pattern
+      that matched nothing, would satisfy every assertion below while checking
+      nothing — and the floor is the call sites rather than a number somebody
+      wrote down, so adding a limiter with an inline literal breaks it.
+    */
+    /*
+      Scanned forward from the call rather than matched as one expression: the
+      `key` above `windowMs` is a template literal, and `${...}` puts a `}`
+      inside the object — so a `\{[^}]*windowMs` pattern stops at the key and
+      finds 2 of 9. The floor below is what caught that, on its first run.
+    */
+    const callSites = sources.flatMap((source) =>
+      source
+        .split("consumeRateLimit(")
+        .slice(1)
+        .map((rest) => /windowMs:\s*([A-Za-z0-9_.]+)/.exec(rest.slice(0, 400)))
+        .filter((match): match is RegExpExecArray => match !== null),
     );
-
-    // The positive twin: a regex that matched nothing would pass every
-    // assertion below while checking nothing at all.
-    expect(windows.length).toBeGreaterThanOrEqual(8);
-    for (const window of windows) {
-      expect([window.raw, window.ms <= MAX_RATE_LIMIT_WINDOW_MS]).toEqual([window.raw, true]);
+    expect(sources.length).toBeGreaterThanOrEqual(50);
+    expect(callSites.length).toBeGreaterThanOrEqual(9);
+    for (const site of callSites) {
+      const named = site[1];
+      expect([named, windows.has(named)]).toEqual([named, true]);
+    }
+    for (const [name, ms] of windows) {
+      expect([name, ms <= MAX_RATE_LIMIT_WINDOW_MS]).toEqual([name, true]);
     }
   });
 

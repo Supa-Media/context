@@ -1172,7 +1172,14 @@ export async function runTenancyChecks(check) {
     translator spend an arbitrary stranger's budget.
   */
   check("an IPv4-mapped address is still the host it names", (await netOf("::ffff:203.0.113.7")) === keyFromOne);
-  check("...and so is the deprecated all-zero compatible form", (await netOf("::203.0.113.7")) === keyFromOne);
+  /*
+    The IPv4-COMPATIBLE form used to be read as the host too, and is not any
+    more — argued at the block below, where the numeric classification is. It
+    is deprecated by RFC 4291 and it is the same address as `::cb00:7107`, so
+    reading it as a host is a claim about spelling rather than about identity.
+  */
+  check("...but the deprecated compatible form is an ordinary address in ::/64",
+    (await netOf("::203.0.113.7")) !== keyFromOne);
   check("a NAT64 address is its own network, not the host it translates to",
     (await netOf("64:ff9b::203.0.113.7")) !== keyFromOne);
   check("...and an ordinary address that merely ENDS in a quad is its own /64",
@@ -1203,6 +1210,59 @@ export async function runTenancyChecks(check) {
   check("...however much padding is on it", (await netOf("00000000203.0.113.7")) === undefined);
   check("an octet above 255 is not an address at all", (await netOf("999.1.1.1")) === undefined);
   check("...nor is one with too many parts", (await netOf("203.0.113.7.9")) === undefined);
+
+  /*
+    `::` STANDS FOR AT LEAST ONE GROUP, AND AN ADDRESS THAT IS ALREADY FULL
+    HAS NO ROOM FOR IT.
+
+    `Array(8 - left - right)` goes negative when an address carries `::` and
+    eight or more explicit groups, and `Array(-1)` throws `RangeError`. The
+    throw escapes `registrantKey`, is caught by `handleRegister`'s catch, is
+    not a `ControlPlaneError`, and reaches the `/oauth/` catch as **503
+    server_error** — a legitimate registration refused as "this server is
+    broken", for an address this function's own docblock promises returns
+    `null`. Structured fuzzing found it in 10,303 of 40,000 tries; 40,000
+    unstructured strings had found none, which is why the first probe missed
+    it.
+  */
+  for (const overfull of [
+    "1:2:3:4:5:6:7:8::9",
+    "::1:2:3:4:5:6:7:8:9",
+    "1:2:3:4:5:6:7::1.2.3.4",
+    "1:2:3:4:5:6:7:8::",
+    "::1:2:3:4:5:6:7:8",
+  ]) {
+    check(`an over-full address with :: is refused rather than thrown on (${overfull})`,
+      (await netOf(overfull)) === undefined);
+  }
+
+  /*
+    AND THE CLASSIFICATION IS ABOUT THE ADDRESS, NOT ABOUT HOW IT IS SPELT.
+
+    Deciding "is this an IPv4 host" from the text — does the last group contain
+    a dot — split one address into two buckets: `::ffff:203.0.113.7` was the
+    IPv4 host and `::ffff:cb00:7107`, the same address in hex, was
+    `0:0:0:0::/64`. Both directions at once, because that /64 is also where
+    EVERY hex-spelled mapped address landed, so 2^32 IPv4 hosts shared one
+    bucket with `::` and `::1`.
+
+    It expands to eight hextets first now and classifies from the numbers, so
+    the two spellings agree.
+
+    **Only the mapped prefix counts.** `::a.b.c.d` — the IPv4-COMPATIBLE form —
+    is deprecated by RFC 4291, and reading it as an IPv4 host would mean `::1`
+    is host `0.0.0.1`, since those are the same address. It stays an ordinary
+    address in `::/64`. That is a deliberate change from the previous
+    behaviour, which called it the host.
+  */
+  check("a mapped address in hex is the same bucket as the same address in dotted form",
+    (await netOf("::ffff:cb00:7107")) === keyFromOne);
+  check("...and both are the IPv4 host they name", (await netOf("::ffff:203.0.113.7")) === keyFromOne);
+  check("the deprecated compatible form is NOT read as an IPv4 host",
+    (await netOf("::203.0.113.7")) !== keyFromOne);
+  check("...because it is the same address as its hex spelling, which never was",
+    (await netOf("::203.0.113.7")) === (await netOf("::cb00:7107")));
+  check("...and loopback is not IPv4 host 0.0.0.1", (await netOf("::1")) === (await netOf("::0.0.0.1")));
 
   /*
     And the one answer the gateway has to translate rather than relay. The
