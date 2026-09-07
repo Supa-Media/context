@@ -85,7 +85,8 @@ export { MeetingsListScreen } from "./MeetingsListScreen";
 export { RecordingBar } from "./components/RecordingBar";
 export { NotesPad } from "./components/NotesPad";
 export { MeetingRow, RowDivider } from "./components/MeetingRow";
-export { Waveform } from "./components/Waveform";
+export { Waveform, waveformProfile } from "./components/Waveform";
+export { LiveWaveform } from "./components/LiveWaveform";
 
 export {
   MeetingsController,
