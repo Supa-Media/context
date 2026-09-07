@@ -93,6 +93,7 @@ import { MEETINGS_FOLDER, isMeetingNotePath } from "../../../packages/meetings/s
 import { CHANNELS, CHANNEL_FOLDERS } from "../../../packages/communications/src/protocol.js";
 import { parseChannelDayNote } from "../../../packages/communications/src/note.js";
 import { parseChannelDayPath } from "../../../packages/communications/src/paths.js";
+import { classifyCaptureKind } from "./communications/paths.js";
 import { indexByName, rewriteLinks } from "./links.js";
 import { createSearchBudget, NOTE_INDEX_CHAR_CAP } from "./search/maintain.js";
 import {
@@ -2844,6 +2845,14 @@ async function surveyContext(store, scope, rules, overrides) {
     .filter((folder) => folder.count > 0 || folder.children.length > 0);
 
   const everything = [...rootNotes, ...folders.flatMap((folder) => folder.notes)];
+  // Automated capture — a channel-day note, a meeting, a saved session filed
+  // at the unrouted default — is split out here, before `mostRecent` ever
+  // sees it. `recent` therefore ranks only what a person actually touched;
+  // `captured` is the collapsed pointer into everything else, at most one
+  // entry per kind regardless of how many notes of that kind exist. See
+  // `summarizeCaptured` and docs/decisions/communications.md, "A firehose is
+  // not attention".
+  const authored = everything.filter((note) => !classifyCaptureKind(note.key));
   return {
     rootNotes: rootNotes.sort((a, b) => a.key.localeCompare(b.key)),
     folders: visibleFolders.sort((a, b) => a.prefix.localeCompare(b.prefix)),
@@ -2857,8 +2866,87 @@ async function surveyContext(store, scope, rules, overrides) {
       .filter((folder) => !folder.walked)
       .map((folder) => folder.prefix)
       .filter((prefix) => canSee(prefix.replace(/\/$/, ""), scope, rules, overrides)),
-    recent: mostRecent(everything, ORIENT_RECENT_LIMIT),
+    // Unchanged constant, unchanged function, now applied to the authored
+    // subset only — never enlarged to make room for what `captured` adds.
+    recent: mostRecent(authored, ORIENT_RECENT_LIMIT),
+    captured: summarizeCaptured(everything),
   };
+}
+
+/**
+ * At most one summary per automated-capture kind present in `notes`, each
+ * carrying the total count of that kind this connection can see and its
+ * single newest note.
+ *
+ * **Never one line per note.** A connected mailbox writes a channel-day note
+ * every active day, forever; a run of daily meetings does the same. Without
+ * this, `orient`'s recency list is nothing else within days of either being
+ * turned on — the exact failure docs/decisions/communications.md, "A firehose
+ * is not attention", names. So every note of a kind collapses to one line,
+ * built from the same visibility-filtered list `recent` and the folder map
+ * are, which is what keeps a team caller's count from ever including a
+ * mailbox they cannot see (`canSee` already ran, in `surveyContext`, before
+ * `notes` reaches here).
+ *
+ * Ordered `channel-day`, `meeting`, `session` — a fixed order rather than by
+ * recency, so the section's shape does not reflow between calls when two
+ * kinds are close in time.
+ */
+function summarizeCaptured(notes) {
+  const groups = new Map();
+  for (const note of notes) {
+    const kind = classifyCaptureKind(note.key);
+    if (!kind) continue;
+    if (!groups.has(kind)) groups.set(kind, []);
+    groups.get(kind).push(note);
+  }
+  const order = ["channel-day", "meeting", "session"];
+  const summaries = [];
+  for (const kind of order) {
+    const group = groups.get(kind);
+    if (!group || !group.length) continue;
+    summaries.push({
+      kind,
+      count: group.length,
+      label: capturedKindLabel(kind, group),
+      // The one pointer a "what came in?" question needs. `mostRecent` already
+      // handles "no note here has a usable timestamp" by returning nothing.
+      newest: mostRecent(group, 1)[0] || null,
+    });
+  }
+  return summaries;
+}
+
+/**
+ * "30 mail days", "2 meetings", "1 saved session" — the label on a collapsed
+ * line. Cosmetic only: the count and the pointer beside it are what an agent
+ * acts on, and getting this wrong changes nothing else.
+ *
+ * `channel-day` is named after the channel when a group is entirely one
+ * channel — the common case, one mailbox or one chat account — and falls back
+ * to a generic name for a mixed group rather than picking one channel to
+ * feature over another.
+ */
+function capturedKindLabel(kind, notes) {
+  const count = notes.length;
+  const plural = count === 1 ? "" : "s";
+  if (kind === "meeting") return `${count} meeting${plural}`;
+  if (kind === "session") return `${count} saved session${plural}`;
+  const allEmail = notes.every((note) => note.key.startsWith("0-inbox/email/"));
+  if (allEmail) return `${count} mail day${plural}`;
+  const allChat = notes.every(
+    (note) => note.key.startsWith("0-inbox/google-chat/") || note.key.startsWith("0-inbox/imessage/")
+  );
+  if (allChat) return `${count} chat day${plural}`;
+  return `${count} channel-day note${plural}`;
+}
+
+/** The one rendered line for a collapsed capture kind. */
+function formatCapturedLine(summary, now) {
+  const pointer = summary.newest
+    ? `; newest \`${summary.newest.key}\` (${relativeAge(summary.newest.uploaded, now)})`
+    : "";
+  return `- ${summary.label} arrived${pointer}`;
 }
 
 function isVisibleNote(key, scope, rules, overrides) {
@@ -3290,15 +3378,25 @@ async function toolOrient(store, scope, rules, overrides) {
     parts.push(`## Owner's front page — index-private.md\n\n${(await privateIndex.text()).trim()}`);
   }
 
-  if (survey.recent.length) {
+  if (survey.recent.length || survey.captured.length) {
     const now = Date.now();
+    const lines = [
+      ...survey.recent.map((note) => `- ${note.key} — ${relativeAge(note.uploaded, now)}`),
+      ...survey.captured.map((summary) => formatCapturedLine(summary, now)),
+    ];
     parts.push(
       "## Recently updated\n" +
-        survey.recent
-          .map((note) => `- ${note.key} — ${relativeAge(note.uploaded, now)}`)
-          .join("\n") +
+        lines.join("\n") +
         "\n\nThese are where the user's attention has been. Read one before assuming you " +
         "know what they are working on." +
+        // Mail, meetings and saved sessions arrive on their own schedule, not
+        // the user's — collapsed here to a pointer rather than individual
+        // entries so they cannot crowd out a note the user actually touched.
+        // list_notes or search_notes answers "what came in" in full.
+        (survey.captured.length
+          ? " Mail, meetings and saved sessions arrive automatically and are collapsed to one " +
+            "line per kind above — list_notes or search_notes on the folder for the individual notes."
+          : "") +
         // Object storage cannot be listed by modification time, so this is
         // ranked from what the bounded walk actually saw. In a context small
         // enough to walk that is everything; past the budget it is a sample,

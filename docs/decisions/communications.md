@@ -430,24 +430,60 @@ matter is `a term in the last message of a large day is found`.
 
 `orient` ranks "Recently updated" off the bounded walk, and `list_notes`
 answers a prefix in key order. A connected mailbox writes a note **every
-active day, forever**, so the day after it is switched on, every recency
-signal in this product is yesterday's mail — and the front page an agent reads
-first, whose entire job is to say where the person's attention has been, says
-"email, email, email".
+active day, forever**, and a meeting note lands almost as often, so within
+days of either being switched on every recency signal in this product is
+automation's own paperwork — and the front page an agent reads first, whose
+entire job is to say where the person's attention has been, says "email,
+email, email" instead.
 
-So `surveyContext`'s recency list excludes channel-day notes, and the folder
-map keeps them with their counts. That is the right split: an agent should
-know 400 days of mail exist and be able to search and read them; it should not
-conclude that a person's most recent thinking is a mailing list digest. The
-same reasoning applies to the note-count census the console shows — a mailbox
-makes a brain's note count a measure of how much mail arrived, so a count that
-mixes them is a count nobody can interpret.
+**The fix is collapse, not exclusion, and the difference is the point.** An
+earlier draft of this decision excluded channel-day notes from the recency
+list outright; built and tested, that answer is wrong in the other direction —
+an agent asked "what came in?" would learn nothing at all, when the honest
+answer is "thirty days of mail, most recently today's." So `surveyContext`
+splits every visible note into **authored** (written or edited by a person, or
+by an agent through an ordinary tool call on their behalf) and **automated
+capture** — a channel-day note, a meeting note, a saved coding session filed
+at its unrouted `0-inbox/sessions/` default, recognised by path alone in
+`src/communications/paths.js`. `mostRecent` ranks the authored subset exactly
+as it always has, at the same `ORIENT_RECENT_LIMIT` budget; automated capture
+is reduced to **at most one line per kind** — a count and the single newest
+note — appended after. A kind's line can never outrank or displace an authored
+note, because the two are never in the same ranked list: automated notes are
+removed before `mostRecent` runs, not sorted alongside authored ones and
+truncated.
 
-This is a phase-2 change in the gateway, listed here because it is a
-consequence of the layout rather than a separate idea, and because the day it
-is noticed will otherwise be the day after somebody's backfill finishes. The
-check is `a brain with a year of channel-day notes still surfaces its own
-recent notes in orient`.
+Three properties follow from that split and are each proved by a test in
+`test/orientation.test.mjs`, "automated capture is not attention":
+
+- **A person's edit does not exempt a note from collapsing.** Nothing in this
+  stack distinguishes a write an ingestion worker made from a write a person
+  made by hand in Obsidian — both are an ordinary `store.put`, indistinguishable
+  by etag or modified time, and the audit trail only ever hears about a write
+  that went through a gateway tool. So the recogniser is a **path** predicate
+  and nothing else, on purpose: a channel-day note somebody has since rewritten
+  by hand is, structurally, still a channel-day note, and stays collapsed. The
+  alternative — trying to infer authorship from timing or content — would be
+  confident and wrong in both directions.
+- **The collapsed count and pointer are `canSee`-filtered like everything
+  else.** A kind's summary is built from the same visibility-filtered note list
+  the folder map and the authored recency list already use, so a private
+  mailbox's days never inflate a team caller's count and are never the "newest"
+  a team caller is pointed at — the same existence-oracle rule search already
+  runs under.
+- **The folder map is unchanged and still carries the true counts.** An agent
+  that wants every individual note goes to `list_notes` or `search_notes` on
+  the folder the collapsed line names; the collapse is a summary for the one
+  view whose job is "recent," not a second, quieter exclusion of the same
+  notes from the product.
+
+The check that fails if this is reversed back to exclusion is
+`toolOrient answers "what came in" with a pointer, never silence`; the check
+that fails if the collapse is dropped entirely is
+`a brain with a year of channel-day notes still surfaces its own recent notes
+in orient` — sabotaged by returning `null` from every branch of
+`classifyCaptureKind`, which failed 13 of the 16 checks in that block,
+including the ones proving a hand-edited note is not displaced.
 
 ### Retention: raw MIME is off by default, and attachments are metadata-only
 
