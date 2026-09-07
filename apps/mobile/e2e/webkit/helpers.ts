@@ -74,23 +74,43 @@ export async function dispatchTouch(
       const target = document.elementFromPoint(x, y);
       if (target === null) throw new Error(`nothing at (${x}, ${y}) to dispatch ${type} on`);
       const live = type === "touchstart" || type === "touchmove";
-      const touch = new Touch({
-        identifier: 1,
-        target,
-        clientX: x,
-        clientY: y,
-        pageX: x,
-        pageY: y,
-      });
-      target.dispatchEvent(
-        new TouchEvent(type, {
-          bubbles: true,
-          cancelable: true,
-          touches: live ? [touch] : [],
-          targetTouches: live ? [touch] : [],
-          changedTouches: [touch],
-        }),
-      );
+      const init = { identifier: 1, target, clientX: x, clientY: y, pageX: x, pageY: y };
+      /*
+        Measured live in this repository's own WebKit CI run: `new Touch(init)`
+        throws `TypeError: Illegal constructor` there, while the exact same
+        call is fine in Chromium — WebKit accepts real touches from its own
+        input pipeline (every `page.touchscreen.tap` in this suite proves
+        that) but does not expose `Touch` as constructible from page script in
+        this build. A plain object shaped like a `Touch` is what every
+        cross-browser touch-simulation polyfill falls back to for exactly this
+        engine, and `TouchEvent`'s `touches`/`changedTouches` only ever read
+        the properties off each entry rather than requiring `instanceof
+        Touch`. `TouchEvent` itself is guarded the same way on the chance a
+        future WebKit build narrows that too.
+      */
+      let touch: unknown = init;
+      if (typeof Touch === "function") {
+        try {
+          touch = new Touch(init);
+        } catch {
+          touch = init;
+        }
+      }
+      const eventInit = {
+        bubbles: true,
+        cancelable: true,
+        touches: live ? [touch] : [],
+        targetTouches: live ? [touch] : [],
+        changedTouches: [touch],
+      };
+      let event: Event;
+      try {
+        event = new TouchEvent(type, eventInit as TouchEventInit);
+      } catch {
+        event = new CustomEvent(type, { bubbles: true, cancelable: true });
+        Object.assign(event, eventInit);
+      }
+      target.dispatchEvent(event);
     },
     { type, x: point.x, y: point.y },
   );
