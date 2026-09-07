@@ -414,6 +414,50 @@ export function isDirty(state: EditorState): boolean {
 }
 
 /**
+ * May this draft be written to the bucket without anybody asking for it?
+ *
+ * The whole policy of autosave, in one pure function, checked **when the timer
+ * fires** and not only when it was armed — the state can have moved in between,
+ * and every "no" below is a state where writing would be wrong rather than
+ * merely unnecessary:
+ *
+ *  - `conflict` — **never.** The draft is based on an etag somebody else has
+ *    moved past. Writing it would either loop against a refusal every two
+ *    seconds or, on a bucket doing read-compare rather than a conditional
+ *    write, land as a silent clobber of a version nobody has been shown. The
+ *    three answers in `ConflictResolver` stay the only way out.
+ *  - `queued` — nothing to add. The offline queue already holds the newest text
+ *    (`queueSave` supersedes) and drains itself when the connection comes back.
+ *  - `error` — no automatic retry off the same draft. A save that failed for a
+ *    reason nobody has read gets one attempt, not one every two seconds. It
+ *    re-arms by itself the moment somebody types, because `edited` moves
+ *    `error` back to `dirty` — which is what every editor does, and is why
+ *    there is no retry loop here.
+ *  - `saving` — a write is already in flight for this text.
+ *  - `clean`, `saved`, `empty`, and any read-only note — nothing to write.
+ */
+export function autosaves(state: EditorState): boolean {
+  return state.status === "dirty" && isDirty(state);
+}
+
+/**
+ * Leaving now would leave work behind that nothing writes on its own.
+ *
+ * The two states autosave refuses, and the reason a prompt still exists at all:
+ * a conflict and a failed save are both waiting on a person, so they are the
+ * only places where "you have unsaved changes" is news rather than nagging.
+ *
+ * The draft itself survives either way — `setDraft` writes every keystroke into
+ * `features/offline` and `restoreFor` puts it back when the note is reopened —
+ * so this is about somebody walking away believing their bucket has something
+ * it does not, which is the one claim this product cannot get wrong.
+ */
+export function needsDecision(state: EditorState): boolean {
+  if (!isDirty(state)) return false;
+  return state.status === "conflict" || state.status === "error";
+}
+
+/**
  * May the person navigate away, and if not, what should they be asked?
  *
  * Returned rather than thrown so the caller decides between a dialog and a
