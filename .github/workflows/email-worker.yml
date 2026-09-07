@@ -52,7 +52,7 @@ jobs:
       # is not a failing check, GitHub ignores the file entirely, so a checker
       # that lives only inside the file that broke goes down with it silently.
       # `mcp.yml` held the only copy and was the file it could not check.
-      - name: Every workflow file parses as YAML
+      - name: Every workflow file is one GitHub will load
         run: |
           node scripts/check-workflow-yaml.mjs --self-test
           node scripts/check-workflow-yaml.mjs
@@ -74,15 +74,6 @@ jobs:
         run: |
           node scripts/check-workflow-cloudflare-preflight.mjs --self-test
           node scripts/check-workflow-cloudflare-preflight.mjs
-
-      # `secrets` is not a valid context for a job's or step's `if:` — see the
-      # script's header for the parse failure this caused in
-      # deploy-router.yml, invisibly, on every trigger since it was added.
-      # mcp.yml runs it too, same two-host reasoning as above.
-      - name: "No workflow if: reads the secrets context"
-        run: |
-          node scripts/check-workflow-secrets-in-if.mjs --self-test
-          node scripts/check-workflow-secrets-in-if.mjs
 
       - uses: pnpm/action-setup@v4
 

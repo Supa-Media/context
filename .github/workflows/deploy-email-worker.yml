@@ -291,12 +291,21 @@ jobs:
             console.log("[ok] " + name + " was modified " + Math.round(age) + " minute(s) ago.");
           ' "$resp" "$WORKER_NAME"
 
-      # ── Verification 2: the secret is bound, not merely uploaded. ──────────
+      # ── Verification 2: the secrets are bound, not merely uploaded. ────────
       #
-      # Only the NAME and type are read. The value is never fetched, printed, or
-      # compared — the API does not return it, and this step must never become
-      # the reason someone wishes it did.
-      - name: Verify EMAIL_WORKER_SECRET is bound to the Worker
+      # Only NAMES and types are read. Values are never fetched, printed, or
+      # compared — the API does not return them, and this step must never
+      # become the reason someone wishes it did.
+      #
+      # CONTROL_PLANE_URL is checked here as well as EMAIL_WORKER_SECRET, and
+      # that second name is doing more work than it looks: this endpoint lists
+      # SECRET bindings only. Seeing it here is therefore proof that the
+      # plaintext var of the same name — the one that made `wrangler secret
+      # put` fail with 10053 until #302 moved the deploy ahead of it — is
+      # really gone, rather than merely believed to be. Without this, the fix
+      # in #302 is asserted by nothing: the sync step passing only proves the
+      # collision did not happen on THAT run.
+      - name: Verify the Worker's secrets are bound
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -318,7 +327,19 @@ jobs:
               console.error("       every message is refused.");
               process.exit(1);
             }
-            console.log("[ok] EMAIL_WORKER_SECRET is bound.");
+            if (!names.includes("CONTROL_PLANE_URL")) {
+              console.error("[FAIL] CONTROL_PLANE_URL is not bound to this Worker AS A SECRET.");
+              console.error("       Bound secrets: " + (names.join(", ") || "(none)"));
+              console.error("       If the Worker still carries it as a plaintext VAR from a");
+              console.error("       deploy predating the move to wrangler secrets, the secret");
+              console.error("       could not be created: \"Binding name ... already in use\"");
+              console.error("       [code: 10053]. The deploy step drops that var, which is why");
+              console.error("       it runs before the secret sync. Without this value the");
+              console.error("       Worker cannot reach the control plane, and every message is");
+              console.error("       left to the runtime to retry.");
+              process.exit(1);
+            }
+            console.log("[ok] EMAIL_WORKER_SECRET and CONTROL_PLANE_URL are bound as secrets.");
           ' "$resp"
 
       # ── Verification 3: mail can actually REACH the Worker. ────────────────

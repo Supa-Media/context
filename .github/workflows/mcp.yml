@@ -228,7 +228,7 @@ jobs:
       # — the same two-host arrangement, and for the same reason, as the
       # trigger checker below. One implementation, because two copies of a
       # guard are two things to drift.
-      - name: Every workflow file parses as YAML
+      - name: Every workflow file is one GitHub will load
         run: |
           node scripts/check-workflow-yaml.mjs --self-test
           node scripts/check-workflow-yaml.mjs
@@ -269,15 +269,6 @@ jobs:
         run: |
           node scripts/check-workflow-cloudflare-preflight.mjs --self-test
           node scripts/check-workflow-cloudflare-preflight.mjs
-
-      # `secrets` is not a valid context for a job's or step's `if:` — see the
-      # script's header for the parse failure this caused in
-      # deploy-router.yml, invisibly, on every trigger since it was added.
-      # email-worker.yml runs it too, same two-host reasoning as above.
-      - name: "No workflow if: reads the secrets context"
-        run: |
-          node scripts/check-workflow-secrets-in-if.mjs --self-test
-          node scripts/check-workflow-secrets-in-if.mjs
 
   no-nul-bytes:
     name: Source stays diffable
