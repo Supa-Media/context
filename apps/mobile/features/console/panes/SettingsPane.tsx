@@ -364,6 +364,14 @@ function BindingCard({
   const fields: Array<{ label: string; value: string }> = [
     { label: "Provider", value: isDropbox ? "Dropbox" : storage.provider },
   ];
+  // Which account, not just which provider — the two things the field was
+  // stored for are saying whose Dropbox this is and noticing a *different*
+  // one arriving on a reconnect. This is a live query value, so a reconnect
+  // that changes the account replaces this row rather than leaving a stale
+  // one behind.
+  if (isDropbox && storage.dropboxAccountId) {
+    fields.push({ label: "Connected as", value: storage.dropboxAccountId });
+  }
   if (storage.bucket) fields.push({ label: "Bucket", value: storage.bucket });
   if (storage.endpoint) fields.push({ label: "Endpoint", value: storage.endpoint });
   if (storage.accessKey) fields.push({ label: "Access key", value: storage.accessKey });

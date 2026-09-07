@@ -98,6 +98,7 @@ function browser(canSetVisibility: boolean): FileBrowser {
     editor: emptyEditor,
     setDraft: noop,
     save: noop,
+    flushAutosave: () => false,
     useTheirs: noop,
     keepMine: noop,
     conflict: null,

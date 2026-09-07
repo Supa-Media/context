@@ -343,6 +343,7 @@ function mockConsoleData(): never {
     editor: { ...emptyEditor, path: "1-projects/plan.md", status: "clean" as const },
     setDraft: () => {},
     save: () => {},
+    flushAutosave: () => false,
     useTheirs: () => {},
     keepMine: () => {},
     conflict: null,

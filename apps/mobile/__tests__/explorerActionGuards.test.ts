@@ -313,6 +313,7 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     editor: emptyEditor,
     setDraft: noop,
     save: noop,
+    flushAutosave: () => false,
     useTheirs: noop,
     keepMine: noop,
     conflict: null,

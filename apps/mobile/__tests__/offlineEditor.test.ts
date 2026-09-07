@@ -81,23 +81,27 @@ describe("a save that was written down instead of written", () => {
     expect(saveButton(more)).toEqual({ label: "Queued", disabled: true });
   });
 
-  test("you may leave a queued note, and still not a merely dirty one", () => {
+  test("you may leave a queued note", () => {
     /*
       The guard exists to stop a draft being lost to navigation. A queued draft
       cannot be — it is in the queue, which outlives the component and, on a
       durable store, the app. Refusing anyway strands somebody on a train: no
       connection, no way to save, and the console will not let them open
       anything else.
+
+      This used to assert that a merely *dirty* note was refused, as the
+      contrast. Autosave writes that one on the way out instead, so both are
+      allowed now and for different reasons: this one because it is already
+      written down, that one because it is being written. The refusal that is
+      left is `needsDecision` — see `autosave.test.ts`.
     */
     const queued = editorReducer(
       editorReducer(opened(), { type: "edited", text: "changed" }),
       { type: "saveQueued", message: "queued" },
     );
-    const dirty = editorReducer(opened(), { type: "edited", text: "changed" });
 
     expect(isDirty(queued)).toBe(true);
     expect(guardLeaving(queued).allowed).toBe(true);
-    expect(guardLeaving(dirty).allowed).toBe(false);
   });
 
   test("when the queue drains it, the editor moves onto the etag the bucket now holds", () => {

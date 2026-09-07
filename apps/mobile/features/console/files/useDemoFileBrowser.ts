@@ -125,6 +125,9 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       editor,
       setDraft: noop,
       save: noop,
+      // A picture of the console, with no bucket behind it: there is never
+      // anything pending, so the honest answer is "nothing was written".
+      flushAutosave: () => false,
       useTheirs: noop,
       keepMine: noop,
       // No bucket, so no second writer and never a conflict to resolve.

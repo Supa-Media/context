@@ -88,6 +88,8 @@ interface StorageBinding {
   rootPrefix?: string;
   maskedAccessKeyId?: string;
   forcePathStyle?: boolean;
+  /** `dbid:…` for a Dropbox binding, absent for every other provider. */
+  dropboxAccountId?: string;
   capabilities: { conditionalWrite: boolean };
   status: string;
   lastVerifiedAt?: number;
@@ -349,6 +351,7 @@ export function useLiveConsoleData(): ConsoleData {
           region: binding.region,
           rootPrefix: binding.rootPrefix,
           accessKey: binding.maskedAccessKeyId,
+          dropboxAccountId: binding.dropboxAccountId,
           conditionalWrite: binding.capabilities.conditionalWrite,
           noteCount: binding.noteCount,
           noteCountedAt: binding.noteCountedAt,

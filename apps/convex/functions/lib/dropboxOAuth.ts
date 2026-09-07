@@ -7,14 +7,25 @@
  * and nothing here is a Convex function — which is what makes it testable
  * against a stubbed socket rather than against Dropbox.
  *
- * ## Why PKCE and no client secret
+ * ## Why PKCE either way, and a client secret only where it costs nothing
  *
- * The Dropbox app is registered as a **public client**, so there is no client
- * secret anywhere in this system — not in Convex, not in the gateway, not on a
- * device. The only thing that binds the authorization code to the browser that
- * started the flow is the PKCE pair: a high-entropy `verifier` we keep, and the
- * SHA-256 of it that travels through the browser as the `challenge`. Somebody
- * who intercepts the redirect gets a code they cannot spend.
+ * The browser never holds a client secret — not in Convex's response, not in
+ * the gateway, not on a device. The only thing that binds the authorization
+ * code to the browser that started the flow is the PKCE pair: a high-entropy
+ * `verifier` we keep, and the SHA-256 of it that travels through the browser
+ * as the `challenge`. Somebody who intercepts the redirect gets a code they
+ * cannot spend, with or without a client secret in the picture.
+ *
+ * `exchangeDropboxCode` and `refreshDropboxToken` accept an **optional**
+ * `clientSecret`. The flow already never puts one in a browser — `start`
+ * returns only an authorize URL, and the exchange runs from a scheduled
+ * Convex action — so adding `DROPBOX_APP_SECRET` there costs nothing and buys
+ * a second, independent check: Dropbox now refuses a token request that gets
+ * the PKCE proof right but does not also come from a process holding the
+ * secret. It is optional in this module rather than required, so a test — or
+ * a self-hosted deployment mid-setup — that omits it still behaves like a
+ * public client instead of failing a call this file does not own the
+ * decision to require.
  *
  * That makes exactly one thing load-bearing and invisible: **the challenge must
  * be `base64url(SHA-256(ascii(verifier)))`, unpadded.** Plain base64, hex, a
@@ -560,8 +571,11 @@ export interface DropboxTokenSet {
  * RFC 6749 §4.1.3 requires it when it was present at the authorize step, and
  * Dropbox enforces that. Omitting it is a `400` that looks like a bad code.
  *
- * There is no `client_secret`. This is a public client, and sending an empty
- * one is refused rather than ignored.
+ * `clientSecret` is optional and omitted from the request entirely when
+ * absent — sending an *empty* one is refused rather than ignored, which is
+ * the whole reason this is "include the field or don't" rather than "send
+ * whatever string you have". See the module doc for why a secret is safe to
+ * add here at all.
  *
  * A 200 that is missing any documented field is refused instead of partially
  * accepted. A binding written from half a response is a binding whose "which
@@ -570,6 +584,8 @@ export interface DropboxTokenSet {
  */
 export async function exchangeDropboxCode(options: {
   clientId: string;
+  /** `DROPBOX_APP_SECRET`, when this deployment has one configured. */
+  clientSecret?: string;
   code: string;
   /** The `verifier` from the `createPkcePair` whose challenge started this flow. */
   verifier: string;
@@ -583,6 +599,7 @@ export async function exchangeDropboxCode(options: {
       code_verifier: options.verifier,
       client_id: options.clientId,
       redirect_uri: options.redirectUri,
+      ...(options.clientSecret ? { client_secret: options.clientSecret } : {}),
     },
     options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init)),
   );
@@ -647,6 +664,8 @@ export interface DropboxRefreshResult {
  */
 export async function refreshDropboxToken(options: {
   clientId: string;
+  /** `DROPBOX_APP_SECRET`, when this deployment has one configured. */
+  clientSecret?: string;
   refreshToken: string;
   fetchImpl?: FetchLike;
 }): Promise<DropboxRefreshResult> {
@@ -655,6 +674,7 @@ export async function refreshDropboxToken(options: {
       grant_type: "refresh_token",
       refresh_token: options.refreshToken,
       client_id: options.clientId,
+      ...(options.clientSecret ? { client_secret: options.clientSecret } : {}),
     },
     options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init)),
   );

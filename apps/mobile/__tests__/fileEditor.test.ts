@@ -486,14 +486,21 @@ describe("unsaved changes", () => {
     expect(guardLeaving(state).allowed).toBe(true);
   });
 
-  test("typing makes it dirty and blocks navigation with an actionable prompt", () => {
+  test("typing makes it dirty, and no longer blocks navigation", () => {
+    /*
+      This asserted the opposite until autosave: an unsaved draft refused to
+      let anybody open another note, because the single editor slot would have
+      thrown it away. It is written on the way out now (`select` flushes), so
+      the refusal was a prompt in front of a problem that no longer exists —
+      which is the "bugging people to save" the change is about.
+
+      The two states that still refuse are `conflict` and `error`; see
+      `autosave.test.ts`, which owns that policy.
+    */
     const state = editorReducer(opened(), { type: "edited", text: "# A\n\nmore" });
     expect(state.status).toBe("dirty");
     expect(isDirty(state)).toBe(true);
-    const guard = guardLeaving(state);
-    expect(guard.allowed).toBe(false);
-    expect(guard.prompt).toContain("1-projects/a.md");
-    expect(guard.prompt).toMatch(/Save them, or discard them/);
+    expect(guardLeaving(state)).toEqual({ allowed: true });
   });
 
   test("typing back to the original text is not a change", () => {
