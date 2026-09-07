@@ -52,6 +52,16 @@
  * slightly early. `LIMITS.transcribeChunksPerSession` is set far enough above a
  * real meeting that this is a bound on abuse rather than on anybody's day.
  *
+ * And the part a reader would otherwise assume: **the count is not
+ * tamper-evident, and on customer-owned storage it cannot be.** The record is in
+ * a bucket whose owner holds the credential by construction, so the account
+ * being metered can reset `transcribedChunks` in Obsidian. Bound 1 is unaffected
+ * — it is about *whose* context the session is in, which is the tenant boundary
+ * — and so is bound 3. Bound 2 is a billing limit an account holder can lift on
+ * their own account, and on this path there is nothing beneath it. See the
+ * "third cost" paragraph in `docs/decisions/meetings.md`; do not tighten this
+ * comment into a claim the storage model cannot keep.
+ *
  * ## An unconfigured deployment answers honestly and permanently
  *
  * A gateway with no transcription service configured is the ordinary state of a

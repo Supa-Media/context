@@ -421,6 +421,30 @@ per account, so it bounds a client in a loop rather than somebody who opens many
 meetings. The second is the same signup-gate problem the control-plane limit
 has, and it is not this seam's to solve either.
 
+**A third cost, and it is the one a reader will otherwise assume away: this
+count is not tamper-evident, and on customer-owned storage it cannot be.** The
+record lives in a bucket whose owner holds the credential by construction —
+non-negotiable #1 — so the person being metered can open `.meetings/<id>.json`
+in Obsidian and set `transcribedChunks` back to zero. Nothing in the gateway
+can stop that and nothing should try; a counter we could keep out of their
+reach would be a counter kept somewhere we promised not to keep anything.
+
+What that does and does not mean, precisely. It is **not** a tenant-isolation
+bound and none of the three above weaken: the session must exist in the
+*caller's own* context (`a neighbour holding the id cannot transcribe into it`),
+the counter survives every fold the gateway itself performs — `applyEvent`
+spreads the record, so an upsert or a segment batch carries it, which
+`THE BUDGET SURVIVES AN EVENT FOLD` pins — and spend stays attributable through
+the HMAC whatever the count says. What it is is a **billing** bound that an
+account holder can lift on their own account, and the honest statement is that
+on this path there is then nothing under it: the transcribe Worker's own
+limiter is measured-absent (see `infra/transcribe-worker/src/rateLimit.ts`, and
+the section above), and `consumeTranscribeBudget` guards the *control plane's*
+route, not this one. Same standard as that section: treat this as attribution
+plus a bound on a client in a loop, not as a spend cap. A real cap for a
+grant-holding recorder needs a counter somewhere we own, which is a control-plane
+round trip per chunk and a decision nobody has taken.
+
 **An unconfigured deployment answers 501, not 503.** Every self-hosted install
 is unconfigured, and a client that read the refusal as temporary would ask again
 every twenty seconds for the length of a meeting; 501 is what turns that into

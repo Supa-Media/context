@@ -2429,6 +2429,23 @@ export async function runMeetingChecks(check) {
   check("THE BUDGET SURVIVES AN EVENT FOLD, so a ceiling cannot be reset by recording", afterFold.transcribedChunks === 1);
   check("...and the fold still did its own job", (afterFold.transcript ?? []).length === 1);
 
+  /*
+    And the same attack through the other door, which is the obvious one to
+    reach for: re-open the session you already hold, over the collection route,
+    and see whether the record comes back rebuilt with the count gone.
+    `foldMetadata` starts from the stored session rather than from the body, so
+    it does not — but that is a property of `applyEvent` spreading a record it
+    does not fully know, and nothing else here would notice it changing.
+  */
+  await meetingRequest(transcribing, TOKEN_OWNER, "/meetings/sessions", {
+    body: { id: SESSION_TRANSCRIBE, title: "Re-opened to reset the meter" },
+  });
+  const afterUpsert = JSON.parse(recorder.get(audioKey)?.body ?? "{}");
+  check(
+    "...AND AN UPSERT OF A SESSION YOU HOLD DOES NOT RESET IT EITHER",
+    afterUpsert.transcribedChunks === 1 && afterUpsert.title === "Re-opened to reset the meter"
+  );
+
   const before = transcribeCalls.length;
   const neighbourTranscribe = await meetingRequest(
     transcribing,
