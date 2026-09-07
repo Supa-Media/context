@@ -16,6 +16,7 @@
 // broken and how many checks noticed. A guard nobody has checked is not a
 // guard.
 
+import { runChunkChecks } from "./chunks.test.mjs";
 import { runDetectChecks } from "./detect.test.mjs";
 import { runEnhanceChecks } from "./enhance.test.mjs";
 import { runNoteChecks } from "./note.test.mjs";
@@ -105,9 +106,18 @@ check(
 check("the per-session routes are built from the id", ROUTES.segments("mtg_x").endsWith("/mtg_x/segments"));
 check(
   "...and hang off the one-session route rather than restating it",
-  ["segments", "notes", "finalize"].every((name) =>
+  ["segments", "notes", "finalize", "transcribe"].every((name) =>
     ROUTES[name]("mtg_x").startsWith(`${ROUTES.session("mtg_x")}/`)
   )
+);
+check(
+  "transcribing is a route of its own, not something finalize also does",
+  ROUTES.transcribe("mtg_x") !== ROUTES.finalize("mtg_x") &&
+    ROUTES.transcribe("mtg_x").endsWith("/transcribe")
+);
+check(
+  "...and it is scoped to one session, so a chunk is always charged to a meeting",
+  ROUTES.transcribe("mtg_x").includes("mtg_x")
 );
 /*
   The runtime lists and the JSDoc unions are two statements of one fact, and the
@@ -181,6 +191,7 @@ runPathChecks(check);
 runNoteChecks(check);
 runDetectChecks(check);
 runEnhanceChecks(check);
+runChunkChecks(check);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);
