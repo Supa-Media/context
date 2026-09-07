@@ -4,12 +4,25 @@
   "description": "Save what an AI coding session learned into your Context, automatically, when the session ends",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Supa-Media/context.git",
+    "directory": "packages/hook"
+  },
+  "homepage": "https://github.com/Supa-Media/context/tree/main/packages/hook#readme",
+  "bugs": {
+    "url": "https://github.com/Supa-Media/context/issues"
+  },
   "bin": { "context-hook": "./bin/context-hook.mjs" },
-  "files": ["bin", "src", "README.md"],
+  "files": ["bin", "src", "README.md", "LICENSE"],
   "engines": { "node": ">=20" },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "node test/test.mjs",
     "typecheck": "echo \"no typecheck (plain JS, no dependencies)\" && exit 0",
-    "lint": "echo \"no lint configured yet\" && exit 0"
+    "lint": "echo \"no lint configured yet\" && exit 0",
+    "prepublishOnly": "node test/test.mjs"
   }
 }

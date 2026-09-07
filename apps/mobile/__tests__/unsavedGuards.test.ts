@@ -11,11 +11,9 @@ import { createRoot } from "react-dom/client";
 /**
  * The three things standing between a draft and the bin.
  *
- * Nothing in this app autosaves: `editor.ts` holds the draft in a reducer, the
- * only thing that writes it to the bucket is Save, and the editor's resting
- * state says "Saved in your bucket" — a durability claim the dirty state has
- * no counterpart for. So the guards *are* the feature, and every one of them
- * was either missing or documented-but-absent before this file existed:
+ * When this file was written nothing autosaved: the only thing that wrote a
+ * draft to the bucket was Save, so the guards *were* the feature, and every one
+ * of them was either missing or documented-but-absent:
  *
  *  - `guardLeaving` refused to open another note, and `useTabs.activate`
  *    routed around it by dispatching first;
@@ -23,7 +21,38 @@ import { createRoot } from "react-dom/client";
  *    (covered in `fileTabs.test.ts`, which owns the reducer);
  *  - the browser tab could simply be closed.
  *
- * This file covers the first and the third.
+ * This file covers the first and the third, and both have changed shape now
+ * that the draft is written without being asked for. The tab strip still may
+ * not move without the editor — a refusal is rarer but not gone, and a strip
+ * that highlights one note over an editor holding another is the same bug it
+ * always was. The browser tab is the interesting one: closing it should
+ * **write** the draft, and interrupt somebody only about the drafts autosave
+ * refuses. See `autosave.test.ts` for that policy.
+ *
+ * ## Sabotage record
+ *
+ * Run as temporary local edits and reverted. Counts are failing tests, in this
+ * file unless another is named — the last four are the copy that stopped
+ * telling people they owed the app an action, which is the same change.
+ *
+ *   the `visibilitychange` flush dropped                                1
+ *   the `pagehide` flush dropped                                        1
+ *   flushing when the tab comes *back* as well                          1
+ *   flushing for a clean note as well                                   1
+ *   `beforeunload` attached for every draft again                       1
+ *   `closeIntent` asking about every dirty tab       1 (fileTabs.test.ts)
+ *   `closeIntent` never asking                       1 (fileTabs.test.ts)
+ *   the strip's dirty segment warning again            1 (status.test.ts)
+ *   the editor's dirty line reading "Unsaved changes"
+ *                                            1 (offlineEditorRender.test.ts)
+ *
+ * **One went undetected and is recorded rather than quietly fixed**, because
+ * what it proves is that a condition and its dependency array are one guard
+ * and not two. Widening the `beforeunload` effect's *condition* to
+ * `undone || pending` while leaving its deps at `[undone]` fails nothing: the
+ * effect never re-runs when `pending` changes, so the widened condition is
+ * almost never evaluated. Sabotaging both together is the honest version and
+ * is the line above.
  */
 
 const { useTabs } =
@@ -114,17 +143,51 @@ describe("the tab strip cannot move without the editor", () => {
 /* -------------------------------------------------------------------------- */
 
 describe("the exit the app does not own", () => {
-  function mountGuard(dirty: boolean) {
-    function Probe({ d }: { d: boolean }) {
-      useUnsavedGuard(d);
+  type EditorState = import("../features/console/files/editor").EditorState;
+
+  const NOTE = {
+    path: "1-projects/a.md",
+    text: "original\n",
+    etag: "e1",
+    visibility: "private" as const,
+    inherited: "private" as const,
+    exception: false,
+    readOnly: false,
+  };
+
+  const { editorReducer } =
+    require("../features/console/files/editor") as typeof import("../features/console/files/editor");
+
+  /** A note with an ordinary unsaved draft: what autosave is about to write. */
+  function dirty(): EditorState {
+    return editorReducer(editorReducer(emptyEditor, { type: "opened", note: NOTE }), {
+      type: "edited",
+      text: "original\nand more\n",
+    });
+  }
+
+  /** A draft nothing will write on its own. */
+  function conflicted(): EditorState {
+    return editorReducer(dirty(), {
+      type: "saveFailed",
+      error: { code: "CONFLICT", message: "Somebody else saved first.", currentEtag: "e9" },
+    });
+  }
+
+  function mountGuard(editor: EditorState) {
+    const flushed: number[] = [];
+    const flush = () => flushed.push(Date.now());
+    function Probe({ e }: { e: EditorState }) {
+      useUnsavedGuard({ editor: e, flush });
       return null;
     }
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
-    act(() => root.render(createElement(Probe, { d: dirty })));
+    act(() => root.render(createElement(Probe, { e: editor })));
     return {
-      set: (next: boolean) => act(() => root.render(createElement(Probe, { d: next }))),
+      flushed,
+      set: (next: EditorState) => act(() => root.render(createElement(Probe, { e: next }))),
       unmount: () => {
         act(() => root.unmount());
         host.remove();
@@ -132,31 +195,88 @@ describe("the exit the app does not own", () => {
     };
   }
 
-  test("it listens only while there is something to lose", () => {
+  test("it prompts only for a draft autosave will not write", () => {
     /*
       Attached unconditionally, Chrome and Safari increasingly decline to show
       the prompt at all for a page that always asks — so a guard that is always
-      on is a guard that stops working on the day it is needed. The dependency
-      is the boolean for that reason, not for tidiness.
+      on is a guard that stops working on the day it is needed. That rule is
+      why autosave makes this prompt *better* rather than merely rarer: asking
+      on every draft spent the browser's patience on the case that was never in
+      danger.
     */
     const add = jest.spyOn(window, "addEventListener");
     const remove = jest.spyOn(window, "removeEventListener");
     const listened = () => add.mock.calls.filter((c) => c[0] === "beforeunload").length;
     const unlistened = () => remove.mock.calls.filter((c) => c[0] === "beforeunload").length;
 
-    const guard = mountGuard(false);
+    const guard = mountGuard(emptyEditor);
     expect(listened()).toBe(0);
 
-    guard.set(true);
+    // An ordinary draft: written on the way out, so nothing to ask about.
+    guard.set(dirty());
+    expect(listened()).toBe(0);
+
+    // A conflict: nothing writes this for anybody.
+    guard.set(conflicted());
     expect(listened()).toBe(1);
 
-    // A save landed. The listener comes straight back off.
-    guard.set(false);
+    // Resolved. The listener comes straight back off.
+    guard.set(dirty());
     expect(unlistened()).toBe(1);
 
     guard.unmount();
     add.mockRestore();
     remove.mockRestore();
+  });
+
+  test("hiding the tab writes what is pending", () => {
+    /*
+      `visibilitychange` and `pagehide` are the last reliable moments a page
+      gets, and they fire for a tab switch and an app switch as well as for a
+      close — so the pending write goes out when somebody looks away rather
+      than only when they leave for good.
+    */
+    const guard = mountGuard(dirty());
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(guard.flushed).toHaveLength(1);
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(guard.flushed).toHaveLength(2);
+
+    guard.unmount();
+    // Nothing pending, nothing written: a clean note that is hidden must not
+    // spend a request on the customer's bucket for no reason.
+    const clean = mountGuard(editorReducer(emptyEditor, { type: "opened", note: NOTE }));
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(clean.flushed).toEqual([]);
+    clean.unmount();
+  });
+
+  test("coming back to the tab is not an exit", () => {
+    // `visibilitychange` fires in both directions. Flushing on becoming
+    // visible would be a write every time somebody tabbed back.
+    const guard = mountGuard(dirty());
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(guard.flushed).toEqual([]);
+    guard.unmount();
   });
 
   test("it cancels the unload", () => {
@@ -172,7 +292,7 @@ describe("the exit the app does not own", () => {
       never really checked.
     */
     const add = jest.spyOn(window, "addEventListener");
-    const guard = mountGuard(true);
+    const guard = mountGuard(conflicted());
 
     const entry = add.mock.calls.find((c) => c[0] === "beforeunload");
     expect(entry).toBeDefined();

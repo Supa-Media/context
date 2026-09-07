@@ -110,6 +110,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A URL is a context and a note, and half of one is not an instruction
 - A note link is a path with a keyword in front, because a scheme has a host
 - A reference follows the note it points at, and a link is something you follow
+- The console autosaves, and the prompt that is left is about a decision
 
 ## [Meetings](./meetings.md)
 

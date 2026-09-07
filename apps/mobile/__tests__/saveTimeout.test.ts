@@ -143,7 +143,16 @@ describe("a note save that never comes back", () => {
     jest.useFakeTimers();
     pending = null;
     actions[name("listFiles")] = async () => ROOT_LISTING;
-    actions[name("readNote")] = async () => OPEN_NOTE;
+    /*
+      Answers for the path it was asked about, rather than handing back the
+      same note whatever is opened. Autosave made that matter: the tests below
+      switch notes mid-save, and a fixture that reports one path for both makes
+      "the editor is holding a different note now" unprovable.
+    */
+    actions[name("readNote")] = (async (args: { path: string }) => ({
+      ...OPEN_NOTE,
+      path: args.path,
+    })) as (args: never) => Promise<unknown>;
     actions[name("writeNote")] = () =>
       new Promise<unknown>((resolve, reject) => {
         pending = { resolve: resolve as (r: SaveResult) => void, reject };
@@ -166,17 +175,59 @@ describe("a note save that never comes back", () => {
     jest.useRealTimers();
   });
 
-  test("leaves no control on the screen while it is in flight — which is the bug", async () => {
+  test("leaves no control on the note itself while it is in flight — which is the bug", async () => {
     act(() => browser.save());
     expect(browser.editor.status).toBe("saving");
-    // Every escape is shut: Save disabled, Discard not rendered for `saving`,
-    // and another note refused. This is the state that must not be permanent.
+    // Save is disabled and `NoteEditor` renders Discard only for `dirty` and
+    // `error`, so there is nothing on this note to press. This is the state
+    // that must not be permanent — hence the timeout the rest of this file is
+    // about.
     expect(saveButton(browser.editor).disabled).toBe(true);
+  });
+
+  test("but the person is no longer trapped on it", async () => {
+    /*
+      This used to assert the opposite: `guardLeaving` refused to open another
+      note while the draft was unsaved, and a `saving` draft is unsaved, so a
+      hung save shut the last exit too. Autosave relaxed that guard — a draft
+      is written on the way out rather than guarded — which puts the weight on
+      the settlement being keyed by path instead. The next test is that half.
+    */
+    act(() => browser.save());
+    expect(browser.editor.status).toBe("saving");
+
     await act(async () => {
       browser.select(OTHER_PATH);
     });
-    expect(browser.selectedPath).toBe(NOTE_PATH);
-    expect(browser.notice).toMatch(/unsaved changes/);
+    expect(browser.selectedPath).toBe(OTHER_PATH);
+  });
+
+  test("and the save it left behind cannot settle the note opened after it", async () => {
+    /*
+      The whole reason the guard could be relaxed. `saveSucceeded` moves
+      `baseline` and `etag` onto the state it is given, and after a switch that
+      state is a **different note**: a late answer would mark somebody's real
+      unsaved draft clean and arm their next save against an etag from another
+      file. `performSave` compares the path it was called with against the note
+      the editor is holding now, exactly as `onDrained` does for the queue.
+    */
+    act(() => browser.save());
+    const inFlight = pending!;
+    await act(async () => {
+      browser.select(OTHER_PATH);
+    });
+    // The other note is open, and typed into: a real draft to lose.
+    expect(browser.editor.path).toBe(OTHER_PATH);
+    act(() => browser.setDraft("# other\n\nmine\n"));
+
+    act(() => inFlight.resolve({ path: NOTE_PATH, etag: "etag-2", conflictCheck: "conditional" }));
+    await settle();
+
+    expect(browser.editor.path).toBe(OTHER_PATH);
+    expect(browser.editor.status).toBe("dirty");
+    expect(browser.editor.draft).toBe("# other\n\nmine\n");
+    // And in particular it has not taken the other note's etag.
+    expect(browser.editor.etag).toBe(OPEN_NOTE.etag);
   });
 
   test("times out into a state that offers a way forward", () => {

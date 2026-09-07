@@ -31,7 +31,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 
 import { ConnectClients } from "../features/console/clients/ConnectClients";
-import { CLIENT_PROVIDERS } from "../features/console/clients/providers";
+import { CLIENT_PROVIDERS, CUSTOMIZATION_INSTRUCTION } from "../features/console/clients/providers";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -287,6 +287,49 @@ describe("the hooks panel", () => {
     const screen = mount();
     screen.click("provider-claude-code-hook-toggle");
     expect(screen.text()).toContain("capture access only");
+    screen.unmount();
+  });
+});
+
+describe("the customization instruction", () => {
+  /*
+   * A connector grant makes `orient` reachable; it does not make a client
+   * call it every turn. This is the row's answer to that, and it has to
+   * survive on every one of the nine rows or the education this project set
+   * out to add is really "education for six of nine clients".
+   */
+  test("every row offers it, once its details are open", () => {
+    const screen = mount();
+    for (const provider of CLIENT_PROVIDERS) {
+      screen.click(`provider-${provider.id}-toggle`);
+      const field = screen.q(`provider-${provider.id}-customization`);
+      expect(field).not.toBeNull();
+      expect(field!.textContent).toContain(CUSTOMIZATION_INSTRUCTION);
+      screen.click(`provider-${provider.id}-toggle`);
+    }
+    screen.unmount();
+  });
+
+  test("it is one line and names the tool an agent has to call", () => {
+    const screen = mount();
+    screen.click("provider-claude-toggle");
+
+    const field = screen.q("provider-claude-customization");
+    expect(field!.textContent).toContain(CUSTOMIZATION_INSTRUCTION);
+    expect(CUSTOMIZATION_INSTRUCTION).not.toContain("\n");
+    expect(CUSTOMIZATION_INSTRUCTION).toContain("orient");
+    screen.unmount();
+  });
+
+  test("each row also says where to paste it", () => {
+    const screen = mount();
+    for (const provider of CLIENT_PROVIDERS) {
+      screen.click(`provider-${provider.id}-toggle`);
+      expect(screen.q(`provider-${provider.id}-details`)!.textContent).toContain(
+        provider.customization.hint,
+      );
+      screen.click(`provider-${provider.id}-toggle`);
+    }
     screen.unmount();
   });
 });

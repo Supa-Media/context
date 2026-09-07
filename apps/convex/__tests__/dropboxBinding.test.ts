@@ -220,6 +220,61 @@ describe("what the console may see", () => {
     // masked credential that was never there.
     expect(view?.maskedAccessKeyId).toBeUndefined();
     expect(view?.provider).toBe("dropbox");
+    // Whose Dropbox this is — not a secret, and the one thing the console
+    // could not say before: which account is connected.
+    expect(view?.dropboxAccountId).toBe("dbid:AAA");
+  });
+
+  /**
+   * The account id is a live read of the row, not a value the console
+   * remembers between renders. A reconnect that lands on a DIFFERENT Dropbox
+   * account has to show up here the moment the binding is patched — the whole
+   * reason `dropboxAccountId` exists (see the schema's comment) is to let the
+   * console notice that "you signed in again" and "your context now points
+   * somewhere else" are different events.
+   */
+  test("a reconnect onto a different Dropbox account is reflected immediately", async () => {
+    const { t, owner, workspaceId } = await scenario();
+    await dropboxBound(t, workspaceId, owner);
+
+    const before = await asUser(t, owner).query(api.functions.storage.getStorageBinding, {
+      workspaceId,
+    });
+    expect(before?.dropboxAccountId).toBe("dbid:AAA");
+
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    await t.mutation(internal.functions.dropboxConnect.applyDropboxBinding, {
+      workspaceId,
+      boundBy: owner,
+      encryptedRefreshToken: await encryptSecret("refresh-def", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-uvw", keyset, context),
+      accessTokenExpiresAt: Date.now() + 3_600_000,
+      dropboxAccountId: "dbid:BBB",
+    });
+
+    const after = await asUser(t, owner).query(api.functions.storage.getStorageBinding, {
+      workspaceId,
+    });
+    expect(after?.dropboxAccountId).toBe("dbid:BBB");
+  });
+
+  /**
+   * Not owner-gated, unlike `noteCount`. The account id identifies a Dropbox
+   * account the same way `bucket` names a bucket — a fact about the binding,
+   * not about the private notes inside it — so every member sees the same
+   * answer the owner does.
+   */
+  test("a member who is not the owner can still see which Dropbox account is connected", async () => {
+    const { t, owner, workspaceId } = await scenario();
+    await dropboxBound(t, workspaceId, owner);
+    const member = await createUser(t, "member2@example.invalid");
+    await addMember(t, workspaceId, member, "member", owner);
+
+    const view = await asUser(t, member).query(api.functions.storage.getStorageBinding, {
+      workspaceId,
+    });
+    expect(view?.dropboxAccountId).toBe("dbid:AAA");
   });
 
   test("a member who is not the owner still cannot read a Dropbox binding's tokens", async () => {

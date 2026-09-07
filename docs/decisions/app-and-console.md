@@ -1848,3 +1848,102 @@ console screen; neither is worth guessing at from a phone recording. What is
 already true is that content scrolls *under* the bar rather than being pushed by
 it, which is the reference's own behaviour — so what is being asked for is a
 hide-on-scroll, and it wants its own decision.
+
+### The console autosaves, and the prompt that is left is about a decision
+
+The editor had one route from a draft to the customer's bucket — the Save
+button, or ⌘S — and three separate interruptions arranged around it: a refusal
+to open another note, a confirm before closing a tab, and the browser's
+"leave site?" on every unsaved draft. The owner's words for that: *"it's
+something people are used to already in every note taking app, so it's so
+necessary, stop bugging people to save."*
+
+**Two timers, and the second one is not decoration.** The draft is written
+`AUTOSAVE_IDLE_MS` (2s) after it stops changing, and at latest
+`AUTOSAVE_MAX_WAIT_MS` (15s) after the first edit of a burst, whichever comes
+first. An idle-only debounce is the obvious design and it never fires for iOS
+dictation, which inserts a partial result every few hundred milliseconds — a
+dictated paragraph would sit unwritten for as long as somebody kept talking.
+The ceiling is measured from the first edit and is not pushed back by later
+ones, or it is a second debounce.
+
+**The numbers are a cost decision, on somebody else's quota.** One save is a
+Convex action → the gateway → one conditional PUT against the customer's bucket
+plus a LIST to refresh the note's folder: two requests. At these intervals
+ordinary composing costs about what the Save presses it replaces did, and
+continuous input is bounded to four saves a minute. A save per keystroke is the
+version of this feature that is not shippable, which is why the scheduler is a
+module with its own tests rather than an effect.
+
+**What autosave refuses is the whole safety argument** (`autosaves` in
+`editor.ts`, asked again when the timer fires rather than trusted from when it
+was armed):
+
+- **`conflict`, never.** The draft is based on an etag somebody else has moved
+  past. Writing it automatically is a refusal every two seconds against a
+  bucket that does conditional writes, and a **silent clobber** against one
+  that can only read-compare. The three answers in `ConflictResolver` stay the
+  only way out, untouched.
+- **`error`, once and no retry loop.** A save that failed for a reason nobody
+  has read does not get retried every two seconds. It re-arms by itself the
+  moment somebody types, because `edited` moves `error` back to `dirty` — what
+  every editor does, and why there is no retry logic.
+- **`queued`**, because the offline queue already holds the newest text and
+  supersedes; and anything read-only, clean or already in flight.
+
+**Every autosaved write is the same conditional write Save makes**, carrying
+the etag the draft was typed against. There is no force flag, no unconditional
+branch and no second write path in `useFileBrowser`. Relaxing this is how
+autosave becomes the feature that quietly overwrote somebody's Obsidian.
+
+**The scheduler hands back the path it was armed with, and the caller compares
+it.** `autosaveNow` reads the text and etag off the editor, so a timer that
+fired after a note switch without that comparison writes **the new note's text
+to the old note's path, against the new note's etag** — a conditional write the
+server has every reason to accept. The reachable sequence is not exotic: the
+read for the next note is a round trip, and typing during it arms a timer for a
+note that is about to be replaced.
+
+**Allowing navigation during a save is what made the settlement path-aware.**
+The editor reducer describes the *open* note, and until now nothing could leave
+a note with a write in flight, so `saveSucceeded`, `saveFailed` and
+`saveTimedOut` could be dispatched blind. Each is now gated on the editor still
+holding the note the write was for — a late success would otherwise mark
+another note's real draft clean against an etag it was never based on — and the
+save generation and its timeout are keyed by path so two writes in the air
+cannot discard each other's answers. A save that ends for a note nobody is
+looking at reports itself in the notice line, naming the note and saying its
+draft is on the device.
+
+**`guardLeaving` keeps exactly one job: `needsDecision`.** A conflict and a
+failed save are the states nothing writes for you, so they are the only ones
+worth interrupting somebody for. Everything else is flushed on the way out:
+`select` writes what is pending before the selection moves, closing a tab does
+the same by path (`closeIntent`), and on web `visibilitychange`/`pagehide`
+flush while `beforeunload` prompts only for the two. That last one makes the
+prompt *better* rather than merely rarer — browsers increasingly decline to
+show it for a page that always asks, so asking on every draft was spending the
+browser's patience on the case that was never in danger.
+
+**The flush is best-effort and is not the guarantee.** A write issued from a
+page being torn down may not leave the machine. What makes a draft safe is
+`features/offline`: every keystroke is on the device, and `restoreFor` puts it
+back — as a conflict if the bucket moved on — when the note is reopened.
+
+The copy follows the behaviour, because a status line that still says "Unsaved
+changes" over a draft that is being written is the same nag in a smaller font:
+"Saving soon" (quiet) → "Saving…" → "Saved in your bucket", and a resting
+button that says "Saved" rather than offering a dim "Save". It still says
+"Save" over a body read off the device, where "Saved" would vouch for a bucket
+nothing has spoken to.
+
+**What a reversal costs, and the tests that fail.** Dropping the ceiling loses
+dictation entirely (`autosave.test.ts`); autosaving a conflict is a clobber
+somebody was never shown (`autosaveEditor.test.ts`, twice over); dropping the
+path comparison writes one note's words into another file
+(`autosaveEditor.test.ts`, "a timer armed for one note cannot write into
+another that is also dirty"); dropping the path check on a settlement marks a
+real draft clean (`saveTimeout.test.ts`). One guard is recorded in
+`autosaveEditor.test.ts` as *not* covered rather than quietly claimed:
+`performSave` cancelling the timer it supersedes is redundant with the
+fire-time `autosaves` check, and nothing can distinguish the two.
