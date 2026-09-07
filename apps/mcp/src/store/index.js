@@ -108,8 +108,25 @@ export function assertSafeEtag(value) {
  * — and **SVG is deliberately absent from both**: it is a script container, and
  * the gateway refuses to serve one for that reason. A store that would accept
  * it is a store that makes the refusal moot.
+ *
+ * `application/octet-stream` is the one entry that is not "the gateway can
+ * serve this back inline" — it is "a browser will never execute this
+ * inline", which is the property a fetched email attachment needs. An
+ * attachment's real MIME type is sender-chosen text, exactly as untrusted as
+ * its filename, and writing it verbatim as the stored `content-type` would
+ * mean a customer's own tooling that later serves their bucket over HTTP
+ * (a browser extension, a static file server pointed at it, anything that
+ * trusts the object's declared type) could be handed `text/html` or
+ * `image/svg+xml` from a stranger and render it as a page rather than
+ * download it — the exact class of attack SVG's absence above already
+ * guards against, reached from the other direction. So every attachment this
+ * product stores is written as `application/octet-stream` regardless of what
+ * Gmail reports the part's `mimeType` as; the real type is preserved as text
+ * in the channel-day note (`**Attachments**: name — type, size`), which is
+ * metadata, never a header a client's transport trusts.
  */
 export const MARKDOWN_CONTENT_TYPE = "text/markdown; charset=utf-8";
+export const ATTACHMENT_CONTENT_TYPE = "application/octet-stream";
 
 export const WRITABLE_CONTENT_TYPES = new Set([
   MARKDOWN_CONTENT_TYPE,
@@ -119,6 +136,7 @@ export const WRITABLE_CONTENT_TYPES = new Set([
   "image/webp",
   "image/heic",
   "image/heif",
+  ATTACHMENT_CONTENT_TYPE,
 ]);
 
 /**

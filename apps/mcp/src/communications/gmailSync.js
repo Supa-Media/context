@@ -46,12 +46,16 @@ export const FOLDER_LABEL_IDS = Object.freeze({ inbox: "INBOX", sent: "SENT" });
 /* -------------------------------------------------------------------------- */
 
 /** Gmail's body encoding: base64url, no padding. */
-export function decodeBase64UrlToUtf8(data) {
-  if (typeof data !== "string" || data.length === 0) return "";
+export function decodeBase64UrlToBytes(data) {
+  if (typeof data !== "string" || data.length === 0) return new Uint8Array(0);
   const padded = data.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(data.length / 4) * 4, "=");
   const binary = atob(padded);
-  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+/** Gmail's body encoding, decoded as text. Never used on an attachment: those are arbitrary binary, not UTF-8. */
+export function decodeBase64UrlToUtf8(data) {
+  return new TextDecoder("utf-8", { fatal: false }).decode(decodeBase64UrlToBytes(data));
 }
 
 /** A header value by name, case-insensitively — RFC 5322 header names are case-insensitive. */
@@ -119,10 +123,16 @@ function stripHtml(html) {
 /**
  * The normalized body and attachment metadata for one message.
  *
- * Attachments are metadata-only, per the owner's default
- * (`docs/decisions/communications.md`, "Attachments are described, not
- * copied"): a part with a `filename` contributes its name, type and size, and
- * its `attachmentId` — the only way to fetch the bytes — is never read.
+ * Every part with a `filename` contributes its name, type, declared size and
+ * `attachmentId` — the id Gmail's `attachments.get` needs to fetch the bytes.
+ * The id is metadata about the message, not the bytes themselves: carrying it
+ * here costs nothing and is what lets `resolveDayAttachments` decide, per the
+ * connection's own `attachmentMode`, whether to spend a fetch on it — see
+ * that function for where the metadata-only-vs-store choice is actually
+ * made. An inline image is an attachment by this same rule: Gmail gives it a
+ * `filename` and a `body.attachmentId` exactly like a "real" attachment, and
+ * this module does not special-case it — "inline images count as
+ * attachments" per the owner's brief.
  */
 export function extractBody(payload) {
   let text = "";
@@ -135,6 +145,7 @@ export function extractBody(payload) {
         filename,
         contentType: String(part?.mimeType ?? "application/octet-stream"),
         size: Number.isFinite(part?.body?.size) ? part.body.size : undefined,
+        attachmentId: typeof part?.body?.attachmentId === "string" ? part.body.attachmentId : undefined,
       });
       continue;
     }
@@ -182,6 +193,300 @@ export function gmailMessageToEvent(message, options) {
 /** `YYYY-MM-DD` from an event's `sentAt`. */
 export function dateKeyOf(event) {
   return String(event?.sentAt ?? "").slice(0, 10);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Attachments: fetched into the bucket, retained on a timer                  */
+/*                                                                            */
+/* The owner's decision (2026-09-07), reversing the metadata-only default:    */
+/* "sometimes an email says look at the PDF attached, and it should land      */
+/* somewhere referenceable in the bucket." See                                */
+/* docs/decisions/communications.md for the argument in full; this is the     */
+/* implementation of it.                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Gmail's own attachment size limit. Declared size (from the message
+ * resource this module already fetched) is checked against this BEFORE a
+ * fetch is ever attempted — Gmail would refuse a larger attachment on the
+ * sending side, so a part reporting more than this is either a Gmail change
+ * this constant needs updating for, or a provider anomaly; either way, this
+ * module writes nothing rather than guessing.
+ */
+export const GMAIL_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+
+/**
+ * A raw filename, made safe as the trailing component of a storage key AND
+ * as the TARGET half of a `[[path|label]]` wikilink — two different syntaxes
+ * this one string has to survive.
+ *
+ * Four things a hostile filename could do, each closed by one step:
+ *
+ *  1. **Path traversal / an absolute path** (`../../etc/passwd`,
+ *     `/etc/passwd`, `..\\..\\windows`) — closed by taking the basename after
+ *     splitting on every `/` and `\`, which is exactly what "no directory
+ *     component survives" means; a traversal segment cannot smuggle itself
+ *     through as anything but the discarded head of the split.
+ *  2. **Control characters and a drive letter** — stripped outright, the
+ *     same rule `singleLine` elsewhere in this product applies to text and
+ *     `assertSafeKey` applies to keys.
+ *  3. **Wikilink syntax** (`[`, `]`, `|`, `#`) — this is the one a plain "safe
+ *     storage key" sanitiser would miss, because none of those four
+ *     characters are unsafe to a `ContextStore` key. They are unsafe here
+ *     because the resulting path is later embedded, VERBATIM, as the target
+ *     of `[[path|label]]` in `packages/communications`' rendering — a
+ *     filename of `evil]] and [[.audit/x` would close that link early and
+ *     open a second one the sender chose, in a note presented as the
+ *     owner's own. Replacing them with `-` closes it at the source, so the
+ *     rendering layer's `defangOutsideFence` (which protects the LABEL half)
+ *     and this function (which protects the PATH half) each own one side.
+ *  4. **Nothing left** (a filename that was only separators, dots, or
+ *     forbidden characters) — falls back to `"attachment"`, never an empty
+ *     path segment.
+ *
+ * @param {unknown} name
+ * @returns {string}
+ */
+export function sanitizeAttachmentFilename(name) {
+  let base = String(name ?? "")
+    // Control characters, and the bidi overrides `packages/communications`'
+    // `singleLine` already strips from every other sender-chosen field this
+    // product renders — a filename embedded (as the wikilink LABEL, already
+    // defanged by the caller with `singleLine` + `defangOutsideFence`) and
+    // also, via this function, as part of the raw PATH — must not be able to
+    // make the raw markdown source read as something other than its actual
+    // bytes.
+    .replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, "")
+    .replace(/^[a-zA-Z]:/, "")
+    .split(/[\\/]/)
+    .pop();
+  base = String(base ?? "").replace(/[[\]|#]/g, "-");
+  base = base.replace(/^\.+/, "").trim().slice(0, 150);
+  return base || "attachment";
+}
+
+/** SHA-256 of `bytes`, as lowercase hex. The content-addressing key for a stored attachment. */
+export async function sha256Hex(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Where one attachment's bytes land: under the mailbox's own folder, dated,
+ * content-hash-prefixed. The hash prefix is what makes the key unique across
+ * two different senders' same-named `invoice.pdf`, and it is checked FIRST —
+ * the same file arriving twice, byte for byte, is one key and one write.
+ *
+ * @param {{mailboxSlug: string, date: string, contentHash: string, filename: string}} options
+ */
+export function attachmentPath(options) {
+  if (!isCalendarDate(options.date)) throw new TypeError(`not a calendar date: ${options.date}`);
+  const safeName = sanitizeAttachmentFilename(options.filename);
+  return `0-inbox/email/${options.mailboxSlug}/attachments/${options.date}/${options.contentHash}-${safeName}`;
+}
+
+/** One attachment's bytes, raw. `assertWritableContentType` in the store never sees Gmail's declared type — see that file's comment. */
+export async function getAttachmentBytes({ fetchImpl, accessToken, messageId, attachmentId }) {
+  const body = await gmailFetch(
+    fetchImpl,
+    accessToken,
+    `/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    {},
+  );
+  return decodeBase64UrlToBytes(body.data);
+}
+
+/**
+ * The per-mailbox attachment manifest: what this connection has fetched,
+ * and what it has since expired. Plumbing — a dot-prefixed FILENAME, per
+ * `isPlumbing`'s "any path segment starting with a dot is hidden from every
+ * tool" — sitting beside the attachment files it describes rather than in
+ * the control plane, because it is bucket bookkeeping about bucket content,
+ * not metadata about the connection itself (`docs/decisions/communications.md`
+ * argues the boundary the other way for sync cursors, which stay in Convex —
+ * this is the complementary case: content the customer owns, described in
+ * their own bucket, gone the instant they revoke and disconnect).
+ *
+ * Two indices in one document:
+ *  - `resolved[messageId/attachmentId]` — has THIS attachment been resolved
+ *    before, and if so which content hash did it resolve to. Looking this up
+ *    is what lets a re-sync skip a fetch entirely for an attachment already
+ *    known — expired or not — without ever calling Gmail's `attachments.get`.
+ *  - `files[contentHash]` — the actual file inventory: one entry per distinct
+ *    byte sequence this connection has ever written, its path, and whether
+ *    retention has since expired it. THIS is what `sweepExpiredAttachments`
+ *    walks — never a folder listing — which is the "idempotent, and never a
+ *    folder walk" property the owner asked for.
+ */
+export function manifestPath(mailboxSlug) {
+  return `0-inbox/email/${mailboxSlug}/attachments/.manifest.json`;
+}
+
+const EMPTY_MANIFEST = Object.freeze({ version: 1, resolved: {}, files: {} });
+
+/** Read the manifest, or an empty one — a missing manifest is a mailbox with nothing fetched yet, not an error. */
+export async function readManifest(store, mailboxSlug) {
+  const object = await store.get(manifestPath(mailboxSlug));
+  if (!object) return { version: 1, resolved: {}, files: {} };
+  try {
+    const parsed = JSON.parse(await object.text());
+    return {
+      version: 1,
+      resolved: parsed && typeof parsed.resolved === "object" ? parsed.resolved : {},
+      files: parsed && typeof parsed.files === "object" ? parsed.files : {},
+    };
+  } catch {
+    // A manifest that fails to parse is treated as empty rather than fatal:
+    // the worst case is a re-fetch of everything, which is correct, merely
+    // not free — never data loss, and never a sync that refuses to run.
+    return { version: 1, resolved: {}, files: {} };
+  }
+}
+
+export async function writeManifest(store, mailboxSlug, manifest) {
+  await store.put(manifestPath(mailboxSlug), JSON.stringify(manifest));
+}
+
+/**
+ * Resolve every attachment on one day's events: decide, per attachment,
+ * whether it is already fetched, needs fetching now, or stays metadata-only
+ * — and mutate each event's `attachments[]` in place with a `path` when one
+ * exists. Returns the bytes actually written (for the shared per-connection
+ * quota) and the updated manifest (the caller persists it once per day, not
+ * once per attachment).
+ *
+ * Every branch below is intentional about which side effect it does NOT
+ * have, so read the negatives as carefully as the positives:
+ *
+ *  - **A never-seen attachment, mode `metadata-only`**: rendered as metadata
+ *    only, and `resolved` is NOT written — so flipping the connection back to
+ *    `store` later fetches it fresh rather than remembering a decision made
+ *    under the old mode.
+ *  - **A never-seen attachment, too large or quota-exhausted**: same as
+ *    above — not written to `resolved`, so a later pass (more quota, or the
+ *    same day resynced after the size cap changes) tries again rather than
+ *    remembering a skip forever.
+ *  - **An attachment already in `resolved`, whose file is expired**: metadata
+ *    only, and Gmail's `attachments.get` is never called — this is "a
+ *    re-sync after expiry does not re-fetch," proven by a call-count
+ *    assertion in the test, not merely a byte-for-byte one.
+ *  - **An attachment already in `resolved`, whose file is live**: `path` is
+ *    reused verbatim, again with no fetch.
+ *
+ * @param {{store, fetchImpl, accessToken, mailboxSlug, date, events: object[],
+ *          attachmentMode: "metadata-only"|"store", retentionDays: number|"forever",
+ *          now: string, remainingQuotaBytes: number, manifest: object}} options
+ * @returns {Promise<{bytesWritten: number, manifest: object, manifestChanged: boolean}>}
+ */
+export async function resolveDayAttachments(options) {
+  const manifest = options.manifest;
+  let bytesWritten = 0;
+  let manifestChanged = false;
+  let remaining = options.remainingQuotaBytes;
+
+  for (const event of options.events) {
+    const attachments = Array.isArray(event.attachments) ? event.attachments : [];
+    for (const attachment of attachments) {
+      if (!attachment.attachmentId) continue; // No id, no way to ever fetch it — stays metadata-only.
+      const key = `${event.messageId}/${attachment.attachmentId}`;
+      const known = manifest.resolved[key];
+
+      if (known) {
+        const file = manifest.files[known.contentHash];
+        if (file && !file.expired) attachment.path = file.path;
+        // Expired (or, defensively, a file entry that has gone missing) —
+        // metadata-only, and NOT a single Gmail call was made to learn that.
+        continue;
+      }
+
+      if (options.attachmentMode !== "store") continue;
+      const declaredSize = Number.isFinite(attachment.size) ? attachment.size : 0;
+      if (declaredSize > GMAIL_ATTACHMENT_MAX_BYTES) continue;
+      if (declaredSize > remaining) continue;
+
+      const bytes = await getAttachmentBytes({
+        fetchImpl: options.fetchImpl,
+        accessToken: options.accessToken,
+        messageId: event.messageId,
+        attachmentId: attachment.attachmentId,
+      });
+      const contentHash = await sha256Hex(bytes);
+
+      let file = manifest.files[contentHash];
+      if (!file || file.expired) {
+        const path = attachmentPath({
+          mailboxSlug: options.mailboxSlug,
+          date: options.date,
+          contentHash,
+          filename: attachment.filename,
+        });
+        await options.store.put(path, bytes, { contentType: "application/octet-stream" });
+        file = {
+          path,
+          size: bytes.length,
+          writtenAt: options.now,
+          expiresAt:
+            options.retentionDays === "forever"
+              ? null
+              : new Date(Date.parse(options.now) + options.retentionDays * 24 * 60 * 60 * 1000).toISOString(),
+          expired: false,
+        };
+        manifest.files[contentHash] = file;
+        remaining -= bytes.length;
+        bytesWritten += bytes.length;
+      }
+      // A cross-message duplicate (the identical bytes, a different message
+      // or attachmentId) reuses the existing file with no second write —
+      // "the same file arriving twice is one object," the same rule the
+      // `.images/` store already keeps.
+      manifest.resolved[key] = {
+        contentHash,
+        filename: attachment.filename,
+        contentType: attachment.contentType,
+        size: attachment.size,
+      };
+      manifestChanged = true;
+      attachment.path = file.path;
+    }
+  }
+
+  return { bytesWritten, manifest, manifestChanged };
+}
+
+/**
+ * Delete every attachment whose retention window has passed. Walks only the
+ * manifest's own `files` index — never a folder listing — which is what
+ * makes this idempotent: an entry already marked `expired` is skipped, so
+ * running the sweep twice in a row (or twice concurrently) deletes nothing
+ * a second time and reports nothing a second time.
+ *
+ * Deliberately does not delete `resolved` entries: a future resync of the
+ * message that referenced this hash must still find "yes, this was resolved,
+ * and it is gone" rather than treating it as never-seen and trying to fetch
+ * it again after `attachments.get` might no longer even have it.
+ *
+ * @param {{store, mailboxSlug: string, now: string}} options
+ * @returns {Promise<{expiredHashes: string[], affectedDates: string[]}>}
+ */
+export async function sweepExpiredAttachments(options) {
+  const manifest = await readManifest(options.store, options.mailboxSlug);
+  const nowMs = Date.parse(options.now);
+  const expiredHashes = [];
+  const dates = new Set();
+
+  for (const [hash, file] of Object.entries(manifest.files)) {
+    if (file.expired) continue;
+    if (file.expiresAt === null || file.expiresAt === undefined) continue; // "forever"
+    if (Date.parse(file.expiresAt) > nowMs) continue;
+    await options.store.delete(file.path);
+    file.expired = true;
+    expiredHashes.push(hash);
+    const dateMatch = /\/attachments\/(\d{4}-\d{2}-\d{2})\//.exec(file.path);
+    if (dateMatch) dates.add(dateMatch[1]);
+  }
+
+  if (expiredHashes.length > 0) await writeManifest(options.store, options.mailboxSlug, manifest);
+  return { expiredHashes, affectedDates: [...dates] };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -426,20 +731,71 @@ export async function writeDayPart(store, part, maxAttempts = 3) {
 }
 
 /**
- * Regenerate and write one day, quota-bound.
+ * Regenerate and write one day, quota-bound — note text AND, when
+ * `fetchImpl`/`accessToken` are supplied, any attachments this day's
+ * messages reference.
+ *
+ * Attachment resolution runs FIRST, against the same `remainingQuotaBytes`
+ * the note text then shares: a day whose attachments consumed the whole
+ * budget writes no attachment past that point and still writes the note
+ * text describing them (metadata-only, per `resolveDayAttachments`'s own
+ * quota check) — the note is never skipped because a picture was too big.
+ *
+ * `fetchImpl`/`accessToken` are optional and gate the whole feature: a
+ * caller that omits them (every test that predates attachment fetching,
+ * and any future caller that only wants deterministic rendering) gets
+ * exactly the old metadata-only behaviour, because `resolveDayAttachments`
+ * is never invoked at all.
  *
  * @param {{store: import("../store/index.js").ContextStore, mailboxSlug: string,
  *          address: string, date: string, events: object[], nonce: string,
- *          now?: string, root?: string, remainingQuotaBytes: number}} options
+ *          now?: string, root?: string, remainingQuotaBytes: number,
+ *          fetchImpl?: FetchLike, accessToken?: string,
+ *          attachmentMode?: "metadata-only"|"store",
+ *          attachmentRetentionDays?: number|"forever"}} options
  * @returns {Promise<{bytesWritten: number, partsWritten: number, quotaExceeded: boolean}>}
  */
 export async function syncOneDay(options) {
-  const parts = renderDay(options);
+  let remaining = options.remainingQuotaBytes;
   let bytesWritten = 0;
+
+  if (options.fetchImpl && options.accessToken) {
+    // Wall-clock, deliberately never `options.now`: retention math ("N days
+    // from when this was written") is about real elapsed time, unlike the
+    // note's own `updated` field, which `renderDay` keys to the latest
+    // message's timestamp so that re-rendering an unchanged day is
+    // byte-identical. Conflating the two would make `attachmentRetentionDays`
+    // count from whatever `now` a caller happened to pass for rendering,
+    // which for a backfill can be far in the past.
+    const resolutionNow = new Date().toISOString();
+    const manifest = await readManifest(options.store, options.mailboxSlug);
+    const resolved = await resolveDayAttachments({
+      store: options.store,
+      fetchImpl: options.fetchImpl,
+      accessToken: options.accessToken,
+      mailboxSlug: options.mailboxSlug,
+      date: options.date,
+      events: options.events,
+      attachmentMode: options.attachmentMode ?? "metadata-only",
+      retentionDays: options.attachmentRetentionDays ?? DEFAULT_ATTACHMENT_RETENTION_DAYS,
+      now: resolutionNow,
+      remainingQuotaBytes: remaining,
+      manifest,
+    });
+    bytesWritten += resolved.bytesWritten;
+    remaining -= resolved.bytesWritten;
+    if (resolved.manifestChanged) await writeManifest(options.store, options.mailboxSlug, resolved.manifest);
+  }
+
+  // `options.now` travels through UNCHANGED — see `renderDay`'s own default
+  // (the latest event's `sentAt`) for why this function must never invent a
+  // wall-clock fallback here: doing so would override that determinism for
+  // every caller that goes through `syncOneDay`, which is every caller.
+  const parts = renderDay(options);
   let partsWritten = 0;
   for (const part of parts) {
     const bytes = new TextEncoder().encode(part.text).length;
-    if (bytesWritten + bytes > options.remainingQuotaBytes) {
+    if (bytes > remaining) {
       // Quota-bound, per connection: stop before writing past what the
       // estimator showed, rather than writing partway into a day and calling
       // it done. A day skipped this way is picked up by the next pass once
@@ -447,11 +803,17 @@ export async function syncOneDay(options) {
       return { bytesWritten, partsWritten, quotaExceeded: true };
     }
     const result = await writeDayPart(options.store, part);
-    if (result.wrote) bytesWritten += result.bytes;
+    if (result.wrote) {
+      bytesWritten += result.bytes;
+      remaining -= result.bytes;
+    }
     partsWritten += 1;
   }
   return { bytesWritten, partsWritten, quotaExceeded: false };
 }
+
+/** How long a fetched attachment stays before `sweepExpiredAttachments` deletes it, absent a connection-level choice. */
+const DEFAULT_ATTACHMENT_RETENTION_DAYS = 90;
 
 /* -------------------------------------------------------------------------- */
 /* Orchestration: backfill and incremental sync                               */
@@ -494,6 +856,10 @@ export async function syncDayFromGmail(options) {
     now: options.now,
     root: options.root,
     remainingQuotaBytes: options.remainingQuotaBytes,
+    fetchImpl: options.fetchImpl,
+    accessToken: options.accessToken,
+    attachmentMode: options.attachmentMode,
+    attachmentRetentionDays: options.attachmentRetentionDays,
   });
 }
 
@@ -536,6 +902,8 @@ export async function runBackfill(options) {
       now: options.now,
       root: options.root,
       remainingQuotaBytes: remaining,
+      attachmentMode: options.attachmentMode,
+      attachmentRetentionDays: options.attachmentRetentionDays,
     });
     daysProcessed += 1;
     bytesWritten += result.bytesWritten;
@@ -612,6 +980,8 @@ export async function runIncrementalSync(options) {
       now: options.now,
       root: options.root,
       remainingQuotaBytes: remaining,
+      attachmentMode: options.attachmentMode,
+      attachmentRetentionDays: options.attachmentRetentionDays,
     });
     daysTouched.push(date);
     bytesWritten += result.bytesWritten;

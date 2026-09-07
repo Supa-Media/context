@@ -236,15 +236,30 @@ function renderMessage(event, nonce) {
 
   const attachments = Array.isArray(event?.attachments) ? event.attachments : [];
   if (attachments.length) {
-    // Described, never copied. Storing bytes is opt-in and goes through the
-    // digest-keyed `.images/` store the email worker already uses; a filename
-    // is a sender-chosen string and stays defanged text in a list.
-    lines.push("", "**Attachments** (not stored):");
+    // Per-item, not a blanket header claim: an attachment the sync job fetched
+    // carries a `path` into the connection's own `attachments/` folder and is
+    // linked; one it never fetched — too large, quota-bound, metadata-only
+    // mode, or expired off retention — is named and sized only. Both are
+    // legitimate outcomes of the same field, so the note says which one this
+    // attachment got rather than asserting "(not stored)" for every row.
+    lines.push("", "**Attachments**:");
     for (const attachment of attachments) {
       const name = defangOutsideFence(singleLine(attachment?.filename)) || "(unnamed)";
       const type = singleLine(attachment?.contentType) || "application/octet-stream";
       const size = Number.isFinite(attachment?.size) ? `${Math.trunc(attachment.size)} bytes` : "unknown size";
-      lines.push(`- ${name} — ${type}, ${size}`);
+      const path = singleLine(attachment?.path);
+      if (path) {
+        // `[[path|label]]` — the sender-chosen filename is the LABEL, going
+        // through the same defang every other sender string outside a fence
+        // does. `path` is never sender-controlled text: it is built from a
+        // content hash and a filename this package's own `sanitizeAttachmentFilename`
+        // (in the gateway's sync module) already stripped of `[`, `]`, `|`
+        // and `#` before it ever became part of a key, so it cannot itself
+        // break the link it appears inside of.
+        lines.push(`- [[${path}|${name}]] — ${type}, ${size}`);
+      } else {
+        lines.push(`- ${name} — ${type}, ${size} (not stored)`);
+      }
     }
   }
 

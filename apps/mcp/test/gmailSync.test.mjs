@@ -15,9 +15,14 @@
 //   writeDayPart skips the "already exactly this" no-op check    -> 2 checks failed
 //   runIncrementalSync lets a 404 propagate instead of catching  -> throws, suite aborts
 //   buildDayQuery drops "-in:spam -in:trash"                     -> 1 check failed
+//   sanitizeAttachmentFilename stops stripping "/" (no basename) -> 5 checks failed
+//   resolveDayAttachments does not check `manifest.resolved` first
+//     (always re-fetches)                                        -> 4 checks failed
 
 import {
+  GMAIL_ATTACHMENT_MAX_BYTES,
   GmailHistoryExpiredError,
+  attachmentPath,
   buildDayQuery,
   dateKeyOf,
   dateRange,
@@ -29,15 +34,22 @@ import {
   headerValue,
   listAllHistory,
   listAllMessageIds,
+  manifestPath,
   parseAddressList,
+  readManifest,
   renderDay,
+  resolveDayAttachments,
   runBackfill,
   runIncrementalSync,
+  sanitizeAttachmentFilename,
+  sha256Hex,
+  sweepExpiredAttachments,
   syncDayFromGmail,
   syncOneDay,
   writeDayPart,
 } from "../src/communications/gmailSync.js";
 import { parseChannelDayNote } from "../../../packages/communications/src/index.js";
+import { assertSafeKey } from "../src/store/index.js";
 
 /* -------------------------------------------------------------------------- */
 /* A tiny in-memory ContextStore, per the contract in src/store/index.js      */
@@ -60,7 +72,13 @@ function createMemoryStore({ conditionalWrite = true } = {}) {
         if (!existing || existing.etag !== expected) return null;
       }
       const etag = String(nextEtag++);
-      objects.set(key, { text: String(value), etag });
+      // Attachment bytes arrive as a `Uint8Array`; everything else is a
+      // string. Decoding bytes as UTF-8 is a test-only convenience — every
+      // fixture attachment in this suite is plain ASCII content precisely so
+      // `.text()` round-trips it exactly, the same way the real bytes a
+      // customer's PDF is made of are opaque to this module either way.
+      const text = value instanceof Uint8Array ? new TextDecoder().decode(value) : String(value);
+      objects.set(key, { text, etag });
       return { etag };
     },
     async delete(key) {
@@ -100,9 +118,11 @@ function fixtureMessage({ id, threadId, date, from, to, subject, text, html, att
     parts.push({
       filename: attachment.filename,
       mimeType: attachment.contentType,
-      // A real message carries an `attachmentId` here. This fixture omits it
-      // to prove `extractBody` never needed it — metadata-only, by contract.
-      body: { size: attachment.size },
+      // A real message with a real attachment carries an `attachmentId` and
+      // NO `data` here — the bytes are reachable only through
+      // `attachments.get`. An attachment fixture with no `attachmentId` (the
+      // metadata-only tests above) proves `extractBody` never needed one.
+      body: { size: attachment.size, attachmentId: attachment.attachmentId },
     });
   }
   return {
@@ -115,12 +135,15 @@ function fixtureMessage({ id, threadId, date, from, to, subject, text, html, att
 
 /**
  * @param {{messages: object[], history?: {pages: object[]} | {expired: true},
- *          profileHistoryId?: string}} config
+ *          profileHistoryId?: string,
+ *          attachmentContents?: Record<string, string>}} config
+ *   `attachmentContents` is keyed `${messageId}/${attachmentId}`, plain text
+ *   for test readability — real bytes are arbitrary binary, and nothing in
+ *   this module's attachment path treats them as anything but bytes.
  */
 function createFixtureGmail(config) {
   const byId = new Map(config.messages.map((message) => [message.id, message]));
   const calls = [];
-  let historyPageIndex = 0;
 
   const fetchImpl = async (url) => {
     const parsed = new URL(url);
@@ -139,6 +162,16 @@ function createFixtureGmail(config) {
       const body = { history: page.history ?? [], historyId: page.historyId };
       if (index + 1 < (config.history.pages?.length ?? 0)) body.nextPageToken = String(index + 1);
       return jsonResponse(body);
+    }
+
+    const attachmentMatch = /^\/gmail\/v1\/users\/me\/messages\/([^/]+)\/attachments\/([^/]+)$/.exec(
+      parsed.pathname,
+    );
+    if (attachmentMatch) {
+      const key = `${decodeURIComponent(attachmentMatch[1])}/${decodeURIComponent(attachmentMatch[2])}`;
+      const content = config.attachmentContents?.[key];
+      if (content === undefined) return jsonResponse({ error: { code: 404 } }, 404);
+      return jsonResponse({ size: content.length, data: base64Url(content) });
     }
 
     const idMatch = /^\/gmail\/v1\/users\/me\/messages\/([^/]+)$/.exec(parsed.pathname);
@@ -574,4 +607,361 @@ export async function runGmailSyncChecks(check) {
     quotaBytes: 1_000_000,
   });
   check("a full reconcile after a gap recovers every day in the window", reconcileResult.daysWithMail === 2);
+
+  // -- attachments: fetched into the bucket, retained on a timer ----------------
+  //
+  // The owner's decision (2026-09-07), reversing the metadata-only default:
+  // "sometimes an email says look at the PDF attached, and it should land
+  // somewhere referenceable in the bucket." Four properties, each its own
+  // check below: fetch, reference from the day note, expire, and a re-sync
+  // after expiry does not re-fetch.
+
+  // -- filename sanitization: a hostile name must not escape the folder --------
+
+  check(
+    "path traversal in a filename never escapes the attachments folder",
+    attachmentPath({
+      mailboxSlug: "p-at-example-invalid",
+      date: "2026-09-07",
+      contentHash: "abc123",
+      filename: "../../../etc/passwd",
+    }).startsWith("0-inbox/email/p-at-example-invalid/attachments/2026-09-07/abc123-"),
+  );
+  check(
+    "...and the sanitized name itself carries no '..' segment",
+    !sanitizeAttachmentFilename("../../etc/passwd").includes(".."),
+  );
+  check(
+    "an absolute path is reduced to its basename",
+    sanitizeAttachmentFilename("/etc/passwd") === "passwd",
+  );
+  check(
+    "a Windows-style traversal is reduced the same way",
+    sanitizeAttachmentFilename("..\\..\\windows\\system32\\config") === "config",
+  );
+  check(
+    "wikilink-syntax characters are stripped from the filename — the path is embedded in [[path|label]] verbatim",
+    (() => {
+      const safe = sanitizeAttachmentFilename("evil]] and [[.audit/x|y#z.pdf");
+      return !/[[\]|#]/.test(safe);
+    })()
+  );
+  check(
+    "a filename that sanitizes to nothing falls back to a safe default, never an empty path segment",
+    sanitizeAttachmentFilename("../..") === "attachment" && sanitizeAttachmentFilename("") === "attachment",
+  );
+  check(
+    "every attachment path this module builds is a key the store itself accepts",
+    (() => {
+      const hostileNames = [
+        "../../../etc/passwd",
+        "..\\..\\windows\\config",
+        "/etc/passwd",
+        "evil]] and [[.audit/x|y#z",
+        "..",
+        ".",
+        "",
+        "a\u0000b",
+      ];
+      return hostileNames.every((filename) => {
+        const path = attachmentPath({ mailboxSlug: "p-at-example-invalid", date: "2026-09-07", contentHash: "h", filename });
+        try {
+          assertSafeKey(path);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+    })()
+  );
+  check(
+    "a date bound (Gmail's own 25MB attachment limit) is a real, named constant",
+    GMAIL_ATTACHMENT_MAX_BYTES === 25 * 1024 * 1024,
+  );
+
+  // -- fetch, reference, and idempotent re-sync ---------------------------------
+
+  const attachmentMessages = [
+    fixtureMessage({
+      id: "att1",
+      threadId: "t1",
+      date: "2026-09-07T09:00:00.000Z",
+      from: "a@example.invalid",
+      to: "p@example.invalid",
+      subject: "See attached",
+      text: "The report is attached.",
+      attachments: [{ filename: "report.pdf", contentType: "application/pdf", size: 11, attachmentId: "ATT-1" }],
+    }),
+  ];
+  const attachmentGmail = createFixtureGmail({
+    messages: attachmentMessages,
+    attachmentContents: { "att1/ATT-1": "pdf-bytes!!" },
+  });
+  const attachmentStore = createMemoryStore();
+  const fetchDayOptions = {
+    store: attachmentStore,
+    fetchImpl: attachmentGmail.fetchImpl,
+    accessToken: "tok",
+    mailboxSlug: "p-at-example-invalid",
+    address: "p@example.invalid",
+    folders: ["inbox", "sent"],
+    date: "2026-09-07",
+    nonce: "n",
+    remainingQuotaBytes: 1_000_000,
+    attachmentMode: "store",
+    attachmentRetentionDays: 90,
+  };
+  const firstFetch = await syncDayFromGmail(fetchDayOptions);
+  check("fetching a day with a storable attachment writes bytes for both the note and the attachment", firstFetch.bytesWritten > "pdf-bytes!!".length);
+
+  const expectedHash = await sha256Hex(new TextEncoder().encode("pdf-bytes!!"));
+  const expectedAttachmentPath = attachmentPath({
+    mailboxSlug: "p-at-example-invalid",
+    date: "2026-09-07",
+    contentHash: expectedHash,
+    filename: "report.pdf",
+  });
+  const storedAttachment = await attachmentStore.get(expectedAttachmentPath);
+  check("the attachment's bytes actually landed at the content-hashed path", storedAttachment !== null);
+  check("...with the exact bytes Gmail served", storedAttachment !== null && (await storedAttachment.text()) === "pdf-bytes!!");
+
+  const dayNoteAfterFetch = await attachmentStore.get("0-inbox/email/p-at-example-invalid/2026-09-07.md");
+  const dayNoteText = dayNoteAfterFetch ? await dayNoteAfterFetch.text() : "";
+  check(
+    "the channel-day note LINKS to the fetched attachment",
+    dayNoteText.includes(`[[${expectedAttachmentPath}|report.pdf]]`),
+  );
+
+  const attachmentCallCountAfterFirstFetch = attachmentGmail.calls.filter((call) => call.includes("/attachments/")).length;
+  check("exactly one attachment fetch happened for one attachment", attachmentCallCountAfterFirstFetch === 1);
+
+  const resyncSameDay = await syncDayFromGmail(fetchDayOptions);
+  check(
+    "RE-SYNCING THE SAME DAY DOES NOT RE-FETCH THE ATTACHMENT — the manifest already resolved it",
+    attachmentGmail.calls.filter((call) => call.includes("/attachments/")).length === attachmentCallCountAfterFirstFetch,
+  );
+  check("...and writes no new attachment bytes on the resync", resyncSameDay.bytesWritten === 0);
+
+  // -- expiry, and no re-fetch after expiry -------------------------------------
+
+  const nearFuture = new Date(Date.now() + 1000).toISOString();
+  const sweepResult = await sweepExpiredAttachments({
+    store: attachmentStore,
+    mailboxSlug: "p-at-example-invalid",
+    now: nearFuture, // Nothing has expired yet — retention is 90 days.
+  });
+  check("nothing expires before its retention window has passed", sweepResult.expiredHashes.length === 0);
+
+  const farFuture = new Date(Date.now() + 91 * 24 * 60 * 60 * 1000).toISOString();
+  const expirySweep = await sweepExpiredAttachments({
+    store: attachmentStore,
+    mailboxSlug: "p-at-example-invalid",
+    now: farFuture,
+  });
+  check("91 days later, the attachment has expired", expirySweep.expiredHashes.includes(expectedHash));
+  check("the sweep names the affected date, for a caller that wants to re-render its note", expirySweep.affectedDates.includes("2026-09-07"));
+  check(
+    "the file itself is deleted from the bucket",
+    (await attachmentStore.get(expectedAttachmentPath)) === null,
+  );
+
+  const resyncAfterExpiry = await syncDayFromGmail(fetchDayOptions);
+  check(
+    "A RE-SYNC AFTER EXPIRY DOES NOT RE-FETCH — the manifest remembers this attachment is gone",
+    attachmentGmail.calls.filter((call) => call.includes("/attachments/")).length === attachmentCallCountAfterFirstFetch,
+  );
+  const noteAfterExpiry = await attachmentStore.get("0-inbox/email/p-at-example-invalid/2026-09-07.md");
+  const noteTextAfterExpiry = noteAfterExpiry ? await noteAfterExpiry.text() : "";
+  check(
+    "the note's link is rewritten to name and size only once expired",
+    !noteTextAfterExpiry.includes("[[") && noteTextAfterExpiry.includes("report.pdf") && noteTextAfterExpiry.includes("(not stored)"),
+  );
+
+  check(
+    "sweeping twice in a row is idempotent — nothing is deleted a second time",
+    (
+      await sweepExpiredAttachments({ store: attachmentStore, mailboxSlug: "p-at-example-invalid", now: farFuture })
+    ).expiredHashes.length === 0,
+  );
+
+  // -- 'keep forever' never expires ---------------------------------------------
+
+  const foreverMessages = [
+    fixtureMessage({
+      id: "forever1",
+      threadId: "t1",
+      date: "2026-09-07T09:00:00.000Z",
+      from: "a@example.invalid",
+      to: "p@example.invalid",
+      subject: "Keep this",
+      text: "x",
+      attachments: [{ filename: "keepsake.pdf", contentType: "application/pdf", size: 5, attachmentId: "ATT-2" }],
+    }),
+  ];
+  const foreverGmail = createFixtureGmail({ messages: foreverMessages, attachmentContents: { "forever1/ATT-2": "abcde" } });
+  const foreverStore = createMemoryStore();
+  await syncDayFromGmail({
+    store: foreverStore,
+    fetchImpl: foreverGmail.fetchImpl,
+    accessToken: "tok",
+    mailboxSlug: "p-at-example-invalid",
+    address: "p@example.invalid",
+    folders: ["inbox", "sent"],
+    date: "2026-09-07",
+    nonce: "n",
+    remainingQuotaBytes: 1_000_000,
+    attachmentMode: "store",
+    attachmentRetentionDays: "forever",
+  });
+  const foreverManifest = await readManifest(foreverStore, "p-at-example-invalid");
+  const foreverHash = await sha256Hex(new TextEncoder().encode("abcde"));
+  check("'forever' retention records no expiry at all", foreverManifest.files[foreverHash]?.expiresAt == null);
+  const distantFuture = new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString();
+  const foreverSweep = await sweepExpiredAttachments({ store: foreverStore, mailboxSlug: "p-at-example-invalid", now: distantFuture });
+  check("...and never expires, no matter how far in the future the sweep runs", !foreverSweep.expiredHashes.includes(foreverHash));
+
+  // -- size cap and quota: too large or too expensive stays metadata-only -------
+
+  const oversizedMessages = [
+    fixtureMessage({
+      id: "big1",
+      threadId: "t1",
+      date: "2026-09-07T09:00:00.000Z",
+      from: "a@example.invalid",
+      to: "p@example.invalid",
+      subject: "Huge file",
+      text: "x",
+      attachments: [
+        { filename: "huge.zip", contentType: "application/zip", size: GMAIL_ATTACHMENT_MAX_BYTES + 1, attachmentId: "ATT-BIG" },
+      ],
+    }),
+  ];
+  const oversizedGmail = createFixtureGmail({ messages: oversizedMessages, attachmentContents: {} });
+  const oversizedStore = createMemoryStore();
+  await syncDayFromGmail({
+    store: oversizedStore,
+    fetchImpl: oversizedGmail.fetchImpl,
+    accessToken: "tok",
+    mailboxSlug: "p-at-example-invalid",
+    address: "p@example.invalid",
+    folders: ["inbox", "sent"],
+    date: "2026-09-07",
+    nonce: "n",
+    remainingQuotaBytes: 1_000_000,
+    attachmentMode: "store",
+    attachmentRetentionDays: 90,
+  });
+  check(
+    "an attachment over Gmail's own size cap is never fetched — declared size alone decides",
+    oversizedGmail.calls.filter((call) => call.includes("/attachments/")).length === 0,
+  );
+
+  const quotaBoundMessages = [
+    fixtureMessage({
+      id: "q1",
+      threadId: "t1",
+      date: "2026-09-07T09:00:00.000Z",
+      from: "a@example.invalid",
+      to: "p@example.invalid",
+      subject: "Small enough, but no quota",
+      text: "x",
+      attachments: [{ filename: "small.pdf", contentType: "application/pdf", size: 100, attachmentId: "ATT-Q" }],
+    }),
+  ];
+  const quotaGmail = createFixtureGmail({ messages: quotaBoundMessages, attachmentContents: { "q1/ATT-Q": "y".repeat(100) } });
+  const quotaBoundStore = createMemoryStore();
+  const quotaBoundResult = await syncDayFromGmail({
+    store: quotaBoundStore,
+    fetchImpl: quotaGmail.fetchImpl,
+    accessToken: "tok",
+    mailboxSlug: "p-at-example-invalid",
+    address: "p@example.invalid",
+    folders: ["inbox", "sent"],
+    date: "2026-09-07",
+    nonce: "n",
+    remainingQuotaBytes: 10, // Smaller than even this one small attachment.
+    attachmentMode: "store",
+    attachmentRetentionDays: 90,
+  });
+  check(
+    "a quota too small for even a small attachment leaves it metadata-only, without spending the fetch",
+    quotaGmail.calls.filter((call) => call.includes("/attachments/")).length === 0,
+  );
+  void quotaBoundResult;
+
+  // -- metadata-only mode never fetches ------------------------------------------
+
+  const metadataOnlyGmail = createFixtureGmail({ messages: attachmentMessages, attachmentContents: { "att1/ATT-1": "pdf-bytes!!" } });
+  const metadataOnlyStore = createMemoryStore();
+  await syncDayFromGmail({
+    store: metadataOnlyStore,
+    fetchImpl: metadataOnlyGmail.fetchImpl,
+    accessToken: "tok",
+    mailboxSlug: "p-at-example-invalid",
+    address: "p@example.invalid",
+    folders: ["inbox", "sent"],
+    date: "2026-09-07",
+    nonce: "n",
+    remainingQuotaBytes: 1_000_000,
+    attachmentMode: "metadata-only",
+  });
+  check(
+    "attachmentMode: metadata-only never calls Gmail's attachments.get at all",
+    metadataOnlyGmail.calls.filter((call) => call.includes("/attachments/")).length === 0,
+  );
+
+  // -- cross-message dedup: the same bytes twice is one file --------------------
+
+  const dedupMessages = [
+    fixtureMessage({
+      id: "dup1",
+      threadId: "t1",
+      date: "2026-09-07T09:00:00.000Z",
+      from: "a@example.invalid",
+      to: "p@example.invalid",
+      subject: "First copy",
+      text: "x",
+      attachments: [{ filename: "shared.pdf", contentType: "application/pdf", size: 9, attachmentId: "ATT-A" }],
+    }),
+    fixtureMessage({
+      id: "dup2",
+      threadId: "t2",
+      date: "2026-09-07T10:00:00.000Z",
+      from: "b@example.invalid",
+      to: "p@example.invalid",
+      subject: "Second copy, identical bytes",
+      text: "y",
+      attachments: [{ filename: "shared.pdf", contentType: "application/pdf", size: 9, attachmentId: "ATT-B" }],
+    }),
+  ];
+  const dedupGmail = createFixtureGmail({
+    messages: dedupMessages,
+    attachmentContents: { "dup1/ATT-A": "identical", "dup2/ATT-B": "identical" },
+  });
+  const dedupStore = createMemoryStore();
+  await syncDayFromGmail({
+    store: dedupStore,
+    fetchImpl: dedupGmail.fetchImpl,
+    accessToken: "tok",
+    mailboxSlug: "p-at-example-invalid",
+    address: "p@example.invalid",
+    folders: ["inbox", "sent"],
+    date: "2026-09-07",
+    nonce: "n",
+    remainingQuotaBytes: 1_000_000,
+    attachmentMode: "store",
+    attachmentRetentionDays: 90,
+  });
+  const dedupManifest = await readManifest(dedupStore, "p-at-example-invalid");
+  check("the same bytes from two different messages is ONE file entry", Object.keys(dedupManifest.files).length === 1);
+  check("...but both messages' attachments resolved to it", Object.keys(dedupManifest.resolved).length === 2);
+
+  // -- the manifest itself is plumbing, never a note ----------------------------
+
+  check(
+    "the manifest lives at a dot-prefixed path — plumbing, hidden from every note-listing tool",
+    manifestPath("p-at-example-invalid")
+      .split("/")
+      .some((segment) => segment.startsWith(".")),
+  );
 }

@@ -201,6 +201,42 @@ export function runNoteChecks(check) {
     "...while a body keeps the sender's brackets verbatim, because it is inside the fence",
     renderChannelDayNote(day({ events: [message({ body: "see [[their note]]" })] })).includes("see [[their note]]")
   );
+  check(
+    "a STORED attachment renders as a wikilink, and a hostile filename cannot close it early — the label is defanged, the path is ours",
+    (() => {
+      const rendered = renderChannelDayNote(
+        day({
+          events: [
+            message({
+              attachments: [
+                {
+                  filename: "invoice]] and [[.audit/x|evil",
+                  contentType: "application/pdf",
+                  size: 42,
+                  path: "0-inbox/email/x/attachments/2026-09-07/abc123-invoice.pdf",
+                },
+              ],
+            }),
+          ],
+        })
+      );
+      const line = rendered.split("\n").find((row) => row.includes("attachments/2026-09-07"));
+      // Exactly one opening and one closing pair around the whole entry — a
+      // hostile label cannot inject a second link or close the first early.
+      return (
+        line !== undefined &&
+        line.startsWith("- [[0-inbox/email/x/attachments/2026-09-07/abc123-invoice.pdf|") &&
+        (line.match(/\[\[/g) || []).length === 1 &&
+        (line.match(/\]\]/g) || []).length === 1
+      );
+    })()
+  );
+  check(
+    "an attachment with no path is named and sized only, and says so",
+    renderChannelDayNote(
+      day({ events: [message({ attachments: [{ filename: "report.pdf", contentType: "application/pdf", size: 10 }] })] })
+    ).includes("(not stored)")
+  );
   check("defangLinks leaves text with no link syntax in it alone", defangLinks("ordinary text") === "ordinary text");
 
   // -- order and grouping --------------------------------------------------
