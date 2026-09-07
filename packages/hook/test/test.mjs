@@ -84,6 +84,24 @@ function check(label, condition) {
   }
 }
 
+/**
+ * This org publishes exactly one npm scope, `@supa-media`, through
+ * `supa-framework`'s own pipeline — see docs/decisions/repository-and-review.md,
+ * "Every package this org publishes is `@supa-media/*`, through the
+ * framework's pipeline". A product-specific scope (this package's own name,
+ * for one PR, before anyone asked) is the simplification that section names
+ * and the cost it names for reversing it. This is the test that fails if it
+ * is reversed: rename the package back to `@context-lc/hook`, or to any
+ * other scope, and this is red — in the same suite `prepublishOnly` runs
+ * before every publish, not silently in a registry nobody checks until an
+ * install breaks.
+ */
+const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+check(
+  "the package publishes under the org's one npm scope, @supa-media",
+  pkg.name.startsWith("@supa-media/")
+);
+
 /* ------------------------- a stub authorization server ------------------- */
 
 function base64Url(buffer) {
@@ -629,11 +647,11 @@ check(
 const settings = JSON.parse(await readFile(settingsPath, "utf8"));
 check(
   "the hook is installed as a SessionEnd command",
-  settings.hooks.SessionEnd[0].hooks[0].command.includes("@context-lc/hook capture")
+  settings.hooks.SessionEnd[0].hooks[0].command.includes("@supa-media/context-hook capture")
 );
 check(
   "and as a SessionStart command, so orientation does not depend on the agent",
-  settings.hooks.SessionStart[0].hooks[0].command.includes("@context-lc/hook session-start")
+  settings.hooks.SessionStart[0].hooks[0].command.includes("@supa-media/context-hook session-start")
 );
 check(
   "the installed command carries the endpoint but never the credential",
@@ -663,19 +681,33 @@ check("their other hook events are untouched", merged.hooks.PreToolUse.length ==
 // across three parsers whose strictness this package cannot test, and the cost
 // of being wrong is their whole settings file failing to load.
 const isOurEntry = (entry) =>
-  entry.hooks.some((hook) => String(hook.command || "").includes("@context-lc/hook"));
+  entry.hooks.some((hook) => String(hook.command || "").includes("@supa-media/context-hook"));
 check(
   "installing twice replaces our entry rather than stacking a duplicate",
   merged.hooks.SessionEnd.filter(isOurEntry).length === 1 &&
     merged.hooks.SessionStart.filter(isOurEntry).length === 1
 );
+// The package now publishes as `@supa-media/context-hook`, so the command
+// string this package writes legitimately contains the substring
+// "context-hook" — checking the whole serialized file for that substring
+// would flag our own, correct, command line. What this check actually
+// guards is narrower: no hook object carries a property KEYED `HOOK_MARKER`
+// (the old boolean marker we stopped writing), regardless of what the
+// command string itself says.
+const noMarkerProperty = (value) => {
+  if (Array.isArray(value)) return value.every(noMarkerProperty);
+  if (value && typeof value === "object") {
+    return !(HOOK_MARKER in value) && Object.values(value).every(noMarkerProperty);
+  }
+  return true;
+};
 check(
   "nothing we write carries a property outside the client's own schema",
   merged.hooks.SessionEnd.filter(isOurEntry).every((entry) =>
     entry.hooks.every((hook) =>
       Object.keys(hook).every((key) => ["type", "command"].includes(key))
     )
-  ) && !JSON.stringify(merged).includes(HOOK_MARKER)
+  ) && noMarkerProperty(merged)
 );
 // An entry written by an older version carried the marker. It must still be
 // recognised, or an upgrade stacks a second hook beside the first and every
@@ -688,7 +720,7 @@ await writeFile(
     // would make those pass for the wrong reason.
     hooks: {
       SessionEnd: [
-        { hooks: [{ type: "command", command: "npx -y @context-lc/hook capture --old", [HOOK_MARKER]: true }] },
+        { hooks: [{ type: "command", command: "npx -y @supa-media/context-hook capture --old", [HOOK_MARKER]: true }] },
         { hooks: [{ type: "command", command: "echo mine" }] },
       ],
       PreToolUse: [{ hooks: [{ type: "command", command: "echo also mine" }] }],
@@ -742,7 +774,7 @@ const commandFor = (config, event) =>
 
 check(
   "Codex gets its end-of-session hook on Stop, which is what it calls it",
-  commandFor(codex, "Stop").includes("@context-lc/hook capture") &&
+  commandFor(codex, "Stop").includes("@supa-media/context-hook capture") &&
     codex.hooks.SessionEnd === undefined
 );
 check("Codex gets the session-start hook too", commandFor(codex, "SessionStart").includes("session-start"));

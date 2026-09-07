@@ -262,7 +262,7 @@ describe("the hooks panel", () => {
 
     const command = screen.q("provider-claude-code-hook-command");
     expect(command).not.toBeNull();
-    expect(command!.textContent).toContain("@context-lc/hook install");
+    expect(command!.textContent).toContain("@supa-media/context-hook install");
     expect(command!.textContent).toContain(ENDPOINT);
     screen.unmount();
   });

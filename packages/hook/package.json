@@ -1,5 +1,5 @@
 {
-  "name": "@context-lc/hook",
+  "name": "@supa-media/context-hook",
   "version": "0.1.0",
   "description": "Save what an AI coding session learned into your Context, automatically, when the session ends",
   "license": "MIT",
@@ -17,6 +17,7 @@
   "files": ["bin", "src", "README.md", "LICENSE"],
   "engines": { "node": ">=20" },
   "publishConfig": {
+    "registry": "https://registry.npmjs.org",
     "access": "public"
   },
   "scripts": {

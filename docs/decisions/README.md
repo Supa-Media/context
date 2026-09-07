@@ -155,3 +155,4 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [This repository is public, and review is self-review](./repository-and-review.md)
 
 - This repository is public and MIT licensed
+- Every package this org publishes is `@supa-media/*`, through the framework's pipeline
