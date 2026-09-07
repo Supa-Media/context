@@ -692,3 +692,284 @@ inbox; reply, send, archive, delete or mark-read (v1 is read-only, and the
 mail client stays the mail client); a second inbox root; a search path that
 does not go through `searchIndexedNotes`; and any note in this tree that is
 not an ordinary note at an ordinary path.
+
+### iMessage reads `chat.db` in place, through the one binary every Mac already has
+
+The scoping note draws iMessage as the third channel beside mail and Google
+Chat, and it is the first one this repository actually ships end to end
+(`apps/desktop/src/core/imessage/`) — Gmail and Google Chat are still fixture-
+only, per the decision above. Reading it needed answers to four questions
+nothing else in this codebase had already answered, because nothing else here
+shells out to a database somebody else's application owns.
+
+**No native module, no copied database, one child process.** Electron 33 ships
+no SQLite binding and this app takes no native modules, so every read is
+`/usr/bin/sqlite3 -readonly -json`, run exactly the way
+`platform/exec.ts` already runs `osascript` — `execFile`, never a shell, a
+timeout that cannot hang the sync loop. The database is opened through a
+`file:…?mode=ro` URI **in place**: WAL-mode SQLite already tolerates a second
+read-only reader while Messages.app holds the file open, and a copy would be a
+second, larger surface for "did we just leave a stray file with somebody's
+messages in it" to go wrong on. The check is `queryChatDb` never accepts a
+path other than `~/Library/Messages/chat.db`, resolved and compared before a
+process is spawned — `isAllowedChatDbPath` in `core/imessage/paths.ts` — and
+there is no bridge channel, IPC argument, or settings field that can name a
+different one. **No page ever supplies a path**, which is the whole of what
+"no path argument from the page" means: the only path in this feature is a
+constant.
+
+**Every column `sqlite3 -json` would corrupt is cast in the query, not
+repaired after.** Measured against the real CLI (`sqlite3` 3.45.1, the version
+this sandbox has and a recent macOS ships too): a `BLOB` column prints as a
+mangled, non-hex, non-base64 escape sequence, and a 64-bit `date` — Apple's
+epoch is nanoseconds since 2001-01-01, and a 2026 timestamp in that unit is
+~7.9×10¹⁷, comfortably past `Number.MAX_SAFE_INTEGER` — comes back as a bare
+JSON number that `JSON.parse` silently rounds, verified to turn
+`757382400123456789` into `757382400123456800`. `schema.ts`'s queries select
+`hex(attributedBody)` and `CAST(date AS TEXT)` (and `CAST(ROWID AS TEXT)`,
+`CAST(total_bytes AS TEXT)`, for the same reason on smaller numbers), so
+neither corruption ever has a value to happen to. `appleTime.ts`'s
+`appleEpochNsToIso` refuses anything that is not a plain digit *string* rather
+than trying to detect and repair a value that already lost precision — a
+caller that forgot the cast gets `null`, not a wrong date it cannot tell is
+wrong. The check is
+`a JSON number is refused, not silently rounded`, proven against the exact
+measured value above, and `imessageSqlite.test.mjs` proves the query itself
+produces the string shape by running the real binary against a fixture
+database built from Apple's documented schema — never a copy of a real one,
+which this repository is public and must never carry.
+
+**`attributedBody` is decoded by a byte-pattern heuristic, not a parser for
+either archiver format it might actually be.** `text IS NULL` still has a body
+whenever a message carries rich content, and macOS puts that in an archived
+`NSAttributedString` — the legacy `streamtyped` `NSArchiver` format before Big
+Sur, or an `NSKeyedArchiver` binary property list on every macOS this feature
+will actually meet. A full parse of either is a real project: a typedstream
+class-version table, or resolving a bplist's `$objects`/`UID` graph. Both
+formats spell the class name `NSString` in plain ASCII immediately before a
+length-prefixed run of the string's own UTF-8 bytes, and that is the one fact
+`extractAttributedBodyText` depends on — it finds the **last** `NSString` in
+the blob (the class table names it too, earlier), then scans a bounded window
+past it for a byte that names a length actually reaching the string. The cost
+is stated rather than hidden: this is not a general reader, a blob with no
+recoverable string answers `null` rather than throwing, and the caller's
+fallback is an empty body — losing the text of one hard-to-parse message is a
+far smaller defect than losing a whole day's import to it. What "favour
+scanning past a rejection over stopping at the first plausible one" cost and
+bought is argued in the function's own comment, because it was tried the other
+way first and measured to break real decoding — see the checks named on
+`extractAttributedBodyText` and `imessageAttributedBody.test.mjs`'s sabotage
+record.
+
+**A tapback is folded into the message it targets, and is never a message of
+its own.** `associated_message_type` `2000`–`2005` is a reaction
+("loved", "liked", …); `3000`–`3005` is one undone. Neither becomes a
+`CommunicationEvent` — a channel-day note's headings are exactly its messages,
+and rendering a reaction as one would put a heading with no real content of
+its own in somebody's note, one for every tap. Instead, an added tapback
+appends one line to the *body* of the message `associated_message_guid` names
+(stripped of macOS's `p:0/` / `bp:` scheme prefix), which the existing
+untrusted-fence machinery in `packages/communications` then quotes exactly as
+it quotes everything else a sender wrote — no new trust boundary, because
+there is no new kind of content crossing it. A removed tapback is dropped
+outright: representing "undone" would mean carrying state across syncs about
+which reactions are still standing, and an undo that changes nothing about
+what was actually said is not worth that machinery in v1. A tapback whose
+target is outside the day being rendered (a reaction added later, to a
+message from a previous sync) is silently dropped rather than attached to
+nothing — the day is the only place this function can look. The check is `a
+tapback never becomes an event of its own`, sabotaged by making
+`isReactionRow` always answer `false` — 7 checks fail, none of them about
+tapbacks specifically, because the folded rows fall back to being read as
+ordinary (empty) messages and are dropped by the no-content rule instead,
+which is itself a second finding worth naming: a broken fold degrades to
+silently losing the reaction rather than corrupting a note.
+
+**And a tapback may only annotate a message in its own conversation.** This
+was found in adversarial review of the fold above, which matched on the target
+GUID alone. `associated_message_guid` is bytes the *reacting* device chose,
+and a `message.guid` is unique across the whole database rather than per chat
+— so a reaction row filed under one conversation naming a GUID from another
+was folded onto it, appending `+1555… loved this message.` to a message body
+in a conversation that handle was never in. Anybody who has ever messaged this
+Mac knows the GUIDs of the messages they sent, which is the whole of what the
+attack needs: a line naming themselves, inside the fence, in a thread they
+were not part of, in a document presented as a record of what happened there.
+macOS files a tapback in the same chat as its target, always, so the fix costs
+nothing real: the fold requires `target.threadId === row.chat_guid` and drops
+the row otherwise, exactly as it already drops one whose target is outside the
+window. The check is `A TAPBACK FROM ANOTHER CONVERSATION IS NOT FOLDED onto a
+message it names by guid`; removing the comparison fails 2.
+
+**Full Disk Access is attempted, never requested — there is nothing to
+request.** Unlike the microphone or Screen Recording
+(`core/capture/permissions.ts`), macOS raises no dialog for this permission at
+all; the only way to learn whether it is granted is to try the read and see
+what happens. `core/imessage/permission.ts`'s `detectFullDiskAccess` is a pure
+function over an injected attempt, matching the shape every other macOS-only
+seam in this app already has, and it distinguishes three answers rather than
+two: `"granted"`, `"denied"` (the file exists and the OS refused to open it —
+this *is* the permission), and `"unknown"` (everything else, including "the
+file does not exist because nobody has used Messages on this Mac", which
+granting Full Disk Access would not fix). Collapsing the last two into
+`"denied"` was sabotaged and measured: it fails 2 checks, both about the same
+failure direction — telling somebody to go grant a permission that would not
+fix their actual problem is a dead end dressed as an instruction. The notice
+names the exact pane, `System Settings → Privacy & Security → Full Disk
+Access`, and offers the one deep link macOS honours,
+`x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles` —
+never a sentence that could apply to the wrong permission, which is the same
+rule `docs/decisions/desktop.md`'s permission-notice work already established
+for the microphone.
+
+**There is no `chooseMailboxSlug` for iMessage, and there never will be.**
+`channelFolder("imessage", account)` already refuses an `account` argument —
+`docs/decisions/communications.md`'s own asymmetry, "a person has several
+mailboxes and one iMessage" — so every event this reader produces carries the
+fixed constant `IMESSAGE_ACCOUNT = "imessage"` as its `account` field, used
+only to seed `messageAnchor`/`threadKey`'s hash inputs and never written to a
+folder path. `chat.db` merges every iMessage identity signed into Messages on
+one Mac into one database with no per-identity split worth exposing, so a
+folder-per-account scheme would invent a distinction the data does not carry.
+
+**A day is regenerated whole from the source of truth, never patched.**
+Incremental sync finds which UTC calendar days got new `ROWID`s since the last
+cursor, then re-reads and re-renders **the whole day** for each one from
+`chat.db` directly — never by appending to a stored note. That is what makes a
+late-arriving row, a fixed reader bug, or a corrected reaction self-healing on
+the next sync rather than needing a backfill tool of its own, and it is what
+"regenerating only affected days" in the scoping note actually means: bounded
+to the days that changed, not bounded to appending onto what was last
+written.
+
+**Which means a day that *shrinks* has to lose its extra parts too.** An
+oversized day splits by rendered bytes (see the split decision above), so a day
+that loses messages — somebody deleted them in Messages.app — can render into
+fewer parts than it did last time, and the parts past the new last one are
+simply never re-rendered. Left alone, `2026-09-07-part-2.md` keeps the deleted
+messages in the bucket forever: the one outcome a person who deleted a message
+is entitled not to get, reached through the gap between "the day is
+regenerated whole" and "the day is a set of files". So `retireOrphanParts`
+walks upward from the day's new last part until it finds one that is not
+there, and rewrites each it does find with the same day rendered with **no
+events** — `messages: 0`, `_(no messages)_`, the day's own fence nonce. The
+file itself stays, because this app writes into somebody's own bucket through
+`write_note` and does not remove their notes; what it guarantees is that no
+message body survives in one. A `read_note` that *fails* during that walk
+stops it and is reported as an error rather than read as "no more parts", so a
+transport blip is never the reason a stale part is left standing. The check is
+`A DELETED MESSAGE DOES NOT SURVIVE IN THE ORPHANED PART`; skipping the walk
+fails 3, and the fixture deliberately gives the two messages different
+timestamps so the split is deterministic — with a shared timestamp the tie
+breaks on an anchor hash and the deleted message can land in part 1, where the
+ordinary rewrite removes it and the check passes without exercising an orphan
+at all.
+
+**Idempotent upsert is a real property of the bytes, and two things had to be
+true for it to hold.** Re-running a sync with nothing new must write nothing —
+not "write the same bytes again," but make zero `write_note` calls, since a
+call the gateway happens to answer identically is still a call. Two pieces
+make that true together, and either alone is not enough: the fence nonce for
+an existing day is **read back out of the stored note** and reused
+(`existingNonce`, matched against the exact marker `renderChannelDayNote`
+writes) rather than minted fresh on every render — a fresh nonce every sync
+would rewrite every message's fence, forever, which is the failure a
+nonce-per-note is supposed to prevent turned into the reason it never stops
+happening; and the comparison that decides whether to write at all ignores
+the `updated:` frontmatter timestamp (`withoutUpdatedTimestamp`), because that
+field is genuinely different on every render and comparing it literally would
+make every sync of an unchanged day look changed. Sabotaging the comparison to
+compare literally was measured **twice**: the first attempt found nothing,
+because the test fixture's own `now()` never varied between two calls, so the
+scenario the guard exists for was never exercised — the fixture was the
+defect, not the code, and it was fixed in the same commit as this sentence
+rather than left as a guard nobody's test actually checks (`CLAUDE.md`, *a
+guard nobody has checked is not a guard*). Fixed, the sabotage fails 3 checks.
+The check that matters is `a day re-queried because of a new row that renders
+no visible change is reported unchanged, not written` — the one scenario
+where a day is re-read (a new row genuinely arrived) yet the rendered bytes
+are unchanged (a removed tapback contributes nothing), which is the only case
+that actually reaches the comparison this guard is about.
+
+**The write goes through `write_note` over the machine's own MCP grant, not a
+new gateway route.** The meetings protocol's four bespoke REST routes
+(`docs/decisions/desktop.md`) are shaped for one thing — a session, its
+segments, its notes, its finalize — and a channel-day note is not that shape:
+it is an ordinary note at an ordinary path, which is exactly what `write_note`
+already exists for. So `core/imessage/gatewayNotes.ts` speaks the gateway's
+modern MCP envelope directly (`POST /mcp`, `MCP-Protocol-Version: 2026-07-28`,
+`Authorization: Bearer <this machine's token>`) rather than growing the
+gateway a fifth bespoke route for one client. **The credential and the tier
+check are the same ones the meetings path uses** —
+`GatewayConnection.token()` and `grantCoversMeetings(scope)` from
+`sync/connection.ts`, reused rather than duplicated, because "write plus the
+private tier" has nothing meeting-specific in it. A grant connected at the
+team tier holds iMessage's notes exactly as the meetings path holds a meeting
+recorded on the wrong tier — never sent team-visible, never dropped, waiting
+for a reconnect at the tier the person meant. This is a decision to record
+because the gateway itself is out of scope for this feature (`apps/mcp` has
+no new route and no new test requirement here): the alternative, a bespoke
+`/imessage/...` REST surface mirroring the meetings one, was rejected as a
+protocol invented for one client where a protocol every MCP client already
+speaks would do.
+
+**A gateway refusal's own words never reach a person, only this app's.** Also
+found in adversarial review. A failed `read_note`/`write_note` used to answer
+with the tool's own error text, and that string travels: `sync.ts` puts it in a
+`DayOutcome`, `main/imessage.ts` puts that in `ImessageStatus.lastError`, and
+the bridge pushes it to the console page and the tray. It is a string somebody
+*reads*, on the one path in this app carrying a day of their messages — so a
+gateway that quoted the note it refused (a validation error naming the
+offending line, a proxy echoing the request body) would put a fragment of that
+day on a screen through an error nobody was watching. The tool's text is now
+read to **classify** — `not found` is how `toolReadNote` says a path does not
+exist yet, the `conflict:` prefix is what drives the one re-read-and-retry —
+and then dropped for one of four fixed sentences in `NOTES_REFUSAL`. It costs
+the ability to see the gateway's exact complaint, which was never in a log
+anyway (this feature writes none), and it makes true of the network path what
+`exec.ts`'s `run` already makes true of the process path and `sqlite.ts` of
+the database path: the same rule, in the third and last place it has to hold.
+The check is `A WRITE REFUSAL THAT QUOTES THE NOTE BACK DOES NOT FORWARD A
+BYTE OF IT`; forwarding the text again fails 4.
+
+**"The read is refused when the grant is missing" means the message content
+never leaves the database, not merely that it is never sent.** The Full Disk
+Access probe (`attemptChatDbRead`) is an `fs.access` check with no message
+content in it at all, and it always runs — a person can see *why* the toggle
+is stuck, even while disconnected. The actual query that reads rows of
+`chat.db` into process memory runs only after `GatewayConnection.baseUrl()`
+answers non-null — this Mac is connected to some context — so a disconnected
+machine never executes a single `SELECT` against anybody's messages. A
+connected machine holding the wrong *tier* (team, not private) is a narrower
+case this does not close the same way: `queryMessages`/`queryAttachments` for
+the affected days still run before `write_note`'s own tier check refuses the
+write, so the content is read into memory and discarded rather than never
+read at all. That is the same shape the meetings outbox already accepts (a
+recording is captured and held before its tier is known to be wrong), stated
+here rather than left implicit, because it is the one place "refused when the
+grant is missing" is narrower than it might sound.
+
+**What is deliberately not built, named for the same reason the list above
+is:** contact resolution (an iMessage handle is rendered as itself — a phone
+number or an email address — never resolved against `0-inbox/contacts/`,
+which is Gmail/Google-Chat-shaped work this feature does not need to unlock);
+recovering `attributedBody` on a macOS release before Big Sur, where the
+`streamtyped` format's exact byte layout may differ from what the heuristic's
+fixtures cover (the heuristic degrades to `null` there, not to a wrong
+answer); a console/mobile settings screen consuming
+`packages/desktop-bridge`'s `imessage` member (the bridge surface and the
+tray checkbox are both real and independently sufficient; a phone screen for
+the same toggle is follow-up UI work); attachment bytes (metadata only,
+exactly as email attachments are, per the retention decision above); and
+group-chat participant names resolved against contacts (a participant is
+rendered as their raw address, the same simplification as the sender).
+
+**`readChatDbWindow`'s `selfAddresses` option exists and is not yet wired to
+a real value.** `chat.db` does not reliably carry "which of these handles is
+this Mac's own" — that lives in Messages' separate account configuration, not
+in the tables this reader reads — so `main/imessage.ts` passes none today. The
+one visible cost is cosmetic and stated rather than hidden: an unnamed group's
+synthesized subject can include the owner's own address alongside everyone
+else's, where a resolved identity would have excluded it. Nothing about
+content, folding, or privacy depends on this value; it is read only to build
+a heading string.

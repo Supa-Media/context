@@ -56,6 +56,17 @@
  * either — which is what says these are separate properties rather than one
  * written eleven times.
  *
+ * A fourth group, added when the residual measured above (74/75) was closed —
+ * `selectionRank` in `core/sync/outbox.ts`, which lets `nextDrain` pick a
+ * `session`/`finalize` head ahead of a deep backlog rather than riding
+ * `queuedAt`. `outbox.test.mjs` carries the reducer-level rows; these are the
+ * ones this file's own harness (a real `MeetingController` or a real
+ * `drainOnce`) catches:
+ *
+ *   the queue jump
+ *     `nextDrain` sorting by `queuedAt` alone again (no priority)              8
+ *     a high-priority write's backoff no longer excludes it from `nextDrain`   1
+ *
  * Two of those rows are worth reading twice. **The drain hung off `#queue`** is
  * the regression the obvious placement of the first fix would have introduced,
  * found in review rather than in a test. And the notice row read **0** until
@@ -85,6 +96,16 @@ const TOKEN = "fake-grant-token-not-a-real-one";
 /** What `connectMachine` records; `postEntry` refuses a meeting without it. */
 const SCOPE = "context:write context:private";
 const SESSION = "mtg_abcdefghjkmnpqrstvwx";
+
+const seg = (id, startMs, text) => ({
+  id,
+  startMs,
+  endMs: startMs + 1000,
+  text,
+  speaker: null,
+  channel: "mixed",
+  confidence: null,
+});
 
 /**
  * A gateway that knows what it has been told, and nothing else.
@@ -517,24 +538,26 @@ export async function runSessionOrderChecks(check) {
 
   // -- A MEETING BEGUN BEHIND A QUEUE THAT IS ALREADY DEEP -------------------
   //
-  // The residual the fire-and-forget drain names out loud — *"on a long queue
-  // the new session entry is at the back of `nextDrain`'s ordering and may not
-  // make it into this pass"* — driven rather than reasoned about. Added in
-  // review, because the sentence after it, *"which is the case the second fix
-  // exists for"*, is true for **one** missed pass and stops being true after
-  // two: a pass carries at most 25 entries and costs a whole
-  // `DRAIN_INTERVAL_MS`, so a queue three passes deep holds the row past
-  // `NOT_YET_GRACE_MS` and the meeting is given up exactly as it used to be.
-  // Measured on this machine's numbers: a transcript through 74 queued entries,
-  // none at 75. The table is in `docs/decisions/desktop.md`.
+  // This is the reviewer's own test, extended rather than duplicated. It used
+  // to prove the residual the fire-and-forget drain named out loud —
+  // *"on a long queue the new session entry is at the back of `nextDrain`'s
+  // ordering and may not make it into this pass"* — and measured it: a pass
+  // carries at most 25 entries and costs a whole `DRAIN_INTERVAL_MS`, so a
+  // queue three passes deep held the row past `NOT_YET_GRACE_MS` and the
+  // meeting was given up exactly as it used to be. Measured on this machine's
+  // numbers: a transcript through 74 queued entries, none at 75.
   //
-  // This checks the side that must keep working — one missed pass — so it
-  // reddens if the deadline is ever shortened below the timer it outlasts.
+  // The fix the reviewer named — the session row **jumps** the queue rather
+  // than riding a pass — is `nextDrain`'s own selection now (`selectionRank`
+  // in `core/sync/outbox.ts`), so this checks the side that used to fail:
+  // the row reaches the gateway in the very first pass, at a depth ten times
+  // what was measured to fail, with no race against the backlog at all.
   {
     const impl = fakeGateway();
     const app = shell(impl);
     let queued = app.outbox();
-    for (let i = 0; i < 30; i += 1) {
+    const BACKLOG = 120; // comfortably past the 74/75 the un-fixed ordering measured
+    for (let i = 0; i < BACKLOG; i += 1) {
       queued = queueWrite(queued, {
         sessionId: `mtg_older${i}`,
         kind: "notes",
@@ -543,30 +566,221 @@ export async function runSessionOrderChecks(check) {
       });
     }
     app.setOutbox(queued);
-    // Strictly later than every entry above, so the ordering really does put
-    // this meeting's row behind them rather than leaving it to `id`.
+    // Strictly later than every entry above, so a plain `queuedAt` ordering
+    // would still put this meeting's row dead last.
     app.clock.advance(5_000);
     await record(app);
     await app.settle();
     check(
-      "a meeting begun behind a full pass does not get its session row out in that pass",
-      !impl.calls.includes(ROUTES.sessions),
+      `THE SESSION ROW REACHES THE GATEWAY IN THE FIRST PASS, behind a ${BACKLOG}-entry backlog`,
+      impl.calls.includes(ROUTES.sessions),
+    );
+    check(
+      "...ahead of every one of those older entries, not merely eventually",
+      impl.calls.indexOf(ROUTES.sessions) < BACKLOG,
     );
 
     await rotate(app);
-    await app.drain();
-    await rotate(app);
     check(
-      "...AND STILL GETS A TRANSCRIPT, because the deadline outlasts the pass it missed",
-      app.segments.length >= 1,
+      "...SO THE MEETING TRANSCRIBES FROM ITS VERY FIRST CHUNK — no race with the backlog at all",
+      app.segments.length === 1,
     );
     check(
-      "...rather than being given up on the chunk that raced it",
-      !app.notices.includes(CAPTURE_NOTICES.refused),
+      "...and nothing had to be said about it",
+      app.notices.length === 0,
     );
     check(
-      "...which is the arithmetic that has to hold for that to be true",
+      "...which is a stronger property than the deadline this used to lean on",
       NOT_YET_GRACE_MS > DRAIN_INTERVAL_MS,
     );
   }
+
+  // The measured threshold from the paragraph above is not "wider", it is
+  // gone: the jump is a selection rule with no queue depth at which it stops
+  // working, because `nextDrain` sorts by priority before it ever reads
+  // `queuedAt`. Measured at roughly ten times the depth that used to fail.
+  {
+    const impl = fakeGateway();
+    const app = shell(impl);
+    let queued = app.outbox();
+    const DEEP_BACKLOG = 750;
+    for (let i = 0; i < DEEP_BACKLOG; i += 1) {
+      queued = queueWrite(queued, {
+        sessionId: `mtg_deepolder${i}`,
+        kind: "segments",
+        body: { sessionId: `mtg_deepolder${i}`, segments: [] },
+        now: app.clock.ms(),
+      });
+    }
+    app.setOutbox(queued);
+    app.clock.advance(5_000);
+    await record(app);
+    await app.settle();
+    check(
+      "THERE IS NO MEASURED THRESHOLD ANY MORE — the session row is still the first request sent at 750 entries queued",
+      impl.calls[0] === ROUTES.sessions,
+    );
+  }
+
+  // -- A PERMANENTLY REFUSED HIGH-PRIORITY MEETING DOES NOT STARVE ANOTHER'S -
+  //
+  // The jump must not become a new way to get stuck: a `session` write this
+  // gateway will never accept is excluded from `nextDrain`'s ready set the
+  // moment it parks, exactly as any other head is, and a *different* meeting's
+  // ordinary write behind it in the queue must still go out promptly rather
+  // than waiting on a slot the stuck meeting keeps winning.
+  {
+    const impl = fakeGateway({ acceptSessions: false });
+    let outbox = emptyOutbox();
+    outbox = queueWrite(outbox, {
+      sessionId: "mtg_stuckforever",
+      kind: "session",
+      body: { id: "mtg_stuckforever" },
+      now: 0,
+    });
+    outbox = queueWrite(outbox, {
+      sessionId: "mtg_alsowaiting",
+      kind: "notes",
+      body: { notes: "an ordinary write, behind the stuck one" },
+      now: 0,
+    });
+
+    const config = { baseUrl: BASE_URL, token: async () => TOKEN, scope: () => SCOPE, fetch: impl };
+    // The stuck session's write is a 503 in `fakeGateway({ acceptSessions:
+    // false })`, which is retryable — so this is backoff, not a park, and the
+    // property is the same one either way: not-ready loses its priority.
+    const report = await drainOnce(outbox, config, () => 0, 1);
+    check(
+      "a high-priority write that is not ready yields its slot rather than holding it",
+      report.outbox.entries.some((entry) => entry.sessionId === "mtg_stuckforever" && entry.attempts === 1),
+    );
+    const again = await drainOnce(report.outbox, config, () => 0, 1);
+    check(
+      "...so a different meeting's ordinary write goes out on the very next request, not after the stuck one gives up",
+      again.sent === 1 &&
+        again.outbox.entries.some((entry) => entry.sessionId === "mtg_stuckforever") &&
+        !again.outbox.entries.some((entry) => entry.sessionId === "mtg_alsowaiting"),
+    );
+  }
+
+  // -- TWO MEETINGS BEGIN WHILE A HUNDRED-ENTRY BACKLOG IS STILL DRAINING ----
+  //
+  // Idempotence and ordering under interleaving: two meetings whose writes
+  // arrive woven through each other and through an unrelated backlog. Driven
+  // against `drainOnce` directly — the property is about the queue's own
+  // selection across many passes, not about any one shell's wiring, and both
+  // `MeetingController` and `writeMeetingFromConsole` funnel into the same
+  // `queueWrite`/`drainOnce` this drives.
+  {
+    const impl = fakeMultiGateway();
+    const config = { baseUrl: BASE_URL, token: async () => TOKEN, scope: () => SCOPE, fetch: impl };
+    const A = "mtg_interleaveda000000";
+    const B = "mtg_interleavedb000000";
+    let outbox = emptyOutbox();
+    // A real, moving clock — `drainOnce`'s `now` and `queueWrite`'s `now` must
+    // agree, or an entry queued "in the future" relative to a frozen drain
+    // clock is correctly refused as not yet ready, which is a timing mistake
+    // in the test rather than anything worth asserting about the queue.
+    let clockMs = 0;
+
+    // A hundred-entry backlog from meetings that were already queued.
+    for (let i = 0; i < 100; i += 1) {
+      outbox = queueWrite(outbox, {
+        sessionId: `mtg_backlog${i}`,
+        kind: "notes",
+        body: { notes: "queued before either new meeting began" },
+        now: clockMs++,
+      });
+    }
+
+    // Two meetings begin close together, each writing its session row first —
+    // exactly as `begin()` does for one meeting at a time on a real machine,
+    // or as a tray recording and a console-started meeting would if they
+    // landed on the same drain.
+    outbox = queueWrite(outbox, { sessionId: A, kind: "session", body: { id: A }, now: clockMs++ });
+    outbox = queueWrite(outbox, { sessionId: B, kind: "session", body: { id: B }, now: clockMs++ });
+
+    let report = await drainOnce(outbox, config, () => clockMs);
+    outbox = report.outbox;
+    check(
+      "NEITHER MEETING'S SESSION ROW IS LOST TO THE OTHER — both reach the gateway in the first pass",
+      impl.calls.filter((path) => path === ROUTES.sessions).length === 2,
+    );
+    check(
+      "...ahead of the hundred-entry backlog that was queued first",
+      impl.calls.slice(0, 2).every((path) => path === ROUTES.sessions),
+    );
+
+    // Each meeting's own segments and finalize land while the backlog (and
+    // the other meeting) are still being drained — a person types notes, a
+    // chunk rotates, a meeting ends, all mid-drain.
+    outbox = queueWrite(outbox, {
+      sessionId: A,
+      kind: "segments",
+      body: { sessionId: A, segments: [seg("a1", 0, "hello from A")] },
+      now: clockMs++,
+    });
+    outbox = queueWrite(outbox, {
+      sessionId: B,
+      kind: "segments",
+      body: { sessionId: B, segments: [seg("b1", 0, "hello from B")] },
+      now: clockMs++,
+    });
+    outbox = queueWrite(outbox, {
+      sessionId: A,
+      kind: "finalize",
+      body: { sessionId: A, endedAt: new Date(clockMs).toISOString() },
+      now: clockMs++,
+    });
+    outbox = queueWrite(outbox, {
+      sessionId: B,
+      kind: "finalize",
+      body: { sessionId: B, endedAt: new Date(clockMs).toISOString() },
+      now: clockMs++,
+    });
+
+    // Drain until the queue is empty — the backlog plus both meetings, well
+    // within the 25-per-pass cap spread over a handful of passes.
+    for (let i = 0; i < 20 && outbox.entries.length > 0; i += 1) {
+      report = await drainOnce(outbox, config, () => clockMs);
+      outbox = report.outbox;
+    }
+
+    check("the queue fully drains", outbox.entries.length === 0);
+    check(
+      "MEETING A'S OWN SEGMENTS ARRIVE BEFORE ITS OWN FINALIZE",
+      impl.calls.indexOf(ROUTES.segments(A)) !== -1 &&
+        impl.calls.indexOf(ROUTES.segments(A)) < impl.calls.indexOf(ROUTES.finalize(A)),
+    );
+    check(
+      "MEETING B'S OWN SEGMENTS ARRIVE BEFORE ITS OWN FINALIZE, independently of A",
+      impl.calls.indexOf(ROUTES.segments(B)) !== -1 &&
+        impl.calls.indexOf(ROUTES.segments(B)) < impl.calls.indexOf(ROUTES.finalize(B)),
+    );
+    check(
+      "...and both came after their own session row landed, not before it",
+      impl.calls.indexOf(ROUTES.segments(A)) > impl.calls.indexOf(ROUTES.sessions) &&
+        impl.calls.indexOf(ROUTES.segments(B)) > impl.calls.indexOf(ROUTES.sessions),
+    );
+  }
+}
+
+/**
+ * A gateway that accepts any session id it is told about, generically —
+ * `fakeGateway` above is deliberately narrow to one hard-coded `SESSION`,
+ * which is right for a test about one meeting's race and wrong for a test
+ * about several meetings at once.
+ */
+function fakeMultiGateway() {
+  const calls = [];
+
+  async function impl(url, init) {
+    const path = String(url).slice(BASE_URL.length);
+    calls.push(path);
+    if (path.endsWith("/finalize")) return json(200, { notePath: "/2-meetings/interleaved.md" });
+    return json(200, {});
+  }
+
+  impl.calls = calls;
+  return impl;
 }

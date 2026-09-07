@@ -72,6 +72,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Sharing: an unlisted link over an encrypted note is refused
 - Rotation: three different things, and they must not be confused
 - Revocation and export: the customer keeps a usable context, or this feature breaks the first non-negotiable
+- Encrypted notes are for humans; no AI client reads one
+- The KDF, per client
+- Bounds on a KDF descriptor, because a bucket is not a trusted input
 - What Phase 1 builds, and what it does not
 
 ## [The MCP gateway: protocol, transport, orientation](./gateway-protocol.md)
@@ -175,6 +178,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The Gmail restricted scope is Google's decision, so v1 runs on fixtures
 - The five open decisions, and who settles them
 - What is deliberately not built
+- iMessage reads `chat.db` in place, through the one binary every Mac already has
 
 ## [The desktop shell](./desktop.md)
 
@@ -193,6 +197,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Step 4 landed: the console is what a launch opens, and the panel is one variable away
 - The signing keychain belongs to the workflow, not to electron-builder
 - What step 3 did not do, and what has since been done about it
+- Bridge version 4 adds `imessage`, and it is a status object, never a query surface
 - One meeting is one credential, and on a Mac it is the machine's
 - The microphone is asked for just-in-time, and never a dialog that points at the wrong place
 - What is deliberately not built
