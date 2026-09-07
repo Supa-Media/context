@@ -667,6 +667,41 @@ describe("seeing all the results", () => {
     palette.unmount();
   });
 
+  test("the handoff row does not silence what the overlay knows", () => {
+    // The regression this exists to stop: with `onSeeAll` wired, the list is
+    // never empty — the handoff is always in it — so an emptiness check over
+    // `matches` retires "still being indexed", "could not be run" and the
+    // caller's own `noMatchMessage`, in the one palette those three were
+    // written for. The row is a way out, not an answer, and the copy is about
+    // answers.
+    const textFor = (state: "indexing" | "failed"): string => {
+      const palette = mount(DESKTOP, {
+        onSeeAll: () => {},
+        search: { onQuery: () => {}, items: [], state },
+        noMatchMessage: "Nothing loaded matches that.",
+      });
+      palette.type("ikenna");
+      const text = palette.find("palette-empty")?.textContent ?? "";
+      // ...and it is beside the handoff rather than instead of it.
+      const labels = palette.rowLabels();
+      palette.unmount();
+      expect(labels.join(" ")).toContain("See all results");
+      return text;
+    };
+
+    expect(textFor("indexing")).toContain("still being indexed");
+    expect(textFor("failed")).toContain("could not be run");
+
+    const palette = mount(DESKTOP, {
+      onSeeAll: () => {},
+      search: { onQuery: () => {}, items: [], state: "idle" },
+      noMatchMessage: "Nothing loaded matches that.",
+    });
+    palette.type("ikenna");
+    expect(palette.find("palette-empty")?.textContent).toBe("Nothing loaded matches that.");
+    palette.unmount();
+  });
+
   test("a press works too, for a thumb that has no arrow keys", () => {
     const seen: string[] = [];
     const palette = mount(PHONE, { onSeeAll: (query: string) => seen.push(query) });

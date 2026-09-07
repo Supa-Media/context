@@ -609,6 +609,15 @@ export function Palette({
   /** The label above the search half, when there is a search half. */
   const searchNote = remote.length > 0 ? (search?.heading ?? "In your notes") : null;
 
+  /**
+   * Rows that are answers, as opposed to rows that are a way out of here.
+   *
+   * `matches` is what the keyboard walks and it includes the handoff; this is
+   * what the *copy* is about. Keeping them separate is what lets the handoff
+   * be a real row in the list without it counting as having found something.
+   */
+  const found = local.length + remote.length;
+
   const list = (
     <ScrollView
       ref={scroller}
@@ -622,43 +631,53 @@ export function Palette({
       style={touch ? styles.listTouch : styles.listPointer}
       contentContainerStyle={styles.listContent}
     >
-      {matches.length === 0 ? (
+      {/*
+        The explanation belongs to the *found* rows being empty, not to the
+        list being empty, and those stopped being the same thing when the
+        handoff row joined `matches`. A palette with `onSeeAll` always has at
+        least that row once something is typed, so gating on `matches.length`
+        silently retired three states this component exists to keep honest:
+        "still being indexed", "could not be run", and the caller's own
+        `noMatchMessage`. The one palette that has a handoff is the console's,
+        which is the one those states were written for.
+      */}
+      {found === 0 ? (
         <View style={styles.empty} testID="palette-empty">
           <Text variant="rowSub">{emptyText}</Text>
         </View>
-      ) : (
-        matches.map((match, index) => (
-          <Fragment key={`${match.item.kind}:${match.item.id}`}>
-            {/*
-              The divider between what was already loaded and what searching
-              the whole context found. Rendered at the boundary rather than as
-              a wrapper, so the flat `matches` list the keyboard walks stays
-              flat.
-            */}
-            {index === local.length && searchNote !== null ? (
-              <Text variant="eyebrow" style={styles.heading} testID="palette-search-heading">
-                {searchNote}
-              </Text>
-            ) : null}
-            <PaletteRow
-              match={match}
-              selected={index === selected}
-              touch={touch}
-              onPress={() => {
-                setCursor(index);
-                if (match.item.id === SEE_ALL_ID) onSeeAll?.(query);
-                else onChoose(match.item);
-              }}
-              testID={`palette-row-${index}`}
-            />
-          </Fragment>
-        ))
-      )}
+      ) : null}
+      {matches.map((match, index) => (
+        <Fragment key={`${match.item.kind}:${match.item.id}`}>
+          {/*
+            The divider between what was already loaded and what searching the
+            whole context found. Rendered at the boundary rather than as a
+            wrapper, so the flat `matches` list the keyboard walks stays flat.
+          */}
+          {index === local.length && searchNote !== null ? (
+            <Text variant="eyebrow" style={styles.heading} testID="palette-search-heading">
+              {searchNote}
+            </Text>
+          ) : null}
+          <PaletteRow
+            match={match}
+            selected={index === selected}
+            touch={touch}
+            onPress={() => {
+              setCursor(index);
+              if (match.item.id === SEE_ALL_ID) onSeeAll?.(query);
+              else onChoose(match.item);
+            }}
+            testID={`palette-row-${index}`}
+          />
+        </Fragment>
+      ))}
       {/*
         Still working, with rows already on screen. Below the list because the
-        rows above are real answers and must not move when this appears.
+        rows above are real answers and must not move when this appears. Gated
+        on found rows for the same reason as the block above: with none, the
+        empty text already says it, and both would say it twice.
       */}
-      {matches.length > 0 && search?.state === "searching" ? (
+      {found > 0 && search?.state === "searching" ? (
         <View style={styles.empty} testID="palette-searching">
           <Text variant="rowSub">Searching the rest of this context…</Text>
         </View>

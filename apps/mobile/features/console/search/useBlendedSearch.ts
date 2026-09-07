@@ -112,6 +112,24 @@ export function useBlendedSearch(options: {
    * request's answer exactly as retyping does.
    */
   const asked = useRef("");
+
+  /**
+   * Which "load more" and which retry are the newest, so a superseded one can
+   * put its own flag down.
+   *
+   * The staleness guard below is about **data**: an answer for a question
+   * nobody is asking any more must not reach the list. The flag is a different
+   * thing — it is what disables the button while a request is out — and
+   * clearing it behind the same guard is how a page ends up with a "Loading…"
+   * that never becomes "Load more" again: change the query while a page is in
+   * flight and the settle returns early, `loadingMore` stays true forever, and
+   * `loadMore` refuses every later press. Same shape, same permanence, for
+   * `retrying` and the retry button. So the flag is cleared whenever this
+   * request is still the newest of its kind, whatever question it was for, and
+   * only the data is held to the question.
+   */
+  const newestPage = useRef(0);
+  const newestRetry = useRef(0);
   const scope = useMemo(() => scopeIds(slugs, eligible), [slugs, eligible]);
   const question = useMemo(
     // The separator is an ESCAPE, never the character: a literal NUL makes
@@ -191,6 +209,8 @@ export function useBlendedSearch(options: {
     const cursor = answer?.cursor;
     if (typeof cursor !== "string" || loadingMore) return;
     const forQuestion = question;
+    const token = newestPage.current + 1;
+    newestPage.current = token;
     setLoadingMore(true);
     void (async () => {
       const settled = await ask({
@@ -198,11 +218,13 @@ export function useBlendedSearch(options: {
         ...(scope.length > 0 ? { contexts: scope as Id<"workspaces">[] } : {}),
         cursor,
       });
+      // The button goes back up unless a newer press already owns it.
+      if (newestPage.current !== token) return;
+      setLoadingMore(false);
       // The question may have changed while the page was in flight, and an
       // appended page from the previous query would be indistinguishable from
       // a result once it is in the list.
       if (asked.current !== forQuestion) return;
-      setLoadingMore(false);
       if (settled.kind !== "value") return;
       setAnswer(settled.value);
       setResults((current) => [...current, ...settled.value.results]);
@@ -223,14 +245,17 @@ export function useBlendedSearch(options: {
     (workspaceId: string) => {
       if (retrying !== null) return;
       const forQuestion = question;
+      const token = newestRetry.current + 1;
+      newestRetry.current = token;
       setRetrying(workspaceId);
       void (async () => {
         const settled = await ask({
           query: query.trim(),
           contexts: [workspaceId as Id<"workspaces">],
         });
-        if (asked.current !== forQuestion) return;
+        if (newestRetry.current !== token) return;
         setRetrying(null);
+        if (asked.current !== forQuestion) return;
         if (settled.kind !== "value") return;
         const fresh = settled.value;
         setResults((current) => [
