@@ -182,6 +182,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The shell updates itself with `electron-updater`, and never during a meeting
 - Step 7 landed: a release, not a draft, and the meeting always wins
 - Nothing that can start a recording may come from an origin we did not pin
+- The approval happens in the app's own window, and that buys exactly one new address
 - Offline is what the outbox was always for, plus a tray that needs no page
 - Step 6 landed: one origin at a time, and a mirror that refuses data
 - The order is seven pull requests, and the first one changes nothing by default

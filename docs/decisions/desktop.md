@@ -817,6 +817,131 @@ built. A guard tells you about the code it is pointed at; nothing was pointed at
 the question "is there something new here that no guard covers", and for months
 the answer was yes.
 
+### The approval happens in the app's own window, and that buys exactly one new address
+
+The owner's decision, 2026-09-07: *"Keep the per-machine OAuth grant. Make the
+approval happen inside the app window while the person is already signed in, so
+it feels like one click."*
+
+Both halves are load-bearing and the second is not a softening of the first. The
+grant stays what *One meeting is one credential, and on a Mac it is the
+machine's* made it: one OAuth client per machine, `context:write
+context:private` and nothing wider, revocable on its own, minted through
+`packages/hook`'s reviewed flow and stored in `safeStorage`. What moves is the
+*window the approve screen is drawn in*, and only that.
+
+**What it was.** `connect()` opened the system browser. The person then met a
+console they were signed out of — the browser's cookie jar is not the shell's
+`persist:console` partition — signed in a second time, approved, and was left
+reading "you can close this tab" in an application that was not the one they
+pressed Connect in. Three steps and two sign-ins for one grant, and the shell
+put a modal in front of all of it explaining what the next screen was about to
+explain properly.
+
+**What it is.** The shell navigates its **own** console window to the same
+authorize URL. That window is already at the console's origin, already holds the
+session, and `/authorize?request_id=…` is an ordinary page load in it: the
+control plane parks the request, renders its own approve screen, the person
+presses Approve once, and the redirect lands on this machine's loopback
+listener, which is the same listener the same flow has always used. Then the
+window goes back to the console page they started from. The shell's own dialog
+goes away in that case and stays for a tray-only launch, which has no window to
+approve in and still opens a browser.
+
+**Nothing in `apps/mobile` learned that it is inside the shell.** No bridge
+member, no `getDesktopBridge()` branch on the consent screen, no shell-shaped
+variant of the highest-value screen in the product. That is the measure of
+whether this was the small change: the console is the console, and the shell
+decides where it is shown.
+
+#### What a simplification would cost
+
+The simplification that offers itself is to notice that the person is signed in
+to the console **in this very window** and conclude that a second credential
+ceremony is theatre: let the page mint the grant, or send the console's session
+to the gateway and have it issue one. That is the same trade *Sign-in stays in
+the page, the grant stays in the main process* already refused, and doing it
+here would cost:
+
+- **The revocable machine.** A control-plane session is a *person*. A grant
+  minted from it is not a laptop you can revoke on its own, which is the whole
+  reason `connect.ts` registers one client per machine.
+- **The window-less queue.** `drainOnce` runs with no page loaded and nobody
+  signed in. A credential derived from a renderer's session is a credential that
+  is gone when the page navigates — and this feature *navigates the page*.
+- **The audit's honesty.** The gateway records the grant that acted. A session
+  standing in for a machine makes every meeting this Mac files look like the
+  person, from any device.
+- **The pin.** Sending the console's session to the gateway means either
+  widening what the pinned origin may talk to or putting a credential through
+  the bridge, and both are refusals this file already spent a section on.
+
+So the flow is untouched: PKCE with S256, dynamic registration, a **single-use
+`state`**, the loopback listener on the port the OS handed out, the code
+exchanged in the main process. The page holds a URL for as long as it takes to
+navigate away from it, exactly as the browser held one.
+
+#### The one new address, and the three bounds on it
+
+The approve screen ends by navigating to the client's redirect URI, and for a
+native client that is `http://127.0.0.1:<port>/…`. The console window's
+`will-navigate` guard refuses everything but the pinned origin and the offline
+mirror, so that navigation has to be allowed — and it is allowed only:
+
+1. **while a connect is in flight.** `createApprovalRoute()` in
+   `core/shell/approval.ts` holds the address between `begin()` and `end()` and
+   answers `null` at every other moment, so a page that walks to a loopback
+   address on an ordinary afternoon is cancelled like any other off-origin
+   target. `end()` runs in `connectThisMachine`'s `finally`, so a refused,
+   failed or timed-out connect closes the allowance too.
+2. **to the exact address this flow registered** — origin *and* path. Neither
+   another port on this machine (something else is listening there) nor another
+   path on ours is a target. The address is never typed: it is read out of the
+   `redirect_uri` of the authorize URL the flow itself just built from its own
+   listener, so the allowance cannot name a port the listener is not on.
+3. **as loopback over `http`** — `127.0.0.1`, and deliberately not `localhost`,
+   which is a name somebody else's DNS can answer. The authorize URL itself must
+   be `https`, or loopback for a self-hoster's local gateway, which is
+   `credentialUrlOk`'s rule applied to a navigation.
+
+Two properties fall out and are worth stating because they read as omissions.
+**While the window sits on the gateway's authorize page the pin is nothing**:
+`pinnedOriginFor` answers `""` for an origin that is neither the console nor the
+mirror, so the bridge refuses that frame on every channel — the approve screen
+gets no more from this shell than any other page at an origin we did not pin.
+And **the window is never left on the loopback listener's page**, whose socket
+has closed by the time it renders: `returnAfterApproval` puts it back on the
+console page the person pressed Connect on, narrowed through the same navigation
+guard rather than trusted, and on the console's own address for anything else.
+
+#### The tests that fail if either is loosened
+
+`apps/desktop/test/approval.test.mjs`, and it is deliberately two kinds of check
+in one file. The pure half drives the guard: the allowance is closed before
+`begin()` and after `end()`, another port and another path are refused with a
+connect in flight, `127.0.0.1.attacker.invalid` is not loopback, and a foreign
+origin, a `file:` URL and an unparseable target are refused exactly as they were
+before any of this existed. The other half runs the **whole** `connectMachine`
+flow with an opener that behaves like the console window — it applies
+`mayNavigateConsoleWindow` before following the redirect the approve screen would
+follow — so the state check and the navigation rule are asserted *composed*: a
+callback carrying a state this machine never minted is refused, nothing is
+exchanged for it, and a replayed callback lands on a closed socket.
+
+Sabotage, measured as FAIL lines across the desktop suite: comparing the
+callback by host rather than by origin **2**; by origin without the path **1**;
+`end()` not clearing the allowance **1**; the allowance open from construction
+**1**; `approvalTargetFor` accepting a non-loopback `redirect_uri` **1** or an
+`http` authorize URL off loopback **1**; `mayNavigateConsoleWindow` dropping
+`isAllowedConsoleNavigation` **1**; `returnAfterApproval` trusting the URL the
+window was on **2**; `windows.ts` reverted to the two-argument origin guard
+**1**; and `stateMatches` swapped for `true` **5**. On the console's side,
+`apps/mobile/__tests__/desktopApproval.test.ts` holds the three things the
+desktop flow leans on the page for — a session renders the approve screen rather
+than a second sign-in, no session gets the console's own sign-in carrying the
+request id, and the loopback redirect is one the screen will hand the window
+back to while cleartext anywhere else still is not.
+
 ### Offline is what the outbox was always for, plus a tray that needs no page
 
 The data half is already built and does not change: a meeting recorded with no

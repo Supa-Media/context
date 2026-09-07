@@ -33,7 +33,7 @@
 
 import { BrowserWindow, screen, shell } from "electron";
 import { join } from "node:path";
-import { isAllowedConsoleNavigation } from "../core/shell/mirror.ts";
+import { mayNavigateConsoleWindow } from "../core/shell/approval.ts";
 
 export interface WindowSet {
   panel: BrowserWindow;
@@ -129,7 +129,10 @@ export function createNotepad(rendererDir: string): BrowserWindow {
  * Two navigation guards, because a note is full of other people's links:
  * `will-navigate` cancels anything off-origin, and `setWindowOpenHandler` sends
  * it to the person's real browser instead of opening a second window that would
- * inherit this preload.
+ * inherit this preload. The one address that is neither the pin nor the mirror
+ * and is still allowed — the loopback callback of a connect that is in flight —
+ * arrives through `approvalCallback`, is `null` at every other moment, and is
+ * decided by `core/shell/approval.ts` rather than here.
  */
 function isWebUrl(value: string): boolean {
   try {
@@ -140,7 +143,24 @@ function isWebUrl(value: string): boolean {
   }
 }
 
-export function createConsoleWindow(url: string, rendererDir: string): BrowserWindow {
+export interface ConsoleWindowOptions {
+  /**
+   * The loopback callback this window may reach **right now**, or `null`.
+   *
+   * A getter, and never a value: the answer is `null` for the whole life of
+   * this app except the seconds between pressing Connect and the grant coming
+   * back, and a value read once at construction would be an allowance that
+   * outlives the connect it was opened for. `core/shell/approval.ts` is the
+   * whole of the rule; this is the wire it arrives on.
+   */
+  approvalCallback?: () => string | null;
+}
+
+export function createConsoleWindow(
+  url: string,
+  rendererDir: string,
+  options: ConsoleWindowOptions = {},
+): BrowserWindow {
   const origin = new URL(url).origin;
   const win = new BrowserWindow({
     width: 1_040,
@@ -201,7 +221,26 @@ export function createConsoleWindow(url: string, rendererDir: string): BrowserWi
     obvious comparison cancels every navigation *inside* the offline console.
   */
   win.webContents.on("will-navigate", (event, target) => {
-    if (!isAllowedConsoleNavigation(target, origin)) event.preventDefault();
+    /*
+      The third target, and it is open for seconds rather than for the life of
+      the window: `http://127.0.0.1:<port>/…`, the loopback address the connect
+      currently in flight is listening on. The approve screen ends by
+      navigating there, so a window that refuses it is a window in which this
+      machine can never be approved — and an allowance that is not scoped to
+      one in-flight connect is a standing invitation for a page to walk to a
+      socket on this machine. `mayNavigateConsoleWindow` is both halves in one
+      decision, checked in `test/approval.test.mjs`.
+
+      A getter that throws is the same answer as no connect in flight, because
+      a guard is not the place to find out how a caller failed.
+    */
+    let callback: string | null = null;
+    try {
+      callback = options.approvalCallback?.() ?? null;
+    } catch {
+      callback = null;
+    }
+    if (!mayNavigateConsoleWindow(target, origin, callback)) event.preventDefault();
   });
   /*
     The console is never granted a media permission.

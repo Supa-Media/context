@@ -32,6 +32,17 @@
  * covers. A laptop credential that could read every note its owner ever wrote
  * is past what the feature is worth.
  *
+ * ## Where the person sees the approve screen is not this file's business
+ *
+ * It used to be, by default: `openBrowser` fell to `shell.openExternal` and the
+ * approval happened in a browser the person was signed out of. The shell now
+ * passes an opener that navigates its **own console window**, where they are
+ * already signed in, and everything in this file is unchanged by that — the
+ * listener, the single-use `state`, the PKCE verifier and the exchange are all
+ * still here, in the main process, and the opener is handed a URL and nothing
+ * else. `core/shell/approval.ts` is the guard that makes that one navigation
+ * bounded, and `docs/decisions/desktop.md` is why it is worth having.
+ *
  * ## The endpoint is the person's own
  *
  * There is no hard-coded gateway. A self-hoster types their own MCP endpoint
@@ -85,9 +96,18 @@ export const DESKTOP_SCOPE = "context:write context:private";
 export interface ConnectOptions {
   /** The MCP endpoint, as the person typed it. */
   endpoint: string;
-  /** Told where to send the browser, in case it does not open. */
+  /** Told where to send the person, in case the approval page does not open. */
   log?: (message: string) => void;
   fetchImpl?: typeof fetch;
+  /**
+   * Put the authorize URL in front of the person, however this app does that.
+   *
+   * The shell passes an opener that navigates its **own console window** — the
+   * one they are already signed in to — and falls back to the system browser
+   * when there is no window. Nothing about the flow changes with it: the
+   * listener, the state, the PKCE verifier and the exchange are all still here,
+   * in the main process, and the opener is handed a URL and nothing else.
+   */
   openBrowser?: (href: string) => Promise<void>;
 }
 
@@ -132,7 +152,15 @@ export async function connectMachine(options: ConnectOptions): Promise<Connectio
     scope: DESKTOP_SCOPE,
   });
 
-  log(`Opening your browser to approve this machine.\nIf it does not open: ${href}`);
+  /*
+    "Browser" is still the word, because `openBrowser` is still what this is:
+    `main/index.ts` passes an opener that navigates the app's own console window
+    when there is one and falls back to the system browser when there is not,
+    and this file deliberately knows neither. The URL is logged either way, so a
+    window that will not navigate and a browser that will not open have the same
+    remedy.
+  */
+  log(`Opening the approval page for this machine.\nIf it does not open: ${href}`);
   try {
     await (options.openBrowser ?? openInSystemBrowser)(href);
   } catch {
@@ -182,8 +210,14 @@ export async function connectMachine(options: ConnectOptions): Promise<Connectio
  * A dynamic import so the module above can be imported by a suite that has no
  * Electron; the bundler leaves `electron` external, so the packaged app resolves
  * it from the runtime exactly as a static import would.
+ *
+ * Exported because it is now the **fallback** rather than the only way: the
+ * shell approves in its own console window when it has one, and hands back to
+ * this for a tray-only launch and for an authorize URL it will not navigate a
+ * window to. One implementation of "hand this to the OS", so the `openExternal`
+ * that acts on whatever scheme it is given exists in exactly one place.
  */
-async function openInSystemBrowser(href: string): Promise<void> {
+export async function openInSystemBrowser(href: string): Promise<void> {
   const { shell } = await import("electron");
   await shell.openExternal(href);
 }
