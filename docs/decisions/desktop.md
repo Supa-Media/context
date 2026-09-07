@@ -825,9 +825,12 @@ the claim it is careful not to make:
   and not by distance — so a manifest is a near-neighbour of what it reads and
   never the same fact.
 - **So it reads `packages/` and walks all of it**, which is deliberately wider
-  than the main process: measured, the walk visits 107 files and 61 of them are
-  first-party inputs of the main bundle, so a bit under half of what it covers
-  is not in it. Wider is the affordable mistake: the cost is a false red for the
+  than the main process: measured, a bit under half of what the walk covers is
+  not a first-party input of the main bundle at all. An earlier version of this
+  line said "most", which was a guess; the version that replaced it printed the
+  two file counts, and one day of `main` moved both — nothing asserts them, so
+  the ratio is the durable claim and the digits are not.
+  Wider is the affordable mistake: the cost is a false red for the
   identifier written in a package nothing imports, and what it buys is that no
   dependency edge, in either direction, can move first-party code out of the
   census. Nothing is hand-listed, so there is no list to go stale.
