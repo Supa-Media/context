@@ -2112,3 +2112,87 @@ Not built, and none of them foreclosed:
 - **Deep-linking the shell from the web.** A `context://` scheme handler that
   focuses the shell from a browser tab is obvious and small and is not needed
   until somebody has two of them open.
+
+### The console reserves the space, the shell places the buttons
+
+Found by the owner on the installed app, and it is the plainest kind of defect
+this section has recorded: `createConsoleWindow` sets `titleBarStyle:
+"hiddenInset"`, which keeps the traffic lights but removes the bar that used to
+hold them clear of the page — and the hosted console draws its own chrome from
+`x: 0`, with nothing telling it that the top-left corner of its own window is
+spoken for. The close, minimise and zoom buttons sat on top of the active-context
+chip, because nothing in this app had ever been told they were there.
+
+The orchestrator's decision, 2026-09-07, and it is a split rather than a single
+fix: **the page reserves the space; the shell places the buttons in it.** A
+38px band, full width, in the console header's own colour, drawn only when the
+page is running inside the shell on macOS — and marked
+`-webkit-app-region: drag`, so the window can still be moved by a click there
+now that there is no title bar to grab. The shell's own half —
+`trafficLightPosition: { x: 12, y: 12 }` on the `BrowserWindow` — is a separate
+change to `apps/desktop`, on its own branch: this repository does not gate one
+half of a two-process fix on the other landing first, and a page that already
+reserves the pixels degrades to "an empty 38px strip with nothing drawn on it"
+against a shell that has not shipped the other half yet, rather than to the
+defect this section describes.
+
+**Neither side may own both numbers, and that is why they live in
+`packages/desktop-bridge` rather than in either app.** `SHELL_TITLE_BAND_PX`
+and `SHELL_TRAFFIC_LIGHTS` are compiled into both bundles from one file
+(`src/layout.ts`) — not asked for at runtime, and not a `BRIDGE_VERSION`
+change, because neither is part of `DesktopBridge`: the page never asks the
+shell "how tall is your band", it is simply built to the same constant the
+shell is. The tempting shortcut — hard-code `38` in `ShellTitleBand.tsx` and
+`{ x: 12, y: 12 }` in `windows.ts`, because "it's one number, we'll remember" —
+is the shape every other drift in this file was found the same way: two
+sessions, two PRs, one of them changes its number and the other does not, and
+the defect this section exists to fix comes back on the next release with no
+diff that looks wrong on its own.
+
+**Detection is the same rule as everywhere else in this file, not a new one.**
+`Platform.OS === "web" && getDesktopBridge()?.shell?.platform === "macos"` —
+stated as a pure function, `shouldShowShellTitleBand` in
+`apps/mobile/features/app/shellTitleBand.ts`, for the reason
+`app/(app)/console/_layout.tsx` already gives about `files/scope.ts`: *"in a
+sabotage sweep of this codebase, every guard written as a pure module held and
+every guard written inside a component did not."* No band on a phone, none in
+an ordinary browser tab, none on a shell this bundle cannot identify as macOS —
+`docs/decisions/desktop.md`'s existing rule that "macos is the only one built"
+means a Windows or Linux shell gets no band today, on the same honesty
+`capabilitiesFrom` already applies to every other unasked-for feature: nothing
+is claimed for a platform nobody has verified it against.
+
+**The band is mounted once, above every route, in `app/_layout.tsx` — not in
+`(app)/console/_layout.tsx` alone.** The defect names the console, but the
+shell hosts the sign-in screen before there is a session too, and a person who
+never gets that far would meet the same buttons over the same corner on
+`/login`. Mounting it above the route groups, inside the ground `View` every
+screen already renders into, is what makes it "appear identically on the
+sign-in page and the console" a property of where it is mounted rather than a
+promise kept by hand on two screens that happen to agree today. It survives the
+offline mirror for the same reason the rest of this file's mirror sections
+argue: `apps/desktop/src/main/consoleMirror.ts` serves a saved copy of this
+exact web bundle from `app://console/`, so a component mounted in the root
+layout is in the mirror because it was in the build, not because anyone
+remembered to mirror it separately.
+
+**It reserves space; it does not float over content.** In normal document
+flow — not `position: "absolute"` — so it pushes the route below it down
+rather than layering above it. That is also the whole of "must not eat clicks
+meant for content": there is nothing under an element that occupies its own
+row for a stray press to land on instead. The band itself draws nothing
+interactive today, so nothing on it needs
+`-webkit-app-region: no-drag` yet; the day a control is added to it, that
+control must set it, or a click meant to activate it will drag the window
+instead — recorded here rather than only in the component's own comment,
+because it is the one rule about this band that a future change is most likely
+to need and least likely to think to look for.
+
+The tests are `apps/mobile/__tests__/shellTitleBand.test.ts` (a Mac shell shows
+the band; a Windows or Linux shell does not; no shell at all does not; native
+platforms never ask) and `packages/desktop-bridge/test/layout.test.mjs` (the
+two constants, and that `SHELL_TRAFFIC_LIGHTS` is frozen so one side editing its
+own copy cannot silently stop matching the other's). The shell's half —
+drawing the buttons at `SHELL_TRAFFIC_LIGHTS` — is not tested here because it
+is not built here; it belongs to the `apps/desktop` change this section
+anticipates rather than ships.
