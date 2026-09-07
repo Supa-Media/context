@@ -204,9 +204,9 @@ export interface RekeyResult {
   dataKeysRekeyed: number;
   dataKeysSkipped: number;
   dataKeysUnreadable: number;
-  mailConnectionsRekeyed: number;
-  mailConnectionsSkipped: number;
-  mailConnectionsUnreadable: number;
+  googleConnectionsRekeyed: number;
+  googleConnectionsSkipped: number;
+  googleConnectionsUnreadable: number;
   platformSecretsRekeyed: number;
   platformSecretsSkipped: number;
   platformSecretsUnreadable: number;
@@ -1282,7 +1282,7 @@ export const ROTATED_ENVELOPE_COLUMNS = [
  *    carry forward: by design the row is gone before a pass would reach it.
  *
  *  - `dropboxConnectAttempts.encryptedVerifier` and
- *    `mailConnectAttempts.encryptedVerifier` — one in-flight OAuth
+ *    `googleConnectAttempts.encryptedVerifier` — one in-flight OAuth
  *    authorization each. The PKCE verifier is replayed to the provider at the
  *    exchange minutes later and the row is spent there; an unreadable one
  *    costs the person a second press of Connect. Two tables, one column name,
@@ -1459,7 +1459,7 @@ export const applyDataKeyRekey = internalMutation({
 /**
  * Every field on a mail connection that holds an encrypted envelope.
  *
- * A mailbox connection has its own table (`mailConnections`, never a column
+ * A mailbox connection has its own table (`googleConnections`, never a column
  * on `storageBindings` — different credential, different provider, different
  * lifecycle), so it needs its own candidate query the way
  * `workspaceDataKeys` does. **This is the exact miss `encryptedDataKey` was**:
@@ -1471,45 +1471,45 @@ export const applyDataKeyRekey = internalMutation({
  * unaccounted for; it cannot catch a table the walk itself never visits — only
  * this function, actually wired into `rekeyStorageBindings`, does that.
  */
-const mailConnectionEnvelopeField = v.union(
+const googleConnectionEnvelopeField = v.union(
   v.literal("encryptedRefreshToken"),
   v.literal("encryptedAccessToken"),
 );
-type MailConnectionEnvelopeField = "encryptedRefreshToken" | "encryptedAccessToken";
+type GoogleConnectionEnvelopeField = "encryptedRefreshToken" | "encryptedAccessToken";
 
-/** Candidate envelopes on `mailConnections`, one per field. */
-export interface MailConnectionRekeyCandidates {
+/** Candidate envelopes on `googleConnections`, one per field. */
+export interface GoogleConnectionRekeyCandidates {
   candidates: {
-    connectionId: Id<"mailConnections">;
+    connectionId: Id<"googleConnections">;
     workspaceId: Id<"workspaces">;
-    field: MailConnectionEnvelopeField;
+    field: GoogleConnectionEnvelopeField;
     envelope: string;
   }[];
   unreadable: number;
 }
 
-export const listMailConnectionRekeyCandidates = internalQuery({
+export const listGoogleConnectionRekeyCandidates = internalQuery({
   args: { currentKeyId: v.string(), limit: v.number() },
   returns: v.object({
     candidates: v.array(
       v.object({
-        connectionId: v.id("mailConnections"),
+        connectionId: v.id("googleConnections"),
         workspaceId: v.id("workspaces"),
-        field: mailConnectionEnvelopeField,
+        field: googleConnectionEnvelopeField,
         envelope: v.string(),
       }),
     ),
     unreadable: v.number(),
   }),
   handler: async (ctx, args) => {
-    const rows = await ctx.db.query("mailConnections").take(args.limit);
+    const rows = await ctx.db.query("googleConnections").take(args.limit);
     const candidates = [];
     let unreadable = 0;
     for (const row of rows) {
       for (const field of ["encryptedRefreshToken", "encryptedAccessToken"] as const) {
         const envelope = row[field];
         // A disconnected mailbox's refresh token is the empty string, not a
-        // missing envelope — see `disconnectMailConnection`. Empty is never a
+        // missing envelope — see `disconnectGoogleConnection`. Empty is never a
         // candidate: there is nothing there to re-seal.
         if (typeof envelope !== "string" || envelope.length === 0) continue;
         let keyId: string;
@@ -1533,10 +1533,10 @@ export const listMailConnectionRekeyCandidates = internalQuery({
  * mid-pass must not have a stale credential (or a disconnect's empty string)
  * overwritten by a re-encryption of what this pass read earlier.
  */
-export const applyMailConnectionRekey = internalMutation({
+export const applyGoogleConnectionRekey = internalMutation({
   args: {
-    connectionId: v.id("mailConnections"),
-    field: mailConnectionEnvelopeField,
+    connectionId: v.id("googleConnections"),
+    field: googleConnectionEnvelopeField,
     expectedEnvelope: v.string(),
     envelope: v.string(),
   },
@@ -1635,9 +1635,9 @@ export const rekeyStorageBindings = internalAction({
     dataKeysRekeyed: v.number(),
     dataKeysSkipped: v.number(),
     dataKeysUnreadable: v.number(),
-    mailConnectionsRekeyed: v.number(),
-    mailConnectionsSkipped: v.number(),
-    mailConnectionsUnreadable: v.number(),
+    googleConnectionsRekeyed: v.number(),
+    googleConnectionsSkipped: v.number(),
+    googleConnectionsUnreadable: v.number(),
     platformSecretsRekeyed: v.number(),
     platformSecretsSkipped: v.number(),
     platformSecretsUnreadable: v.number(),
@@ -1718,25 +1718,25 @@ export const rekeyStorageBindings = internalAction({
     // is the same class of miss `encryptedDataKey` was before its own pass
     // existed, and it gets the same fix: a dedicated candidate query, wired in
     // here, not merely a column name added to a list somewhere.
-    const mailConnections: MailConnectionRekeyCandidates = await ctx.runQuery(
-      internal.functions.storage.listMailConnectionRekeyCandidates,
+    const googleConnections: GoogleConnectionRekeyCandidates = await ctx.runQuery(
+      internal.functions.storage.listGoogleConnectionRekeyCandidates,
       { currentKeyId: keyset.current.id, limit },
     );
 
-    let mailConnectionsRekeyed = 0;
-    let mailConnectionsSkipped = 0;
-    let mailConnectionsUnreadable = mailConnections.unreadable;
-    for (const candidate of mailConnections.candidates) {
+    let googleConnectionsRekeyed = 0;
+    let googleConnectionsSkipped = 0;
+    let googleConnectionsUnreadable = googleConnections.unreadable;
+    for (const candidate of googleConnections.candidates) {
       const context = { workspaceId: candidate.workspaceId as string };
       let plaintext: string;
       try {
         plaintext = await decryptSecret(candidate.envelope, keyset, context);
       } catch {
-        mailConnectionsUnreadable += 1;
+        googleConnectionsUnreadable += 1;
         continue;
       }
       const applied: boolean = await ctx.runMutation(
-        internal.functions.storage.applyMailConnectionRekey,
+        internal.functions.storage.applyGoogleConnectionRekey,
         {
           connectionId: candidate.connectionId,
           field: candidate.field,
@@ -1744,8 +1744,8 @@ export const rekeyStorageBindings = internalAction({
           envelope: await encryptSecret(plaintext, keyset, context),
         },
       );
-      if (applied) mailConnectionsRekeyed += 1;
-      else mailConnectionsSkipped += 1;
+      if (applied) googleConnectionsRekeyed += 1;
+      else googleConnectionsSkipped += 1;
     }
 
     // And the platform's own credentials. Losing these is an outage rather than
@@ -1788,9 +1788,9 @@ export const rekeyStorageBindings = internalAction({
       dataKeysRekeyed,
       dataKeysSkipped,
       dataKeysUnreadable,
-      mailConnectionsRekeyed,
-      mailConnectionsSkipped,
-      mailConnectionsUnreadable,
+      googleConnectionsRekeyed,
+      googleConnectionsSkipped,
+      googleConnectionsUnreadable,
       platformSecretsRekeyed,
       platformSecretsSkipped,
       platformSecretsUnreadable,

@@ -743,39 +743,47 @@ describe("rotating the encryption key", () => {
   /**
    * THE EXACT MISS `encryptedDataKey` WAS, ARRIVING A SECOND TIME.
    *
-   * `mailConnections` is its own table, so `listRekeyCandidates` above never
-   * sees a Gmail refresh or access token no matter how completely
+   * `googleConnections` is its own table, so `listRekeyCandidates` above
+   * never sees a Google refresh or access token no matter how completely
    * `ENVELOPE_FIELDS` is enumerated — that list is queried against
    * `storageBindings` rows only. Column-name accounting
    * (`ROTATED_ENVELOPE_COLUMNS`, checked by the guard below) cannot catch a
    * table the walk itself never visits; only this test, actually running
-   * `rekeyStorageBindings` against a `mailConnections` row, can.
+   * `rekeyStorageBindings` against a `googleConnections` row, can. The token
+   * stays top-level on the generalized row (never nested under `gmail`),
+   * which is what keeps this test — and the rotation code it proves — from
+   * needing to change shape if Calendar or Chat land on the same row.
    */
-  test("a connected mailbox's Gmail tokens are moved forward too", async () => {
+  test("a connected Google account's tokens are moved forward too", async () => {
     const { t, owner, workspaceId } = await boundWorkspace();
     const originalKey = process.env.STORAGE_SECRET_ENCRYPTION_KEY!;
     const context = { workspaceId: workspaceId as string };
     const now = Date.now();
-    const refreshBefore = await encryptSecret("gmail-refresh-abc", requireKeyset(), context);
-    const accessBefore = await encryptSecret("gmail-access-xyz", requireKeyset(), context);
+    const refreshBefore = await encryptSecret("google-refresh-abc", requireKeyset(), context);
+    const accessBefore = await encryptSecret("google-access-xyz", requireKeyset(), context);
     expect(refreshBefore.startsWith("v2:k1:")).toBe(true);
 
     const connectionId = await t.run((ctx) =>
-      ctx.db.insert("mailConnections", {
+      ctx.db.insert("googleConnections", {
         workspaceId,
-        provider: "gmail" as const,
+        provider: "google" as const,
         address: "person@example.invalid",
-        mailboxSlug: "person-at-example-invalid",
         encryptedRefreshToken: refreshBefore,
         encryptedAccessToken: accessBefore,
         accessTokenExpiresAt: now + 3_600_000,
         scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
         googleAccountId: "google-account-1",
-        backfillDays: 90,
-        folders: ["inbox", "sent"] as const,
-        storeRawMime: false,
-        attachmentMode: "metadata-only" as const,
-        quotaBytes: 5 * 1024 * 1024 * 1024,
+        products: ["gmail"] as const,
+        gmail: {
+          scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+          mailboxSlug: "person-at-example-invalid",
+          backfillDays: 90,
+          folders: ["inbox", "sent"] as const,
+          storeRawMime: false,
+          attachmentMode: "store" as const,
+          attachmentRetentionDays: 90,
+          quotaBytes: 5 * 1024 * 1024 * 1024,
+        },
         health: "active" as const,
         boundBy: owner,
         createdAt: now,
@@ -793,9 +801,9 @@ describe("rotating the encryption key", () => {
       async () => {
         const result = await t.action(internal.functions.storage.rekeyStorageBindings, {});
         expect(result).toMatchObject({
-          mailConnectionsRekeyed: 2, // refresh AND access token
-          mailConnectionsSkipped: 0,
-          mailConnectionsUnreadable: 0,
+          googleConnectionsRekeyed: 2, // refresh AND access token
+          googleConnectionsSkipped: 0,
+          googleConnectionsUnreadable: 0,
         });
 
         const row = await t.run((ctx) => ctx.db.get(connectionId));
@@ -806,7 +814,7 @@ describe("rotating the encryption key", () => {
         // Idempotent, like every other half of this pass.
         expect(
           await t.action(internal.functions.storage.rekeyStorageBindings, {}),
-        ).toMatchObject({ mailConnectionsRekeyed: 0 });
+        ).toMatchObject({ googleConnectionsRekeyed: 0 });
       },
     );
 
@@ -822,37 +830,42 @@ describe("rotating the encryption key", () => {
       async () => {
         const row = await t.run((ctx) => ctx.db.get(connectionId));
         expect(await decryptSecret(row!.encryptedRefreshToken, requireKeyset(), context)).toBe(
-          "gmail-refresh-abc",
+          "google-refresh-abc",
         );
       },
     );
   });
 
   /**
-   * A disconnected mailbox's refresh token is the empty string
-   * (`disconnectMailConnection` clears it, never deletes the row), and empty
-   * is never a rekey candidate — there is nothing there to re-seal, and
+   * A disconnected connection's refresh token is the empty string
+   * (`disconnectGoogleConnection` clears it, never deletes the row), and
+   * empty is never a rekey candidate — there is nothing there to re-seal, and
    * `envelopeKeyId("")` would only ever be `unreadable` noise on every future
    * pass for a credential that is intentionally gone.
    */
-  test("a disconnected mailbox's empty token is not a rekey candidate", async () => {
+  test("a disconnected connection's empty token is not a rekey candidate", async () => {
     const { t, owner, workspaceId } = await boundWorkspace();
     const originalKey = process.env.STORAGE_SECRET_ENCRYPTION_KEY!;
     const now = Date.now();
     await t.run((ctx) =>
-      ctx.db.insert("mailConnections", {
+      ctx.db.insert("googleConnections", {
         workspaceId,
-        provider: "gmail" as const,
+        provider: "google" as const,
         address: "gone@example.invalid",
-        mailboxSlug: "gone-at-example-invalid",
         encryptedRefreshToken: "",
         scopes: [],
         googleAccountId: "google-account-2",
-        backfillDays: 90,
-        folders: ["inbox", "sent"] as const,
-        storeRawMime: false,
-        attachmentMode: "metadata-only" as const,
-        quotaBytes: 5 * 1024 * 1024 * 1024,
+        products: ["gmail"] as const,
+        gmail: {
+          scopes: [],
+          mailboxSlug: "gone-at-example-invalid",
+          backfillDays: 90,
+          folders: ["inbox", "sent"] as const,
+          storeRawMime: false,
+          attachmentMode: "store" as const,
+          attachmentRetentionDays: 90,
+          quotaBytes: 5 * 1024 * 1024 * 1024,
+        },
         health: "error" as const,
         disconnectedAt: now,
         boundBy: owner,
@@ -871,7 +884,7 @@ describe("rotating the encryption key", () => {
       async () => {
         expect(
           await t.action(internal.functions.storage.rekeyStorageBindings, {}),
-        ).toMatchObject({ mailConnectionsRekeyed: 0, mailConnectionsUnreadable: 0 });
+        ).toMatchObject({ googleConnectionsRekeyed: 0, googleConnectionsUnreadable: 0 });
       },
     );
   });

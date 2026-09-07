@@ -1,9 +1,8 @@
 /**
- * Google's half of "connect your Gmail", as pure functions over a stubbed
- * socket. Same shape and the same four things that have to hold as
- * `dropboxOAuth.test.ts` — see that file's header for the full argument —
- * restated here for a different provider and a different id-token trust
- * boundary:
+ * Google's OAuth mechanics, as pure functions over a stubbed socket. Same
+ * shape and the same four things that have to hold as `dropboxOAuth.test.ts`
+ * — see that file's header for the full argument — restated here for a
+ * different provider and a different id-token trust boundary:
  *
  *  1. PKCE is reused from `dropboxOAuth.ts` rather than reimplemented, so its
  *     own test already pins the RFC 7636 vector; this file proves the reuse
@@ -14,6 +13,11 @@
  *     identity (`sub`/`email`) comes from the id token in the response body,
  *     never from a query parameter a redirect could carry.
  *
+ * **Generalized from a Gmail-only `gmailOAuth.test.ts` (2026-09-07)**: the
+ * endpoints, PKCE, and token exchange are provider-generic (`exchangeGoogleCode`
+ * etc.); what is product-specific is only the scope list, covered separately
+ * under "scopes per product".
+ *
  * Every value here is obviously fake. This repository is public.
  *
  * SABOTAGE RECORD
@@ -22,20 +26,24 @@
 
 import { describe, expect, test } from "vitest";
 import {
-  GMAIL_AUTHORIZE_ENDPOINT,
-  GMAIL_REVOKE_ENDPOINT,
+  CALENDAR_SCOPES,
+  CHAT_SCOPES,
   GMAIL_SCOPES,
-  GMAIL_TOKEN_ENDPOINT,
-  GmailOAuthError,
+  GOOGLE_AUTHORIZE_ENDPOINT,
+  GOOGLE_REVOKE_ENDPOINT,
+  GOOGLE_TOKEN_ENDPOINT,
+  GoogleOAuthError,
   createPkcePair,
-  exchangeGmailCode,
-  gmailAuthorizeUrl,
-  gmailRedirectAllowed,
-  isGmailReconnectRequired,
+  exchangeGoogleCode,
+  googleAuthorizeUrl,
+  googleRedirectAllowed,
+  grantedScopesFor,
+  isGoogleReconnectRequired,
   pkceChallengeFor,
-  refreshGmailToken,
-  revokeGmailToken,
-} from "../functions/lib/gmailOAuth";
+  refreshGoogleToken,
+  revokeGoogleToken,
+  scopesForProducts,
+} from "../functions/lib/googleOAuth";
 
 const FAKE_CLIENT_ID = "fake-client-id.apps.googleusercontent.com";
 const FAKE_CLIENT_SECRET = "FAKE-GOCSPX-not-a-real-secret";
@@ -45,6 +53,7 @@ const FAKE_VERIFIER = "FAKE-CODE-VERIFIER-yyyyyyyyyyyyyyyyyyyyyyyyyyyy";
 const FAKE_ACCESS_TOKEN = "ya29.FAKE-ACCESS-TOKEN-xxxxxxxxxxxxxxxx";
 const FAKE_REFRESH_TOKEN = "1//FAKE-REFRESH-TOKEN-wwwwwwwwwwwwwwww";
 const FAKE_STATE = "fake-opaque-state-value";
+const GMAIL_REQUEST_SCOPES = scopesForProducts(["gmail"]);
 
 const RFC7636_VERIFIER = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
 const RFC7636_CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
@@ -90,17 +99,70 @@ describe("PKCE is reused, not reimplemented", () => {
   });
 });
 
+describe("scopes per product", () => {
+  test("gmail.readonly is always requested for Gmail — read-only, forever, per v1", () => {
+    expect(GMAIL_SCOPES).toContain("https://www.googleapis.com/auth/gmail.readonly");
+  });
+
+  /**
+   * Recorded verbatim, per the owner's decision: `chat.messages.readonly` is
+   * confirmed on Google's own restricted-scopes list, the same class as
+   * Gmail — so the CASA security assessment gating Gmail gates Chat too the
+   * moment Chat sync ships. `chat.spaces.readonly` is sensitive, a lighter
+   * bar but not zero. See `docs/decisions/communications.md`.
+   */
+  test("both Chat scopes this product will need are declared, and Gmail's restricted-ness is not assumed to be unique to Gmail", () => {
+    expect(CHAT_SCOPES).toContain("https://www.googleapis.com/auth/chat.messages.readonly");
+    expect(CHAT_SCOPES).toContain("https://www.googleapis.com/auth/chat.spaces.readonly");
+  });
+
+  test("Calendar's scope is declared for the sibling work to build against", () => {
+    expect(CALENDAR_SCOPES).toContain("https://www.googleapis.com/auth/calendar.events.readonly");
+  });
+
+  test("scopesForProducts always includes the identity scopes, regardless of which products are asked for", () => {
+    const scopes = scopesForProducts(["gmail"]);
+    expect(scopes).toContain("openid");
+    expect(scopes).toContain("https://www.googleapis.com/auth/userinfo.email");
+    expect(scopes).toContain("https://www.googleapis.com/auth/gmail.readonly");
+  });
+
+  test("scopesForProducts unions every requested product's scopes, deduplicated", () => {
+    const scopes = scopesForProducts(["gmail", "calendar"]);
+    expect(scopes).toContain("https://www.googleapis.com/auth/gmail.readonly");
+    expect(scopes).toContain("https://www.googleapis.com/auth/calendar.events.readonly");
+    expect(new Set(scopes).size).toBe(scopes.length);
+  });
+
+  test("grantedScopesFor slices the one verbatim grant down to what one product actually uses", () => {
+    const granted = [
+      "openid",
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/calendar.events.readonly",
+    ];
+    expect(grantedScopesFor("gmail", granted)).toEqual(["https://www.googleapis.com/auth/gmail.readonly"]);
+    expect(grantedScopesFor("calendar", granted)).toEqual([
+      "https://www.googleapis.com/auth/calendar.events.readonly",
+    ]);
+    // A downgraded consent — the person unchecked Calendar — is visible as an
+    // empty slice, never a guess that it was granted anyway.
+    expect(grantedScopesFor("chat", granted)).toEqual([]);
+  });
+});
+
 describe("the authorize URL", () => {
   test("carries offline access, forced consent, and the caller's state", () => {
     const url = new URL(
-      gmailAuthorizeUrl({
+      googleAuthorizeUrl({
         clientId: FAKE_CLIENT_ID,
         redirectUri: FAKE_REDIRECT_URI,
         challenge: RFC7636_CHALLENGE,
         state: FAKE_STATE,
+        scopes: GMAIL_REQUEST_SCOPES,
       }),
     );
-    expect(url.origin + url.pathname).toBe(GMAIL_AUTHORIZE_ENDPOINT);
+    expect(url.origin + url.pathname).toBe(GOOGLE_AUTHORIZE_ENDPOINT);
     expect(url.searchParams.get("client_id")).toBe(FAKE_CLIENT_ID);
     expect(url.searchParams.get("redirect_uri")).toBe(FAKE_REDIRECT_URI);
     expect(url.searchParams.get("code_challenge")).toBe(RFC7636_CHALLENGE);
@@ -109,26 +171,41 @@ describe("the authorize URL", () => {
     // WITHOUT THESE TWO THERE IS NO REFRESH TOKEN, ever, on a reconnect.
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("prompt")).toBe("consent");
-    expect(url.searchParams.get("scope")).toBe(GMAIL_SCOPES.join(" "));
-  });
-
-  test("gmail.readonly is always requested — read-only, forever, per v1", () => {
-    expect(GMAIL_SCOPES).toContain("https://www.googleapis.com/auth/gmail.readonly");
+    expect(url.searchParams.get("scope")).toBe(GMAIL_REQUEST_SCOPES.join(" "));
   });
 
   test("refuses a URL with no state — an optional CSRF token is one that gets omitted", () => {
     expect(() =>
-      gmailAuthorizeUrl({ clientId: FAKE_CLIENT_ID, redirectUri: FAKE_REDIRECT_URI, challenge: "c", state: "" }),
+      googleAuthorizeUrl({
+        clientId: FAKE_CLIENT_ID,
+        redirectUri: FAKE_REDIRECT_URI,
+        challenge: "c",
+        state: "",
+        scopes: GMAIL_REQUEST_SCOPES,
+      }),
     ).toThrow();
   });
 
   test("refuses a plaintext-http redirect off loopback", () => {
     expect(() =>
-      gmailAuthorizeUrl({
+      googleAuthorizeUrl({
         clientId: FAKE_CLIENT_ID,
         redirectUri: "http://attacker.example/cb",
         challenge: "c",
         state: FAKE_STATE,
+        scopes: GMAIL_REQUEST_SCOPES,
+      }),
+    ).toThrow();
+  });
+
+  test("refuses an empty scope list rather than sending a consent screen for nothing", () => {
+    expect(() =>
+      googleAuthorizeUrl({
+        clientId: FAKE_CLIENT_ID,
+        redirectUri: FAKE_REDIRECT_URI,
+        challenge: "c",
+        state: FAKE_STATE,
+        scopes: [],
       }),
     ).toThrow();
   });
@@ -136,13 +213,13 @@ describe("the authorize URL", () => {
 
 describe("which redirects this deployment will send somebody to", () => {
   test("loopback is always allowed, for local dev", () => {
-    expect(gmailRedirectAllowed("http://127.0.0.1:3210/cb", {})).toBe(true);
-    expect(gmailRedirectAllowed("http://localhost:3210/cb", {})).toBe(true);
+    expect(googleRedirectAllowed("http://127.0.0.1:3210/cb", {})).toBe(true);
+    expect(googleRedirectAllowed("http://localhost:3210/cb", {})).toBe(true);
   });
 
   test("an https URL matching the configured APP_ORIGIN is allowed", () => {
     expect(
-      gmailRedirectAllowed("https://app.context.invalid/mail/gmail/callback", {
+      googleRedirectAllowed("https://app.context.invalid/mail/gmail/callback", {
         APP_ORIGIN: "https://app.context.invalid",
       }),
     ).toBe(true);
@@ -150,12 +227,12 @@ describe("which redirects this deployment will send somebody to", () => {
 
   test("a different origin is refused even with APP_ORIGIN configured", () => {
     expect(
-      gmailRedirectAllowed("https://attacker.example/cb", { APP_ORIGIN: "https://app.context.invalid" }),
+      googleRedirectAllowed("https://attacker.example/cb", { APP_ORIGIN: "https://app.context.invalid" }),
     ).toBe(false);
   });
 
   test("with no APP_ORIGIN configured, only loopback is allowed — fail closed", () => {
-    expect(gmailRedirectAllowed("https://app.context.invalid/cb", {})).toBe(false);
+    expect(googleRedirectAllowed("https://app.context.invalid/cb", {})).toBe(false);
   });
 });
 
@@ -166,10 +243,10 @@ describe("exchanging a code", () => {
       refresh_token: FAKE_REFRESH_TOKEN,
       expires_in: 3599,
       id_token: FAKE_ID_TOKEN,
-      scope: GMAIL_SCOPES.join(" "),
+      scope: GMAIL_REQUEST_SCOPES.join(" "),
     });
     const before = Date.now();
-    const result = await exchangeGmailCode({
+    const result = await exchangeGoogleCode({
       clientId: FAKE_CLIENT_ID,
       clientSecret: FAKE_CLIENT_SECRET,
       code: FAKE_CODE,
@@ -182,12 +259,12 @@ describe("exchanging a code", () => {
       refreshToken: FAKE_REFRESH_TOKEN,
       googleAccountId: FAKE_GOOGLE_ACCOUNT_ID,
       address: FAKE_ADDRESS,
-      scopes: [...GMAIL_SCOPES],
+      scopes: GMAIL_REQUEST_SCOPES,
     });
     expect(result.expiresAt).toBeGreaterThan(before);
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe(GMAIL_TOKEN_ENDPOINT);
+    expect(calls[0]!.url).toBe(GOOGLE_TOKEN_ENDPOINT);
     // Nothing secret in the URL — a POST body, never a query string.
     expect(calls[0]!.url).not.toContain(FAKE_CODE);
     expect(calls[0]!.url).not.toContain(FAKE_VERIFIER);
@@ -204,7 +281,7 @@ describe("exchanging a code", () => {
       expires_in: 3599,
       id_token: FAKE_ID_TOKEN,
     });
-    await exchangeGmailCode({
+    await exchangeGoogleCode({
       clientId: FAKE_CLIENT_ID,
       code: FAKE_CODE,
       verifier: FAKE_VERIFIER,
@@ -224,7 +301,7 @@ describe("exchanging a code", () => {
       delete body[missing];
       const { impl } = stubFetch(200, body);
       await expect(
-        exchangeGmailCode({
+        exchangeGoogleCode({
           clientId: FAKE_CLIENT_ID,
           code: FAKE_CODE,
           verifier: FAKE_VERIFIER,
@@ -238,7 +315,7 @@ describe("exchanging a code", () => {
   test("a response with no id token — so no account identity — is refused", async () => {
     const { impl } = stubFetch(200, { access_token: FAKE_ACCESS_TOKEN, refresh_token: FAKE_REFRESH_TOKEN });
     await expect(
-      exchangeGmailCode({
+      exchangeGoogleCode({
         clientId: FAKE_CLIENT_ID,
         code: FAKE_CODE,
         verifier: FAKE_VERIFIER,
@@ -250,27 +327,27 @@ describe("exchanging a code", () => {
 
   test("invalid_grant is GRANT_REVOKED, and is the only code that means reconnect", async () => {
     const { impl } = stubFetch(400, { error: "invalid_grant" });
-    const error = await exchangeGmailCode({
+    const error = await exchangeGoogleCode({
       clientId: FAKE_CLIENT_ID,
       code: FAKE_CODE,
       verifier: FAKE_VERIFIER,
       redirectUri: FAKE_REDIRECT_URI,
       fetchImpl: impl,
     }).catch((e) => e);
-    expect(error).toBeInstanceOf(GmailOAuthError);
-    expect(isGmailReconnectRequired(error)).toBe(true);
+    expect(error).toBeInstanceOf(GoogleOAuthError);
+    expect(isGoogleReconnectRequired(error)).toBe(true);
   });
 
   test("a 500 is GOOGLE_UNAVAILABLE, not GRANT_REVOKED — retry, do not ask for reconnect", async () => {
     const { impl } = stubFetch(500, { error: "internal_error" });
-    const error = await exchangeGmailCode({
+    const error = await exchangeGoogleCode({
       clientId: FAKE_CLIENT_ID,
       code: FAKE_CODE,
       verifier: FAKE_VERIFIER,
       redirectUri: FAKE_REDIRECT_URI,
       fetchImpl: impl,
     }).catch((e) => e);
-    expect(isGmailReconnectRequired(error)).toBe(false);
+    expect(isGoogleReconnectRequired(error)).toBe(false);
   });
 
   /**
@@ -284,7 +361,7 @@ describe("exchanging a code", () => {
       error: "invalid_request",
       error_description: `${distinctiveDescription} ${FAKE_CODE} ${FAKE_VERIFIER} ${FAKE_CLIENT_SECRET}`,
     });
-    const error = await exchangeGmailCode({
+    const error = await exchangeGoogleCode({
       clientId: FAKE_CLIENT_ID,
       clientSecret: FAKE_CLIENT_SECRET,
       code: FAKE_CODE,
@@ -306,7 +383,7 @@ describe("exchanging a code", () => {
 describe("refreshing", () => {
   test("a normal refresh returns a fresh access token", async () => {
     const { impl, calls } = stubFetch(200, { access_token: FAKE_ACCESS_TOKEN, expires_in: 3599 });
-    const result = await refreshGmailToken({
+    const result = await refreshGoogleToken({
       clientId: FAKE_CLIENT_ID,
       clientSecret: FAKE_CLIENT_SECRET,
       refreshToken: FAKE_REFRESH_TOKEN,
@@ -319,32 +396,32 @@ describe("refreshing", () => {
 
   test("a revoked refresh token is GRANT_REVOKED", async () => {
     const { impl } = stubFetch(400, { error: "invalid_grant" });
-    const error = await refreshGmailToken({
+    const error = await refreshGoogleToken({
       clientId: FAKE_CLIENT_ID,
       refreshToken: FAKE_REFRESH_TOKEN,
       fetchImpl: impl,
     }).catch((e) => e);
-    expect(isGmailReconnectRequired(error)).toBe(true);
+    expect(isGoogleReconnectRequired(error)).toBe(true);
   });
 });
 
 describe("revoking", () => {
   test("posts the token to the revoke endpoint", async () => {
     const { impl, calls } = stubFetch(200, {});
-    await revokeGmailToken({ token: FAKE_REFRESH_TOKEN, fetchImpl: impl });
-    expect(calls[0]!.url).toBe(GMAIL_REVOKE_ENDPOINT);
+    await revokeGoogleToken({ token: FAKE_REFRESH_TOKEN, fetchImpl: impl });
+    expect(calls[0]!.url).toBe(GOOGLE_REVOKE_ENDPOINT);
     expect(calls[0]!.body.get("token")).toBe(FAKE_REFRESH_TOKEN);
   });
 
   test("a token that is already dead (400 invalid_token) is treated as success", async () => {
     const { impl } = stubFetch(400, { error: "invalid_token" });
-    await expect(revokeGmailToken({ token: FAKE_REFRESH_TOKEN, fetchImpl: impl })).resolves.toBeUndefined();
+    await expect(revokeGoogleToken({ token: FAKE_REFRESH_TOKEN, fetchImpl: impl })).resolves.toBeUndefined();
   });
 
   test("any other failure is reported", async () => {
     const { impl } = stubFetch(500, {});
-    await expect(revokeGmailToken({ token: FAKE_REFRESH_TOKEN, fetchImpl: impl })).rejects.toBeInstanceOf(
-      GmailOAuthError,
+    await expect(revokeGoogleToken({ token: FAKE_REFRESH_TOKEN, fetchImpl: impl })).rejects.toBeInstanceOf(
+      GoogleOAuthError,
     );
   });
 });

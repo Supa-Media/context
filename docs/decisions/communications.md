@@ -485,25 +485,94 @@ in orient` — sabotaged by returning `null` from every branch of
 `classifyCaptureKind`, which failed 13 of the 16 checks in that block,
 including the ones proving a hand-edited note is not displaced.
 
-### Retention: raw MIME is off by default, and attachments are metadata-only
+### Retention: raw MIME is off by default; attachments are fetched into the bucket, retained on a timer
 
 - **Raw MIME is not stored.** The normalized text is what every reader — the
   person, the index, the model — actually uses, and the storage estimate puts
   raw at several times the normalized size for fidelity nobody has asked for.
   It is a per-connection opt-in, quota-bound and off, with the bytes going to
   a plumbing prefix rather than beside the notes if it is ever switched on.
-- **Attachments are described, not copied.** Filename, content type and size
-  are rendered under the message; nothing is fetched. Storing them is opt-in
-  and reuses the mechanism that already exists rather than inventing a second
-  one: `.images/<sha256>.<ext>`, keyed by the digest of the bytes and nothing
-  else, so the same file arriving twice is one object and there is no place in
-  the key for a sender-chosen string. Types the gateway cannot serve back are
-  never written — bytes with no way out of the bucket are somebody else's
-  files on the customer's storage bill.
+- **Attachments are fetched into the bucket, and this reverses the original
+  default (owner's decision, 2026-09-07).** The first pass of this decision
+  said "described, not copied" — filename, content type and size rendered
+  under the message, nothing fetched. Built and used, that answer was wrong
+  in the direction that matters most: *"sometimes an email says look at the
+  PDF attached, and it should land somewhere referenceable in the bucket."*
+  A mailbox connection's working default is now `attachmentMode: "store"`,
+  and `"metadata-only"` is the opt-*out*, not the default — the reverse of
+  where this section started.
+
+  What did not reverse: the mechanism is still content-addressed and still
+  reuses "the same bytes twice is one object" rather than inventing a second
+  copy per message. What did change is *where*: a connected mailbox's
+  attachments live under its own folder —
+  `0-inbox/email/<mailbox-slug>/attachments/<YYYY-MM-DD>/<content-hash>-<sanitised-name>`
+  — rather than the generic `.images/<sha256>.<ext>` store this section
+  originally pointed at. That store is shared across every feature that
+  writes an image (share-card previews, a note's own inline images) and has
+  no retention concept; a connected mailbox needs both a per-connection
+  retention window and a per-connection quota that covers exactly its own
+  bytes, neither of which composes cleanly with a shared, unretentioned
+  store. A folder scoped to the connection is what makes "delete this
+  connection's attachments, and only this connection's" a prefix operation
+  rather than a filter over everyone's images.
+
+  **The stored content-type is always `application/octet-stream`, never the
+  sender's declared MIME type.** An attachment's real type is exactly as
+  untrusted as its filename, and writing it verbatim as the object's
+  `content-type` would mean any of the customer's own tooling that later
+  serves their bucket over HTTP could be handed `text/html` or
+  `image/svg+xml` from a stranger and render it inline rather than download
+  it — the same class of attack SVG's absence from the writable-type list
+  already guards against, reached from the sender's side instead of the
+  gateway's. `apps/mcp/src/store/index.js`'s `WRITABLE_CONTENT_TYPES` gained
+  exactly one entry for this, `application/octet-stream`, and every
+  attachment write uses it regardless of the real type — which is preserved
+  as text in the note (`**Attachments**: name — type, size`), metadata a
+  reader sees, never a header a transport trusts.
+
+  **Each Gmail attachment part is capped at Gmail's own 25MB limit**,
+  checked against the *declared* size already present in the message
+  resource — no fetch is spent learning that an attachment is too large.
+  **Retention is per-connection, 90 days by default, and "keep forever" is a
+  real value, not a very large number**: `attachmentRetentionDays` is
+  `number | "forever"` end to end, from the connect-time choice through the
+  manifest entry a sweep reads. When the window passes, the file is deleted
+  and the day's note — the next time it is regenerated — renders that
+  attachment as name and size only, exactly as if it had never been fetched;
+  nothing about the note's *shape* distinguishes "never stored" from
+  "stored, then expired," which is the property that makes the rendering
+  side of this a pure function of one boolean (`path` present or absent) and
+  not three.
+
+  **Idempotence is by content hash, tracked in a per-mailbox manifest, never
+  a folder walk.** `0-inbox/email/<slug>/attachments/.manifest.json` — a
+  dot-prefixed *filename*, which `isPlumbing`'s "any path segment starting
+  with a dot" rule hides from every tool exactly as a dot-prefixed folder
+  would, sitting beside the files it describes rather than in the control
+  plane, because it is bucket bookkeeping about bucket content. It carries
+  two indices: which `(messageId, attachmentId)` pairs have been resolved
+  before and to which content hash, and which content hashes have an actual
+  file and whether that file has since expired. A resync of a message whose
+  attachment is already resolved — live or expired — never calls Gmail's
+  `attachments.get` again; a retention sweep walks only the second index,
+  which is what "idempotent, and never a folder walk" means concretely: an
+  entry already marked expired is skipped, so sweeping twice deletes nothing
+  a second time.
+
+  **Inline images count as attachments**, deliberately not special-cased:
+  Gmail gives an inline image the same `filename` + `body.attachmentId`
+  shape as a "real" attachment, and this pipeline reads the shape, not a
+  disposition header.
+
+  The check is `a hostile filename cannot escape the attachments folder or
+  break the wikilink it is embedded in`, `a re-sync after expiry does not
+  re-fetch`, and `sweeping twice in a row deletes nothing a second time`.
 - **Deleting a mailbox deletes its folder.** One prefix, one delete, and the
   control-plane sync state goes with it. Because the mailbox is a folder
-  (above), this is a real operation rather than a filtered scan — and because
-  the notes are the customer's, the offer is "disconnect and keep" as well as
+  (above), this is a real operation rather than a filtered scan, and it
+  takes the attachments folder and the manifest with it — and because the
+  notes are the customer's, the offer is "disconnect and keep" as well as
   "disconnect and delete", with the default being keep.
 
 ### Contacts: one page per person, and a merge never rewrites history
@@ -580,11 +649,18 @@ somebody's money and somebody's mail, not engineering choices.
    they see; 90 days is enough for the product to feel populated and small
    enough to finish. All-mail should be a deliberate second action, not a
    default somebody accepts.
-4. **Raw MIME and attachment retention defaults** — **the owner's call.**
-   Recommendation: raw MIME **off**, attachments **metadata-only**, both
-   per-connection opt-in and quota-bound, as argued above. This is the one
-   with a legal dimension as well as a storage one — a full mail mirror in a
-   bucket changes what a subpoena reaches — and it is not ours to default on.
+4. **Raw MIME and attachment retention defaults** — **the owner's call, and
+   partly taken (2026-09-07).** Raw MIME stays off, per-connection opt-in and
+   quota-bound, as argued above — this half is unchanged and still carries
+   the legal dimension named here: a full mail mirror in a bucket changes
+   what a subpoena reaches, and it is not ours to default on. **Attachments
+   reversed**: the working default is now `store`, not `metadata-only` —
+   see "Retention" above for the fetch-and-retain mechanism this shipped
+   with — with a 90-day retention window, itself overridable per connection
+   down to `metadata-only` or up to `"forever"`. This piece carries no legal
+   dimension the metadata-only answer did not already carry equally, so it
+   is recorded as taken rather than left pending; the backfill window in
+   item 3 above is the one still awaiting the owner's explicit confirmation.
 5. **Do user-created contacts override later Google People changes?** —
    *recommended and taken*: **yes, the person's edit wins, and the conflict is
    shown rather than resolved.** A field the person typed is never overwritten
@@ -599,8 +675,8 @@ Built 2026-09-07, behind `MAIL_CONNECT_ENABLED` (unset means disabled, on every
 deployment including this project's own, until Google's verification lands —
 see the section above). The pieces:
 
-**`mailConnections`, keyed by `workspaceId`, never `userId`** — same rule as
-`storageBindings`, same reason. `functions/mailConnect.ts` mirrors
+**`googleConnections`, keyed by `workspaceId`, never `userId`** — same rule
+as `storageBindings`, same reason. `functions/googleConnect.ts` mirrors
 `dropboxConnect.ts`'s PKCE-attempt-then-scheduled-exchange shape exactly,
 including the security argument for why the callback needs no session: the
 workspace and the actor come from the parked attempt, never from the caller,
@@ -609,38 +685,81 @@ connect and nothing else. Only a `kind: "personal"` workspace's owner may
 start one — checked in one query, `requirePersonalOwner`, so a shared context
 can never be told apart from "not the owner" by which error code comes back.
 
+**One Google account is one row, one OAuth grant, and a `products` set —
+generalized the same day it was built**, before Gmail was even the only
+consumer of it. The owner's ask: Calendar and Chat sync land on this same
+account connection, not a second one, because a person connecting their
+Google account once should not re-consent per product. So the row carries
+the account identity and the one refresh/access token pair at the top level
+— **never nested under a product**, because it is one grant covering
+whichever products are enabled, and nesting it would either duplicate one
+secret three ways or make the rotation walk hunt through per-product objects
+for a column that is the same secret in each — plus a `products: ("gmail" |
+"calendar" | "chat")[]` array and one nested settings-and-cursor object per
+enabled product (`gmail`, `calendar`, `chat` on the row). Only `gmail` is
+populated by anything that runs today; `calendar` and `chat` are declared,
+not built, the same "decided here, built next" phasing `docs/decisions/search.md`
+already uses for its own index — a sibling agent building Calendar or Chat
+sync extends this row rather than inventing a second table, and
+`lib/googleOAuth.ts`'s `scopesForProducts` / `grantedScopesFor` already
+generalize the scope handling both would need.
+
+**Disconnecting ends every product on the account, because it is one
+grant.** There is no "disconnect just Gmail while keeping Calendar" — Google's
+revoke endpoint takes one token and ends the whole authorization, so
+`disconnectGoogleConnection` revokes it once and the row's `products` array
+is left as a record of what the connection used to sync rather than cleared,
+matching how `disconnectedAt` already treats the row as a whole.
+
+**`chat.messages.readonly` is a RESTRICTED scope, confirmed against Google's
+own restricted-scopes list — the same class as `gmail.readonly`, not merely
+assumed to be lighter because it is not mail.** This means the CASA security
+assessment gating Gmail gates Chat too, the moment Chat sync ships; there is
+no "Chat is only sensitive" shortcut available. `chat.spaces.readonly` — needed
+alongside it to list which spaces and DMs exist before reading them — is
+sensitive rather than restricted, a lighter verification bar but not zero.
+Both are declared as `CHAT_SCOPES` in `lib/googleOAuth.ts` now, verified
+rather than guessed, so whoever builds Chat sync inherits the correct
+classification instead of re-deriving it.
+
 **The rotation walk gained a fourth table**, and the miss it closes is written
 down because it already happened once: `workspaceDataKeys.encryptedDataKey`
-was invisible to `rekeyStorageBindings` for exactly the reason a Gmail token
+was invisible to `rekeyStorageBindings` for exactly the reason a Google token
 would have been if this were skipped — a credential in a table the pass never
 queries is not accounted for by getting its column name onto
 `ROTATED_ENVELOPE_COLUMNS`, because that list proves a *name* is spoken for,
-not that a *table* is visited. `listMailConnectionRekeyCandidates` /
-`applyMailConnectionRekey` are their own query and mutation, wired into
+not that a *table* is visited. `listGoogleConnectionRekeyCandidates` /
+`applyGoogleConnectionRekey` are their own query and mutation, wired into
 `rekeyStorageBindings` the same way `workspaceDataKeys` is, and
 `storage.test.ts` runs the same end-to-end rotation proof — write under key
 1, rotate, re-seal, drop key 1 from the environment entirely, still opens —
-that the binding and the data-key halves already had. A disconnected
-connection's empty-string refresh token is deliberately never a rekey
-candidate: there is nothing there to re-seal, and counting it would only ever
-be `unreadable` noise on every future rotation for a credential that is
-intentionally gone.
+that the binding and the data-key halves already had. Keeping the token at
+the row's top level rather than nested under `gmail` is what keeps this
+rotation code untouched by Calendar or Chat landing on the same row later:
+there is still exactly one envelope pair to rekey per connection, regardless
+of how many products it lists. A disconnected connection's empty-string
+refresh token is deliberately never a rekey candidate: there is nothing
+there to re-seal, and counting it would only ever be `unreadable` noise on
+every future rotation for a credential that is intentionally gone.
 
 **The backfill window is a closed set — 90 days, 1 year, or all mail** —
 `36_500` days is the "all mail" sentinel, chosen so the field stays a plain
 number rather than growing a second representation for "no bound", and
 bounded generously enough that a corrupted value cannot mean "forever"
 literally. The owner's defaults from the scoping note — 90 days, Inbox and
-Sent, Spam and Trash excluded, raw MIME off, attachments metadata-only — are
-live as the defaults now, not merely recommended: `MAIL_FOLDERS` is a
-two-value union at the type level, so a caller cannot ask for Spam or Trash
-even by trying, and `buildDayQuery` in `apps/mcp/src/communications/gmailSync.js`
-writes `-in:spam -in:trash` into every query regardless, so the exclusion is
+Sent, Spam and Trash excluded, raw MIME off — are live as the defaults now,
+not merely recommended: `MAIL_FOLDERS` is a two-value union at the type
+level, so a caller cannot ask for Spam or Trash even by trying, and
+`buildDayQuery` in `apps/mcp/src/communications/gmailSync.js` writes
+`-in:spam -in:trash` into every query regardless, so the exclusion is
 asserted twice rather than left as something the folder list merely does not
-mention. **These are still pending the owner's explicit confirmation** — see
-the `SEYI:` list left in `1-projects/context-lc-personal-communications-inbox/overview.md`
+mention. Attachments are the one default that has since moved from
+"recommended" to "taken" — see "Retention" above — with a default retention
+of 90 days, itself overridable per connection. **The backfill window and
+folder set are still pending the owner's explicit confirmation** — see the
+`SEYI:` list left in `1-projects/context-lc-personal-communications-inbox/overview.md`
 in Context.LC — and reversing any of them is a one-line change in
-`mailConnect.ts`'s `ALLOWED_BACKFILL_DAYS` / `MAIL_FOLDERS`, not a schema
+`googleConnect.ts`'s `ALLOWED_BACKFILL_DAYS` / `MAIL_FOLDERS`, not a schema
 migration.
 
 **The estimator is `min(messageCount, windowDays)`**, in
@@ -707,7 +826,7 @@ gap**: `apps/mcp/src/communications/gmailSync.js` takes its Gmail socket, its
 access token and its `ContextStore` as parameters and is tested end to end
 against a fixture Gmail server and an in-memory store — but nothing yet calls
 it from a live Worker, and nothing yet mints that access token over the
-network. `functions/mailConnect.ts`'s `mintGmailAccessToken` is a real,
+network. `functions/googleConnect.ts`'s `mintGoogleAccessToken` is a real,
 tested internal action, reachable today only from a test; a live sync needs
 the same two things `/gateway/ingest/binding` already is for the email worker
 — an internet-facing route on the control plane the gateway can call with its
