@@ -233,6 +233,15 @@ function startRequestFrom(payload: unknown): StartCaptureRequest | null {
  * protocol — what stops that being a hole is that the body never chooses an
  * address. The route comes from `kind` and the context from `context`, and both
  * are read against closed sets here and again in `contextRouteFor`.
+ *
+ * **That argument named two of the address's three inputs.** The session id is
+ * the third, it went into `ROUTES.*` by raw interpolation, and it was checked
+ * only for being non-empty — so a page could pick the path while this paragraph
+ * said the body could not. `fetch` normalises, so `a/../../../mcp#` reached
+ * `POST /mcp` with this machine's grant and a body the page also chose. It is
+ * `isMeetingId` now, the same predicate the gateway applies to the same value,
+ * and `ROUTES` encodes and refuses dot segments as well — a validator protects
+ * one caller, an encoder protects the shape.
  */
 function meetingWriteFrom(payload: unknown): MeetingWrite | null {
   const source = (typeof payload === "object" && payload !== null ? payload : {}) as Record<

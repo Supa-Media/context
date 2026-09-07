@@ -424,45 +424,50 @@ three independent guards rather than one:
    a page choosing what this app asks macOS to open is the hazard rather than
    the feature. An unparseable target is refused by both guards rather than
    waved through, which is the direction a `try` around a `new URL` has to fail.
-3. **The main process answers only its own console window's main frame.**
-   `mayAnswerSender` in `core/shell/console.ts`, applied in `main/index.ts` to
-   both console channels: `event.sender === win.webContents` and
-   `event.senderFrame?.parent === null`, and `null` to anything else — which the
-   preload already fails closed on. This exists precisely because guard 1 lives
-   in the renderer process: a compromised renderer is the threat model, and a
-   check inside it is a check the attacker owns.
+3. **The main process answers only its own console window's main frame, at the
+   pinned origin.** `isConsoleFrame` and `isBridgeSender` in
+   `main/consoleBridge.ts`: the sender's `webContents` id is this window's, its
+   frame's `parent` is `null`, and — for every channel but the two synchronous
+   ones — the frame's own origin equals the pin. The two synchronous channels
+   are identity-only on purpose: the preload calls them to learn *what* the pin
+   is, so asking whether it matches in order to answer what it is would be
+   circular, and both values are public. This exists precisely because guard 1
+   lives in the renderer process: a compromised renderer is the threat model,
+   and a check inside it is a check the attacker owns.
 
    **This paragraph used to specify an origin comparison on
-   `event.senderFrame.url`, and it was never built.** For its whole life the
-   main process answered whoever asked, on all **seventeen** `ipcMain` handlers
-   — a layer described in three places and present in none, which `#272` found
-   and closed. Nothing leaked while it was missing: the two console channels
-   answer values that are already public, and the twelve `COMMANDS.*` channels
-   are reachable only from windows that `loadFile` this app's own HTML. Not,
-   note, because their preload cannot send — `preload/index.ts` exposes twelve
-   send verbs including `record` and `connect`.
+   `event.senderFrame.url`, and for months nothing implemented it.** The main
+   process answered whoever asked, on every handler it had — a layer described
+   here, in `core/shell/console.ts` and in `packages/desktop-bridge`, and
+   present in none of them. `#272` found that; `#277` built it. Nothing leaked
+   while it was missing: the console's two channels then answered values that
+   are already public, and the `COMMANDS.*` channels are reachable only from
+   windows that `loadFile` this app's own HTML — not, note, because their
+   preload cannot send. `preload/index.ts` exposes twelve send verbs including
+   `record` and `connect`, and `preload/capture.ts` three.
 
-   **Identity rather than the origin this paragraph asked for, and the reason is
-   a measurement rather than a preference.** Driving the real Electron 33.4.11
-   binary: `senderFrame.origin` is readable at preload time, so that is not the
-   objection — but a second `BrowserWindow` opened at the same address reports
-   the same origin as the console, so an origin comparison admits any other
-   window this app opens there. That is the case an answering-side check most
-   obviously exists to refuse, and identity refuses it. `parent === null` rather
-   than `senderFrame === sender.mainFrame` because Electron's own typings
-   caution that distinct `WebFrameMain` instances may refer to one frame; both
-   were measured to work, and only one of them is documented behaviour.
+   **Identity as well as origin, and the reason is a measurement.** Driving the
+   real Electron 33.4.11 binary: `senderFrame.origin` is readable at preload
+   time, so unreadability was never the objection — but a second `BrowserWindow`
+   opened at the same address reports the same origin as the console, so an
+   origin comparison *alone* admits any other window this app opens there,
+   including the hidden capture window that holds a live microphone. Identity
+   refuses it. `parent === null` rather than an identity comparison between
+   `WebFrameMain` instances, because Electron's own typings caution that
+   distinct instances may refer to one frame; both were measured to work and
+   only one of them is documented behaviour.
 
-   **And the honest scope: two of the seventeen.** The twelve `COMMANDS.*` and
-   the three capture channels are still answered to whoever asks. They are safe
-   because every window whose preload can send them is a `loadFile` of this
-   app's own HTML — `preload/index.ts` exposes twelve send verbs and
-   `preload/capture.ts` three, and the three capture ones are the closest to the
-   microphone of any channel here. So this is written down as remaining work
-   rather than left for somebody to infer from a guard that says "every
-   channel": the gate is one function and the panel, the notepad and the capture
-   window each have exactly one legitimate sender to compare against. Nothing
-   here should be read as saying it is already done.
+   **And the honest scope, recounted rather than carried: thirteen of
+   twenty-eight.** Twelve `COMMANDS.*` in `main/index.ts` and three in
+   `main/capture.ts` are still answered to whoever asks; the console bridge's
+   eleven `handle` channels and two synchronous ones are gated. The fifteen are
+   safe for the reason above and not for a better one, and the three capture
+   channels are the closest to the microphone of any channel here. That split is
+   asserted by a census in `test/consoleBridge.test.mjs` rather than left in
+   this paragraph, because a number in prose is a number somebody has to
+   remember: adding a gated channel moves one side of it, adding an ungated one
+   moves the other and reddens. Nothing here should be read as saying the
+   remaining fifteen are done.
 
 And one rule that is stronger than any of them: **the console window is never
 granted a media permission.** Its session's
@@ -476,24 +481,28 @@ cannot open a microphone directly, and it cannot record invisibly
 ([meetings](./meetings.md), *Consent is the customer's, and the product may
 never make recording invisible*).
 
-The test the owner asked for, and it is two, in `test/shell.test.mjs` with no
-Electron in sight: `shouldExposeBridge` is driven through the origin, subframe
-and `about:blank` cases, and `mayAnswerSender` through the foreign-window,
-subframe and absent-evidence cases. Both are sabotage tested — the gate
-returning true unconditionally reddens 4, dropping either of its arms reddens
-exactly 1, and each is a different check, which is what proves they are not the
-same check written twice.
+The tests, and they are in two files. `test/shell.test.mjs` drives
+`shouldExposeBridge` through the origin, subframe and `about:blank` cases with
+no Electron in sight. `test/consoleBridge.test.mjs` drives the answering side
+against a fake `ipcMain`: a foreign `webContents`, a page we did not pin, a
+subframe, the hidden capture window, and a disposed frame. Sabotage, measured,
+totals pinned at 784 — dropping the identity arm reddens **4**, the top-frame
+arm **2**, the origin comparison **2**, and opening the guard entirely **6**.
+Each arm is a different set of checks, which is what proves they are not one
+check written three times.
 
-**A third check reads `main/index.ts` as text**, because that file imports
-Electron at the top level and the suite cannot load it: a predicate nothing
-calls is the same prose in a different font, which is the failure this whole
-section is a record of. It counts the handlers before checking them, so removing
-one gate cannot be hidden by the other keeping its; it strips comments first and
-matches the assignment rather than the name, because MEASURED without that,
-deleting a gate and leaving `// TODO: re-apply mayAnswerSender( ... )` in its
-place left the suite green — the same "reading the config as text passes when
-the value is only discussed in a comment" this package records above, in the
-section whose subject is a guard that was only ever discussed.
+**A third check is a census of the whole IPC surface**, and it exists because
+the first two only ever look at the channels they are already on. It reads
+`main/index.ts`, `main/capture.ts` and `main/consoleBridge.ts` as text — the
+first two import Electron at the top level and the suite cannot load them — and
+asserts the split rather than a floor, so a **new ungated channel** appearing
+anywhere reddens it. Measured: inserting one `ipcMain.on` in `main/index.ts`
+reddens 2, and registering a bridge channel outside the guard reddens 7.
+
+That check is the answer to how this section came to describe a layer nobody had
+built. A guard tells you about the code it is pointed at; nothing was pointed at
+the question "is there something new here that no guard covers", and for months
+the answer was yes.
 
 ### Offline is what the outbox was always for, plus a tray that needs no page
 

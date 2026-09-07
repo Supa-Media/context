@@ -251,6 +251,8 @@ const QUEUE = Object.freeze({ pending: 2, parked: 0, lastError: null });
 function mainBridge(overrides = {}) {
   const calls = [];
   const written = [];
+  /** Every `startCapture` request as the reader built it. */
+  const requested = [];
   const window = overrides.window ?? fakeWindow();
   const ipc = fakeIpcMain();
   const bridge = createConsoleBridge({
@@ -264,6 +266,7 @@ function mainBridge(overrides = {}) {
     },
     startCapture: async (request) => {
       calls.push("startCapture");
+      requested.push(request);
       return {
         sessionId: request.sessionId,
         mic: true,
@@ -297,7 +300,7 @@ function mainBridge(overrides = {}) {
     },
     ...overrides.deps,
   });
-  return { bridge, ipc, window, calls, written };
+  return { bridge, ipc, window, calls, written, requested };
 }
 
 /** Every channel the main process answers with `handle`. */
@@ -345,6 +348,56 @@ function contamination(value, path = "$", seen = new Set()) {
 }
 
 export async function runConsoleBridgeChecks(check) {
+  /*
+    THE CENSUS: every `ipcMain` registration in this app, and how many are gated.
+    ---------------------------------------------------------------------------
+
+    A guard checks the channels it is on. Nothing checked whether a NEW channel
+    had appeared beside them — and this app has grown its IPC surface three times
+    in a day. `#272` had a check that counted the handlers; it went when the code
+    it counted was superseded, and this is that property restored against the tree
+    as it now is rather than as it was.
+
+    The numbers are derived from what is found, not carried as a floor: the split
+    is asserted, so adding a gated channel moves one side and adding an UNGATED
+    one moves the other and reddens. That is the difference between a census and
+    a number somebody has to remember to update.
+
+    What it is honest about: fifteen of these are ungated, and they are safe
+    because every window whose preload can send them loads this app's own HTML —
+    not because their preload cannot send. `preload/index.ts` exposes twelve send
+    verbs, `record` and `connect` among them.
+  */
+  {
+    const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
+    const count = (text, re) => (text.match(re) ?? []).length;
+
+    const commands = read("../src/main/index.ts");
+    const capture = read("../src/main/capture.ts");
+    const bridge = read("../src/main/consoleBridge.ts");
+
+    // `deps.ipc` in the bridge; `ipcMain` in the two older files.
+    const ungated =
+      count(commands, /ipcMain\.(?:on|once|handle)\(/g) + count(capture, /ipcMain\.(?:on|once|handle)\(/g);
+    // Registrations, not the interface declaration — anchored at the call site's
+    // own indentation so `handle(channel: string, …)` in the type is not counted.
+    const gatedAsync = count(bridge, /\n {2}handle\(BRIDGE_CHANNELS\./g);
+    const gatedSync = count(bridge, /\n {2}answerSync\(BRIDGE_CHANNELS\./g);
+
+    check(
+      "every channel the console bridge answers is one the guard is on",
+      gatedAsync === HANDLED.length && gatedSync === 2,
+    );
+    check(
+      "THE UNGATED SURFACE HAS NOT GROWN — twelve commands and three capture channels",
+      ungated === 15,
+    );
+    check(
+      "...and the census adds up, so neither side can drift unnoticed",
+      ungated + gatedAsync + gatedSync === 28,
+    );
+  }
+
   /* --- the preload exposes the contract, or nothing at all --------------- */
 
   {
@@ -1050,7 +1103,7 @@ export async function runConsoleBridgeChecks(check) {
   }
 
   {
-    const { ipc } = mainBridge();
+    const { ipc, requested } = mainBridge();
     const answer = await ipc.handlers.get(BRIDGE_CHANNELS.startCapture)(sender(), {
       // Whitespace still trims — the id is validated AFTER the trim, so a
       // well-formed id padded by a client is read rather than refused.
@@ -1060,7 +1113,21 @@ export async function runConsoleBridgeChecks(check) {
     });
     check(
       "a request from the page is read rather than trusted — only `true` opens an input",
-      answer.ok === true && answer.value.sessionId === "mtg_abcdefghjkmnpqrstvwx",
+      /*
+        READ OFF THE REQUEST THE READER BUILT, not off the answer. This check
+        asserted `answer.ok` and the session id only — and the stub behind it
+        returns hard-coded `mic: true, systemAudio: false` whatever it is
+        asked, so `mic: "yes"` and `systemAudio: 1` were inert. MEASURED:
+        replacing `=== true` with `Boolean(...)` in both readers left the suite
+        at 781 PASS, 0 FAIL. Half of this check's name was a claim about a line
+        nothing exercised.
+      */
+      answer.ok === true &&
+        answer.value.sessionId === "mtg_abcdefghjkmnpqrstvwx" &&
+        requested.length === 1 &&
+        requested[0].sessionId === "mtg_abcdefghjkmnpqrstvwx" &&
+        requested[0].mic === false &&
+        requested[0].systemAudio === false,
     );
   }
 

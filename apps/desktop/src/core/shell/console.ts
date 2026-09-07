@@ -129,8 +129,10 @@ export interface BridgeExposure {
  *
  * This function runs in the renderer, and a compromised renderer is the threat,
  * so it is not the only layer: `isBridgeSender` in `main/consoleBridge.ts` is
- * what the main process applies to the sender of every bridge channel, and the
- * two are not one check written twice. **That one decides which renderer is
+ * what the main process applies to the sender of every bridge channel that
+ * carries a verb, and `isConsoleFrame` — identity and top frame, without the
+ * origin — to the two synchronous ones, which the preload calls to learn what
+ * the pin *is*. The two layers are not one check written twice. **That one decides which renderer is
  * answered — by frame identity and the sender's own origin, neither of which
  * the page can spell — and this one decides which document is trusted.**
  *

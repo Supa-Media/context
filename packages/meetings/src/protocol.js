@@ -392,11 +392,30 @@ export function isMeetingId(value) {
  * **A validator protects one caller; an encoder protects the shape** — and the
  * caller that forgets is the one nobody is looking at.
  *
+ * **Encoding alone is not enough, and the first version of this said it was.**
+ * `encodeURIComponent("..")` is `".."` — dot segments are unreserved — so
+ * `finalize("..")` resolved to `/meetings/finalize` and `session("..")` to
+ * `/meetings/`. One level rather than the four `a/../../../inbox#` buys, and
+ * unreachable while both callers validate, but the sentence above claimed a
+ * traversal could not be spelled and one could. A dot segment is refused
+ * outright, so the claim and the code agree.
+ *
+ * `DOT_SEGMENT` is refused rather than escaped because there is no useful
+ * escaping of it: `%2E%2E` is a legal path segment that no gateway route
+ * matches, so encoding it would turn a traversal into a silent 404 rather than
+ * into a refusal. A caller that reaches here with `..` has a bug, and the empty
+ * string it gets back produces a route no id will ever match — which is the
+ * same answer, said where somebody can see it.
+ *
  * Costs nothing on a real id: every character of `MEETING_ID_ALPHABET` and the
  * prefix's underscore are unreserved, so a well-formed id round-trips byte for
  * byte, which the test beside this asserts so the claim cannot rot.
  */
-const segment = (id) => encodeURIComponent(String(id));
+const DOT_SEGMENT = /^\.{1,2}$/;
+const segment = (id) => {
+  const text = String(id);
+  return DOT_SEGMENT.test(text) ? "" : encodeURIComponent(text);
+};
 
 export const ROUTES = Object.freeze({
   /** POST /meetings/sessions — upsert one session. GET — list recent ones. */

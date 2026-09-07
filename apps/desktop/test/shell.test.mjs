@@ -46,7 +46,6 @@ import {
 
 const PINNED = "https://context.lc";
 
-
 /** The shape the real preload passes; every check varies one field of it. */
 function exposure(overrides = {}) {
   return { pinned: PINNED, origin: PINNED, isTopFrame: true, ...overrides };
