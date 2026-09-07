@@ -121,6 +121,8 @@ function browser(
     revokeShare: () => {},
     copyShareLink: async () => ({ ok: false, message: null }),
     setSharePreviewTitle: () => {},
+    ensureListing: noop,
+    readRaw: async () => null,
   };
 }
 

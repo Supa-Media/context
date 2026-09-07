@@ -131,6 +131,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A reference follows the note it points at, and a link is something you follow
 - The console autosaves, and the prompt that is left is about a decision
 - The breadcrumb is the whole path, and its head is a real way up
+- The communications console reads through `FileBrowser`, not a new tool
+- A note's anchor is a query parameter, not a URL fragment
+- A message body is rendered, never linkified
 
 ## [Meetings](./meetings.md)
 
@@ -178,6 +181,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The Gmail restricted scope is Google's decision, so v1 runs on fixtures
 - The five open decisions, and who settles them
 - What is deliberately not built
+- iMessage reads `chat.db` in place, through the one binary every Mac already has
 
 ## [The desktop shell](./desktop.md)
 
@@ -196,6 +200,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Step 4 landed: the console is what a launch opens, and the panel is one variable away
 - The signing keychain belongs to the workflow, not to electron-builder
 - What step 3 did not do, and what has since been done about it
+- Bridge version 4 adds `imessage`, and it is a status object, never a query surface
 - One meeting is one credential, and on a Mac it is the machine's
 - The microphone is asked for just-in-time, and never a dialog that points at the wrong place
 - What is deliberately not built

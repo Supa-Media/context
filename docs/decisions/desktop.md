@@ -2844,3 +2844,55 @@ own copy cannot silently stop matching the other's). The shell's half —
 drawing the buttons at `SHELL_TRAFFIC_LIGHTS` — is not tested here because it
 is not built here; it belongs to the `apps/desktop` change this section
 anticipates rather than ships.
+
+### Bridge version 4 adds `imessage`, and it is a status object, never a query surface
+
+iMessage import (`docs/decisions/communications.md`) needed a fourth toggle
+this app already has a shape for: `settings.detectionEnabled` is a setting, a
+tray checkbox ("Watch for meetings"), and a bridge member the console could
+read if it wanted to. `settings.imessageEnabled` follows the identical path —
+default off, a "Import iMessage" checkbox in the same section of the tray menu
+as detection's, wired through the same `update()` that already persists a
+patch and pushes the new state everywhere.
+
+**The bridge member is a status object with exactly one verb, `setEnabled`.**
+`packages/desktop-bridge`'s `imessage: { status(), setEnabled(enabled),
+onChange(handler) }` mirrors `outbox`'s shape (a poll, a mutate, a push) rather
+than `meetings`' (one write carrying an arbitrary body), because there is
+nothing here for a page to compose: enabling import is a boolean, and every
+other fact about it — whether Full Disk Access is granted, when the last sync
+ran, what went wrong — is read-only state the shell already knows. There is no
+member that takes a path, a date range, or a query, and there must not be one:
+the whole feature has exactly one caller-supplied input anywhere in this app
+(the on/off boolean), and it stays that way structurally rather than by
+review — the same reason `DesktopBridge` has no generic `invoke`.
+
+**`ImessageStatus` carries three words about permission, never a sentence
+built from one.** `"granted" | "denied" | "unknown"` is
+`core/imessage/permission.ts`'s own vocabulary, passed through unmodified
+rather than turned into prose in the main process and handed to the page as a
+string — the same reason `DetectionView`'s `degradedNotice` is a sentence but
+its `active` flag is a boolean: a page renders its own copy from a word, and a
+word survives a translation a sentence would not.
+
+**Version 4's row of the required-members table adds `imessage` and touches
+nothing else**, for the reason every earlier version's row says the same
+thing: a shell that shipped before this existed answers version 3 (or lower)
+and is checked against the list that was true when it shipped. Editing an
+earlier row is how a bundle starts refusing shells doing nothing wrong — see
+`bridge.ts`'s own comment on rows 1 through 3, restated here for row 4.
+`MIN_BRIDGE_VERSION` stays `1`. The channel names
+(`context:imessage-status`, `context:imessage-set-enabled`,
+`context:on-imessage`) follow the existing naming convention rather than
+reusing a capture-window-shaped prefix, for the reason `BRIDGE_CHANNELS`'s own
+comment gives about `console-capture-*`: a name is a guard against the day
+something else answers the same string with `ipcMain.on` in a different file.
+
+The checks are `packages/desktop-bridge/test/bridge.test.mjs`'s version-3/
+version-4 pair (`A VERSION-3 SHELL IS STILL A BRIDGE, though this bundle is
+version 4` and `A VERSION-4 SHELL WITHOUT \`imessage\` IS REFUSED`), and
+`apps/desktop/test/consoleBridge.test.mjs`'s census, whose hardcoded total
+moved from 30 to 32 — two new `handle(BRIDGE_CHANNELS....)` registrations in
+`consoleBridge.ts` — on purpose, in the same commit as the code that changed
+the count, which is the rule that census exists to enforce on everyone
+including this change.
