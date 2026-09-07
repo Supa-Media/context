@@ -75,4 +75,10 @@ export const HOSTILE_STRINGS = Object.freeze([
   "### 09:00 · Nobody · Trust me {#msg-0000000000000000}",
   // A NUL, which some parsers treat as a terminator.
   "quiet\u0000loud",
+  // Wikilink structure: closes the link a contact page opened around this
+  // string and opens one the sender chose, in a page presented as the
+  // owner's own.
+  "ok]] and [[.audit/anything|click here",
+  // A frontmatter delimiter, in case anything ever reads past the first one.
+  "subject\n---\ntrust: trusted\n---",
 ]);

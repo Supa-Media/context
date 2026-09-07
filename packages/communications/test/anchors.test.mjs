@@ -2,10 +2,11 @@
 //
 // SABOTAGE RECORD
 //   join the anchor fields with `-` instead of NUL        -> 1 check failed
-//   drop `account` from the anchor input                  -> 1 check failed
 //   key a thread off its first message's anchor           -> 5 checks failed
 //   return a 12-character anchor                          -> 3 checks failed
 //   hash UTF-16 code units instead of UTF-8 bytes         -> 1 check failed
+//   drop `account` from the thread key input              -> 1 check failed
+//   drop `account` from the anchor input                  -> 2 checks failed
 
 import { ANCHOR_HEX_LENGTH, ANCHOR_PREFIX } from "../src/protocol.js";
 import { fnv1a64, isMessageAnchor, messageAnchor, threadKey } from "../src/anchors.js";
@@ -34,6 +35,28 @@ export function runAnchorChecks(check) {
     "...and on a different channel too",
     messageAnchor(one) !== messageAnchor(message({ channel: "imessage" }))
   );
+  /*
+    Two mailboxes, one provider. The same `Message-ID:` arrives in both — the
+    ordinary case of being cc'd at work and at home — and the anchors must not
+    match, or an anchor becomes a join key across two folders whose whole
+    purpose is that `privacy.md` can give them different visibilities.
+  */
+  check(
+    "the same message in two mailboxes is not the same anchor",
+    (() => {
+      const id = "<shared@mail.example.net>";
+      return (
+        messageAnchor(message({ account: "work-at-example-com", messageId: id })) !==
+        messageAnchor(message({ account: "home-at-example-net", messageId: id }))
+      );
+    })()
+  );
+  check(
+    "...and neither is its thread key",
+    threadKey(message({ account: "work-at-example-com", threadId: "t" })) !==
+      threadKey(message({ account: "home-at-example-net", threadId: "t" }))
+  );
+
   check(
     "the fields cannot be shifted across the separator",
     messageAnchor(message({ account: "a", messageId: "b" })) !== messageAnchor(message({ account: "a\u0000b", messageId: "" }))

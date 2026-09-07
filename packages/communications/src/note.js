@@ -110,6 +110,37 @@ export function defangFence(text) {
   return value.split(FENCE_MARKER).join("context:\u200buntrusted-communication");
 }
 
+/**
+ * Break wikilink and markdown-link structure inside sender-written text.
+ *
+ * `defangFence` closes the fence. This closes the *other* place a sender's
+ * words leave their quotation: every string this package writes **outside** a
+ * fence — a message heading, a thread heading, an attachment filename, and
+ * every field of a contact page, which has no fence at all because it is the
+ * owner's own derived index.
+ *
+ * A subject of `x]] and [[.audit/anything` written into
+ * `[[<path>#<anchor>|<subject>]]` closes the link the renderer opened and
+ * opens a second one the sender chose — a link the owner never made, in a
+ * page presented as theirs, that `links.js` then resolves and rewrites like
+ * any other. That is the same class of attack as forging the fence, reached
+ * through the one file where nothing is fenced.
+ *
+ * A zero-width space after each bracket and pipe, the same technique
+ * `defangFence` uses and for the same reason: the text still reads exactly as
+ * the sender wrote it, and `[[`, `]]` and `|` stop being syntax. Bodies are
+ * deliberately **not** put through this — they are quoted verbatim inside a
+ * fence, which is what the fence is for.
+ */
+export function defangLinks(text) {
+  return String(text ?? "").replace(/[[\]|]/g, (character) => `${character}\u200b`);
+}
+
+/** Sender-written text that lands outside a fence: never syntax, always words. */
+export function defangOutsideFence(text) {
+  return defangLinks(defangFence(text));
+}
+
 /** How many bytes this string costs in the file. */
 export function utf8Length(text) {
   return ENCODER.encode(String(text ?? "")).length;
@@ -131,8 +162,15 @@ function chronological(events) {
       const left = Number.isFinite(a.at) ? a.at : Number.POSITIVE_INFINITY;
       const right = Number.isFinite(b.at) ? b.at : Number.POSITIVE_INFINITY;
       if (left !== right) return left - right;
-      const byAnchor = messageAnchor(a.event).localeCompare(messageAnchor(b.event));
-      return byAnchor || a.index - b.index;
+      // Codepoint order, not `localeCompare`: the comparator decides which
+      // bytes land in which part, and a default-locale collation makes that
+      // a property of the machine that rendered the day rather than of the
+      // day. The anchors are `[0-9a-f]` so the two agree today; "they agree
+      // today" is not what determinism can rest on.
+      const leftAnchor = messageAnchor(a.event);
+      const rightAnchor = messageAnchor(b.event);
+      if (leftAnchor !== rightAnchor) return leftAnchor < rightAnchor ? -1 : 1;
+      return a.index - b.index;
     })
     .map((entry) => entry.event);
 }
@@ -185,9 +223,9 @@ function senderLabel(event) {
  */
 function renderMessage(event, nonce) {
   const anchor = messageAnchor(event);
-  const subject = defangFence(singleLine(event?.subject)) || NO_SUBJECT;
+  const subject = defangOutsideFence(singleLine(event?.subject)) || NO_SUBJECT;
   const lines = [
-    `### ${timeOfDay(event)} · ${defangFence(senderLabel(event))} · ${subject} {#${anchor}}`,
+    `### ${timeOfDay(event)} · ${defangOutsideFence(senderLabel(event))} · ${subject} {#${anchor}}`,
     "",
     `<!-- ${FENCE_MARKER} begin ${nonce} -->`,
     "",
@@ -203,7 +241,7 @@ function renderMessage(event, nonce) {
     // is a sender-chosen string and stays defanged text in a list.
     lines.push("", "**Attachments** (not stored):");
     for (const attachment of attachments) {
-      const name = defangFence(singleLine(attachment?.filename)) || "(unnamed)";
+      const name = defangOutsideFence(singleLine(attachment?.filename)) || "(unnamed)";
       const type = singleLine(attachment?.contentType) || "application/octet-stream";
       const size = Number.isFinite(attachment?.size) ? `${Math.trunc(attachment.size)} bytes` : "unknown size";
       lines.push(`- ${name} — ${type}, ${size}`);
@@ -290,7 +328,7 @@ export function renderChannelDayNote(day) {
   }
 
   for (const thread of threads) {
-    out.push(`## Thread — ${defangFence(thread.subject)}`, "");
+    out.push(`## Thread — ${defangOutsideFence(thread.subject)}`, "");
     for (const event of thread.events) out.push(renderMessage(event, nonce), "");
   }
 

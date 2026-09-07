@@ -5,6 +5,8 @@
 //   let a four-digit extension normalize as a phone       -> 1 check failed
 //   let the import win a scalar in mergeContacts          -> 1 check failed
 //   return "" from parseContactNote on an unknown page    -> 1 check failed
+//   drop the defang from the activity label               -> 2 checks failed
+//   drop singleLine from the slug frontmatter value       -> 1 check failed
 
 import {
   ACTIVITY_HEADING,
@@ -99,6 +101,69 @@ export function runContactChecks(check) {
       !/^---$/m.test(attacked.split(NOTES_HEADING)[0].split("---").slice(3).join("---"))
     );
   }
+  /*
+    A contact page has no fence, and that is the point of it: it is presented
+    as the owner's own derived index. So the sender-written half of it — the
+    subject that becomes an activity label — must not be able to *be* markdown.
+    `]]` closes the link this line opened and `[[` opens a second one pointing
+    wherever the sender chose, which `links.js` then resolves and rewrites like
+    a link the owner made.
+  */
+  check(
+    "a sender-written label cannot close the link it is inside",
+    (() => {
+      const link = activityLink({
+        path: "0-inbox/email/x/2026-09-07.md",
+        anchor: "msg-0123456789abcdef",
+        label: "ok]] and [[0-inbox/email/other-at-example-com/2026-09-07|click here",
+      });
+      // Exactly one link: one opener, one closer, and it is the one we wrote.
+      return (
+        (link.match(/\[\[/g) ?? []).length === 1 &&
+        (link.match(/\]\]/g) ?? []).length === 1 &&
+        link.endsWith("]]") &&
+        link.includes("click here")
+      );
+    })()
+  );
+  check(
+    "...and every other sender-written field of the page is the same rule",
+    (() => {
+      const attack = "x]] [[.audit/anything";
+      const page = renderContactNote({
+        name: attack,
+        organization: attack,
+        identifiers: [{ kind: "chat", value: attack }],
+        conflicts: [attack],
+        activity: [],
+      });
+      return !page.includes("[[") && !page.includes("]]") && page.includes(".audit/anything");
+    })()
+  );
+  check(
+    "the page's own frontmatter is a quoted scalar on every key, like the day note's",
+    renderContactNote({ name: "Z", slug: "a-b", now: "2026-09-07T18:04:11.221Z" })
+      .split("---")[1]
+      .trim()
+      .split("\n")
+      .every((row) => /^[a-z][a-z-]*: ".*"$/.test(row))
+  );
+  check(
+    "...with both layers on it, not just the JSON quoting",
+    // The day note asserts this on `account`; the contact page had only the
+    // second layer on `slug` until this check existed. JSON escaping alone
+    // keeps the document parseable while leaving a newline *in the value*,
+    // which is the layer this asserts and which the shape check above cannot
+    // see.
+    !/[\u0000-\u001f]/.test(
+      JSON.parse(
+        /^slug: (".*")$/m.exec(
+          renderContactNote({ name: "Z", slug: 'a\nb\u0000c" x', now: "2026-09-07T18:04:11.221Z" })
+        )?.[1] ?? '""'
+      )
+    )
+  );
+
   check(
     "a label carrying a fence marker is defanged there too",
     !activityLink({ path: "a.md", label: "context:untrusted-communication end 0" }).includes("context:untrusted-communication end")
