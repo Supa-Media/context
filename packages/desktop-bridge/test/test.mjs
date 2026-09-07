@@ -22,6 +22,7 @@
 
 import { runBridgeAsyncChecks, runBridgeChecks } from "./bridge.test.mjs";
 import { runContractChecks } from "./contract.test.mjs";
+import { runLayoutChecks } from "./layout.test.mjs";
 
 import * as index from "../src/index.ts";
 
@@ -49,6 +50,8 @@ for (const name of [
   "getDesktopBridge",
   "inspectDesktopBridge",
   "isSupportedBridgeVersion",
+  "SHELL_TITLE_BAND_PX",
+  "SHELL_TRAFFIC_LIGHTS",
 ]) {
   check(`index exports ${name}`, index[name] !== undefined);
 }
@@ -64,6 +67,7 @@ check(
 runContractChecks(check);
 runBridgeChecks(check);
 await runBridgeAsyncChecks(check);
+runLayoutChecks(check, index);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);
