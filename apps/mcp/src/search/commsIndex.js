@@ -197,6 +197,15 @@ export function channelDaySubDocuments(path, full) {
 }
 
 /**
+ * The one document an ordinary note contributes: its own path as the key, its
+ * text sliced to `NOTE_INDEX_CHAR_CAP`, exactly v1/v2's existing behaviour.
+ */
+function wholeNoteDocument(path, text) {
+  const content = text.length > NOTE_INDEX_CHAR_CAP ? text.slice(0, NOTE_INDEX_CHAR_CAP) : text;
+  return { key: path, notePath: path, anchor: null, content, comms: null };
+}
+
+/**
  * Every sub-document one note contributes to the index — one for an ordinary
  * note (its own path, uncapped text sliced to `NOTE_INDEX_CHAR_CAP`, exactly
  * v1/v2's existing behaviour), one per message anchor for a channel-day note.
@@ -205,6 +214,32 @@ export function channelDaySubDocuments(path, full) {
  * stale note and hands it here, uncapped, so the per-note cap and the
  * per-message cap are never both applied to the same text.
  *
+ * **Never the empty list.** A file at a channel-day path that holds no
+ * message headings at all — an encrypted note, one somebody typed by hand in
+ * Obsidian at `0-inbox/imessage/2026-09-07.md`, a render this scanner cannot
+ * follow — falls back to the single whole-note document it would have
+ * contributed before any of this existed. Answering `[]` was measured and is
+ * two bugs rather than a conservative default:
+ *
+ * - **The diff never converges.** `docsByShard` records a note's version by
+ *   `doc.notePath`, so a note with no docs has no version recorded, is stale
+ *   on every subsequent listing, and is re-fetched and re-written forever —
+ *   measured at one note GET plus a shard, manifest and docmap write **per
+ *   pass, permanently**, with `touched` naming that note every time. A pass
+ *   that "moved something" is also what keeps the control plane's projection
+ *   chain going (`docs/decisions/search.md`, "A chain that cannot terminate
+ *   is worse than no trigger at all"), so one such file bills a listing per
+ *   link, 24 links per firing, forever.
+ * - **The note becomes unsearchable.** A hand-written note at a channel-day
+ *   path is an ordinary note that indexed fine yesterday; a shape recogniser
+ *   deciding it contributes nothing is a silent recall loss in exactly the
+ *   direction `toolSearchNotes`' miss copy exists to prevent.
+ *
+ * The fallback gives back the *old* behaviour for those files and no more:
+ * an encrypted one still contributes no plaintext term (its bytes are
+ * ciphertext, exactly as for every other encrypted note), and `visible.js`
+ * still drops it at snippet time on `isEncryptedNote`.
+ *
  * @param {string} path
  * @param {string} full uncapped note text
  * @returns {Array<{key: string, notePath: string, anchor: string|null,
@@ -212,11 +247,9 @@ export function channelDaySubDocuments(path, full) {
  */
 export function subDocumentsFor(path, full) {
   const text = typeof full === "string" ? full : "";
-  if (!isChannelDayNotePath(path)) {
-    const content = text.length > NOTE_INDEX_CHAR_CAP ? text.slice(0, NOTE_INDEX_CHAR_CAP) : text;
-    return [{ key: path, notePath: path, anchor: null, content, comms: null }];
-  }
-  return channelDaySubDocuments(path, text);
+  if (!isChannelDayNotePath(path)) return [wholeNoteDocument(path, text)];
+  const messages = channelDaySubDocuments(path, text);
+  return messages.length > 0 ? messages : [wholeNoteDocument(path, text)];
 }
 
 /**
