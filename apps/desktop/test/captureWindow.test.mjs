@@ -13,10 +13,27 @@
  * twenty seconds of every meeting transcribe and then it goes quiet".
  *
  * `src/renderer/capture.ts` is browser code with no Node in it, so the browser
- * is what is faked: `MediaRecorder`, `navigator.mediaDevices`, `window.capture`
- * and the rotation timer. Everything else is the real module, imported once,
- * with its handlers registered on the fake `window` exactly as the preload
- * would.
+ * is what is faked: `MediaRecorder`, `navigator.mediaDevices`, `window.capture`,
+ * the rotation timer **and the clock**. Everything else is the real module,
+ * imported once, with its handlers registered on the fake `window` exactly as
+ * the preload would.
+ *
+ * ## The clock is faked, and that is not a convenience
+ *
+ * A partial chunk's length is the one thing this module measures rather than
+ * counts: `Date.now() - channel.startedAtMs` at a stop or a pause. Read off the
+ * real clock, that number was whatever a millisecond boundary happened to do
+ * between the last rotation and the stop two `await`s later — usually 1 or 2,
+ * and on a loaded machine sometimes **0**, which `closeChunk` deliberately
+ * refuses to hand over ("a chunk of nothing is not a chunk"). So the check
+ * below named *stopping hands over the partial chunk that was open* failed
+ * roughly one run in five, and took the next two down with it. Widening
+ * anything would only have moved the coin flip.
+ *
+ * `Date.now` is therefore a value this file sets and `advance()` moves, exactly
+ * as `setInterval` already was: the partial chunk is asserted to be the number
+ * of milliseconds the test let pass, and the zero-length case is a check of its
+ * own rather than the thing that used to happen by accident.
  *
  * ## Sabotage record
  *
@@ -27,6 +44,8 @@
  *   `channel.offsetMs += durationMs` dropped (every chunk claims to be first)  2
  *   `stopEverything` not stopping tracks (the orange dot that never goes)      1
  *   a system-audio failure failing the whole capture instead of degrading      2
+ *   a stop's partial length assumed to be `SEGMENT_MS` instead of measured     2
+ *   the `durationMs <= 0` guard dropped (a chunk of nothing handed over)       1
  */
 
 import { SEGMENT_MS } from "@context/meetings/chunks";
@@ -42,6 +61,20 @@ let rotate = null;
 let handlers = {};
 let ready = null;
 let failure = null;
+
+/**
+ * The fake wall clock, in the units the module reads it in.
+ *
+ * Fixed rather than seeded from the real one, so a failure is reproducible from
+ * the file alone. It moves only when `advance` says so.
+ */
+let clock = 1_700_000_000_000;
+/** How long the test lets a partial chunk run. Not a multiple of anything. */
+const PARTIAL_MS = 7_531;
+
+function advance(ms) {
+  clock += ms;
+}
 
 function track(kind) {
   const made = { kind, stopped: false, stop() { made.stopped = true; } };
@@ -127,6 +160,9 @@ function installBrowser() {
   // seconds per chunk is a test nobody runs.
   globalThis.setInterval = (callback) => { rotate = callback; return 1; };
   globalThis.clearInterval = () => { rotate = null; };
+  // The clock the module measures a partial chunk against. Held still unless
+  // the test moves it, so "how long was that chunk" has one answer per run.
+  Date.now = () => clock;
 }
 
 /** Let the module's own promise chain settle. */
@@ -142,6 +178,7 @@ async function text(data) {
 export async function runCaptureWindowChecks(check) {
   const realSetInterval = globalThis.setInterval;
   const realClearInterval = globalThis.clearInterval;
+  const realNow = Date.now;
   installBrowser();
   await import("../src/renderer/capture.ts");
 
@@ -187,11 +224,17 @@ export async function runCaptureWindowChecks(check) {
 
   // -- stop: the partial chunk, and the tracks -------------------------------
   const openRecorders = recorders.length;
+  // Somebody talks for a while and then presses End. The clock is moved here
+  // rather than left to the scheduler, which is what made this section flake.
+  advance(PARTIAL_MS);
   await handlers.stop();
   await settle();
   check("stopping hands over the partial chunk that was open", chunks.length === 3);
-  check("...measured rather than assumed to be a full rotation", chunks[2].durationMs < SEGMENT_MS);
-  check("...and starting from where the last one ended", chunks[2].atMs === SEGMENT_MS * 2);
+  check(
+    "...MEASURED rather than assumed to be a full rotation — exactly the time that passed",
+    chunks[2]?.durationMs === PARTIAL_MS && chunks[2]?.durationMs < SEGMENT_MS,
+  );
+  check("...and starting from where the last one ended", chunks[2]?.atMs === SEGMENT_MS * 2);
   check("no recorder is opened after a stop", recorders.length === openRecorders);
   check("EVERY TRACK IS STOPPED, so the microphone indicator cannot outlive the capture",
     tracks.every((one) => one.stopped));
@@ -212,8 +255,20 @@ export async function runCaptureWindowChecks(check) {
   check("the video track it was obliged to hand over is stopped, never read",
     tracks.filter((one) => one.kind === "video").every((one) => one.stopped));
 
+  // -- a stop on a rotation boundary: nothing is measured, so nothing is sent -
+  // The clock is deliberately not advanced, so this stop lands in the same
+  // millisecond as the rotation above it. `closeChunk` refuses a zero-length
+  // chunk, and used to reach this state by accident on a loaded machine — which
+  // is the flake this file was rewritten to remove.
+  const atBoundary = chunks.length;
   await handlers.stop();
   await settle();
+  check(
+    "A STOP IN THE SAME MILLISECOND AS A ROTATION HANDS OVER NOTHING, never a chunk of no audio",
+    chunks.length === atBoundary,
+  );
+  check("...and the tracks are still stopped, because that half is not conditional",
+    tracks.every((one) => one.stopped));
 
   // -- a microphone that will not open is a meeting with nothing in it -------
   globalThis.navigator.mediaDevices.getUserMedia = async () => {
@@ -228,4 +283,7 @@ export async function runCaptureWindowChecks(check) {
 
   globalThis.setInterval = realSetInterval;
   globalThis.clearInterval = realClearInterval;
+  // Nothing else in the suite reads a fake clock, and a leaked one would be a
+  // far worse flake than the one this file started with.
+  Date.now = realNow;
 }
