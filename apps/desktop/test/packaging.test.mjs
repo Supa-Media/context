@@ -140,19 +140,79 @@ export async function runPackagingChecks(check) {
   );
 
   // -- the hook's one decision ----------------------------------------------
-  const { credentials } = require(join(ROOT, "build/notarize.cjs"));
+  const { credentials, privateKey } = require(join(ROOT, "build/notarize.cjs"));
+  /*
+    A .p8 as Apple issues it, with a fake key in it. Every check below is about
+    the *shape* of the document, so the bytes inside can be nonsense — and in a
+    public repository they had better be.
+  */
+  const P8 = "-----BEGIN PRIVATE KEY-----\nbm90LWEtcmVhbC1rZXk=\n-----END PRIVATE KEY-----";
   check("no credentials at all is a skip, not a failure", credentials({}) === null);
   check(
     "TWO OF THREE IS ALSO A SKIP — a half-configured notarisation hangs on Apple's API and blames auth",
     credentials({ ASC_KEY_ID: "k", ASC_ISSUER_ID: "i" }) === null &&
-      credentials({ ASC_API_KEY_P8: "k", ASC_KEY_ID: "k" }) === null &&
-      credentials({ ASC_API_KEY_P8: "k", ASC_ISSUER_ID: "i" }) === null,
+      credentials({ ASC_API_KEY_P8: P8, ASC_KEY_ID: "k" }) === null &&
+      credentials({ ASC_API_KEY_P8: P8, ASC_ISSUER_ID: "i" }) === null,
   );
-  const complete = credentials({ ASC_API_KEY_P8: "-----BEGIN", ASC_KEY_ID: "k", ASC_ISSUER_ID: "i" });
+  const complete = credentials({ ASC_API_KEY_P8: P8, ASC_KEY_ID: "k", ASC_ISSUER_ID: "i" });
   check("all three notarises", complete !== null && complete.keyId === "k" && complete.issuerId === "i");
   check(
     "an empty string is not a credential — a workflow passing an unset secret sets it to ''",
     credentials({ ASC_API_KEY_P8: "", ASC_KEY_ID: "k", ASC_ISSUER_ID: "i" }) === null,
+  );
+
+  // -- the .p8, after a text box has had it ---------------------------------
+  /*
+    The first build to get past code signing died twenty-six seconds later on
+
+      Failed to notarize via notarytool. Error: invalidPEMDocument
+
+    which says the file the hook wrote is not a PEM and nothing whatever about
+    why. A .p8 is a multi-line PEM and a secret store is a text box, so the four
+    repairs below are the four ways it arrives damaged — each unambiguous, each
+    checked here rather than discovered on a runner after a signing run.
+
+    The fifth case is the one that must NOT be repaired: something that is not a
+    private key is refused, with a sentence that counts lines and characters and
+    prints none of them.
+  */
+  const escaped = P8.replace(/\n/g, "\\n");
+  check("a key stored with its newlines escaped is repaired", privateKey(escaped) === P8 + "\n");
+  check("...and one with CRLF line endings", privateKey(P8.replace(/\n/g, "\r\n")) === P8 + "\n");
+  check(
+    "...and one base64-encoded whole, which is what the certificate secret wanted",
+    privateKey(Buffer.from(P8, "utf8").toString("base64")) === P8 + "\n",
+  );
+  check("...and one with quotes left round it", privateKey(`"${P8}"`) === P8 + "\n");
+  check("an intact key is returned intact, with the newline notarytool reads to", privateKey(P8) === P8 + "\n");
+  const refused = (value) => {
+    try {
+      privateKey(value);
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  };
+  check("SOMETHING THAT IS NOT A PRIVATE KEY IS REFUSED, not written out for notarytool to reject", refused("hello") !== null);
+  check(
+    "...a truncated paste too — a BEGIN with no matching END",
+    refused("-----BEGIN PRIVATE KEY-----\nbm90LWEtcmVhbC1rZXk=") !== null,
+  );
+  check(
+    "...and the refusal names the secret and what it should hold",
+    /ASC_API_KEY_P8/.test(refused("hello") ?? "") && /\.p8/.test(refused("hello") ?? ""),
+  );
+  check(
+    "...WITHOUT PRINTING ANY OF IT — a private key does not go in a public repository's logs",
+    !(refused("sensitive-nonsense") ?? "").includes("sensitive-nonsense"),
+  );
+  check(
+    "...and base64 of something binary is named as what it almost certainly is — the certificate, in the wrong secret",
+    /belongs in CSC_LINK/.test(refused(Buffer.from([0x30, 0x82, 0x0a, 0x1f, 0x02, 0x01, 0x03]).toString("base64")) ?? ""),
+  );
+  check(
+    "a key present but unusable is not a skip — the build was asked to notarise and cannot",
+    refused("hello") !== null && credentials({ ASC_API_KEY_P8: "", ASC_KEY_ID: "k", ASC_ISSUER_ID: "i" }) === null,
   );
 
   // -- what ships -----------------------------------------------------------
@@ -186,6 +246,104 @@ export async function runPackagingChecks(check) {
   check(
     "...and it would notice a real one — a registry range is not a workspace range",
     !["^1.0.0", "1.0.0", "latest", "npm:left-pad@1"].some((range) => String(range).startsWith("workspace:")),
+  );
+
+  // -- the workflow that builds it, and the keychain it signs from -----------
+  /*
+    Why a check in the desktop suite reads a file in `.github/`: because the
+    dmg this suite is about was, twice, not built at all. Both dispatches of
+    `deploy-desktop.yml` on the signed path died in forty seconds inside
+    electron-builder's own keychain setup:
+
+      security set-key-partition-list -S apple-tool:,apple: -s -k *** <temp>.keychain
+      security: SecKeychainUnlock: The user name or passphrase you entered is not correct.
+
+    `createKeychain()` makes a throwaway keychain with a random password and
+    then hands `set-key-partition-list -k` the **certificate's** import
+    password instead of that keychain's — two different secrets, and only the
+    keychain's own unlocks it (electron-userland/electron-builder#10066, whose
+    fix is not in any released 26.x). The `security import` immediately before
+    it succeeded, which is what proves `CSC_KEY_PASSWORD` is right and the
+    keychain password is what was wrong.
+
+    So the workflow owns the keychain now, and electron-builder is handed
+    `CSC_KEYCHAIN` and never `CSC_LINK` — because `CSC_LINK` is the switch that
+    selects the broken path (`macPackager.ts`: with a csc link it calls
+    `createKeychain`, without one it uses `process.env.CSC_KEYCHAIN`). That is a
+    property of a YAML file with no test of its own and a forty-minute feedback
+    loop through a Mac runner, which is exactly the kind of thing this file is
+    for.
+
+    Read with comment lines removed, for the reason the entitlements checks
+    above give: that workflow's header explains at length why it does what it
+    does, and a check that reads prose is a check that passes on a sentence
+    about itself.
+  */
+  const WORKFLOW = readFileSync(join(ROOT, "..", "..", ".github/workflows/deploy-desktop.yml"), "utf8")
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line))
+    .join("\n");
+  /* Steps start at one indent inside `steps:`; that is enough of a parser. */
+  const steps = WORKFLOW.split(/\n(?=      - )/);
+  const buildStep = steps.find((step) => /electron-builder --mac/.test(step));
+  const preflight = steps.find((step) => /openssl pkcs12/.test(step));
+  const cleanup = steps.find((step) => /delete-keychain/.test(step));
+
+  check("the workflow still builds with electron-builder", buildStep !== undefined);
+  check(
+    "CSC_LINK NEVER REACHES ELECTRON-BUILDER — it is the switch that selects the broken temp-keychain path",
+    buildStep !== undefined && !/CSC_LINK/.test(buildStep),
+  );
+  check(
+    "...and neither does CSC_KEY_PASSWORD, which is what that path mis-uses",
+    buildStep !== undefined && !/CSC_KEY_PASSWORD/.test(buildStep),
+  );
+  check("the identity comes from a keychain this workflow made", /CSC_KEYCHAIN=/.test(WORKFLOW));
+  check(
+    "the certificate is checked before anything is built, not after forty seconds of packaging",
+    preflight !== undefined && steps.indexOf(preflight) < steps.indexOf(buildStep),
+  );
+  check(
+    "...including that it carries a private key, so a .cer exported by mistake is named as one",
+    preflight !== undefined && /-nocerts/.test(preflight),
+  );
+  check(
+    "SET-KEY-PARTITION-LIST IS GIVEN THE KEYCHAIN'S OWN PASSWORD — the bug, in one line",
+    preflight !== undefined && /set-key-partition-list[^\n]*-k "\$keychain_password"/.test(preflight),
+  );
+  check(
+    "...which is the password the keychain was created with",
+    preflight !== undefined && /create-keychain -p "\$keychain_password"/.test(preflight),
+  );
+  check(
+    "the keychain is deleted whether the build passed or failed",
+    cleanup !== undefined && /if: always\(\)/.test(cleanup),
+  );
+  const keyCheck = steps.find((step) => /notarize\.cjs --check/.test(step));
+  check(
+    "the notarisation key is judged before the build too, not after twenty-six seconds of signing",
+    keyCheck !== undefined && steps.indexOf(keyCheck) < steps.indexOf(buildStep),
+  );
+  /*
+    electron-builder's own `MacPackager.doSign()` logs `identityName=Developer
+    ID Application: <company> (<team id>) identityHash=<sha1>` at "info" level
+    on every signed build, unconditionally — proven on a runner, where a
+    successful sign printed exactly that line to this public repository's
+    Actions log. It is not one of this workflow's own `echo`s, so the
+    certificate-subject checks above (which read the *preflight*'s shell) do
+    not see it; this reads the Build step itself.
+  */
+  check(
+    "ELECTRON-BUILDER'S OWN SIGNING LOG IS REDACTED — identityName carries the company name and Apple team id",
+    buildStep !== undefined && /identityName=/.test(buildStep) && /sed -E/.test(buildStep),
+  );
+  check(
+    "...and a failure inside that redacted pipe still fails the step",
+    buildStep !== undefined && /pipefail/.test(buildStep),
+  );
+  check(
+    "nothing about a branch triggers this workflow, signing or no signing",
+    /^on:\n  workflow_dispatch:/m.test(WORKFLOW) && !/^\s*(push|pull_request):/m.test(WORKFLOW),
   );
 
   // -- the hook when Apple says no -------------------------------------------
@@ -227,7 +385,7 @@ export async function runPackagingChecks(check) {
     packager: { appInfo: { productFilename: "Context" } },
   };
   const saved = { ...process.env };
-  process.env.ASC_API_KEY_P8 = "-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n";
+  process.env.ASC_API_KEY_P8 = P8;
   process.env.ASC_KEY_ID = "fake-key-id";
   process.env.ASC_ISSUER_ID = "fake-issuer-id";
   let thrown = null;

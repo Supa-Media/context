@@ -123,9 +123,16 @@ of which anybody but the account holder can create:
 | `ASC_KEY_ID` / `ASC_ISSUER_ID` | which key that is |
 
 With all five, the same dispatch signs, notarises and staples — no code change,
-because electron-builder reads the first two and `build/entitlements.mac.plist`
-already declares `com.apple.security.device.audio-input`, and
-`build/notarize.cjs` skips cleanly without the rest. The suite checks the parts
+because `build/entitlements.mac.plist` already declares
+`com.apple.security.device.audio-input` and `build/notarize.cjs` reads the last
+three. The first two are read by the **workflow**, not by electron-builder, and
+that is deliberate: handed `CSC_LINK`, electron-builder makes its own temporary
+keychain and then unlocks it with the certificate's passphrase instead of the
+keychain's, which fails every time on a runner
+([electron-builder#10066](https://github.com/electron-userland/electron-builder/issues/10066),
+unfixed in 26.x). So `deploy-desktop.yml` checks the certificate, builds the
+keychain itself, hands electron-builder `CSC_KEYCHAIN`, and deletes the keychain
+whatever the build did. The suite checks the parts
 that can be checked without a Mac: the entitlement is *granted* rather than
 mentioned, the hardened runtime is on, the helper processes inherit the
 entitlements, the three `Info.plist` usage strings exist and say what happens to
