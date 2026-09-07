@@ -620,3 +620,50 @@ export function failurePage(input: { liveUrl: string; message?: string }): strin
     "</main></body></html>",
   ].join("");
 }
+
+/**
+ * Whether the window ended up showing a real mirrored document.
+ *
+ * Two facts, both decided elsewhere and only combined here: `isMirrorUrl` is
+ * where the window's own navigation actually landed, and the `text/html` check
+ * is `mirrorIsUsable`'s own rule about the index, asked again because the
+ * manifest behind it may not be one this launch wrote — it can be whatever a
+ * *previous* run's successful load left on disk, which is the whole reason an
+ * offline launch has anything to fall back to at all. A `false` on the mirror's
+ * own failure page (no manifest, so `indexIsHtmlDocument` is `null`) falls out
+ * of the same two checks rather than needing a case of its own.
+ */
+export function wasMirrorServed(finalUrl: string, indexIsHtmlDocument: boolean | null): boolean {
+  return isMirrorUrl(finalUrl) && indexIsHtmlDocument === true;
+}
+
+/**
+ * Whether `--smoke-load`'s report is a pass, stated as a fact about what a
+ * person can do rather than as a story about the network.
+ *
+ * A launch fails only when **neither** thing that would let somebody actually
+ * use the console happened: the live page never finished loading, *and* no
+ * usable mirror ended up standing in for it. Offline with a good mirror is not
+ * a degraded pass reported as a failure — it is the offline story
+ * (`docs/decisions/desktop.md`, *Offline is what the outbox was always for*)
+ * working exactly as designed, and an exit code that cannot tell that apart
+ * from a hung or broken launch is the false positive the mirror exists to
+ * answer: "no network" must not read as "broken app".
+ *
+ * Returns `null` when there is nothing wrong, and otherwise the sentence
+ * `--smoke-load` exits non-zero with — the same shape as
+ * `unexpectedConsoleAddress` in `core/shell/console.ts`, and for the same
+ * reason: a string names what a boolean would make somebody re-derive.
+ */
+export function smokeLoadFailure(input: {
+  loaded: boolean;
+  mirrorServed: boolean;
+  deadlineMs: number;
+}): string | null {
+  if (input.loaded || input.mirrorServed) return null;
+  return (
+    `the live console did not finish loading within ${input.deadlineMs}ms, and no usable mirror ` +
+    `served ${MIRROR_ORIGIN} in its place (no mirror on disk, a poisoned one already deleted, a ` +
+    "refused fallback, or a genuine hang — the report line above says which)"
+  );
+}

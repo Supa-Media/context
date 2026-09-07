@@ -75,6 +75,7 @@ import {
   desktopUiMode,
   unexpectedConsoleAddress,
 } from "../core/shell/console.ts";
+import { smokeLoadFailure, wasMirrorServed } from "../core/shell/mirror.ts";
 import { darwinMajorFrom, systemAudioCapability } from "../core/shell/capabilities.ts";
 import {
   approvalTargetFor,
@@ -163,15 +164,24 @@ const SMOKE = process.argv.includes("--smoke") || process.argv.includes("--smoke
  *
  * So this is a second, opt-in flag for a machine with real network: it waits
  * for the console window's first navigation to settle — loaded or failed,
- * {@link SMOKE_LOAD_DEADLINE_MS} either way — then asks the mirror what it
- * wrote and reports whether the snapshot's own index is a `text/html`
- * document, which is the fact this whole fix is about. **The release gate
- * keeps using plain `--smoke`**: a runner's network is not part of what that
- * gate promises, and a `--smoke-load` run failing because a CI runner has no
- * route to `context.lc` would be exactly the false alarm `SMOKE_DEADLINE_MS`'s
- * own docblock already argues against. This flag is for a person, on a real
- * machine, online and then offline — the two runs `docs/decisions/desktop.md`
- * asks for after a signed build.
+ * {@link SMOKE_LOAD_DEADLINE_MS} either way — then, if it failed, waits for the
+ * mirror's own fallback navigation to settle too, and reports `loaded`,
+ * `mirrorServed` and `snapshotIsHtmlDocument`.
+ *
+ * **The exit code is `loaded || mirrorServed`, not `loaded` alone.** A launch
+ * with no network that lands on a good `app://console` mirror is the offline
+ * story working as designed, not a degraded pass — and the earlier rule, which
+ * failed on `!loaded` before it ever asked about the mirror, could not tell
+ * "no network" from "broken app": the exact false positive a mirror exists to
+ * answer. `smokeLoadFailure` in `core/shell/mirror.ts` is the one place that
+ * rule is stated.
+ *
+ * **The release gate keeps using plain `--smoke`**: a runner's network is not
+ * part of what that gate promises, and a `--smoke-load` run failing because a
+ * CI runner has no route to `context.lc` would be exactly the false alarm
+ * `SMOKE_DEADLINE_MS`'s own docblock already argues against. This flag is for
+ * a person, on a real machine, online and then offline — the two runs
+ * `docs/decisions/desktop.md` asks for after a signed build.
  */
 const SMOKE_LOAD = process.argv.includes("--smoke-load");
 /** How long `--smoke-load` waits for the console's first navigation to settle. */
@@ -309,9 +319,9 @@ let consoleMirror: ConsoleMirror | null = null;
 /**
  * Resolves once the console window's first navigation has settled — `true` for
  * `did-finish-load`, `false` for a main-frame `did-fail-load` (the mirror or
- * the failure page takes over from there, and this promise does not follow it:
- * the question `--smoke-load` is asking is whether *this* launch reached the
- * live console, not whether the fallback also finished loading).
+ * the failure page takes over from there, and this promise does not follow it
+ * — that is `consoleMirror.awaitFallback()`'s job, awaited separately by
+ * `--smoke-load` once this one resolves `false`).
  *
  * `null` on a launch that never opened a console window at all —
  * `CONTEXT_DESKTOP_UI=renderer`, or a `CONTEXT_DESKTOP_UI_URL` this app
@@ -1735,20 +1745,37 @@ async function main(): Promise<void> {
       // `did-finish-load` handler; give that its own `await`s before asking what
       // it wrote, or this would be asking the question before the write ran.
       if (loaded) await consoleMirror?.awaitSnapshot();
+      /*
+        A load that *failed* triggers the mirror's own fallback navigation
+        inside its `did-fail-load` handler, and that navigation is still
+        in-flight when `did-fail-load` returns — `win.loadURL(target)` has not
+        resolved yet. Awaiting it here is what makes `consoleWindow`'s own URL
+        below trustworthy: without it, an offline launch would ask "did the
+        window end up on `app://console`" before it had.
+      */
+      if (!loaded) await consoleMirror?.awaitFallback();
     }
 
     /*
-      The fact this whole fix is about: not merely "was something mirrored",
+      The fact the earlier fix was about: not merely "was something mirrored",
       but "is the *document* — the one thing a navigation can fall back to —
       really `text/html`". `mirrorIsUsable` asks the same question of a
       manifest already on disk; this asks it of the manifest this process is
-      holding right now, which on `--smoke-load` is the one this launch just
-      wrote.
+      holding right now, which on an offline `--smoke-load` may be a mirror a
+      *previous* run wrote rather than one this launch just made.
     */
     const mirroredManifest = consoleMirror?.currentManifest() ?? null;
     const snapshotIndexType = mirroredManifest?.entries[mirroredManifest.index]?.contentType ?? null;
     const snapshotIsHtmlDocument =
       snapshotIndexType === null ? null : snapshotIndexType.toLowerCase().startsWith("text/html");
+    /*
+      Whether the window ended up showing a real mirrored document — the fact
+      "no network" and "broken app" both used to look like, because neither
+      one is `loaded:true`. Read only after the fallback navigation above has
+      settled, so this is the URL the window actually committed to rather than
+      the one it was mid-navigation toward.
+    */
+    const mirrorServed = wasMirrorServed(consoleWindow?.webContents.getURL() ?? "", snapshotIsHtmlDocument);
 
     console.log(
       `[smoke] ${JSON.stringify({
@@ -1777,6 +1804,10 @@ async function main(): Promise<void> {
         // `--smoke-load` never got a chance to run); otherwise whether the
         // mirror's own index is a real document.
         snapshotIsHtmlDocument,
+        // True when the window ended on the offline mirror with a usable
+        // index — offline with a good mirror standing in for the live
+        // console. See wasMirrorServed in core/shell/mirror.ts.
+        mirrorServed,
       })}`,
     );
     if (windows < 1) return endSmoke(1, "no window was created");
@@ -1819,23 +1850,21 @@ async function main(): Promise<void> {
     }
 
     /*
-      Only `--smoke-load` fails on these — plain `--smoke` never waited for
+      Only `--smoke-load` fails on this — plain `--smoke` never waited for
       `loaded` to mean anything, and asking it to pass "the console really
       loaded" on a runner with no route to `context.lc` would just be a second,
       slower way to fail every offline CI run for a reason that has nothing to
       do with a crash.
+
+      ONE RULE, NOT TWO: a launch fails only when neither `loaded` nor
+      `mirrorServed` is true. Offline with a usable mirror is success — that is
+      the whole point of keeping one — so "no network" and "broken app" must
+      not share an exit code. `smokeLoadFailure` is the pure function this asks
+      rather than re-deriving the rule here; see `core/shell/mirror.ts`.
     */
     if (SMOKE_LOAD) {
-      if (!loaded)
-        return endSmoke(
-          1,
-          `the live console did not finish loading within ${SMOKE_LOAD_DEADLINE_MS}ms (offline, refused, or genuinely hung — the report line above says which, and \`snapshotIsHtmlDocument\` says whether a mirror from a previous run is still standing in for it)`,
-        );
-      if (snapshotIsHtmlDocument !== true)
-        return endSmoke(
-          1,
-          `the mirror's index is not a text/html document (${JSON.stringify(snapshotIndexType)})`,
-        );
+      const failure = smokeLoadFailure({ loaded, mirrorServed, deadlineMs: SMOKE_LOAD_DEADLINE_MS });
+      if (failure !== null) return endSmoke(1, failure);
     }
     return endSmoke(0, "the app started, opened a window, and is exiting cleanly");
   }

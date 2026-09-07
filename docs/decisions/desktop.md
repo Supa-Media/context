@@ -2003,6 +2003,28 @@ the wrong reason), both `--smoke-load` verdicts moved outside their `if (SMOKE_L
 reading the mirror before `awaitSnapshot` resolves (`1`), and
 `EFFECTIVE_SMOKE_DEADLINE_MS` collapsed back to `SMOKE_DEADLINE_MS` (`1`).
 
+### Offline with a mirror is success, and the exit code says so
+
+Found on a Mac, on hardware, after the fix above already shipped: `--smoke-load`
+exited `1` on every offline run, even against a mirror that same fix had just
+proven writes a real document, because the rule was `!loaded` alone and `loaded`
+is `false` offline by construction — making "no network" indistinguishable from
+"broken app" from the exit code, the exact confusion `--smoke` itself exists to
+avoid one flag over. So the rule `smokeLoadFailure` states in
+`core/shell/mirror.ts` is now `loaded || mirrorServed`: **exit `0`** when the
+live console loaded, *or* it did not but the window ended up showing a real
+mirrored document instead (`loaded: false, mirrorServed: true` — read via the
+new `wasMirrorServed`, which asks whether the window's own URL, only after
+`ConsoleMirror.awaitFallback()` resolves, is the mirror's origin serving a
+`text/html` index — offline working exactly as designed, not a degraded pass);
+**exit `1`** only when neither happened (no live load and no usable mirror,
+whether none was ever written, a poisoned one `mirrorIsUsable` already deleted,
+or the fallback itself failed), on an uncaught exception or unhandled rejection,
+or when no window was created at all. The release gate still runs plain
+`--smoke`, unchanged. Sabotaging the rule back to `loaded` alone — the exact
+bug — reddens exactly one check, `test/mirror.test.mjs`'s `OFFLINE WITH A
+USABLE MIRROR IS ALSO A PASS`.
+
 ### What is deliberately not built
 
 Not built, and none of them foreclosed:

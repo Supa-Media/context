@@ -94,6 +94,15 @@ export interface ConsoleMirror {
    * not asking the question before `snapshot()`'s own `await`s have finished.
    */
   awaitSnapshot(): Promise<void>;
+  /**
+   * Resolves once the fallback navigation triggered by the most recent
+   * `did-fail-load` has settled — or immediately, if none has run yet.
+   * `--smoke-load` awaits this before reading the window's own URL, because
+   * `did-fail-load` only *starts* `win.loadURL(target)`; without this, an
+   * offline launch would ask "did the window end up on `app://console`"
+   * while that navigation was still in flight.
+   */
+  awaitFallback(): Promise<void>;
 }
 
 const HTML_HEADERS = { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" };
@@ -107,6 +116,7 @@ export function createConsoleMirror(deps: ConsoleMirrorDeps): ConsoleMirror {
   let snapshotting = false;
   let lastFailure = "";
   let snapshotPromise: Promise<void> = Promise.resolve();
+  let fallbackPromise: Promise<void> = Promise.resolve();
 
   const loadManifest = async (): Promise<void> => {
     manifest = await store.load({
@@ -289,6 +299,7 @@ export function createConsoleMirror(deps: ConsoleMirrorDeps): ConsoleMirror {
     pinnedOrigin: () => pinnedOriginFor(servingUrl, deps.liveOrigin),
     currentManifest: () => manifest,
     awaitSnapshot: () => snapshotPromise,
+    awaitFallback: () => fallbackPromise,
     attach(win: BrowserWindow): void {
       void loadManifest();
 
@@ -306,7 +317,10 @@ export function createConsoleMirror(deps: ConsoleMirrorDeps): ConsoleMirror {
       });
 
       win.webContents.on("did-fail-load", (_event, errorCode, errorDescription, failedUrl, isMainFrame) => {
-        void (async () => {
+        // Captured, not fired-and-forgotten: `--smoke-load` awaits this before
+        // asking what the window ended up showing, because everything below is
+        // still in flight when `did-fail-load` returns.
+        fallbackPromise = (async () => {
           if (manifest === null) await loadManifest();
           const answer = respondToFailedLoad({
             isMainFrame,
