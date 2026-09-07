@@ -152,6 +152,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Offline is what the outbox was always for, plus a tray that needs no page
 - Step 6 landed: one origin at a time, and a mirror that refuses data
 - The order is seven pull requests, and the first one changes nothing by default
+- Step 4 landed: the console is what a launch opens, and the panel is one variable away
 - The signing keychain belongs to the workflow, not to electron-builder
 - What step 3 did not do, and what has since been done about it
 - One meeting is one credential, and on a Mac it is the machine's
