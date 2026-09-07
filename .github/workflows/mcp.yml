@@ -232,6 +232,15 @@ jobs:
           node scripts/check-workflow-triggers.mjs --self-test
           node scripts/check-workflow-triggers.mjs
 
+      # A deploy preflight calling the bare GET /accounts/{id} endpoint is what
+      # took down deploy-router.yml and deploy-email-worker.yml on 2026-09-07
+      # — see the script's header. email-worker.yml runs it too, same
+      # two-host reasoning as the trigger checker above.
+      - name: No deploy preflight calls the bare accounts/{id} endpoint
+        run: |
+          node scripts/check-workflow-cloudflare-preflight.mjs --self-test
+          node scripts/check-workflow-cloudflare-preflight.mjs
+
   no-nul-bytes:
     name: Source stays diffable
     runs-on: ubuntu-latest

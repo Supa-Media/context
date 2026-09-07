@@ -592,12 +592,20 @@ extended to a window that now loads a **remote** origin, which the panel and the
 notepad never did. That is the whole of what is new, and it is enough to warrant
 three independent guards rather than one:
 
-1. **The preload refuses to expose the bridge off-origin.** The pinned origin is
-   passed to the preload through `webPreferences.additionalArguments` at
-   construction, and `shouldExposeBridge(pinned, location.origin, isTopFrame)`
-   is a pure function that answers false for a different origin, for an
-   `about:blank`, and for **any subframe** — a preload runs in every frame, so
-   an iframe on a page is otherwise a bridge.
+1. **The preload refuses to expose the bridge off-origin.**
+   `shouldExposeBridge({ pinned, origin, isTopFrame })` is a pure function that
+   answers false for a different origin, for an `about:blank`, and for **any
+   subframe**. That last one is defence in depth rather than load-bearing, and
+   the difference is worth stating because the sentence here used to assert the
+   opposite: "a preload runs in every frame" is true only with
+   `nodeIntegrationInSubFrames`, which `createConsoleWindow` does not set —
+   measured on the real binary, in both directions. It is kept because the day
+   somebody sets that flag, or relaxes the origin rule for a sibling origin, is
+   the day an iframe would otherwise inherit a bridge. The pin reaches the preload by a `sendSync` to the main
+   process and deliberately **not** through
+   `webPreferences.additionalArguments`, which this paragraph specified and the
+   code never did: a sandboxed preload asks, so the pin has one source and it is
+   the main process.
 2. **The window cannot navigate off it.** `will-navigate` is cancelled and
    `setWindowOpenHandler` returns `{ action: "deny" }` and hands the URL to
    `shell.openExternal`, so a link inside somebody's note opens in their browser
@@ -607,11 +615,65 @@ three independent guards rather than one:
    a page choosing what this app asks macOS to open is the hazard rather than
    the feature. An unparseable target is refused by both guards rather than
    waved through, which is the direction a `try` around a `new URL` has to fail.
-3. **The main process re-checks the sender on every channel.** Each
-   `ipcMain.handle` compares `event.senderFrame.url`'s origin to the pinned one
-   and refuses otherwise. This exists precisely because guard 1 lives in the
-   renderer process: a compromised renderer is the threat model, and a check
-   inside it is a check the attacker owns.
+3. **The main process answers only its own console window's main frame, at the
+   pinned origin.** `isConsoleFrame` and `isBridgeSender` in
+   `main/consoleBridge.ts`: the sender's `webContents` id is this window's, its
+   frame's `parent` is `null`, and — for every channel but the two synchronous
+   ones — the frame's own origin equals the pin. The two synchronous channels
+   are identity-only on purpose: the preload calls them to learn *what* the pin
+   is, so asking whether it matches in order to answer what it is would be
+   circular, and both values are public. This exists precisely because guard 1
+   lives in the renderer process: a compromised renderer is the threat model,
+   and a check inside it is a check the attacker owns.
+
+   **This paragraph used to specify an origin comparison on
+   `event.senderFrame.url`, and for months nothing implemented it.** The main
+   process answered whoever asked, on every handler it had — a layer described
+   here, in `core/shell/console.ts` and in `packages/desktop-bridge`, and
+   present in none of them. `#272` found that; `#277` built it. Nothing leaked
+   while it was missing: the console's two channels then answered values that
+   are already public, and the `COMMANDS.*` channels are reachable only from
+   windows that `loadFile` this app's own HTML — not, note, because their
+   preload cannot send. `preload/index.ts` exposes twelve send verbs including
+   `record` and `connect`, and `preload/capture.ts` three.
+
+   **Identity as well as origin, and the reason is a measurement.** Driving the
+   real Electron 33.4.11 binary: `senderFrame.origin` is readable at preload
+   time, so unreadability was never the objection — but a second `BrowserWindow`
+   opened at the same address reports the same origin as the console, so an
+   origin comparison *alone* admits any other window this app opens at that
+   address. Identity refuses it.
+
+   The hidden capture window is the example **on two of the thirteen channels
+   and not on the other eleven**, and an earlier draft of this paragraph got
+   that wrong in each direction in turn. It is a `loadFile` of `capture.html`,
+   so its origin is `file://` and never the pin: on the eleven `handle`
+   channels the origin arm alone refuses it, and `THE HIDDEN CAPTURE WINDOW IS
+   REFUSED ON EVERY CHANNEL` still passes with identity deleted. But the two
+   **synchronous** channels have no origin arm — asking whether the pin matches
+   in order to answer what the pin is would be circular — so identity is the
+   only thing refusing it there, and deleting identity reddens *...and told
+   neither the pin nor the shell on the synchronous channels*. Both values are
+   public, so nothing leaks; what would be lost is the rule.
+
+   Identity also earns its place against a *second window at the live origin*,
+   which the offline mirror and a future second console make ordinary rather
+   than hypothetical. `parent === null` rather than an identity comparison between
+   `WebFrameMain` instances, because Electron's own typings caution that
+   distinct instances may refer to one frame; both were measured to work and
+   only one of them is documented behaviour.
+
+   **And the honest scope, recounted rather than carried: thirteen of
+   twenty-eight.** Twelve `COMMANDS.*` in `main/index.ts` and three in
+   `main/capture.ts` are still answered to whoever asks; the console bridge's
+   eleven `handle` channels and two synchronous ones are gated. The fifteen are
+   safe for the reason above and not for a better one, and the three capture
+   channels are the closest to the microphone of any channel here. That split is
+   asserted by a census in `test/consoleBridge.test.mjs` rather than left in
+   this paragraph, because a number in prose is a number somebody has to
+   remember: adding a gated channel moves one side of it, adding an ungated one
+   moves the other and reddens. Nothing here should be read as saying the
+   remaining fifteen are done.
 
 And one rule that is stronger than any of them: **the console window is never
 granted a media permission.** Its session's
@@ -625,12 +687,94 @@ cannot open a microphone directly, and it cannot record invisibly
 ([meetings](./meetings.md), *Consent is the customer's, and the product may
 never make recording invisible*).
 
-The test the owner asked for, and it is two: `a foreign origin gets no bridge`
-drives `shouldExposeBridge` through the origin, subframe and `about:blank` cases
-with no Electron in sight; `startCapture from a foreign sender is refused`
-drives the channel guard with a fake `event.senderFrame`. Both are sabotage
-tested — delete the origin comparison in either and exactly one of them must go
-red, which is what proves they are not the same check written twice.
+The tests, and they are in two files. `test/shell.test.mjs` drives
+`shouldExposeBridge` through the origin, subframe and `about:blank` cases with
+no Electron in sight. `test/consoleBridge.test.mjs` drives the answering side
+against a fake `ipcMain`: a foreign `webContents`, a page we did not pin, a
+subframe, the hidden capture window, and a disposed frame. Sabotage, measured — dropping the identity arm reddens **4**, the top-frame arm
+**2**, the origin comparison **4**, and opening the guard entirely **9**.
+
+**Deltas, and deliberately not a total.** A count of the whole suite is a number
+somebody else's merge falsifies, and on this branch it went stale four times in
+four commits — including in the sentence warning that it would. The deltas are
+what the sabotage means and they survive a merge; the totals live in the suite's
+own output, which is always current by construction. An earlier version of this
+paragraph also reconstructed pre-`#281` values for these rows and got them
+wrong in a way no single reading made consistent; they are not reconstructed
+here, because a historical number nobody re-measures is the same defect one
+tense back.
+Each arm is a different set of checks, which is what proves they are not one
+check written three times.
+
+**A third check is a census of the whole IPC surface**, and it exists because
+the first two only ever look at the channels they are already on. It reads every
+`.ts` file under `src/main` as text — they import Electron at the top level and
+the suite cannot load them — and it does not look for registrations: it accounts
+for **every mention of the identifier `ipcMain`**, requiring each to be the
+import, a registration it counts, or a `removeAllListeners`. Anything else is an
+unrecognised mention and reddens.
+
+That shape is the second attempt. The first read three files and one syntax, and
+this paragraph claimed a new ungated channel "appearing anywhere" would redden
+it — measured false three ways, all at 784 PASS / 0 FAIL: a registration in
+`main/windows.ts`, which it did not read; `ipcMain` split across lines before
+`.on`; and `ipcMain.on.bind(ipcMain)`. **A scan that aliasing steps around is a
+lower bound wearing an equals sign**, which is the same defect as a documented
+guard nobody built, one level down.
+
+That was the second shape, and it was a lower bound too. It classified
+"followed by `,` or `}`" as an import specifier, so `register(ipcMain, ch)`,
+`{ ipc: ipcMain }` and `Reflect.get(ipcMain, "on")` all read as imports — and
+`main/index.ts` already contains such a mention. Its comment-stripping regex
+also let a `//` inside a string literal eat the registration on the same line,
+a stripper whose failure direction is "delete the evidence".
+
+The version here removes strings and comments with a lexer rather than a regex
+(each misleads the other), removes import clauses whole rather than guessing
+from punctuation, counts the single hand-off to `createConsoleBridge` explicitly
+so it cannot become two, and walks `src/main` recursively over every extension
+the bundler loads. Measured as deltas rather than against a total, for the
+reason the sabotage paragraph above gives: a plain new `ipcMain.on` reddens 2, a
+registration in a new subdirectory with a new extension 2, a `//`-in-a-string
+hiding place 2, and each of `.bind`, an argument, an object property and
+`Reflect.get` reddens 1 — naming the offending mention in the failure. An
+`import { ipcMain as … }` rename **reddens 1**, by name, and that is the third
+hole this scan has had: deleting the import clause and then looking for the
+identifier means a file that binds it under another name has no mentions left to
+find, so `electronIpc.on(...)` registered a channel at 906 / 0. An earlier draft
+of this paragraph reported that silence as "reddens nothing", which is a hole
+described as a feature. The clause is where the aliasing happens, so the clause
+is where it is caught.
+
+The lexer needed a **regex-literal state** for the same reason: `const quoted =
+/["]/;` opened string mode on its own bracket and swallowed the registration on
+the next line, at 906 / 0 — the "delete the evidence" direction a lexer was
+introduced to avoid. A lexer without a regex state is a regex with extra steps.
+
+**And then the regex state opened the mirror-image hole**, which is where this
+stopped being a lexer problem and started being the wrong tool. `return
+/^[a-z']+$/i` divides — the character before the slash is the `n` of `return` —
+so the apostrophe opened string mode, a later quote closed it, and an ungated
+registration in that file passed at 916 / 0. Idiomatic TypeScript. Telling a
+regex from a division needs a parser, and this suite takes no dependencies.
+
+So the load-bearing check does not lex: it counts every occurrence of the
+identifier in the raw bytes, comments and strings included, and requires the
+total. Nothing about how a file lexes can move that number. Writing the
+identifier in a new comment reddens it, and the fix is to update the number on
+purpose — **a guard that complains when the surface is described differently is
+cheaper than one that stays silent when the surface is different.** The
+classification stays as the diagnostic that names the offending mention.
+
+Four shapes of one census, three of them holes. The lesson worth keeping is not
+about lexers: it is that a guard which must understand a language is a guard
+that inherits every ambiguity of that language, and a cruder check with no
+ambiguity to inherit is worth more than a clever one.
+
+That check is the answer to how this section came to describe a layer nobody had
+built. A guard tells you about the code it is pointed at; nothing was pointed at
+the question "is there something new here that no guard covers", and for months
+the answer was yes.
 
 ### Offline is what the outbox was always for, plus a tray that needs no page
 

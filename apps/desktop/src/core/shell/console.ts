@@ -175,10 +175,24 @@ export interface BridgeExposure {
  *    on the console page is otherwise a fully-privileged bridge belonging to
  *    whoever the page embedded.
  *
- * The main process re-checks the sender on every channel it handles, because
- * this function runs in the renderer and a compromised renderer is the threat.
- * The two are not one check written twice: this one decides what is *exposed*,
- * that one decides what is *answered*, and either alone leaves a hole.
+ * This function runs in the renderer, and a compromised renderer is the threat,
+ * so it is not the only layer: `isBridgeSender` in `main/consoleBridge.ts` is
+ * what the main process applies to the sender of every bridge channel that
+ * carries a verb, and `isConsoleFrame` — identity and top frame, without the
+ * origin — to the two synchronous ones, which the preload calls to learn what
+ * the pin *is*. The two layers are not one check written twice. **That one decides which renderer is
+ * answered — by frame identity and the sender's own origin, neither of which
+ * the page can spell — and this one decides which document is trusted.**
+ *
+ * Either alone leaves a hole, and for a while the second one existed only in
+ * sentences like this one. `#272` found it stated here, specified as guard 3 in
+ * `docs/decisions/desktop.md` beside a named test and a sabotage record for
+ * that test, and repeated in `packages/desktop-bridge` as the reason its own
+ * credential check is allowed to be a name check a Proxy walks past — while
+ * `senderFrame` and `event.sender` appeared nowhere in `apps/desktop/src` and
+ * none of the seventeen `ipcMain` handlers looked at who was asking. `#277`
+ * built it. What this paragraph is now is a pointer to code rather than a
+ * description of code that was never written.
  */
 export function shouldExposeBridge(exposure: BridgeExposure): boolean {
   const { pinned, origin, isTopFrame } = exposure;
