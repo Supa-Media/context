@@ -79,11 +79,11 @@ export function useNavBand(): ReactNode {
  * gap in it — a band of chrome that appears on a screen with nothing in it is
  * the second row of pills `ContextStrip` refuses to grow.
  */
-export function NavBand({ path }: { path?: ReactNode }) {
+export function NavBand({ gutter = 0, path }: { gutter?: number; path?: ReactNode }) {
   const contexts = useNavBand();
   if (contexts == null && path == null) return null;
   return (
-    <View style={styles.band} testID="nav-band">
+    <View style={[styles.band, gutter > 0 && { paddingHorizontal: gutter }]} testID="nav-band">
       {contexts}
       {path}
     </View>
@@ -99,6 +99,16 @@ const styles = StyleSheet.create({
    * a box drawn around a single line of type — and adding a second row does not
    * change the argument. The gap is the only thing separating the two rows, and
    * each row pays its own height.
+   *
+   * **The horizontal gutter is the caller's**, and both rows take it from here
+   * rather than each carrying its own — which is the thing that was wrong the
+   * first time this band was assembled. The strip used to be in the top bar and
+   * took that bar's `space.x3`; dropped into a scroller with no padding of its
+   * own it sat flush against the glass, a row of pills starting a quarter-inch
+   * to the left of the note under it. Which number is right depends on what the
+   * band is sitting above and only the caller knows: `layout.readingMargin`
+   * over a document, nothing at all inside a pane whose own content container
+   * already pays one.
    */
   band: { gap: space.x1 },
 });

@@ -311,6 +311,13 @@ export function BrowsePane({
    */
   const pathBar = compact ? (
     <NavBand
+      /*
+        The note's own margin, so the pills and the path line up with the first
+        character of the document under them rather than with the edge of the
+        glass. `NavBand` takes it from here for the reason its `band` style
+        gives: only the caller knows what the band is sitting above.
+      */
+      gutter={layout.readingMargin}
       path={
         selected === null ? null : (
           <Breadcrumb

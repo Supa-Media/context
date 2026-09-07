@@ -982,6 +982,14 @@ Three consequences that are decisions rather than placement:
   copies of a control, which is how one of them ends up with a handler the other
   does not have — the failure `NoteEditor.pathBar` already exists to prevent one
   layer down. It travels as a `ReactNode` through a context (`NavBandProvider`).
+- **The band pays the horizontal gutter for both of its rows, and the caller
+  decides the number.** The strip took the top bar's `space.x3` while it lived
+  there and had no padding of its own; dropped into a scroller it sat flush
+  against the glass, a row of pills a quarter-inch to the left of the note under
+  it. Which number is right depends on what the band is above and only the
+  caller knows — `layout.readingMargin` over a document, nothing at all inside a
+  pane whose content container already pays one — so `Breadcrumb.barPath` gives
+  its own up and takes the band's.
 - **The frame's top row is two slots now, not three.** The account mark stays
   pinned at the leading edge because it is the product's only sign-out and a
   control you have to scroll to find is one somebody concludes is missing; the
