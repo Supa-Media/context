@@ -860,20 +860,33 @@ replaced. The settings and the cursor on each product object are its own and
 survive; only the scopes are derived. The check is `a reconnect recomputes
 every product's scope slice from the one verbatim grant`.
 
-The second half is **not** closed here and is named so the sibling work does
-not discover it as a bug: **Google returns a grant covering exactly what was
-requested.** An "add Calendar to my existing connection" flow that asks for
-`scopesForProducts(["calendar"])` alone gets back a refresh token that no
-longer covers Gmail, and — because the row's scopes are honestly recomputed
-— records a `gmail.scopes` of `[]` beside a `products` still listing
-`gmail`. That is the true state written down rather than hidden, which is
-the point, but it is still a broken Gmail sync. The flow that adds a product
-must request the **union** of every product already on the row plus the new
-one (`scopesForProducts` already takes an arbitrary list, which is why this
-is an extension and not a migration), or set `include_granted_scopes=true`
-on the authorize URL. `googleAuthorizeUrl` does not set it today and should
-not start doing so silently: which of the two mechanisms is used is a
-decision for the change that first needs one.
+The second half was found here and closed by Calendar's own connect flow,
+the first sibling to actually add a product to an existing row: **Google
+returns a grant covering exactly what was requested.** An "add Calendar to my
+existing connection" flow that asked for `scopesForProducts(["calendar"])`
+alone would get back a refresh token that no longer covers Gmail, and —
+because the row's scopes are honestly recomputed — would record a
+`gmail.scopes` of `[]` beside a `products` still listing `gmail`. That would
+be the true state written down rather than hidden, which is the point, but it
+would still be a broken Gmail sync. Two independent defences, both cheap,
+neither load-bearing alone: `googleAuthorizeUrl` now sets
+`include_granted_scopes=true` unconditionally, so Google folds in whatever
+the account already granted this client regardless of which flow asks; and
+`startCalendarConnect` (`functions/calendarConnect.ts`) separately requests
+the **union** of every product on the one unambiguous existing
+`googleConnections` row for the workspace plus Calendar, not Calendar alone,
+when exactly one such row exists. ("Exactly one" matters: two Google accounts
+on one workspace is a real, supported shape, and a Calendar connect does not
+guess which one a person means to extend — `include_granted_scopes` is what
+still protects that ambiguous case, at Google's end.) Proven and sabotaged in
+`calendarConnect.test.ts` and `googleOAuth.test.ts`: dropping the
+request-side union fails 2 of 25 Calendar-connect tests; removing
+`include_granted_scopes` fails 2 tests spread across both files; reverting
+`applyCalendarConnectionBinding`'s Gmail-slice recompute back to a bare
+carry-forward (the same "two views of one fact" rule as the reconnect
+paragraph above, now proved in the Calendar-onto-Gmail direction too) fails a
+further 2 — each sabotage isolated to exactly the tests naming it, with every
+other test in the affected files staying green.
 
 **Disconnecting ends every product on the account, because it is one
 grant.** There is no "disconnect just Gmail while keeping Calendar" — Google's
@@ -1265,33 +1278,34 @@ and `dropping calendar-day from the summary order — not from classification �
 
 ### What this does not build yet
 
-**The Convex connection row is a documented contract here, not a wired
-integration — and it is deliberately its own OAuth connection, not a shared
-one.** `apps/mcp/src/communications/calendar-sync.js` takes a
-`CalendarConnection`-shaped object — account, calendar id, timezone, access
-token, sync cursors — and a `NoteStore`, and does the sync; it does not read
-or write a control-plane row itself. The Gmail connect flow this was
-scoped alongside landed as its own thing: `mailConnections` requests only
-`gmail.readonly` (plus `openid`/`userinfo.email` for the account identity),
-with no `products` set and no calendar scope requested — the "one OAuth
-grant, several products" shape this section originally assumed did not
-survive contact with Gmail's own restricted-scope reality, where asking for
-one scope at a time is the easier path to Google's verification, not a
-detail to unify away. So a calendar connection is its own OAuth grant
-(`calendar.readonly`), its own attempt table, and its own row — mirroring
-`mailConnections`' shape (encrypted refresh token, verbatim granted scopes,
-`googleAccountId`, sync cursors, `disconnectedAt` rather than deletion) —
-**deliberately not built in this change**. Standing up a second OAuth
-attempt/callback flow is a security-sensitive surface in its own right (PKCE,
-state binding, token sealing) and belongs in its own reviewed change rather
-than riding in behind a sync engine's tests; what this change delivers is
-that engine, complete and tested against the `CalendarConnection` interface
-above, ready to be wired to that row the day it exists. Until then it is
-exercised entirely against a fake, stateful Calendar API server
-(`fakeCalendarServer.mjs`) and a fake store, which is deliberately the same
-"pure functions plus fixtures" shape the whole of this package already has —
-see "The Gmail restricted scope is Google's decision" above for the same
-argument about testing ahead of a credential nobody can grant an agent yet.
+**The control-plane connection and the sync engine landed as two separate,
+reconciled changes, and only their join point is left.** This section
+originally assumed a calendar connection would be its own OAuth grant, its
+own attempt table and its own row — a guess that did not survive contact with
+how Gmail's flow was actually generalized: `googleConnections` (see "The
+Gmail connection" above) is one row per Google account, one grant, a
+`products` set, and one nested settings-and-cursor object per product, built
+specifically so a sibling product could attach without a second migration.
+Calendar is that sibling: `functions/calendarConnect.ts` is the real
+connect/reconnect/disconnect flow — same PKCE-attempt-then-scheduled-exchange
+shape as Gmail's, its own `CALENDAR_CONNECT_ENABLED` flag (Calendar's scope
+is *sensitive*, not *restricted* — a real distinction in Google's policy, so
+it is not tied to Gmail's CASA-verification timeline), and it attaches
+`calendar` to whatever `googleConnections` row a workspace already has rather
+than inventing a table. What is **still** not built is the last mile: nothing
+yet reads a `googleConnections` row's `calendar` product, decrypts its token,
+and calls `apps/mcp/src/communications/calendar-sync.js` with the
+`CalendarConnection`-shaped object that function expects — the same live-
+trigger gap `gmailSync.js` has too (see the fence-nonce paragraph below).
+`calendar-sync.js` remains exercised entirely against a fake, stateful
+Calendar API server (`fakeCalendarServer.mjs`) and a fake store, deliberately
+the same "pure functions plus fixtures" shape the whole of this package
+already has — see "The Gmail restricted scope is Google's decision" above for
+the same argument about testing ahead of a credential nobody can grant an
+agent yet. Wiring a live sync trigger for either channel is one change,
+scoped the same way for both, and is named here rather than built silently
+because it is the kind of "while I'm in here" scope creep this file's own
+rule warns against.
 
 **The fence nonce is a placeholder, and the same gap already exists in the
 Gmail sync.** `calendar-sync.js` derives it from the connection's account and

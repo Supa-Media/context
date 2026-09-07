@@ -56,6 +56,17 @@ export class CalendarApiError extends Error {
  * (`planAndFetch` below) can restart as a full sync, per Google's own
  * guidance for this exact response.
  *
+ * Only `410` is checked for and promoted. This is the exact place the Gmail
+ * reconciliation named a bug to avoid repeating: its `history.list` handling
+ * had inverted 404 detection, so an ordinary deletion (an ordinary 404) read
+ * as an expired cursor and forced a needless full resync. There is no
+ * equivalent branch here to invert — every status that is not `410`,
+ * 404 included, falls straight through to the generic `CalendarApiError`
+ * below with no promotion at all — so a gap in Calendar's own sense (an event
+ * this cache has that the feed no longer lists) stays a fact `sync.js`
+ * discovers by diffing what came back, never a side effect of an HTTP
+ * status. See `calendarGoogle.test.mjs`'s explicit 404 case.
+ *
  * @param {{fetchImpl: typeof fetch, accessToken: string, calendarId: string,
  *          syncToken?: string|null, windowStart?: string|null, windowEnd?: string|null,
  *          pageToken?: string|null}} args

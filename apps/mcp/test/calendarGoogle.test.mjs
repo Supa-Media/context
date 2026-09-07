@@ -125,6 +125,23 @@ export async function runCalendarGoogleChecks(check) {
   check("...never the access token", !String(threw500?.message ?? "").includes(ACCESS_TOKEN));
   void errorServer;
 
+  // The reconciliation brief flagged that Gmail's `history.list` had inverted
+  // 404 handling — a routine deletion looked like an expired cursor, because
+  // the wrong status was promoted to "start a full resync". This gateway's
+  // own gap detection never has that ambiguity to invert: only `410` is
+  // checked for and promoted (above); every other status, 404 included,
+  // falls through to the generic `CalendarApiError` branch with no special
+  // meaning attached. Proven directly rather than inferred from the 500 case,
+  // since 404 is the specific status the Gmail bug was about.
+  const notFoundFetch = async () => new Response(JSON.stringify({ error: "not found" }), { status: 404 });
+  let threw404 = null;
+  try {
+    await fetchCalendarPage({ fetchImpl: notFoundFetch, accessToken: ACCESS_TOKEN, calendarId: "primary" });
+  } catch (error) {
+    threw404 = error;
+  }
+  check("a 404 is an ordinary CalendarApiError, never promoted to a sync-token-expired full resync", threw404 instanceof CalendarApiError && !(threw404 instanceof SyncTokenExpiredError) && threw404.status === 404);
+
   /* ------------------------------ fetchAllPages: pagination --------------- */
 
   const pagedServer = createFakeCalendarServer({ pageSize: 2 });
