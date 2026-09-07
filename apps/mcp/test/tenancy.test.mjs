@@ -1028,6 +1028,266 @@ export async function runTenancyChecks(check) {
   check("registration returns a client_id", typeof registered.client_id === "string");
   check("a public client gets no secret", registered.client_secret === undefined);
 
+  /*
+    WHAT THE REGISTRATION RATE LIMIT IS KEYED ON, AND THAT IT IS NOT AN ADDRESS.
+
+    Registration is the only unauthenticated write in the control plane, and
+    every call mints a permanent row nothing sweeps. The limit lives there; what
+    lives here is the bucket name, and two properties of it that the control
+    plane cannot check for itself: that a key is sent at all, and that it is not
+    the caller's IP address.
+
+    A key that silently stopped being sent would not fail anything — the control
+    plane would just put every registration on the internet into one shared
+    bucket, which is a global limit wearing a per-registrant limit's clothes.
+  */
+  const registerFrom = async (address) => {
+    const before = controlPlane.calls.length;
+    const response = await worker.fetch(
+      new Request("https://mcp.context.test/oauth/register", {
+        method: "POST",
+        headers: address
+          ? { "Content-Type": "application/json", "CF-Connecting-IP": address }
+          : { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: "Keyed",
+          redirect_uris: ["https://client.test/callback"],
+          token_endpoint_auth_method: "none",
+        }),
+      }),
+      env,
+      { waitUntil() {} }
+    );
+    const call = controlPlane.calls
+      .slice(before)
+      .find((entry) => entry.path === "/gateway/clients/register");
+    /*
+      THE STATUS, NOT ONLY THE KEY, and the reason is a defect review measured
+      in the first version of this helper: it returned the key alone, so
+      `undefined` was equally true when the control plane had **never been
+      called**. The check below named for "still registers with no header"
+      therefore PASSED under a sabotage that made a missing header refuse the
+      registration outright — what went red was 28 unrelated OAuth tests that
+      happen not to set the header. The property was protected by accident, by
+      neighbours, which is this register's own definition of not a guard.
+    */
+    return { status: response.status, key: call?.body?.registrantKey };
+  };
+
+  const { key: keyFromOne } = await registerFrom("203.0.113.7");
+  const { key: keyFromOneAgain } = await registerFrom("203.0.113.7");
+  const { key: keyFromAnother } = await registerFrom("203.0.113.8");
+  check("a registration carries a registrant key", typeof keyFromOne === "string");
+  check("...stable for the same address, so a flood lands in one bucket", keyFromOne === keyFromOneAgain);
+  check("...and different for another, so it costs its own source", keyFromOne !== keyFromAnother);
+  check(
+    "...and it is not the address, which the control plane has no reason to hold",
+    !keyFromOne.includes("203.0.113.7") && keyFromOne !== "203.0.113.7"
+  );
+  /*
+    `X-Forwarded-For` is deliberately not read: a client sets it, so keying on
+    it would let one source spend everybody else's budget — or its own, over and
+    over, by changing it. Cloudflare overwrites `CF-Connecting-IP` on the way
+    in, which is the whole reason that is the header.
+  */
+  const forged = await worker.fetch(
+    new Request("https://mcp.context.test/oauth/register", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Forwarded-For": "203.0.113.9",
+        "CF-Connecting-IP": "203.0.113.7",
+      },
+      body: JSON.stringify({
+        client_name: "Forged",
+        redirect_uris: ["https://client.test/callback"],
+        token_endpoint_auth_method: "none",
+      }),
+    }),
+    env,
+    { waitUntil() {} }
+  );
+  const forgedKey = controlPlane.calls
+    .filter((entry) => entry.path === "/gateway/clients/register")
+    .at(-1)?.body?.registrantKey;
+  check("a client-supplied forwarding header cannot move the bucket", forgedKey === keyFromOne);
+  check("...and the registration still succeeds", forged.status === 201);
+
+  /*
+    No header at all — a self-hosted gateway behind something that does not set
+    one. It sends no key, which the control plane reads as the shared
+    unattributed bucket. The positive twin matters more than usual here: this
+    must still REGISTER, because refusing would break self-hosting, which
+    CLAUDE.md names as a supported path.
+  */
+  const withoutHeader = await registerFrom(null);
+  check("a gateway with no address header sends no key", withoutHeader.key === undefined);
+  check("...and the registration still succeeds, because refusing breaks self-hosting", withoutHeader.status === 201);
+
+  /*
+    ONE HOST IS ONE BUCKET, AND ONE NETWORK IS ONE BUCKET.
+
+    A key a stranger can rotate is a write amplification on a table nothing
+    sweeps — this repository argues that at the ingestion limiter, and the
+    first version of this change reproduced exactly what that comment
+    prevents. An IPv6 host routinely holds a whole /64, so keying on the
+    address is 2^64 free buckets and 2^64 permanent limiter rows. Measured on
+    that version: 100 registrations from a rotating address left 100 client
+    rows AND 100 limiter rows, against 100 with no limit at all — the limit
+    made the growth worse.
+
+    So these are the shapes that must agree, and the ones that must not.
+  */
+  const netOf = async (address) => (await registerFrom(address)).key;
+  const canonicalSix = await netOf("2001:db8::1");
+  check("an expanded IPv6 address is the same bucket as its short form",
+    (await netOf("2001:0db8:0000:0000:0000:0000:0000:0001")) === canonicalSix);
+  check("...and so is its upper-case form", (await netOf("2001:DB8::1")) === canonicalSix);
+  check("...and another address in the same /64, which one customer holds",
+    (await netOf("2001:db8::dead:beef")) === canonicalSix);
+  check("...and the same host with a port and brackets",
+    (await netOf("[2001:db8::1]:443")) === canonicalSix);
+  check("a DIFFERENT /64 is a different bucket, so this is not simply constant",
+    (await netOf("2001:db8:0:1::1")) !== canonicalSix);
+  check("an IPv4-mapped address is the same bucket as the IPv4 host it names",
+    (await netOf("::ffff:203.0.113.7")) === keyFromOne);
+  check("...and an IPv4 address with a port is that host, not a second bucket",
+    (await netOf("203.0.113.7:443")) === keyFromOne);
+  check("an unparseable address shares the unattributed bucket rather than minting one",
+    (await netOf("not-an-address")) === undefined);
+
+  /*
+    A QUAD AT THE END OF AN IPv6 ADDRESS IS NOT ALWAYS AN IPv4 HOST.
+
+    The first version of this took the dotted quad whenever the text ended in
+    one, ignoring what came before it. `2001:db8::203.0.113.7` is a perfectly
+    ordinary address inside `2001:db8::/64`, and it was spending IPv4 host
+    `203.0.113.7`'s budget: one network poisoning another's bucket, which is
+    the worse of the two directions this function can fail in.
+
+    Only two prefixes really name an IPv4 host — `::ffff:0:0/96` (mapped) and
+    the deprecated all-zero compatible form. `64:ff9b::/96` is NAT64 and
+    `::ffff:0:0:0/96` is SIIT: in both the embedded quad is the *destination*
+    being translated to, never the source, so crediting it to that host lets a
+    translator spend an arbitrary stranger's budget.
+  */
+  check("an IPv4-mapped address is still the host it names", (await netOf("::ffff:203.0.113.7")) === keyFromOne);
+  /*
+    The IPv4-COMPATIBLE form used to be read as the host too, and is not any
+    more — argued at the block below, where the numeric classification is. It
+    is deprecated by RFC 4291 and it is the same address as `::cb00:7107`, so
+    reading it as a host is a claim about spelling rather than about identity.
+  */
+  check("...but the deprecated compatible form is an ordinary address in ::/64",
+    (await netOf("::203.0.113.7")) !== keyFromOne);
+  check("a NAT64 address is its own network, not the host it translates to",
+    (await netOf("64:ff9b::203.0.113.7")) !== keyFromOne);
+  check("...and an ordinary address that merely ENDS in a quad is its own /64",
+    (await netOf("2001:db8::203.0.113.7")) !== keyFromOne);
+  check("...which is the /64 it belongs to, so it shares with its neighbours",
+    (await netOf("2001:db8::203.0.113.7")) === canonicalSix);
+  check("a SIIT-translated address is not the host either",
+    (await netOf("::ffff:0:203.0.113.7")) !== keyFromOne);
+
+  /*
+    AND ONE IPv4 HOST HAS ONE SPELLING, OR IT HAS UNBOUNDED BUCKETS.
+
+    `\d+` per octet accepts leading zeros without limit, so `203.000.113.007`
+    and `00000000203.0.113.7` were a second and third bucket for one host —
+    the exact rotation the /64 work exists to close, arriving through the
+    branch that had not been normalised. Octets are parsed now: one to three
+    digits, no leading zero unless the octet IS zero, and at most 255.
+
+    REFUSED rather than normalised, which is the opposite of what the first
+    draft of these two checks asserted. A padded octet is ambiguous — it has
+    meant octal — and no legitimate producer emits one, so reading `007` as
+    seven is a guess about what somebody meant. Refusing sends it to the
+    shared bucket, which closes the rotation just as completely (every padded
+    form collapses to one bucket) without deciding what it meant.
+  */
+  check("a padded IPv4 address is not a second bucket for the same host",
+    (await netOf("203.000.113.007")) === undefined);
+  check("...however much padding is on it", (await netOf("00000000203.0.113.7")) === undefined);
+  check("an octet above 255 is not an address at all", (await netOf("999.1.1.1")) === undefined);
+  check("...nor is one with too many parts", (await netOf("203.0.113.7.9")) === undefined);
+
+  /*
+    `::` STANDS FOR AT LEAST ONE GROUP, AND AN ADDRESS THAT IS ALREADY FULL
+    HAS NO ROOM FOR IT.
+
+    `Array(8 - left - right)` goes negative when an address carries `::` and
+    eight or more explicit groups, and `Array(-1)` throws `RangeError`. The
+    throw escapes `registrantKey`, is caught by `handleRegister`'s catch, is
+    not a `ControlPlaneError`, and reaches the `/oauth/` catch as **503
+    server_error** — a legitimate registration refused as "this server is
+    broken", for an address this function's own docblock promises returns
+    `null`. Structured fuzzing found it in 10,303 of 40,000 tries; 40,000
+    unstructured strings had found none, which is why the first probe missed
+    it.
+  */
+  for (const overfull of [
+    "1:2:3:4:5:6:7:8::9",
+    "::1:2:3:4:5:6:7:8:9",
+    "1:2:3:4:5:6:7::1.2.3.4",
+    "1:2:3:4:5:6:7:8::",
+    "::1:2:3:4:5:6:7:8",
+  ]) {
+    check(`an over-full address with :: is refused rather than thrown on (${overfull})`,
+      (await netOf(overfull)) === undefined);
+  }
+
+  /*
+    AND THE CLASSIFICATION IS ABOUT THE ADDRESS, NOT ABOUT HOW IT IS SPELT.
+
+    Deciding "is this an IPv4 host" from the text — does the last group contain
+    a dot — split one address into two buckets: `::ffff:203.0.113.7` was the
+    IPv4 host and `::ffff:cb00:7107`, the same address in hex, was
+    `0:0:0:0::/64`. Both directions at once, because that /64 is also where
+    EVERY hex-spelled mapped address landed, so 2^32 IPv4 hosts shared one
+    bucket with `::` and `::1`.
+
+    It expands to eight hextets first now and classifies from the numbers, so
+    the two spellings agree.
+
+    **Only the mapped prefix counts.** `::a.b.c.d` — the IPv4-COMPATIBLE form —
+    is deprecated by RFC 4291, and reading it as an IPv4 host would mean `::1`
+    is host `0.0.0.1`, since those are the same address. It stays an ordinary
+    address in `::/64`. That is a deliberate change from the previous
+    behaviour, which called it the host.
+  */
+  check("a mapped address in hex is the same bucket as the same address in dotted form",
+    (await netOf("::ffff:cb00:7107")) === keyFromOne);
+  check("...and both are the IPv4 host they name", (await netOf("::ffff:203.0.113.7")) === keyFromOne);
+  check("the deprecated compatible form is NOT read as an IPv4 host",
+    (await netOf("::203.0.113.7")) !== keyFromOne);
+  check("...because it is the same address as its hex spelling, which never was",
+    (await netOf("::203.0.113.7")) === (await netOf("::cb00:7107")));
+  check("...and loopback is not IPv4 host 0.0.0.1", (await netOf("::1")) === (await netOf("::0.0.0.1")));
+
+  /*
+    And the one answer the gateway has to translate rather than relay. The
+    `/oauth/` catch upstairs turns every control-plane failure into 503
+    `server_error`; a client cannot tell "retry in an hour" from "retry now",
+    and 503 invites the second.
+  */
+  controlPlane.flags.registrationRateLimited = true;
+  const limited = await worker.fetch(
+    new Request("https://mcp.context.test/oauth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.7" },
+      body: JSON.stringify({
+        client_name: "Too many",
+        redirect_uris: ["https://client.test/callback"],
+        token_endpoint_auth_method: "none",
+      }),
+    }),
+    env,
+    { waitUntil() {} }
+  );
+  controlPlane.flags.registrationRateLimited = false;
+  check("a rate-limited registration is 429, not 503", limited.status === 429);
+  check("...and says when to come back", limited.headers.get("Retry-After") === "3600");
+
   const badRedirect = await worker.fetch(
     new Request("https://mcp.context.test/oauth/register", {
       method: "POST",

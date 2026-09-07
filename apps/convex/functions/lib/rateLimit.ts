@@ -49,6 +49,35 @@ export interface RateLimitPolicy {
 }
 
 /**
+ * The longest window any caller may use, and the reason retention is derived.
+ *
+ * The first version of this said retention was "generous against the longest
+ * window any caller uses (an hour)" and set it to 24 hours. **That was false
+ * when written**: `invitationEmail.ts`'s `RECIPIENT_MAIL_WINDOW_MS` is 24
+ * hours, so retention equalled the longest window and the margin was zero. It
+ * was safe only by coincidence — `windowExpired` here compares `>=` and the
+ * sweep compares `<`, so the two line up exactly at the boundary and the swept
+ * set stays a strict subset of the dead set. One comparison operator away from
+ * refunding somebody's anti-abuse budget on outbound mail.
+ *
+ * So the margin is structural now rather than asserted: retention is twice the
+ * longest permitted window, and a window longer than this is refused at the
+ * call rather than silently outliving the sweep. `__tests__/rateLimit.test.ts`
+ * holds the two together.
+ */
+export const MAX_RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long a closed window is kept before it is swept.
+ *
+ * The only cost of keeping a dead row longer is the row. The cost of deleting
+ * a *live* one is a caller handed their spent budget back, which on the two
+ * routes a stranger can drive is the anti-abuse property itself — hence a
+ * multiple of the longest window rather than a number that looks comfortable.
+ */
+export const RATE_LIMIT_RETENTION_MS = 2 * MAX_RATE_LIMIT_WINDOW_MS;
+
+/**
  * Record one successful use of a limited operation, or throw `RATE_LIMITED`.
  *
  * Call it inside the same mutation as the work it limits, so the two commit or
@@ -61,6 +90,17 @@ export async function consumeRateLimit(
   ctx: MutationCtx,
   policy: RateLimitPolicy,
 ): Promise<void> {
+  if (policy.windowMs > MAX_RATE_LIMIT_WINDOW_MS) {
+    /*
+      A window longer than the sweep's retention would have its counters
+      deleted while still live, handing the caller their spent budget back.
+      Refused here rather than left to be noticed, because the failure is
+      silent everywhere else: the limit simply stops limiting.
+    */
+    throw new Error(
+      `rate limit window ${policy.windowMs}ms exceeds MAX_RATE_LIMIT_WINDOW_MS; raise it and the retention together`,
+    );
+  }
   const now = Date.now();
   const existing = await ctx.db
     .query("rateLimits")

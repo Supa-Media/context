@@ -995,20 +995,37 @@ const schema = defineSchema({
   /**
    * Fixed-window counters for the operations that must not be unbounded.
    *
-   * Today that is workspace creation, because a workspace claims a name out of
-   * a global namespace that has no release path, and email ingestion resolve,
-   * because it is the one route a total stranger can drive by sending mail —
-   * see `lib/rateLimit.ts` for what this scheme does and does not protect
-   * against.
+   * Nine call sites now, and the two that shape this table are the ones a
+   * **stranger** can drive: email ingestion resolve, and dynamic client
+   * registration. See `lib/rateLimit.ts` for what the scheme does and does not
+   * protect against.
    *
    * Holds no identity of its own: the key is a caller-built string, and the
    * row carries a count and a timestamp and nothing else.
+   *
+   * ## Why this table is swept, when the counters are tiny
+   *
+   * **The key is chosen by whoever is being limited**, so on an unauthenticated
+   * route the keyspace is theirs and not ours. `ingestionGateway.ts` handles
+   * that by counting *after* the lookups, which bounds its keys to names that
+   * belong to real contexts. Registration cannot: it has nothing to look up,
+   * so its key is derived from the caller's network, and somebody who holds
+   * many networks holds many keys.
+   *
+   * Normalising an address to its /64 collapses the cheap part of that — one
+   * customer's 2^64 addresses become one bucket — and the sweep bounds the
+   * rest, by *rate* rather than by keyspace: a row whose window closed carries
+   * no information, so it is garbage rather than state. Without the sweep the
+   * limit intended to stop unbounded rows would add a second unbounded table,
+   * which is measured in `__tests__/controlPlane.test.ts`.
    */
   rateLimits: defineTable({
     key: v.string(),
     windowStartedAt: v.number(),
     count: v.number(),
-  }).index("by_key", ["key"]),
+  })
+    .index("by_key", ["key"])
+    .index("by_windowStartedAt", ["windowStartedAt"]),
 
   /**
    * MCP clients registered dynamically (RFC 7591). A client is a piece of

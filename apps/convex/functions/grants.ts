@@ -28,6 +28,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { TOKEN_HASH_PATTERN } from "./lib/crypto";
 import { recordAudit } from "./lib/audit";
 import { getMembership, workspaceNotFound } from "./lib/workspaceAuth";
+import { RATE_LIMIT_RETENTION_MS, consumeRateLimit } from "./lib/rateLimit";
 import {
   clampAccessTokenExpiry,
   clampScopes,
@@ -231,10 +232,88 @@ export const revokeGrant = mutation({
 // ---------------------------------------------------------------------------
 
 /**
+ * Delete rate-limit counters whose window closed long ago.
+ *
+ * **The counters are the other half of the registration limit, not
+ * housekeeping.** `consumeRateLimit` writes one row per distinct key, and on an
+ * unauthenticated route the key belongs to the caller — so a limit with no
+ * sweep answers "a stranger can mint unbounded client rows" with "a stranger
+ * can mint unbounded client rows AND unbounded counter rows". Measured before
+ * this existed: 100 registrations from a rotating source left 200 permanent
+ * rows against the 100 an unlimited endpoint left.
+ *
+ * A row whose window has closed is garbage rather than state: the next call on
+ * that key resets it anyway (`windowExpired` in `lib/rateLimit.ts`), so
+ * deleting it and letting the next call re-insert are the same behaviour. A
+ * row still inside its window is somebody's spent budget and deleting it hands
+ * that budget back — hence a retention far past the longest window rather than
+ * "expired".
+ *
+ * Batched like every other sweep here. `moreRemaining` is returned for the
+ * tests and for a future caller that drains in a loop — **no operator sees
+ * it**: the cron discards the value and nothing logs it. Said plainly because
+ * the first version of this sentence claimed it was reported "so the cron can
+ * be reasoned about", which described an operational property it does not
+ * have.
+ */
+export const purgeExpiredRateLimits = internalMutation({
+  args: { limit: v.optional(v.number()) },
+  returns: v.object({ deleted: v.number(), moreRemaining: v.boolean() }),
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit ?? 200, 1), 1000);
+    const cutoff = Date.now() - RATE_LIMIT_RETENTION_MS;
+    const stale = await ctx.db
+      .query("rateLimits")
+      .withIndex("by_windowStartedAt", (q) => q.lt("windowStartedAt", cutoff))
+      .take(limit);
+    for (const row of stale) await ctx.db.delete(row._id);
+    return { deleted: stale.length, moreRemaining: stale.length === limit };
+  },
+});
+
+/**
+ * How many clients one registrant may mint per window.
+ *
+ * **Registration is the only unauthenticated write in the control plane**, and
+ * RFC 7591 says it has to be — an MCP client that has never met this server
+ * registers itself before anybody signs in. What it must not be is unbounded:
+ * the gateway mints a fresh `clientId` on every call, so the idempotency below
+ * bounds a client that re-registers and nothing that a stranger does. Every
+ * call is a permanent row, and `crons.ts` sweeps five kinds of row and never
+ * this one.
+ *
+ * Twenty an hour is far above any real client — a client registers once per
+ * deployment, not once per session — and far below what makes a table a
+ * problem. Raising it is a one-line change; the rows a low limit prevented are
+ * not recoverable, which is the asymmetry `MAX_WORKSPACES_PER_USER` is set by
+ * too.
+ *
+ * **The bucket is per registrant, not global**, and that is the load-bearing
+ * half. One bucket for the whole internet turns "anybody can grow the database
+ * without limit" into "anybody can switch registration off for everybody" —
+ * a different bug, not a fix. Keying it means a flood costs its own source and
+ * nobody else.
+ */
+const OAUTH_REGISTER_LIMIT = 20;
+const OAUTH_REGISTER_WINDOW_MS = 60 * 60 * 1000;
+
+/**
  * Dynamic client registration (RFC 7591).
  *
  * Idempotent on `clientId` so a client that re-registers after a redeploy does
  * not fork into two identities and orphan its grants.
+ *
+ * `registrantKey` is what the rate limit is keyed on — the gateway derives it
+ * from the connecting address, which Cloudflare sets and a client cannot
+ * forge. It is **optional** so that an older gateway, or a self-hosted one
+ * behind something that does not set the header, keeps working; but an
+ * optional field is the one a validator cannot guard, so absent does not mean
+ * unlimited. Everything without a key shares one bucket, which is the shape
+ * that fails toward "throttled together" rather than toward "off".
+ *
+ * The limit is consumed **inside this mutation**, so the counter and the row
+ * commit or roll back together — the arrangement `lib/rateLimit.ts` asks for,
+ * and the reason it counts successful registrations rather than attempts.
  */
 export const registerClient = internalMutation({
   args: {
@@ -249,9 +328,15 @@ export const registerClient = internalMutation({
     responseTypes: v.optional(v.array(v.string())),
     scope: v.optional(v.string()),
     applicationType: v.optional(v.union(v.literal("native"), v.literal("web"))),
+    registrantKey: v.optional(v.string()),
   },
   returns: v.id("oauthClients"),
   handler: async (ctx, args) => {
+    await consumeRateLimit(ctx, {
+      key: `oauth.register:${args.registrantKey ?? "unattributed"}`,
+      limit: OAUTH_REGISTER_LIMIT,
+      windowMs: OAUTH_REGISTER_WINDOW_MS,
+    });
     const metadata = {
       clientName: args.clientName,
       redirectUris: args.redirectUris,

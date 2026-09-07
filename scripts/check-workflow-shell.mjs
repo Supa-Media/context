@@ -19,8 +19,16 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const dir = ".github/workflows";
+/*
+  Resolved from this file rather than the working directory — same bug and same
+  fix as `check-workflow-yaml.mjs` and `check-workflow-triggers.mjs`. The
+  relative form works only because CI runs from the repo root; anywhere else it
+  is an ENOENT stack trace about `scandir`, which reads as "the tool is broken"
+  rather than "the tree is wrong".
+*/
+const dir = fileURLToPath(new URL("../.github/workflows", import.meta.url));
 const problems = [];
 
 /** Minimal YAML reach-in: we only need `run:` blocks, not a full parse. */

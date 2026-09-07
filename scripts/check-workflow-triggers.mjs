@@ -116,9 +116,15 @@
  */
 import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const DIR = ".github/workflows";
+/*
+  Resolved from this file rather than the working directory: the relative form
+  works because CI runs from the repo root, and dies with an ENOENT stack trace
+  about `scandir` anywhere else — before any floor or self-test can report the
+  useful thing. `check-workflow-yaml.mjs` had the same bug and the same fix.
+*/
+const DIR = fileURLToPath(new URL("../.github/workflows", import.meta.url));
 
 /**
  * Commands that put this repository's credentials to work somewhere real.

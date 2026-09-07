@@ -89,6 +89,7 @@
  *    ticket that expires in five minutes and buys exactly one credential.
  */
 
+import { ConvexError } from "convex/values";
 import { httpRouter } from "convex/server";
 import { auth } from "./auth";
 import { api, internal } from "./_generated/api";
@@ -440,7 +441,22 @@ export const gatewayClientsRegister = gatewayRoute(async (ctx, body) => {
       ? body.applicationType
       : undefined;
 
-  await ctx.runMutation(internal.functions.grants.registerClient, {
+  /*
+    A rate-limited registration is a 429 and not a 500.
+
+    `consumeRateLimit` throws a `ConvexError`, and an uncaught one out of an
+    httpAction is a 500 — which tells the gateway, and through it the client,
+    that this server is broken rather than that they went too fast. RFC 6749
+    clients back off on 429 and retry; on 500 they are entitled to hammer.
+    `Retry-After` carries the window the limiter already computed, so nobody
+    has to guess.
+
+    Only RATE_LIMITED is translated. Anything else is a real failure and keeps
+    its 500 — swallowing the rest here would turn a broken control plane into a
+    quiet "try later", which is the shape this repository keeps a list of.
+  */
+  try {
+    await ctx.runMutation(internal.functions.grants.registerClient, {
     clientId,
     clientName,
     redirectUris,
@@ -450,7 +466,23 @@ export const gatewayClientsRegister = gatewayRoute(async (ctx, body) => {
     responseTypes,
     scope,
     applicationType,
-  });
+    // What the registration rate limit is keyed on. Passed through rather than
+    // read here, because the connecting address is the gateway's to know: this
+    // route's own peer is always the gateway.
+    registrantKey: stringField(body, "registrantKey") ?? undefined,
+    });
+  } catch (error) {
+    const data = error instanceof ConvexError ? (error.data as { code?: unknown; retryAfterMs?: unknown }) : null;
+    if (data?.code !== "RATE_LIMITED") throw error;
+    const retryAfterMs = typeof data.retryAfterMs === "number" ? data.retryAfterMs : 0;
+    return new Response(JSON.stringify({ error: "rate_limited" }), {
+      status: 429,
+      headers: {
+        "Content-Type": "application/json",
+        "Retry-After": String(Math.max(1, Math.ceil(retryAfterMs / 1000))),
+      },
+    });
+  }
   return json({ ok: true });
 });
 

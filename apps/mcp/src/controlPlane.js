@@ -476,10 +476,19 @@ const CONTROL_PLANE_RESPONSE_BYTE_CAP = 256_000;
  * carry it.
  */
 export class ControlPlaneError extends Error {
-  constructor(reason) {
+  /**
+   * `status` is the control plane's HTTP status when there was one, and `null`
+   * for a transport failure. Carried as a field rather than left to be parsed
+   * back out of `reason`, because a caller that needs to tell one status from
+   * another would otherwise match on a message — and a message is the thing
+   * most likely to be reworded by somebody who does not know it is load
+   * bearing.
+   */
+  constructor(reason, status = null) {
     super(`control plane unavailable: ${reason}`);
     this.name = "ControlPlaneError";
     this.reason = reason;
+    this.status = status;
   }
 }
 
@@ -578,7 +587,10 @@ export function createControlPlane(env, options = {}) {
       // Status only. A control-plane error body is not something this worker
       // relays: it is written for operators, and the caller is an AI client on
       // the internet.
-      throw new ControlPlaneError(`status ${response?.status ?? "none"}`);
+      throw new ControlPlaneError(
+        `status ${response?.status ?? "none"}`,
+        response?.status ?? null
+      );
     }
     const declared = Number(response.headers?.get?.("content-length"));
     if (Number.isFinite(declared) && declared > CONTROL_PLANE_RESPONSE_BYTE_CAP) {

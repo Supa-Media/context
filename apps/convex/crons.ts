@@ -26,6 +26,29 @@ const crons = cronJobs();
  * in one transaction big enough to hit a limit — and a job that fails halfway
  * has still deleted whatever it deleted, because each run is independent.
  */
+/**
+ * The rate limiter's own table, which nothing swept.
+ *
+ * Every other sweep here is housekeeping on rows a *customer* created. This
+ * one is on rows created by whoever is being limited, and on the two routes a
+ * stranger can drive — email ingestion resolve and client registration — that
+ * means the keyspace belongs to them. See the table's docblock in `schema.ts`;
+ * a closed window carries no information, so this deletes garbage rather than
+ * state.
+ *
+ * Hourly, matching the authorization sweep it is copied from, because the
+ * batch is the same 200 rows and a daily run is a drain ceiling of 200/day.
+ * A source producing more distinct networks than that in a day would out-run
+ * a daily sweep permanently — which is the exact attacker this exists for, so
+ * taking the neighbour's rate costs nothing and removes the question.
+ */
+crons.interval(
+  "sweep closed rate-limit windows",
+  { hours: 1 },
+  internal.functions.grants.purgeExpiredRateLimits,
+  {},
+);
+
 crons.interval(
   "sweep expired authorization requests",
   { hours: 1 },

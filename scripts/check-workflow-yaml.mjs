@@ -36,10 +36,20 @@
  * `check-workflow-shell.mjs` spawning `bash -n`.
  */
 import { readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
-const WORKFLOWS = ".github/workflows";
+/**
+ * Resolved from this file, not from the working directory.
+ *
+ * It was `".github/workflows"`, which works because CI runs it from the repo
+ * root — and crashes with `ENOENT` from anywhere else, before the floor check
+ * below can say anything useful. A guard whose failure mode is a stack trace
+ * about `scandir` is a guard that gets read as "the tool is broken" rather
+ * than "the tree is wrong", and the two want different responses.
+ */
+const WORKFLOWS = fileURLToPath(new URL("../.github/workflows", import.meta.url));
 
 /**
  * What Python answers about one document: `null` when it is fine, else why not.
