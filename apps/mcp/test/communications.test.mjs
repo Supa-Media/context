@@ -21,9 +21,13 @@
  *
  * Run as temporary local edits and reverted, counts as measured:
  *
- * 1. **`canSee` dropped from the `list_channel_days` filter** — 4 checks
- *    failed: the private mailbox appeared in the listing, in its count, and the
- *    "nothing to see" answer stopped being given.
+ * Re-measured on review, after the checks below it grew; where a number moved,
+ * it is the count that was measured rather than the one that was expected.
+ *
+ * 1. **`canSee` dropped from the `list_channel_days` filter** — 6 checks
+ *    failed: the private mailbox appeared in the listing, in its count, in the
+ *    account-filter answer, and the "nothing to see" answer stopped being
+ *    given.
  * 2. **`canSee` dropped from `read_channel_day`** — 3 checks failed, and the
  *    refusal stopped being byte-identical to the one a missing path gets.
  * 3. **`read_channel_day` returns the whole file regardless of the argument** —
@@ -33,8 +37,12 @@
  *    failed: every day of the mailbox whose folder sorts first came before
  *    every day of the other, whatever the dates said. This is the trap
  *    `list_meetings` hit from the other direction when its date folders went.
- * 5. **The account filter removed** — 1 check failed.
- * 6. **`isMailboxSlug` dropped from `parseChannelDayPath`** — 1 check failed,
+ * 5. **The account filter removed** — 2 checks failed.
+ * 6. **The account filter applied before `canSee` instead of after** — **0**
+ *    checks failed, and that is written down rather than dropped: the two are
+ *    ANDed, so the order cannot change the answer. `canSee` is what holds this,
+ *    not where it sits, and sabotage 1 is the one that moves it.
+ * 7. **`isMailboxSlug` dropped from `parseChannelDayPath`** — 1 check failed,
  *    and only after a check was added: the first run said 0, because a
  *    forwarded capture is *also* refused by the "email has an account level"
  *    rule one line above, so the fixture could not tell the two guards apart.
@@ -309,6 +317,51 @@ export async function runCommunicationsChecks(check) {
       (await callTool(env, TEAM_TOKEN, "read_channel_day", { path: privateDay, messages: true })) ===
         "not found"
     );
+    /*
+      The account filter narrows a list `canSee` has already filtered, so
+      naming the private mailbox and naming one that has never existed have to
+      be one answer — otherwise the filter is a probe over a namespace the
+      caller cannot list.
+
+      Measured rather than assumed: swapping the two filters fails **0**
+      checks, and that is the correct number. They are ANDed, so the order
+      cannot change the answer, and it is `canSee` alone that holds this — not
+      its position. The sabotage that does move it is sabotage 1 below. This
+      pair asserts the *answer*, which is the thing an oracle would break.
+    */
+    check(
+      "naming the private mailbox in the filter is the same answer as naming a made-up one",
+      (await callTool(env, TEAM_TOKEN, "list_channel_days", { account: "personal-at-example-net" })) ===
+        (await callTool(env, TEAM_TOKEN, "list_channel_days", { account: "no-such-mailbox-at-example-org" }))
+    );
+    check(
+      "...and that answer is the one an empty bucket gives",
+      (await callTool(env, TEAM_TOKEN, "list_channel_days", { account: "personal-at-example-net" })) ===
+        "(no communications recorded yet)"
+    );
+
+    /* ------------------------------- routing ------------------------------ */
+    //
+    // Routing is decided in `callToolForSession` and nowhere else, and
+    // `crossContext.test.mjs` already asserts that every tool but ChatGPT's two
+    // advertises the `context` argument — which covers these two by
+    // construction. What is asserted here is the other half: that these tools
+    // are on the *enforced* side of that one decision rather than merely on the
+    // advertised side. A tool that resolved a context itself would answer from
+    // the connection's own bucket instead of refusing.
+
+    for (const tool of ["list_channel_days", "read_channel_day"]) {
+      check(
+        `${tool} routes through the one place, so a context nobody granted is refused`,
+        (await callTool(env, OWNER_TOKEN, tool, { context: "@no-such-context-anywhere", path: workDay })) ===
+          "this connection has no access to that context"
+      );
+      check(
+        `...and a ${tool} call naming a reserved route is refused the same way`,
+        (await callTool(env, OWNER_TOKEN, tool, { context: "@mcp", path: workDay })) ===
+          "this connection has no access to that context"
+      );
+    }
 
     /* -------------------------------- reading ----------------------------- */
 
