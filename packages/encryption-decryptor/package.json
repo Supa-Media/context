@@ -1,0 +1,30 @@
+{
+  "name": "@supa-media/context-encryption-decryptor",
+  "version": "0.1.0",
+  "description": "Offline, zero-dependency decryptor for Context's encrypted notes — open your notes with an exported workspace key and nothing else, no gateway and no control plane required.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "context-decrypt": "./bin/decrypt.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Supa-Media/context.git",
+    "directory": "packages/encryption-decryptor"
+  },
+  "homepage": "https://github.com/Supa-Media/context/tree/main/packages/encryption-decryptor#readme",
+  "bugs": {
+    "url": "https://github.com/Supa-Media/context/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node test/decrypt.test.mjs"
+  }
+}
