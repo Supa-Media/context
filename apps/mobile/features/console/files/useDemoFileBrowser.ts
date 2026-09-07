@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { demoTreeFor, type DemoContextTree } from "../placeholderData";
 import type { FileBrowser } from "./browser";
 import { editorReducer, emptyEditor } from "./editor";
+import { knownNotePaths } from "./paths";
 import type { OpenNote } from "./types";
 
 /** The note at a path in this tree, or `null` when it is a folder. */
@@ -168,6 +169,11 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       setVisibility: noop,
       setScope: noop,
       openLinkPaths: new Set<string>(),
+      // The demo tree is built synchronously and whole — every note in it is
+      // in `tree.listings` from the start, unlike a real browser where a
+      // folder loads on expansion — so `knownNotePaths` alone is already the
+      // complete answer and there is no docmap to merge in.
+      linkPaths: knownNotePaths(tree.listings),
       resetPrivacy: noop,
       canResetPrivacy: false,
       canSetVisibility: false,

@@ -263,15 +263,17 @@ export function LiveEditor({
    *
    * Each method is one message. What runs is `runCommand` in `editorSetup.ts`,
    * inside the guest, against the real `EditorView` — the same function the web
-   * half calls directly. That is the whole reason `EditorControls` is five
-   * verbs rather than "insert this text": a verb can be run against a state
-   * that has a selection and an undo history, and a string cannot.
+   * half calls directly. That is the whole reason `EditorControls` is a short,
+   * closed list of verbs rather than "insert this text": a verb can be run
+   * against a state that has a selection and an undo history, and a string
+   * cannot.
    */
   const api = useRef<EditorControls | null>(null);
   if (api.current === null) {
     api.current = {
       wrap: (before, after) => bridge.run({ name: "wrap", before, after }),
       toggleLinePrefix: (prefix) => bridge.run({ name: "toggleLinePrefix", prefix }),
+      insertLink: () => bridge.run({ name: "insertLink" }),
       undo: () => bridge.run({ name: "undo" }),
       redo: () => bridge.run({ name: "redo" }),
       blur: () => bridge.run({ name: "blur" }),

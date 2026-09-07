@@ -56,21 +56,31 @@ export const PROTOCOL_VERSION = 1;
 /**
  * What a button can ask the editor to do.
  *
- * The same five verbs `EditorControls` declares, as data rather than as
+ * The same verbs `EditorControls` declares, as data rather than as
  * methods, because on iOS they have to survive a JSON round trip. The web half
  * never encodes one — it holds the `EditorView` — but it runs the *same*
  * `runCommand` against it, so a command is defined once and behaves once.
  *
- * **Deliberately five verbs and not a command registry.** Everything here is
- * something the accessory bar actually does; a sixth added speculatively is a
- * verb one of the two surfaces will get wrong quietly, because only one of them
- * is exercised by any given run.
+ * **Deliberately a short, closed list and not a command registry.** Everything
+ * here is something the accessory bar actually does; one added speculatively
+ * is a verb one of the two surfaces will get wrong quietly, because only one
+ * of them is exercised by any given run. `insertLink` (A2) grew the list from
+ * five to six on that standard, not as a precedent for a seventh.
  */
 export type EditorCommand =
   /** Wrap the selection, or insert the pair at the caret with it between them. */
   | { name: "wrap"; before: string; after: string }
   /** Put `prefix` at the start of the caret's line, or take it off again. */
   | { name: "toggleLinePrefix"; prefix: string }
+  /**
+   * `[[]]`, caret between the brackets, with the `[[` completion opened
+   * immediately — A2 in the editor-polish sweep. See `docs/decisions/app-and-console.md`,
+   * "A link key on the accessory bar", for why this key exists at all: it
+   * reverses `NoteAccessory.tsx`'s own earlier argument against one, now that
+   * a bare `[[name]]` resolves (L1) and a phone has somewhere to show a link
+   * at all (L3).
+   */
+  | { name: "insertLink" }
   | { name: "undo" }
   | { name: "redo" }
   /**
@@ -102,6 +112,8 @@ export function decodeCommand(value: unknown): EditorCommand | null {
     case "toggleLinePrefix":
       if (typeof command.prefix !== "string") return null;
       return { name: "toggleLinePrefix", prefix: command.prefix };
+    case "insertLink":
+      return { name: "insertLink" };
     case "undo":
       return { name: "undo" };
     case "redo":

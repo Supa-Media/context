@@ -2297,3 +2297,57 @@ number to revisit, not an invariant. The screenshots that settled the original
 count, and the ones that settled this fix, are attached to the pull requests
 rather than committed: they are evidence for a decision, not a fixture anything
 reads.
+
+### A link key on the accessory bar, reversing the decision that dropped it
+
+`NoteAccessory.tsx`'s own header used to argue, at length, against a wikilink
+key: "it is Obsidian's wikilink key, and the `[ ]` beside it already covers the
+one bracket pair that means something here." That was correct when it was
+written and it is the sentence this section reverses — **A2** in the
+editor-polish sweep, and the sweep is explicit that reversing a documented
+decision needs the argument made again in the file rather than a quiet edit,
+which is what this is.
+
+**What changed underneath it, and why the same argument no longer holds.**
+Three things were true when the key was dropped and none of them is true now:
+
+- **A bare `[[name]]` did nothing.** `noteLinks.ts` drew a wikilink only once
+  it resolved, and nothing resolved a bare name at all, so a key that inserted
+  `[[]]` would have opened onto silence — the same failure mode F3 in the sweep
+  names for typing one by hand. **L1** (the note-path index, `[[`-completion
+  reusing the search index's own docmap) closed that: typing `[[` now offers
+  every note the index knows about, on every density, which on a phone is
+  close to every note in the bucket rather than the folder in front of you.
+- **Links had no place in the phone's chrome at all.** *The phone gets a path
+  bar* (above) is the section that put a breadcrumb back on a phone, and *A
+  touch screen is told nothing about the gesture* (**L3**) is the section that
+  gave a touch-followable link its own always-visible underline. Before both,
+  a link on a phone was a bracket pair with no visual distinction and no way
+  up if you followed one by accident. A `[[` key that opened onto that surface
+  would have been a control pointed at a feature with nowhere to land.
+- **The bracket-pair argument assumed one bracket key had to do both jobs.**
+  `brackets` still draws the task checkbox — that has not changed and is not
+  what this reverses — but "the one bracket pair that means something here"
+  was true only because `[[` meant nothing yet. It is not an argument that a
+  *second* key cannot exist; it was an argument that a second key had nothing
+  to be *for*.
+
+**What the reversal is, concretely.** A `link` key, inserting `[[]]` with the
+caret placed between the brackets and the completion list opened immediately
+— the same behaviour `linkComplete.ts` already gives a person who types `[[`
+by hand, reached without typing two characters on a soft keyboard that makes
+`[` two taps deep on most layouts. Placed beside `bullet` and `task`, the two
+other keys `A1` established as "the thing a person writing notes in a hurry
+actually reaches for" — a link to another note is exactly that category, not
+adjacent to it.
+
+**What this does not reverse.** The *reasons* Obsidian's own `tag` and
+`attach` keys stay off the bar are untouched: this product still has no tag
+model and no attachment upload from the console, and a key for either would
+still be present and do nothing. This section is narrowly about the one key
+whose absence was a fact about link resolution rather than a fact about the
+product, and that fact changed.
+
+The test that fails if this is reversed: `noteAccessory.test.ts`'s check that
+the `link` key exists, inserts `[[]]` with the caret between the brackets, and
+opens the completion — dropping any one of those three fails it and only it.

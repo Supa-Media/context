@@ -69,9 +69,41 @@ Four things about that are load-bearing:
   says what a person chose; the clamp says what their membership can still back
   up. Collapsing the two in either direction restores the old bug or invents a
   new one.
-- **The consent screen defaults to `team` for everybody, owners included.** The
-  old behaviour was private-by-default with no way out; a switch next to the old
-  default would have changed nothing. Approving is opting in.
+- **The consent screen defaults to `team` for every request that does not name
+  the tier, owners included.** The old behaviour was private-by-default with no
+  way out; a switch next to the old default would have changed nothing.
+  Approving is opting in.
+
+  **Amended 2026-09-07: a request that names `context:private` opens on
+  `private`.** As first written this bullet said "for everybody", and that
+  extra word was the defect rather than the protection. Every other requested
+  scope arrives ticked — the screen shows what the client asked for and
+  narrowing is something a person does, not something they have to undo — while
+  the tier was the one requested thing that arrived silently un-granted. So a
+  client that asked for it was approved without it and behaved differently ever
+  after, with nothing anywhere saying why. The desktop shell is where that
+  stopped being cosmetic: its grant's tier decides what a meeting is *filed as*
+  (`publishMeetingNote`), so the silent narrowing filed a person's meeting notes
+  team-visible — the privacy default *this bullet exists to prevent*, arrived at
+  by approving exactly what the screen displayed.
+
+  What it costs, stated rather than discovered: a client can now put the screen
+  on `private` by asking for it, so the protection against private-by-default is
+  no longer the default alone. It is that the request has to say so, that the
+  screen draws the tier as its own control with the elevated read sentence
+  ("including the ones you marked private"), that moving it is one tap, and that
+  a client which asks for nothing — `DEFAULT_REQUESTED_SCOPE` is `context:read
+  context:write` — cannot reach the branch at all. The role clamp is unchanged:
+  an editor asked for the private tier is still offered `team` alone.
+
+  **And a client must not trust the request as the answer.** The second half of
+  the same fix is in `apps/desktop`: `connectMachine` records the scope the token
+  endpoint returned verbatim (the `|| DESKTOP_SCOPE` fallback that stood there
+  made the record echo the request), and `postEntry` refuses to send a meeting on
+  a grant that does not carry the tier, holding it with a reason on the machine
+  card instead of letting the gateway file it at the wider one. `defaultTierFor`
+  in `features/consent/scopes.ts`, `grantCoversMeetings` in
+  `core/sync/connection.ts`, and the checks named in `docs/decisions/desktop.md`.
 
 There are three clamps, at three moments, and they are not redundant:
 `applyApproval` decides what may be *written* (a person, in a browser),

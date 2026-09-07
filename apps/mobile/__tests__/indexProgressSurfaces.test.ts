@@ -239,6 +239,7 @@ function mockConsoleData(): never {
     setSharePreviewTitle: () => {},
     copyShareLink: () => {},
     openLinkPaths: new Set<string>(),
+    linkPaths: [],
     setScope: () => {},
     collapseAll: () => {},
     copyTo: () => {},

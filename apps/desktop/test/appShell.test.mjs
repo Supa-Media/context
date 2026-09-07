@@ -49,6 +49,30 @@
  *   `--smoke` no longer asking `unexpectedConsoleAddress`                   1
  *   `--smoke` no longer asking about the application menu                   1
  *   the `SMOKE_DEADLINE_MS` timer deleted                                   1
+ *   `smokeLoadFailure`'s call moved outside its `if (SMOKE_LOAD)` guard      1
+ *   `[smoke]`'s `loaded` field hardcoded to `false`                         1
+ *   `--smoke-load` reading the mirror before `awaitSnapshot` resolves       1
+ *   `EFFECTIVE_SMOKE_DEADLINE_MS` collapsed back to `SMOKE_DEADLINE_MS`     1
+ *   the fallback navigation never awaited before reading the window's URL   1
+ *   `mirrorServed` hardcoded rather than asked of the window's own URL      1
+ *
+ * **The guard row is the one worth reading twice.** `smokeLoadFailure`'s call
+ * has to live *inside* `if (SMOKE_LOAD)`, because plain `--smoke` is what the
+ * release gate runs on every pull request, on a runner with no route to
+ * `context.lc` at all. Moving it outside that guard would fail every offline
+ * release for a reason that has nothing to do with a crash — the exact false
+ * alarm `SMOKE_DEADLINE_MS`'s own widening already argues against, one layer
+ * further out.
+ *
+ * **The last two rows are the finding this fix is about, made a check.** A
+ * Mac session found `--smoke-load` exiting 1 offline even when the mirror had
+ * just served a real document — `loaded:false` and nothing else was asked.
+ * `mirrorServed` and `wasMirrorServed` (`core/shell/mirror.ts`) are what tells
+ * "no network" apart from "broken app", and `smokeLoadFailure` is the one
+ * place the exit rule is stated: `loaded || mirrorServed`, not `loaded` alone.
+ * Reverting that rule to `loaded` alone — the exact bug — reddens **1** check
+ * in `test/mirror.test.mjs`, run as a temporary local edit and reverted:
+ * `smokeLoadFailure`'s own docblock names the run.
  *
  * The last row is why the stripper has a self-test at all: made into `(s) => s`
  * the three checks that scan for an *absent* string all invert, because the
@@ -215,7 +239,74 @@ export function runAppShellChecks(check) {
     check(
       "A HUNG LAUNCH ENDS ITSELF, SO A RELEASE JOB IS NEVER HELD OPEN",
       /const SMOKE_DEADLINE_MS = \d[\d_]*;/.test(source) &&
-        /setTimeout\(\(\) => endSmoke\(1, [^)]*\), SMOKE_DEADLINE_MS\)/.test(source),
+        /setTimeout\(\s*\(\) => endSmoke\(1, [^)]*\),\s*EFFECTIVE_SMOKE_DEADLINE_MS,?\s*\);/.test(source),
+    );
+    check(
+      "...and `--smoke-load` gets its own wait layered on top, not instead of it",
+      /const EFFECTIVE_SMOKE_DEADLINE_MS = SMOKE_LOAD \? SMOKE_DEADLINE_MS \+ SMOKE_LOAD_DEADLINE_MS : SMOKE_DEADLINE_MS;/.test(
+        source,
+      ),
+    );
+
+    /*
+      PLAIN `--smoke` NEVER CLAIMED THE PAGE LOADED, AND NOW SAYS SO IN ITS OWN
+      REPORT.
+
+      Before this, `[smoke]` carried no field for it at all — not a lie, but not
+      an answer either, and a person reading the line while diagnosing a mirror
+      that served raw JavaScript had no way to tell "did the page even reach
+      `did-finish-load`" from the report alone. `loaded` closes that: honest and
+      unwaited on plain `--smoke`, and actually awaited (up to
+      `SMOKE_LOAD_DEADLINE_MS`) only when `--smoke-load` asks for it.
+    */
+    check(
+      "THE `[smoke]` REPORT SAYS WHETHER THE CONSOLE LOADED, NOT ONLY WHETHER A WINDOW EXISTS",
+      /loaded,/.test(smoke) &&
+        /let loaded = consoleWindow !== null && !consoleWindow\.webContents\.isLoading\(\);/.test(smoke),
+    );
+    check(
+      "`--smoke-load` WAITS FOR THE CONSOLE'S FIRST NAVIGATION TO SETTLE, RATHER THAN GUESSING",
+      /if \(SMOKE_LOAD && consoleLoadSettled !== null\) \{/.test(smoke) &&
+        /Promise\.race\(\[\s*consoleLoadSettled,/.test(smoke),
+    );
+    check(
+      "...and only then asks the mirror what it wrote — after `awaitSnapshot`, not before it",
+      /if \(loaded\) await consoleMirror\?\.awaitSnapshot\(\);/.test(smoke),
+    );
+    check(
+      "...and, on a failed load, waits for the fallback navigation too, before reading the window's own URL",
+      /if \(!loaded\) await consoleMirror\?\.awaitFallback\(\);/.test(smoke),
+    );
+    check(
+      "THE REPORT NAMES THE FACT THIS FIX IS ABOUT: WHETHER THE MIRROR'S OWN INDEX IS text/html",
+      /const snapshotIsHtmlDocument =\s*\n\s*snapshotIndexType === null \? null : snapshotIndexType\.toLowerCase\(\)\.startsWith\("text\/html"\);/.test(
+        smoke,
+      ) && /snapshotIsHtmlDocument,/.test(smoke),
+    );
+    /*
+      THE FALSE POSITIVE ITSELF: offline with a good mirror used to exit 1.
+
+      A Mac session found this on hardware — `--smoke-load` exited 1 on
+      `loaded:false` alone, before `mirrorServed` existed as a field, even
+      though the mirror had just served a real document. "No network" and
+      "broken app" must not share an exit code, and `mirrorServed` plus
+      `wasMirrorServed` are what tells them apart.
+    */
+    check(
+      "THE REPORT ALSO NAMES WHETHER THE WINDOW ENDED ON A USABLE MIRROR",
+      /const mirrorServed = wasMirrorServed\(\s*consoleWindow\?\.webContents\.getURL\(\) \?\? "",\s*snapshotIsHtmlDocument,?\s*\);/.test(
+        smoke,
+      ) && /mirrorServed,/.test(smoke),
+    );
+    check(
+      "THE EXIT RULE ASKS ONE PURE FUNCTION, NOT TWO INLINE CHECKS",
+      /if \(SMOKE_LOAD\) \{\s*const failure = smokeLoadFailure\(\{ loaded, mirrorServed, deadlineMs: SMOKE_LOAD_DEADLINE_MS \}\);\s*if \(failure !== null\) return endSmoke\(1, failure\);\s*\}/.test(
+        smoke,
+      ),
+    );
+    check(
+      "...and that function is imported from the one place the rule is stated",
+      /import \{ smokeLoadFailure, wasMirrorServed \} from "\.\.\/core\/shell\/mirror\.ts";/.test(source),
     );
   }
 }

@@ -49,9 +49,13 @@ import { emptyOutbox, queueWrite, reconcileDrain } from "../core/sync/outbox.ts"
 import type { Outbox } from "../core/sync/outbox.ts";
 import { drainOnce } from "../core/sync/drain.ts";
 import { memoryTokenStore } from "../core/sync/tokenStore.ts";
-import { GatewayConnection } from "../core/sync/connection.ts";
+import {
+  GatewayConnection,
+  MEETING_TIER_REFUSAL,
+  grantCoversMeetings,
+} from "../core/sync/connection.ts";
 import { keychainTokenStore } from "./tokenStore.ts";
-import { browserlessRefresher, connectMachine } from "./connect.ts";
+import { browserlessRefresher, connectMachine, openInSystemBrowser } from "./connect.ts";
 import { transcribeChunk } from "./transcribe.ts";
 import { trayPresentation } from "../core/tray/presentation.ts";
 import type { TrayState } from "../core/tray/presentation.ts";
@@ -71,7 +75,13 @@ import {
   desktopUiMode,
   unexpectedConsoleAddress,
 } from "../core/shell/console.ts";
+import { smokeLoadFailure, wasMirrorServed } from "../core/shell/mirror.ts";
 import { darwinMajorFrom, systemAudioCapability } from "../core/shell/capabilities.ts";
+import {
+  approvalTargetFor,
+  createApprovalRoute,
+  returnAfterApproval,
+} from "../core/shell/approval.ts";
 import { createConsoleBridge } from "./consoleBridge.ts";
 import type { ConsoleBridge } from "./consoleBridge.ts";
 import { createConsoleMirror, registerMirrorScheme } from "./consoleMirror.ts";
@@ -140,7 +150,42 @@ const FAKE = process.argv.includes("--fake-signals");
  * whatever launched this, and a packaged `.app` double-clicked from the Dock
  * carries no arguments at all.
  */
-const SMOKE = process.argv.includes("--smoke");
+const SMOKE = process.argv.includes("--smoke") || process.argv.includes("--smoke-load");
+/**
+ * `--smoke-load` is `--smoke` that also waits for the console to really load.
+ *
+ * Plain `--smoke` deliberately proves *the window was created*, not that the
+ * page loaded — that is the whole point of its own docblock, and it is why
+ * the release gate can run with no network at all. But that same honesty
+ * meant `--smoke`'s report always said `loaded: false`, which is not a lie —
+ * it never waited to find out — and it is also not the check that would have
+ * caught the console being refused by its own `Cache-Control: private`, which
+ * the release gate's offline runner could never have seen either way.
+ *
+ * So this is a second, opt-in flag for a machine with real network: it waits
+ * for the console window's first navigation to settle — loaded or failed,
+ * {@link SMOKE_LOAD_DEADLINE_MS} either way — then, if it failed, waits for the
+ * mirror's own fallback navigation to settle too, and reports `loaded`,
+ * `mirrorServed` and `snapshotIsHtmlDocument`.
+ *
+ * **The exit code is `loaded || mirrorServed`, not `loaded` alone.** A launch
+ * with no network that lands on a good `app://console` mirror is the offline
+ * story working as designed, not a degraded pass — and the earlier rule, which
+ * failed on `!loaded` before it ever asked about the mirror, could not tell
+ * "no network" from "broken app": the exact false positive a mirror exists to
+ * answer. `smokeLoadFailure` in `core/shell/mirror.ts` is the one place that
+ * rule is stated.
+ *
+ * **The release gate keeps using plain `--smoke`**: a runner's network is not
+ * part of what that gate promises, and a `--smoke-load` run failing because a
+ * CI runner has no route to `context.lc` would be exactly the false alarm
+ * `SMOKE_DEADLINE_MS`'s own docblock already argues against. This flag is for
+ * a person, on a real machine, online and then offline — the two runs
+ * `docs/decisions/desktop.md` asks for after a signed build.
+ */
+const SMOKE_LOAD = process.argv.includes("--smoke-load");
+/** How long `--smoke-load` waits for the console's first navigation to settle. */
+const SMOKE_LOAD_DEADLINE_MS = 30_000;
 
 /**
  * The whole of a `--smoke` run, from module evaluation to the exit code.
@@ -161,6 +206,19 @@ const SMOKE = process.argv.includes("--smoke");
  * `test/launch.smoke.mjs` both stop the process themselves at sixty seconds.
  */
 const SMOKE_DEADLINE_MS = 30_000;
+/**
+ * The deadline actually armed below.
+ *
+ * A `--smoke-load` run has its own wait — up to {@link SMOKE_LOAD_DEADLINE_MS}
+ * for the console to settle, plus whatever `awaitSnapshot()` takes — layered
+ * *inside* the ordinary smoke path rather than replacing it. Arming the
+ * ordinary {@link SMOKE_DEADLINE_MS} underneath that would end the run with
+ * "nothing finished within 30000ms" while `--smoke-load` was still waiting on
+ * purpose, which is a false alarm about the same shape `SMOKE_DEADLINE_MS`'s
+ * own widening already argues against. So `--smoke-load` gets both budgets,
+ * back to back, as one outer limit.
+ */
+const EFFECTIVE_SMOKE_DEADLINE_MS = SMOKE_LOAD ? SMOKE_DEADLINE_MS + SMOKE_LOAD_DEADLINE_MS : SMOKE_DEADLINE_MS;
 
 /**
  * Say why, and stop — never `app.quit()`.
@@ -258,6 +316,29 @@ let consoleAddress: string | null = null;
  * `app://console` *instead of* the live origin, never as well as it.
  */
 let consoleMirror: ConsoleMirror | null = null;
+/**
+ * Resolves once the console window's first navigation has settled — `true` for
+ * `did-finish-load`, `false` for a main-frame `did-fail-load` (the mirror or
+ * the failure page takes over from there, and this promise does not follow it
+ * — that is `consoleMirror.awaitFallback()`'s job, awaited separately by
+ * `--smoke-load` once this one resolves `false`).
+ *
+ * `null` on a launch that never opened a console window at all —
+ * `CONTEXT_DESKTOP_UI=renderer`, or a `CONTEXT_DESKTOP_UI_URL` this app
+ * refused — which `--smoke-load` reads as "there was nothing to wait for".
+ */
+let consoleLoadSettled: Promise<boolean> | null = null;
+
+/**
+ * The one navigation this window makes that is neither the console nor the
+ * mirror: the loopback address a connect in flight is listening on.
+ *
+ * Module-level and single, because there is one console window and
+ * `connectThisMachine` already refuses to run twice over. It is `null` except
+ * between pressing Connect and the grant coming back — `core/shell/approval.ts`
+ * is the argument, and `test/approval.test.mjs` is the check.
+ */
+const approval = createApprovalRoute();
 
 let connectError: string | null = null;
 
@@ -673,7 +754,21 @@ async function main(): Promise<void> {
         // app ask to be connected after every restart is owed the reason.
         encrypted: tokens.encrypted,
         connecting,
-        error: connectError,
+        /*
+          The last attempt's failure, or the standing one: a machine connected
+          at the narrower tier is a machine holding its meetings, and the reason
+          has to be readable *whenever* that is true rather than only in the
+          seconds after the connect that caused it. So it is derived from the
+          grant on every push rather than latched into `connectError` once —
+          a restart, a refresh, or a grant that predates the tier existing all
+          reach this line and all say the same thing. `connectError` still wins
+          when there is one: it is newer and more specific.
+        */
+        error:
+          connectError ??
+          (connection.state() === "connected" && !grantCoversMeetings(connection.scope())
+            ? MEETING_TIER_REFUSAL
+            : null),
       },
       pending: new Set(outbox.entries.map((entry) => entry.sessionId)).size,
       missingPermissions,
@@ -945,7 +1040,14 @@ async function main(): Promise<void> {
     const before = outbox;
     const report = await drainOnce(
       before,
-      { baseUrl, token: () => connection.token() },
+      {
+        baseUrl,
+        token: () => connection.token(),
+        // Not the scope this app asked for: the one the grant came back with.
+        // `postEntry` holds a meeting rather than let the gateway file it at a
+        // visibility the person did not choose. See `grantCoversMeetings`.
+        scope: () => connection.scope(),
+      },
       () => Date.now(),
     );
     outbox = reconcileDrain(before, report.outbox, outbox);
@@ -1278,10 +1380,38 @@ async function main(): Promise<void> {
       writeMeeting: writeMeetingFromConsole,
     });
 
-    consoleWindow = createConsoleWindow(url, RENDERER_DIR);
+    consoleWindow = createConsoleWindow(url, RENDERER_DIR, {
+      approvalCallback: () => approval.callback(),
+    });
     // Before the load can finish or fail: the mirror owns `did-fail-load`, and
     // a fallback wired after the first load is a fallback that misses it.
     consoleMirror.attach(consoleWindow);
+    /*
+      Registered here, at creation, rather than wherever `--smoke-load` reads
+      it: the window's `loadURL` is already under way inside
+      `createConsoleWindow`, so a listener attached any later than this is a
+      listener that can lose the race to a fast local load. `.once` on both
+      events, so whichever fires first is the answer — a later navigation to
+      the mirror or the failure page is the fallback taking over and is
+      deliberately not what this promise reports.
+    */
+    const settlingWindow = consoleWindow;
+    consoleLoadSettled = new Promise<boolean>((resolveSettled) => {
+      let settled = false;
+      const finish = (loaded: boolean): void => {
+        if (settled) return;
+        settled = true;
+        resolveSettled(loaded);
+      };
+      settlingWindow.webContents.once("did-finish-load", () => finish(true));
+      settlingWindow.webContents.once(
+        "did-fail-load",
+        (_event, _errorCode, _errorDescription, _failedUrl, isMainFrame) => {
+          if (isMainFrame) finish(false);
+        },
+      );
+      settlingWindow.once("closed", () => finish(false));
+    });
     consoleWindow.once("ready-to-show", () => consoleWindow?.show());
     consoleWindow.on("closed", () => {
       /*
@@ -1331,14 +1461,100 @@ async function main(): Promise<void> {
   ipcMain.on(COMMANDS.connect, () => void connectThisMachine());
   ipcMain.on(COMMANDS.disconnect, () => void disconnectThisMachine());
 
+  /** The console window, when this launch has a live one. `null` otherwise. */
+  function liveConsoleWindow(): BrowserWindow | null {
+    try {
+      if (consoleWindow === null || consoleWindow.isDestroyed()) return null;
+      return consoleWindow;
+    } catch {
+      // A window torn down between the two reads. No window is the honest
+      // answer, and it puts the approval back in the system browser.
+      return null;
+    }
+  }
+
+  /**
+   * Show the approve screen **in this app's own window**, and say whether it
+   * went.
+   *
+   * `false` is not a failure: it means this launch has no console window (the
+   * tray-only mode still exists), or the authorization server named an
+   * authorize URL this shell will not navigate its own window to, and the
+   * caller falls back to the system browser — which is what this app did until
+   * now and still does for everybody without a window.
+   *
+   * The whole of the rule is `core/shell/approval.ts`. What is here is the
+   * Electron half: read where the window is so it can be put back, open the
+   * allowance, navigate, and raise the window so the approve screen is in front
+   * of the person who just pressed Connect rather than behind their editor.
+   */
+  async function approveInConsoleWindow(href: string): Promise<boolean> {
+    const win = liveConsoleWindow();
+    if (win === null || consoleAddress === null) return false;
+    const target = approvalTargetFor(href);
+    if (target === null) return false;
+
+    let from = "";
+    try {
+      from = win.webContents.getURL();
+    } catch {
+      from = "";
+    }
+    const authorize = approval.begin(
+      target,
+      returnAfterApproval(from, consoleAddress, consoleOrigin(consoleAddress)),
+    );
+    try {
+      await win.loadURL(authorize);
+    } catch {
+      /*
+        A load this process replaced, or a network that went away mid-flight.
+        The listener is still open and the URL has already been logged, so this
+        is not the end of the flow — and `finally` puts the window back on the
+        console either way.
+      */
+    }
+    win.show();
+    win.focus();
+    return true;
+  }
+
+  /**
+   * Put the window back where it was, and close the loopback allowance with it.
+   *
+   * Both halves matter and they are one call because forgetting either is the
+   * defect: an allowance left open is a standing permission for a page to walk
+   * to a socket on this machine, and a window left on the loopback listener's
+   * "Connected" page is a person stranded on a page whose server has closed.
+   */
+  function endApproval(): void {
+    const back = approval.end();
+    if (back === null) return;
+    const win = liveConsoleWindow();
+    if (win === null) return;
+    void win.loadURL(back).catch(() => {
+      // Offline, most likely. `consoleMirror` owns the failed load and serves
+      // the mirrored console in its place.
+    });
+  }
+
   /**
    * Connect this machine to a context.
    *
    * The endpoint is the person's own: self-hosting is a supported path and
    * there is no hard-coded gateway anywhere in this app. Everything after it —
-   * discovery, registration, the browser, the exchange — is `packages/hook`'s
+   * discovery, registration, the approval, the exchange — is `packages/hook`'s
    * reviewed flow, and the record it produces goes straight to the keychain
    * without passing through a renderer.
+   *
+   * **The approval happens in this window when there is one.** The person is
+   * already signed in to the console here; sending them to a browser where they
+   * are not was two sign-ins and a tab to close for one grant. The consent
+   * dialog goes with it in that case — the approve screen the control plane
+   * renders *is* the consent, it names the same scopes at more length, and a
+   * modal in front of it was this app asking a question the next screen asks
+   * properly. Tray-only launches have no window to approve in, so they keep
+   * both the dialog and the browser.
    */
   async function connectThisMachine(): Promise<void> {
     if (connecting) return;
@@ -1346,21 +1562,27 @@ async function main(): Promise<void> {
     connectError = null;
     push();
     try {
-      const answer = await dialog.showMessageBox({
-        type: "question",
-        title: "Connect this machine",
-        message: `Connect this machine to ${settings.gatewayEndpoint}`,
-        detail:
-          "Your browser will open so you can approve this machine. It is registered as its own connection, so you can revoke this laptop on its own — and it asks only for what a meeting needs: to write notes, at your own privacy tier.",
-        buttons: ["Open my browser", "Cancel"],
-        defaultId: 0,
-        cancelId: 1,
-      });
-      if (answer.response !== 0) return;
+      if (liveConsoleWindow() === null || consoleAddress === null) {
+        const answer = await dialog.showMessageBox({
+          type: "question",
+          title: "Connect this machine",
+          message: `Connect this machine to ${settings.gatewayEndpoint}`,
+          detail:
+            "Your browser will open so you can approve this machine. It is registered as its own connection, so you can revoke this laptop on its own — and it asks only for what a meeting needs: to write notes, at your own privacy tier.",
+          buttons: ["Open my browser", "Cancel"],
+          defaultId: 0,
+          cancelId: 1,
+        });
+        if (answer.response !== 0) return;
+      }
 
       const record = await connectMachine({
         endpoint: settings.gatewayEndpoint,
         log: (message) => console.log(message),
+        openBrowser: async (href) => {
+          if (await approveInConsoleWindow(href)) return;
+          await openInSystemBrowser(href);
+        },
       });
       await connection.connect(record);
       /*
@@ -1381,12 +1603,24 @@ async function main(): Promise<void> {
         every time a grant expired would ask again for no reason.
       */
       await update({ gatewayBaseUrl: record.gatewayBaseUrl, captureEnabled: true });
+      /*
+        Here rather than only in `finally`, because everything below this line
+        takes time a person would spend looking at the loopback listener's
+        "Connected" page: the transcription question is a modal over it, and the
+        drain can run for as long as the queue is long. `endApproval` is
+        idempotent — the `finally` still runs it, and still matters, because
+        every path that does not reach this line has to close the allowance too.
+      */
+      endApproval();
       await askAboutTranscription();
       // Whatever the queue is holding has been waiting for exactly this.
       await drain();
     } catch (error) {
       connectError = error instanceof Error ? error.message : "the connection could not be completed";
     } finally {
+      // Before `push()`, so the console the window is being returned to draws
+      // the state this connect ended in rather than the one it started from.
+      endApproval();
       connecting = false;
       push();
     }
@@ -1491,6 +1725,58 @@ async function main(): Promise<void> {
     const menuRoles: string[] = (menu?.items ?? []).flatMap((item) =>
       (item.submenu?.items ?? []).map((entry) => entry.role).filter((role) => role != null),
     );
+
+    /*
+      `loaded` is honest about what plain `--smoke` never waited to find out.
+      With no `--smoke-load`, this is simply whatever the window's own loading
+      flag says *right now* — almost always `false`, because a remote console
+      is nowhere near finished by the time `main()` reaches its last line, and
+      that is the truth rather than a placeholder. `--smoke-load` is the flag
+      that actually waits, up to `SMOKE_LOAD_DEADLINE_MS`, for the first
+      navigation to settle one way or the other.
+    */
+    let loaded = consoleWindow !== null && !consoleWindow.webContents.isLoading();
+    if (SMOKE_LOAD && consoleLoadSettled !== null) {
+      loaded = await Promise.race([
+        consoleLoadSettled,
+        new Promise<boolean>((resolveTimedOut) => setTimeout(() => resolveTimedOut(false), SMOKE_LOAD_DEADLINE_MS)),
+      ]);
+      // A load that succeeded triggers `consoleMirror`'s own snapshot inside its
+      // `did-finish-load` handler; give that its own `await`s before asking what
+      // it wrote, or this would be asking the question before the write ran.
+      if (loaded) await consoleMirror?.awaitSnapshot();
+      /*
+        A load that *failed* triggers the mirror's own fallback navigation
+        inside its `did-fail-load` handler, and that navigation is still
+        in-flight when `did-fail-load` returns — `win.loadURL(target)` has not
+        resolved yet. Awaiting it here is what makes `consoleWindow`'s own URL
+        below trustworthy: without it, an offline launch would ask "did the
+        window end up on `app://console`" before it had.
+      */
+      if (!loaded) await consoleMirror?.awaitFallback();
+    }
+
+    /*
+      The fact the earlier fix was about: not merely "was something mirrored",
+      but "is the *document* — the one thing a navigation can fall back to —
+      really `text/html`". `mirrorIsUsable` asks the same question of a
+      manifest already on disk; this asks it of the manifest this process is
+      holding right now, which on an offline `--smoke-load` may be a mirror a
+      *previous* run wrote rather than one this launch just made.
+    */
+    const mirroredManifest = consoleMirror?.currentManifest() ?? null;
+    const snapshotIndexType = mirroredManifest?.entries[mirroredManifest.index]?.contentType ?? null;
+    const snapshotIsHtmlDocument =
+      snapshotIndexType === null ? null : snapshotIndexType.toLowerCase().startsWith("text/html");
+    /*
+      Whether the window ended up showing a real mirrored document — the fact
+      "no network" and "broken app" both used to look like, because neither
+      one is `loaded:true`. Read only after the fallback navigation above has
+      settled, so this is the URL the window actually committed to rather than
+      the one it was mid-navigation toward.
+    */
+    const mirrorServed = wasMirrorServed(consoleWindow?.webContents.getURL() ?? "", snapshotIsHtmlDocument);
+
     console.log(
       `[smoke] ${JSON.stringify({
         ready: true,
@@ -1511,6 +1797,17 @@ async function main(): Promise<void> {
         */
         rendererDir: RENDERER_DIR,
         rendererDirExists: existsSync(RENDERER_DIR),
+        // `false` on plain `--smoke`, honestly — see this field's own comment
+        // above. `--smoke-load` is the flag that actually waits for it.
+        loaded,
+        // `null` when nothing was ever mirrored (no console window, or
+        // `--smoke-load` never got a chance to run); otherwise whether the
+        // mirror's own index is a real document.
+        snapshotIsHtmlDocument,
+        // True when the window ended on the offline mirror with a usable
+        // index — offline with a good mirror standing in for the live
+        // console. See wasMirrorServed in core/shell/mirror.ts.
+        mirrorServed,
       })}`,
     );
     if (windows < 1) return endSmoke(1, "no window was created");
@@ -1551,6 +1848,24 @@ async function main(): Promise<void> {
       if (missing.length > 0)
         return endSmoke(1, `the application menu is missing ${missing.join(", ")}`);
     }
+
+    /*
+      Only `--smoke-load` fails on this — plain `--smoke` never waited for
+      `loaded` to mean anything, and asking it to pass "the console really
+      loaded" on a runner with no route to `context.lc` would just be a second,
+      slower way to fail every offline CI run for a reason that has nothing to
+      do with a crash.
+
+      ONE RULE, NOT TWO: a launch fails only when neither `loaded` nor
+      `mirrorServed` is true. Offline with a usable mirror is success — that is
+      the whole point of keeping one — so "no network" and "broken app" must
+      not share an exit code. `smokeLoadFailure` is the pure function this asks
+      rather than re-deriving the rule here; see `core/shell/mirror.ts`.
+    */
+    if (SMOKE_LOAD) {
+      const failure = smokeLoadFailure({ loaded, mirrorServed, deadlineMs: SMOKE_LOAD_DEADLINE_MS });
+      if (failure !== null) return endSmoke(1, failure);
+    }
     return endSmoke(0, "the app started, opened a window, and is exiting cleanly");
   }
 }
@@ -1578,7 +1893,10 @@ if (CONSOLE_UI) registerMirrorScheme();
 if (SMOKE) {
   // Never cleared: every way out of a `--smoke` run goes through `endSmoke`,
   // which exits the process. A timer that outlives that has nothing to fire in.
-  setTimeout(() => endSmoke(1, `nothing finished within ${SMOKE_DEADLINE_MS}ms`), SMOKE_DEADLINE_MS);
+  setTimeout(
+    () => endSmoke(1, `nothing finished within ${EFFECTIVE_SMOKE_DEADLINE_MS}ms`),
+    EFFECTIVE_SMOKE_DEADLINE_MS,
+  );
   process.on("uncaughtException", (error) => endSmoke(1, `uncaught exception: ${error.message}`));
   process.on("unhandledRejection", (reason) => endSmoke(1, `unhandled rejection: ${String(reason)}`));
 }

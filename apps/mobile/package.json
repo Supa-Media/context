@@ -9,6 +9,9 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "jest",
+    "build:e2e-web": "EXPO_PUBLIC_E2E_FIXTURE=1 EXPO_PUBLIC_CONVEX_URL=\"${EXPO_PUBLIC_CONVEX_URL:-https://e2e-fixture.invalid}\" expo export --platform web --output-dir web-build --clear",
+    "test:e2e:webkit": "playwright test --config e2e/webkit/playwright.config.ts --project=webkit",
+    "test:e2e:webkit:chromium": "playwright test --config e2e/webkit/playwright.config.ts --project=chromium",
     "ios": "expo run:ios",
     "android": "expo run:android",
     "build:dev": "eas build --profile development",
@@ -92,6 +95,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^8.57.1",
+    "@playwright/test": "1.56.1",
     "@supa-media/linter": "^1.0.1",
     "@supa-media/metro": "^1.0.1",
     "@supa-media/testing": "^1.0.1",

@@ -19,6 +19,7 @@
 
 import { loginHref } from "../auth/redirect";
 import {
+  defaultTierFor,
   grantableTiers,
   isTierScope,
   normalizeScopes,
@@ -190,8 +191,14 @@ export interface TierControl {
  * inversion is the whole point of the feature: the old behaviour was
  * private-by-default with no way out, and a default that reproduces it with a
  * radio button next to it has changed nothing.
+ *
+ * It is what a request that names no tier gets, which is every silent client
+ * (`DEFAULT_REQUESTED_SCOPE` in the gateway names no tier either) and every
+ * client that asked only to read and write. A client that asked for the tier
+ * *by name* opens on what it asked for instead — `defaultTierFor` is the rule
+ * and carries the argument.
  */
-const DEFAULT_TIER: GrantableTier = "team";
+const UNREQUESTED_TIER: GrantableTier = "team";
 
 const INVALID: Extract<ConsentView, { kind: "invalid" }> = {
   kind: "invalid",
@@ -337,7 +344,16 @@ export function resolveConsentView(inputs: ConsentInputs): ConsentView {
   // `null` when nothing is picked yet, which the tier says out loud rather than
   // guessing at.
   const chosenRole = inputs.contexts.find((context) => context.id === chosen)?.role ?? null;
-  const tier = resolveTier(chosenRole, inputs.chosenTier, chosen !== null);
+  // The tier the *client* asked for, which is the default the screen opens on
+  // when the request named one. Read from the same `requestScopes` the tick
+  // boxes are built from, so what the screen defaults to and what the request
+  // said cannot drift apart.
+  const tier = resolveTier(
+    chosenRole,
+    inputs.chosenTier,
+    chosen !== null,
+    defaultTierFor(requestScopes(request)),
+  );
   const { granted, withheld } = splitRequestedScopes(
     request,
     chosenRole,
@@ -400,28 +416,37 @@ export function toggleScopeSelection(
 /**
  * The tier this approval would grant, and whether it is a choice at all.
  *
- * Defaults to `team` for everybody, including an owner. A person who has not
- * picked a context yet gets `unknown` — the screen says so rather than naming a
- * tier it cannot stand behind — and no options, because there is nothing yet to
- * choose between.
+ * Defaults to `team` for a client that asked for no tier — which is every
+ * silent client and most named ones — and to what the client asked for when it
+ * named the tier, so the screen and the grant agree about the request it is
+ * showing. `defaultTierFor` in `scopes.ts` carries the argument for that split.
+ * A person who has not picked a context yet gets `unknown` — the screen says so
+ * rather than naming a tier it cannot stand behind — and no options, because
+ * there is nothing yet to choose between.
+ *
+ * `requested` is a *default*, never a grant: it is one tap to move, the tier
+ * control is drawn whenever an owner has both to choose between, and the read
+ * line rewrites itself to say what the selected tier actually exposes.
  *
  * A choice that names a tier this role cannot grant is discarded rather than
  * honoured: the picker can move after a tier was picked, and an owner's
  * `private` must not survive a switch into a context where they are a member.
- * The backend clamps too; this keeps the screen from displaying a promise the
- * backend is about to break.
+ * The same clamp applies to the requested default, so a client asking an editor
+ * for the private tier still opens on `team`. The backend clamps too; this
+ * keeps the screen from displaying a promise the backend is about to break.
  */
 function resolveTier(
   role: string | null,
   chosen: GrantableTier | null,
   contextPicked: boolean,
+  requested: GrantableTier,
 ): TierControl {
   if (!contextPicked || role === null) {
     return { selected: "unknown", options: [], isAChoice: false };
   }
   const available = grantableTiers(role);
-  const selected =
-    chosen !== null && available.includes(chosen) ? chosen : DEFAULT_TIER;
+  const fallback = available.includes(requested) ? requested : UNREQUESTED_TIER;
+  const selected = chosen !== null && available.includes(chosen) ? chosen : fallback;
   return {
     selected,
     options: available.map((value) => ({ value, ...tierOption(value) })),

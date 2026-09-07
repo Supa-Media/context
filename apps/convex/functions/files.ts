@@ -112,6 +112,7 @@ import {
   movePath,
   readFile,
   maintainSearchIndex,
+  notePathIndex,
   projectSearchIndex,
   type ProjectionClient,
   type ProjectionPass,
@@ -309,6 +310,16 @@ const searchResultsValidator = v.object({
 });
 
 /**
+ * `null` means the search index has nothing to answer link resolution from
+ * yet — not "this bucket has no notes". See `notePathIndex` in
+ * `lib/fileOps.ts`.
+ */
+const notePathsValidator = v.object({
+  kind: v.literal("notePaths"),
+  paths: v.union(v.array(v.string()), v.null()),
+});
+
+/**
  * One blended answer: a page of results, and one row per context it asked.
  *
  * Every count in here is taken **after** the caller's own `canSee` — in
@@ -410,6 +421,7 @@ const operationResultValidator = v.union(
   imageWrittenValidator,
   imageValidator,
   searchResultsValidator,
+  notePathsValidator,
   indexMaintainedValidator,
   indexProjectedValidator,
 );
@@ -434,6 +446,12 @@ const operationValidator = v.union(
      */
     refreshOnMiss: v.optional(v.boolean()),
   }),
+  /**
+   * Every note path this scope may see, for the editor's link resolution.
+   * See `notePathIndex` in `lib/fileOps.ts` and "L1" in
+   * `docs/decisions/app-and-console.md`.
+   */
+  v.object({ kind: v.literal("notePaths") }),
   /**
    * Bring the search index a pass further. Scheduled, never called by a client
    * — there is no public action that reaches this variant.
@@ -510,6 +528,7 @@ type FileOperation =
       limit?: number;
       refreshOnMiss?: boolean;
     }
+  | { kind: "notePaths" }
   | { kind: "maintainIndex"; passes?: number }
   | { kind: "projectIndex"; passes?: number }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
@@ -527,6 +546,7 @@ type FileOperation =
 
 type OperationResult =
   | ({ kind: "searchResults" } & SearchResults)
+  | { kind: "notePaths"; paths: string[] | null }
   | { kind: "indexMaintained"; pending: number; changed: boolean; complete: boolean }
   | ({ kind: "indexProjected" } & Omit<ProjectionPass, "failure"> & { failure?: string })
   | {
@@ -995,6 +1015,10 @@ export async function executeOperation(
         );
         return { kind: "searchResults", ...results };
       }
+      case "notePaths": {
+        const found = await notePathIndex(store, scope);
+        return { kind: "notePaths", paths: found?.paths ?? null };
+      }
       case "projectIndex": {
         // Scope-blind, exactly like `maintainIndex` below: the tier a note is
         // copied at comes from `privacy.md` per note, never from whoever
@@ -1319,6 +1343,39 @@ export const searchContext = action({
       });
     }
     return result;
+  },
+});
+
+/**
+ * Every note path this member's scope may see, for the editor's link
+ * resolution — `[[name]]` following and the `[[` completion.
+ *
+ * **Read-only, and deliberately schedules nothing.** `searchContext` chains
+ * `maintainIndex` behind a miss because somebody is watching a spinner for an
+ * answer about a word they typed; nobody is watching this one, and a context
+ * that has never been searched simply resolves fewer links until an ordinary
+ * search — or `maintainIndex`'s own hourly reach — catches the index up. See
+ * `docs/decisions/app-and-console.md`, "L1".
+ */
+export const notePaths = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: notePathsValidator,
+  handler: async (
+      ctx,
+      args,
+    ): Promise<Extract<OperationResult, { kind: "notePaths" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "member",
+    });
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      operation: { kind: "notePaths" },
+    });
+    return result as Extract<OperationResult, { kind: "notePaths" }>;
   },
 });
 

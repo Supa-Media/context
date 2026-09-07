@@ -31,10 +31,20 @@
  *    asked to keep.
  *  - **Nothing carrying a credential or a person.** `Set-Cookie`,
  *    `Authorization`, `WWW-Authenticate`, a `Cache-Control` that says
- *    `no-store`/`private`, a `Vary` on `Cookie` or `Authorization`. The
- *    snapshot is fetched with credentials omitted for the same reason, so this
- *    check is the second of two rather than the only one: what it catches is a
+ *    `no-store`, a `Vary` on `Cookie` or `Authorization`. The snapshot is
+ *    fetched with credentials omitted for the same reason, so this check is
+ *    the second of two rather than the only one: what it catches is a
  *    response that is per-person *anyway*.
+ *
+ *    **`private` is not on that list, and it used to be.** `Cache-Control:
+ *    private` is HTTP's own permission for a single-user cache to keep a
+ *    response — which is exactly what a mirror on one person's own disk is —
+ *    and `https://context.lc/console` is served with `must-revalidate,
+ *    private, max-age=0`. Refusing `private` refused the console document on
+ *    every load: only the cacheable JS bundle ever survived, `save` had no
+ *    document to make its index, and the offline window rendered raw
+ *    minified JavaScript. `no-store` still means what it always meant —
+ *    *do not keep this at all* — and stays refused.
  *  - **Only a `GET` that answered `200`,** and only a content type the console
  *    is actually made of. A redirect, a `206`, an event stream and a download
  *    are all things this app has no business replaying.
@@ -267,8 +277,15 @@ export function shouldMirror(candidate: MirrorCandidate): MirrorDecision {
       return { ok: false, why: MIRROR_REFUSALS.credentialed };
     }
   }
+  /*
+    `private` is deliberately not checked here. It is HTTP's permission for a
+    single-user cache to keep the response, which is exactly what this mirror
+    is; refusing it refused `https://context.lc/console` itself, whose real
+    header is `must-revalidate, private, max-age=0`. `no-store` still means
+    "do not keep this at all" and is the only word here that says so.
+  */
   const cacheControl = readHeader(candidate.headers, "cache-control").toLowerCase();
-  if (cacheControl.includes("no-store") || cacheControl.includes("private")) {
+  if (cacheControl.includes("no-store")) {
     return { ok: false, why: MIRROR_REFUSALS.noStore };
   }
   const vary = readHeader(candidate.headers, "vary").toLowerCase();
@@ -473,7 +490,19 @@ export function mirrorIsUsable(
   if (typeof entries !== "object" || entries === null) return false;
   const index = entries[value.index];
   if (typeof index !== "object" || index === null) return false;
-  return typeof index.contentType === "string";
+  /*
+    The index must be the console's own document, not merely *some* file that
+    happened to be written first. `index ??= key` used to make the index
+    whichever response `save` stored first — and a shell that only ever
+    managed to mirror the JS bundle (`Cache-Control: private` refusing the
+    document itself, before that refusal was corrected above) wrote a manifest
+    whose index was `application/javascript`. `mirrorIsUsable` answered true
+    for it, and the offline window rendered raw minified JavaScript in a
+    `<pre>`. A manifest already on disk with a non-document index is exactly as
+    unusable as one that fails every other check here — deleted on load, not
+    patched.
+  */
+  return typeof index.contentType === "string" && index.contentType.toLowerCase().startsWith("text/html");
 }
 
 /**
@@ -590,4 +619,51 @@ export function failurePage(input: { liveUrl: string; message?: string }): strin
     `<a href="${escapeHtml(input.liveUrl)}">${escapeHtml(MIRROR_NOTICE.retry)}</a>`,
     "</main></body></html>",
   ].join("");
+}
+
+/**
+ * Whether the window ended up showing a real mirrored document.
+ *
+ * Two facts, both decided elsewhere and only combined here: `isMirrorUrl` is
+ * where the window's own navigation actually landed, and the `text/html` check
+ * is `mirrorIsUsable`'s own rule about the index, asked again because the
+ * manifest behind it may not be one this launch wrote — it can be whatever a
+ * *previous* run's successful load left on disk, which is the whole reason an
+ * offline launch has anything to fall back to at all. A `false` on the mirror's
+ * own failure page (no manifest, so `indexIsHtmlDocument` is `null`) falls out
+ * of the same two checks rather than needing a case of its own.
+ */
+export function wasMirrorServed(finalUrl: string, indexIsHtmlDocument: boolean | null): boolean {
+  return isMirrorUrl(finalUrl) && indexIsHtmlDocument === true;
+}
+
+/**
+ * Whether `--smoke-load`'s report is a pass, stated as a fact about what a
+ * person can do rather than as a story about the network.
+ *
+ * A launch fails only when **neither** thing that would let somebody actually
+ * use the console happened: the live page never finished loading, *and* no
+ * usable mirror ended up standing in for it. Offline with a good mirror is not
+ * a degraded pass reported as a failure — it is the offline story
+ * (`docs/decisions/desktop.md`, *Offline is what the outbox was always for*)
+ * working exactly as designed, and an exit code that cannot tell that apart
+ * from a hung or broken launch is the false positive the mirror exists to
+ * answer: "no network" must not read as "broken app".
+ *
+ * Returns `null` when there is nothing wrong, and otherwise the sentence
+ * `--smoke-load` exits non-zero with — the same shape as
+ * `unexpectedConsoleAddress` in `core/shell/console.ts`, and for the same
+ * reason: a string names what a boolean would make somebody re-derive.
+ */
+export function smokeLoadFailure(input: {
+  loaded: boolean;
+  mirrorServed: boolean;
+  deadlineMs: number;
+}): string | null {
+  if (input.loaded || input.mirrorServed) return null;
+  return (
+    `the live console did not finish loading within ${input.deadlineMs}ms, and no usable mirror ` +
+    `served ${MIRROR_ORIGIN} in its place (no mirror on disk, a poisoned one already deleted, a ` +
+    "refused fallback, or a genuine hang — the report line above says which)"
+  );
 }

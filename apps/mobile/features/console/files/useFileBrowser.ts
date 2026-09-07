@@ -50,6 +50,7 @@ import {
   describeNameProblem,
   ensureMarkdown,
   joinPath,
+  mergeLinkPaths,
   parentPath,
   isMarkdown,
 } from "./paths";
@@ -179,6 +180,7 @@ export function useFileBrowser(options: {
   const listFiles = useAction(api.functions.files.listFiles);
   const readNote = useAction(api.functions.files.readNote);
   const searchContext = useAction(api.functions.files.searchContext);
+  const notePathsAction = useAction(api.functions.files.notePaths);
   const writeNote = useAction(api.functions.files.writeNote);
   const createDirectory = useAction(api.functions.files.createDirectory);
   const moveEntry = useAction(api.functions.files.moveEntry);
@@ -191,6 +193,14 @@ export function useFileBrowser(options: {
   const resetPrivacyAction = useAction(api.functions.files.resetPrivacy);
 
   const [listings, setListings] = useState<Listings>({});
+  /**
+   * Every note path the search index's docmap knows about for this context,
+   * or `null` while there is nothing to answer from — no index yet, offline,
+   * or the request has not landed. See `linkPaths` below for what this is
+   * merged with, and `docs/decisions/app-and-console.md` "L1" for why the
+   * docmap rather than a second listing.
+   */
+  const [indexedPaths, setIndexedPaths] = useState<readonly string[] | null>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   /*
@@ -611,6 +621,38 @@ export function useFileBrowser(options: {
       cancelled = true;
     };
   }, [listFiles, takeRootListing, workspaceId]);
+
+  /**
+   * The note-path index, fetched once per context — best-effort, and never
+   * blocking the editor on it.
+   *
+   * A separate effect from the root listing above rather than folded into
+   * it: this is decoration for link resolution, not something a note or
+   * folder needs on screen, so a slow or failed answer here must not touch
+   * `loading` or `notice`. Offline is skipped outright — `notePaths` is a
+   * Convex action with no client-side timeout, so calling it with no
+   * connection would never settle rather than answering `null` quickly the
+   * way the honest "not indexed yet" state does.
+   */
+  useEffect(() => {
+    setIndexedPaths(null);
+    if (workspaceId === null) return;
+    if (offlineRef.current.reachability === "offline") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const found = await notePathsAction({ workspaceId });
+        if (!cancelled) setIndexedPaths(found.paths);
+      } catch {
+        // Best-effort: a failed or refused fetch leaves link resolution at
+        // whatever the file tree already knows, which is exactly what this
+        // surface did before the index existed.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [notePathsAction, workspaceId]);
 
   const toggleFolder = useCallback(
     (path: string) => {
@@ -1864,6 +1906,23 @@ export function useFileBrowser(options: {
     return paths;
   }, [shares]);
 
+  /**
+   * Every note path this browser can offer the editor for link resolution:
+   * `knownNotePaths(listings)` — the folders somebody has actually expanded,
+   * which is always current — unioned with the search index's docmap, which
+   * is complete but can be behind or entirely absent. See "L1" in
+   * `docs/decisions/app-and-console.md`.
+   *
+   * A union rather than "prefer the index": a note created a moment ago and
+   * visible in an expanded folder is real *now*, and the index has not
+   * necessarily caught up with it yet — the same "the listing you can see
+   * beats a derivative that has not" rule the rest of this file follows.
+   */
+  const linkPaths = useMemo(
+    () => mergeLinkPaths(listings, indexedPaths),
+    [listings, indexedPaths],
+  );
+
   const copyShareLink = useCallback(
     async (
       target:
@@ -2151,6 +2210,7 @@ export function useFileBrowser(options: {
       setVisibility,
       setScope,
       openLinkPaths,
+      linkPaths,
       resetPrivacy,
       // A control that cannot work is a control that is not drawn. All three
       // have to hold: the manifest is broken, this is the owner, and this
@@ -2192,6 +2252,7 @@ export function useFileBrowser(options: {
       conflict,
       flushAutosave,
       keepMine,
+      linkPaths,
       listings,
       loading,
       move,

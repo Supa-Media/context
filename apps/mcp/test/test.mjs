@@ -10,6 +10,7 @@ import { runSearchIntegrationChecks } from "./searchIntegration.test.mjs";
 import { runSearchQueryChecks } from "./searchQuery.test.mjs";
 import { runSearchShardQueryChecks } from "./searchShardQuery.test.mjs";
 import { runSearchShardsChecks } from "./searchShards.test.mjs";
+import { runSearchDocmapPathsChecks } from "./searchDocmapPaths.test.mjs";
 import { runSearchPacingChecks } from "./searchPacing.test.mjs";
 import { runSearchV2IntegrationChecks } from "./searchV2Integration.test.mjs";
 import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
@@ -3901,6 +3902,7 @@ await runSearchIntegrationChecks(check);
 // its own instrumented bucket, the query half as pure functions over fixtures,
 // and the gateway wired to both through the worker.
 await runSearchShardsChecks(check);
+await runSearchDocmapPathsChecks(check);
 await runSearchShardQueryChecks(check);
 await runSearchFilterChecks(check);
 await runSearchV2IntegrationChecks(check);

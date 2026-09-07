@@ -79,6 +79,8 @@ export interface EditorControls {
   wrap(before: string, after: string): void;
   /** Put `prefix` at the start of the caret's line, or remove it if already there. */
   toggleLinePrefix(prefix: string): void;
+  /** `[[]]`, caret between the brackets, with the `[[` completion opened. A2. */
+  insertLink(): void;
   undo(): void;
   redo(): void;
   blur(): void;
@@ -427,6 +429,7 @@ export function LiveEditor({
     const api: EditorControls = {
       wrap: (before, after) => runCommand(created, { name: "wrap", before, after }),
       toggleLinePrefix: (prefix) => runCommand(created, { name: "toggleLinePrefix", prefix }),
+      insertLink: () => runCommand(created, { name: "insertLink" }),
       undo: () => runCommand(created, { name: "undo" }),
       redo: () => runCommand(created, { name: "redo" }),
       blur: () => runCommand(created, { name: "blur" }),

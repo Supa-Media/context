@@ -16,6 +16,15 @@
  *   `String(error)` used for the network failure message                      2
  *   an unroutable `@name` dropped rather than refusing the entry              6
  *   `postEntry` not reading `notePath` off a finalize's ack                   2
+ *   the grant's tier not checked before a meeting is sent                     5
+ *   `grantCoversMeetings` answering `true` for everything                     7
+ *   ...answering `write || tier` rather than needing both                     5
+ *
+ * The last three rows are the same failure as the fourth, one field over: a
+ * meeting sent on a grant that cannot file it privately is published
+ * team-visible — to everybody its owner shares that folder with — with no error
+ * anywhere. Asking for `context:private` is not getting it; the person
+ * approving decides, and this client has to read the answer.
  *
  * The fourth row is the one worth reading. Dropping an unroutable slug is the
  * *tidy* thing to do — the request still goes out, on the bare route — and what
@@ -47,9 +56,18 @@ const entry = (kind, body = {}) => ({
   nextAttemptAt: 0,
 });
 
-const config = (fetchImpl, token = TOKEN) => ({
+/**
+ * `scope` is what the **grant came back with**, and it is the desktop's whole
+ * one: `context:write context:private`. A config that named a narrower one is a
+ * machine that must not send a meeting at all, which is the block at the bottom
+ * of this file.
+ */
+const GRANT = "context:write context:private";
+
+const config = (fetchImpl, token = TOKEN, scope = GRANT) => ({
   baseUrl: "https://gateway.example.test",
   token: async () => token,
+  scope: () => scope,
   fetch: fetchImpl,
 });
 
@@ -297,6 +315,73 @@ export async function runGatewayChecks(check) {
     check(
       "a session upsert is not a written note, whatever the reply said",
       report.sent === 1 && report.written.length === 0,
+    );
+  }
+
+  // -- the grant is read, not only spent -------------------------------------
+  //
+  // `DESKTOP_SCOPE` asks for `context:private` because the tier decides what a
+  // meeting is **filed as**: `visibilityTierForGrant` reads a grant without it
+  // as `team`, and `publishMeetingNote` then writes the note team-visible and
+  // records that visibility in the customer's own `privacy.md`. The person
+  // approving may hand over less than was asked, so asking is not getting — and
+  // a machine that sends anyway publishes its owner's meetings to everybody
+  // they share a folder with, having been told nothing.
+
+  {
+    const impl = fakeFetch([{ status: 200, body: { sessionId } }]);
+    const result = await postEntry(config(impl, TOKEN, "context:write"), entry("finalize"));
+    check(
+      "A MEETING IS NOT SENT ON A GRANT THAT CANNOT FILE IT PRIVATELY",
+      result.ok === false && /team-visible/.test(result.message),
+    );
+    check(
+      "...and nothing reached the gateway, so nothing was filed at the wider tier",
+      impl.calls.length === 0,
+    );
+    check(
+      "...and the meeting is held rather than dropped: this app un-parks nothing",
+      result.retryable === true,
+    );
+  }
+  {
+    const impl = fakeFetch([{ status: 200, body: { sessionId } }]);
+    // RFC 6749 lets a token endpoint omit `scope` to mean "as requested". Read
+    // that way, this check would answer with the client's own request instead
+    // of the server's answer — which is the whole thing it exists to stop.
+    check(
+      "A GRANT THAT SAYS NOTHING IS NOT A GRANT THAT SAID PRIVATE",
+      (await postEntry(config(impl, TOKEN, ""), entry("finalize"))).ok === false &&
+        (await postEntry(config(impl, TOKEN, null), entry("finalize"))).ok === false,
+    );
+  }
+  {
+    const impl = fakeFetch([{ status: 200, body: { sessionId } }]);
+    check(
+      "...nor is the tier alone, without the write it also needs",
+      (await postEntry(config(impl, TOKEN, "context:private"), entry("finalize"))).ok === false,
+    );
+  }
+  {
+    const impl = fakeFetch([
+      { status: 200, body: { sessionId } },
+      { status: 200, body: { sessionId } },
+    ]);
+    check(
+      "...and a wildcard grant is wider than this one, so it sends",
+      (await postEntry(config(impl, TOKEN, "*"), entry("finalize"))).ok === true &&
+        (await postEntry(config(impl, TOKEN, "context.write context.private"), entry("finalize")))
+          .ok === true,
+    );
+  }
+  {
+    // Order matters: "not connected yet" is not the same answer as "connected
+    // at the wrong tier", and a machine with no grant must get the first.
+    const impl = fakeFetch([{ status: 200, body: { sessionId } }]);
+    const result = await postEntry(config(impl, null, ""), entry("finalize"));
+    check(
+      "a machine with no grant at all is still told it is not connected yet",
+      result.ok === false && /not connected/.test(result.message),
     );
   }
 

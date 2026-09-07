@@ -259,6 +259,15 @@ const ROUTES: Record<string, Coverage> = {
   "s/[token].tsx": { kind: "screen", mount: () => createElement(ShareScreen) },
   "connect/dropbox.tsx": { kind: "screen", mount: () => createElement(DropboxCallbackScreen) },
   /*
+    `EXPO_PUBLIC_E2E_FIXTURE` is unset here, exactly as it is in every real
+    build, so this renders a bare `Redirect` and nothing else — the `gate`
+    shape, not `screen`. See `app/e2e-fixture.tsx`.
+  */
+  "e2e-fixture.tsx": {
+    kind: "gate",
+    mount: () => createElement(requireRoute("e2e-fixture.tsx")),
+  },
+  /*
     The two halves of "a link that went nowhere", mounted as themselves rather
     than through `DeadLinkScreen`, because the whole reason these routes exist
     is that Expo Router's built-in Unmatched Route screen was what somebody

@@ -3,10 +3,14 @@
  */
 
 /**
- * Screenshots for two more of the editor-polish sweep's small, no-decision
+ * Screenshots for three of the editor-polish sweep's smaller accessory-bar
  * items (`1-projects/context-lc-editor-polish/ux-sweep.md`):
  *
  *  - **A1** — the accessory bar had no bullet key, only a task checkbox.
+ *  - **A2** — nor a link key. Unlike A1 this reverses a decision
+ *    (`NoteAccessory.tsx`'s own header used to argue against one), argued
+ *    again in `docs/decisions/app-and-console.md`, "A link key on the
+ *    accessory bar", before the key below was added.
  *  - **R2** — a read-only note on a pointer layout fell through to a raw,
  *    syntax-highlighted source view instead of Live Preview.
  *
@@ -104,6 +108,19 @@ describe("editor-accessory shots", () => {
       node.querySelector('[data-testid="note-accessory-bullet"]')?.getAttribute("aria-label"),
     ).toBe("Bulleted list");
     write("accessory-bar", 390, 120);
+  });
+
+  test("A2 — the accessory bar carries a link key", () => {
+    const node = mount(
+      createElement(NoteAccessory, { controls: () => null }),
+      390,
+      120,
+    );
+    expect(node.querySelector('[data-testid="note-accessory-link"]')).not.toBeNull();
+    expect(
+      node.querySelector('[data-testid="note-accessory-link"]')?.getAttribute("aria-label"),
+    ).toBe("Insert link");
+    write("accessory-bar-link", 390, 120);
   });
 
   test("R2 — a read-only note on a pointer layout renders through Live Preview", () => {
