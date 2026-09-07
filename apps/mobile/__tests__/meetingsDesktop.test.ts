@@ -445,7 +445,7 @@ describe("inside the shell, the shell records", () => {
 
     await recorder.start({ sessionId: "mtg_desktop", systemAudio: false });
     const stopping = recorder.stop();
-    shell.emitCaptureState({ state: "stopped", capturing: false, fault: null });
+    shell.emitCaptureState({ state: "stopped", capturing: false, fault: null, notice: null });
     await stopping;
 
     expect(errors).toEqual([]);
@@ -460,9 +460,39 @@ describe("inside the shell, the shell records", () => {
     recorder.onError((error) => errors.push(error.message));
 
     await recorder.start({ sessionId: "mtg_desktop", systemAudio: false });
-    shell.emitCaptureState({ state: "stopped", capturing: false, fault: null });
+    shell.emitCaptureState({ state: "stopped", capturing: false, fault: null, notice: null });
 
     expect(errors).toEqual([DESKTOP_MESSAGES.lost]);
+    await recorder.stop();
+  });
+
+  /**
+   * A MEETING THAT STOPS BEING TRANSCRIBED SAYS SO ON THE SCREEN.
+   *
+   * The sentence exists — `CAPTURE_NOTICES.refused`, "this meeting is not being
+   * transcribed" — and the shell has always raised it. It had nowhere to go:
+   * `CaptureStateUpdate` was `{state, capturing, fault}` and a notice is not a
+   * fault, so the shell said it to its own tray and the console drew a recording
+   * that looked perfectly healthy. That is why a defect which killed the
+   * transcript of *every* desktop recording stayed invisible for a day — the
+   * only place it surfaced was an empty transcript, afterwards.
+   *
+   * Once, not per push: the shell pushes this on every move of its recorder,
+   * which is every segment.
+   */
+  test("a notice the shell raises mid-meeting reaches the screen, once", async () => {
+    const shell = fakeDesktopBridge({ capabilities: { mic: true } });
+    installShell(shell);
+    const recorder = await resolveRecorder("web");
+    const errors: string[] = [];
+    recorder.onError((error) => errors.push(error.message));
+
+    await recorder.start({ sessionId: "mtg_desktop", systemAudio: false });
+    const refused = "This meeting is not being transcribed — the gateway would not accept the audio.";
+    shell.emitCaptureState({ state: "recording", capturing: true, fault: null, notice: refused });
+    shell.emitCaptureState({ state: "recording", capturing: true, fault: null, notice: refused });
+
+    expect(errors).toEqual([refused]);
     await recorder.stop();
   });
 
