@@ -32,6 +32,7 @@ import {
   MIRROR_FAILURE_PATH,
   MIRROR_ORIGIN,
   MIRROR_SCHEME,
+  declaresTooManyBytes,
   failurePage,
   isMirrorUrl,
   mirrorSnapshotUrls,
@@ -206,6 +207,14 @@ export function createConsoleMirror(deps: ConsoleMirrorDeps): ConsoleMirror {
         } catch {
           continue;
         }
+        /*
+          Weighed by what it says before it is weighed by what it is: reading
+          the body is what buffers it, and a compromised page listing a
+          same-origin URL that answers for ever should not be held in this
+          process's memory only to be refused afterwards. `shouldMirror` still
+          reads the bytes that actually arrived, which is the honest number.
+        */
+        if (declaresTooManyBytes(response.headers)) continue;
         const body = new Uint8Array(await response.arrayBuffer());
         const decision = shouldMirror({
           url: response.url === "" ? url : response.url,

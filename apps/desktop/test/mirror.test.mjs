@@ -46,7 +46,24 @@
  *   `MirrorStore.save` never writing the manifest                             3
  *   `MirrorStore.load` leaving a manifest it could not parse on disk          1
  *
- * Three of those counts are worth a sentence rather than a number.
+ * Added in review, each with the defect or the gap it was written for:
+ *
+ *   `isAllowedConsoleNavigation` reading `app://console` with `new URL().origin` 1
+ *   `shouldMirror` reading `Vary: *` as the whole header rather than a token     1
+ *   `pinnedOriginFor` pinning the failure page as well as the mirror             1
+ *   `declaresTooManyBytes` never refusing a declared length                      1
+ *   `MirrorStore` following a symlink (one blob, one manifest)                   2
+ *   ...accepting a key that is a path rather than a hash                         1
+ *   `originOf` reading every opaque origin as the mirror's                       4
+ *
+ * The last of those is the wrong fix for the trap this file is mostly about,
+ * and it is the one most worth a check: `"null"` is what Node says about
+ * `app://console` *and* what Chromium says about `about:blank` and a `data:`
+ * document, so a reconciliation written as "null means the mirror" hands the
+ * bridge to any page that can produce an opaque origin. The scheme and the host
+ * are read instead, and four checks say so.
+ *
+ * Three of the original counts are worth a sentence rather than a number.
  *
  * **The credential row is five and one of them is the `Headers` check**, which
  * is deliberate: that check stages a `Headers` object whose only refusal *is*
@@ -65,20 +82,23 @@
  * check that names it is the one about a snapshot with no files.
  */
 
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
   ERR_ABORTED,
+  MIRROR_FAILURE_PATH,
   MIRROR_FORMAT,
   MIRROR_LIMITS,
   MIRROR_NOTICE,
   MIRROR_ORIGIN,
   MIRROR_REFUSALS,
   OFFLINE_NOTICE_ID,
+  declaresTooManyBytes,
   failurePage,
   fitsInBudget,
+  isAllowedConsoleNavigation,
   mirrorIsUsable,
   mirrorKey,
   mirrorSnapshotUrls,
@@ -208,6 +228,14 @@ export async function runMirrorChecks(check) {
     "...and `Vary: *` is the same answer",
     refusal({ headers: { vary: "*" } }) === MIRROR_REFUSALS.perUser,
   );
+  check(
+    "...including a `*` that arrived as one token among several",
+    refusal({ headers: { vary: "Accept-Encoding, *" } }) === MIRROR_REFUSALS.perUser,
+  );
+  check(
+    "...and a header that merely contains a star is not one: `Vary: X-Star*Thing` is not `*`",
+    shouldMirror(candidate({ headers: { vary: "X-Star*Thing" } })).ok === true,
+  );
 
   check("only a GET is mirrored", refusal({ method: "POST" }) === MIRROR_REFUSALS.method);
   check("only a 200 is mirrored", refusal({ status: 302 }) === MIRROR_REFUSALS.status);
@@ -218,6 +246,16 @@ export async function runMirrorChecks(check) {
   check(
     "a content type the console is not made of is refused",
     refusal({ headers: { "content-type": "text/event-stream" } }) === MIRROR_REFUSALS.type,
+  );
+  check(
+    "A RESPONSE THAT SAYS IT IS HUGE IS DROPPED BEFORE ITS BODY IS READ INTO MEMORY",
+    declaresTooManyBytes({ "content-length": String(MIRROR_LIMITS.entryBytes + 1) }) === true,
+  );
+  check(
+    "...and an ordinary, absent or nonsense length is left to the check that weighs the bytes",
+    declaresTooManyBytes({ "content-length": "4096" }) === false &&
+      declaresTooManyBytes({}) === false &&
+      declaresTooManyBytes({ "content-length": "not a number" }) === false,
   );
   check(
     "a font is mirrored, because the console is made of those too",
@@ -246,6 +284,30 @@ export async function runMirrorChecks(check) {
     wanted.length === 2 && wanted[1] === `${LIVE}/assets/app.js`,
   );
   check(
+    "A PROTOCOL-RELATIVE URL IS NOT A URL HERE, so `//attacker.invalid/x.js` is dropped",
+    mirrorSnapshotUrls({
+      documentUrl: `${LIVE}/console`,
+      resources: ["//attacker.invalid/x.js", "/relative.js"],
+      liveOrigin: LIVE,
+    }).length === 1,
+  );
+  check(
+    "...and the page cannot ask the shell to mirror the shell's own mirror",
+    mirrorSnapshotUrls({
+      documentUrl: `${LIVE}/console`,
+      resources: [`${MIRROR_ORIGIN}/assets/app.js`],
+      liveOrigin: LIVE,
+    }).length === 1,
+  );
+  check(
+    "...nor a `file:` URL off this machine's disk, whatever the page says it loaded",
+    mirrorSnapshotUrls({
+      documentUrl: `${LIVE}/console`,
+      resources: ["file:///Users/someone/.ssh/id_rsa"],
+      liveOrigin: LIVE,
+    }).length === 1,
+  );
+  check(
     "the snapshot is capped, so a page with ten thousand assets is not a disk-filling attack",
     mirrorSnapshotUrls({
       documentUrl: `${LIVE}/console`,
@@ -272,8 +334,45 @@ export async function runMirrorChecks(check) {
   check("an unparseable URL gets no pin", pinnedOriginFor("not a url", LIVE) === "");
   check("about:blank gets no pin", pinnedOriginFor("about:blank", LIVE) === "");
   check(
+    "a data: document gets no pin either — an opaque origin is not an origin",
+    pinnedOriginFor("data:text/html,<script>fetch('x')</script>", LIVE) === "",
+  );
+  check(
+    "THE FAILURE PAGE IS PINNED TO NOTHING, because it asks the bridge for nothing",
+    pinnedOriginFor(`${MIRROR_ORIGIN}${MIRROR_FAILURE_PATH}`, LIVE) === "",
+  );
+  check(
     "a shell with no live origin does not accidentally pin the empty string",
     pinnedOriginFor("https://context.lc/", "") === "",
+  );
+
+  // --- where the window may navigate itself ---------------------------------
+
+  check(
+    "the console may navigate within the origin it was pinned to",
+    isAllowedConsoleNavigation(`${LIVE}/console/meetings/42`, LIVE) === true,
+  );
+  check(
+    "THE OFFLINE CONSOLE MAY FOLLOW ITS OWN LINKS — `app://console` is not an opaque origin here",
+    isAllowedConsoleNavigation(`${MIRROR_ORIGIN}/console/settings`, LIVE) === true,
+  );
+  check(
+    "...and the mirrored page's Try again is an ordinary navigation back to the live console",
+    isAllowedConsoleNavigation(`${LIVE}/console`, LIVE) === true,
+  );
+  check(
+    "A LINK IN SOMEBODY'S NOTE IS NOT A NAVIGATION THIS WINDOW MAKES",
+    isAllowedConsoleNavigation("https://attacker.invalid/console", LIVE) === false,
+  );
+  check(
+    "...nor is a lookalike host, a file: URL, or a target this process cannot parse",
+    isAllowedConsoleNavigation("https://context.lc.attacker.invalid/", LIVE) === false &&
+      isAllowedConsoleNavigation("file:///etc/passwd", LIVE) === false &&
+      isAllowedConsoleNavigation("not a url", LIVE) === false,
+  );
+  check(
+    "...and a shell with no live origin still allows nothing but the mirror",
+    isAllowedConsoleNavigation("https://context.lc/", "") === false,
   );
 
   // --- what a failed load means ---------------------------------------------
@@ -434,6 +533,27 @@ export async function runMirrorChecks(check) {
       bytes !== null && new TextDecoder().decode(bytes) === "console.log(1)",
     );
     check("a key nothing was stored under reads as nothing", (await store.read(mirrorKey("/nope"))) === null);
+    check(
+      "A KEY THAT IS A PATH RATHER THAN A HASH READS NOTHING — a manifest cannot name a file outside the mirror",
+      (await store.read("../../../../etc/passwd")) === null &&
+        (await store.read("../manifest.json")) === null &&
+        (await store.read("/etc/passwd")) === null,
+    );
+
+    /*
+      A symlink in the blob directory is not something `save` writes, so it is
+      something else's doing — and following one would make this protocol
+      handler "serve me that file" for anything the app can open. Defence in
+      depth (a process that can write here can already replace the app's own
+      JavaScript), and the whole of it is one flag.
+    */
+    const planted = join(dir, "not-the-mirror.txt");
+    await writeFile(planted, "a file the mirror was never given");
+    await symlink(planted, join(store.root, "current", "blobs", mirrorKey("/planted")));
+    check(
+      "A SYMLINK PLANTED IN THE MIRROR IS NOT FOLLOWED",
+      (await store.read(mirrorKey("/planted"))) === null,
+    );
 
     check(
       "A SNAPSHOT WITH NO FILES IS NOT A MIRROR, and the old one is left alone",
@@ -446,6 +566,31 @@ export async function runMirrorChecks(check) {
       (await store.load({ appVersion: "0.2.0", liveOrigin: LIVE, nowMs: NOW })) === null &&
         (await store.storedKeys()).length === 0,
     );
+
+    {
+      // The manifest is read the same way: a link where the manifest should be
+      // is a mirror that is deleted rather than a file that is read.
+      await store.save({
+        appVersion: APP_VERSION,
+        origin: LIVE,
+        savedAtMs: NOW,
+        files: [{ path: "/console", contentType: "text/html", body: encode("<html><body>hi</body></html>") }],
+      });
+      /*
+        A manifest that would otherwise be served: this check has to fail for
+        the symlink and for nothing else, so the planted file is valid in every
+        way `mirrorIsUsable` reads.
+      */
+      const elsewhere = join(dir, "planted-manifest.json");
+      await writeFile(elsewhere, JSON.stringify(manifest({ savedAtMs: NOW })));
+      await rm(join(store.root, "current", "manifest.json"));
+      await symlink(elsewhere, join(store.root, "current", "manifest.json"));
+      check(
+        "A MANIFEST THAT IS A SYMLINK IS NOT READ, AND THE MIRROR IS DELETED",
+        (await store.load({ appVersion: APP_VERSION, liveOrigin: LIVE, nowMs: NOW })) === null &&
+          (await store.storedKeys()).length === 0,
+      );
+    }
 
     await store.save({
       appVersion: APP_VERSION,

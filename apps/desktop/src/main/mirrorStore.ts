@@ -18,6 +18,7 @@
  * reads, so its absence is what "this snapshot never finished" looks like.
  */
 
+import { constants } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -45,6 +46,22 @@ export interface MirrorSaveInput {
   /** The document first: it is the index a navigation falls back to. */
   files: readonly MirrorFile[];
 }
+
+/**
+ * Open for reading, and refuse a symlink.
+ *
+ * Everything under this directory was written by `save`, so a link here is
+ * something else's doing. `O_NOFOLLOW` makes reading one an `ELOOP` rather than
+ * a read of whatever it points at — which is what stops a manifest and a link
+ * turning this protocol handler into "serve me that file" for anything the app
+ * can open. It is defence in depth rather than a boundary: a process that can
+ * write into `userData` can already replace the app's own JavaScript. Cheap,
+ * and the cheap half of a pair is still worth having.
+ *
+ * `O_NOFOLLOW` is POSIX and this app ships on macOS; `?? 0` keeps the flag
+ * meaningful rather than `NaN` anywhere it is not defined.
+ */
+const READ_NO_SYMLINK = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
 
 export class MirrorStore {
   readonly #root: string;
@@ -95,7 +112,9 @@ export class MirrorStore {
   }): Promise<MirrorManifest | null> {
     let parsed: unknown;
     try {
-      parsed = JSON.parse(await readFile(this.#manifestPath(this.#current), "utf8"));
+      parsed = JSON.parse(
+        await readFile(this.#manifestPath(this.#current), { encoding: "utf8", flag: READ_NO_SYMLINK }),
+      );
     } catch {
       // Missing is the ordinary first run; corrupt is the one worth clearing.
       await this.clear();
@@ -111,7 +130,7 @@ export class MirrorStore {
   /** One mirrored file's bytes, or `null` if it is not there any more. */
   async read(key: string): Promise<Uint8Array | null> {
     try {
-      return await readFile(this.#blobPath(this.#current, key));
+      return await readFile(this.#blobPath(this.#current, key), { flag: READ_NO_SYMLINK });
     } catch {
       return null;
     }

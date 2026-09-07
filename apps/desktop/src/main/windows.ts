@@ -25,7 +25,7 @@
 
 import { BrowserWindow, screen, shell } from "electron";
 import { join } from "node:path";
-import { MIRROR_ORIGIN } from "../core/shell/mirror.ts";
+import { isAllowedConsoleNavigation } from "../core/shell/mirror.ts";
 
 export interface WindowSet {
   panel: BrowserWindow;
@@ -178,16 +178,14 @@ export function createConsoleWindow(url: string, rendererDir: string): BrowserWi
     live URL, and the mirrored console can reload itself without the shell
     having to give it an IPC channel for it. What the page gets in either place
     is still decided by the pin, which is one origin at a time.
+
+    The decision is `isAllowedConsoleNavigation` and not `new URL(target).origin`
+    here, for the reason `originOfUrl` is written down three times over: the
+    main process's `URL` reads `app://console/...` as an opaque origin, so the
+    obvious comparison cancels every navigation *inside* the offline console.
   */
   win.webContents.on("will-navigate", (event, target) => {
-    let allowed = false;
-    try {
-      const targetOrigin = new URL(target).origin;
-      allowed = targetOrigin === origin || targetOrigin === MIRROR_ORIGIN;
-    } catch {
-      allowed = false;
-    }
-    if (!allowed) event.preventDefault();
+    if (!isAllowedConsoleNavigation(target, origin)) event.preventDefault();
   });
   /*
     The console is never granted a media permission.
