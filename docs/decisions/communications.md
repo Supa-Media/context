@@ -213,7 +213,7 @@ origin: "gmail-sync"
 
 ## Thread — Quarterly numbers
 
-### 09:14 · Adam Okonkwo · Quarterly numbers {#msg-6f3a91c04b7d}
+### 09:14 · Adam Okonkwo · Quarterly numbers {#msg-6f3a91c04b7d5e28}
 …fenced body…
 ```
 
@@ -251,21 +251,36 @@ messages and the first thing to go stale.
 ### A message anchor is a hash, and it is the only provider id in the bucket
 
 Every message heading carries an explicit anchor id —
-`{#msg-6f3a91c04b7d}` — and that id is
-`sha256(provider \0 accountKey \0 providerMessageId)` truncated to 12 hex
-characters. It is stable across regeneration of the day, which is what makes
-every link to it survive an incremental resync, and it is what `links.js`
-already resolves: `[[0-inbox/email/name-at-example-com/2026-09-07#msg-6f3a91c04b7d]]`
-is an ordinary wikilink and needs no new syntax.
+`{#msg-6f3a91c04b7d5e28}` — and that id is
+`fnv1a64(channel \0 account \0 providerMessageId)` in 16 hex characters. It is
+stable across regeneration of the day, which is what makes every link to it
+survive an incremental resync, and it is what `links.js` already resolves:
+`[[0-inbox/email/name-at-example-com/2026-09-07#msg-6f3a91c04b7d5e28]]` is an
+ordinary wikilink and needs no new syntax.
 
 **The raw provider id is hashed rather than written**, for three reasons that
 each stand alone. A `Message-ID:` is attacker-chosen text — putting it in a
 heading is the injection surface the fence exists to close, one field over. A
 Gmail message id in a note is an identifier that means something to Google and
 nothing to the customer, and it travels wherever the note travels, including
-into an unlisted share link. And a hash is fixed-width, filename-safe and
-collision-resistant enough at 48 bits for one day of one mailbox, so the id
-that *is* useful — "is this the same message" — is preserved exactly.
+into an unlisted share link. And a hash is fixed-width and filename-safe, so
+the id that *is* useful — "is this the same message" — is preserved exactly
+while the string that is not never lands.
+
+**FNV-1a rather than SHA-256, and the reason is synchrony rather than
+strength.** `crypto.subtle.digest` is asynchronous everywhere it exists, so a
+SHA-256 anchor makes rendering a day of mail an `async` function and every
+caller of it async in turn — for a value that is a link target inside somebody's
+own note, not a credential and not a signature. FNV-1a 64 is already this
+repository's non-cryptographic hash (`fnv1a32` shards the search index), it is
+one pure function over UTF-8 bytes, and at 64 bits a day of a thousand messages
+collides with probability around 3 × 10⁻¹⁴. The cost is stated rather than
+hidden: FNV is not collision-*resistant* against somebody trying, so a sender
+who deliberately crafts a `Message-ID:` colliding with another message **in the
+same day of the same mailbox** can make one link inside that note ambiguous.
+That is the whole of the attack — it reaches no other note, no other mailbox,
+and nothing outside the file — and it is the trade taken. If an anchor ever
+becomes something a decision is made on, this is the paragraph to reverse.
 
 **What the ingest actually needs the raw ids for lives in the control plane,
 not in the bucket.** History ids, watch expiries, sync cursors and the
