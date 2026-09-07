@@ -327,10 +327,24 @@ jobs:
       # broke it. `test/launch.smoke.mjs` already prints a PASS/FAIL line per
       # check and the app's full captured output on any failure (both reach
       # this step's own log); the `::error::` annotation below additionally
-      # pulls the first line naming the actual failure — a `FAIL` line, an
-      # uncaught JS error, or the crash string the smoke test greps for — onto
-      # the job's summary and its check-run title, so the reason is visible
-      # without opening the log at all.
+      # pulls out one line for the job summary and the check-run title, so the
+      # reason is visible without opening the log at all.
+      #
+      # Ordered on purpose, most specific first — proven against a real run of
+      # this exact job (#329's dead zone, still open on `main` as this was
+      # written): `main/index.ts`'s own `uncaughtException`/`unhandledRejection`
+      # handlers print `[smoke] uncaught exception: <message>` or
+      # `[smoke] unhandled rejection: <message>` before exiting, and that
+      # message — e.g. `ReferenceError: Cannot access 'controller' before
+      # initialization` — is the one sentence an on-call person actually needs.
+      # The first attempt at this grepped `FAIL |Error:|Exception` with no
+      # ordering and surfaced `FAIL  IT EXITS ZERO — exit code 1` instead on
+      # that exact run, because the checker's own FAIL line for that symptom
+      # sits earlier in the output than the JS error it was caused by — true,
+      # but not the answer. Falling back to a `FAIL` line, then to the crash
+      # strings `launch.smoke.mjs` itself greps for, only reads as "nothing
+      # more specific was in the log" when none of the app's own error text
+      # was captured at all.
       - name: Launch the app it just built (smoke test)
         id: smoke
         if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
@@ -340,7 +354,13 @@ jobs:
           pnpm run smoke 2>&1 | tee "$RUNNER_TEMP/desktop-smoke.log"
           status="${PIPESTATUS[0]}"
           if [ "$status" -ne 0 ]; then
-            reason="$(grep -m1 -E 'FAIL |Error:|Exception' "$RUNNER_TEMP/desktop-smoke.log" || true)"
+            reason="$(grep -m1 -E 'uncaught exception:|unhandled rejection:' "$RUNNER_TEMP/desktop-smoke.log" || true)"
+            if [ -z "$reason" ]; then
+              reason="$(grep -m1 -E 'Dynamic require of|Uncaught Exception|A JavaScript error occurred|App threw an error during load' "$RUNNER_TEMP/desktop-smoke.log" || true)"
+            fi
+            if [ -z "$reason" ]; then
+              reason="$(grep -m1 -E '^FAIL ' "$RUNNER_TEMP/desktop-smoke.log" || true)"
+            fi
             if [ -z "$reason" ]; then
               reason="exited $status with no recognisable error line — see the full log above"
             fi
