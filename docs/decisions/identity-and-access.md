@@ -151,9 +151,12 @@ connect. Browser storage binds the browser without asking who is signed in, so
 that fix stays intact. A browser that cannot keep the value cannot complete a
 connect, which is the honest outcome rather than a fallback.
 
-The same shape is owed to every third-party connect this repository grows —
-the Gmail flow was written from this one and inherits the gap until it is
-given the same treatment.
+The same shape is owed to every third-party connect this repository grows.
+The Google flow was written from this one, cited its older argument verbatim
+(*"it applies here unchanged, PKCE pair and all"*) and inherited the gap with
+it; it carries the same `completionSecret` now. **A connect that cites this
+paragraph is citing the binding, not the absence of a session** — the two
+travelled together once and that is exactly how the gap spread.
 
 ### A first-party signed shell may have its own grant approved by the session hosting it
 

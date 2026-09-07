@@ -983,6 +983,15 @@ const schema = defineSchema({
    */
   googleConnectAttempts: defineTable({
     hashedState: v.string(),
+    /**
+     * SHA-256 of the value that never travels through Google.
+     *
+     * `dropboxConnectAttempts.hashedCompletion` carries the argument in full;
+     * this flow was written from that one and needs the same binding. Optional
+     * only because attempts parked before it existed have none, and those are
+     * refused rather than trusted.
+     */
+    hashedCompletion: v.optional(v.string()),
     encryptedVerifier: v.string(),
     workspaceId: v.id("workspaces"),
     startedBy: v.id("users"),
