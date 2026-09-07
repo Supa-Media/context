@@ -188,11 +188,26 @@ export async function runPackagingChecks(check) {
     has already been bitten by twice: the paragraph above the key discusses
     `icon.icns`, the default path and `CFBundleIconFile` by name, so every check
     here would pass on the prose with the key itself deleted.
+
+    And asked of the `mac:` block rather than of the file, because `icon:` is a
+    real key in more than one section. Anchored to a whole line but not to a
+    parent, this check stayed green with the key moved under `dmg:` — where it
+    names the volume icon of the disk image and says nothing about the app —
+    which is the original defect shipping again behind a passing test.
   */
   const builderKeys = withoutYamlComments(BUILDER);
+  /* From `mac:` to the next line that starts a section of its own. */
+  const macBlock = (() => {
+    const lines = builderKeys.split("\n");
+    const start = lines.findIndex((line) => /^mac:\s*$/.test(line));
+    if (start === -1) return "";
+    const rest = lines.slice(start + 1);
+    const end = rest.findIndex((line) => /^\S/.test(line));
+    return (end === -1 ? rest : rest.slice(0, end)).join("\n");
+  })();
   check(
     "THE APP ICON IS CONFIGURED — unset, electron-builder silently ships its own atom",
-    /^\s*icon:\s*build\/icon\.icns\s*$/m.test(builderKeys),
+    /^\s+icon:\s*build\/icon\.icns\s*$/m.test(macBlock),
   );
   check(
     "...and the file it names is really there, because the key alone is not the icon",
@@ -690,6 +705,50 @@ export async function runPackagingChecks(check) {
   check(
     "the notarisation key is judged before the build too, not after twenty-six seconds of signing",
     keyCheck !== undefined && steps.indexOf(keyCheck) < steps.indexOf(buildStep),
+  );
+
+  /*
+    The icon, asked of the built app rather than of the config.
+
+    The checks up in the icon section read `electron-builder.yml` and
+    `build/icon.icns` — both of them build *inputs*. That is the same reasoning
+    that `NSCameraUsageDescription` has already shown to be unsound here: that
+    key is in the shipped Info.plist and appears nowhere in the config, because
+    Electron ships a default plist and `extendInfo` is merged into it. A config
+    the repo controls does not describe the plist that came out.
+
+    `icon:` has the same shape. The fallback that shipped the atom happens
+    inside electron-builder, downstream of every line this repo writes, and
+    `CFBundleIconFile` exists only after packaging. So the input checks stay —
+    they fail in seconds and say exactly what is wrong — and this row makes sure
+    the one place the real artifact exists actually looks at it.
+  */
+  const iconStep = steps.find((step) => /Check the icon the build actually bundled/.test(step));
+  check(
+    "THE PACKAGED APP'S OWN ICON IS CHECKED — the config cannot prove what electron-builder bundled",
+    iconStep !== undefined,
+  );
+  check(
+    "...by reading CFBundleIconFile out of the built Info.plist, which is where the atom was found",
+    iconStep !== undefined && /CFBundleIconFile/.test(iconStep) && /Contents\/Info\.plist/.test(iconStep),
+  );
+  check(
+    "...and comparing bytes against build/icon.icns, so a copy of electron.icns under our name still fails",
+    iconStep !== undefined && /cmp -s "\$bundled" build\/icon\.icns/.test(iconStep),
+  );
+  check(
+    "...for both architectures, not just the arm64 one the smoke step gates on",
+    iconStep !== undefined &&
+      /release\/mac-arm64\/Context\.app/.test(iconStep) &&
+      /release\/mac\/Context\.app/.test(iconStep),
+  );
+  check(
+    "...after the build that produces the app, since there is nothing to read before it",
+    iconStep !== undefined && steps.indexOf(iconStep) > steps.indexOf(buildStep),
+  );
+  check(
+    "...and it fails the job rather than warning, because a wrong icon is what shipped last time",
+    iconStep !== undefined && /exit 1/.test(iconStep),
   );
 
   // -- publishing: a boolean input, gated permissions, and idempotency --------
