@@ -155,6 +155,38 @@ jobs:
           done
           [ "$missing" -eq 0 ] || exit 1
 
+          # Android is prepared, not shipped (owner, 2026-09-07): no keystore,
+          # no build, no store submission yet — see docs/decisions/meetings.md,
+          # "Android is prepared, not shipped". This blocks a *build* too, not
+          # only a submit, and it runs before the submit=false early exit below
+          # on purpose: `apps/mobile/app.config.js` and `eas.json`'s
+          # `build.production.android` are ready, so nothing stops
+          # `eas build --platform android --non-interactive` from running and
+          # silently generating a brand-new EAS-managed keystore — a real,
+          # permanent artifact for this app's Play Store identity — the first
+          # time anyone dispatches this with no credentials configured. That is
+          # a decision the owner takes on purpose, once, not a side effect of a
+          # workflow_dispatch. `apps/mobile/eas.json` has no
+          # `submit.production.android` block either, on purpose — JSON has no
+          # comment syntax to disable it in place, so the disabling happens
+          # here, deliberately, before `eas submit` ever runs and produces a
+          # stack trace about a credential nobody has configured.
+          if [ "${PLATFORM}" = "android" ] || [ "${PLATFORM}" = "both" ]; then
+            echo "ERROR: Android is prepared, not shipped — no build, no submission yet."
+            echo ""
+            echo "Two things only the owner can do, in order, before a first Android build:"
+            echo "  1. Approve EAS's managed Android keystore for this project (or upload one) —"
+            echo "     'eas credentials --platform android', run once, interactively, from a"
+            echo "     laptop logged into this EAS account."
+            echo "  2. Create a Google Play service-account key with Play Console access and add"
+            echo "     it as the GOOGLE_SERVICE_ACCOUNT_KEY secret (scripts/secrets-allowlist.json),"
+            echo "     then add a submit.production.android block to apps/mobile/eas.json pointing"
+            echo "     at it (eas.json's own docs: https://docs.expo.dev/submit/android/)."
+            echo ""
+            echo "Until both are done, re-run with platform=ios."
+            exit 1
+          fi
+
           if [ "${{ inputs.submit }}" != "true" ]; then
             echo "Submit not requested; skipping submit-profile checks."
             exit 0
@@ -182,7 +214,7 @@ jobs:
               console.error(
                 `apps/mobile/eas.json has no submit.${profile} config for: ${missing.join(", ")}.\n` +
                 `Add it (iOS needs an "ios": {} entry — the team id comes from the\n` +
-                `APPLE_TEAM_ID secret — Android needs a service-account key), or re-run with submit=false.`
+                `APPLE_TEAM_ID secret), or re-run with submit=false.`
               );
               process.exit(1);
             }
