@@ -5,8 +5,10 @@
  * rather than a framework because there are exactly six entry points and no
  * framework would be doing anything else:
  *
- *  - **main** — the Node side. `electron` is external, because it is provided
- *    by the runtime and bundling it is a category error.
+ *  - **main** — the Node side. **CommonJS**, for the reason spelled out above
+ *    the config: an ESM main process bundles CommonJS dependencies behind a
+ *    `require` shim that throws, and that shipped. `electron` is external,
+ *    because it is provided by the runtime and bundling it is a category error.
  *  - **preload** — CommonJS, not ESM. Electron's preloads are `require`d, and
  *    an ESM preload silently does nothing, which is the failure mode where the
  *    window loads, looks right, and has no `window.context` on it.
@@ -46,12 +48,73 @@ const CHROME_TARGET = "chrome128";
  */
 const SIGNED = process.env.CONTEXT_DESKTOP_SIGNED === "true";
 
+/*
+  ── THE MAIN PROCESS IS COMMONJS, AND THAT IS THE FIX FOR A DEAD BUILD ──────
+
+  ## What shipped
+
+  `electron-updater` and its `builder-util-runtime` dependency are CommonJS and
+  call `require("events")` when they load. Bundled into an **ESM** main process,
+  esbuild inlines them and emits its own shim for the calls it cannot resolve
+  statically:
+
+    if (typeof require !== "undefined") return require.apply(this, arguments);
+    throw Error('Dynamic require of "' + x + '" is not supported');
+
+  In an ES module `require` is not defined, so that shim took the second branch
+  on the *first line of the app*. Every build since electron-updater arrived
+  was dead on launch — signed, notarised, stapled, and greeted by `A JavaScript
+  error occurred in the main process` before `app.whenReady()`. Nothing caught
+  it because nothing in this repository had ever *started* the app.
+  `test/launch.smoke.mjs` is that check now.
+
+  ## Why `format: "cjs"` and not the two alternatives
+
+  The main process is a CommonJS world: Electron's own main-process ecosystem,
+  electron-builder and electron-updater are all CJS, and nothing in `src/main/`
+  needs an ES module. Building it as one bought nothing and cost the app. As
+  CJS, `require` is genuinely real, esbuild emits **no shim at all** — the built
+  bundle contains zero occurrences of `Dynamic require of`, which is asserted by
+  the launch check — and this config now says the same thing as the three
+  preload configs below it, for the same reason.
+
+  Both alternatives were built and measured rather than argued about:
+
+   - **`external: ["electron-updater"]`, packaged from `node_modules`.** It does
+     remove the shim, and then the app does not start *at all*, not even in
+     development: esbuild emits `import { autoUpdater } from "electron-updater"`,
+     Node's ESM loader cannot see a named export on a CommonJS module, and the
+     link fails with `SyntaxError: Named export 'autoUpdater' not found` — the
+     same launch-time death, a different sentence. Making it work needs
+     `src/main/updater.ts` rewritten to a default import plus a destructure
+     **and** `files:` in `electron-builder.yml` extended to carry
+     electron-updater and its whole transitive tree into the asar — which pnpm
+     puts under `node_modules/.pnpm/electron-updater@6.3.9/node_modules/`, not
+     where a flat glob would find it, and which would falsify that file's own
+     "`node_modules` is not copied because every runtime dependency is bundled".
+     Two source changes and a packaging change, to close the hazard for exactly
+     one package.
+   - **A `createRequire(import.meta.url)` banner over the ESM bundle.** Two
+     lines, and it does work — verified by launching it. But it leaves esbuild's
+     `Dynamic require of` shim in the shipped bundle, merely unreachable,
+     so the property worth asserting ("this bundle cannot throw that") becomes
+     unassertable. It also puts a top-level `const require` into an ES module,
+     one collision away from a `SyntaxError`.
+
+  The cost of CJS, stated so nobody rediscovers it: `"type": "module"` in
+  `package.json` means the output has to be `dist/main/index.cjs`, `main` and
+  `start` name that file, and `src/main/index.ts` uses `__dirname` rather than
+  `import.meta.dirname` — which esbuild warns about and silently empties in a
+  CJS build. That last one is load-bearing (it is how the preloads are found)
+  and is why the launch check reports whether `RENDERER_DIR` exists.
+*/
+
 const configs = [
   {
     entryPoints: [join(root, "src/main/index.ts")],
-    outfile: join(out, "main/index.js"),
+    outfile: join(out, "main/index.cjs"),
     platform: "node",
-    format: "esm",
+    format: "cjs",
     target: NODE_TARGET,
     external: ["electron"],
     define: { __CONTEXT_DESKTOP_SIGNED__: JSON.stringify(SIGNED) },

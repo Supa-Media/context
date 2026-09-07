@@ -15,11 +15,14 @@ import { audioRecorder, resolveRecorder } from "./audio";
  *
  * ## What ships today, honestly
  *
- * Real capture on iOS (`audio.ts`, `expo-audio`) and in a browser
- * (`audio.web.ts`, `getUserMedia` + `MediaRecorder`), both transcribing in the
- * cloud through the one `ChunkTranscriber` seam. Android is still
- * `notesOnlyRecorder("android")`, and so is any browser missing either half of
- * the capability — see `notesOnly.ts` for why each says what it says.
+ * Real capture on iOS and Android (`audio.ts`, `expo-audio`) and in a browser
+ * (`audio.web.ts`, `getUserMedia` + `MediaRecorder`), all transcribing in the
+ * cloud through the one `ChunkTranscriber` seam. `notesOnlyRecorder` is still
+ * what a browser gets when it is missing either half of the capability — see
+ * `notesOnly.ts` for why it says what it says. Android's own JS is ready, and
+ * this build's Android binary is not: no keystore, no build, no store
+ * submission until the owner says go (`docs/decisions/meetings.md`, "Android
+ * is prepared, not shipped").
  *
  * A notes-only recorder captures **nothing**: it reports `audio: false` with a
  * reason, runs the clock, and emits no segments. A meeting recorded with it is
@@ -49,21 +52,22 @@ import { audioRecorder, resolveRecorder } from "./audio";
  *
  * ## Where the pieces are
  *
- *  - `./audio.ts` — the phone. `expo-audio`, statically imported because it is
- *    in `native-deps.json` `core`; the audio session (including the
- *    `mixWithOthers` line that keeps a Zoom call's microphone), rotation, and
- *    the interruption handling.
+ *  - `./audio.ts` — the phone, both platforms. `expo-audio`, statically
+ *    imported because it is in `native-deps.json` `core`; the audio session
+ *    (including the `mixWithOthers` line that keeps a Zoom call's microphone,
+ *    on iOS and Android alike), rotation, the interruption handling, and the
+ *    one field (`allowsBackgroundRecording`) that is Android's own switch for
+ *    the foreground service `expo-audio`'s native module already bundles.
  *  - `./audio.web.ts` — the browser. Metro resolves it for the web build, which
  *    is why nothing above this file branches on a platform.
  *  - `./segments.ts` — the wall clock and the chunk-id scheme both halves share.
  *  - `./transcriber.ts` — the seam the chunks go out through, and the module
  *    seam a test substitutes so no test here touches the network.
- *  - `./notesOnly.ts` — the honest refusal, for Android and for a browser that
- *    cannot record.
+ *  - `./notesOnly.ts` — the honest refusal, for a browser that cannot record.
  *
- * Still open: Android (a foreground service, which is a native target), and
- * on-device transcription for the free tier (a second `ChunkTranscriber`, and a
- * `gated` native dependency).
+ * Still open: on-device transcription for the free tier (a second
+ * `ChunkTranscriber`, and a `gated` native dependency), and an Android
+ * *binary* — the JS above is ready; nobody has approved a keystore yet.
  */
 
 /** Where the words are produced. The product's two tiers, as a type. */

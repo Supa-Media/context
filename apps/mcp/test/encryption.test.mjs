@@ -80,6 +80,7 @@ import {
   encryptNote,
   encryptedNoteKeyId,
   generateWorkspaceKey,
+  generatedNoteBytes,
   isEncryptedNote,
   parseEncryptedNote,
   renderEncryptedNote,
@@ -428,6 +429,170 @@ export async function runEncryptionChecks(check) {
     (await threw(() =>
       decryptNote(stored, { workspaceId: WORKSPACE_A, keys: { k1: VECTOR.workspaceKey } }),
     )) instanceof NoteCryptoError,
+  );
+
+  // -- the nonce, and the fact that nobody derives it ---------------------
+  //
+  // AES-GCM's one catastrophic misuse is a repeated (key, IV) pair, and the two
+  // ways to arrive at one are deriving the IV from something stable and reusing
+  // a key across encryptions. Neither is asserted by a round trip, and both are
+  // silent: the ciphertext still decrypts. So they are asserted directly, over
+  // enough encryptions that a derived nonce cannot hide.
+
+  const nonces = new Set();
+  const wrapNonces = new Set();
+  const wraps = new Set();
+  let ivLengthsRight = true;
+  for (let i = 0; i < 24; i += 1) {
+    const each = await value(async () =>
+      parseEncryptedNote(
+        await encryptNote(PLAINTEXT, {
+          workspaceId: WORKSPACE_A,
+          workspaceKey: keyA,
+          keyId: "k1",
+        }),
+      ),
+    );
+    nonces.add(each.iv);
+    wrapNonces.add(each.recipients[0].iv);
+    wraps.add(each.recipients[0].wrapped);
+    // 12 bytes is 16 unpadded base64url characters.
+    ivLengthsRight &&= each.iv.length === 16 && each.recipients[0].iv.length === 16;
+  }
+  check(
+    "every encryption draws a fresh content nonce, never one derived from the note",
+    nonces.size === 24,
+  );
+  check("...and a fresh wrap nonce with it", wrapNonces.size === 24);
+  check("...both of them 96 bits, as GCM asks", ivLengthsRight);
+  // The wrapped bytes differ on the wrap nonce alone, so this is honestly a
+  // check that the wrap is randomised rather than proof that the note key was.
+  // A reused note key under a fresh nonce is not observable from the envelope at
+  // all, which is why `encryptNote` draws it itself and takes no parameter a
+  // caller could pin it with.
+  check("...and a wrap that is never the same twice", wraps.size === 24);
+
+  // -- an error is not a place to put key material ------------------------
+  //
+  // Every refusal in this module is reachable by a client past `canSee`, and it
+  // is logged. A message naming the key that failed, the bytes that failed to
+  // authenticate, or the plaintext beside them turns a refusal into the leak
+  // this feature exists to prevent.
+
+  const failures = [
+    await threw(() => decryptNote(stored, { workspaceId: WORKSPACE_A, keys: { k1: keyB } })),
+    await threw(() => decryptNote(storedB, { workspaceId: WORKSPACE_A, keys: { k1: keyA } })),
+    await threw(() =>
+      decryptNote(flippedCiphertext, { workspaceId: WORKSPACE_A, keys: { k1: keyA } }),
+    ),
+    await threw(() => decryptNote(shortIv, { workspaceId: WORKSPACE_A, keys: { k1: keyA } })),
+    await threw(() => decryptNote(stored, { workspaceId: WORKSPACE_A, keys: { k9: keyA } })),
+    await threw(() =>
+      encryptNote("x", { workspaceId: WORKSPACE_A, workspaceKey: `${keyA}AA`, keyId: "k1" }),
+    ),
+    await threw(async () => parseEncryptedNote(badJson)),
+  ];
+  const messages = failures.map((error) => `${error?.name}: ${error?.message}`).join("\n");
+  check(
+    "no refusal names a key, a ciphertext or a plaintext",
+    failures.every((error) => error instanceof NoteCryptoError) &&
+      !messages.includes(keyA.slice(0, 12)) &&
+      !messages.includes(keyB.slice(0, 12)) &&
+      !messages.includes(envelope.ct.slice(0, 24)) &&
+      !messages.includes(envelope.recipients[0].wrapped.slice(0, 16)) &&
+      !messages.includes("finance") &&
+      !messages.includes("1-projects/other"),
+  );
+
+  // A file in a bucket may not decide how long a log line is. `v` and `alg` are
+  // the two fields whose *value* reaches a message, so both are bounded.
+  const shoutingVersion = editEnvelope(stored, (e) => {
+    e.v = "9".repeat(4096);
+  });
+  const shoutingAlg = editEnvelope(stored, (e) => {
+    e.alg = "A".repeat(4096);
+  });
+  const shouts = [
+    await threw(async () => parseEncryptedNote(shoutingVersion)),
+    await threw(async () => parseEncryptedNote(shoutingAlg)),
+  ];
+  check(
+    "a bucket-controlled field cannot decide the size of the error that names it",
+    shouts.every((error) => error instanceof NoteCryptoError && error.message.length < 120),
+  );
+
+  // -- the pinned vector, tampered ----------------------------------------
+
+  const flippedVector = VECTOR.document.replace(
+    /"ct":"(.)/,
+    (_, first) => `"ct":"${first === "A" ? "B" : "A"}`,
+  );
+  check(
+    "a single flipped character in the pinned vector no longer opens it",
+    flippedVector !== VECTOR.document &&
+      (await threw(() =>
+        decryptNote(flippedVector, {
+          workspaceId: VECTOR.workspaceId,
+          keys: { [VECTOR.keyId]: VECTOR.workspaceKey },
+        }),
+      )) instanceof NoteCryptoError,
+  );
+
+  const tamperedRecipientIv = editEnvelope(stored, (e) => {
+    e.recipients[0].iv = e.recipients[0].iv.startsWith("A")
+      ? `B${e.recipients[0].iv.slice(1)}`
+      : `A${e.recipients[0].iv.slice(1)}`;
+  });
+  check(
+    "a tampered wrap nonce fails to unwrap rather than yielding a key",
+    (await threw(() =>
+      decryptNote(tamperedRecipientIv, { workspaceId: WORKSPACE_A, keys: { k1: keyA } }),
+    )) instanceof NoteCryptoError,
+  );
+
+  // -- a generator does not get to change a note's form -------------------
+  //
+  // "Whether a write is encrypted is decided by the stored object at that path"
+  // is a rule about every writer, and the ones a person never drives are the
+  // ones it is easiest to forget: an inbox capture replayed under the same
+  // external id, a meeting note, a calendar refresh. Each replaces a note's
+  // *content* by design, and none of them is a reason to replace its *form*.
+
+  const generated = "---\nupdated: 2026-09-08\n---\n\n# regenerated\n";
+  const seal = (plaintext) =>
+    encryptNote(plaintext, { workspaceId: WORKSPACE_A, workspaceKey: keyA, keyId: "k1" });
+  const refuse = async () => null;
+
+  check(
+    "a generated note at an empty path is stored as it was generated",
+    (await value(() => generatedNoteBytes(generated, null, seal))) === generated,
+  );
+  check(
+    "...and so is one over an ordinary note",
+    (await value(() => generatedNoteBytes(generated, ordinary, seal))) === generated,
+  );
+
+  const regenerated = await value(() => generatedNoteBytes(generated, stored, seal));
+  check(
+    "a generated note over an ENCRYPTED one is encrypted, not written in the clear",
+    typeof regenerated === "string" &&
+      isEncryptedNote(regenerated) &&
+      !regenerated.includes("regenerated"),
+  );
+  check(
+    "...and it is the new content, so the update was not silently dropped either",
+    (await value(() =>
+      decryptNote(regenerated, { workspaceId: WORKSPACE_A, keys: { k1: keyA } }),
+    )) === generated,
+  );
+  check(
+    "a broken envelope is protected exactly as hard as a good one",
+    isEncryptedNote(markerNoBlock) &&
+      (await value(() => generatedNoteBytes(generated, markerNoBlock, seal))) !== generated,
+  );
+  check(
+    "and with no key, the answer is 'leave the note alone' rather than plaintext",
+    (await value(() => generatedNoteBytes(generated, stored, refuse))) === null,
   );
 
   // -- keys are keys -------------------------------------------------------

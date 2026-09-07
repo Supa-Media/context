@@ -52,7 +52,7 @@
  *
  * The content behind that origin came from the pinned origin, was fetched
  * without credentials, and lives in `userData` — a directory whose contents
- * whoever owns it could already replace, since `dist/main/index.js` is in the
+ * whoever owns it could already replace, since `dist/main/index.cjs` is in the
  * same account's reach. The mirror is not a new trust boundary; the pin is.
  *
  * ## The mirror is disposable

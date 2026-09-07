@@ -108,6 +108,29 @@ export class NoteCryptoError extends Error {
   }
 }
 
+/**
+ * A bucket-controlled value, rendered small enough to put in a message.
+ *
+ * `v` and `alg` are read out of a file in the customer's bucket, and the error
+ * that names them reaches a structured log line and — past `canSee` — a client.
+ * Interpolating them verbatim would let a file decide the size and the content
+ * of a log record, which is the one thing a log line is not allowed to let a
+ * note do. Shapes and short prefixes are enough to debug with; the rest is
+ * somebody's bytes.
+ */
+function describeField(value) {
+  if (typeof value === "string") {
+    return value.length <= 16
+      ? JSON.stringify(value)
+      : `${JSON.stringify(value.slice(0, 16))}\u2026`;
+  }
+  if (value === null) return "null";
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return "an array";
+  if (typeof value === "object") return "an object";
+  return typeof value;
+}
+
 /* ------------------------------ base64url -------------------------------- */
 //
 // Unpadded base64url throughout the envelope, so it survives a URL, a YAML
@@ -233,11 +256,22 @@ export function generateWorkspaceKey() {
  * but string concatenation.
  */
 export function renderEncryptedNote(envelope) {
-  const keyId = envelope.recipients?.[0]?.id;
+  // The generation named in the frontmatter is the *workspace* recipient's, and
+  // it is omitted rather than invented when there is not one to name. A
+  // `ws:undefined` line would be read back by `encryptedNoteKeyId` as a real
+  // generation, and a re-wrap pass would then look for a key called
+  // "undefined" instead of reporting a note it cannot place.
+  const generation = (envelope.recipients ?? []).find(
+    (recipient) =>
+      recipient &&
+      recipient.kind === RECIPIENT_WORKSPACE &&
+      typeof recipient.id === "string" &&
+      KEY_ID_PATTERN.test(recipient.id),
+  )?.id;
   return [
     "---",
     `${MARKER_KEY}: v${ENVELOPE_VERSION}`,
-    `${KEY_MARKER_KEY}: ws:${keyId}`,
+    ...(generation === undefined ? [] : [`${KEY_MARKER_KEY}: ws:${generation}`]),
     "---",
     "",
     "> [!NOTE] This note is encrypted.",
@@ -298,6 +332,45 @@ export function indexableText(text) {
 }
 
 /**
+ * The bytes to store for a note this gateway *generated*, given whatever is
+ * already at that path.
+ *
+ * "Whether a write is encrypted is decided by the stored object at that path,
+ * never by the submitted content" is a rule about every writer, not only about
+ * the one a person drives. Several paths regenerate a note at a fixed key — an
+ * inbox capture replayed under the same external id, a meeting note, a calendar
+ * refresh — and each legitimately replaces the note's **content**. None of them
+ * is a reason to also replace its **form**: a note somebody deliberately
+ * encrypted must not quietly become plaintext because a scheduled job rewrote
+ * it.
+ *
+ * Three answers, and the third is why this returns a value rather than bytes:
+ *
+ *  - nothing there, or plaintext there — the text, unchanged;
+ *  - an envelope there, and a key — the text, encrypted;
+ *  - an envelope there and **no key** — `null`, meaning *leave the note alone*.
+ *    Writing plaintext over an envelope nobody in this request can open is the
+ *    one outcome worse than dropping the update, because the update can be made
+ *    again and the note's form cannot.
+ *
+ * `seal` is supplied by the caller rather than taken here, because sealing
+ * needs a workspace and a key and this module deliberately knows about neither.
+ * It answers `null` where the caller holds no key.
+ *
+ * Decided on the marker rather than on a successful parse, so a broken envelope
+ * is protected exactly as hard as a good one.
+ *
+ * @param {string} text the note as the generator produced it
+ * @param {string|null} storedText what is at the path now, or `null`
+ * @param {(plaintext: string) => Promise<string|null>} seal
+ * @returns {Promise<string|null>}
+ */
+export async function generatedNoteBytes(text, storedText, seal) {
+  if (typeof storedText !== "string" || !isEncryptedNote(storedText)) return text;
+  return await seal(text);
+}
+
+/**
  * The key generation an encrypted note names, without opening it.
  *
  * A re-wrap pass reads this to find what is still on the outgoing generation.
@@ -355,10 +428,10 @@ function assertEnvelopeShape(envelope) {
   if (envelope.v !== ENVELOPE_VERSION) {
     // Refused rather than best-guessed. A newer gateway may write a v2; an
     // older one must say it cannot read it, not open it as though it could.
-    throw new NoteCryptoError(`unsupported envelope version ${JSON.stringify(envelope.v)}`);
+    throw new NoteCryptoError(`unsupported envelope version ${describeField(envelope.v)}`);
   }
   if (envelope.alg !== CONTENT_ALG) {
-    throw new NoteCryptoError(`unsupported envelope algorithm ${JSON.stringify(envelope.alg)}`);
+    throw new NoteCryptoError(`unsupported envelope algorithm ${describeField(envelope.alg)}`);
   }
   if (typeof envelope.aad !== "string" || envelope.aad.length === 0) {
     throw new NoteCryptoError("envelope is missing its associated data");

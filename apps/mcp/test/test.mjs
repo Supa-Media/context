@@ -2,6 +2,7 @@ import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
 import { SUPPORTED_SCOPES, visibilityTierForGrant } from "../src/session.js";
 import { runStoreChecks } from "./store.test.mjs";
+import { runCommunicationsChecks } from "./communications.test.mjs";
 import { runOrientationChecks } from "./orientation.test.mjs";
 import { runSearchFilterChecks } from "./searchFilter.test.mjs";
 import { runSearchIndexerChecks } from "./searchIndexer.test.mjs";
@@ -411,9 +412,13 @@ const tools = await rpc("priv-token", "tools/list");
 // `read_image`, which is a read capability over the same access map. 24 with
 // `list_meetings` and `read_meeting`: a meeting is an ordinary note, and these
 // are the two reads that know a transcript is appended to one and that a model
-// has to ask for it. 25 with `set_encryption`, which is a write over one note's
-// own bytes and, like `set_visibility` beside it, a personal connection's.
-check("25 tools listed", tools.result?.tools.length === 25);
+// has to ask for it. 26 with `list_channel_days` and `read_channel_day`, which
+// are the same pair one layer over: a day of somebody's mail is an ordinary
+// note too, and these are the two reads that know the bodies are appended to
+// one and that a model has to ask for them. 27 with `set_encryption`, which is
+// a write over one note's own bytes and, like `set_visibility` beside it, a
+// personal connection's.
+check("27 tools listed", tools.result?.tools.length === 27);
 
 // -- list_plugins through the worker
 //
@@ -1192,7 +1197,7 @@ check(
 );
 
 const modernList = await modernFetch({ method: "tools/list" });
-check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 25);
+check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 27);
 check(
   "modern tools/list carries the required freshness hints",
   typeof modernList.body.result?.ttlMs === "number" &&
@@ -1418,7 +1423,7 @@ for (const verb of ["GET", "DELETE"]) {
 // --- and now the half that must not have moved: legacy clients ---
 check(
   "a legacy client sending no version header still works",
-  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 25
+  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 27
 );
 async function legacyWithVersionHeader(version) {
   return worker.fetch(
@@ -3879,6 +3884,11 @@ runStoreFactoryChecks(check);
 // paginates and delimits honestly. Its own control plane, so it runs beside the
 // tenancy suite rather than against the shared fixture.
 await runOrientationChecks(check);
+
+// The two communications reads, against their own bucket for the same reason:
+// the fixture here is two mailboxes with different visibilities, which is the
+// arrangement the "a mailbox is a folder" decision exists for.
+await runCommunicationsChecks(check);
 
 // The search index. The two format halves are pure functions over their own
 // fixtures and touch no store or control plane, so they run anywhere; the

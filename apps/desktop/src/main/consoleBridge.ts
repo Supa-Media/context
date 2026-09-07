@@ -54,6 +54,7 @@
  * only be exercised by launching an app is a guard nobody has checked.
  */
 
+import { isMeetingId } from "@context/meetings/protocol";
 import {
   BRIDGE_CHANNELS,
   MEETING_WRITE_KINDS,
@@ -239,7 +240,7 @@ function startRequestFrom(payload: unknown): StartCaptureRequest | null {
     unknown
   >;
   const sessionId = typeof source.sessionId === "string" ? source.sessionId.trim() : "";
-  if (sessionId === "") return null;
+  if (!isMeetingId(sessionId)) return null;
   return { sessionId, mic: source.mic === true, systemAudio: source.systemAudio === true };
 }
 
@@ -252,6 +253,15 @@ function startRequestFrom(payload: unknown): StartCaptureRequest | null {
  * protocol — what stops that being a hole is that the body never chooses an
  * address. The route comes from `kind` and the context from `context`, and both
  * are read against closed sets here and again in `contextRouteFor`.
+ *
+ * **That argument named two of the address's three inputs.** The session id is
+ * the third, it went into `ROUTES.*` by raw interpolation, and it was checked
+ * only for being non-empty — so a page could pick the path while this paragraph
+ * said the body could not. `fetch` normalises, so `a/../../../mcp#` reached
+ * `POST /mcp` with this machine's grant and a body the page also chose. It is
+ * `isMeetingId` now, the same predicate the gateway applies to the same value,
+ * and `ROUTES` encodes and refuses dot segments as well — a validator protects
+ * one caller, an encoder protects the shape.
  */
 function meetingWriteFrom(payload: unknown): MeetingWrite | null {
   const source = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
@@ -259,7 +269,13 @@ function meetingWriteFrom(payload: unknown): MeetingWrite | null {
     unknown
   >;
   const sessionId = typeof source.sessionId === "string" ? source.sessionId.trim() : "";
-  if (sessionId === "") return null;
+  /*
+    `isMeetingId` and not "non-empty", because this id is interpolated raw into
+    `ROUTES.*` and sent with this machine's grant — see the block in
+    `test/consoleBridge.test.mjs`. Whoever picks the id picks the endpoint, and
+    this is the same predicate the gateway already applies to the same value.
+  */
+  if (!isMeetingId(sessionId)) return null;
   if (!MEETING_WRITE_KINDS.includes(source.kind as MeetingWriteKind)) return null;
   const body = source.body;
   if (typeof body !== "object" || body === null || Array.isArray(body)) return null;

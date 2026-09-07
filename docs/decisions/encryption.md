@@ -519,9 +519,27 @@ The refusal reuses shapes that already exist rather than inventing any:
 line and it publishes the plaintext of an encrypted note to an anonymous URL
 that survives every forward.
 
+**What shipped, and the one edge it does not cover.** `createLinkShare` refuses
+with its own code, `PATH_ENCRYPTED` — deliberately not `PATH_NOT_TEAM_VISIBLE`,
+because the two send an owner to different places: one says "publish the note
+first", the other says "this note is deliberately unreadable, and the audience
+with no name is the one that cannot have it". `readThroughShare` refuses again
+on every read, from the live object, narrowed to `openToAnyone` — so a note
+encrypted *after* a link was pasted stops resolving, and the refusal is the
+ordinary anonymous one rather than a new answer a holder could learn from.
+
+A share addressed to a **named person or to a context's members** is not
+refused, and today it renders the envelope rather than the note: the control
+plane holds no note key and never decrypts, so it has nothing else to show.
+That is a broken page and not a disclosure — an envelope is ciphertext — and it
+is left rather than fixed here because the fix is a product decision about what
+a named reader should see, not an engineering one. What is not left open is the
+composition this section is about: the reader with no name gets nothing.
+
 **The tests that fail if this is reversed.** Minting over an encrypted note is
-refused; reading through a link minted before encryption is refused; and the
-refusal is byte-identical to the one an invented token gets.
+refused; reading through a link minted before encryption is refused, including
+for a note the entry note links to; and the refusal is byte-identical — on the
+whole error payload, not on its code — to the one an invented token gets.
 
 ---
 

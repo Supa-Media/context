@@ -76,23 +76,27 @@ jobs:
     timeout-minutes: 45
     environment: production
     # `contents: write`, overriding the workflow's own `contents: read` above,
-    # because a `publish: true` dispatch hands electron-builder `GH_TOKEN` and
-    # asks it to create a GitHub Release. GitHub Actions has no conditional
-    # permission — a job declares one scope for every run it will ever have,
-    # not one per input — so the choice is between this override and a second
-    # job that duplicates the entire certificate-and-build sequence above it
-    # just to hold a narrower scope. That duplication is the worse trade: twice
-    # the signing surface, two keychains to leak instead of one, and a copy of
-    # ~180 lines that drifts the day only one of them is edited. What actually
-    # keeps this scope narrow is downstream of here rather than in this key:
-    # the token this run receives is minted for this run alone and expires with
-    # it, dispatching this workflow at all already requires write access to the
-    # repository, and the API call the elevated scope would allow is reached
-    # from exactly one place — the `--publish` flag on the Build step below —
-    # gated on `publish == 'true'` AND a signed AND notarised build. Every
-    # dispatch that leaves `publish` at its default touches nothing this scope
-    # adds. See docs/decisions/desktop.md, "The shell updates itself", for the
-    # test that fails if that gate is ever removed instead of the scope.
+    # because a `publish: true` dispatch hands `GH_TOKEN` to the "Publish the
+    # release" step and asks it to create a GitHub Release. GitHub Actions has
+    # no conditional permission — a job declares one scope for every run it
+    # will ever have, not one per input — so the choice is between this
+    # override and a second job that duplicates the entire
+    # certificate-and-build sequence above it just to hold a narrower scope.
+    # That duplication is the worse trade: twice the signing surface, two
+    # keychains to leak instead of one, and a copy of ~180 lines that drifts
+    # the day only one of them is edited. What actually keeps this scope
+    # narrow is downstream of here rather than in this key: the token this run
+    # receives is minted for this run alone and expires with it, dispatching
+    # this workflow at all already requires write access to the repository,
+    # and the API call the elevated scope would allow is reached from exactly
+    # one place — the "Publish the release" step, gated on `publish == 'true'`
+    # AND a signed AND notarised build AND the launch step's own outcome
+    # (`docs/decisions/desktop.md`, "A release is a build that started"). The
+    # Build step itself always passes `--publish never` now and never touches
+    # this scope at all. Every dispatch that leaves `publish` at its default
+    # touches nothing this scope adds. See docs/decisions/desktop.md, "The
+    # shell updates itself", for the test that fails if that gate is ever
+    # removed instead of the scope.
     permissions:
       contents: write
     steps:
@@ -400,6 +404,19 @@ jobs:
       # the way that file's header explains; the hook's own
       # "submitting … / done — notarised and stapled" lines, right after, are
       # the notarisation that actually happens.
+      #
+      # ## Why this always passes `--publish never`, even when `publish: true` was dispatched
+      #
+      # It used to branch on `steps.decide.outputs.publish` and pass `always`
+      # there — which published straight out of electron-builder's own GitHub
+      # provider, *inside this step*, before anything downstream had a chance
+      # to object. A crashing build reaching a GitHub Release is not a
+      # theoretical risk: `electron-updater` polls that release and would
+      # auto-install the crash onto every Mac already running this app. So
+      # publishing is no longer a flag on this command at all — it is a
+      # separate step, "Publish the release" below, gated on the launch step
+      # in between actually passing. This step's only job is to produce the
+      # bits; nothing it does can put them in front of an installed base.
       - name: Build
         working-directory: apps/desktop
         env:
@@ -411,33 +428,23 @@ jobs:
           # already decided this; this is that decision reaching the code that
           # arms `autoUpdater`.
           CONTEXT_DESKTOP_SIGNED: ${{ steps.certificate.outputs.signed }}
-          # Present on every run; only load-bearing when the line below passes
-          # `--publish always`. Unused, it is inert — electron-builder makes no
-          # network call for a `--publish never` build, signed or not.
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PUBLISH: ${{ steps.decide.outputs.publish }}
         run: |
           set -o pipefail
           pnpm run build
-          if [ "$PUBLISH" = "true" ]; then
-            publish_policy=always
-          else
-            publish_policy=never
-          fi
-          pnpm exec electron-builder --mac --config electron-builder.yml --publish "$publish_policy" 2>&1 \
+          pnpm exec electron-builder --mac --config electron-builder.yml --publish never 2>&1 \
             | bash build/redact-signing-log.sh
 
       - name: What was produced
         working-directory: apps/desktop
         env:
-          PUBLISHED: ${{ steps.decide.outputs.publish }}
+          WILL_PUBLISH: ${{ steps.decide.outputs.publish }}
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
           ls -la release/*.dmg
           ls -la release/*.zip release/latest-mac.yml 2>/dev/null || true
-          if [ "$PUBLISHED" = "true" ]; then
-            echo "Published v$VERSION to GitHub Releases — electron-builder's own log above named the assets it uploaded."
+          if [ "$WILL_PUBLISH" = "true" ]; then
+            echo "This dispatch asked to publish v$VERSION — that happens in the \"Publish the release\" step, and only if the launch check below passes."
           fi
 
       # `spctl --assess` on the `.dmg` itself always said "no usable
@@ -517,6 +524,281 @@ jobs:
             fi
             echo "::warning::Not every check passed, but this build is not both signed and notarised — Gatekeeper is expected to refuse it elsewhere. See PASS/FAIL lines above."
           fi
+
+      # 922 checks passed on a build that had never opened a window — see
+      # docs/decisions/desktop.md, "a release is a build that started". `--smoke`
+      # is the app's own contribution (`apps/desktop/src/main/index.ts`, a
+      # separate pull request): initialise, open the console window, log one
+      # line, and exit 0 inside its own 30s deadline; exit non-zero on any
+      # uncaught error, if no window was created, if the console address
+      # disagrees with `app.isPackaged`, or if the application menu is missing
+      # its clipboard and undo roles. This step is what makes that mode
+      # load-bearing rather than merely present: it is the first time anything
+      # in this repository has started the app it just built, and it runs
+      # before the artifact this job hands anybody exists as far as the rest of
+      # the job is concerned.
+      #
+      # ## Why the unsigned path gets this too
+      #
+      # `spctl`'s refusal is a check against the quarantine attribute a
+      # download sets; a binary this runner just built and executes by its own
+      # path, in the same job, never has one. So an unsigned build launches
+      # here exactly as a signed one does, which is what makes this step a real
+      # gate on the artifact-only path — the one most dispatches actually
+      # produce, `publish` defaulting to false. Nothing below is conditioned on
+      # `steps.certificate.outputs.signed` or `steps.notarize_check.outputs.notarized`.
+      #
+      # ## Why a runner is not a screen, and why that is fine here
+      #
+      # A GitHub-hosted `macos-latest` runner carries a real window server, so
+      # `BrowserWindow` construction does not need `--no-sandbox` or a virtual
+      # display the way it would on headless Linux — there is no framebuffer to
+      # fake. If a future `--smoke` needs a flag of its own, it is passed on the
+      # command line below and named in this comment; none is needed today.
+      #
+      # ## Why a background launch and `kill -9`, and not `perl -e 'alarm N; exec'`
+      #
+      # macOS ships no `timeout(1)`, so the deadline has to be built here. The
+      # first version of this step was `perl -e 'alarm 30; exec @ARGV'`: perl
+      # schedules `SIGALRM`, `exec` replaces its process image with the app in
+      # place, and the signal reaches the app if it is still running. Neat, and
+      # it rests on three assumptions this step cannot afford:
+      #
+      #   1. that a pending `alarm(2)` survives `execve(2)` on Darwin;
+      #   2. that nothing anywhere in Electron, Chromium, libuv or Node
+      #      catches, blocks or ignores `SIGALRM` — a *catchable* signal, in a
+      #      process that installs handlers for its own reasons;
+      #   3. that a signal whose handler ran would still end a process sitting
+      #      in a modal `NSAlert` run loop, which is the exact state this gate
+      #      exists to catch.
+      #
+      # A deadline that can be caught is not a deadline, and the failure it
+      # produces is the one thing worse than no gate: a release job that hangs
+      # for its full 45 minutes on a build that cannot start. The Mac session
+      # measured that state — the crash dialog, alive and silent at sixty
+      # seconds.
+      #
+      # So: launch in the background, `wait` for it, and have a watchdog send
+      # `SIGKILL` at the deadline. **`SIGKILL` cannot be caught, blocked or
+      # ignored**, by Electron or by anything else, and it does not care what
+      # run loop the main thread is in. The watchdog touches a marker file so
+      # "still alive at the deadline" is reported as itself, in words, rather
+      # than inferred from an exit code that could mean something else.
+      #
+      # Sixty seconds and not thirty: `--smoke` arms its own 30s deadline once
+      # its bundle evaluates, so this one is the backstop for the case that
+      # timer cannot see — a crash *during* module evaluation, before any line
+      # of the app's own code runs. A good launch was measured at 12s.
+      #
+      # ## Why `env -u ELECTRON_RUN_AS_NODE`
+      #
+      # Deleted, not merely left unset. That variable makes the Electron binary
+      # run as plain Node: it swaps the module loader, hands the bundle a real
+      # CommonJS `require`, and never creates an `app` object at all — so the
+      # build that shipped, the one that threw `Dynamic require of "events"`,
+      # loads under it without complaint and `--smoke` never gets far enough to
+      # find anything wrong. It is the one environment variable that turns this
+      # gate into a check that proves nothing, and a runner, an action, or a
+      # future `env:` block on this job could all set it. `NODE_ENV` is
+      # deliberately not set either: the app chooses its console address from
+      # `app.isPackaged`, and a workflow that supplied `NODE_ENV` would be
+      # proving a packaged launch works under a variable no packaged launch
+      # has. `test/launch.smoke.mjs` deletes the same variable for the same
+      # reason, and `test/packaging.test.mjs` asserts both halves of this
+      # paragraph against this file.
+      #
+      # ## Why this gates publishing too, not just the artifact upload
+      #
+      # The Build step above always passes `--publish never` now — nothing it
+      # does can reach a GitHub Release. Whether this dispatch publishes at
+      # all is decided by the "Publish the release" step below, and that step
+      # is gated on `steps.smoke.outcome == 'success'` (this step's own id).
+      # `electron-updater` polls the latest published release and would
+      # auto-install whatever is there onto every Mac already running this
+      # app, so a build that cannot start must never reach that release in
+      # the first place — not "fail the job after the fact," which is what
+      # gating only the artifact upload would still have left true of
+      # publishing.
+      - name: Launch the app it just built
+        id: smoke
+        working-directory: apps/desktop
+        run: |
+          set -uo pipefail
+
+          # A crash caught and printed rather than left to a bare exit code:
+          # Electron's default uncaught-exception dialog and the CommonJS
+          # `require` failure that started this whole gate both say one of
+          # these three things, and none of them is expected to appear whether
+          # `--smoke` failed loudly (non-zero exit) or limped along and exited
+          # 0 anyway.
+          CRASH_STRINGS='Uncaught Exception|A JavaScript error occurred|Dynamic require'
+
+          # The app's own `--smoke` deadline is 30s, armed once its bundle
+          # evaluates. This one is the backstop for what that timer cannot see.
+          SMOKE_DEADLINE_S=60
+
+          launch() {
+            local app_path="$1" log_file="$2"
+            if [ ! -x "$app_path" ]; then
+              echo "FAIL: $app_path is missing or not executable — electron-builder did not produce it where this step expected it."
+              return 1
+            fi
+            local started killed_marker app_pid watchdog_pid status elapsed
+            started="$(date +%s)"
+            killed_marker="$log_file.killed"
+            rm -f "$killed_marker"
+
+            # `env -u ELECTRON_RUN_AS_NODE`: see the comment above this step.
+            # Inherited from anywhere, it turns this gate into a check that
+            # proves nothing.
+            env -u ELECTRON_RUN_AS_NODE "$app_path" --smoke > "$log_file" 2>&1 &
+            app_pid=$!
+
+            # SIGKILL, because the state this gate exists to catch is a modal
+            # crash dialog, and a signal the app can catch is not a deadline.
+            # Its own output goes to /dev/null so that the `sleep` this leaves
+            # orphaned on the fast path is holding no handle on this step's
+            # stdout — an orphan on the runner's log pipe is its own way of
+            # keeping a job open past the work being finished.
+            ( sleep "$SMOKE_DEADLINE_S"; kill -9 "$app_pid" 2>/dev/null && touch "$killed_marker" ) >/dev/null 2>&1 &
+            watchdog_pid=$!
+
+            wait "$app_pid"
+            status=$?
+            elapsed=$(( $(date +%s) - started ))
+            kill "$watchdog_pid" 2>/dev/null || true
+            wait "$watchdog_pid" 2>/dev/null || true
+
+            if [ -f "$killed_marker" ]; then
+              echo "FAIL: $app_path was still alive ${SMOKE_DEADLINE_S}s after it was started and had to be killed with SIGKILL. That is what a launch crash looks like: Electron raises a modal dialog and waits forever, so this build never got as far as printing a verdict."
+              return 1
+            fi
+            if [ "$status" -ne 0 ]; then
+              echo "FAIL: $app_path exited $status after ${elapsed}s."
+              return 1
+            fi
+            if grep -qE "$CRASH_STRINGS" "$log_file"; then
+              echo "FAIL: $app_path exited 0 but its log names a crash — a caught exception is still a crash."
+              return 1
+            fi
+            echo "PASS: $app_path started, ran --smoke, and exited 0 after ${elapsed}s."
+            return 0
+          }
+
+          # Only the last 40 lines, and through the same redaction script the
+          # Build step's own output goes through: a crash log is exactly the
+          # kind of output somebody pastes into an issue, and electron-builder's
+          # signing-identity line (redacted above, for a signed build) can
+          # appear again here if Electron's own crash reporter echoes recent
+          # log output on the way out.
+          show_log() {
+            local log_file="$1" label="$2"
+            echo "--- last 40 lines of the $label log (redacted) ---"
+            if [ -f "$log_file" ]; then
+              tail -n 40 "$log_file" | bash build/redact-signing-log.sh
+            else
+              echo "(no log — the app never started)"
+            fi
+          }
+
+          status=0
+
+          arm64_log="$RUNNER_TEMP/smoke-arm64.log"
+          if ! launch "release/mac-arm64/Context.app/Contents/MacOS/Context" "$arm64_log"; then
+            status=1
+          fi
+          show_log "$arm64_log" "arm64"
+
+          # This runner is arm64 (`macos-latest` has been an Apple Silicon
+          # image since macos-14), so the x64 build under `release/mac/` needs
+          # Rosetta to run at all — and GitHub's arm64 runner images do not
+          # carry it by default. Probed rather than assumed: `arch -x86_64`
+          # against a no-op fails cleanly with "Bad CPU type in executable"
+          # when Rosetta is absent, and that failure is reported as a skip, not
+          # folded into `status`, because it is a fact about the runner rather
+          # than about the app. If a later runner image ships Rosetta, or
+          # `macos-latest` ever means an Intel image again, this starts
+          # covering the x64 artifact with no edit needed here.
+          runner_arch="$(uname -m)"
+          if [ "$runner_arch" != "arm64" ]; then
+            echo "Runner reports $runner_arch, not arm64 — running the x64 build natively."
+            run_x64=true
+          elif arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
+            echo "Rosetta is available on this arm64 runner — running the x64 build under it too."
+            run_x64=true
+          else
+            echo "::warning::Rosetta is not installed on this arm64 runner, so the x64 build cannot be launched here. The arm64 launch above is what gates this job; the x64 artifact ships unverified by this step until Rosetta is available on this image or a Mac confirms it by hand."
+            run_x64=false
+          fi
+
+          if [ "$run_x64" = "true" ]; then
+            x64_log="$RUNNER_TEMP/smoke-x64.log"
+            if ! launch "release/mac/Context.app/Contents/MacOS/Context" "$x64_log"; then
+              status=1
+            fi
+            show_log "$x64_log" "x64"
+          fi
+
+          exit "$status"
+
+      # electron-builder's own GitHub provider used to do this, from inside
+      # the Build step, before the app it was publishing had ever been run.
+      # This step is what replaces that: it runs only after the launch step
+      # above has actually started the app, so a build that cannot open a
+      # window never reaches the release `electron-updater` polls.
+      #
+      # ## Why `gh release create`/`upload` and not a second electron-builder invocation
+      #
+      # Re-running `electron-builder --publish always` here would re-sign,
+      # re-notarise and re-package from scratch — a *different* set of bytes
+      # than the ones the launch step just tested, which defeats the entire
+      # point of testing them first. `gh release create` instead uploads the
+      # exact files already sitting in `release/` from the Build step above,
+      # untouched.
+      #
+      # ## What actually needs to be there
+      #
+      # Read from `node_modules/electron-updater`'s own `GitHubProvider.js`:
+      # `getLatestVersion()` fetches `<tag>/<channel>.yml` — `latest-mac.yml`
+      # on macOS (`getChannelFilePrefix()` returns `-mac` there) — parses the
+      # file list out of it, and resolves each entry's URL against the same
+      # release. So the updater needs exactly `latest-mac.yml` and the zip(s)
+      # it names, both under this tag; it never asks for the dmg at all. The
+      # dmg is uploaded anyway, for the same reason it always has been: it is
+      # what a person double-clicks their way through on a first install, and
+      # `electron-builder.yml`'s "Why the zip target is not cosmetic" already
+      # explains why both exist. Nothing here changes what gets uploaded, only
+      # who uploads it and when.
+      #
+      # ## Why this is gated the way it is
+      #
+      # `steps.decide.outputs.publish` is already "the dispatch asked for it,
+      # AND signed, AND notarised" (see "Decide whether to publish" above) —
+      # `steps.smoke.outcome == 'success'` adds the one condition that step
+      # cannot see. GitHub Actions already skips every later step once one
+      # fails, so a failed launch step alone would stop this from running —
+      # this condition is the explicit, testable version of that rather than
+      # a reliance on default behaviour surviving the next edit to this file.
+      #
+      # `gh release create` on a tag this repository already released fails
+      # outright rather than overwriting it — the same refusal
+      # "Refuse to publish a version already released" already gives earlier,
+      # now backstopped here too rather than trusted to have been the only
+      # check.
+      - name: Publish the release
+        if: steps.decide.outputs.publish == 'true' && steps.smoke.outcome == 'success'
+        working-directory: apps/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            release/*.dmg release/*.zip release/latest-mac.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --notes "Built and smoke-tested by deploy-desktop.yml — the app in this release opened a window before it was published."
+          echo "Published $TAG — electron-updater reads latest-mac.yml and the zip(s) it names; the dmg is for a first, manual install."
 
       - uses: actions/upload-artifact@v4
         with:

@@ -36,6 +36,7 @@ import { runMirrorChecks } from "./mirror.test.mjs";
 import { runConsoleBridgeChecks } from "./consoleBridge.test.mjs";
 import { runPackagingChecks } from "./packaging.test.mjs";
 import { runUpdatePolicyChecks } from "./updatePolicy.test.mjs";
+import { runAppShellChecks } from "./appShell.test.mjs";
 
 let failures = 0;
 let skipped = 0;
@@ -81,6 +82,7 @@ runUpdatePolicyChecks(check);
 await runConsoleBridgeChecks(check);
 await runContractChecks(check, skip);
 await runPackagingChecks(check);
+runAppShellChecks(check);
 
 console.log(
   failures

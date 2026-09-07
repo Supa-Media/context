@@ -35,6 +35,17 @@
  *   the `publish` input's default flipped to `true`                            1
  *   the build job's `contents: write` override dropped back to `read`          1
  *   the exact-pin regex given its `\^?` back, and `electron-updater` re-floated 1
+ *   the launch-the-built-app step removed outright                             12
+ *   that step moved to after the artifact upload                               1
+ *   `Dynamic require` dropped from the launch step's crash-string grep         1
+ *   the Build step given `--publish always` back                              1
+ *   the publish-the-release step removed outright                             8
+ *   that step moved to before the launch/smoke step                           1
+ *   the smoke-outcome gate dropped from the publish step's `if:`              1
+ *   `env -u ELECTRON_RUN_AS_NODE` dropped from the launch command            1
+ *   the deadline back to `perl -e 'alarm 30; exec @ARGV'`, no SIGKILL        2
+ *   the deadline shortened below the app's own `--smoke` timer               1
+ *   "still alive at the deadline" no longer failing the step                 1
  *
  * The first one was measured at **0** before these checks were asked of the
  * plist\'s keys rather than of its text: that file\'s header discusses every
@@ -330,6 +341,79 @@ export async function runPackagingChecks(check) {
       return error instanceof Error ? error.message : String(error);
     }
   };
+  /*
+    THE REFUSAL REACHES A PUBLIC LOG, SO IT MUST NOT CARRY THE KEY.
+
+    The `require.main === module` block at the foot of `notarize.cjs` — what
+    `--check` runs in CI — writes `::error::` plus the message into the Actions
+    log of a public, MIT-licensed repository. (`exports.default` has no catch at
+    all; an earlier version of this comment said it did, which was wrong about
+    the file it sits beside.) `privateKey`'s throw is careful
+    today — it reports a line count, a character count and whether the markers
+    were seen, and never `text` itself — but nothing was checking that, and the
+    cheapest debugging change anybody could make to it is to interpolate the
+    value that failed to parse.
+
+    This repository has already been bitten by exactly that shape once:
+    `MacPackager.doSign()` printed the signing identity, company name and Apple
+    team id to a public log on the first successful signed build, and needed a
+    `sed` in the workflow to redact it. That one was a dependency's logging. This
+    one would be ours, and it would be a private key.
+
+    So: every refusal is asked whether any run of the thing it refused survived
+    into the sentence. A base64 body is the part worth stealing, so the probe is
+    a distinctive body rather than a generic one — a message that echoed even a
+    fragment would contain a slice of it.
+  */
+  {
+    const body = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ejAxMjM0NTY3ODk";
+    const shapes = [
+      body,
+      `-----BEGIN PRIVATE KEY-----${body}-----END PRIVATE KEY-----`,
+      `-----BEGIN PRIVATE KEY-----\n${body}\n-----END EC PRIVATE KEY-----`,
+      `-----BEGIN PRIVATE KEY-----\n${body}`,
+      `  ${body}  `,
+      `-----BEGIN PRIVATE KEY-----\r\n${body}`,
+    ];
+    /*
+      EIGHT CHARACTERS OF THE BODY, not sixteen, and every offset rather than
+      every other one. MEASURED against the check above this block, which asks
+      whether one short probe survives whole: `text.slice(20, 60)` — a
+      mid-string echo — passes it and fails this; `text.slice(0, 10)` passed
+      BOTH at sixteen. A ten-character prefix of a PEM file is the `-----BEGIN`
+      marker rather than key material, so that one is not the leak it looks
+      like, but the reason has to be the run length rather than luck.
+
+      Eight is short enough to catch a partial echo and long enough not to
+      collide with the fixed prose: the refusal's own words are checked below
+      to still be there, so a run length that made this vacuous would show up
+      as this block passing while that one fails.
+    */
+    const runs = [];
+    for (let i = 0; i + 8 <= body.length; i += 1) runs.push(body.slice(i, i + 8));
+
+    const leaked = [];
+    for (const shape of shapes) {
+      const message = refused(shape);
+      // A shape this repairs rather than refuses is fine — the check is about
+      // what a REFUSAL says, and a repair says nothing at all.
+      if (message === null) continue;
+      if (message.includes(body) || runs.some((run) => message.includes(run))) {
+        leaked.push(shape.slice(0, 24));
+      }
+    }
+    check(
+      "A REFUSED App Store Connect KEY IS NEVER QUOTED BACK — the message reaches a public Actions log",
+      leaked.length === 0,
+    );
+    check(
+      "...and the refusals still say enough to act on: a count, and which marker was missing",
+      /\d+ line\(s\)/.test(refused("hello") ?? "") &&
+        /characters/.test(refused("hello") ?? "") &&
+        /-----BEGIN/.test(refused("hello") ?? ""),
+    );
+  }
+
   check("SOMETHING THAT IS NOT A PRIVATE KEY IS REFUSED, not written out for notarytool to reject", refused("hello") !== null);
   check(
     "...a truncated paste too — a BEGIN with no matching END",
@@ -536,13 +620,25 @@ export async function runPackagingChecks(check) {
     "the version comes from apps/desktop/package.json, never bumped by this workflow itself",
     /require\('\.\/package\.json'\)\.version/.test(WORKFLOW) && !/npm version|package\.json['"],?\s*JSON\.stringify/.test(WORKFLOW),
   );
+  /*
+    This used to be "the build step decides --publish from the same decision"
+    — electron-builder's own GitHub provider published straight out of the
+    Build step, before anything had run the app it was publishing. A crashing
+    build reaching a release is not theoretical: `electron-updater` polls the
+    latest published release and would auto-install it onto every Mac already
+    running this app. So Build always builds, never publishes, and a separate
+    step below is the only place `--publish` (in spirit — it is `gh release
+    create` now, not electron-builder's flag) can ever run, gated on the
+    launch step actually having passed. See "A release is a build that
+    started" in docs/decisions/desktop.md.
+  */
   check(
-    "the build step decides --publish from the same decision, not a second copy of the condition",
-    buildStep !== undefined && /--publish "\$publish_policy"/.test(buildStep) && /PUBLISH: \$\{\{ steps\.decide\.outputs\.publish \}\}/.test(buildStep),
+    "THE BUILD STEP ALWAYS PASSES --publish never — publishing is not a flag on this command any more",
+    buildStep !== undefined && /--publish never/.test(buildStep) && !/--publish always/.test(buildStep) && !/publish_policy/.test(buildStep),
   );
   check(
-    "GH_TOKEN is the workflow's own built-in token — no new secret was added for this",
-    buildStep !== undefined && /GH_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/.test(buildStep),
+    "...and it no longer carries GH_TOKEN or a PUBLISH decision at all — it cannot reach a release, full stop",
+    buildStep !== undefined && !/GH_TOKEN/.test(buildStep) && !/PUBLISH/.test(buildStep),
   );
   /*
     electron-builder's own `MacPackager.doSign()` logs `identityName=Developer
@@ -716,6 +812,181 @@ export async function runPackagingChecks(check) {
   check(
     "nothing about a branch triggers this workflow, signing or no signing",
     /^on:\n  workflow_dispatch:/m.test(WORKFLOW) && !/^\s*(push|pull_request):/m.test(WORKFLOW),
+  );
+
+  // -- the app it just built is started, not just signed --------------------
+  /*
+    A Mac session found that the signed, notarised artifact this workflow had
+    been producing crashed on launch (`Dynamic require of "events"`, from
+    electron-updater's inlined CommonJS) and that nothing in this repository
+    had ever started the app it publishes: 922 checks passing on a build that
+    could not open a window. `--smoke` (a separate pull request, owned there —
+    initialise, open the console window, log one line, exit 0 within 10s;
+    non-zero on any uncaught error or if no window was created) is the app's
+    half; this is the workflow's: a step that actually runs the binary
+    electron-builder just produced and fails the job if it did not survive.
+  */
+  const uploadStep = steps.find((step) => /upload-artifact@v4/.test(step));
+  const launchStep = steps.find((step) => /--smoke/.test(step));
+
+  check("a step launches the app that was just built, with --smoke", launchStep !== undefined);
+  check(
+    "...running the arm64 build electron-builder actually produced, not a guessed path",
+    launchStep !== undefined && /release\/mac-arm64\/Context\.app\/Contents\/MacOS\/Context/.test(launchStep),
+  );
+  check(
+    "IT PRECEDES THE ARTIFACT UPLOAD — nothing that fails this gate is ever kept",
+    launchStep !== undefined &&
+      uploadStep !== undefined &&
+      steps.indexOf(launchStep) < steps.indexOf(uploadStep),
+  );
+  /*
+    The one thing this cannot do, stated rather than hidden: `--publish always`
+    runs INSIDE `electron-builder --mac` in the Build step, so a `publish: true`
+    dispatch has already uploaded to a GitHub Release by the time any step
+    after Build runs — the same shape as the Gatekeeper check directly above
+    this one, which also verifies a dmg whose contents are, by construction,
+    already written to disk. What is asserted here is what is actually true:
+    the launch step runs after Build (so it exercises the exact bits Build
+    produced) and before the artifact upload, on every dispatch — so it still
+    fails the job, in red, on a build that cannot start, whether or not
+    electron-builder had already shipped it to a release the moment before.
+  */
+  check(
+    "...and it runs after Build, so it is testing the exact bits that were produced, not a stale copy",
+    launchStep !== undefined && buildStep !== undefined && steps.indexOf(buildStep) < steps.indexOf(launchStep),
+  );
+  check(
+    "IT GREPS THE LOG FOR ALL THREE CRASH STRINGS FROM THE MAC SESSION'S REPORT",
+    launchStep !== undefined &&
+      /Uncaught Exception/.test(launchStep) &&
+      /A JavaScript error occurred/.test(launchStep) &&
+      /Dynamic require/.test(launchStep),
+  );
+  check(
+    "...even when the process exits 0 — a caught crash logged and swallowed is still a crash",
+    launchStep !== undefined && /grep -qE "\$CRASH_STRINGS"/.test(launchStep) && /log_file/.test(launchStep),
+  );
+  check(
+    "A NON-ZERO EXIT FAILS THE STEP",
+    launchStep !== undefined && /-ne 0/.test(launchStep),
+  );
+  /*
+    ── THE DEADLINE IS A DEADLINE, NOT A REQUEST ────────────────────────────
+
+    macOS has no `timeout(1)`, so this step builds its own. The first version
+    was `perl -e 'alarm 30; exec @ARGV'` — elegant, and resting on three things
+    nobody could check from a Linux container: that a pending `alarm(2)`
+    survives `execve(2)` on Darwin, that nothing in Electron, Chromium, libuv
+    or Node catches or blocks `SIGALRM`, and that a handler-bearing process
+    parked in a modal `NSAlert` run loop would still die of it. `SIGALRM` is a
+    catchable signal; the state this gate exists to catch is precisely a
+    process that has stopped responding to ordinary events.
+
+    So the deadline is a background launch, a watchdog and **`SIGKILL`**, which
+    cannot be caught, blocked or ignored by anything. What is asserted is the
+    property and not the spelling: the app is started in the background, and
+    something sends it signal 9 at a deadline.
+  */
+  check(
+    "...AND SO DOES STILL RUNNING PAST THE DEADLINE",
+    launchStep !== undefined && /still alive/.test(launchStep) && /return 1/.test(launchStep),
+  );
+  check(
+    "THE DEADLINE IS `kill -9`, WHICH A CRASH DIALOG CANNOT CATCH, BLOCK OR IGNORE",
+    launchStep !== undefined &&
+      /kill -9 "\$app_pid"/.test(launchStep) &&
+      /SMOKE_DEADLINE_S=\d+/.test(launchStep) &&
+      /wait "\$app_pid"/.test(launchStep),
+  );
+  check(
+    "...and it is not a catchable signal exec'd into the app, which is what this replaced",
+    launchStep !== undefined && !/alarm \d/.test(launchStep) && !/SIGALRM/.test(launchStep),
+  );
+  check(
+    "...and the deadline is longer than the app's own, so it is a backstop rather than a race",
+    launchStep !== undefined && Number(/SMOKE_DEADLINE_S=(\d+)/.exec(launchStep)?.[1] ?? 0) >= 60,
+  );
+  /*
+    `ELECTRON_RUN_AS_NODE` makes the Electron binary run as plain Node: the
+    module loader is swapped, the bundle gets a real CommonJS `require`, and no
+    `app` object is ever created — so the build that shipped, the one that threw
+    `Dynamic require of "events"`, loads under it without a word. It is the one
+    variable that turns this whole gate into a check that proves nothing, and it
+    is deleted rather than merely not set, because a runner, an action or a
+    future `env:` block on this job could all supply it.
+  */
+  check(
+    "THE LAUNCH DELETES `ELECTRON_RUN_AS_NODE`, WHICH WOULD MAKE THIS GATE PROVE NOTHING",
+    launchStep !== undefined && /env -u ELECTRON_RUN_AS_NODE "\$app_path" --smoke/.test(launchStep),
+  );
+  check(
+    "...and it does not set `NODE_ENV`, which no packaged launch has and which nothing may prove a build works under",
+    launchStep !== undefined && !/NODE_ENV=/.test(launchStep),
+  );
+  check(
+    "IT RUNS ON BOTH THE SIGNED AND THE UNSIGNED PATH — nothing here is gated on steps.certificate or steps.notarize_check",
+    launchStep !== undefined && !/steps\.certificate/.test(launchStep) && !/steps\.notarize_check/.test(launchStep),
+  );
+  check(
+    "the x64 build is attempted only where the runner can actually run it — an arm64 runner without Rosetta is a skip, not a false pass",
+    launchStep !== undefined && /arch -x86_64/.test(launchStep) && /release\/mac\/Context\.app\/Contents\/MacOS\/Context/.test(launchStep),
+  );
+  check(
+    "...and the skip is a warning that names the gap, not a silent no-op",
+    launchStep !== undefined && /::warning::/.test(launchStep) && /Rosetta/.test(launchStep),
+  );
+  check(
+    "the captured log is shown only as its last 40 lines, through the same shared redaction script the Build step uses",
+    launchStep !== undefined && /tail -n 40/.test(launchStep) && /redact-signing-log\.sh/.test(launchStep),
+  );
+
+  // -- publishing happens only after the app has been shown to start --------
+  /*
+    Read `node_modules/electron-updater`'s own `GitHubProvider.js`, to answer
+    a question this repository cannot otherwise check without a Mac and a real
+    release: `getLatestVersion()` fetches `<tag>/latest-mac.yml` (macOS's
+    channel file — `getChannelFilePrefix()` returns `-mac` there), and
+    `resolveFiles()` resolves each entry inside it against the same release.
+    So the updater needs exactly that file and the zip(s) it names; the dmg is
+    never one of them — confirmed by reading the provider rather than assumed,
+    because getting this wrong either way is a build that ships without an
+    update path or a release that leaves out the file a person needs to
+    actually install it.
+  */
+  const publishStep = steps.find((step) => /gh release create/.test(step));
+
+  check("a step publishes the release, separately from Build", publishStep !== undefined);
+  check(
+    "IT COMES AFTER THE LAUNCH STEP, NOT BEFORE — publishing follows proof the app starts",
+    publishStep !== undefined && launchStep !== undefined && steps.indexOf(launchStep) < steps.indexOf(publishStep),
+  );
+  check(
+    "IT IS GATED ON THE LAUNCH STEP'S OWN OUTCOME, not just on the earlier publish/signed/notarised decision",
+    publishStep !== undefined && /steps\.smoke\.outcome\s*==\s*'success'/.test(publishStep),
+  );
+  check(
+    "...and it is still gated on that earlier decision too — a smoke pass alone does not imply publish was requested, signed, or notarised",
+    publishStep !== undefined && /steps\.decide\.outputs\.publish\s*==\s*'true'/.test(publishStep),
+  );
+  check(
+    "it uploads exactly what electron-updater's GitHub provider reads — latest-mac.yml and the zip(s) — plus the dmg for a first install",
+    publishStep !== undefined &&
+      /release\/\*\.dmg/.test(publishStep) &&
+      /release\/\*\.zip/.test(publishStep) &&
+      /release\/latest-mac\.yml/.test(publishStep),
+  );
+  check(
+    "it uses the workflow's own built-in token — no new secret was added for this",
+    publishStep !== undefined && /GH_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/.test(publishStep),
+  );
+  check(
+    "it publishes the same tag the early refusal already checked, not a second copy of that logic",
+    publishStep !== undefined && /TAG: v\$\{\{ steps\.version\.outputs\.value \}\}/.test(publishStep) && /"\$TAG"/.test(publishStep),
+  );
+  check(
+    "no second electron-builder invocation runs here — it would re-sign and re-notarise different bytes than the ones just launched",
+    publishStep !== undefined && !/electron-builder/.test(publishStep),
   );
 
   // -- the hook when Apple says no -------------------------------------------
