@@ -65,6 +65,21 @@ describe("tokenizeInline", () => {
     expect(tokenizeInline("2 * 3 = 6")).toEqual([{ text: "2 * 3 = 6" }]);
   });
 
+  test("a multi-megabyte hostile body tokenizes in well under a second", () => {
+    // A body a sender chose, not a paragraph anybody wrote by hand: a long
+    // run of unmatched marker characters is the shape that would trip a
+    // catastrophically-backtracking version of this pattern, and a channel-day
+    // message body is exactly the kind of content this console cannot bound
+    // the size of before rendering (see `docs/decisions/communications.md`,
+    // "a message larger than the threshold gets a part to itself").
+    const hostile = "*".repeat(2_000_000) + "done";
+    const started = Date.now();
+    const tokens = tokenizeInline(hostile);
+    const elapsed = Date.now() - started;
+    expect(tokens.map((t) => t.text).join("")).toBe(hostile);
+    expect(elapsed).toBeLessThan(2_000);
+  });
+
   test("marks do not nest, and no character is lost deciding that", () => {
     const input = "**a *b* c**";
     const tokens = tokenizeInline(input);

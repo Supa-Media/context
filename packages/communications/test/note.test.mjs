@@ -363,6 +363,46 @@ export function runNoteChecks(check) {
     })()
   );
 
+  // -- a hostile or enormous day does not hang the reader -------------------
+  //
+  // A channel-day note is written from other people's mail. Nothing here
+  // bounds how many messages a day can hold or how large one message's body
+  // can be — the split threshold bounds *bytes per part*, not message count —
+  // so the reader that walks every line has to be linear in the input, not
+  // quadratic, or a heavy but perfectly legitimate mailbox day becomes a
+  // console that never finishes opening it.
+  check(
+    "thousands of messages parse in well under a second, not quadratically",
+    (() => {
+      // One line per message plus its fence, so 4,000 messages is a note many
+      // times larger than any single split part this product would ever
+      // write — the reader has never been asked to do this in one call before.
+      const rendered = renderChannelDayNote(bulkyDay(4_000, 40));
+      const started = Date.now();
+      const parsed = parseChannelDayMessages(rendered);
+      const elapsed = Date.now() - started;
+      return parsed.messages.length === 4_000 && elapsed < 2_000;
+    })()
+  );
+  check(
+    "a single message with a multi-megabyte hostile body does not hang the parser",
+    (() => {
+      // Adversarial content, not just size: a run of characters the inline
+      // tokenizer's own emphasis pattern (`**`, `` ` ``, `*`) has to scan
+      // through without exhibiting catastrophic backtracking.
+      const hostileBody = "*a".repeat(1_500_000) + "the numbers are attached";
+      const rendered = renderChannelDayNote(day({ events: [message({ body: hostileBody })] }));
+      const started = Date.now();
+      const parsed = parseChannelDayMessages(rendered);
+      const elapsed = Date.now() - started;
+      return (
+        parsed.messages.length === 1 &&
+        parsed.messages[0].body.includes("the numbers are attached") &&
+        elapsed < 2_000
+      );
+    })()
+  );
+
   // -- singleLine, held to the email worker's rule --------------------------
   check("a newline cannot survive into a heading", !singleLine("a\nb").includes("\n"));
   check("...nor a line separator", !singleLine("a\u2028b").includes("\u2028"));

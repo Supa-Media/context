@@ -151,9 +151,50 @@ check(
   file in the package, so the same mistake in a file added later fails here
   rather than in whichever app happens to import it under jsdom first.
 */
+/*
+  A guard nobody has checked is not a guard. The pattern below is what this
+  check used to be, verbatim, and it looked like it caught the class it
+  names. It does not: it requires the literal keyword `const`, so
+  `let cachedEncoder = new TextEncoder();` at module scope — a plain rewrite
+  of this very fix, and one nobody would flag in review as behaving any
+  differently — sails through unnoticed. Asserted against the checker
+  directly, not against a hypothetical: this is the self-test "a guard nobody
+  has checked is not a guard" asks for, and it is what turned up the gap
+  rather than a promise to look harder.
+*/
+const OLD_TEXT_CODEC_PATTERN = /^(export )?const \w+ = new Text(En|De)coder\(\)/m;
+check(
+  "the retired pattern missed a module-scope `let`, which is the sabotage this replaces",
+  !OLD_TEXT_CODEC_PATTERN.test("let cachedEncoder = new TextEncoder();\n")
+);
+
+/*
+  Still anchored to "no leading whitespace" on purpose, not loosened to
+  "anywhere in the file": every function body in this package is indented at
+  least one level (there is no other module-scope construct here that isn't),
+  so a bare `^` is what tells a real top-level statement apart from the exact
+  lazy pattern `note.js` uses now — `if (x === null) x = new TextEncoder();`
+  inside a function, reassignment rather than declaration, which must keep
+  passing or this check starts failing on the very fix it exists to protect.
+*/
+const TEXT_CODEC_AT_MODULE_SCOPE = /^(export )?(const|let|var) \w+ = new Text(En|De)coder\(\)/m;
+check(
+  "the codec guard, unlike its predecessor, catches a module-scope `let`",
+  TEXT_CODEC_AT_MODULE_SCOPE.test("let cachedEncoder = new TextEncoder();\n")
+);
+check(
+  "...and a module-scope `var`",
+  TEXT_CODEC_AT_MODULE_SCOPE.test("var cachedEncoder = new TextEncoder();\n")
+);
+check(
+  "...and still leaves the real lazy-singleton pattern alone",
+  !TEXT_CODEC_AT_MODULE_SCOPE.test(
+    "let cachedEncoder = null;\nfunction encoder() {\n  if (cachedEncoder === null) cachedEncoder = new TextEncoder();\n  return cachedEncoder;\n}\n"
+  )
+);
 check(
   "no source builds a TextEncoder or TextDecoder outside a function body",
-  !SOURCES.some((source) => /^(export )?const \w+ = new Text(En|De)coder\(\)/m.test(source))
+  !SOURCES.some((source) => TEXT_CODEC_AT_MODULE_SCOPE.test(source))
 );
 
 // -- the public surface
