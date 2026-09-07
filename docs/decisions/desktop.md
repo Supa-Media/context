@@ -704,17 +704,19 @@ three independent guards rather than one:
    distinct instances may refer to one frame; both were measured to work and
    only one of them is documented behaviour.
 
-   **And the honest scope, recounted rather than carried: thirteen of
-   twenty-eight.** Twelve `COMMANDS.*` in `main/index.ts` and three in
-   `main/capture.ts` are still answered to whoever asks; the console bridge's
-   eleven `handle` channels and two synchronous ones are gated. The fifteen are
-   safe for the reason above and not for a better one, and the three capture
-   channels are the closest to the microphone of any channel here. That split is
-   asserted by a census in `test/consoleBridge.test.mjs` rather than left in
-   this paragraph, because a number in prose is a number somebody has to
-   remember: adding a gated channel moves one side of it, adding an ungated one
-   moves the other and reddens. Nothing here should be read as saying the
-   remaining fifteen are done.
+   **And the honest scope, which is a split rather than a pair of numbers.**
+   The `COMMANDS.*` channels in `main/index.ts` and the hidden capture window's
+   own in `main/capture.ts` are still answered to whoever asks; the console
+   bridge's `handle` channels and its two synchronous ones are gated. The
+   ungated ones are safe for the reason above and not for a better one, and the
+   capture channels are the closest to the microphone of any channel here. That
+   split is asserted by a census in `test/consoleBridge.test.mjs` rather than
+   left in this paragraph, and **the counts live there and only there**: this
+   sentence used to carry them, said "thirteen of twenty-eight" and "eleven
+   `handle` channels" while the file had thirteen, and went stale the way every
+   other number in this document has. Adding a gated channel moves one side of
+   the census, adding an ungated one moves the other and reddens. Nothing here
+   should be read as saying the ungated ones are done.
 
 And one rule that is stronger than any of them: **the console window is never
 granted a media permission.** Its session's
@@ -2740,6 +2742,96 @@ the case the jump cannot fix, a gateway that will never accept a session no
 matter how promptly it is asked. The jump means the ordinary case (a deep
 backlog, an otherwise healthy gateway) no longer needs the grace at all; it
 does not shrink the grace or make it redundant for the case it was built for.
+
+### The level meter had a subscriber, a normaliser, a fake and no producer
+
+`onLevel` has been on the bridge since version 1. `packages/desktop-bridge`
+declares `AudioLevel`, `BRIDGE_CHANNELS.level` names a channel, the preload's
+`levelFrom` normalises the payload, `core/shell/bridge.ts` subscribes,
+`fake.ts` emits one for the suite, and `test/consoleBridge.test.mjs` counted
+its listener. **Nothing in the main process had ever sent one.** The console
+drew five bars of fixed height and `Waveform.tsx` said so in as many words —
+*"the heights are fixed and it does not animate"* — with three good arguments
+for it, one of which was that nothing was listening.
+
+The cost was not cosmetic, and it is the reason this is a decision rather than
+a fix. **The meter is the only feedback that exists while a recording is
+happening**: frames, segments and the note all arrive after the meeting is
+over, so somebody recording a conversation they cannot repeat has nothing else
+to look at. The owner spent an evening concluding his microphone was dead —
+*"the bar is still not moving. And I can't tell that it can hear me talking."*
+He was reading the control correctly. It looked **identical** whether the
+microphone was live, denied, or nothing was running at all.
+
+**A decoration in the shape of a meter is a capability claim too.** That is the
+sentence `Waveform.tsx` had inverted: it argued that a moving bar would be a
+claim, and did not notice that a bar which cannot move is the same claim with
+no way to check it. This is the repo's own rule about invented facts, applied
+to a shape rather than to a word.
+
+Four decisions, and the third is the one that generalises.
+
+**The producer is an `AnalyserNode` in the window that already holds the
+stream.** `renderer/capture.ts` taps each open channel, posts a normalised pair
+on `context:capture-level`, and `main/capture.ts` forwards it to
+`consoleBridge.emitLevel`. Never connected to a destination — that would put
+the meeting through the speakers — and **every step is wrapped**: a runtime with
+no `AudioContext`, a stream the graph refuses, an analyser that throws, each
+costs the meter and nothing else. A recording may never fail for a decoration.
+
+**100ms, not a frame.** This runs for the whole of every meeting in a hidden
+window with `backgroundThrottling: false` deliberately set, so nothing else is
+going to impose restraint. Ten readings a second is what a person perceives as
+responsive; `requestAnimationFrame` would be six times the analyser reads and
+six times the IPC, 216,000 messages an hour, for a difference nobody can see. A
+quantised pair unchanged since the last post is not sent at all, so a silent
+room costs one message a second rather than ten — and the heartbeat is what
+stops that becoming silence for a console window opened mid-meeting.
+
+**The wire carries two channels and the glass draws one.** `AudioLevel` is
+`{ mic, systemAudio }` because the shell genuinely knows both. Two meters would
+be read wrong in both directions: on an unsigned build there is no loopback tap
+at all, so the second bar would sit flat for a whole meeting and reintroduce
+exactly the misreading this change removes; on a signed one it sits flat
+whenever nobody else is talking. So the glass draws the louder of the two,
+which is the honest answer to *"is this hearing anything"*, and the split stays
+on the wire for a diagnostics screen that does not exist yet.
+
+**Three states, and two of them are flat.** *Nothing listening* is a flat muted
+baseline and that is **correct**; *listening in a quiet room* is a flat row two
+and a half times taller in the live tone; *hearing a voice* is the silhouette
+scaled by the level. A meter that has to animate to say "I am on" says nothing
+in a silent room, which is where somebody recording alone spends most of a
+meeting — so the first two are told apart by height and tone rather than by
+motion. A fourth case is an absence rather than a state: `level === null` is a
+phone, a browser, or a shell older than this, and it draws the static mark it
+always did. Reading that as `0` would be the invented fact one layer down.
+
+**The re-render argument survived intact and is answered by placement.**
+`LiveMeetingScreen`'s whole promise is that nothing moves while you type, so
+the subscription lives in `LiveWaveform` — a leaf — and a level ten times a
+second re-renders that component and nothing above it. It is not on
+`MeetingRecorder` either: four of the five recorders cannot produce one, and
+the controller's `onChange` rebuilds the app's whole meetings snapshot.
+
+**The check that would have caught this, and the class of defect it names.**
+A member with no producer is a guard nobody checked, one layer out. So
+`test/consoleBridge.test.mjs` now drives *every* producer the `ConsoleBridge`
+object exposes and asserts that **every name in `BRIDGE_CHANNELS` is either
+answered by a handler or actually sent** — nothing enumerated by hand but the
+arguments, and a producer the census cannot drive reddens on its own line
+rather than quietly not being driven. A second half asserts that `main/index.ts`
+really calls each one, because `emitSegment` existing is not the same fact as
+the shell reaching it. **The test that fails if this is reversed**: delete the
+`send(BRIDGE_CHANNELS.level, …)` inside `emitLevel` and `EVERY CHANNEL IN
+BRIDGE_CHANNELS HAS A PRODUCER IN consoleBridge.ts` names `context:on-level` in
+its own failure line; delete the wiring in `main/index.ts` instead and the
+second half reddens with the first still green.
+
+**What no test in this repository can confirm**: that the bar moves. That needs
+a signed build, a granted microphone and somebody to speak into it. The suite
+proves the level is produced, clamped, carried across both halves of the bridge
+and drawn at three distinguishable heights; the hardware walk is a person's.
 
 ### What is deliberately not built
 

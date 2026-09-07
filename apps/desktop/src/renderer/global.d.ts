@@ -47,6 +47,8 @@ declare global {
         mimeType: string;
         data: Uint8Array;
       }): void;
+      /** How loud each open channel is, 0–1. A number, never samples. */
+      level(level: { mic: number; systemAudio: number }): void;
     };
   }
 }

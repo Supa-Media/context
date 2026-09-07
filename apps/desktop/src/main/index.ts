@@ -603,7 +603,24 @@ async function main(): Promise<void> {
   const panel = RENDERER_UI ? createPanel(RENDERER_DIR) : null;
   const notepad = RENDERER_UI ? createNotepad(RENDERER_DIR) : null;
 
-  const capture = FAKE ? null : new DesktopCaptureRecorder(RENDERER_DIR);
+  /*
+    The meter goes straight from the device to the page, and past everything.
+
+    Not through `push()` and not through the controller: the level moves ten
+    times a second on the recorder's own clock, and both of those are the
+    shell's *state*, which changes when somebody presses something. Routing it
+    through either would mean choosing between publishing the whole shell view
+    at 10Hz and publishing a level at whatever rate the shell happened to move
+    — and the second of those is a bar that does not move, which is the defect
+    this exists to fix.
+
+    `consoleBridge` is read at call time rather than captured, because it is
+    rebuilt whenever the console window is: a recorder holding the one that
+    existed when the app launched would push into a window that is gone.
+  */
+  const capture = FAKE
+    ? null
+    : new DesktopCaptureRecorder(RENDERER_DIR, (level) => consoleBridge?.emitLevel(level));
   const recorder: AudioRecorder = capture ?? fakeRecorder();
   const controller = new MeetingController({
     recorder,
