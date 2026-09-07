@@ -2093,6 +2093,34 @@ the red indicator, or reports `recording`, before that dialog has been
 answered is the defect this section exists to close, whatever the panel's
 copy says.
 
+**A grant that still cannot open is not the same failure as a refusal, and
+does not get the same sentence.** The same hardware session that found the
+wrong string found a second one once the first was fixed: the app was already
+running when macOS recorded the grant, mid-session, and every attempt after it
+— for the rest of that process's life — still could not open an input, while
+the panel kept showing *"macOS has not granted this app the microphone
+yet... record again"*, even though TCC's own answer was `granted`. That
+sentence's own instruction is what a person had just done; showing it again
+reads as "that didn't work" about an instruction that was never wrong.
+
+`status()` is not the liar here — `getMediaAccessStatus` is asked fresh on
+every `begin()`, exactly as the section above describes, and it honestly
+answers `granted`. What lags is AVFoundation's own per-process authorization,
+which can hold the answer a running process observed the first time it asked
+until that process relaunches. So `ensureCapturePermissions` can report `ok`
+and the recorder's own `start()` can still throw, and `MeetingController.begin`
+now tells the two failures apart by `why`: a refusal is still `"permissions"`,
+and its recovery is still System Settings; a grant the recorder still could
+not use is `"stale-permission"`, reported with an empty `missing` — nothing is
+missing, this process is — and its recovery is `CONSOLE_NOTICES
+.staleMicrophoneGrant`, *"Quit and reopen Context to pick up the microphone
+permission"*, the one instruction that actually works. Collapsing the two
+back into one `why` is the exact regression: `controller.test.mjs` pins it with
+a broker whose status flips from `not-determined` to `granted` between two
+`begin()` calls on the same process while the recorder keeps refusing to open,
+and `appShell.test.mjs` pins the sentence itself, the same way it pins
+`permissions`'s.
+
 ### What is deliberately not built
 
 Not built, and none of them foreclosed:

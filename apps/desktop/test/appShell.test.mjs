@@ -356,4 +356,39 @@ export function runAppShellChecks(check) {
       permissionEntries.every(([, , text]) => /record again/i.test(text)),
     );
   }
+
+  /* --- a grant that still cannot open gets its own sentence, not that one -- */
+
+  /*
+    THE FOLLOW-ON DEFECT, same hardware session: macOS recorded the grant at
+    14:04, mid-run — but every recording after it, for the rest of that
+    process's life, still failed to open an input, and the panel *still* said
+    "not granted" at 14:57. AVFoundation's per-process authorization can lag a
+    grant made in System Settings until the process relaunches, so a person
+    who did exactly what `CONSOLE_NOTICES.permissions` told them to do sees the
+    same sentence again — which reads as "that didn't work" about an
+    instruction that was never wrong, it was just already followed. The only
+    thing that actually recovers this one is a relaunch, so it needs its own
+    sentence and its own key: reusing `permissions` here would send this
+    person back to a System Settings toggle that is already on.
+  */
+  {
+    const notices = source.match(/const CONSOLE_NOTICES = Object\.freeze\(\{[\s\S]*?\n\}\);/)?.[0] ?? "";
+    const stale = notices.match(/(\w+):\s*\n?\s*"((?:[^"\\]|\\.)*Quit and reopen(?:[^"\\]|\\.)*)"/);
+    check("THE STALE-GRANT SENTENCE EXISTS IN THE CLOSED SET", stale !== null);
+    check(
+      "...names quitting and reopening, the one thing that actually recovers a stale process",
+      stale !== null && /quit and reopen/i.test(stale[2]),
+    );
+    check(
+      "...and does not reuse the 'macOS has not granted' sentence, which would be false here",
+      stale !== null && !/has not granted/i.test(stale[2]),
+    );
+    const staleKey = stale?.[1];
+    check(
+      "THE CONSOLE ROUTES A STALE GRANT TO ITS OWN SENTENCE rather than the generic 'not granted' one",
+      typeof staleKey === "string" &&
+        (source.match(new RegExp(`CONSOLE_NOTICES\\.${staleKey}\\b`, "g")) ?? []).length >= 2,
+    );
+  }
 }

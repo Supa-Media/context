@@ -55,7 +55,7 @@ import { fakeClock } from "./fakes.mjs";
 
 function harness(options = {}) {
   const clock = fakeClock();
-  const recorder = fakeRecorder();
+  const recorder = options.recorder ?? fakeRecorder();
   const permissions = options.permissions ?? fakePermissionBroker();
   let outbox = emptyOutbox();
   const views = [];
@@ -145,6 +145,84 @@ export async function runControllerChecks(check) {
       granted.calls.every((call) => call.startsWith("status:")),
     );
     check("...both permissions were still checked", granted.calls.includes("status:microphone") && granted.calls.includes("status:screen"));
+  }
+
+  // -- a granted permission that still cannot open is not "permissions" -----
+  //
+  // Found on the owner's own hardware: the app was already running when macOS
+  // recorded the microphone grant, mid-session — but every attempt after it,
+  // for the rest of that process's life, still could not open an input, and
+  // the panel still said "not granted" even though TCC's own answer had
+  // flipped to `granted`. Modelled here as two separate `begin()` calls on the
+  // SAME broker and controller — the first while the mic is `not-determined`,
+  // the second after it has flipped to `granted` behind the scenes, the way a
+  // real grant given in System Settings would — with a recorder whose `start`
+  // only starts refusing on the second attempt, the way a stale process's
+  // input would.
+  //
+  // Two separate claims, both load-bearing:
+  //  1. `status()` is asked again on the second attempt rather than reused
+  //     from the first — if it were memoised anywhere, this fake broker would
+  //     never be asked a second time and this check would not move.
+  //  2. The recorder failing AFTER a genuine `granted` is reported as a
+  //     DIFFERENT reason than a refused permission: "permissions" means macOS
+  //     said no, and its own recovery ("open System Settings, enable it,
+  //     record again") is the exact toggle this person already flipped, so
+  //     reusing it here would be the same wrong instruction this app was
+  //     fixed to stop giving.
+  {
+    const flipping = fakePermissionBroker({ microphone: "not-determined", screen: "granted" });
+    let opens = 0;
+    const stubborn = {
+      capturing: false,
+      async start() {
+        opens += 1;
+        if (opens > 1) {
+          throw new Error("Cannot open the microphone: authorization is still pending for this process.");
+        }
+      },
+      async pause() {},
+      async resume() {},
+      async stop() {
+        return { recordedMs: 0, frames: 0 };
+      },
+    };
+    let outbox = emptyOutbox();
+    const clock = fakeClock();
+    const controller = new MeetingController({
+      recorder: stubborn,
+      transcriber: fakeTranscriber(),
+      permissions: flipping,
+      device: { platform: "macos" },
+      outbox: () => outbox,
+      setOutbox: (next) => { outbox = next; },
+      now: clock.now,
+      newId: () => "mtg_abcdefghjkmnpqrstvwx",
+    });
+
+    const first = await controller.begin({ source, title: "x", grantedEpisode: "e1" });
+    check("the first attempt asks for the not-determined mic and it is granted", first.ok === true);
+    check("...by actually raising the dialog, once", flipping.calls.filter((c) => c === "request:microphone").length === 1);
+    await endQuietly(controller);
+    controller.clear();
+
+    const statusChecksSoFar = flipping.calls.filter((c) => c === "status:microphone").length;
+    const second = await controller.begin({ source, title: "x", grantedEpisode: "e2" });
+    check(
+      "STATUS WAS ASKED AGAIN ON THE SECOND ATTEMPT, IN THE SAME PROCESS — not memoised from the first",
+      flipping.calls.filter((c) => c === "status:microphone").length > statusChecksSoFar,
+    );
+    check(
+      "...and the dialog was not raised twice, since the second check already read granted",
+      flipping.calls.filter((c) => c === "request:microphone").length === 1,
+    );
+    check("the recorder still refused to open despite the grant", second.ok === false);
+    check(
+      "...and that is reported as a DIFFERENT reason than a refused permission",
+      second.why === "stale-permission",
+    );
+    check("...naming no permission as missing, because none is", (second.missing ?? ["not empty"]).length === 0);
+    check("the session records the failure rather than pretending to record", controller.view()?.state === "failed");
   }
 
   // -- the indicator ---------------------------------------------------------

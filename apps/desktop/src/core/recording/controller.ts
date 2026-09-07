@@ -161,7 +161,11 @@ export interface BeginInput {
 
 export type BeginResult =
   | { ok: true; view: SessionView }
-  | { ok: false; why: "not-consented" | "already-recording" | "permissions"; missing?: PermissionKind[] };
+  | {
+      ok: false;
+      why: "not-consented" | "already-recording" | "permissions" | "stale-permission";
+      missing?: PermissionKind[];
+    };
 
 export class MeetingController {
   #deps: ControllerDeps;
@@ -282,6 +286,11 @@ export class MeetingController {
           onSegment: (segment) => this.#onSegment(segment),
           onNotice: (notice) => this.#update({ notice: notice.message }),
         });
+      } catch (error) {
+        this.#update({ state: "failed", failureReason: describe(error), capturing: false });
+        return { ok: false, why: "permissions", missing: outcome.missing };
+      }
+      try {
         await this.#deps.recorder.start({
           channels,
           sampleRate: this.#deps.sampleRate ?? 16_000,
@@ -289,7 +298,26 @@ export class MeetingController {
         });
       } catch (error) {
         this.#update({ state: "failed", failureReason: describe(error), capturing: false });
-        return { ok: false, why: "permissions", missing: outcome.missing };
+        /*
+          `outcome.ok` is true here — `ensureCapturePermissions` already read
+          `granted` for everything this meeting needs — and the input still
+          would not open. Found on the owner's own hardware: macOS recorded the
+          grant mid-run, but the process that was already running kept
+          reporting (and behaving on) the answer it observed the *first* time
+          it asked. `getMediaAccessStatus` is honest and re-read fresh on every
+          `begin()` (see `capture/permissions.ts`); it is AVFoundation's
+          per-process authorization, not this status call, that can lag a grant
+          made in System Settings until the process relaunches.
+
+          Reported as a *different* `why` than "permissions" on purpose: that
+          one means "macOS says no", and its own recovery ("open System
+          Settings, enable it, record again") is exactly the toggle this person
+          already flipped. Telling them to flip it again is the same wrong
+          instruction this section exists to remove, just for a different
+          reason. `missing` stays empty — nothing is missing, this process is
+          stale — so the panel can tell the two apart without re-deriving it.
+        */
+        return { ok: false, why: "stale-permission", missing: [] };
       }
     }
 
