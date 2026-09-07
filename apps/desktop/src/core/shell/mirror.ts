@@ -469,11 +469,23 @@ export function respondToFailedLoad(failure: FailedLoad): "mirror" | "failure" |
 /**
  * A `webContents`-shaped source of the three events a fallback navigation can
  * raise, and nothing else. The real thing is Electron's `WebContents`; a test
- * hands in a plain `EventEmitter`, which has the same three-argument `.once`.
+ * hands in a plain `EventEmitter`, which has the same `.on` and `.off`.
+ *
+ * `on`/`off` and not `once`, because these events are **not** the fallback's
+ * alone — the navigation that already failed goes on raising its own, and a
+ * listener that fires once fires for whichever comes first. See
+ * `awaitFallbackSettled`.
  */
 export interface FallbackNavigationEvents {
-  once(event: "did-navigate" | "did-finish-load" | "did-fail-load", listener: (...args: unknown[]) => void): void;
+  on(event: "did-navigate" | "did-finish-load" | "did-fail-load", listener: (...args: unknown[]) => void): void;
+  off(event: "did-navigate" | "did-finish-load" | "did-fail-load", listener: (...args: unknown[]) => void): void;
 }
+
+/**
+ * Where Electron puts the URL in a `did-fail-load` payload:
+ * `(event, errorCode, errorDescription, validatedURL, isMainFrame, ...)`.
+ */
+const DID_FAIL_LOAD_URL_ARG = 3;
 
 /**
  * Waits for the fallback navigation `main/consoleMirror.ts` just started to
@@ -495,11 +507,43 @@ export interface FallbackNavigationEvents {
  * for the raw events rather than trusting a promise from `loadURL` — and this
  * is that same fix, applied to the fallback.
  *
- * Resolves `true` once a `did-navigate` or `did-finish-load` fires and
- * `getURL()`, asked **at that moment** rather than cached from before the
- * event, answers `targetOrigin`; `false` on a `did-fail-load` (the fallback
- * failed too — that is `smokeLoadFailure`'s "a refused fallback" case) or when
- * neither has happened inside `deadlineMs` (a genuine hang).
+ * ## Waiting for *an* event was still the same bug, one layer along
+ *
+ * That fix shipped and the hardware row did not move: offline with a good
+ * mirror still reported `mirrorServed:false` and exited `1`. The instrumented
+ * launch says why, and the fault is not in `isMirrorUrl` — `originOfUrl`
+ * already spells `app://console` out, so the origin comparison here matches
+ * exactly as intended:
+ *
+ * ```
+ * 101ms  did-fail-load     ERR_PROXY_CONNECTION_FAILED  https://context.lc/console
+ * 105ms  did-start-navigation  app://console/            getURL=https://context.lc/console
+ * 138ms  did-finish-load                                 getURL=https://context.lc/console
+ *        -> awaitFallbackSettled resolved false
+ * ```
+ *
+ * **A failed navigation is not finished when it fails.** Chromium commits an
+ * error document *at the address that failed*, and that commit raises a
+ * `did-finish-load` of its own — 37ms after the failure, and while `getURL()`
+ * still names the dead live address. Listening with `once` handed that event to
+ * the fallback's wait, which read the live URL, answered "not the mirror", and
+ * resolved `false` — before the `app://console/` navigation it was actually
+ * waiting for had committed at all. The window went on to land on the mirror a
+ * second and a half later, exactly as designed, with nothing left watching.
+ *
+ * So the wait is now for **the fallback's own arrival and no other event**:
+ * `on` rather than `once`, and every `did-navigate`/`did-finish-load` that
+ * leaves `getURL()` somewhere other than `targetOrigin` is the dying live
+ * navigation talking and is ignored. A `did-fail-load` counts only when the URL
+ * it names is on `targetOrigin` — the live failure that *started* this wait can
+ * be re-raised for a subframe, and it is not evidence about the mirror.
+ *
+ * Resolves `true` the first time `getURL()`, asked **at the moment of** a
+ * `did-navigate` or `did-finish-load` rather than cached from before it,
+ * answers `targetOrigin`; `false` on a `did-fail-load` for `targetOrigin` (the
+ * fallback was refused too) or when neither has happened inside `deadlineMs` (a
+ * genuine hang). Listeners are removed on every exit, including the deadline's,
+ * so nothing is left attached to a window this wait no longer speaks for.
  */
 export function awaitFallbackSettled(input: {
   events: FallbackNavigationEvents;
@@ -514,12 +558,21 @@ export function awaitFallbackSettled(input: {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      input.events.off("did-navigate", onArrived);
+      input.events.off("did-finish-load", onArrived);
+      input.events.off("did-fail-load", onFailed);
       resolve(value);
     }
-    const onNavigated = (): void => finish(originOfUrl(input.getURL()) === input.targetOrigin);
-    input.events.once("did-navigate", onNavigated);
-    input.events.once("did-finish-load", onNavigated);
-    input.events.once("did-fail-load", () => finish(false));
+    function onArrived(): void {
+      if (originOfUrl(input.getURL()) === input.targetOrigin) finish(true);
+    }
+    function onFailed(...args: unknown[]): void {
+      const failedUrl = args[DID_FAIL_LOAD_URL_ARG];
+      if (typeof failedUrl === "string" && originOfUrl(failedUrl) === input.targetOrigin) finish(false);
+    }
+    input.events.on("did-navigate", onArrived);
+    input.events.on("did-finish-load", onArrived);
+    input.events.on("did-fail-load", onFailed);
   });
 }
 
@@ -711,16 +764,31 @@ export function wasMirrorServed(finalUrl: string, indexIsHtmlDocument: boolean |
  * `--smoke-load` exits non-zero with — the same shape as
  * `unexpectedConsoleAddress` in `core/shell/console.ts`, and for the same
  * reason: a string names what a boolean would make somebody re-derive.
+ *
+ * ## The sentence says only what the flags say, and it says which
+ *
+ * It used to offer a list — "no mirror on disk, a poisoned one already deleted,
+ * a refused fallback, or a genuine hang — the report line above says which" —
+ * and the report line did not say which: it prints `mirrorServed:false`, which
+ * is the question, not the answer. Worse, on the run that mattered a usable
+ * mirror *had* served the console; the sentence's premise was simply false and
+ * a person reading it went looking for a missing directory that was there.
+ *
+ * `snapshotIsHtmlDocument` is what tells the three cases apart, and it is
+ * already in the report, so the sentence names the one the flags support and
+ * nothing else. The third ending is the bug that shipped twice, stated: a
+ * mirror on disk that this launch could have used and the window never reached.
  */
 export function smokeLoadFailure(input: {
   loaded: boolean;
   mirrorServed: boolean;
+  snapshotIsHtmlDocument: boolean | null;
   deadlineMs: number;
 }): string | null {
   if (input.loaded || input.mirrorServed) return null;
-  return (
-    `the live console did not finish loading within ${input.deadlineMs}ms, and no usable mirror ` +
-    `served ${MIRROR_ORIGIN} in its place (no mirror on disk, a poisoned one already deleted, a ` +
-    "refused fallback, or a genuine hang — the report line above says which)"
-  );
+  const opening = `the live console did not finish loading within ${input.deadlineMs}ms, and the window did not end up on a usable ${MIRROR_ORIGIN} mirror`;
+  if (input.snapshotIsHtmlDocument === null) return `${opening}: there is no mirror on disk to serve`;
+  if (input.snapshotIsHtmlDocument === false)
+    return `${opening}: the mirror on disk has no text/html index to serve`;
+  return `${opening}: a usable mirror is on disk, so the fallback navigation to it was refused or never landed`;
 }

@@ -1882,7 +1882,12 @@ async function main(): Promise<void> {
       rather than re-deriving the rule here; see `core/shell/mirror.ts`.
     */
     if (SMOKE_LOAD) {
-      const failure = smokeLoadFailure({ loaded, mirrorServed, deadlineMs: SMOKE_LOAD_DEADLINE_MS });
+      const failure = smokeLoadFailure({
+        loaded,
+        mirrorServed,
+        snapshotIsHtmlDocument,
+        deadlineMs: SMOKE_LOAD_DEADLINE_MS,
+      });
       if (failure !== null) return endSmoke(1, failure);
     }
     return endSmoke(0, "the app started, opened a window, and is exiting cleanly");

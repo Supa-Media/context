@@ -301,9 +301,23 @@ export function runAppShellChecks(check) {
     );
     check(
       "THE EXIT RULE ASKS ONE PURE FUNCTION, NOT TWO INLINE CHECKS",
-      /if \(SMOKE_LOAD\) \{\s*const failure = smokeLoadFailure\(\{ loaded, mirrorServed, deadlineMs: SMOKE_LOAD_DEADLINE_MS \}\);\s*if \(failure !== null\) return endSmoke\(1, failure\);\s*\}/.test(
+      /if \(SMOKE_LOAD\) \{\s*const failure = smokeLoadFailure\(\{\s*loaded,\s*mirrorServed,\s*snapshotIsHtmlDocument,\s*deadlineMs: SMOKE_LOAD_DEADLINE_MS,?\s*\}\);\s*if \(failure !== null\) return endSmoke\(1, failure\);\s*\}/.test(
         smoke,
       ),
+    );
+    /*
+      AND IT IS HANDED THE FLAG THAT LETS IT SAY WHICH.
+
+      The sentence used to offer four possibilities and claim "the report line
+      above says which"; the report line says `mirrorServed:false`, which is
+      the question. `snapshotIsHtmlDocument` is already computed three lines
+      up and already printed — passing it is what makes the exit sentence name
+      one case instead of a list, and in particular name the case that shipped
+      twice: a usable mirror on disk the window never reached.
+    */
+    check(
+      "...and it is told whether there was a usable mirror at all, so the sentence can say which",
+      /smokeLoadFailure\(\{[^}]*snapshotIsHtmlDocument,/.test(smoke),
     );
     check(
       "...and that function is imported from the one place the rule is stated",
