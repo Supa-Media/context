@@ -2,6 +2,7 @@ import { describe, expect, test } from "@jest/globals";
 import {
   base64Utf8,
   CLIENT_PROVIDERS,
+  CUSTOMIZATION_INSTRUCTION,
   cursorInstallHref,
   fieldsCaption,
   SERVER_DESCRIPTION,
@@ -171,6 +172,46 @@ describe("fieldsCaption", () => {
     const cursor = CLIENT_PROVIDERS.find((p) => p.id === "cursor")!;
     expect(cursor.link(SELF_HOSTED).kind).toBe("install");
     expect(fieldsCaption(cursor, "install")).toMatch(/nothing to paste/i);
+  });
+});
+
+describe("the customization instruction", () => {
+  /**
+   * The whole point of pasting this somewhere permanent instead of leaving it
+   * to a tool description: a client re-reads its own system prompt / rules
+   * file before every answer. That only holds if it stays a single line — a
+   * paragraph invites a skim, and a skim is what a tool description already
+   * gets.
+   */
+  test("is exactly one line", () => {
+    expect(CUSTOMIZATION_INSTRUCTION).not.toContain("\n");
+  });
+
+  test("names both tools an agent needs to actually use this context", () => {
+    expect(CUSTOMIZATION_INSTRUCTION).toContain("`orient`");
+    expect(CUSTOMIZATION_INSTRUCTION).toContain("`save_context`");
+  });
+
+  /** The name a client's own connector list shows, not the product name. */
+  test("names the server the way a client shows it, not the product name", () => {
+    expect(CUSTOMIZATION_INSTRUCTION).toContain(SERVER_NAME);
+    expect(CUSTOMIZATION_INSTRUCTION).not.toContain("Context.LC");
+    expect(CUSTOMIZATION_INSTRUCTION).not.toContain("Context.lc");
+  });
+
+  // A personal brain and a shared workspace answer to the same two tool
+  // names, and the field this gets pasted into has no idea which one it is
+  // talking to — so neither word may appear.
+  test("works for a brain and a workspace alike", () => {
+    expect(CUSTOMIZATION_INSTRUCTION.toLowerCase()).not.toContain("brain");
+    expect(CUSTOMIZATION_INSTRUCTION.toLowerCase()).not.toContain("workspace");
+  });
+
+  test("every provider says where to paste it, as a full sentence", () => {
+    for (const provider of CLIENT_PROVIDERS) {
+      expect(provider.customization.hint.length).toBeGreaterThan(0);
+      expect(provider.customization.hint).toMatch(/^Paste it into/);
+    }
   });
 });
 

@@ -128,6 +128,19 @@ a number that means two different things depending on where it lands.
 read. Hosted ChatGPT has no hook system at all — it is a product rather than a
 harness, and the MCP connector is the whole surface.
 
+Every one of those clients still has some standing-instruction surface it
+re-reads on its own — a system prompt setting, a rules file — even without a
+hook to install into it. Paste this there once and the client starts every
+turn already knowing to check:
+
+> Always orient using the Context MCP (call `orient`) before answering
+> anything about me or my work, and save what you learn with `save_context`
+> before you finish.
+
+The Context console's connect card has this pre-filled per client, with where
+to paste it — Settings → Personalization for ChatGPT, `CLAUDE.md` for Claude
+Code, and so on.
+
 **One honest caveat.** The transcript parser was written against Claude Code's
 format. Codex and Gemini CLI hand over a path to their own; the parser drops
 anything it does not positively recognise, so the worst case there is a save

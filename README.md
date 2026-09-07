@@ -83,6 +83,15 @@ folders with note counts. It is the difference between an AI client that knows
 you already have a project on this and one that asks you to explain yourself
 again.
 
+That instruction lives in the connection, though, not in the client — a fresh
+chat can still forget to act on it. To make it permanent, paste this into the
+client's own custom instructions, system prompt, or rules file (the connect
+screen shows you exactly where, per client):
+
+> Always orient using the Context MCP (call `orient`) before answering
+> anything about me or my work, and save what you learn with `save_context`
+> before you finish.
+
 Most of what `orient` returns is derived from the bucket and rebuilt on every
 call. One part is not: `index.md`, an ordinary Markdown file at the root of your
 bucket that you own. Setting up a new brain writes a starting one describing

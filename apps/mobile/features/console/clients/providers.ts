@@ -63,6 +63,34 @@ export const SERVER_DESCRIPTION =
   "my decisions, my preferences, my notes. Search it before asking me anything I may have " +
   "already written down, and write back anything I should not have to repeat.";
 
+/**
+ * The one line worth pasting somewhere permanent.
+ *
+ * Connecting a client only makes `orient` *available* — every one of these
+ * nine still has to decide, turn by turn, whether to call it, and a tool
+ * description competes with everything else in its context for that decision.
+ * A client's own customization field does not compete: it is instructions the
+ * client re-reads before every reply, not a tool it might skim. This is the
+ * sentence for that field.
+ *
+ * Three things it deliberately does and one it deliberately does not:
+ *
+ *  - Names the server by `SERVER_NAME`, not "Context.LC" — the product name is
+ *    not what shows up in a connector list, and an instruction that names a
+ *    tool the client cannot find teaches the client to ignore it.
+ *  - Says `orient` and `save_context` by their tool names, not by paraphrase,
+ *    for the same reason a stack trace names a function instead of describing
+ *    what it probably does.
+ *  - Stays one line. This is meant to be read once and then obeyed silently on
+ *    every turn after — a paragraph earns a skim, a line earns compliance.
+ *  - Never says "brain" or "workspace". The field a person pastes this into
+ *    has no idea which kind of context is on the other end of the endpoint,
+ *    and does not need to: both answer to the same two tool names.
+ */
+export const CUSTOMIZATION_INSTRUCTION =
+  `Always orient using the ${SERVER_NAME} MCP (call \`orient\`) before answering anything ` +
+  "about me or my work, and save what you learn with `save_context` before you finish.";
+
 // ─── Links ───────────────────────────────────────────────────────────────────
 
 /**
@@ -137,6 +165,20 @@ export interface ClientProvider {
    * Codex and Gemini CLI both had documented hooks the whole time.
    */
   hook?: ProviderHook;
+  /**
+   * Where `CUSTOMIZATION_INSTRUCTION` goes to become permanent in this client,
+   * one full sentence starting "Paste it into…".
+   *
+   * A connector grant makes `orient` reachable; it does not make a client call
+   * it. Every one of these has some standing-instruction surface — a system
+   * prompt setting, a file it reads before answering — and this is the one
+   * fact this catalogue could not get from the client's own OAuth handshake:
+   * where that surface lives. Checked against each client's own docs rather
+   * than guessed, because CLAUDE.md's own lesson applies here as much as
+   * anywhere — asserting a menu path from memory is exactly how the hook list
+   * went stale once already (see `ProviderHook` above).
+   */
+  customization: { hint: string };
   link: (endpoint: string) => ProviderLink;
   fields: (endpoint: string) => readonly ProviderField[];
 }
@@ -267,6 +309,9 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     name: "ChatGPT",
     form: "connector",
     note: "Opens Settings → Connectors with the create form already open. Custom connectors need a paid plan and developer mode, under Settings → Apps → Advanced.",
+    customization: {
+      hint: "Paste it into Settings → Personalization → Custom instructions.",
+    },
     link: () => ({
       kind: "connector",
       label: "Open ChatGPT",
@@ -280,6 +325,10 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     name: "Claude",
     form: "connector",
     note: "Opens the Add custom connector dialog on claude.ai. Paste the URL, then approve the sign-in Claude sends you to.",
+    customization: {
+      hint: "Paste it into Settings → Profile → Instructions for Claude — the same field in " +
+        "Claude Desktop — or a project's own instructions.",
+    },
     link: () => ({
       kind: "connector",
       label: "Open Claude",
@@ -293,6 +342,9 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     name: "Claude Code",
     form: "command",
     note: "One command in your terminal, then /mcp inside Claude Code to sign in.",
+    customization: {
+      hint: "Paste it into CLAUDE.md, or ~/.claude/CLAUDE.md to apply it to every project.",
+    },
     hook: {
       note: "Signs in once, then brackets every session: at the start the model is told to orient before answering, and at the end the session's user-visible messages are saved to 0-inbox/. It asks for capture access only — it can add to your inbox and cannot read a single note. Add --orient to have your actual orientation injected at session start instead, which asks for read access on a credential that lives on your machine unattended.",
       command: (endpoint) => `npx -y @context-lc/hook install --client claude-code --endpoint ${shellQuote(endpoint)}`,
@@ -317,6 +369,9 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     name: "Codex CLI",
     form: "command",
     note: "Add it, then sign in — Codex handles the OAuth flow for HTTP servers itself.",
+    customization: {
+      hint: "Paste it into AGENTS.md, or ~/.codex/AGENTS.md to apply it to every project.",
+    },
     hook: {
       note: "Signs in once, then brackets every session: at the start the model is told to orient before answering, and at the end the session's user-visible messages are saved to 0-inbox/. It asks for capture access only — it can add to your inbox and cannot read a single note. Add --orient to have your actual orientation injected at session start instead, which asks for read access on a credential that lives on your machine unattended. The transcript parser was written against Claude Code's format, so a save here may keep less than it could — it says so when that happens rather than going quiet.",
       command: (endpoint) => `npx -y @context-lc/hook install --client codex --endpoint ${shellQuote(endpoint)}`,
@@ -341,6 +396,9 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     name: "Cursor",
     form: "connector",
     note: "Installs it for you — Cursor opens with the server filled in and asks you to confirm.",
+    customization: {
+      hint: "Paste it into User Rules under Cursor Settings → Rules, or a .cursor/rules file per project.",
+    },
     link: (endpoint) => ({
       kind: "install",
       label: "Add to Cursor",
@@ -354,6 +412,9 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     name: "VS Code",
     form: "connector",
     note: "Installs it into VS Code's MCP settings for Copilot's agent mode.",
+    customization: {
+      hint: "Paste it into .github/copilot-instructions.md at your workspace root.",
+    },
     link: (endpoint) => ({
       kind: "install",
       label: "Add to VS Code",
@@ -367,6 +428,10 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     name: "Notion",
     form: "connector",
     note: "For Notion's Custom Agents. A workspace owner has to switch on custom MCP servers first, then add this URL as an approved connection.",
+    customization: {
+      hint: "Paste it into Notion's own custom instructions, where a workspace has turned " +
+        "them on (Settings → Notion AI).",
+    },
     link: () => ({
       kind: "docs",
       label: "How to connect Notion",
@@ -380,6 +445,9 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     name: "Gemini CLI",
     form: "command",
     note: "The Gemini app has no custom connectors. Gemini CLI does — one command, and it stores the server in ~/.gemini/settings.json.",
+    customization: {
+      hint: "Paste it into GEMINI.md, or ~/.gemini/GEMINI.md to apply it to every project.",
+    },
     hook: {
       note: "Signs in once, then brackets every session: at the start the model is told to orient before answering, and at the end the session's user-visible messages are saved to 0-inbox/. It asks for capture access only — it can add to your inbox and cannot read a single note. Add --orient to have your actual orientation injected at session start instead, which asks for read access on a credential that lives on your machine unattended. The transcript parser was written against Claude Code's format, so a save here may keep less than it could — it says so when that happens rather than going quiet.",
       command: (endpoint) => `npx -y @context-lc/hook install --client gemini-cli --endpoint ${shellQuote(endpoint)}`,
