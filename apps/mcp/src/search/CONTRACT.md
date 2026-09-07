@@ -578,17 +578,52 @@ anchor no longer exists in a freshly-read note (the day was regenerated
 between the index write and this read) is dropped exactly as a hit whose note
 has gone entirely is: an honest miss on one hit, never a fabricated snippet.
 
-## Encrypted notes still yield nothing
+## Encrypted notes teach the index nothing, and a file with no messages is still one document
 
 A channel-day note that is encrypted (`encryption.js`'s marker) has no
 `### … {#msg-…}` heading in its stored bytes at all — its body is frontmatter
-plus an opaque blob — so `subDocumentsFor` produces **zero** sub-documents for
-it, the same "the index learns nothing" property an ordinary encrypted note
-already has. And exactly as for an ordinary note, the belt-and-braces check at
-snippet time still applies: `answerFromIndex` in `visible.js` checks
-`isEncryptedNote` on the freshly-read note before attempting to extract a
-message segment from it at all, so even a hit that somehow ranked (by a path
-or title term) is dropped before a segment is ever cut from ciphertext.
+plus an opaque blob — so it produces **zero message sub-documents**, the same
+"the index learns nothing" property an ordinary encrypted note already has.
+And exactly as for an ordinary note, the belt-and-braces check at snippet time
+still applies: `answerFromIndex` in `visible.js` checks `isEncryptedNote` on
+the freshly-read note before attempting to extract a message segment from it
+at all, so even a hit that somehow ranked (by a path or title term) is dropped
+before a segment is ever cut from ciphertext. A day encrypted *after* it was
+indexed loses its sub-documents at the next pass, because the sync replaces a
+note's documents through `removeDocsForNote` before writing the fresh set.
+
+**`subDocumentsFor` never answers the empty list**, and that is a rule rather
+than a detail. A channel-day path holding no message headings — an encrypted
+day, a note somebody typed by hand at `0-inbox/imessage/2026-09-07.md`, a
+render this scanner cannot follow — falls back to the single whole-note
+document it contributed before this feature existed. Answering `[]` was
+measured in review and costs two things:
+
+- **The diff never converges.** `docsByShard` records a note's version by
+  `doc.notePath` (below), so a note with no documents has no version
+  recorded, is stale on every later listing, and is re-fetched and re-written
+  on every pass — measured as one note read plus a shard, manifest and docmap
+  write per pass, permanently, with `touched` naming that note every time and
+  `pending` reporting 0 throughout. A pass that moved something is also what
+  keeps the control plane's projection chain alive
+  (`docs/decisions/search.md`, "A chain that cannot terminate is worse than
+  no trigger at all"), so one such file bills a bucket listing per link.
+- **The note goes unsearchable**, which for a hand-written note at such a
+  path is a silent loss of a note that indexed fine the day before.
+
+## A message deep link is a key the read tools accept
+
+A hit's key is `<notePath>#<anchor>`, and that is the string an agent's next
+call arrives with: `search_notes` prints it, and the ChatGPT dialect's whole
+contract is `search` then `fetch(id)`. So `read_note` and `fetch` split a
+**trailing, well-formed** message anchor off before resolving
+(`splitMessageAnchor`), and read the containing note — the unit `canSee`
+decides and the unit a share link covers. The console does the same thing at
+its own edge in `noteFromQuery`. A `#` anywhere else is an ordinary character
+in an ordinary key and is left alone, so a note whose name really ends in one
+still resolves to itself. This closes the round trip rather than widening
+anything: the path that is read is the path visibility was decided on, which
+is the same path `rankedVisibleTo` filtered on.
 
 ## What is deliberately not built here
 

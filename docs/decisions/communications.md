@@ -441,13 +441,46 @@ day's messages and quietly missing an exact-note `privacy.md` override that
 names the note precisely (a folder-prefix rule would pass by accident; an
 exact-path rule would not, which is why the test uses one). Full argument and
 format: `apps/mcp/src/search/CONTRACT.md`, "Channel-day notes: one
-sub-document per message". The two guardrails above are not yet measured
-against a real mailbox — that is still true and still gates turning this on
-for a live account — but the mechanism they gate is built and tested
+sub-document per message". The mechanism is built and tested
 (`apps/mcp/test/commsSearchIndex.test.mjs`): independent per-message capping
 on a day many times `NOTE_INDEX_CHAR_CAP`, the private/team and tenant-isolation
-proofs above, encrypted notes yielding nothing, and a regeneration replacing
-exactly one note's sub-documents.
+proofs above with each visibility guard driven alone, encrypted notes teaching
+the index no plaintext term, and a regeneration replacing exactly one note's
+sub-documents.
+
+**And the shard guardrail is now measured, which is the thing that gates
+connecting a mailbox.** Against a synthetic 90-day mailbox at 200 messages a
+day (18,000 messages, 25.5 MB of Markdown, beside 200 ordinary notes), on the
+gateway's own sync at a subrequest budget of 600:
+
+| | per-note index (today) | per-message sub-documents |
+| --- | --- | --- |
+| documents | 290 | 18,200 |
+| shards | 1 | 1 |
+| shard objects written | 1 (0.36 MB) | **0** |
+| passes to converge | 1 | 31, then still `pending: 290` |
+| a search | 1 hit, 16ms | `indexed: false` |
+
+**Nothing lands at all, and the loss is the whole context's rather than the
+mailbox's.** `chooseShardCount` sizes the index from the **note** count in the
+listing — 290 notes is one shard — so a day's messages cannot be spread across
+shards, the single shard's serialized body passes `SHARD_PARSE_BYTE_CAP`, and
+the write is correctly refused on every pass. That is the plateau
+`docs/decisions/search.md` describes ("each pass rebuilt the same oversized
+shard and had its write refused"), reached here by a mailbox rather than by a
+brain of thousands of notes, and it takes the 200 ordinary notes in that
+bucket down with it. The threshold is low: at 90 days the shard is 1.13 MB at
+**10** messages a day and 2.14 MB — over the cap — at **20**.
+
+So the position is unchanged and now has numbers behind it: this format is
+correct, and **switching a real mailbox on needs the sizing to count
+sub-documents rather than notes** (or a per-note shard split, or a smaller
+per-message cap). That is a decision with its own argument and is not made
+here; what is made here is that nothing writes a channel-day note today, so
+the format can land and be exercised while that is settled.
+`runShardBudgetChecks` in `commsSearchIndex.test.mjs` pins the mechanism at
+suite speed with a small `shardByteCap`, so the plateau cannot be
+rediscovered by a customer.
 
 **Filtering by `comms`'s fields is not built.** They are stored through both
 serialization dialects because a caller needs them to render a result (the
@@ -468,6 +501,19 @@ mean extending either the frozen native `EditorCommand` bridge
 CodeMirror instance a sibling change is concurrently touching for the console
 Inbox views, and this change deliberately does not do either — left for a
 follow-up with its own review rather than guessed at here.
+
+**The gateway's read tools take that key too, which review found they did
+not.** The console was fixed and the endpoint was not: `search_notes` prints
+`<notePath>#<anchor>` and an agent's next call is `read_note` on exactly that
+string, which resolved no object and answered "not found"; the ChatGPT
+dialect's `fetch` refused it a line earlier still, on `endsWith(".md")`, so
+`search` then `fetch` — the only two tools an ordinary ChatGPT chat can call
+— could not open a message it had just found. Both now split a trailing
+well-formed anchor and read the containing note (`splitMessageAnchor`,
+`apps/mcp/src/search/CONTRACT.md`), which is the same unit `canSee` decided
+and the same unit a share link covers. It is not a way around visibility: the
+path read is the path filtered on, and a team connection handed a private
+day's deep link still gets "not found".
 
 ### A firehose is not attention
 

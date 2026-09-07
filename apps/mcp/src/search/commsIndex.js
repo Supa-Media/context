@@ -46,6 +46,7 @@
  * inside a real fence.
  */
 
+import { isMessageAnchor } from "../../../../packages/communications/src/anchors.js";
 import { FENCE_MARKER } from "../../../../packages/communications/src/note.js";
 import { isChannelDayNotePath } from "../../../../packages/communications/src/paths.js";
 import { NOTE_INDEX_CHAR_CAP } from "./maintain.js";
@@ -272,4 +273,34 @@ export function messageSegmentFor(notePath, fullText, anchor) {
     if (segment.anchor === anchor) return { title: segment.title, snippetText: segment.snippetText };
   }
   return null;
+}
+
+/**
+ * Split `<notePath>#<anchor>` — the key a search result over a channel-day
+ * message carries — back into the bucket path something can actually be read
+ * from, and the message it named.
+ *
+ * **The tools that take a path use this, because the key search hands out
+ * has to be a key the next call accepts.** `search_notes` prints the hit's
+ * key and an agent's next move is `read_note` on it; the ChatGPT dialect's
+ * whole contract is `search` then `fetch(id)`. Without this both answer "not
+ * found" for the one result shape this feature exists to produce — and
+ * `fetch` would refuse it one line earlier still, on `endsWith(".md")`. The
+ * console already splits the same suffix in `noteFromQuery`.
+ *
+ * Only a **trailing, well-formed** message anchor counts (`isMessageAnchor`,
+ * `packages/communications/src/anchors.js`): a `#` anywhere else is an
+ * ordinary character in an ordinary key, and a note whose name really ends
+ * in one must keep resolving to itself.
+ *
+ * @param {string} key
+ * @returns {{path: string, anchor: string|null}}
+ */
+export function splitMessageAnchor(key) {
+  if (typeof key !== "string") return { path: key, anchor: null };
+  const hash = key.lastIndexOf("#");
+  if (hash === -1) return { path: key, anchor: null };
+  const anchor = key.slice(hash + 1);
+  if (!isMessageAnchor(anchor)) return { path: key, anchor: null };
+  return { path: key.slice(0, hash), anchor };
 }

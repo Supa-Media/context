@@ -15,28 +15,47 @@
  *    message text in a private day and a team day, and only the team hit
  *    returns; two workspaces holding the identical message text, and a
  *    search in one never surfaces the other's shard.
- * 3. **Encrypted notes still yield nothing** (the phase-1 rule), carried
- *    through to sub-documents rather than only to whole notes.
+ * 3. **Encrypted notes teach the index no plaintext term** (the phase-1
+ *    rule), carried through to sub-documents rather than only to whole notes.
  * 4. **Regenerating one channel-day note replaces exactly its
  *    sub-documents** — proved with two days in the same shard, one of them
  *    edited down, the other untouched.
  *
+ * The adversarial review's own sections are at the bottom of the file, each
+ * naming the claim it attacks: the two visibility guards driven one at a
+ * time, the existence oracle, a cross-workspace key collision, a shard
+ * constructed in the pre-change shape, a rebuild compared against an
+ * incremental update, the no-message fallback, and the shard budget.
+ *
  * ## Sabotage record
  *
- * Each broken deliberately as a local edit and reverted; counts are against
- * the final fixtures in this file.
+ * Each broken deliberately as a local edit and reverted; counts are whole-suite
+ * (`pnpm test`) against the final fixtures in this file. The right-hand
+ * column is the review's re-measurement; where it differs from the number
+ * the change was written with, the difference is the checks added below.
  *
  *   `isVisible` in `collectShardCandidates` checked against the sub-document's
- *     own key instead of `doc.notePath`                              2
+ *     own key instead of `doc.notePath`                          2 -> 6
+ *   `rankedVisibleTo` filtering on `entry.path` instead of
+ *     `entry.notePath ?? entry.path` (the second guard)          2 -> 7
+ *     — and the two it reddened before were both "the answer went
+ *     empty", not "the private note leaked": nothing distinguished
+ *     the guard working from the guard being unnecessary until
+ *     `runGuardIndependenceChecks` drove each guard alone.
  *   `docVersionsOf` keyed by the doc's own key instead of `notePath`
  *     (the diff never converges: every pass re-fetches every channel-day
- *     note it has already indexed)                                   1 (a
- *     no-progress loop caught by the convergence check)
+ *     note it has already indexed)                               1 -> 1
  *   `removeDocsForNote` replaced with the old per-key `removeDoc` in the
- *     regeneration path (a removed message's sub-document survives)   1
+ *     regeneration path (a removed message's sub-document survives) 1 -> 7
  *   the independent per-message cap replaced with the whole-file cap
  *     applied before splitting (the last message of a large day is
- *     dropped, reproducing the bug this file exists to fix)           1
+ *     dropped, reproducing the bug this file exists to fix)      1 -> 10
+ *   `subDocumentsFor` answering `[]` again for a channel-day file with no
+ *     message headings (an encrypted day, a hand-written note)        5
+ *   the anchor split removed from `read_note` and the ChatGPT dialect's
+ *     `fetch`, so a search hit's key is not a key either accepts        4
+ *     (in `test.mjs`, where the round trip is asserted against the
+ *     real worker)
  */
 
 import {
@@ -1100,16 +1119,25 @@ async function runRebuildChecks(check) {
   check("both indexes hold the same shard objects", JSON.stringify(shardKeys) === JSON.stringify(freshKeys));
 
   /*
-    The one thing that legitimately differs is the version token each store
-    minted: this stub's etags are a counter, so the same note is `e6` in the
-    bucket that has written it twice and `e2` in the one that wrote it once.
-    That is the store's number, not the index's — so it is replaced by the
-    note's *live* etag in each index before the comparison, which both makes
-    the comparison meaningful and asserts the second thing worth asserting:
-    each index recorded the version the bucket is currently holding.
+    Two things in a stored shard are legitimately not a function of the notes,
+    and both are replaced rather than dropped, so that what remains really is
+    compared byte for byte:
+
+    - **the version token each store minted.** This stub's etags are a
+      counter, so the same note is `e6` in the bucket that wrote it twice and
+      `e2` in the one that wrote it once. Replacing it with a marker meaning
+      "this is that note's live etag" asserts the second thing worth
+      asserting — each index recorded the version its bucket currently holds
+      — rather than merely ignoring the field.
+    - **`generatedAt`**, the wall clock at the moment the shard was
+      serialized. Measured: two shards written in the same millisecond
+      compare equal and two written a millisecond apart do not, so an
+      unnormalized comparison is a coin flip (18 differences in 40 rounds)
+      rather than a property.
   */
   const normalize = (store, body) => {
     const parsed = JSON.parse(body);
+    parsed.generatedAt = "<when>";
     for (const [, doc] of parsed.docs) {
       const live = store.objects.get(doc.notePath)?.etag;
       doc.etag = doc.etag === live ? "<live>" : `<stale:${doc.etag}>`;
