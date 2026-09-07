@@ -133,6 +133,14 @@ export const ICON_NAMES = [
   /** The accessory bar's task-checkbox key, drawn as the `[ ]` it inserts. */
   "brackets",
   /**
+   * The accessory bar's bullet-list key, A1 in the editor-polish sweep:
+   * "the more common of the two [prefixes] by a distance", and the bar could
+   * only make a `- [ ] ` and not a `- ` before this. Three dots and three
+   * rules rather than `sort`'s descending stack — a list's rows do not shrink,
+   * so drawing them at one length is what tells the two marks apart at 20pt.
+   */
+  "bulletList",
+  /**
    * A tag, which would insert a `#`, and a paperclip, for embedding a file.
    *
    * **Neither has a caller**, which is the one exception to the rule stated at
@@ -702,6 +710,19 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         bar("rs", u, w, c, { cx: 0.7, cy: 0.5, length: 0.58, angle: 90 }),
         bar("rt", u, w, c, { cx: 0.63, cy: 0.22, length: 0.14 }),
         bar("rb", u, w, c, { cx: 0.63, cy: 0.78, length: 0.14 }),
+      ];
+
+    case "bulletList":
+      // Three dots and three rules at one length each — unlike `sort`'s
+      // descending stack, a list's rows do not get shorter, and drawing them
+      // that way here would say "sorted" rather than "list".
+      return [
+        dot("d1", u, c, { cx: 0.18, cy: 0.26, r: 0.055 }),
+        bar("l1", u, w, c, { cx: 0.6, cy: 0.26, length: 0.56 }),
+        dot("d2", u, c, { cx: 0.18, cy: 0.5, r: 0.055 }),
+        bar("l2", u, w, c, { cx: 0.6, cy: 0.5, length: 0.56 }),
+        dot("d3", u, c, { cx: 0.18, cy: 0.74, r: 0.055 }),
+        bar("l3", u, w, c, { cx: 0.6, cy: 0.74, length: 0.56 }),
       ];
 
     case "tag":
