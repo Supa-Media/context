@@ -67,6 +67,7 @@ import {
   type DesktopCapabilities,
   type DesktopShell,
   type DetectionView,
+  type ImessageStatus,
   type MachineApprovalResult,
   type MeetingWrite,
   type MeetingWriteAck,
@@ -164,6 +165,14 @@ export interface ConsoleBridgeDeps {
    * window-less queue is not on the path at all.
    */
   writeMeeting: (write: MeetingWrite) => Promise<MeetingWriteAck>;
+  /**
+   * Whether this machine imports iMessage history, and what it knows about
+   * Full Disk Access. The version-5 addition — see `packages/desktop-bridge`'s
+   * `imessage` member for the reasoning behind its shape.
+   */
+  imessage: () => ImessageStatus;
+  /** Turn import on or off. Never touches the microphone, the calendar, or anything else the tray already gates. */
+  setImessageEnabled: (enabled: boolean) => void;
 }
 
 export interface ConsoleBridge {
@@ -184,6 +193,8 @@ export interface ConsoleBridge {
   /** Tell the page a machine approval opened, or that it is over (`null`). */
   emitPendingApproval(pending: PendingMachineApproval | null): void;
   emitTrayCommand(command: TrayCommand): void;
+  /** Tell the page iMessage's enabled/permission/last-sync state changed. */
+  emitImessage(status: ImessageStatus): void;
   /** Unregister every channel. For a window that is going away for good. */
   dispose(): void;
 }
@@ -510,6 +521,13 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     return null;
   });
 
+  handle(BRIDGE_CHANNELS.imessageStatus, () => ({ ...deps.imessage() }));
+  handle(BRIDGE_CHANNELS.imessageSetEnabled, (payload) => {
+    const enabled = (payload as { enabled?: unknown } | undefined)?.enabled === true;
+    deps.setImessageEnabled(enabled);
+    return null;
+  });
+
   function send(channel: string, payload: unknown): void {
     /*
       A window that went away between the check and the send throws, and one
@@ -562,6 +580,9 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
       if (!TRAY_COMMANDS.includes(command)) return;
       send(BRIDGE_CHANNELS.trayCommand, command);
     },
+    emitImessage(status: ImessageStatus): void {
+      send(BRIDGE_CHANNELS.imessageChange, { ...status });
+    },
     dispose(): void {
       for (const channel of [
         BRIDGE_CHANNELS.capabilities,
@@ -577,6 +598,8 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
         BRIDGE_CHANNELS.outboxStatus,
         BRIDGE_CHANNELS.outboxDrain,
         BRIDGE_CHANNELS.meetingsWrite,
+        BRIDGE_CHANNELS.imessageStatus,
+        BRIDGE_CHANNELS.imessageSetEnabled,
       ]) {
         deps.ipc.removeHandler(channel);
       }

@@ -293,6 +293,8 @@ function mainBridge(overrides = {}) {
   const answered = [];
   /** Every `startCapture` request as the reader built it. */
   const requested = [];
+  /** Every `setImessageEnabled` value the page asked for. */
+  const enabledCalls = [];
   const window = overrides.window ?? fakeWindow();
   const ipc = fakeIpcMain();
   // A getter, because the shell moves the pin to `app://console` when it falls
@@ -349,6 +351,14 @@ function mainBridge(overrides = {}) {
       written.push(write);
       return { sessionId: write.sessionId, queued: true, notePath: null, rejected: null };
     },
+    imessage: () => {
+      calls.push("imessage");
+      return overrides.imessage ?? { enabled: false, permission: "unknown", lastSyncedAt: null, lastError: null };
+    },
+    setImessageEnabled: (enabled) => {
+      calls.push(`setImessageEnabled:${enabled}`);
+      enabledCalls.push(enabled);
+    },
     ...overrides.deps,
   });
   // `movePin` is how a check stages the shell falling back to the offline
@@ -362,6 +372,7 @@ function mainBridge(overrides = {}) {
     written,
     answered,
     requested,
+    enabledCalls,
     movePin: (next) => {
       pinned = next;
     },
@@ -383,6 +394,8 @@ const HANDLED = [
   BRIDGE_CHANNELS.outboxStatus,
   BRIDGE_CHANNELS.outboxDrain,
   BRIDGE_CHANNELS.meetingsWrite,
+  BRIDGE_CHANNELS.imessageStatus,
+  BRIDGE_CHANNELS.imessageSetEnabled,
 ];
 
 /** A well-formed write, so a check can vary exactly one field of it. */
@@ -961,7 +974,7 @@ export async function runConsoleBridgeChecks(check) {
     );
     check(
       "...and the census adds up, so neither side can drift unnoticed",
-      registrations + gatedAsync + gatedSync === 31,
+      registrations + gatedAsync + gatedSync === 33,
     );
   }
 
@@ -2098,6 +2111,7 @@ export async function runConsoleBridgeChecks(check) {
       emitLevel: [{ mic: 0.5, systemAudio: 0.25 }],
       emitPendingApproval: [null],
       emitTrayCommand: ["record"],
+      emitImessage: [{ enabled: true, permission: "granted", lastSyncedAt: 1, lastError: null }],
     };
     // `dispose` unregisters rather than produces, and is checked below.
     const producers = Object.keys(bridge).filter((name) => name !== "dispose");

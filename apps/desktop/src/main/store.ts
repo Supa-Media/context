@@ -22,6 +22,8 @@ import { normalizeSettings } from "../core/settings.ts";
 import type { DesktopSettings } from "../core/settings.ts";
 import { normalizeOutbox } from "../core/sync/outbox.ts";
 import type { Outbox } from "../core/sync/outbox.ts";
+import { EMPTY_CURSOR, normalizeCursor } from "../core/imessage/cursor.ts";
+import type { ImessageCursor } from "../core/imessage/cursor.ts";
 
 async function readJson(path: string): Promise<unknown> {
   try {
@@ -53,6 +55,10 @@ export class DesktopStore {
     return join(this.#dir, "outbox.json");
   }
 
+  get imessageCursorPath(): string {
+    return join(this.#dir, "imessage-cursor.json");
+  }
+
   async readSettings(): Promise<DesktopSettings> {
     return normalizeSettings(await readJson(this.settingsPath));
   }
@@ -67,5 +73,14 @@ export class DesktopStore {
 
   async writeOutbox(outbox: Outbox): Promise<void> {
     await writeJson(this.outboxPath, outbox);
+  }
+
+  async readImessageCursor(): Promise<ImessageCursor> {
+    const raw = await readJson(this.imessageCursorPath);
+    return raw === undefined ? { ...EMPTY_CURSOR } : normalizeCursor(raw);
+  }
+
+  async writeImessageCursor(cursor: ImessageCursor): Promise<void> {
+    await writeJson(this.imessageCursorPath, cursor);
   }
 }

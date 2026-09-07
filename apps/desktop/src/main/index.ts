@@ -57,6 +57,7 @@ import {
 import { keychainTokenStore } from "./tokenStore.ts";
 import { browserlessRefresher, connectMachine, openInSystemBrowser } from "./connect.ts";
 import { transcribeChunk } from "./transcribe.ts";
+import { ImessageSyncService } from "./imessage.ts";
 import { trayPresentation } from "../core/tray/presentation.ts";
 import type { TrayState } from "../core/tray/presentation.ts";
 import { AppTray } from "./tray.ts";
@@ -511,6 +512,16 @@ async function main(): Promise<void> {
   const tokens = FAKE ? memoryTokenStore(null) : keychainTokenStore(app.getPath("userData"));
   const connection = new GatewayConnection({ store: tokens, refresh: browserlessRefresher() });
   await connection.load();
+  const imessage = new ImessageSyncService({
+    store,
+    connection,
+    settings: () => settings,
+    onChange: (status) => {
+      consoleBridge?.emitImessage(status);
+      push();
+    },
+  });
+  imessage.reconfigure();
   // `null` in console mode. Every use below is guarded rather than the flag
   // being read a second time — see `UI_MODE`.
   const panel = RENDERER_UI ? createPanel(RENDERER_DIR) : null;
@@ -721,6 +732,7 @@ async function main(): Promise<void> {
     connect: () => void connectThisMachine(),
     disconnect: () => void disconnectThisMachine(),
     toggleDetection: () => void update({ detectionEnabled: !settings.detectionEnabled }),
+    toggleImessage: () => void update({ imessageEnabled: !settings.imessageEnabled }),
     installUpdate: () => {
       // A stray click cannot install mid-meeting: `install()` re-checks
       // `controller.recording` itself, regardless of what this menu currently
@@ -846,6 +858,7 @@ async function main(): Promise<void> {
     tray.setMenuState({
       recording: controller.recording,
       detectionEnabled: settings.detectionEnabled,
+      imessageEnabled: settings.imessageEnabled,
       connected: state.connection.state === "connected",
       updateReady: updater.state === "ready",
     });
@@ -882,6 +895,7 @@ async function main(): Promise<void> {
   async function update(patch: Partial<DesktopSettings>): Promise<void> {
     settings = { ...settings, ...patch };
     await store.writeSettings(settings);
+    if ("imessageEnabled" in patch) imessage.reconfigure();
     push();
   }
 
@@ -1494,6 +1508,8 @@ async function main(): Promise<void> {
       outbox: outboxStatus,
       drain: () => void drain(),
       writeMeeting: writeMeetingFromConsole,
+      imessage: () => imessage.status(),
+      setImessageEnabled: (enabled) => void update({ imessageEnabled: enabled }),
     });
 
     consoleWindow = createConsoleWindow(url, RENDERER_DIR, {
@@ -1942,6 +1958,7 @@ async function main(): Promise<void> {
   // behind.
   app.on("before-quit", (event) => {
     markQuitting();
+    imessage.stop();
     if (!controller.recording) return;
     event.preventDefault();
     void endMeeting().then(() => app.quit());

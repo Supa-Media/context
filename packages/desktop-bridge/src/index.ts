@@ -38,6 +38,7 @@ export type {
   DesktopPlatform,
   DesktopShell,
   DetectionView,
+  ImessageStatus,
   MachineApprovalResult,
   MeetingWrite,
   MeetingWriteAck,
