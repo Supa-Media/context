@@ -58,6 +58,21 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Restricting a folder to *some* of a workspace is not built, and the shape it would take
 - Domain-based membership is not built, and would be an invitation, never a grant
 
+## [Per-note encryption](./encryption.md)
+
+- Encryption is confidentiality, and it is not access control
+- The threat model, written as a list of names
+- What we can still read, and saying so
+- The key model: three layers, because two cannot do the job
+- A customer-held key is in scope as a design and out of scope as a shipped mode
+- The on-bucket format: an encrypted note is still a file at its path
+- What search does
+- Round-tripping without damaging ciphertext
+- Sharing: an unlisted link over an encrypted note is refused
+- Rotation: three different things, and they must not be confused
+- Revocation and export: the customer keeps a usable context, or this feature breaks the first non-negotiable
+- What Phase 1 builds, and what it does not
+
 ## [The MCP gateway: protocol, transport, orientation](./gateway-protocol.md)
 
 - Two MCP eras, two lists, and they must never be merged
