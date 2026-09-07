@@ -134,6 +134,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Ingestion is idempotent by construction, because losing signal is the normal case
 - The human's words are never rewritten, and the generated half is disposable
 - A meeting lands at an ordinary path, and nothing about it is namespaced
+- The Mac app is signed by a workflow nobody's branch can start, and builds honestly unsigned until then
 - What is deliberately not built
 - Consent is the customer's, and the product may never make recording invisible
 
