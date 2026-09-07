@@ -774,6 +774,143 @@ const schema = defineSchema({
   }).index("by_workspace", ["workspaceId"]),
 
   /**
+   * ONE CONNECTED MAILBOX. See `docs/decisions/communications.md`.
+   *
+   * KEYED BY `workspaceId`, NEVER `userId` — same rule as `storageBindings`,
+   * for the same reason: the mailbox belongs to the context, not to whoever
+   * happened to click Connect. **Only a `kind: "personal"` workspace may hold
+   * one** (`identity-and-access.md`, "Mail lands in a personal context and
+   * nowhere else") — enforced in `functions/mailConnect.ts`, not here, because
+   * a schema cannot see a sibling table's field.
+   *
+   * This is metadata about a mailbox, never its content. The messages
+   * themselves are rendered by `packages/communications` straight into the
+   * customer's own bucket at `0-inbox/email/<mailboxSlug>/`; nothing here ever
+   * holds a subject, a body, or a sender.
+   *
+   * `encryptedRefreshToken` is a `v2:` envelope from `functions/lib/crypto.ts`,
+   * bound to this row's `workspaceId` as AAD — identical scheme to
+   * `storageBindings.encryptedRefreshToken`, and it rides the same rotation
+   * pass (`listMailConnectionRekeyCandidates` / `applyMailConnectionRekey` in
+   * `functions/storage.ts`). The gateway is handed a short-lived access token
+   * to talk to Gmail and the refresh token never leaves the control plane —
+   * same reasoning as the Dropbox grant one table over.
+   */
+  mailConnections: defineTable({
+    workspaceId: v.id("workspaces"),
+    provider: v.literal("gmail"),
+    /** The address as the person knows it. Never a path segment; see `mailboxSlug`. */
+    address: v.string(),
+    /**
+     * `chooseMailboxSlug(address, taken)` from `packages/communications`,
+     * decided once at connect time and never recomputed — recomputing it
+     * against a different `taken` set would rename the folder a person's mail
+     * is already in.
+     */
+    mailboxSlug: v.string(),
+    encryptedRefreshToken: v.string(),
+    encryptedAccessToken: v.optional(v.string()),
+    accessTokenExpiresAt: v.optional(v.number()),
+    /**
+     * The scopes Google actually granted, verbatim from the token response —
+     * never assumed from what was requested. A downgraded consent (the person
+     * unchecked something) is visible here rather than discovered as a 403
+     * three months later.
+     */
+    scopes: v.array(v.string()),
+    /**
+     * Whose Google account this is. Not a secret — it is what lets the console
+     * show whose mailbox is connected and notice a reconnect landing on a
+     * *different* account, the same role `dropboxAccountId` plays.
+     */
+    googleAccountId: v.string(),
+    /**
+     * How far back the first backfill reaches, in days. Per-connection and
+     * fixed at connect time: changing it later is a second backfill, not a
+     * setting flip, so this is what a reconnect or "sync more" reads to decide
+     * how far to widen.
+     */
+    backfillDays: v.number(),
+    /**
+     * Which Gmail system labels are synced. `spam` and `trash` are
+     * deliberately never valid values here — v1 excludes both unconditionally,
+     * argued in `docs/decisions/communications.md` — so the type itself is the
+     * enforcement, not a runtime check somewhere else.
+     */
+    folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
+    /** Off by default. See "Retention: raw MIME is off by default". */
+    storeRawMime: v.boolean(),
+    /** `"metadata-only"` is the only value v1 ever writes; `"store"` is reserved. */
+    attachmentMode: v.union(v.literal("metadata-only"), v.literal("store")),
+    /**
+     * A hard ceiling on bytes this connection may write into the bucket,
+     * independent of the customer's overall storage. Backfill and sync both
+     * refuse to write past it rather than silently exceeding what the
+     * estimator showed before the first fetch.
+     */
+    quotaBytes: v.number(),
+    /**
+     * Gmail's sync cursor (`historyId`), advanced after every page this
+     * connection has fully processed. Absent until the first backfill
+     * completes. A `404` from `history.list` means Gmail expired it — sync
+     * treats that as `gapDetected` and falls back to a full reconcile over
+     * `backfillDays`, per `docs/decisions/communications.md`.
+     */
+    historyId: v.optional(v.string()),
+    lastSyncedAt: v.optional(v.number()),
+    health: v.union(
+      v.literal("connecting"),
+      v.literal("backfilling"),
+      v.literal("active"),
+      v.literal("error"),
+      v.literal("reconnect_required"),
+    ),
+    lastError: v.optional(v.string()),
+    errorCode: v.optional(v.string()),
+    /**
+     * Set by disconnect. The row is kept — never deleted outright — so a
+     * disconnected connection's sync job can be told apart from one that
+     * simply has not synced yet, and so the notes it already wrote are
+     * traceable to a connection the console can still show as "disconnected"
+     * rather than a mailbox that quietly stopped and left no explanation.
+     * The notes themselves are never touched by a disconnect.
+     */
+    disconnectedAt: v.optional(v.number()),
+    boundBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    /** One folder per address per context — the uniqueness `chooseMailboxSlug` assumes. */
+    .index("by_workspace_address", ["workspaceId", "address"]),
+
+  /**
+   * ONE IN-FLIGHT GOOGLE OAUTH ATTEMPT. Same shape and the same reasoning as
+   * `dropboxConnectAttempts` — see that table's comment for the full argument;
+   * this restates only what differs.
+   *
+   * `backfillDays` and `folders` travel here rather than being asked for on
+   * the callback screen, because the callback may carry no session (see
+   * `dropboxConnect.ts`'s `completeDropboxConnect` for why that is a security
+   * argument and not a shortcut) — so the choice the person made *before*
+   * leaving for Google's consent screen has to survive the round trip
+   * somewhere that is not the browser.
+   */
+  mailConnectAttempts: defineTable({
+    hashedState: v.string(),
+    encryptedVerifier: v.string(),
+    workspaceId: v.id("workspaces"),
+    startedBy: v.id("users"),
+    redirectUri: v.string(),
+    backfillDays: v.number(),
+    folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_hashed_state", ["hashedState"])
+    .index("by_expiresAt", ["expiresAt"]),
+
+  /**
    * ONE IN-FLIGHT ATTEMPT TO CREATE A BUCKET IN SOMEBODY ELSE'S CLOUD ACCOUNT.
    *
    * A person who has a Cloudflare account but no bucket hands us one credential

@@ -43,6 +43,7 @@ import type * as functions_lib_dropboxOAuth from "../functions/lib/dropboxOAuth.
 import type * as functions_lib_fastSearch from "../functions/lib/fastSearch.js";
 import type * as functions_lib_fileOps from "../functions/lib/fileOps.js";
 import type * as functions_lib_gatewayAuth from "../functions/lib/gatewayAuth.js";
+import type * as functions_lib_gmailOAuth from "../functions/lib/gmailOAuth.js";
 import type * as functions_lib_identities from "../functions/lib/identities.js";
 import type * as functions_lib_ingestLog from "../functions/lib/ingestLog.js";
 import type * as functions_lib_ingestion from "../functions/lib/ingestion.js";
@@ -60,6 +61,7 @@ import type * as functions_lib_shareTitle from "../functions/lib/shareTitle.js";
 import type * as functions_lib_usage from "../functions/lib/usage.js";
 import type * as functions_lib_verification from "../functions/lib/verification.js";
 import type * as functions_lib_workspaceAuth from "../functions/lib/workspaceAuth.js";
+import type * as functions_mailConnect from "../functions/mailConnect.js";
 import type * as functions_meetings_transcribe from "../functions/meetings/transcribe.js";
 import type * as functions_names from "../functions/names.js";
 import type * as functions_provisioning from "../functions/provisioning.js";
@@ -112,6 +114,7 @@ declare const fullApi: ApiFromModules<{
   "functions/lib/fastSearch": typeof functions_lib_fastSearch;
   "functions/lib/fileOps": typeof functions_lib_fileOps;
   "functions/lib/gatewayAuth": typeof functions_lib_gatewayAuth;
+  "functions/lib/gmailOAuth": typeof functions_lib_gmailOAuth;
   "functions/lib/identities": typeof functions_lib_identities;
   "functions/lib/ingestLog": typeof functions_lib_ingestLog;
   "functions/lib/ingestion": typeof functions_lib_ingestion;
@@ -129,6 +132,7 @@ declare const fullApi: ApiFromModules<{
   "functions/lib/usage": typeof functions_lib_usage;
   "functions/lib/verification": typeof functions_lib_verification;
   "functions/lib/workspaceAuth": typeof functions_lib_workspaceAuth;
+  "functions/mailConnect": typeof functions_mailConnect;
   "functions/meetings/transcribe": typeof functions_meetings_transcribe;
   "functions/names": typeof functions_names;
   "functions/provisioning": typeof functions_provisioning;
