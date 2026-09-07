@@ -67,6 +67,24 @@ export interface SessionView {
   audioLeavesDevice: boolean;
   /** True exactly while audio is being captured. Drives the visible indicator. */
   capturing: boolean;
+  /**
+   * Whether this meeting opened a microphone at all.
+   *
+   * False is a **typed meeting**, which is a first-class outcome rather than a
+   * failure: nothing could transcribe, so nothing was recorded, and the notes
+   * still become a note. The UI reads this rather than inferring it from an
+   * empty transcript, because "recorded and said nothing" and "never recorded"
+   * look identical from the transcript and are entirely different promises.
+   */
+  audio: boolean;
+  /**
+   * The one sentence to show about what this meeting is not doing, or `null`.
+   *
+   * Comes from `capturePlan` at the start, and from the transcriber while the
+   * meeting runs. Never assembled from an upstream error — both sources have a
+   * closed set of strings.
+   */
+  notice: string | null;
   notePath: string | null;
   failureReason: string | null;
 }
@@ -91,7 +109,15 @@ export interface BeginInput {
   attendees?: Attendee[];
   /** The episode key the consent gate granted. Refused if absent. */
   grantedEpisode: string | null;
+  /**
+   * Which streams to open. **Empty is meaningful**: it is a typed meeting, and
+   * it opens nothing — no microphone, no system tap, and no permission dialog.
+   * `capturePlan` is what produces it, and its whole argument is that a
+   * microphone nobody will transcribe must not be opened at all.
+   */
   channels?: readonly ("mic" | "system")[];
+  /** What `capturePlan` said this meeting is not doing, shown as it stands. */
+  notice?: string | null;
 }
 
 export type BeginResult =
@@ -156,11 +182,22 @@ export class MeetingController {
     if (this.recording) return { ok: false, why: "already-recording" };
 
     const channels = input.channels ?? (["mic", "system"] as const);
+    const audio = channels.length > 0;
     const needs = CAPTURE_NEEDS.filter(
       (need) => need === "microphone" ? channels.includes("mic") : channels.includes("system"),
     );
-    // Asked here and nowhere earlier: the person has just pressed a button
-    // about a meeting they can see named on screen.
+    /*
+      Asked here and nowhere earlier: the person has just pressed a button about
+      a meeting they can see named on screen.
+
+      A typed meeting asks for **nothing**, and that falls out of `needs` being
+      derived from the channels rather than from a constant — no channels, no
+      needs, no dialog. It is worth naming because it is not an optimisation:
+      macOS remembers a refusal, so raising the microphone dialog for a session
+      that is not going to open a microphone spends the one prompt a person ever
+      gets, and teaches them that this app asks for the microphone at times it
+      does not need it.
+    */
     const outcome = await ensureCapturePermissions(this.#deps.permissions, needs);
     if (!outcome.ok) return { ok: false, why: "permissions", missing: outcome.missing };
 
@@ -179,26 +216,36 @@ export class MeetingController {
       attendees: input.attendees ?? [],
       notes: "",
       transcript: [],
-      transcriptionLabel: this.#deps.transcriber.label,
-      audioLeavesDevice: this.#deps.transcriber.audioLeavesDevice,
+      // A typed meeting has no engine, and the rail must not claim one. This is
+      // the field the "on device" pill is read off, so a label that survived
+      // into a session with no transcriber would be the app lying about where
+      // audio went — in a session where there was none.
+      transcriptionLabel: audio ? this.#deps.transcriber.label : "typed",
+      audioLeavesDevice: audio ? this.#deps.transcriber.audioLeavesDevice : false,
       capturing: false,
+      audio,
+      notice: input.notice ?? null,
       notePath: null,
       failureReason: null,
     };
 
-    try {
-      this.#stream = await this.#deps.transcriber.start({
-        sampleRate: this.#deps.sampleRate ?? 16_000,
-        onSegment: (segment) => this.#onSegment(segment),
-      });
-      await this.#deps.recorder.start({
-        channels,
-        sampleRate: this.#deps.sampleRate ?? 16_000,
-        onFrame: (frame) => this.#stream?.push(frame),
-      });
-    } catch (error) {
-      this.#update({ state: "failed", failureReason: describe(error), capturing: false });
-      return { ok: false, why: "permissions", missing: outcome.missing };
+    if (audio) {
+      try {
+        this.#stream = await this.#deps.transcriber.start({
+          sessionId: id,
+          sampleRate: this.#deps.sampleRate ?? 16_000,
+          onSegment: (segment) => this.#onSegment(segment),
+          onNotice: (notice) => this.#update({ notice: notice.message }),
+        });
+        await this.#deps.recorder.start({
+          channels,
+          sampleRate: this.#deps.sampleRate ?? 16_000,
+          onFrame: (frame) => this.#stream?.push(frame),
+        });
+      } catch (error) {
+        this.#update({ state: "failed", failureReason: describe(error), capturing: false });
+        return { ok: false, why: "permissions", missing: outcome.missing };
+      }
     }
 
     this.#moveTo("recording");
@@ -273,7 +320,11 @@ export class MeetingController {
     if (!view) return null;
     this.#moveTo("finalizing");
 
-    const summary = await this.#deps.recorder.stop();
+    // A typed meeting never started either, and asking a recorder that was
+    // never given a stream to stop is how a future implementation grows a
+    // "stop before start" bug that only appears for the people who could not
+    // transcribe in the first place.
+    const summary = view.audio ? await this.#deps.recorder.stop() : { recordedMs: 0, frames: 0 };
     await this.#stream?.finish();
     this.#stream = null;
 
