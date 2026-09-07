@@ -56,6 +56,7 @@
 
 import {
   BRIDGE_CHANNELS,
+  MEETING_WRITE_KINDS,
   TRAY_COMMANDS,
   type CaptureStarted,
   type CaptureStateUpdate,
@@ -64,6 +65,9 @@ import {
   type DesktopCapabilities,
   type DesktopShell,
   type DetectionView,
+  type MeetingWrite,
+  type MeetingWriteAck,
+  type MeetingWriteKind,
   type OutboxStatus,
   type StartCaptureRequest,
   type TranscriptSegment,
@@ -117,6 +121,15 @@ export interface ConsoleBridgeDeps {
   disconnect: () => void;
   outbox: () => OutboxStatus;
   drain: () => void;
+  /**
+   * One write about a meeting, into this machine's own queue.
+   *
+   * The version-2 addition, and the reason it exists: without it a meeting
+   * recorded on a Mac takes two credentials — the shell's grant for the audio
+   * and the page's control-plane session for the note — and the shell's
+   * window-less queue is not on the path at all.
+   */
+  writeMeeting: (write: MeetingWrite) => Promise<MeetingWriteAck>;
 }
 
 export interface ConsoleBridge {
@@ -132,6 +145,7 @@ export interface ConsoleBridge {
 export const CONSOLE_BRIDGE_MESSAGES = Object.freeze({
   noSession: "This meeting has no id, so there is nothing to file its recording under.",
   refused: "The Context app on this machine could not start recording.",
+  unwritable: "This machine could not take that meeting, so it is being kept where it is.",
 });
 
 /**
@@ -187,6 +201,34 @@ function startRequestFrom(payload: unknown): StartCaptureRequest | null {
   const sessionId = typeof source.sessionId === "string" ? source.sessionId.trim() : "";
   if (sessionId === "") return null;
   return { sessionId, mic: source.mic === true, systemAudio: source.systemAudio === true };
+}
+
+/**
+ * The write the page asked for, read rather than trusted.
+ *
+ * `null` for anything that is not one: no session to file it under, or a kind
+ * that is not one of the protocol's four routes. The **body** is passed through
+ * as an object because it is the protocol's own JSON and this file is not the
+ * protocol — what stops that being a hole is that the body never chooses an
+ * address. The route comes from `kind` and the context from `context`, and both
+ * are read against closed sets here and again in `contextRouteFor`.
+ */
+function meetingWriteFrom(payload: unknown): MeetingWrite | null {
+  const source = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
+    string,
+    unknown
+  >;
+  const sessionId = typeof source.sessionId === "string" ? source.sessionId.trim() : "";
+  if (sessionId === "") return null;
+  if (!MEETING_WRITE_KINDS.includes(source.kind as MeetingWriteKind)) return null;
+  const body = source.body;
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
+  return {
+    sessionId,
+    kind: source.kind as MeetingWriteKind,
+    context: typeof source.context === "string" && source.context !== "" ? source.context : null,
+    body: body as Record<string, unknown>,
+  };
 }
 
 function messageOf(error: unknown, fallback: string): string {
@@ -282,6 +324,12 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     return null;
   });
 
+  handle(BRIDGE_CHANNELS.meetingsWrite, (payload) => {
+    const write = meetingWriteFrom(payload);
+    if (write === null) throw new Error(CONSOLE_BRIDGE_MESSAGES.unwritable);
+    return deps.writeMeeting(write);
+  });
+
   handle(BRIDGE_CHANNELS.outboxStatus, () => ({ ...deps.outbox() }));
   handle(BRIDGE_CHANNELS.outboxDrain, () => {
     deps.drain();
@@ -320,6 +368,7 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
         BRIDGE_CHANNELS.connectionDisconnect,
         BRIDGE_CHANNELS.outboxStatus,
         BRIDGE_CHANNELS.outboxDrain,
+        BRIDGE_CHANNELS.meetingsWrite,
       ]) {
         deps.ipc.removeHandler(channel);
       }

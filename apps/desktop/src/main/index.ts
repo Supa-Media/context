@@ -45,7 +45,7 @@ import type { AudioRecorder } from "../core/capture/recorder.ts";
 import { DesktopCaptureRecorder } from "./capture.ts";
 import { electronPermissionBroker } from "./permissions.ts";
 import { DesktopStore } from "./store.ts";
-import { emptyOutbox } from "../core/sync/outbox.ts";
+import { emptyOutbox, queueWrite } from "../core/sync/outbox.ts";
 import type { Outbox } from "../core/sync/outbox.ts";
 import { drainOnce } from "../core/sync/drain.ts";
 import { memoryTokenStore } from "../core/sync/tokenStore.ts";
@@ -74,6 +74,8 @@ import type {
   CaptureStateUpdate,
   CaptureSummary,
   DesktopCapabilities,
+  MeetingWrite,
+  MeetingWriteAck,
   OutboxStatus,
   StartCaptureRequest,
   TrayCommand,
@@ -138,6 +140,7 @@ let connectError: string | null = null;
  */
 const CONSOLE_NOTICES = Object.freeze({
   alreadyRecording: "This machine is already recording a meeting.",
+  notTaken: "Your context would not take this meeting from this machine.",
   blocked:
     "You asked this app never to record the app you are in, so it did not start. Change that in the menu bar if you meant to.",
   permissions:
@@ -455,6 +458,7 @@ async function main(): Promise<void> {
     episode: string,
     manual = false,
     id?: string,
+    queueWrites = true,
   ): Promise<BeginResult | null> {
     const detected = manual ? null : lastUpdate;
     if (!manual && !detected) return null;
@@ -468,6 +472,7 @@ async function main(): Promise<void> {
 
     const result = await controller.begin({
       id,
+      queueWrites,
       source: detected?.state.source ?? detected?.result.source ?? { kind: "unknown" },
       title: detected?.result.suggestedTitle ?? "Untitled meeting",
       attendees: detected?.result.suggestedAttendees ?? [],
@@ -578,6 +583,21 @@ async function main(): Promise<void> {
     return finished;
   }
 
+  /**
+   * Where each finished meeting's note landed, as the queue learns it.
+   *
+   * The console is what needs this: its page hands the shell a finalize and
+   * must not draw the meeting as saved until the note is in the bucket, so
+   * "the gateway answered with this path" is the one fact it is waiting for.
+   * The tray path has no use for it and does not read it.
+   *
+   * Kept in memory only. It is a receipt for a call this process made, not a
+   * record of anything — the note itself is in the customer's bucket, and a
+   * relaunch that had forgotten a path re-finalizes and is answered with the
+   * same one.
+   */
+  const notePaths = new Map<string, string>();
+
   async function drain(): Promise<void> {
     /*
       The base URL is the connection's, not the settings file's.
@@ -597,6 +617,7 @@ async function main(): Promise<void> {
       () => Date.now(),
     );
     outbox = report.outbox;
+    for (const landed of report.written) notePaths.set(landed.sessionId, landed.notePath);
     await store.writeOutbox(outbox);
     push();
   }
@@ -716,7 +737,7 @@ async function main(): Promise<void> {
 
     const episode = `console:${Date.now()}`;
     consent = answered(episode, "granted");
-    const result = await beginMeeting(episode, true, request.sessionId);
+    const result = await beginMeeting(episode, true, request.sessionId, false);
     if (result === null || !result.ok) {
       throw new Error(
         result?.why === "permissions"
@@ -736,6 +757,79 @@ async function main(): Promise<void> {
       // The controller's own notice, which `beginMeeting` has already re-planned
       // if the system tap was refused. One sentence, owned by `plan.ts`.
       notice: controller.view()?.notice ?? null,
+    };
+  }
+
+  /**
+   * One write about a meeting, from the page, into this machine's queue.
+   *
+   * `docs/decisions/desktop.md`: **one meeting is one credential, and on the
+   * desktop it is the machine's grant.** The page composes — it holds the
+   * record, the human's notes and the destination — and this queues, addresses
+   * and sends with the credential in `safeStorage`, through the same outbox the
+   * tray-only recording uses. So a meeting recorded with the window closed and
+   * one recorded from the console take the same path, and the queue that
+   * outlives the window is on both.
+   *
+   * ## Three answers, and the finalize is the one that is not an ack
+   *
+   *  - **Parked** — the gateway refused this meeting in a way retrying cannot
+   *    fix. Answered on *every* kind rather than only on the finalize, because
+   *    a parked head blocks its own session: the page has to learn about it at
+   *    the next write it makes rather than waiting for a finalize that will
+   *    never be attempted.
+   *  - **Written** — a finalize whose note reached the bucket, with the path
+   *    the gateway chose.
+   *  - **Queued** — this machine holds it. For the first three kinds that is a
+   *    completed handover. For a **finalize** it deliberately is not: the note
+   *    is not written, and `docs/decisions/app-and-console.md` is unambiguous
+   *    that a UI may never claim a write it has not seen land. The page keeps
+   *    the meeting and asks again, which is idempotent — a second finalize of a
+   *    complete session is answered with the note that already exists.
+   */
+  async function writeMeetingFromConsole(write: MeetingWrite): Promise<MeetingWriteAck> {
+    outbox = queueWrite(outbox, {
+      sessionId: write.sessionId,
+      kind: write.kind,
+      body: write.body,
+      context: write.context,
+      now: Date.now(),
+    });
+    await store.writeOutbox(outbox);
+    push();
+
+    /*
+      A finalize drains now; the other three wait for the timer.
+
+      Not an optimisation in either direction. Draining on every `segments`
+      write would be a request per twenty seconds of audio against somebody's
+      own gateway, and the queue's whole design is that a meeting is sent in one
+      pass. Draining on the finalize is what turns "queued" into a note path
+      while the person is still looking at the screen that ended the meeting.
+    */
+    if (write.kind === "finalize") await drain();
+
+    const parked = outbox.entries.find(
+      (entry) => entry.sessionId === write.sessionId && entry.state === "parked",
+    );
+    if (parked) {
+      return {
+        sessionId: write.sessionId,
+        queued: false,
+        notePath: null,
+        rejected: {
+          code: parked.parked?.code ?? "meeting_invalid",
+          message: parked.parked?.message ?? CONSOLE_NOTICES.notTaken,
+        },
+      };
+    }
+
+    const notePath = notePaths.get(write.sessionId) ?? null;
+    return {
+      sessionId: write.sessionId,
+      queued: outbox.entries.some((entry) => entry.sessionId === write.sessionId),
+      notePath,
+      rejected: null,
     };
   }
 
@@ -807,6 +901,7 @@ async function main(): Promise<void> {
       disconnect: () => void disconnectThisMachine(),
       outbox: outboxStatus,
       drain: () => void drain(),
+      writeMeeting: writeMeetingFromConsole,
     });
 
     consoleWindow = createConsoleWindow(url, RENDERER_DIR);

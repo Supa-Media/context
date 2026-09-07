@@ -58,15 +58,17 @@ export type { TranscriptSegment };
  * the **UI** is the half that has to be backward compatible, because it is the
  * half that can be updated in an afternoon.
  */
-export const BRIDGE_VERSION = 1;
+export const BRIDGE_VERSION = 2;
 
 /**
  * The oldest bridge this bundle will still talk to.
  *
- * Equal to `BRIDGE_VERSION` today because there has only ever been one shape.
- * It is a separate constant so that raising `BRIDGE_VERSION` is not the same
- * edit as dropping support for the shells already installed — those are two
- * decisions and the second one strands people.
+ * **Still 1 now that `BRIDGE_VERSION` is 2**, and that is the whole reason it
+ * was written as a second constant: raising the ceiling is not the same edit as
+ * dropping support for the shells already installed, and a shell somebody
+ * installed in March answers `1` and is doing nothing wrong. A version-1 shell
+ * has no `meetings` — see `DesktopBridge.meetings` — so the page keeps the
+ * writer it already had, which is the browser's, and nothing degrades.
  */
 export const MIN_BRIDGE_VERSION = 1;
 
@@ -320,6 +322,77 @@ export const TRAY_COMMANDS: readonly TrayCommand[] = Object.freeze([
 ] as TrayCommand[]);
 
 /**
+ * One write about a meeting, handed to the shell's queue.
+ *
+ * ## Why the page hands over a write rather than a meeting
+ *
+ * The four kinds are the meetings protocol's four routes, and the bodies are
+ * the ones `createHttpGateway` already composes — because that is the client
+ * whose credential the shell actually holds. The page composes; the shell
+ * queues, addresses and sends. Nothing here is a second protocol: a `write`
+ * with `kind: "segments"` is `POST /meetings/sessions/:id/segments` with this
+ * body, and the shell's own tray-only recording posts the same four.
+ *
+ * ## Why `context` is a name and not a path
+ *
+ * The gateway routes a meeting by an optional `@name` on the front of the
+ * path, and the shell is the process that builds the URL. Handing it a *slug*
+ * rather than a path means a page cannot choose what this app posts to: the
+ * shell checks the slug against the same `[a-z0-9-]{2,32}` the gateway's own
+ * selector accepts, and refuses the write rather than letting an unroutable
+ * value fall off the front and be served by whatever context the credential
+ * defaults to. That silent fallback is a meeting written into the wrong tenant,
+ * which `apps/mobile/features/meetings/gateway.ts` already argues at length.
+ *
+ * `null` means the connection's own default context, which is the one the
+ * machine's grant was minted for.
+ */
+export interface MeetingWrite {
+  sessionId: string;
+  kind: MeetingWriteKind;
+  /** The `@name` this meeting is addressed to, without the `@`, or `null`. */
+  context: string | null;
+  /** The JSON body for the protocol route this kind names. */
+  body: Record<string, unknown>;
+}
+
+/** The meetings protocol's four routes, as a word. */
+export type MeetingWriteKind = "session" | "segments" | "notes" | "finalize";
+
+export const MEETING_WRITE_KINDS: readonly MeetingWriteKind[] = Object.freeze([
+  "session",
+  "segments",
+  "notes",
+  "finalize",
+] as MeetingWriteKind[]);
+
+/**
+ * What the shell did with a write.
+ *
+ * Three states, and the page treats them as three different things:
+ *
+ *  - **`rejected`** — the gateway refused this meeting in a way retrying cannot
+ *    fix, so the shell's queue parked it. The page parks its own record with
+ *    the same sentence rather than retrying against somebody's quota.
+ *  - **`notePath`** — a finalize that reached the bucket. The only fact on this
+ *    ack the page did not already know.
+ *  - **`queued`** — the shell holds it. For the first three kinds that is a
+ *    completed handover: the queue outlives the window and drains with no page
+ *    open. For a **finalize** it is deliberately *not* an acknowledgement — the
+ *    note is not written yet, and `docs/decisions/app-and-console.md` is
+ *    unambiguous that a UI may never claim a write it has not seen land.
+ */
+export interface MeetingWriteAck {
+  sessionId: string;
+  /** The shell's queue is holding this write. See above for what that means. */
+  queued: boolean;
+  /** Where the note landed, when a finalize has already drained. */
+  notePath: string | null;
+  /** Parked by the shell's queue: a refusal a person has to act on. */
+  rejected: { code: string; message: string } | null;
+}
+
+/**
  * THE BRIDGE.
  *
  * One frozen object on `window.desktop`, exposed by a preload that has already
@@ -388,6 +461,32 @@ export interface DesktopBridge {
 
   onDetection(handler: (view: DetectionView) => void): Unsubscribe;
   onTrayCommand(handler: (command: TrayCommand) => void): Unsubscribe;
+
+  /**
+   * The meeting note, written by the machine's own grant. **Version 2.**
+   *
+   * Optional on the type because `MIN_BRIDGE_VERSION` is still 1: a shell
+   * somebody installed before this shipped answers `version: 1`, is accepted,
+   * and has no `meetings` — so a page checks for the member rather than
+   * inferring it from the fact that a bridge is present. Declaring it
+   * non-optional would be this bundle asserting a member that is genuinely
+   * absent on every shell in the estate today, and the failure would be a
+   * `TypeError` mid-meeting rather than a browser-shaped fallback.
+   *
+   * ## Why this exists at all
+   *
+   * Without it a meeting recorded on a Mac takes **two** credentials: the
+   * shell's machine grant for the audio it captured and transcribed, and the
+   * page's control-plane session for the note. `docs/decisions/desktop.md`
+   * names that as the half step 3 deferred, and the cost is not abstract —
+   * the shell's window-less outbox is not on the path, so the meeting is
+   * written by the page that happens to be open rather than by the queue that
+   * survives it. One meeting is one credential, and on the desktop it is this
+   * one.
+   */
+  meetings?: {
+    write(write: MeetingWrite): Promise<MeetingWriteAck>;
+  };
 }
 
 /**
@@ -421,6 +520,9 @@ export const BRIDGE_CHANNELS = Object.freeze({
 
   outboxStatus: "context:outbox-status",
   outboxDrain: "context:outbox-drain",
+
+  /** Version 2. One write about a meeting, into the shell's own queue. */
+  meetingsWrite: "context:meetings-write",
 
   /** Main → page. Pushed; the page subscribes through the bridge. */
   segment: "context:on-segment",

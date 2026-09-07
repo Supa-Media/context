@@ -47,6 +47,7 @@
 import {
   BRIDGE_CHANNELS,
   BRIDGE_VERSION,
+  MEETING_WRITE_KINDS,
   NO_CAPABILITIES,
   TRAY_COMMANDS,
   capabilitiesFrom,
@@ -60,6 +61,9 @@ import {
   type DesktopCapabilities,
   type DesktopShell,
   type DetectionView,
+  type MeetingWrite,
+  type MeetingWriteAck,
+  type MeetingWriteKind,
   type OutboxStatus,
   type StartCaptureRequest,
   type TranscriptSegment,
@@ -236,6 +240,20 @@ function startedFrom(payload: unknown, request: StartCaptureRequest): CaptureSta
   };
 }
 
+function writeAckFrom(payload: unknown, sessionId: string): MeetingWriteAck {
+  const source = record(payload);
+  const rejected = record(source.rejected);
+  return {
+    sessionId: text(source.sessionId, sessionId),
+    queued: source.queued === true,
+    notePath: sentence(source.notePath),
+    rejected:
+      source.rejected === null || source.rejected === undefined
+        ? null
+        : { code: text(rejected.code), message: text(rejected.message) },
+  };
+}
+
 function summaryFrom(payload: unknown): CaptureSummary {
   const source = record(payload);
   return {
@@ -405,6 +423,31 @@ export function desktopBridge(ipc: PreloadIpc): DesktopBridge {
       drain: (): void => tell(ipc, BRIDGE_CHANNELS.outboxDrain),
       onChange: (handler: (status: OutboxStatus) => void): Unsubscribe =>
         subscribe(ipc, BRIDGE_CHANNELS.outboxChange, outboxFrom, handler),
+    }),
+
+    meetings: Object.freeze({
+      write: (write: MeetingWrite): Promise<MeetingWriteAck> => {
+        /*
+          Rebuilt from the four fields the contract declares, like every other
+          request — and the `body` is the one place that cannot be, because it
+          is the protocol's own JSON and this file is not the protocol. What is
+          checked instead is that it *is* an object and that the kind is one of
+          four: the shell puts the body on the wire unread, so a `kind` it did
+          not recognise would be a route nobody agreed to.
+        */
+        const kind = (write as { kind?: unknown })?.kind;
+        const asked: MeetingWrite = {
+          sessionId: text((write as { sessionId?: unknown })?.sessionId),
+          kind: MEETING_WRITE_KINDS.includes(kind as MeetingWriteKind)
+            ? (kind as MeetingWriteKind)
+            : "session",
+          context: sentence((write as { context?: unknown })?.context),
+          body: record((write as { body?: unknown })?.body),
+        };
+        return ask(ipc, BRIDGE_CHANNELS.meetingsWrite, asked, (value) =>
+          writeAckFrom(value, asked.sessionId),
+        );
+      },
     }),
   });
 }

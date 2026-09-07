@@ -193,6 +193,15 @@ interface DesktopBridge {
 }
 ```
 
+That is version 1, and it is written out above as it shipped. **Version 2 adds
+one member** — `meetings.write`, the four protocol writes handed to the shell's
+queue — for the reason *One meeting is one credential* argues below. The
+version-1 row of the validator's required-members table is untouched and
+`MIN_BRIDGE_VERSION` stays `1`, so a shell installed before that member existed
+answers `1`, is accepted, and simply has none; the page asks for the *member*
+rather than comparing the version. Editing row 1 is how a bundle starts refusing
+shells that are doing nothing wrong.
+
 Four decisions inside that shape.
 
 **Every subscription returns its own unsubscribe.** The existing
@@ -485,7 +494,8 @@ one environment variable.
    the sheet offers system audio only where `capabilities()` said yes, and
    Settings grows a "This machine" card over `connection`. Everything else about
    the screens is unchanged, which is the point. *(~450 lines)* **Landed with
-   the gateway half deferred — see *What step 3 did not do* below.**
+   the gateway half deferred; that half is `desktopGateway.ts` and it has since
+   landed too — see *One meeting is one credential* below.**
 4. **Flip the default** to `CONTEXT_DESKTOP_UI=console`. The old windows still
    build and are unused. *(~40 lines)*
 5. **Delete the renderer.** Panel, notepad, `tokens.css`, `preload/index.ts`,
@@ -563,41 +573,21 @@ second copy of it in shell; the key never leaves that process.
 
 ---
 
-### What step 3 did not do, and which of those is next
+### What step 3 did not do, and what has since been done about it
 
 Step 3 replaced the **recorder** and nothing else, which is less than the line
-above originally promised. Written down here rather than left to be discovered
-by whoever opens step 4, because two of these are the difference between a
-feature that works on somebody's Mac and one that only works in a test.
-
-**The note is still written by the console's own session, not by the shell's
-grant.** `useMeetingsSetup` builds one gateway — `convexGateway.ts`, the
-control-plane session writing through `files.writeNote`, exactly as a browser
-does — and the desktop branch swaps the recorder underneath it. So a meeting
-captured on a Mac takes two credentials: the **shell's** machine grant for the
-audio it captured and transcribed, and the **page's** Convex session for the
-note. What that costs is what `convexGateway.ts` already lists and costs
-identically in a browser — no enhancement pass, no session record under
-`.meetings/`, no `list_meetings` — plus one thing that is only true here: the
-shell's window-less outbox is not on the path, so a meeting is written by the
-page that is open rather than by the queue that survives it.
-
-`desktopGateway.ts` — a `MeetingsGateway` that proxies to `outbox` over the
-bridge — is therefore **the next step**, and it is worth taking before step 4
-flips the default: a shell whose queue drains with no window is the reason the
-grant lives in the main process at all (*Sign-in stays in the page*, above), and
-until the page uses it, the offline story on the desktop is the *page's* queue
-and not the shell's. The end-to-end check that exists today is
-`meetingsDesktop.test.ts`'s *"a meeting captured over the bridge is written by
-the gateway the app configures"*: the shell records, the app's gateway writes
-one note, and the test says which is which.
+above originally promised. Both of the halves it deferred were named here rather
+than left to be discovered by whoever opened step 4, and both have since landed:
+the meeting is written by the machine's grant (*One meeting is one credential*,
+below) and the preload answers the whole contract. What remains in this section
+is the third item, which is a refactor rather than a blocker.
 
 **The preload answered three members, and now answers the contract.** This was
 the second of the two things step 3 deferred, and it is done: `preload/console.ts`
-is four statements over `core/shell/bridge.ts`, which builds the whole
-version-1 surface over an injected `ipcRenderer`, and `main/consoleBridge.ts`
-answers the twelve channels `BRIDGE_CHANNELS` names with the sender check this
-document specifies. `getDesktopBridge()` accepts the real object rather than
+is four statements over `core/shell/bridge.ts`, which builds the whole contract
+surface over an injected `ipcRenderer`, and `main/consoleBridge.ts` answers
+every channel `BRIDGE_CHANNELS` names with the sender check this document
+specifies. `getDesktopBridge()` accepts the real object rather than
 refusing it as `surface-incomplete`, and the suite asserts exactly that — the
 shell's own bridge, run through the package's validator, with no Electron in
 the room.
@@ -665,6 +655,108 @@ assignments, because a `start` whose first chunk will not open returns them to
 that has ended does not reopen the microphone* — is consequently held in three
 places, each with its own test of that name. That file's header carries the
 reason and names the conversion as its next step.
+
+### One meeting is one credential, and on a Mac it is the machine's
+
+Step 3 left a meeting captured on a Mac taking **two**: the shell's machine
+grant for the audio it captured and transcribed, and the page's Convex session
+for the note, because `useMeetingsSetup` built one gateway —
+`convexGateway.ts`, writing through `files.writeNote` exactly as a browser does
+— and the desktop branch swapped only the recorder underneath it. What that
+cost is what `convexGateway.ts` already lists and costs identically in a browser
+— no enhancement pass, no session record under `.meetings/`, no `list_meetings`
+— plus one thing that was only true here: **the shell's window-less outbox was
+not on the path**, so a meeting was written by the page that happened to be open
+rather than by the queue that survives it. A shell whose queue drains with no
+window is the entire reason the grant lives in the main process (*Sign-in stays
+in the page*, above), and until the page used it, the offline story on the
+desktop was the *page's* queue and not the shell's.
+
+**The decision: inside the shell, the shell writes the meeting.** The page
+composes — it holds the record, the human's Markdown, the destination somebody
+picked — and hands each of the meetings protocol's four writes to the machine
+over `meetings.write`, bridge version 2. The shell queues them in the same
+outbox the tray-only recording uses, addresses them with the same credential,
+and sends them on the same routes. A meeting recorded with the window closed and
+one recorded from the console are the same four requests with the same grant.
+
+Six things follow, and each is a decision rather than plumbing.
+
+**There is no branch on whether the machine currently holds a grant.** Inside
+the shell, every meeting goes through it — including a typed one, and one
+started before the machine was connected. "Sometimes the page and sometimes the
+shell" would be two writers for one meeting chosen by a race, and the failure
+that produces is not hypothetical: both write into the same
+`${sessionId}:${kind}` queue entries and the last one in wins. A machine with no
+grant is therefore a *queue*, not a fallback: `postEntry` answers "this machine
+is not connected to a context yet", the write is kept, the Settings card is
+where somebody connects it, and the next drain sends it. That is the answer
+`createHttpGateway` has always given and `classifySyncFailure` already treats as
+transient, so the meeting is kept with a sentence beside it rather than lost.
+
+**The shell's own controller stops queueing for a meeting the console started.**
+`BeginInput.queueWrites: false`. Without it the two writers collapse onto the
+same entries and the shell wins the race it did not know it was in: `end()`
+queues an **empty** `notes` and a finalize, drains them, and the gateway writes
+the note before the person's typed notes have left the page. The controller
+still opens the microphone, still holds the consent gate, still transcribes with
+the machine's grant — what it stops doing is *filing*.
+
+**A queued finalize is not an acknowledgement.** The first three writes are a
+completed handover: the queue is durable, drains with no page open, and sends
+them in the contract's order. The finalize's answer is the one fact the page
+does not already have — where the note landed — and until it has that, the note
+is not in the bucket. So a queued finalize is a transient refusal, the record
+asks again, and re-finalizing is answered with the note that already exists.
+This is [app-and-console](./app-and-console.md)'s *the UI must never claim a
+write it has not seen acknowledged*, on the surface where somebody is most
+likely to shut the laptop before the drain.
+
+**The destination travels as a name, and an unroutable one is refused rather
+than dropped.** The gateway routes on an optional `@name` at the front of the
+path, and the shell is the process that builds the URL — so the page hands over
+a *slug*, checked against the same `[a-z0-9-]{2,32}` the gateway's own selector
+accepts, on both sides of the bridge. A value that fails would fall off the
+front of the path and be served by whatever context the credential defaults to:
+a meeting written into the wrong tenant, in silence, which
+`apps/mobile/features/meetings/gateway.ts` argues at length about. It parks with
+a sentence instead.
+
+**The body is the protocol's, not a second one.** `createDesktopGateway`
+composes exactly what `createHttpGateway` composes, because it is the same
+request made with the same credential — the shell is transport rather than a
+protocol. What stops `meetings.write` being a generic `invoke` is that the body
+never chooses an address: the route comes from `kind`, which is one of four
+words, and the context from `context`, and both are read against closed sets in
+the preload, in the main process, and again in the queue.
+
+**What a compromised console page gains, stated rather than left implicit.** It
+can queue writes on the four meetings routes with the machine's grant. That is a
+real widening and it is bounded on purpose: four routes and no others, a body
+that never chooses an address, a context slug validated in the preload, in the
+main process and again in the queue, and the grant's own tier gate at the far
+end — a meeting note is a note, and `canSee` over the context's `privacy.md`
+decides it exactly as it decides every other write. Set against what such a page
+could already do: it holds a signed-in control-plane session and can write notes
+through `files.writeNote` directly, and it can already ask the shell to record.
+The guard that matters is still the one on the door — `shouldExposeBridge`, the
+navigation refusal, and the per-channel sender check — because a page that is
+not the pinned origin never reaches any of this.
+
+**What is regained.** Everything `convexGateway.ts` lists as lost on the page's
+path — the enhancement pass, the session record under `.meetings/`,
+`list_meetings` — comes back on the desktop, because this is the client the
+gateway was built for. `list()` still answers empty, for a different reason:
+reading the gateway's real listing back over the bridge would be a fifth verb
+for a call nothing in the app makes.
+
+**The check that fails if the page writes directly in desktop mode** is
+`meetingsDesktop.test.ts`'s *"A MEETING RECORDED FROM THE CONSOLE IS WRITTEN BY
+THE MACHINE'S OWN GRANT"*: the shell records, every write reaches
+`shell.writes`, and the page's own gateway is asserted to have been called
+**zero** times. Sabotaging `meetingsWriterFor` so it returns the fallback inside
+a shell takes three tests red; acking a queued finalize as written takes one;
+dropping an unroutable destination instead of refusing it takes one.
 
 ### What is deliberately not built
 

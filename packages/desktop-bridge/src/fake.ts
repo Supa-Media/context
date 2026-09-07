@@ -33,6 +33,8 @@ import {
   type DesktopCapabilities,
   type DesktopShell,
   type DetectionView,
+  type MeetingWrite,
+  type MeetingWriteAck,
   type OutboxStatus,
   type StartCaptureRequest,
   type TranscriptSegment,
@@ -47,6 +49,8 @@ export interface FakeDesktopBridge {
   calls: string[];
   /** The last `startCapture` request, or `null`. */
   lastStart: StartCaptureRequest | null;
+  /** Every meeting write the page handed the shell, in order. */
+  writes: MeetingWrite[];
   emitSegment(segment: TranscriptSegment): void;
   emitLevel(level: AudioLevel): void;
   emitCaptureState(update: CaptureStateUpdate): void;
@@ -69,6 +73,24 @@ export interface FakeBridgeOptions {
   summary?: Partial<CaptureSummary>;
   /** Make `startCapture` reject — a refused permission, a busy device. */
   refuseStart?: string;
+  /**
+   * What `meetings.write` answers, per write.
+   *
+   * A function rather than a value because the three answers are about
+   * *sequence*: a finalize is queued while the machine is offline and carries a
+   * note path once the queue has drained, and a test that could not say "this
+   * one, then that one" could not stage the case the whole surface exists for.
+   * Defaults to "queued", which is what an offline shell always answers.
+   */
+  write?: (write: MeetingWrite) => MeetingWriteAck;
+  /**
+   * Answer no `meetings` at all — a version-1 shell.
+   *
+   * The estate this bundle actually meets: somebody installed the shell before
+   * `meetings` existed, `MIN_BRIDGE_VERSION` still accepts it, and the page has
+   * to notice the member is missing rather than call it.
+   */
+  noMeetings?: boolean;
 }
 
 const DEFAULT_CONNECTION: ConnectionView = {
@@ -91,6 +113,7 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
   const trayCommands = new Set<(command: TrayCommand) => void>();
 
   const calls: string[] = [];
+  const writes: MeetingWrite[] = [];
   const capabilities: DesktopCapabilities = { ...NO_CAPABILITIES, ...options.capabilities };
   let connectionView = options.connection ?? DEFAULT_CONNECTION;
   let outboxStatus = options.outbox ?? DEFAULT_OUTBOX;
@@ -104,7 +127,13 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
   }
 
   const bridge: DesktopBridge = Object.freeze({
-    version: options.version ?? BRIDGE_VERSION,
+    /*
+      A shell with no `meetings` is a **version-1** shell, and answering 2
+      without one would be a shell the validator correctly refuses — which is
+      not the case a test asking for `noMeetings` is trying to stage. An
+      explicit `version` still wins, so the refusal itself can be staged too.
+    */
+    version: options.version ?? (options.noMeetings === true ? 1 : BRIDGE_VERSION),
     shell:
       options.shell === undefined
         ? { app: "Context", version: "0.0.0-test", platform: "macos" as const }
@@ -187,11 +216,37 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
       },
       onChange: (handler: (status: OutboxStatus) => void) => subscribe(outboxes, handler),
     }),
+
+    /*
+      Absent entirely under `noMeetings`, rather than present and answering
+      nothing. A version-1 shell does not have this member, and a fake that had
+      it and refused would let a page pass by catching an error it should never
+      have been in a position to throw.
+    */
+    ...(options.noMeetings === true
+      ? {}
+      : {
+          meetings: Object.freeze({
+            async write(write: MeetingWrite): Promise<MeetingWriteAck> {
+              calls.push(`meetings.write:${write.kind}`);
+              writes.push(write);
+              return (
+                options.write?.(write) ?? {
+                  sessionId: write.sessionId,
+                  queued: true,
+                  notePath: null,
+                  rejected: null,
+                }
+              );
+            },
+          }),
+        }),
   });
 
   return {
     bridge,
     calls,
+    writes,
     get lastStart() {
       return lastStart;
     },

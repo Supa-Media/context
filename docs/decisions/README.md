@@ -150,6 +150,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Nothing that can start a recording may come from an origin we did not pin
 - Offline is what the outbox was always for, plus a tray that needs no page
 - The order is seven pull requests, and the first one changes nothing by default
+- The signing keychain belongs to the workflow, not to electron-builder
+- What step 3 did not do, and what has since been done about it
+- One meeting is one credential, and on a Mac it is the machine's
 - What is deliberately not built
 
 ## [Obsidian plugins](./obsidian-plugins.md)

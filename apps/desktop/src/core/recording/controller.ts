@@ -140,6 +140,23 @@ export interface BeginInput {
   channels?: readonly ("mic" | "system")[];
   /** What `capturePlan` said this meeting is not doing, shown as it stands. */
   notice?: string | null;
+  /**
+   * Whether this controller queues the writes for this meeting. Default `true`.
+   *
+   * **False when the console started it**, and that is a decision rather than a
+   * switch. On that path the *page* holds the meeting — its own record, its own
+   * notes, its own destination — and hands each write to the shell's queue over
+   * the bridge. If this controller also queued, both would collapse onto the
+   * same `${sessionId}:${kind}` entries and the last one in would win: the
+   * shell's `end()` queues an **empty** `notes` and a finalize, drains them, and
+   * the gateway writes the note before the person's typed notes have left the
+   * page. One meeting is one writer, and on that path it is not this object.
+   *
+   * What stays true either way: this controller is still the only thing that
+   * opens a microphone, still holds the consent gate, and still transcribes
+   * with this machine's grant. What changes is only who files the result.
+   */
+  queueWrites?: boolean;
 }
 
 export type BeginResult =
@@ -152,6 +169,8 @@ export class MeetingController {
   #stream: TranscriptionStream | null = null;
   #segments = 0;
   #startedAtMs = 0;
+  /** See `BeginInput.queueWrites`. True for every meeting this shell starts. */
+  #queues = true;
 
   constructor(deps: ControllerDeps) {
     this.#deps = deps;
@@ -189,6 +208,9 @@ export class MeetingController {
   #queue(kind: "session" | "segments" | "notes" | "finalize", body: Record<string, unknown>): void {
     const view = this.#view;
     if (!view) return;
+    // See `BeginInput.queueWrites`: one meeting is one writer, and on the
+    // console path it is the page rather than this object.
+    if (!this.#queues) return;
     this.#deps.setOutbox(
       queueWrite(this.#deps.outbox(), {
         sessionId: view.id,
@@ -225,6 +247,7 @@ export class MeetingController {
 
     const startedAt = this.#deps.now();
     const id = input.id ?? (this.#deps.newId ?? newMeetingId)();
+    this.#queues = input.queueWrites ?? true;
     this.#startedAtMs = startedAt.getTime();
     this.#segments = 0;
 

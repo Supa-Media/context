@@ -42,12 +42,12 @@
  * refused *as credentials* and start being refused as the wrong shape, which is
  * the right answer for the wrong reason and would hide the rule that matters.
  *
- * **The zero row below stays written down.** While
- * `MIN_BRIDGE_VERSION === BRIDGE_VERSION` the accepted range is a single
- * integer, so `Number.isInteger` cannot change any answer: `1.5` is already
- * outside `>= 1 && <= 1`. The refusal is kept because the range widens the day
- * a version 2 ships and `1.5` lands between the two — and it is recorded as
- * unreachable-today rather than left to look like a guard somebody checked.
+ * **The zero row was written down as unreachable, and version 2 reached it.**
+ * While `MIN_BRIDGE_VERSION === BRIDGE_VERSION` the accepted range was a single
+ * integer, so `Number.isInteger` could not change any answer — `1.5` was
+ * already outside `>= 1 && <= 1`. The range is `1..2` now, `1.5` lands between
+ * the two, and the row is no longer zero. That is the whole reason a check
+ * nobody could make fail was kept rather than deleted as decoration.
  */
 
 import {
@@ -61,7 +61,14 @@ import { fakeDesktopBridge } from "../src/fake.ts";
 
 const refusalFor = (desktop) => inspectDesktopBridge({ desktop }).refusal;
 
-/** A structurally complete v1 bridge, built from plain values a test can edit. */
+/**
+ * A structurally complete bridge at the *current* version, from plain values.
+ *
+ * It carries `meetings` because `BRIDGE_VERSION` is 2 and row 2 of the required
+ * table asks for it. `version1Bridge` below is the same object with `meetings`
+ * removed and `version: 1` — the shell somebody installed before this shipped,
+ * which this bundle still has to accept.
+ */
 function bridgeLike(overrides = {}) {
   const noop = () => () => {};
   return {
@@ -88,11 +95,20 @@ function bridgeLike(overrides = {}) {
       drain: () => {},
       onChange: noop,
     },
+    meetings: {
+      write: async () => ({ sessionId: "", queued: true, notePath: null, rejected: null }),
+    },
     ...overrides,
   };
 }
 
 const frozenBridge = (overrides = {}) => Object.freeze(bridgeLike(overrides));
+
+/** The shell that shipped before `meetings` existed. Version 1, and complete. */
+function version1Bridge(overrides = {}) {
+  const { meetings: _dropped, ...rest } = bridgeLike(overrides);
+  return Object.freeze({ ...rest, version: 1 });
+}
 
 export function runBridgeChecks(check) {
   // -- absence is the ordinary case, and it is not an error
@@ -326,6 +342,40 @@ export function runBridgeChecks(check) {
       refusalFor(Object.freeze({ version })) === "surface-incomplete",
     );
   }
+
+  // -- a shell older than this bundle is accepted, at its own version
+  //
+  // The compatibility direction, and the one this package exists to get right:
+  // the shell ships as a binary somebody has to install and the UI ships when
+  // `deploy-web.yml` publishes, so the **UI** is the half that has to be
+  // backward compatible. A version-1 shell has no `meetings` — it shipped
+  // before that member existed — and refusing it would turn every Mac in the
+  // estate into a browser on the day version 2 was published.
+
+  check(
+    "A VERSION-1 SHELL IS STILL A BRIDGE, though this bundle is version 2",
+    getDesktopBridge({ desktop: version1Bridge() }) !== null,
+  );
+  check(
+    "...and it is not refused for the member it never promised",
+    refusalFor(version1Bridge()) === null,
+  );
+  check(
+    "...which the page notices by asking for the member rather than the version",
+    getDesktopBridge({ desktop: version1Bridge() })?.meetings === undefined,
+  );
+  check(
+    "A VERSION-2 SHELL WITHOUT `meetings` IS REFUSED — it promised one",
+    refusalFor(Object.freeze({ ...bridgeLike(), meetings: undefined })) === "surface-incomplete",
+  );
+  check(
+    "...and one whose `meetings` cannot write is refused too",
+    refusalFor(frozenBridge({ meetings: { drain: () => {} } })) === "surface-incomplete",
+  );
+  check(
+    "a version between the floor and the ceiling is still not an integer version",
+    !isSupportedBridgeVersion(1.5) && refusalFor(frozenBridge({ version: 1.5 })) === "version-unsupported",
+  );
 
   // -- the scope is an argument, and it is honoured
 

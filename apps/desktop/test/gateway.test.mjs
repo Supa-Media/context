@@ -14,10 +14,19 @@
  *   the token appended as `?token=` instead of a header                       4
  *   a non-JSON 200 treated as a successful ingest                             2
  *   `String(error)` used for the network failure message                      2
+ *   an unroutable `@name` dropped rather than refusing the entry              6
+ *   `postEntry` not reading `notePath` off a finalize's ack                   2
+ *
+ * The fourth row is the one worth reading. Dropping an unroutable slug is the
+ * *tidy* thing to do — the request still goes out, on the bare route — and what
+ * it does is file somebody's meeting in whatever context this machine's grant
+ * defaults to, with no error anywhere. That is the failure
+ * `apps/mobile/features/meetings/gateway.ts` argues at length about, and the
+ * only answer that is not it is to refuse to send.
  */
 
 import { ERRORS, ROUTES } from "@context/meetings/protocol";
-import { postEntry, routeFor } from "../src/core/sync/client.ts";
+import { contextRouteFor, postEntry, routeFor } from "../src/core/sync/client.ts";
 import { drainOnce } from "../src/core/sync/drain.ts";
 import { emptyOutbox, queueWrite } from "../src/core/sync/outbox.ts";
 import { memoryTokenStore } from "../src/core/sync/tokenStore.ts";
@@ -50,6 +59,62 @@ export async function runGatewayChecks(check) {
   check("segments post to the contract's segments route", routeFor(entry("segments")) === ROUTES.segments(sessionId));
   check("notes post to the contract's notes route", routeFor(entry("notes")) === ROUTES.notes(sessionId));
   check("finalize posts to the contract's finalize route", routeFor(entry("finalize")) === ROUTES.finalize(sessionId));
+
+  // -- and a meeting addressed to a named context carries the name -----------
+  //
+  // The gateway routes on an optional `@name` at the front of the path, and the
+  // desktop is the client that can be asked to write somewhere other than the
+  // context its own grant defaults to — the console's destination sheet. What
+  // matters is the direction of the refusal: a slug the gateway's selector
+  // would not read falls off the front and the request is served by the
+  // default, so a value that fails the pattern must stop the request rather
+  // than being quietly dropped from it.
+
+  check(
+    "nothing addressed is the machine's own context, which is what the tray records",
+    contextRouteFor(entry("finalize")) === ROUTES.finalize(sessionId),
+  );
+  check(
+    "a named context is written on the front of the path, as a name",
+    contextRouteFor({ ...entry("session"), context: "acme" }) === `/@acme${ROUTES.sessions}`,
+  );
+  check(
+    "AN UNROUTABLE NAME REFUSES THE ADDRESS RATHER THAN FALLING BACK TO THE DEFAULT",
+    contextRouteFor({ ...entry("session"), context: "Acme Corp" }) === null,
+  );
+  check(
+    "...including one that would climb out of the route",
+    contextRouteFor({ ...entry("session"), context: "../../admin" }) === null,
+  );
+  check(
+    "...and one too short for the gateway's own pattern",
+    contextRouteFor({ ...entry("session"), context: "a" }) === null,
+  );
+  check(
+    "...and an empty one, which is a name nobody can route to rather than no name",
+    contextRouteFor({ ...entry("session"), context: "" }) === null,
+  );
+  check(
+    "...and a queue file corrupted into something that is not a name at all",
+    contextRouteFor({ ...entry("session"), context: { slug: "acme" } }) === null,
+  );
+  check(
+    "an entry from a build that predates addressing is this machine's own context",
+    contextRouteFor(entry("notes")) === ROUTES.notes(sessionId),
+  );
+  {
+    const impl = fakeFetch([{ status: 200, body: {} }]);
+    const result = await postEntry(config(impl), { ...entry("finalize"), context: "Acme Corp" });
+    check("...and nothing is sent for it at all", impl.calls.length === 0);
+    check(
+      "...and it parks rather than retrying forever against somebody's gateway",
+      result.ok === false && result.retryable === false && result.code === ERRORS.invalid,
+    );
+    check(
+      "...with a sentence that does not echo the name back",
+      result.ok === false && !result.message.includes("Acme"),
+    );
+  }
 
   // -- the credential --------------------------------------------------------
   {
@@ -163,6 +228,55 @@ export async function runGatewayChecks(check) {
     const report = await drainOnce(outbox, config(impl), () => 0);
     check("a session that cannot send its head does not send its tail", impl.calls.length === 1);
     check("nothing is lost when the gateway is down", report.outbox.entries.length === 2);
+  }
+
+  // -- where the note landed comes back with the finalize --------------------
+  //
+  // The one fact in a successful ingest that the client did not already know,
+  // and the console is what is waiting for it: its page must not draw a meeting
+  // as saved on "the queue accepted it". Read off the ack rather than composed
+  // here, because the gateway decides where a note goes — including the folder
+  // fallback it applies to a folder it will not file into.
+
+  {
+    const impl = fakeFetch([
+      { status: 200, body: { sessionId, state: "complete", notePath: "5-meetings/standup.md" } },
+    ]);
+    const result = await postEntry(config(impl), entry("finalize"));
+    check("a finalize's ack carries the note's path", result.ok === true && result.notePath === "5-meetings/standup.md");
+  }
+  {
+    const impl = fakeFetch([{ status: 200, body: { sessionId, state: "finalizing", notePath: null } }]);
+    const result = await postEntry(config(impl), entry("finalize"));
+    check(
+      "a finalize the gateway accepted without a path answers `null`, not a guess",
+      result.ok === true && result.notePath === null,
+    );
+  }
+  {
+    const impl = fakeFetch([
+      { status: 200, body: { ok: true } },
+      { status: 200, body: { sessionId, notePath: "5-meetings/standup.md" } },
+    ]);
+    let outbox = emptyOutbox();
+    outbox = queueWrite(outbox, { sessionId, kind: "session", body: { id: sessionId }, now: 0 });
+    outbox = queueWrite(outbox, { sessionId, kind: "finalize", body: { sessionId }, now: 1 });
+    const report = await drainOnce(outbox, config(impl), () => 1_000);
+    check(
+      "a drain reports which meetings reached the bucket, and where",
+      report.written.length === 1 && report.written[0].notePath === "5-meetings/standup.md",
+    );
+    check("...keyed by the meeting, so a caller knows whose note it is", report.written[0].sessionId === sessionId);
+  }
+  {
+    const impl = fakeFetch([{ status: 200, body: { sessionId, notePath: "5-meetings/x.md" } }]);
+    let outbox = emptyOutbox();
+    outbox = queueWrite(outbox, { sessionId, kind: "session", body: { id: sessionId }, now: 0 });
+    const report = await drainOnce(outbox, config(impl), () => 1_000);
+    check(
+      "a session upsert is not a written note, whatever the reply said",
+      report.sent === 1 && report.written.length === 0,
+    );
   }
 
   // -- the token never comes back out ---------------------------------------
