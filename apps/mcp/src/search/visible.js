@@ -47,6 +47,7 @@
  * still being indexed rather than that the thing is not written down.
  */
 
+import { isEncryptedNote } from "../encryption.js";
 import { readTermFilter, termFilterMayHold } from "./filter.js";
 import { createSearchBudget, inWaves } from "./maintain.js";
 import { MAX_RESULTS, parseQuery, rankedVisibleTo } from "./query.js";
@@ -511,6 +512,13 @@ async function answerFromIndex(store, options) {
       const object = await store.get(path);
       if (!object) return null;
       const text = await object.text();
+      // A hit that turns out to be an encrypted note is dropped, exactly as a
+      // hit whose object has gone is. The index holds no body terms for one —
+      // it is synced with empty content — but a path or title term can still
+      // rank it, and the snippet cut here would be ciphertext. Dropping it
+      // here is what makes "search does not find encrypted notes" true of
+      // every path into this function rather than of the indexer alone.
+      if (isEncryptedNote(text)) return null;
       return {
         key: path,
         title: noteTitle(path, text),

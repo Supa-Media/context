@@ -46,6 +46,8 @@
  *   the deadline back to `perl -e 'alarm 30; exec @ARGV'`, no SIGKILL        2
  *   the deadline shortened below the app's own `--smoke` timer               1
  *   "still alive at the deadline" no longer failing the step                 1
+ *   the x64 leg's timeout switched from a warning back to a fatal FAIL      1
+ *   the crash-string check scoped to skip the x64 leg                      1
  *
  * The first one was measured at **0** before these checks were asked of the
  * plist\'s keys rather than of its text: that file\'s header discusses every
@@ -939,6 +941,77 @@ export async function runPackagingChecks(check) {
   check(
     "the captured log is shown only as its last 40 lines, through the same shared redaction script the Build step uses",
     launchStep !== undefined && /tail -n 40/.test(launchStep) && /redact-signing-log\.sh/.test(launchStep),
+  );
+
+  /*
+    ── ARM64 STAYS THE GATE; X64 GETS ITS OWN, GENEROUS, NON-FATAL DEADLINE ──
+
+    The first gated release (run 34135737601) measured a GOOD x64 launch —
+    Context started, ran --smoke, and exited 0 — using 57 of the shared 60s
+    deadline, entirely because it runs under Rosetta emulation on this same
+    arm64 runner rather than natively. A slow runner failing a release for
+    being slow prints the identical "was still alive ... killed with SIGKILL"
+    line a real launch crash does, which is the worst kind of false positive:
+    it teaches people to re-run the gate instead of trust it.
+
+    So `launch()` takes the deadline and whether a timeout is fatal as
+    arguments, and the two legs are called with different values for both —
+    while the crash-string grep and the non-zero-exit check inside `launch()`
+    are never conditioned on either argument, so those two failure modes are
+    identical for both legs. What is checked below is exactly that shape:
+    arm64 keeps its 60s, fatal; x64 gets 240s, non-fatal on a timeout alone.
+  */
+  check(
+    "THE ARM64 LEG IS CALLED WITH A FATAL TIMEOUT — its own 60s deadline still fails the job",
+    launchStep !== undefined &&
+      /launch "release\/mac-arm64\/Context\.app\/Contents\/MacOS\/Context" "\$arm64_log" "\$SMOKE_DEADLINE_S" true/.test(
+        launchStep,
+      ),
+  );
+  check(
+    "...and only return code 1 from that call sets $status — a hard fail, not a soft one",
+    launchStep !== undefined && /arm64_rc" -eq 1/.test(launchStep),
+  );
+  check(
+    "THE X64 LEG GETS ITS OWN, MUCH LARGER ALLOWANCE — 240s, not the arm64 gate's 60s",
+    Number(/X64_SMOKE_DEADLINE_S=(\d+)/.exec(launchStep)?.[1] ?? 0) >= 240,
+  );
+  check(
+    "THE X64 LEG IS CALLED WITH A NON-FATAL TIMEOUT — a Rosetta timeout warns, it does not fail the job",
+    launchStep !== undefined &&
+      /launch "release\/mac\/Context\.app\/Contents\/MacOS\/Context" "\$x64_log" "\$X64_SMOKE_DEADLINE_S" false/.test(
+        launchStep,
+      ),
+  );
+  check(
+    "...and only return code 1 from THAT call sets $status too — return 2 (the warn-only timeout) never does",
+    launchStep !== undefined && /x64_rc" -eq 1/.test(launchStep) && !/x64_rc" -eq 2/.test(launchStep),
+  );
+  check(
+    "a timed-out x64 leg is reported with ::warning::, inside the same branch that returns the non-fatal code",
+    launchStep !== undefined &&
+      /timeout_is_fatal" = "true" \]; then\s*\n\s*echo "FAIL:[^\n]*\n\s*return 1\s*\n\s*fi\s*\n\s*echo "::warning::/.test(
+        launchStep,
+      ),
+  );
+  check(
+    "THE CRASH-STRING CHECK IS UNCONDITIONAL — never gated on timeout_is_fatal, so it still fails the x64 leg too",
+    launchStep !== undefined &&
+      /grep -qE "\$CRASH_STRINGS" "\$log_file"/.test(launchStep) &&
+      // The crash-string grep must not sit inside a block that reads
+      // $timeout_is_fatal — that would be exactly how a maintainer could
+      // scope the check to one leg and not the other.
+      !/timeout_is_fatal[\s\S]{0,200}CRASH_STRINGS/.test(launchStep),
+  );
+  check(
+    "...and the non-zero-exit check is unconditional too, for the same reason",
+    launchStep !== undefined &&
+      /if \[ "\$status" -ne 0 \]; then/.test(launchStep) &&
+      !/timeout_is_fatal[\s\S]{0,120}"\$status" -ne 0/.test(launchStep),
+  );
+  check(
+    "EACH LEG PRINTS ITS OWN ELAPSED TIME AGAINST THE DEADLINE IT ACTUALLY GOT — the margin (e.g. x64's 57s of 60s) stays visible",
+    launchStep !== undefined && /after \$\{elapsed\}s \(of \$\{deadline\}s allowed\)/.test(launchStep),
   );
 
   // -- publishing happens only after the app has been shown to start --------

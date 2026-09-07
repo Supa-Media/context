@@ -242,10 +242,15 @@ export function createControlPlaneStub(options = {}) {
          * back to it. `undefined` when there is none, so `JSON.stringify`
          * drops the key exactly as the real route's comment promises.
          */
-        const { searchIndex, ...storage } = binding;
+        // `encryptionKey` splits off the same way and for the same reason. It
+        // is a third sibling on the real route, absent for every context that
+        // has never encrypted a note — so a fixture that does not mention it
+        // produces exactly the bytes a context without one gets today.
+        const { searchIndex, encryptionKey, ...storage } = binding;
         const envelope = (workspaceId) => ({
           binding: workspaceId === null ? { ...storage } : { workspaceId, ...storage },
           ...(searchIndex ? { searchIndex } : {}),
+          ...(encryptionKey ? { encryptionKey } : {}),
         });
         if (flags.omitBindingWorkspaceId) return ok(envelope(null));
         return ok(envelope(served));

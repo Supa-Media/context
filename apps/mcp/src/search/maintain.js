@@ -31,6 +31,7 @@
  */
 
 import { addDoc, emptyIndex, parseIndex, removeDoc, serializeIndex } from "./indexer.js";
+import { indexableText } from "../encryption.js";
 import { computeRanks } from "./query.js";
 
 /**
@@ -534,7 +535,14 @@ export async function syncIndex(
             return null;
           }
           if (!object) return { path, gone: true };
-          const full = await object.text();
+          // `indexableText` first, and the cap after it: an encrypted note
+          // becomes the empty string here, so its version is still recorded —
+          // the diff converges and the note stops looking stale forever — while
+          // nothing of its body reaches the index. The index lives in the
+          // customer's own bucket under the same credential as the note, which
+          // is exactly why indexing the plaintext would hand a leaked bucket
+          // key the content back out of the index.
+          const full = indexableText(await object.text());
           const content = full.length > NOTE_INDEX_CHAR_CAP ? full.slice(0, NOTE_INDEX_CHAR_CAP) : full;
           // Record the token the *next* listing will report, or the diff never
           // converges. Where the listing carries a real etag that is the etag
