@@ -202,6 +202,21 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The microphone is asked for just-in-time, and never a dialog that points at the wrong place
 - What is deliberately not built
 
+## [Updating the Mac without shipping a Mac](./desktop-updates.md)
+
+- The binary is a permission envelope, and a code signature does not seal what V8 evaluates later
+- The line the signature actually draws, and the seven things on the far side of it
+- A missing usage string kills the process, which is why over-declaring is nearly free and under-declaring is permanent
+- The one-way door: what goes into the next signed build
+- A main bundle is a manifest, a blob and a signature, and the shell decides about all three before it evaluates any of them
+- Signing the bundle is the design; the update channel is what is left over
+- A bad bundle can brick the app so thoroughly it cannot fetch its own fix
+- `electron-updater` stays, and the two version numbers do not merge
+- Which bundle a Mac is running has to be a fact, or a rollout is a guess
+- Three stages, and the middle one is the only one with a deadline
+- What would make this a bad idea, argued as if we were not going to do it
+- What is deliberately not built
+
 ## [Obsidian plugins](./obsidian-plugins.md)
 
 - The bucket is the vault, so compatibility starts as a duty not to break things

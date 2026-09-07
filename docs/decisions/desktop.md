@@ -299,6 +299,13 @@ different speeds. The UI ships with the web deploy — that is the whole point.
 The **shell** ships as a binary, through `deploy-desktop.yml`, and gets
 `electron-updater` against GitHub Releases.
 
+Whether there should be a **third** channel — the main process fetched as a
+signed bundle, so that a fix does not need a binary at all — is argued in
+[desktop-updates](./desktop-updates.md), along with the entitlements and
+Info.plist keys that can only ever go into a *new* signed build. Nothing below
+changes: that design keeps `electron-updater` deliberately, as the out-of-band
+recovery for a channel that can otherwise lose its own root of trust.
+
 Four decisions.
 
 **A `zip` target is added, and it is not cosmetic.** `electron-builder.yml` as
