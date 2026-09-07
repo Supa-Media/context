@@ -141,7 +141,7 @@ export function msUntilLock(state: SessionState, path: string, now: number): num
  * What this session would look like if anything ever persisted it.
  *
  * Nothing does, and this function is how that is *checked* rather than
- * asserted: `__tests__/passphraseSession.test.ts` locks a state full of keys
+ * asserted: `__tests__/passphraseOps.test.ts` locks a state full of keys
  * through here and greps the JSON for the key bytes and for the passphrase.
  * A future edit that starts storing the session — a draft queue, a devtools
  * snapshot, an error report — gets whatever this returns and no more.

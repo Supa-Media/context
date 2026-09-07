@@ -245,6 +245,34 @@ export async function runEncryptionPassphraseChecks(check) {
     ),
   );
 
+  /*
+   * AND THE GUARD CANNOT BE RE-OPENED BY A WRITER NOBODY HAS WRITTEN YET.
+   *
+   * "A note this request cannot open is a note this request cannot write" lives
+   * in one place — `sealNoteContent` — and it can only decide when it is told
+   * what is at the path. A future generator that calls it with two arguments
+   * gets `undefined` for `storedText`, skips the openability check, and seals a
+   * replacement for a locked note with the workspace key: the catastrophic
+   * write, back, in a call site nobody thought was about encryption.
+   *
+   * The behavioural half of this is in `encryptionGateway.test.mjs`, over the
+   * two writers that exist. This half is about the writers that do not, and it
+   * is a source check for the same reason the two above are: the property is
+   * "no call site anywhere", which no fixture can enumerate.
+   */
+  check(
+    "every call to `sealNoteContent` names the stored object it is deciding about",
+    (() => {
+      const calls = [
+        ...GATEWAY_SOURCE.matchAll(/(?<!function\s)\bsealNoteContent\(([^)]*)\)/g),
+      ].map((match) => match[1]);
+      return (
+        calls.length >= 3 &&
+        calls.every((args) => args.split(",").filter((part) => part.trim() !== "").length === 3)
+      );
+    })(),
+  );
+
   /* -------------------- a round trip through this module ------------------ */
 
   const plaintext = "---\ntags: [x]\n---\n\nA note only a person opens.\n";
