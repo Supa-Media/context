@@ -2049,6 +2049,102 @@ or when no window was created at all. The release gate still runs plain
 bug — reddens exactly one check, `test/mirror.test.mjs`'s `OFFLINE WITH A
 USABLE MIRROR IS ALSO A PASS`.
 
+### The microphone is asked for just-in-time, and never a dialog that points at the wrong place
+
+Found on the owner's first desktop recording, on hardware: macOS granted the
+microphone mid-session, capture still could not open an input, and the session
+degraded to an empty typed note. The panel's explanation was *"Open the menu
+bar to grant it."* The menu bar cannot grant a TCC permission — only System
+Settings can — so the one sentence this app showed about the failure sent the
+person somewhere that does nothing, and a wrong instruction that looks like an
+instruction is worse than none: it reads as followed.
+
+**The just-in-time half of this was already correct**, and is worth stating
+rather than re-deriving, because the fix here is narrower than it first looks.
+Every real way to start a recording — the tray's Record, the panel's "Take
+notes", and the console's `startCapture` — folds through one function,
+`beginMeeting`, which calls `MeetingController.begin()`, which calls
+`ensureCapturePermissions` and **awaits** it before either the transcriber or
+the recorder is ever started (`core/capture/permissions.ts`,
+`core/recording/controller.ts`). `not-determined` or an unreadable `unknown`
+raises the system dialog and waits for the answer; `granted` proceeds;
+`denied` or `restricted` refuses outright, with no dialog, because macOS
+ignores a second prompt to a permission it already refused. The state only
+ever moves to `recording` — the tray's red dot, the always-on indicator —
+*after* that promise resolves and the recorder has actually opened, so there
+is no window in which the indicator is on before the input is. A typed
+meeting (`capturePlan` answered no channels) asks for nothing at all, which is
+the other half of "never start a session that will silently produce an empty
+note": a typed meeting is an honest, first-class outcome, never a fallback a
+failed capture quietly lands on.
+
+**The actual defect was one string.** `CONSOLE_NOTICES.permissions` in
+`main/index.ts` — the sentence `explain()` shows in a message box when
+`beginMeeting` reports `why: "permissions"`, and the one `startFromConsole`
+throws for the page to render — read *"Open the menu bar to grant it."* It now
+reads *"Open System Settings → Privacy & Security → Microphone, enable
+Context, and record again."* The last three words are load-bearing rather than
+decoration: `ensureCapturePermissions` re-checks `status()` fresh on every
+`begin()`, so a person who grants it in System Settings and presses Record
+again is not re-asked and is not told to restart the app — the sentence's own
+instruction is what actually recovers the session, and `controller.test.mjs`
+now checks the other direction of that promise as well: a permission already
+`granted` before a session starts raises no dialog either, only
+`not-determined` (or `unknown`) ever calls `request`.
+
+Never assembled at the call site, like every sentence in `CONSOLE_NOTICES` and
+`PLAN_NOTICES` — both are frozen closed sets for exactly this reason, stated in
+`main/index.ts`'s own comment beside them: *"none is assembled here, for the
+reason those sets exist."* A message box is exactly where a channel name or a
+fragment of a payload ends up if a sentence is built rather than looked up.
+`appShell.test.mjs` reads the frozen object as text and checks every key whose
+name contains "permission": none may mention the menu bar, all must name
+System Settings, all must say "record again". A key added next year for
+Screen Recording specifically is covered by the same regex without this file
+being edited to know it exists.
+
+**The Mac confirmation**, for the one thing no offline suite can check: a real
+TCC prompt, raised at the right moment, on real hardware.
+
+```
+tccutil reset Microphone lc.context.desktop
+```
+
+then launch the app and press Record. The system dialog must appear before the
+tray's dot turns red — never after, and never silently skipped — and answering
+it must be what decides whether the dot turns red at all. A build that shows
+the red indicator, or reports `recording`, before that dialog has been
+answered is the defect this section exists to close, whatever the panel's
+copy says.
+
+**A grant that still cannot open is not the same failure as a refusal, and
+does not get the same sentence.** The same hardware session that found the
+wrong string found a second one once the first was fixed: the app was already
+running when macOS recorded the grant, mid-session, and every attempt after it
+— for the rest of that process's life — still could not open an input, while
+the panel kept showing *"macOS has not granted this app the microphone
+yet... record again"*, even though TCC's own answer was `granted`. That
+sentence's own instruction is what a person had just done; showing it again
+reads as "that didn't work" about an instruction that was never wrong.
+
+`status()` is not the liar here — `getMediaAccessStatus` is asked fresh on
+every `begin()`, exactly as the section above describes, and it honestly
+answers `granted`. What lags is AVFoundation's own per-process authorization,
+which can hold the answer a running process observed the first time it asked
+until that process relaunches. So `ensureCapturePermissions` can report `ok`
+and the recorder's own `start()` can still throw, and `MeetingController.begin`
+now tells the two failures apart by `why`: a refusal is still `"permissions"`,
+and its recovery is still System Settings; a grant the recorder still could
+not use is `"stale-permission"`, reported with an empty `missing` — nothing is
+missing, this process is — and its recovery is `CONSOLE_NOTICES
+.staleMicrophoneGrant`, *"Quit and reopen Context to pick up the microphone
+permission"*, the one instruction that actually works. Collapsing the two
+back into one `why` is the exact regression: `controller.test.mjs` pins it with
+a broker whose status flips from `not-determined` to `granted` between two
+`begin()` calls on the same process while the recorder keeps refusing to open,
+and `appShell.test.mjs` pins the sentence itself, the same way it pins
+`permissions`'s.
+
 ### What is deliberately not built
 
 Not built, and none of them foreclosed:
@@ -2068,3 +2164,87 @@ Not built, and none of them foreclosed:
 - **Deep-linking the shell from the web.** A `context://` scheme handler that
   focuses the shell from a browser tab is obvious and small and is not needed
   until somebody has two of them open.
+
+### The console reserves the space, the shell places the buttons
+
+Found by the owner on the installed app, and it is the plainest kind of defect
+this section has recorded: `createConsoleWindow` sets `titleBarStyle:
+"hiddenInset"`, which keeps the traffic lights but removes the bar that used to
+hold them clear of the page — and the hosted console draws its own chrome from
+`x: 0`, with nothing telling it that the top-left corner of its own window is
+spoken for. The close, minimise and zoom buttons sat on top of the active-context
+chip, because nothing in this app had ever been told they were there.
+
+The orchestrator's decision, 2026-09-07, and it is a split rather than a single
+fix: **the page reserves the space; the shell places the buttons in it.** A
+38px band, full width, in the console header's own colour, drawn only when the
+page is running inside the shell on macOS — and marked
+`-webkit-app-region: drag`, so the window can still be moved by a click there
+now that there is no title bar to grab. The shell's own half —
+`trafficLightPosition: { x: 12, y: 12 }` on the `BrowserWindow` — is a separate
+change to `apps/desktop`, on its own branch: this repository does not gate one
+half of a two-process fix on the other landing first, and a page that already
+reserves the pixels degrades to "an empty 38px strip with nothing drawn on it"
+against a shell that has not shipped the other half yet, rather than to the
+defect this section describes.
+
+**Neither side may own both numbers, and that is why they live in
+`packages/desktop-bridge` rather than in either app.** `SHELL_TITLE_BAND_PX`
+and `SHELL_TRAFFIC_LIGHTS` are compiled into both bundles from one file
+(`src/layout.ts`) — not asked for at runtime, and not a `BRIDGE_VERSION`
+change, because neither is part of `DesktopBridge`: the page never asks the
+shell "how tall is your band", it is simply built to the same constant the
+shell is. The tempting shortcut — hard-code `38` in `ShellTitleBand.tsx` and
+`{ x: 12, y: 12 }` in `windows.ts`, because "it's one number, we'll remember" —
+is the shape every other drift in this file was found the same way: two
+sessions, two PRs, one of them changes its number and the other does not, and
+the defect this section exists to fix comes back on the next release with no
+diff that looks wrong on its own.
+
+**Detection is the same rule as everywhere else in this file, not a new one.**
+`Platform.OS === "web" && getDesktopBridge()?.shell?.platform === "macos"` —
+stated as a pure function, `shouldShowShellTitleBand` in
+`apps/mobile/features/app/shellTitleBand.ts`, for the reason
+`app/(app)/console/_layout.tsx` already gives about `files/scope.ts`: *"in a
+sabotage sweep of this codebase, every guard written as a pure module held and
+every guard written inside a component did not."* No band on a phone, none in
+an ordinary browser tab, none on a shell this bundle cannot identify as macOS —
+`docs/decisions/desktop.md`'s existing rule that "macos is the only one built"
+means a Windows or Linux shell gets no band today, on the same honesty
+`capabilitiesFrom` already applies to every other unasked-for feature: nothing
+is claimed for a platform nobody has verified it against.
+
+**The band is mounted once, above every route, in `app/_layout.tsx` — not in
+`(app)/console/_layout.tsx` alone.** The defect names the console, but the
+shell hosts the sign-in screen before there is a session too, and a person who
+never gets that far would meet the same buttons over the same corner on
+`/login`. Mounting it above the route groups, inside the ground `View` every
+screen already renders into, is what makes it "appear identically on the
+sign-in page and the console" a property of where it is mounted rather than a
+promise kept by hand on two screens that happen to agree today. It survives the
+offline mirror for the same reason the rest of this file's mirror sections
+argue: `apps/desktop/src/main/consoleMirror.ts` serves a saved copy of this
+exact web bundle from `app://console/`, so a component mounted in the root
+layout is in the mirror because it was in the build, not because anyone
+remembered to mirror it separately.
+
+**It reserves space; it does not float over content.** In normal document
+flow — not `position: "absolute"` — so it pushes the route below it down
+rather than layering above it. That is also the whole of "must not eat clicks
+meant for content": there is nothing under an element that occupies its own
+row for a stray press to land on instead. The band itself draws nothing
+interactive today, so nothing on it needs
+`-webkit-app-region: no-drag` yet; the day a control is added to it, that
+control must set it, or a click meant to activate it will drag the window
+instead — recorded here rather than only in the component's own comment,
+because it is the one rule about this band that a future change is most likely
+to need and least likely to think to look for.
+
+The tests are `apps/mobile/__tests__/shellTitleBand.test.ts` (a Mac shell shows
+the band; a Windows or Linux shell does not; no shell at all does not; native
+platforms never ask) and `packages/desktop-bridge/test/layout.test.mjs` (the
+two constants, and that `SHELL_TRAFFIC_LIGHTS` is frozen so one side editing its
+own copy cannot silently stop matching the other's). The shell's half —
+drawing the buttons at `SHELL_TRAFFIC_LIGHTS` — is not tested here because it
+is not built here; it belongs to the `apps/desktop` change this section
+anticipates rather than ships.
