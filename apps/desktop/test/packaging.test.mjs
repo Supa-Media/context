@@ -332,8 +332,11 @@ export async function runPackagingChecks(check) {
   /*
     THE REFUSAL REACHES A PUBLIC LOG, SO IT MUST NOT CARRY THE KEY.
 
-    `exports.default`'s catch writes `::error::${error.message}` to the Actions
-    log of a public, MIT-licensed repository. `privateKey`'s throw is careful
+    The `require.main === module` block at the foot of `notarize.cjs` — what
+    `--check` runs in CI — writes `::error::` plus the message into the Actions
+    log of a public, MIT-licensed repository. (`exports.default` has no catch at
+    all; an earlier version of this comment said it did, which was wrong about
+    the file it sits beside.) `privateKey`'s throw is careful
     today — it reports a line count, a character count and whether the markers
     were seen, and never `text` itself — but nothing was checking that, and the
     cheapest debugging change anybody could make to it is to interpolate the

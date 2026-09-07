@@ -461,9 +461,16 @@ export async function runConsoleBridgeChecks(check) {
         if (mode === "code") {
           if (c === "/" && next === "/") { mode = "line"; i += 1; continue; }
           if (c === "/" && next === "*") { mode = "block"; i += 1; continue; }
-          // A `/` after a value divides; after an operator or a bracket it
-          // opens a regex. The conservative reading is what matters here: a
-          // wrongly-detected regex hides code, so anything ambiguous divides.
+          /*
+            A `/` after a value divides; after an operator or a bracket it opens
+            a regex. **Neither direction is conservative**, and an earlier
+            comment here claimed dividing was. It is not: mistaking a regex for
+            a division leaves the regex body lexed as code, where a quote inside
+            it opens a phantom string that swallows whatever comes next — which
+            is exactly how `return /^[a-z']+$/i` hid a registration. Both
+            mistakes hide code, in opposite files. That is why the count above
+            does not lex, and why this remains a diagnostic rather than a guard.
+          */
           if (c === "/" && significant !== "" && !/[A-Za-z0-9_$)\]]/.test(significant)) {
             mode = "regex";
             out += " ";
@@ -553,6 +560,39 @@ export async function runConsoleBridgeChecks(check) {
     const bridgeCalls = (bridge.match(/deps\.ipc\.(?:on|once|handle)\(/g) ?? []).length;
     const gatedAsync = (bridge.match(/\n {2}handle\(BRIDGE_CHANNELS\./g) ?? []).length;
     const gatedSync = (bridge.match(/\n {2}answerSync\(BRIDGE_CHANNELS\./g) ?? []).length;
+
+    /*
+      THE ONE ASSERTION THAT CANNOT BE FOOLED BY LEXING, because it does not lex.
+
+      Four shapes of this census have had holes, and the last two were in the
+      lexer itself: a regex literal containing a quote swallowed the next
+      registration, and the regex/division rule added to fix that opened the
+      mirror-image hole. `return /^[a-z']+$/i` divides — the character before
+      the slash is the `n` of `return` — so the apostrophe opens string mode, a
+      later quote closes it, and an ungated registration in that file passed at
+      916 PASS / 0 FAIL. Idiomatic TypeScript, not a contrivance.
+
+      Telling a regex from a division needs a parser and this suite has no
+      dependencies, so the load-bearing check stops trying. It counts every
+      occurrence of the identifier in the raw bytes — comments and strings
+      included — and requires the total. Nothing about how a file lexes can
+      change that number.
+
+      The cost is real and is the right way round: writing the identifier in a
+      new comment reddens this, and the fix is to update the number on purpose.
+      A guard that complains when the surface is DESCRIBED differently is
+      cheaper than one that stays silent when the surface IS different.
+
+      The classification below keeps its place as the diagnostic — it names
+      which mention is unrecognised, which is what a person needs — but it is no
+      longer what stands between a new ungated channel and a green run.
+    */
+    let mentions = 0;
+    for (const file of walk(mainDir)) {
+      if (!/\.(?:[cm]?[jt]sx?)$/.test(file.pathname)) continue;
+      mentions += (readFileSync(file, "utf8").match(/\bipcMain\b/g) ?? []).length;
+    }
+    check(`EVERY MENTION OF ipcMain UNDER src/main IS ACCOUNTED FOR — ${mentions} of 25`, mentions === 25);
 
     check(
       `EVERY \`ipcMain\` UNDER src/main IS A FORM THIS CENSUS RECOGNISES${unrecognised.length ? ` — ${unrecognised[0]}` : ""}`,

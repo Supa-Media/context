@@ -500,13 +500,18 @@ The tests, and they are in two files. `test/shell.test.mjs` drives
 `shouldExposeBridge` through the origin, subframe and `about:blank` cases with
 no Electron in sight. `test/consoleBridge.test.mjs` drives the answering side
 against a fake `ipcMain`: a foreign `webContents`, a page we did not pin, a
-subframe, the hidden capture window, and a disposed frame. Sabotage, measured,
-totals pinned at 906 — dropping the identity arm reddens **4**, the top-frame
-arm **2**, the origin comparison **4**, and opening the guard entirely **9**.
-(The origin arm and the whole guard were 2 and 6 before `#281`; its three mirror
-checks are the difference. **Numbers in prose go stale on somebody else's merge**
-— these are re-measured on the head that carries them, and that is the third
-time on this branch that sentence has had to be written.)
+subframe, the hidden capture window, and a disposed frame. Sabotage, measured — dropping the identity arm reddens **4**, the top-frame arm
+**2**, the origin comparison **4**, and opening the guard entirely **9**.
+
+**Deltas, and deliberately not a total.** A count of the whole suite is a number
+somebody else's merge falsifies, and on this branch it went stale four times in
+four commits — including in the sentence warning that it would. The deltas are
+what the sabotage means and they survive a merge; the totals live in the suite's
+own output, which is always current by construction. An earlier version of this
+paragraph also reconstructed pre-`#281` values for these rows and got them
+wrong in a way no single reading made consistent; they are not reconstructed
+here, because a historical number nobody re-measures is the same defect one
+tense back.
 Each arm is a different set of checks, which is what proves they are not one
 check written three times.
 
@@ -537,7 +542,8 @@ The version here removes strings and comments with a lexer rather than a regex
 (each misleads the other), removes import clauses whole rather than guessing
 from punctuation, counts the single hand-off to `createConsoleBridge` explicitly
 so it cannot become two, and walks `src/main` recursively over every extension
-the bundler loads. Measured, baseline 906: a plain new `ipcMain.on` reddens 2, a
+the bundler loads. Measured as deltas rather than against a total, for the
+reason the sabotage paragraph above gives: a plain new `ipcMain.on` reddens 2, a
 registration in a new subdirectory with a new extension 2, a `//`-in-a-string
 hiding place 2, and each of `.bind`, an argument, an object property and
 `Reflect.get` reddens 1 — naming the offending mention in the failure. An
@@ -553,6 +559,26 @@ The lexer needed a **regex-literal state** for the same reason: `const quoted =
 /["]/;` opened string mode on its own bracket and swallowed the registration on
 the next line, at 906 / 0 — the "delete the evidence" direction a lexer was
 introduced to avoid. A lexer without a regex state is a regex with extra steps.
+
+**And then the regex state opened the mirror-image hole**, which is where this
+stopped being a lexer problem and started being the wrong tool. `return
+/^[a-z']+$/i` divides — the character before the slash is the `n` of `return` —
+so the apostrophe opened string mode, a later quote closed it, and an ungated
+registration in that file passed at 916 / 0. Idiomatic TypeScript. Telling a
+regex from a division needs a parser, and this suite takes no dependencies.
+
+So the load-bearing check does not lex: it counts every occurrence of the
+identifier in the raw bytes, comments and strings included, and requires the
+total. Nothing about how a file lexes can move that number. Writing the
+identifier in a new comment reddens it, and the fix is to update the number on
+purpose — **a guard that complains when the surface is described differently is
+cheaper than one that stays silent when the surface is different.** The
+classification stays as the diagnostic that names the offending mention.
+
+Four shapes of one census, three of them holes. The lesson worth keeping is not
+about lexers: it is that a guard which must understand a language is a guard
+that inherits every ambiguity of that language, and a cruder check with no
+ambiguity to inherit is worth more than a clever one.
 
 That check is the answer to how this section came to describe a layer nobody had
 built. A guard tells you about the code it is pointed at; nothing was pointed at
