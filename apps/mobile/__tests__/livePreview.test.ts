@@ -405,19 +405,13 @@ describe("a list is drawn as a list", () => {
   /**
    * Every glyph drawn for `doc`, as `[what it replaced, what is drawn]`.
    *
-   * `AWAY` is the cursor position every case that wants "the cursor is not in
-   * this list" uses. It has to be a real line outside the list rather than a
-   * large number, because `stateFor` clamps — and clamping to the end of a
-   * document that ends in a list item parks the caret on the last item, which
-   * reveals it and silently drops a glyph the test was asserting.
+   * The cursor is still a parameter, and every case below passes one — because
+   * what these now pin is that it makes **no difference**. See "a marker does
+   * not reveal under the caret".
    */
-  const ELSEWHERE = "\n\nA paragraph after the list.";
-  const AWAY = 1000;
-
-  function glyphs(doc: string, cursor?: number): [string, string][] {
+  function glyphs(doc: string, cursor?: number | [number, number]): [string, string][] {
     const state = stateFor(doc, cursor);
-    const selection = state.selection.ranges.map((r) => ({ from: r.from, to: r.to }));
-    return listGlyphs(state, selection).map((glyph) => [
+    return listGlyphs(state).map((glyph) => [
       state.doc.sliceString(glyph.from, glyph.to),
       /*
         What is drawn, named rather than quoted. A checkbox is no longer a
@@ -429,14 +423,14 @@ describe("a list is drawn as a list", () => {
   }
 
   test("a bullet is drawn as a bullet", () => {
-    expect(glyphs(`- one\n- two${ELSEWHERE}`, AWAY)).toEqual([
+    expect(glyphs("- one\n- two")).toEqual([
       ["-", "bullet"],
       ["-", "bullet"],
     ]);
   });
 
   test("`*` and `+` are bullets too", () => {
-    expect(glyphs(`* one\n+ two${ELSEWHERE}`, AWAY)).toEqual([
+    expect(glyphs("* one\n+ two")).toEqual([
       ["*", "bullet"],
       ["+", "bullet"],
     ]);
@@ -448,11 +442,11 @@ describe("a list is drawn as a list", () => {
       one in its place would mean this editor doing the counting — a document
       model, which is the thing this whole file exists not to have.
     */
-    expect(glyphs(`1. first\n2. second${ELSEWHERE}`, AWAY)).toEqual([]);
+    expect(glyphs("1. first\n2. second")).toEqual([]);
   });
 
   test("a checkbox is drawn as one, ticked or not", () => {
-    expect(glyphs(`- [ ] todo\n- [x] done${ELSEWHERE}`, AWAY)).toEqual([
+    expect(glyphs("- [ ] todo\n- [x] done")).toEqual([
       ["-", "bullet"],
       ["[ ]", "box:off"],
       ["-", "bullet"],
@@ -460,23 +454,40 @@ describe("a list is drawn as a list", () => {
     ]);
   });
 
-  test("the markup comes back on the line the cursor is on", () => {
-    // Cursor on the first line: that line is source, the second is still drawn.
-    expect(glyphs("- [ ] todo\n- [x] done", 3)).toEqual([
+  test("a marker does not reveal under the caret — the checkbox stays a checkbox", () => {
+    /*
+      **This is the regression that made the box unpressable on a phone.**
+
+      The markers used to obey the same reveal rule as `**bold**`: caret on the
+      line, markup comes back. On a touch screen the tap places the caret
+      *before* the synthesized `mousedown` arrives — so the line revealed, the
+      widget was replaced by the literal `- [x] `, and the press then landed on
+      an element that no longer existed. "It's impossible to click, it just goes
+      back into text form", on mobile, with desktop fine — desktop being fine
+      because there the handler's `preventDefault()` stops the caret landing at
+      all.
+
+      Obsidian does not reveal these either: you check the box in UI form and
+      can still edit it as text by backspacing into it, which a replaced range
+      gives for free. So the caret's position must make no difference, and this
+      asserts it at three positions that used to give three different answers.
+    */
+    const doc = "- [ ] todo\n- [x] done";
+    const drawn: [string, string][] = [
+      ["-", "bullet"],
+      ["[ ]", "box:off"],
       ["-", "bullet"],
       ["[x]", "box:on"],
-    ]);
+    ];
+    expect(glyphs(doc, 3)).toEqual(drawn); // caret inside the first marker
+    expect(glyphs(doc, doc.length)).toEqual(drawn); // caret on the second line
+    expect(glyphs(doc)).toEqual(drawn); // no caret at all
   });
 
-  test("and only on that line, not on the whole item", () => {
-    /*
-      The unit is the line rather than the `ListItem`, because an item can be a
-      paragraph long and typing at the end of it has no business changing what
-      its first line looks like. The caret is on the item's second line here,
-      and the bullet on its first stays drawn.
-    */
+  test("a selection across the whole document does not undraw them either", () => {
+    // Select All used to strip every marker in the note back to source.
     const doc = "- one\n  still one";
-    expect(glyphs(doc, doc.length)).toEqual([["-", "bullet"]]);
+    expect(glyphs(doc, [0, doc.length])).toEqual([["-", "bullet"]]);
   });
 });
 
@@ -542,9 +553,7 @@ describe("a finished task is drawn as finished", () => {
     // marker and has nothing to do with the brackets after it.
     const doc = "- [-] dropped\n\nelsewhere";
     const state = stateFor(doc, doc.length);
-    expect(listGlyphs(state, [{ from: doc.length, to: doc.length }])).toEqual([
-      { kind: "bullet", from: 0, to: 1 },
-    ]);
+    expect(listGlyphs(state)).toEqual([{ kind: "bullet", from: 0, to: 1 }]);
   });
 
   test("it stays struck through with the caret on its own line", () => {
@@ -619,7 +628,7 @@ describe("the frontmatter is metadata, not a list", () => {
 
   test("a YAML sequence gets no bullet", () => {
     const state = stateFor(NOTE);
-    const glyphs = listGlyphs(state, [{ from: 0, to: 0 }], frontEnd(NOTE));
+    const glyphs = listGlyphs(state, frontEnd(NOTE));
     // Exactly one: the real list item below the block, not the two YAML rows.
     expect(glyphs).toHaveLength(1);
     expect(state.doc.lineAt(glyphs[0].from).text).toBe("- a real list item");
@@ -666,7 +675,7 @@ describe("the frontmatter is metadata, not a list", () => {
       declining to parse the block.
     */
     const state = stateFor(NOTE);
-    expect(listGlyphs(state, [{ from: 0, to: 0 }], 0).length).toBeGreaterThan(1);
+    expect(listGlyphs(state, 0).length).toBeGreaterThan(1);
   });
 });
 
