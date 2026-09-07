@@ -391,6 +391,43 @@ export function runNoteChecks(check) {
     })()
   );
   check(
+    "a stored attachment is read by its label, never by its bucket path",
+    (() => {
+      const one = parseChannelDayMessages(
+        renderChannelDayNote(
+          day({
+            events: [
+              message({
+                attachments: [{
+                  filename: "rider.pdf",
+                  contentType: "application/pdf",
+                  size: 48213,
+                  path: "attachments/sha256-safe/rider.pdf",
+                }],
+              }),
+            ],
+          })
+        )
+      );
+      const attachment = one.messages[0].attachments[0];
+      return attachment.filename === "rider.pdf" &&
+        attachment.contentType === "application/pdf" &&
+        attachment.size === "48213 bytes" &&
+        !JSON.stringify(attachment).includes("attachments/");
+    })()
+  );
+  check(
+    "the earlier blanket not-stored heading remains readable in notes already in buckets",
+    (() => {
+      const old = renderChannelDayNote(
+        day({
+          events: [message({ attachments: [{ filename: "old.txt", contentType: "text/plain", size: 7 }] })],
+        })
+      ).replace("**Attachments**:", "**Attachments** (not stored):");
+      return parseChannelDayMessages(old).messages[0].attachments[0]?.filename === "old.txt";
+    })()
+  );
+  check(
     "a subject containing the field separator stays whole rather than splitting into a fake sender",
     (() => {
       const tricky = message({ subject: "a · b · c" });
