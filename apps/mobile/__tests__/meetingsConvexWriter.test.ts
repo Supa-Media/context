@@ -233,14 +233,14 @@ describe("a meeting reaches the bucket through the path a note takes", () => {
       session(),
     );
     expect(calls[0]!.path).toBe(
-      "2-areas/team/2026/09/2026-09-06-design-review-mnpqrstv.md",
+      "2-areas/team/2026-09-06-design-review-mnpqrstv.md",
     );
   });
 
   test("and the default is the default when nobody was asked", async () => {
     const { gateway, calls } = writer();
     await gateway.finalize(null, session());
-    expect(calls[0]!.path.startsWith("0-inbox/meetings/2026/09/")).toBe(true);
+    expect(calls[0]!.path.startsWith("0-inbox/meetings/2026-09-06-")).toBe(true);
   });
 
   test("a folder that would not file at all falls back rather than losing the meeting", async () => {

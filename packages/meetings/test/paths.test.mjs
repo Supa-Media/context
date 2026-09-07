@@ -124,8 +124,15 @@ export function runPathChecks(check) {
   /* ------------------------------ the path ------------------------------ */
 
   check(
-    "a meeting note lands in the inbox, filed by year and month",
-    meetingNotePath(session()) === "0-inbox/meetings/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md"
+    "a meeting note lands in the meetings folder, with no folders under it",
+    meetingNotePath(session()) === "0-inbox/meetings/2026-03-04-weekly-sync-8h9jkmnp.md"
+  );
+  check(
+    "no date folders: the key is the folder and a filename, nothing between",
+    // The reversal this file is the record of. A `YYYY/MM` tree gave two
+    // directory levels per meeting, most of them holding one note, in front of
+    // a filename that already starts with the same date.
+    meetingNotePath(session()).slice("0-inbox/meetings/".length).includes("/") === false
   );
   check("the folder constant is the one in the path", meetingNotePath(session()).startsWith(`${MEETINGS_FOLDER}/`));
   check(
@@ -138,7 +145,7 @@ export function runPathChecks(check) {
       const previous = process.env.TZ;
       process.env.TZ = "Pacific/Kiritimati";
       try {
-        return meetingNotePath(session({ startedAt: "2026-03-04T23:30:00.000Z" })).includes("/2026/03/2026-03-04-");
+        return meetingNotePath(session({ startedAt: "2026-03-04T23:30:00.000Z" })).endsWith("/2026-03-04-weekly-sync-8h9jkmnp.md");
       } finally {
         if (previous === undefined) delete process.env.TZ;
         else process.env.TZ = previous;
@@ -151,7 +158,7 @@ export function runPathChecks(check) {
       const previous = process.env.TZ;
       process.env.TZ = "Pacific/Midway";
       try {
-        return meetingNotePath(session({ startedAt: "2026-03-04T00:30:00.000Z" })).includes("/2026/03/2026-03-04-");
+        return meetingNotePath(session({ startedAt: "2026-03-04T00:30:00.000Z" })).endsWith("/2026-03-04-weekly-sync-8h9jkmnp.md");
       } finally {
         if (previous === undefined) delete process.env.TZ;
         else process.env.TZ = previous;
@@ -160,16 +167,19 @@ export function runPathChecks(check) {
   );
   check(
     "...including across a year boundary",
-    meetingNotePath(session({ startedAt: "2025-12-31T23:59:59.000Z" })) === "0-inbox/meetings/2025/12/2025-12-31-weekly-sync-8h9jkmnp.md"
+    meetingNotePath(session({ startedAt: "2025-12-31T23:59:59.000Z" })) === "0-inbox/meetings/2025-12-31-weekly-sync-8h9jkmnp.md"
   );
-  check("months are zero-padded", meetingNotePath(session({ startedAt: "2026-01-05T09:00:00.000Z" })).includes("/2026/01/"));
+  check(
+    "months are zero-padded",
+    meetingNotePath(session({ startedAt: "2026-01-05T09:00:00.000Z" })).endsWith("/2026-01-05-weekly-sync-8h9jkmnp.md")
+  );
   check(
     "two meetings with the same title on the same day get different keys",
     meetingNotePath(session()) !== meetingNotePath(session({ id: OTHER_ID }))
   );
   check(
     "an unslugifiable title still produces a usable key",
-    meetingNotePath(session({ title: "\u{1F389}" })) === "0-inbox/meetings/2026/03/2026-03-04-meeting-8h9jkmnp.md"
+    meetingNotePath(session({ title: "\u{1F389}" })) === "0-inbox/meetings/2026-03-04-meeting-8h9jkmnp.md"
   );
   check(
     "an unparseable startedAt is refused rather than filed under NaN",
@@ -208,7 +218,7 @@ export function runPathChecks(check) {
   check("...and no `workspaces/` segment", !key.split("/").includes("workspaces"));
   check(
     "the whole key is exactly the documented shape, so a prefix cannot be slipped in",
-    key === "0-inbox/meetings/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md"
+    key === "0-inbox/meetings/2026-03-04-weekly-sync-8h9jkmnp.md"
   );
   check(
     "extra session fields change nothing at all",
@@ -226,7 +236,7 @@ export function runPathChecks(check) {
   check("no root means no prefix", normalizeRoot(undefined) === "" && normalizeRoot("") === "");
   check("a root is normalized to one trailing slash", normalizeRoot("/vault/") === "vault/");
   check("...collapsing repeats", normalizeRoot("//vault//notes//") === "vault/notes/");
-  check("a root prefixes the whole key", meetingNotePath(session(), { root: "vault" }) === "vault/0-inbox/meetings/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md");
+  check("a root prefixes the whole key", meetingNotePath(session(), { root: "vault" }) === "vault/0-inbox/meetings/2026-03-04-weekly-sync-8h9jkmnp.md");
   check("...and only at the front", meetingNotePath(session(), { root: "vault" }).indexOf("vault/") === 0);
   check("a root that traverses is refused", attempt(() => normalizeRoot("../../etc")).threw);
   check("...including in the middle", attempt(() => normalizeRoot("vault/../../etc")).threw);
@@ -246,12 +256,12 @@ export function runPathChecks(check) {
   check(
     "no folder at all is exactly what it was before",
     meetingNotePath(session(), {}) === meetingNotePath(session()) &&
-      meetingNotePath(session(), { folder: undefined }) === "0-inbox/meetings/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md"
+      meetingNotePath(session(), { folder: undefined }) === "0-inbox/meetings/2026-03-04-weekly-sync-8h9jkmnp.md"
   );
   check(
-    "a chosen folder replaces the whole default, and keeps the date folders under it",
+    "a chosen folder is the folder the note lands in, dumped straight into it",
     meetingNotePath(session(), { folder: "2-areas/team" }) ===
-      "2-areas/team/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md"
+      "2-areas/team/2026-03-04-weekly-sync-8h9jkmnp.md"
   );
   check(
     "...so it does not grow a `meetings` segment the person never asked for",
@@ -265,12 +275,12 @@ export function runPathChecks(check) {
   check(
     "the customer's own root still goes in front of a chosen folder",
     meetingNotePath(session(), { root: "vault", folder: "2-areas" }) ===
-      "vault/2-areas/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md"
+      "vault/2-areas/2026-03-04-weekly-sync-8h9jkmnp.md"
   );
   check(
     "a chosen folder is normalized the way a root is",
     meetingNotePath(session(), { folder: " /2-areas//team/ " }) ===
-      "2-areas/team/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md"
+      "2-areas/team/2026-03-04-weekly-sync-8h9jkmnp.md"
   );
   check(
     "a folder still cannot namespace by tenant, because nothing derives one",
@@ -421,6 +431,36 @@ export function runPathChecks(check) {
   check("an ordinary note is not a meeting note", !isMeetingNotePath("1-projects/portable/overview.md"));
   check("a file loose in the meetings folder is not one either", !isMeetingNotePath("0-inbox/meetings/notes.md"));
   check("a non-string is not one, and does not throw", !isMeetingNotePath(null));
+
+  /*
+    MEETINGS ALREADY ON THE BUCKET DO NOT STOP BEING MEETINGS.
+
+    `meetingNotePath` wrote `<folder>/YYYY/MM/<file>` until the date folders
+    were dropped. `list_meetings` is built out of this function and nothing
+    else, so a recogniser that only read the flat shape would not migrate
+    anybody's bucket — it would silently unlist every meeting they recorded
+    before the change, in place, with the files still sitting there.
+  */
+  check(
+    "a meeting filed under the old YYYY/MM folders is still recognised",
+    isMeetingNotePath("0-inbox/meetings/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md")
+  );
+  check(
+    "...in a chosen folder too",
+    isMeetingNotePath("2-areas/team/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md", { folder: "2-areas/team" })
+  );
+  check(
+    "...and under a root",
+    isMeetingNotePath("vault/0-inbox/meetings/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md", { root: "vault" })
+  );
+  check(
+    "...but a deeper tree than either shape is still not a meeting",
+    !isMeetingNotePath("0-inbox/meetings/2026/03/04/2026-03-04-weekly-sync-8h9jkmnp.md")
+  );
+  check(
+    "...and neither is an undated folder that happens to sit under it",
+    !isMeetingNotePath("0-inbox/meetings/archive/2026-03-04-weekly-sync-8h9jkmnp.md")
+  );
 
   /*
     THE TWO FUNCTIONS MAY NOT DISAGREE.
