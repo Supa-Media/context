@@ -27,6 +27,17 @@
  *   `queueWrites: false` ignored, so the console path queues twice            1
  *   `onSegment` fired from `#update` rather than once per segment             1
  *   the frame count dropped, so an empty transcript has no second number      1
+ *   the transcriber's catch returning `why: "permissions"` again             2
+ *   the transcriber's own message dropped from the refusal                   1
+ *   the recorder's own words dropped from a stale-permission refusal         1
+ *   `"screen"` put back into `CAPTURE_NEEDS`                                 6
+ *
+ * The `CAPTURE_NEEDS` row is the one worth reading. Six is not six restatements
+ * of one fact: one is that the permission is asked about at all, and the other
+ * **five are a whole meeting that stops existing** — a Mac with Screen
+ * Recording denied records nothing rather than recording the microphone, which
+ * is what `capture/plan.ts` has promised in prose since it was written and what
+ * nothing in this repository had ever run.
  *
  * Three more, run against `src/core/capture/permissions.ts`'s
  * `ensureCapturePermissions` rather than against this file — the owner's
@@ -112,7 +123,25 @@ export async function runControllerChecks(check) {
     const begun = await controller.begin({ source, title: "Design review", grantedEpisode: "zoom:zoom.us:t0" });
     check("consent starts the session", begun.ok === true);
     check("the microphone is requested", permissions.calls.includes("request:microphone"));
-    check("screen recording is requested", permissions.calls.includes("request:screen"));
+    /*
+      THIS CHECK USED TO ASSERT THE OPPOSITE, AND THE OPPOSITE WAS AN ASSUMPTION.
+
+      Screen Recording was in `CAPTURE_NEEDS` because the loopback tap is
+      ScreenCaptureKit's and ScreenCaptureKit is what that permission is named
+      for. Measured on the signed installed build (macOS 26.4.1) with **no
+      `kTCCServiceScreenCapture` row for this app in the TCC database at all**,
+      the tap still delivered real system audio. So the grant is not what gates
+      it — and asking for it could only ever *cost*: `ensureCapturePermissions`
+      refuses on anything not `granted`, so a Mac with Screen Recording denied
+      failed every meeting outright rather than recording the microphone, which
+      is precisely what `capture/plan.ts` promises it does instead. The
+      degrade-path check further down is the other half of this one.
+    */
+    check(
+      "SCREEN RECORDING IS NOT REQUESTED — the loopback tap was measured without the grant",
+      permissions.calls.includes("request:screen") === false &&
+        permissions.calls.includes("status:screen") === false,
+    );
     check("permissions are checked before they are requested", permissions.calls[0] === "status:microphone");
   }
 
@@ -145,7 +174,52 @@ export async function runControllerChecks(check) {
       "NO DIALOG IS RAISED FOR A PERMISSION THAT WAS ALREADY GRANTED",
       granted.calls.every((call) => call.startsWith("status:")),
     );
-    check("...both permissions were still checked", granted.calls.includes("status:microphone") && granted.calls.includes("status:screen"));
+    // Was "both permissions were still checked". Only one is asked about now —
+    // see the sentence above about `CAPTURE_NEEDS` — and what this check is
+    // actually for is that the status really was read rather than assumed.
+    check("...and the one permission this capture needs was still read", granted.calls.includes("status:microphone"));
+  }
+
+  /* --- SCREEN RECORDING REFUSED IS A MIC-ONLY MEETING, NOT A DEAD ONE ------ */
+  //
+  // `capture/plan.ts` has always said this out loud — *"a build macOS will not
+  // give system audio to still records"*, from the microphone, and says which
+  // half is missing — and until now nothing exercised it through the object
+  // that opens the microphone. It could not have passed: `CAPTURE_NEEDS`
+  // listed `screen`, `ensureCapturePermissions` refuses on anything not
+  // `granted`, so a Mac whose Screen Recording is denied got
+  // `{ ok: false, why: "permissions" }` and no meeting at all — the opposite of
+  // the promise, for a permission the tap was measured not to need.
+  //
+  // Worth naming, because it is why nothing recovered on its own: the shell's
+  // `systemAudioAvailable` is assigned only inside `if (result.ok)`
+  // (`main/index.ts`), so a *failed* start can never teach the next plan that
+  // system audio is unavailable. A refusal here was permanent for the life of
+  // the process rather than self-correcting on the second meeting.
+  {
+    const refused = fakePermissionBroker({ microphone: "granted", screen: "denied" });
+    const { controller, recorder, outbox } = harness({ permissions: refused });
+    const begun = await controller.begin({
+      source,
+      title: "Design review",
+      grantedEpisode: "e",
+      // Exactly what `capturePlan` hands over on an unprobed machine.
+      channels: ["mic", "system"],
+    });
+    check(
+      "A DENIED SCREEN RECORDING STILL YIELDS A MEETING, rather than refusing outright",
+      begun.ok === true,
+    );
+    check("...with the microphone actually open", recorder.capturing === true);
+    check("...and the session is recording, not failed", controller.view()?.state === "recording");
+    check("...and it is an audio meeting, not a typed one", controller.view()?.audio === true);
+    recorder.step(1_000, "mic");
+    await endQuietly(controller);
+    const kinds = outbox().entries.map((entry) => entry.kind);
+    check(
+      "...and it still becomes a note",
+      kinds.filter((kind) => kind === "finalize").length === 1,
+    );
   }
 
   // -- a granted permission that still cannot open is not "permissions" -----
@@ -223,6 +297,10 @@ export async function runControllerChecks(check) {
       second.why === "stale-permission",
     );
     check("...naming no permission as missing, because none is", (second.missing ?? ["not empty"]).length === 0);
+    check(
+      "...and the input's own words survive the refusal, for a log to carry",
+      (second.message ?? "").includes("authorization is still pending"),
+    );
     check("the session records the failure rather than pretending to record", controller.view()?.state === "failed");
   }
 
@@ -413,6 +491,33 @@ export async function runControllerChecks(check) {
     check("a missing transcriber leaves nothing capturing", recorder.capturing === false);
     check("the failure is on the session", controller.view()?.state === "failed");
     check("the failure names itself", (controller.view()?.failureReason ?? "").includes("not built yet"));
+
+    /*
+      A FAILURE NAMES ITS OWN SUBSYSTEM, AND KEEPS ITS OWN WORDS.
+
+      This returned `why: "permissions"` with `missing: outcome.missing` — from
+      a branch only reachable after `outcome.ok` came back true, so `missing`
+      was empty by construction. A lie in both halves: macOS had refused
+      nothing, and the list that was supposed to say which permission said
+      none. Every renderer downstream then filled the blank with the
+      microphone, so an engine that would not start sent people to System
+      Settings to enable something that was already on.
+
+      The message travels too. It is what a log needs and it is the only
+      evidence there is; the *sentence* a person sees stays the closed set's.
+    */
+    check(
+      "A TRANSCRIBER THAT THREW IS NOT REPORTED AS A PERMISSION PROBLEM",
+      result.why === "transcriber",
+    );
+    check(
+      "...and names no missing permission, because macOS refused nothing",
+      (result.missing ?? []).length === 0,
+    );
+    check(
+      "...and carries the engine's own message rather than a canned one",
+      (result.message ?? "").includes("not built yet"),
+    );
   }
 
   // -- illegal transitions are the contract's, not ours ---------------------
