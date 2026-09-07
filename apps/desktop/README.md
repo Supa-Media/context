@@ -25,8 +25,11 @@ src/core/        no Electron anywhere in it — this is what CI tests
   tray/            what the menu bar says, as a pure function
   update/          when to check, and when an update may install — never
                    during a recording
+  shell/           what the console window loads, which origin is pinned, and
+                   what may be mirrored for the times there is no network
 src/platform/    the macOS collectors — ps, System Events, ioreg, Calendar
-src/main/        Electron: tray, windows, IPC, capture window, disk
+src/main/        Electron: tray, windows, IPC, capture window, disk, and the
+                 offline mirror of the console (protocol handler + snapshot)
 src/preload/     the twelve verbs a window is allowed to send — no credential
 src/renderer/    the panel and the notepad, from the approved mockups
 test/            offline, no Electron, no network, no meeting required
@@ -52,17 +55,54 @@ pnpm --filter @context/desktop test      # offline; no Electron needed
 pnpm --filter @context/desktop typecheck
 ```
 
-`CONTEXT_DESKTOP_UI=console` opens a third window that hosts `apps/mobile`'s web
-build — `CONTEXT_DESKTOP_UI_URL` says where from, defaulting to
-`http://localhost:8081` outside production so `expo start` is what you develop
-against. It carries the whole bridge from `@context/desktop-bridge` — capture,
-connection, outbox, and the meeting writes of version 2 — over this app's real
-plumbing: `preload/console.ts` is four statements over `core/shell/bridge.ts`,
-and `main/consoleBridge.ts` answers each channel only for the console window's
-own top frame at the pinned origin. That is `docs/decisions/desktop.md`'s plan:
-the UI moves out of this app and ships with the web deploy, and the shell keeps
-the tray, the audio, the credential and the queue. The default is still
-`renderer` — the panel and the notepad — until that document's step 4.
+### Which UI a launch hosts
+
+**The default is the console**, which is `docs/decisions/desktop.md`'s step 4:
+the window hosts `apps/mobile`'s web build, so a screen ships with the web
+deploy and reaches a browser, a phone and this Mac at once.
+
+```sh
+pnpm --filter @context/desktop start                      # the console (default)
+CONTEXT_DESKTOP_UI=renderer pnpm --filter @context/desktop start   # the old panel + notepad
+CONTEXT_DESKTOP_UI_URL=https://context.example/console \
+  pnpm --filter @context/desktop start                    # a self-hoster's own origin
+```
+
+`CONTEXT_DESKTOP_UI_URL` says where the console comes from, defaulting to
+`http://localhost:8081` outside production so **`expo start` is what you develop
+against** — start it first, or the window will show the offline page because
+there is nothing at that address yet. Anything other than `renderer` in
+`CONTEXT_DESKTOP_UI` is read as `console`: a misspelt mode is not a reason to
+start an app with no UI at all.
+
+The console window carries the whole bridge from `@context/desktop-bridge` —
+capture, connection, outbox, and the meeting writes of version 2 — over this
+app's real plumbing: `preload/console.ts` is four statements over
+`core/shell/bridge.ts`, and `main/consoleBridge.ts` answers each channel only
+for the console window's own top frame at the pinned origin.
+
+In console mode **the panel and the notepad are not created at all**: two UIs
+answering one meeting is two consents for one meeting, and whichever is pressed
+the other is stale. The menu-bar click raises the console window instead of the
+popover, *Open notes* raises it instead of the notepad, and a detected meeting
+reaches the page through the bridge rather than through a popover. Nothing
+records until somebody presses Record — on the tray or in the page — and both
+go through the same consent gate and capture plan as before.
+
+The panel was also where a refused press was explained, so with no panel those
+three refusals — capture switched off, an app on your blocklist, a macOS
+permission never granted — are shown in a message box with the window raised
+behind it, in the same words the panel used. A button that silently does nothing
+is the outcome that was not acceptable.
+
+Closing the console window is not the end of this app's UI: unlike the panel it
+is *destroyed* rather than hidden, so the next menu-bar click builds it again.
+If it cannot be built — the only way that happens is a `CONTEXT_DESKTOP_UI_URL`
+this app refuses — the click says so rather than doing nothing.
+
+`CONTEXT_DESKTOP_UI=renderer` puts the old windows back, unchanged, until
+`docs/decisions/desktop.md`'s step 5 deletes them — and that step is waiting on
+the confirmations only a Mac can give.
 
 A meeting the console records is **written by this machine's grant**, not by the
 page's own session: the page composes and hands each of the meetings protocol's
@@ -70,6 +110,19 @@ four writes to `outbox.ts` over `meetings.write`, so it drains through the same
 queue as a recording somebody started from the menu bar with no window open. The
 shell's own controller does not queue for such a meeting (`queueWrites: false`)
 — one meeting is one writer.
+
+**It also keeps an offline mirror.** After a successful load the shell re-fetches
+what the page just loaded — through the console's own session, with credentials
+omitted — and keeps it under `mirror/v1/` in `userData`. When a load fails, the
+window is served from `app://console/` instead of going blank, with a line at
+the bottom saying it is a cached copy and what this machine's queue is still
+holding; a first run with no mirror gets an honest failure page with a Retry.
+What is never mirrored: another origin, anything under `/api`, anything carrying
+`Set-Cookie`/`Authorization`, anything the server marked `no-store`/`private` or
+`Vary`-ing on a cookie, and any redirect. The mirror is disposable — a new app
+version, a new origin or a manifest that will not parse deletes it rather than
+repairing it — and exactly one origin is pinned at a time, so the offline page
+being trusted means the live origin is not, and the other way round.
 
 `start` accepts `--fake-signals`, which runs the whole app against the
 deterministic collectors and the fake recorder and transcriber. That is how the
@@ -207,6 +260,16 @@ never quietly drop.
 - **An unsigned or dev build never checks at all.** `pnpm start` (unpackaged)
   and a dispatch with no certificate configured should both leave the tray
   silent about updates; `[update] not armed` in the log is the honest reason.
+- **A second launch with the network off shows the console, labelled offline.**
+  Launch once online so a snapshot is taken, quit, pull the network, launch
+  again: the window should show the app it showed before, with the offline line
+  at the bottom, a live count of what is queued on this machine, and a `Try
+  again` that reloads the real URL once the network is back.
+- **A first launch with no network shows the failure page**, not a blank window.
+- **The snapshot is a console and not a skeleton.** Whether Expo's export lists
+  every asset through `performance.getEntriesByType` is a fact about Chromium;
+  `[mirror]` in the log and the size of `mirror/v1/current` in the app's
+  `Application Support` directory are the evidence.
 
 ## Consent, because this app watches what you are doing
 
@@ -238,7 +301,7 @@ the settings file, put in a URL, or exposed to a renderer.
 
 ## What is real, and what is not
 
-### Real, and checked by the suite (625 checks, offline, no network)
+### Real, and checked by the suite (895 checks, offline, no network)
 
 - The detection loop against fake collectors, including the flicker cases: one
   poll of a conferencing app does not start a recording, a two-poll blip does
@@ -263,6 +326,14 @@ the settings file, put in a URL, or exposed to a renderer.
 - The console shell's origin pin: a foreign origin, a lookalike host, an opaque
   origin and a subframe each get no bridge, and the shell refuses to load a UI
   over plaintext from anything that is not really loopback.
+- **The offline mirror**, decision by decision and against a real temporary
+  directory: what may be copied (never another origin, never `/api`, never a
+  credentialed or per-person response), what a failed load means (the mirror for
+  this origin, an honest failure page with none, and *nothing* for another
+  origin's failure or an aborted load), which file answers a request (a missing
+  asset is a 404 rather than a page of HTML), that the mirrored console says it
+  is cached and reads the queue over the bridge, and that a mirror from another
+  app version or with an unparsable manifest is deleted rather than shown.
 - The bridge itself, both ends: the object the preload exposes is run through
   `getDesktopBridge()`, every subscription is proved to detach, every answer and
   every push is walked for anything credential-shaped, and the main process's
@@ -316,6 +387,11 @@ failures — and the checks were rewritten until each sabotage reports itself.
 - Whether macOS hands *this* build a system-audio track. It will not, until the
   app is signed and notarised — the app treats that as mic-only and says so
   rather than failing the meeting.
+- `src/main/consoleMirror.ts` — the privileged `app://` scheme, the protocol
+  handler, the post-load snapshot and the three `webContents` events. Everything
+  it decides is checked above; what only a Mac can show is whether Chromium
+  gives `app://console` a real origin (so the mirrored page gets a bridge) and
+  whether the snapshot is a whole console rather than a skeleton.
 - `src/main/updater.ts` — `electron-updater` itself, Squirrel.Mac's signature
   check, and the actual download and install. The policy it calls
   (`core/update/policy.ts`: when to check, when a download may install, never

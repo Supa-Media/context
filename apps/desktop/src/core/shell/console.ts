@@ -38,6 +38,32 @@ export {
   type DesktopCapabilities,
 } from "@context/desktop-bridge";
 
+/** Which UI this shell hosts. Two values, and the second one is on its way out. */
+export type DesktopUiMode = "console" | "renderer";
+
+/**
+ * The UI a launch hosts, from the environment.
+ *
+ * **`console` is the default**, which is `docs/decisions/desktop.md`'s step 4:
+ * the window hosts `apps/mobile`'s web build, a screen ships with the web
+ * deploy, and a change to it reaches a browser, a phone and this Mac at once.
+ *
+ * `renderer` — the panel and the notepad in `src/renderer/` — stays reachable
+ * by setting `CONTEXT_DESKTOP_UI=renderer`, and that escape hatch is the whole
+ * reason this step is revertible by one environment variable. Step 5 deletes
+ * those windows, and it waits on the confirmations only a Mac can give.
+ *
+ * **Anything else is the default rather than a refusal.** A misspelt value is
+ * not a reason to start an app with no UI at all, and the failure it would
+ * cause — a menu-bar app whose window never opens — is far worse than the one
+ * it would prevent. `consoleUrl` is the opposite call for the opposite reason:
+ * a misspelt *address* is refused, because loading the wrong page is worse than
+ * loading none.
+ */
+export function desktopUiMode(env: { CONTEXT_DESKTOP_UI?: string | undefined }): DesktopUiMode {
+  return (env.CONTEXT_DESKTOP_UI ?? "").trim().toLowerCase() === "renderer" ? "renderer" : "console";
+}
+
 /** The address the shell hosts when nothing overrides it. */
 export const DEFAULT_CONSOLE_URL = "https://context.lc/console";
 
