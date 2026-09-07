@@ -684,19 +684,36 @@ export interface OpenedGatewayBinding {
    * `docs/decisions/encryption.md`.
    */
   encryptionKey?: GatewayEncryptionKey;
+  /**
+   * A workspace-key rotation in progress, where one is. Absent is the normal
+   * case — no rotation ever started, or the last one finished — and it is
+   * present regardless of whether this request also asked to start or
+   * continue one, so a gateway that never asks can still tell a walk is
+   * outstanding. See "Rotation" in `docs/decisions/encryption.md`.
+   */
+  rotation?: GatewayKeyRotation;
 }
 
 /**
- * The workspace data key, as the gateway receives it.
+ * The workspace data key(s), as the gateway receives them.
  *
- * `dataKey` is radioactive on exactly the terms `secretAccessKey` is: it opens
- * every encrypted note in one context. It lives for one request, it is never
- * logged, and `structure.test.ts` fails the build if a public function declares
- * a field by that name.
+ * `keys` is radioactive on exactly the terms `secretAccessKey` is: every entry
+ * opens every note wrapped under that generation, in one context. It lives for
+ * one request, it is never logged, and `structure.test.ts` fails the build if
+ * a public function declares a field named `dataKey`.
+ *
+ * Every live generation is included, not only `current` — a bucket can hold
+ * notes from before the workspace's most recent rotation.
  */
 export interface GatewayEncryptionKey {
-  generation: string;
-  dataKey: string;
+  current: string;
+  keys: Record<string, string>;
+}
+
+/** A rotation's identity, without its progress — the walk itself lives in the customer's bucket. */
+export interface GatewayKeyRotation {
+  fromGeneration: string;
+  toGeneration: string;
 }
 
 /** The credentialed S3 payload, as a validator. Declared once, used twice. */
@@ -725,8 +742,13 @@ const dropboxBindingValidator = v.object({
 });
 
 const encryptionKeyValidator = v.object({
-  generation: v.string(),
-  dataKey: v.string(),
+  current: v.string(),
+  keys: v.record(v.string(), v.string()),
+});
+
+const keyRotationValidator = v.object({
+  fromGeneration: v.string(),
+  toGeneration: v.string(),
 });
 
 const searchIndexValidator = v.object({
@@ -773,6 +795,19 @@ export const openStorageBinding = internalAction({
   args: {
     hashedAccessToken: v.string(),
     expectedWorkspaceId: v.union(v.string(), v.null()),
+    /**
+     * Mint the next key generation and retire the current one, or — if a
+     * rotation is already under way — do nothing and report it. Never
+     * mints a second rotation on top of one in progress; see
+     * `startWorkspaceKeyRotation`.
+     */
+    startEncryptionRotation: v.optional(v.boolean()),
+    /**
+     * The gateway reporting that its bucket-side walk found nothing left on
+     * this generation. Conditional on naming the *active* rotation's own
+     * target, so a stale call cannot complete the wrong one.
+     */
+    completeEncryptionRotation: v.optional(v.string()),
   },
   returns: v.union(
     v.null(),
@@ -780,6 +815,7 @@ export const openStorageBinding = internalAction({
       binding: v.union(s3BindingValidator, dropboxBindingValidator),
       searchIndex: v.optional(searchIndexValidator),
       encryptionKey: v.optional(encryptionKeyValidator),
+      rotation: v.optional(keyRotationValidator),
     }),
   ),
   // Annotated, not inferred: this handler references its own module through
@@ -923,6 +959,79 @@ export const openStorageBinding = internalAction({
       module-level helper would attribute its calls to every export in this
       file and hide this edge in a crowd.
     */
+    /*
+      A ROTATION THE GATEWAY ASKED TO START OR COMPLETE, FOR THE SAME
+      WORKSPACE AND NOBODY ELSE'S.
+
+      Both are no-ops for every ordinary request — `startEncryptionRotation`
+      and `completeEncryptionRotation` are absent unless the caller is
+      specifically the `rotate_encryption_keys` tool, which itself only runs
+      for an owner-scoped grant (checked at the gateway, exactly like
+      `set_encryption`). Neither call can fail loudly for the same reason the
+      encryption-key fetch below cannot: a caller holding the gateway secret
+      must not learn anything from the shape of a failure here that it could
+      not learn from an ordinary binding request.
+
+      Order matters once: completing before starting means a single confused
+      request that somehow set both flags settles the *older* rotation before
+      any new one is considered, never the reverse.
+    */
+    if (typeof args.completeEncryptionRotation === "string") {
+      try {
+        await ctx.runMutation(internal.functions.encryptionKeys.completeWorkspaceKeyRotation, {
+          workspaceId,
+          toGeneration: args.completeEncryptionRotation,
+        });
+      } catch {
+        // Swallowed. The walk that asked to complete will simply see the
+        // rotation still "in progress" on its next call and try again.
+      }
+    }
+    if (args.startEncryptionRotation === true) {
+      try {
+        await ctx.runAction(internal.functions.encryptionKeys.startWorkspaceKeyRotation, {
+          workspaceId,
+        });
+      } catch {
+        // Swallowed for the same reason as above. A caller that asked to
+        // start a rotation and gets none back tries again or gives up; either
+        // is safe, because nothing here is a partial write the next call
+        // could double.
+      }
+    }
+
+    /*
+      THE ENCRYPTION KEY, FOR THE SAME WORKSPACE AND NOBODY ELSE'S.
+
+      `workspaceId` again — the id read off the row the grant resolved to, the
+      only id in this handler a caller cannot choose. Same rule as the index
+      credential above, and `structure.test.ts` fails the build if
+      `args.expectedWorkspaceId` is ever used to select rather than to compare.
+
+      `create` is deliberately absent, which means false. A read must never be
+      the thing that brings a key into existence: a context that has never
+      encrypted a note has no row, holds no key, and is one less thing for this
+      control plane to be holding on somebody's behalf. The row is written when
+      an owner turns encryption on, and not before.
+
+      Absent is therefore the ordinary answer, and a failure is answered the
+      same way for the same reason as the two catches above: a caller holding
+      the gateway secret must not be able to tell "this context has no key" from
+      "we could not open the key it has". The gateway degrades to refusing to
+      decrypt, which is a note that reads as locked rather than a note that
+      reads as gone.
+
+      A separate `runAction` rather than a shared helper, matching the index
+      credential immediately above and for the same stated reason: a
+      module-level helper would attribute its calls to every export in this
+      file and hide this edge in a crowd.
+
+      Read AFTER a requested rotation start, deliberately: `openWorkspaceDataKey`
+      decrypts every live row, so a generation minted a few lines above is
+      already among `keys` by the time this runs, and the gateway that asked
+      to start a rotation gets the new generation's material in the very same
+      response rather than needing a second round trip for it.
+    */
     let encryptionKey: GatewayEncryptionKey | undefined;
     try {
       const opened = await ctx.runAction(
@@ -932,6 +1041,23 @@ export const openStorageBinding = internalAction({
       encryptionKey = opened === null ? undefined : opened;
     } catch {
       encryptionKey = undefined;
+    }
+
+    /*
+      ROTATION STATUS, FOR THE SAME WORKSPACE. A plain query, no decrypt — safe
+      to run on every request, not only one that asked to start or complete
+      one, so a gateway that only ever reads can still see a walk outstanding.
+    */
+    let rotation: GatewayKeyRotation | undefined;
+    try {
+      const active = await ctx.runQuery(
+        internal.functions.encryptionKeys.getActiveWorkspaceKeyRotation,
+        { workspaceId },
+      );
+      rotation =
+        active === null ? undefined : { fromGeneration: active.fromGeneration, toGeneration: active.toGeneration };
+    } catch {
+      rotation = undefined;
     }
 
     // Built per provider, never spread. A workspace rebound from a bucket to
@@ -957,6 +1083,7 @@ export const openStorageBinding = internalAction({
         },
         searchIndex,
         encryptionKey,
+        rotation,
       };
     }
 
@@ -979,6 +1106,7 @@ export const openStorageBinding = internalAction({
       },
       searchIndex,
       encryptionKey,
+      rotation,
     };
   },
 });

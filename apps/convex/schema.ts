@@ -735,13 +735,19 @@ const schema = defineSchema({
   }).index("by_workspace", ["workspaceId"]),
 
   /**
-   * THE KEY THAT OPENS ONE CONTEXT'S ENCRYPTED NOTES.
+   * THE KEY(S) THAT OPEN ONE CONTEXT'S ENCRYPTED NOTES.
    *
-   * See `docs/decisions/encryption.md`. One row per workspace, holding the
-   * workspace data key as a `v2:` envelope from `functions/lib/crypto.ts` —
-   * the same scheme, the same keyset, the same AAD binding and the same
-   * rotation pass as the bucket credential beside it. Never in the clear here,
-   * never in Markdown, never in the customer's bucket, never in a log.
+   * See `docs/decisions/encryption.md`. **One *live* row per workspace, plus
+   * zero or more retired ones** — this used to be exactly one row per
+   * workspace, and grew a second shape when workspace-key rotation shipped:
+   * `retiredAt` is `undefined` on the single current row and a timestamp on
+   * every generation a rotation has moved past. Each row holds the workspace
+   * data key as a `v2:` envelope from `functions/lib/crypto.ts` — the same
+   * scheme, the same keyset, the same AAD binding and the same rotation pass
+   * (`STORAGE_SECRET_ENCRYPTION_KEY`'s, not this table's own) as the bucket
+   * credential beside it. Never in the clear here, never in Markdown, never in
+   * the customer's bucket, never in a log — except the owner's own deliberate
+   * export.
    *
    * **Its own table rather than a column on `storageBindings`, and that is not
    * tidiness.** A customer who rebinds storage — a new bucket, a new provider,
@@ -752,25 +758,73 @@ const schema = defineSchema({
    *
    * `generation` is the label a note's own frontmatter carries
    * (`context_encryption_key: ws:k1`) and each envelope recipient's `id`. It
-   * exists so a future key rotation is a resumable re-wrap — a listing finds
-   * what is still on the old generation — rather than a re-encrypt of every
-   * note in somebody's bucket. Nothing in this codebase advances it yet, and a
-   * bump without the re-wrap pass that goes with it would strand every note
-   * written under the old one.
+   * is what makes a key rotation a resumable re-wrap — a listing finds what is
+   * still on the old generation — rather than a re-encrypt of every note in
+   * somebody's bucket.
    *
-   * **Nothing may write different key material into this column.** A second key
-   * over the first makes every note already encrypted under it unreadable, and
-   * it would look exactly like a fix for "the key was missing". The one write
-   * that exists is `applyDataKeyRekey`, which re-seals the *same* material under
-   * a new envelope key, conditional on the exact bytes it read — the rotation
-   * pass, which must reach this column, because an envelope left behind on a
-   * retired key is that same unrecoverable loss arriving from the other side.
+   * **A retired row is never deleted by this codebase.** A note this
+   * deployment has not yet re-wrapped — including one restored from bucket
+   * versioning, or written by a client syncing the bucket directly while a
+   * rotation was mid-walk — still names an old generation, and purging that
+   * generation's row would make such a note permanently unreadable. See
+   * "Rotation" in `docs/decisions/encryption.md` for the grace-period policy
+   * this leaves as a deliberate, manual, future operator action rather than an
+   * automatic sweep.
+   *
+   * **Nothing may write different key material into an existing row.** A
+   * second key over the first makes every note already encrypted under it
+   * unreadable, and it would look exactly like a fix for "the key was
+   * missing". The two writers that exist are `applyDataKeyRekey`, which
+   * re-seals the *same* material under a new envelope key, conditional on the
+   * exact bytes it read — the `STORAGE_SECRET_ENCRYPTION_KEY` rotation pass,
+   * which must reach this column, because an envelope left behind on a
+   * retired envelope key is that same unrecoverable loss arriving from the
+   * other side — and `startWorkspaceKeyRotation`, which only ever *inserts* a
+   * new row with fresh, random material and *patches* `retiredAt` on the row
+   * it supersedes; it never rewrites `encryptedDataKey` on an existing row.
    */
   workspaceDataKeys: defineTable({
     workspaceId: v.id("workspaces"),
     generation: v.string(),
     encryptedDataKey: v.string(),
+    /**
+     * Set the moment a rotation supersedes this generation with a new one.
+     * `undefined` on the workspace's current generation — the one `encryptNote`
+     * writes with — and on every workspace that has never rotated, which is
+     * every workspace before this field existed.
+     */
+    retiredAt: v.optional(v.number()),
     createdAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * ONE WORKSPACE-KEY ROTATION, IN PROGRESS OR DONE.
+   *
+   * See "Rotation" in `docs/decisions/encryption.md`. This table's only job is
+   * the guard a rotation needs and a single `workspaceDataKeys` row cannot
+   * give it: **at most one rotation may be in progress for a workspace at a
+   * time.** `startWorkspaceKeyRotation` re-reads under its own mutation before
+   * inserting a second one, exactly the same race-safety
+   * `insertDataKeyIfAbsent` already relies on for a workspace's very first key.
+   *
+   * The actual re-wrap walk — which notes are done, which are left — is
+   * **not** tracked here. It lives in the customer's own bucket
+   * (`.context/encryption-rotation.json`), because that is where the gateway
+   * already has to read and write to do the walk at all, and because a walk
+   * that is idempotent by construction (`rewrapWorkspaceRecipient` is safe to
+   * call twice) does not need a precise cursor to be resumable — only a
+   * boolean saying whether one may be *started*. This table is that boolean,
+   * shared across every Worker isolate and every client, which the bucket
+   * alone cannot be: two racing gateways could both see no cursor file yet and
+   * both try to mint a new generation.
+   */
+  workspaceKeyRotations: defineTable({
+    workspaceId: v.id("workspaces"),
+    fromGeneration: v.string(),
+    toGeneration: v.string(),
+    status: v.union(v.literal("in_progress"), v.literal("done")),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
   }).index("by_workspace", ["workspaceId"]),
 
   /**

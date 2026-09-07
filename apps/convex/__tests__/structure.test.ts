@@ -317,7 +317,33 @@ const SCHEDULE_CALL = /\.scheduler\.run(?:After|At)\(\s*[^,]*,\s*([^,)\s]*)/g;
  * `S3Store` and hands it to `lib/fileOps.ts`, which has no access to the
  * credential at all. **Do not add one without that property.**
  */
-const CREDENTIAL_BARRIERS = new Set(["functions.files.runFileOperation"]);
+/**
+ * The second member. Read the paragraph above before adding a third.
+ *
+ * `functions.encryptionKeys.exportWorkspaceDataKeys` decrypts every generation
+ * of a workspace's data key and returns the plaintext material — the console's
+ * `exportEncryptionKeys` and the gateway's `export_encryption_keys` are both
+ * `docs/decisions/encryption.md`'s "Revocation and export": the customer must
+ * be able to get the key itself, not only decrypt with it through us, or the
+ * first non-negotiable is false the moment they revoke our credential. That is
+ * a *deliberate* disclosure this codebase has never needed before — every
+ * other barrier and every other decrypt-capable function returns something
+ * *derived* from a credential (file content, a signed request); this is the
+ * first that hands back the credential itself, on purpose, to its owner.
+ *
+ * What makes it small enough to be a barrier and not a hole: it performs no
+ * authorization of its own. `authorizeEncryptionExport` — a *different*,
+ * non-barrier internal mutation — checks the owner role, spends the rate
+ * limit, and writes the audit row, all three in one transaction, before the
+ * console's public `exportEncryptionKeys` action ever calls this one. A
+ * barrier that also decided who may call it would be two things to get right
+ * instead of one; this one does exactly the thing `runFileOperation` does —
+ * open a credential and hand back the single value its caller asked for.
+ */
+const CREDENTIAL_BARRIERS = new Set([
+  "functions.files.runFileOperation",
+  "functions.encryptionKeys.exportWorkspaceDataKeys",
+]);
 
 /**
  * Every `encrypted*` column in the schema, lowercased — read from the schema
@@ -900,6 +926,12 @@ describe("no public function can reach a storage secret", () => {
       // already enumerated as an internet-facing path to a credential, and this
       // does not add a second one.
       "functions.encryptionKeys.openWorkspaceDataKey",
+      // THE SAME KEY, DELIBERATELY DISCLOSED. Decrypts every generation of a
+      // workspace's data key and hands the plaintext material back — the
+      // second and, for now, only other member of `CREDENTIAL_BARRIERS`. Read
+      // that comment before touching this one; it is here, and not merely a
+      // barrier, because "decrypt-capable" is exactly what it is.
+      "functions.encryptionKeys.exportWorkspaceDataKeys",
       // The ingest analogue. Spends a single-use ticket the control plane
       // minted, reads the workspace off THAT ticket's row, and opens its
       // credential for the Email Worker. internalAction; the only thing that
