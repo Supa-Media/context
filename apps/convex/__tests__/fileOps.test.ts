@@ -2322,8 +2322,9 @@ describe("a bulk operation acts only on what the caller can see", () => {
     // moved. The rule follows the folder, and nothing is left pointing at an
     // empty prefix. (Two earlier comments here described a survivor held back
     // by its exception, and a third said "the keys afterwards are" three
-    // particular ones — the bucket holds fourteen. Both are the same habit as
-    // row 108, so the claim is an assertion now rather than a sentence.)
+    // particular ones — the bucket holds fourteen. Both are the same habit of
+    // counting in prose what the suite can assert, so it is an assertion now
+    // rather than a sentence.)
     expect(manifest).not.toContain("2-areas/shared: team");
     expect(
       Object.keys(store.snapshot()).filter((key) => key.startsWith("2-areas/shared/")),
@@ -4282,7 +4283,7 @@ describe("a rule no survivor needs, told truthfully", () => {
     });
 
     const manifest = store.snapshot()[PRIVACY_KEY] as string;
-    // The survivor is still hidden, which is row 82 and stays true. It does not
+    // The survivor is still hidden, and stays hidden. It does not
     // need `2-areas/mixed/hr: private` to be, because with `2-areas/mixed: team`
     // gone it rests on `2-areas: private` — which is exactly the reasoning
     // `rulesSurvivorsRestOn` does, and why it retains a rule only when removing
