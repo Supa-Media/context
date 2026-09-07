@@ -84,6 +84,13 @@ because nobody can check it. This one is a table of who holds what.
 | A named grantee's AI client | Because that is the product: an encrypted note that no assistant can read is a note in a different app. |
 | **Supa Media**, in Phase 1 | Stated out loud below. |
 
+**For a note locked with a passphrase, three rows move.** Supa Media joins the
+first table rather than the second; "a named grantee's AI client" joins it too,
+which is the cost the owner accepted; and "the gateway" joins it, in the
+strongest sense available — there is no code path from a gateway request to that
+note's plaintext, and the suite asserts it on the source rather than on
+behaviour. The only reader is somebody who knows the passphrase, in the console.
+
 **Explicitly not defended against**, restating the product note's own "Threat
 boundaries" rather than softening it: a hostile device, a keylogger, a browser
 extension, a screenshot, or access while a session is unlocked. A delivered web
@@ -117,6 +124,12 @@ So the words are fixed here and are a decision, not copy:
 - The second list becomes available exactly when the passphrase recipient ships
   and the note carries **only** a passphrase recipient — not before, and per
   note, not per product.
+
+**That has now happened, for one of the two modes.** A note locked with a
+passphrase carries no workspace recipient, so for *that note* every sentence in
+the second list is true and may be said. Nothing about the at-rest mode changed,
+and no surface may blur them: see "Encrypted notes are for humans; no AI client
+reads one" for the two-column table that keeps them apart.
 
 **What a simplification would cost.** Shipping the honest sentence is what
 makes the dishonest one worth something later. A product that overclaims in
@@ -245,7 +258,14 @@ recipient and no workspace recipient — at which point it is genuinely
 unreadable by us, and the sentences in "What we can still read" unlock for that
 note.
 
-**Two open questions belong to the owner and are not answered here**, because
+**Both of those were answered by the owner, and Phase 2 shipped the first
+one**: a note may drop its workspace recipient, and in fact a passphrase note
+never has one. The reasoning above is left standing rather than rewritten,
+because it is why the format made that answer a one-line change instead of a
+migration. The answer itself, and what it costs, is "Encrypted notes are for
+humans; no AI client reads one".
+
+**Two open questions belonged to the owner and are not answered here**, because
 they are product decisions with no engineering-correct answer, and the product
 note lists them under its own "Decisions": whether a note may drop its
 workspace recipient entirely (which makes it invisible to every AI client — the
@@ -329,7 +349,8 @@ Five things about that shape are load-bearing:
 | `iv` | Base64url, 12 bytes, fresh per encryption. |
 | `ct` | Base64url ciphertext with the GCM tag appended, as Web Crypto produces it. |
 | `aad` | The associated data, as a literal string, so a decryptor never has to reconstruct it. `context-note-v1:<workspaceId>`. |
-| `recipients[]` | `{kind, id, alg, iv, wrapped}`. `kind` is `workspace` or (Phase 2) `passphrase`; `id` names the key that wraps — `k1` for a WDK generation. `wrapped` is the AES-GCM-wrapped note key, AAD `context-note-key-v1:<workspaceId>`. |
+| `recipients[]` | `{kind, id, alg, iv, wrapped}`. `kind` is `workspace` or `passphrase`; `id` names the key that wraps — `k1` for a WDK generation, `p1` for the first passphrase. `wrapped` is the AES-GCM-wrapped note key, AAD `context-note-key-v1:<workspaceId>`. |
+| `recipients[].kdf` | **`passphrase` only.** `{id, v, m, t, p, salt}` — the KDF and every parameter needed to reproduce the key, so a decryptor never guesses. `id` is `argon2id`, `v` is `0x13`, `m` is KiB, `salt` is base64url. The passphrase is NFC-normalised before encoding. See "The KDF, per client". |
 
 **The AAD binds the workspace and deliberately not the path.** Binding the path
 would make a move a re-encrypt — a full body rewrite per note inside a bulk
@@ -629,6 +650,226 @@ quietly reach a key.
 
 ---
 
+### Encrypted notes are for humans; no AI client reads one
+
+**The decision, in the owner's words: an open-source algorithm plus a password
+the person alone knows jumbles the note; anyone with access sees the
+ciphertext; a client can read the note only if it has the password. And no
+client gets the password.**
+
+That settles the question the section above left open, and it settles it in the
+direction that costs the most and means the most. **A passphrase note carries a
+`passphrase` recipient and no `workspace` recipient at all.** Not as a flag, not
+as an advanced mode: it is what "password-protect this note" does. The sentences
+"only you can read this", "we cannot read this", "end-to-end" become true for
+that note, because there is no key anywhere in this system that opens it.
+
+What it costs, stated first rather than last, because a person about to press
+the button is owed it and the acknowledgement screen says all of it:
+
+- **No assistant reads it.** Not Claude, not ChatGPT, not the console's own
+  helpers, not a future agent. A locked note is not in a client's context; it is
+  a locked object at a path with a callout saying so.
+- **Search does not find it**, which `indexableText` already guaranteed, now
+  permanently rather than by an opt-in that could later widen.
+- **Nothing we run can repair it.** A corrupted envelope, a lost passphrase, a
+  half-finished sync — all of them end at "the note is gone", because the ways
+  we could otherwise help all begin with being able to read it.
+- **We cannot help somebody who forgets.** There is no reset, no recovery code,
+  no escrow. Any of those would be a second key, and a second key is the thing
+  this mode exists not to have.
+
+So there are now **two encrypted modes and they are different products**, and
+the vocabulary has to keep them apart everywhere:
+
+| | at rest (Phase 1) | locked (Phase 2) |
+| --- | --- | --- |
+| recipient | `workspace` | `passphrase` |
+| who can read it | the gateway, so every client the customer connected | whoever knows the passphrase, in the console |
+| protects against | the storage provider, a stolen bucket key | all of that, plus us |
+| a lost key means | nothing; we hold it | the note is gone |
+| turned on by | `set_encryption`, from any private-scope client | the console, behind an acknowledgement |
+
+**The gateway is not a reader of the second one, and that is enforced rather
+than intended.** No tool takes a passphrase, a password or a key; the envelope
+module never derives a key and imports nothing that could; and `index.js` neither
+imports nor calls any of the passphrase functions. A client that guesses at the
+interface and sends `passphrase:` alongside a write gets the identical refusal
+it gets without one, and the note is byte-for-byte unchanged.
+
+**The write path is where this could have gone catastrophically wrong**, and it
+did, silently, in the first draft. "Whether a write is encrypted is decided by
+the stored object" was written for one recipient kind: it re-sealed the
+submitted content with the workspace key. Applied to a locked note that is a
+valid encrypted note at the path, readable by every connected client, with the
+owner's lock gone and the ciphertext that was under it destroyed — reported as a
+successful write. The rule is now one step stronger, and the stronger form is
+the one to keep: **a note this request cannot open is a note this request cannot
+write.**
+
+**Other humans, and the sentence that must go with it.** A locked note may be
+`team`-visible, and then the people it is shared with see a locked object in the
+console and open it if — and only if — the owner gave them the passphrase some
+other way. There are no per-person recipient keys and no passphrase-sharing
+feature, deliberately: both would be a key-distribution system, which is a
+larger product with its own failure modes. The copy therefore says, in the
+acknowledgement and beside the visibility control, that **sharing a note does
+not share its passphrase.**
+
+**What a simplification would cost.** Keeping the `workspace` recipient
+alongside the passphrase — "so clients can still read it" — is one array element
+and it deletes the feature: the note would be readable by us, by a subpoena, and
+by every connected client, and the passphrase would be a second lock on a door
+that is already open. The recipient array still supports both, and one note
+carrying both is a coherent thing the format can express; nothing in the product
+offers it, because a person who asked for a password would not have asked for a
+note we can read.
+
+**The tests that fail if this is reversed.** `set_encryption`-style writes and
+`write_note` over a locked note leave the stored bytes byte-identical; a locked
+read is the same refusal as a note whose key is merely unavailable, so no
+inference channel is added; no advertised tool schema has a passphrase-shaped
+argument; the envelope module's own source contains no derivation call and no
+import; and a pinned locked note in `apps/mcp/test/` opens with the key its
+passphrase derives and with nothing else.
+
+---
+
+### The KDF, per client
+
+The passphrase becomes a key on the device and nowhere else, so the KDF has to
+run in whatever the console is running in. Three runtimes, and they are not
+equal: the browser, the Electron shell hosting the same web bundle, and Expo on
+iOS and Android, which is Hermes.
+
+**What is actually available**, measured rather than assumed:
+
+- **Web Crypto has PBKDF2 and no memory-hard KDF.** `crypto.subtle` in every
+  browser and in the Worker offers PBKDF2, SHA-2, AES-GCM and nothing that
+  resists a GPU.
+- **Hermes has no Web Crypto at all.** Not AES-GCM, not PBKDF2, not
+  `getRandomValues` without a polyfill. `expo-crypto` — which this app already
+  depends on — provides digests and random bytes, and no cipher and no KDF.
+  `react-native-quick-crypto` would provide both and is a **native module**: it
+  cannot arrive in an over-the-air update, which is how this app ships, so
+  adding it changes the release model rather than a dependency list.
+- **WebAssembly is available in the browser and in Electron, and not in
+  Hermes.** So a WASM Argon2id is a two-platform answer wearing a three-platform
+  coat.
+
+**The measurement.** `apps/mobile/scripts/bench-argon2id.ts` runs the
+implementation in this repository, which is dependency-free plain JavaScript.
+Two runs on one machine: V8 with its optimising compiler, which is the browser
+and the desktop shell; and V8 with `--jitless`, which is the closest a checkout
+gets to Hermes without an emulator. Hermes has no JIT either and is expected to
+be slower still.
+
+| parameters | with a JIT | interpreted (`--jitless`) |
+| --- | --- | --- |
+| 8 MiB, t=2 | 0.6 s | 5.9 s |
+| **19 MiB, t=2** (OWASP's floor) | **1.1 s** | **12.7 s** |
+| 32 MiB, t=2 | 1.9 s | 21.0 s |
+| 64 MiB, t=3 (RFC 9106's second option) | 6.1 s | 64.7 s |
+
+**The decision.**
+
+1. **Web and the desktop shell: Argon2id, in plain JavaScript, at 19 MiB, t=2,
+   p=1.** OWASP's minimum for Argon2id, about a second per unlock, no new
+   dependency anywhere.
+2. **iOS and Android: unlocking is refused, by name, with somewhere to go.**
+   "Locked notes open on a computer." Never a quieter, weaker KDF: a note that
+   silently became a PBKDF2 note on a phone would be weaker than the note the
+   person was shown, and they would have no way to find out.
+3. **The recipient carries `{id, v, m, t, p, salt}`**, so every one of these
+   numbers is a parameter rather than a build constant, and a decryptor five
+   years from now derives the same key without knowing what this build's
+   defaults were.
+
+**What the alternatives cost, named rather than waved at:**
+
+- **Argon2id via WebAssembly** would run the same KDF perhaps three to four
+  times faster, which at equal patience means roughly 64 MiB and t=3 instead of
+  19 MiB and t=2 — an attacker's cost per guess about 3.4x higher. That is a
+  real loss and it is what the pure-JavaScript choice costs. Against it: a
+  dependency in the path of somebody's passphrase, which is the one path where a
+  supply-chain compromise is not recoverable; a WASM binary Metro has to bundle;
+  and it still does nothing for the phone. The door stays open, and it is a
+  parameter change rather than a format change when it opens: the same `id`, new
+  `m` and `t`, old notes still opening under the numbers they carry.
+- **PBKDF2, via Web Crypto, everywhere.** Native in every browser and in the
+  Worker, and it would work on Hermes if Hermes had Web Crypto, which it does
+  not — so it does not actually buy the phone either. And it is not memory-hard:
+  against the offline guessing this whole design assumes, PBKDF2 at any
+  iteration count a person will wait for is worth substantially less per second
+  of attacker time than Argon2id at 19 MiB. It is defined in the format as a
+  distinct KDF id so that a future recipient could name it, and **nothing writes
+  it**: a weaker KDF that could be substituted silently is the failure mode this
+  section exists to prevent.
+- **64 MiB, t=3, in JavaScript.** Six seconds per unlock. An unlock somebody
+  waits six seconds for is an unlock they turn off, and a feature turned off is
+  weaker than one at OWASP's floor.
+
+**Passphrase length is what compensates**, so the floor is in the code rather
+than in advice: twelve characters minimum, several words recommended, and the
+acknowledgement screen asks for a passphrase rather than a password in the words
+it uses. At 19 MiB and t=2, a six-word passphrase is out of reach of an offline
+attacker; an eight-character one is not, at any parameters this or any other
+implementation could choose.
+
+**Two details that are format decisions rather than implementation ones**, both
+because a second implementation has to reproduce them exactly or somebody's note
+will not open:
+
+- **The passphrase is normalised to NFC** before it is encoded. An accented
+  character can arrive as one code point or as two depending on the keyboard,
+  and the two are different bytes and therefore different keys — somebody would
+  set a passphrase on one platform and be told it was wrong on another.
+- **The salt is 16 random bytes per recipient**, and a passphrase change draws a
+  new one, so two passphrases on one note are related by nothing but the person
+  who chose them.
+
+**What a simplification would cost.** Hard-coding the parameters instead of
+writing them into the recipient makes the first parameter change a re-encrypt of
+every locked note — which cannot be done, because it needs the passphrase for
+every one of them. It would make the numbers above permanent.
+
+**The tests that fail if this is reversed.** RFC 9106's own vector, including
+the two inputs this product never uses; RFC 7693's vectors for the BLAKE2b
+underneath; a pinned passphrase deriving a pinned key that opens a pinned note,
+with the two halves asserted in the two suites that run them; a KDF id or an
+argon2 version this build does not implement refused rather than substituted;
+and `kdfSupport` refusing on a runtime without Web Crypto rather than answering
+with a weaker lock.
+
+---
+
+### Bounds on a KDF descriptor, because a bucket is not a trusted input
+
+A passphrase recipient's parameters are read out of a file in the customer's
+bucket, and there is exactly one scenario where they are attacker-controlled —
+the scenario this whole feature is about: somebody who can write that bucket.
+They cannot forge a wrap without the passphrase. They can write `m: 4194304` and
+make every unlock attempt allocate four gigabytes, or `t: 1000000` and hang the
+tab.
+
+So the descriptor is bounded before anything acts on it, in both the gateway and
+the console, with the same numbers: 8 KiB to 2 GiB of memory, 1 to 16 passes, 1
+to 16 lanes, an 8- to 64-byte salt, and Argon2's own floor of 8 KiB per lane.
+The ceilings are far above anything shipped so that raising the parameters later
+is a parameter change and not a format change.
+
+**A note whose envelope fails these bounds stays an encrypted note.** It is
+refused at parse, it is still recognised by the marker, nothing indexes it, and
+nothing overwrites it — the failure direction that keeps a broken envelope from
+becoming a destroyed one.
+
+*The test: every out-of-range descriptor is refused by `assertKdfDescriptor`,
+cannot be written into a note by any recipient-editing call, and is refused at
+parse when it arrives from the bucket — in both implementations, over one
+corpus.*
+
+---
+
 ### What Phase 1 builds, and what it does not
 
 **Builds:** the envelope format and a pure encrypt/decrypt module in the
@@ -644,6 +885,16 @@ password flow); WDK rotation (only the id that makes it possible); encrypted
 attachments and images; encrypted note *titles* or paths, which non-negotiable 2
 forecloses anyway; the `bucket` and `projection` search opt-ins; and any claim
 that we cannot read these notes.
+
+**Phase 2 builds** the first of those lists and nothing else in it: the
+`passphrase` recipient and its KDF descriptor, Argon2id in plain JavaScript on
+the client, an in-memory unlock session with a manual lock and an idle
+auto-lock, a passphrase change that rewraps one recipient without rewriting the
+body, the acknowledgement screen, and the guard that stops the gateway writing
+over a note it cannot open. It does **not** build: recipient keys for other
+people or any way to share a passphrase; unlocking on a phone; encrypted
+attachments; a passphrase on a note that also keeps a workspace recipient; or
+any recovery path whatsoever, which is the point rather than an omission.
 
 **The one question only the owner can answer** is the first of the product
 note's own open decisions, restated with what has since been learned: **is a
