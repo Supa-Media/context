@@ -19,6 +19,12 @@ import { entryAt } from "../files/tree";
 import { atName } from "../format";
 import { selectedContext, type ConsoleData } from "../types";
 import { tierSentence } from "../visibility";
+import { ChannelDayView } from "../communications/ChannelDayView";
+import { ChannelView } from "../communications/ChannelView";
+import { ContactPageView } from "../communications/ContactPageView";
+import { InboxView } from "../communications/InboxView";
+import { MAIL_CONNECT_ENABLED } from "../communications/flags";
+import { classifyCommsPath } from "../communications/paths";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -64,6 +70,8 @@ export function BrowsePane({
    */
   onOpenSettings,
   pendingNote,
+  anchor,
+  onOpenComms,
 }: {
   data: ConsoleData;
   onOpenSettings?: () => void;
@@ -77,6 +85,26 @@ export function BrowsePane({
    * on `openDocument`.
    */
   pendingNote?: string | null;
+  /**
+   * `?anchor=`, read once at the route — see `nav.ts`'s `noteHref` and
+   * `anchorFromQuery`. Meaningful only to a channel-day view; every other
+   * branch below ignores it, the same way an ordinary note ignores `?note=`
+   * naming a folder.
+   */
+  anchor?: string | null;
+  /**
+   * Open a communications path from inside a comms view — a contact's
+   * activity link, today. **Not `files.select`**: an activity link names an
+   * anchor as well as a path, and `select` has no way to carry one. The
+   * caller does a real navigation (`router.push(noteHref(slug, path,
+   * anchor))`), which is the same URL a pasted link or a search result would
+   * use — so this view never invents a second way to reach "note plus
+   * anchor". Absent on a console with no router behind it (the landing
+   * page's demo, `e2e-fixture`'s own wiring), in which case activity links
+   * still open the day — `files.select`, anchor dropped — rather than doing
+   * nothing.
+   */
+  onOpenComms?: (path: string, anchor?: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const files = data.files;
@@ -440,6 +468,20 @@ export function BrowsePane({
       })
     : undefined;
 
+  /**
+   * What a selected path is, for the communications console — or `null` when
+   * it is an ordinary note or folder. Computed once and read three times
+   * below rather than three separate calls, so all three branches agree with
+   * each other by construction.
+   */
+  const commsRoute = selected === null ? null : classifyCommsPath(selected.path);
+
+  const handleOpenComms =
+    onOpenComms ??
+    ((path: string) => {
+      files.select(path);
+    });
+
   const openDocument =
     selected === null ? (
       /*
@@ -477,6 +519,31 @@ export function BrowsePane({
           />
         )
       ) : null
+    ) : commsRoute?.kind === "inbox" ? (
+      /*
+        The Inbox landing page — virtual, built from the same listings a
+        folder view would fetch, never a written rollup. See
+        `docs/decisions/communications.md`.
+      */
+      <InboxView files={files} onOpen={files.select} mailConnectEnabled={MAIL_CONNECT_ENABLED} />
+    ) : commsRoute?.kind === "channel" ? (
+      <ChannelView
+        channel={commsRoute.channel}
+        account={commsRoute.account}
+        path={selected.path}
+        files={files}
+        onOpen={files.select}
+      />
+    ) : commsRoute?.kind === "channel-day" ? (
+      <ChannelDayView
+        channel={commsRoute.channel}
+        account={commsRoute.account}
+        date={commsRoute.date}
+        files={files}
+        anchor={anchor}
+      />
+    ) : commsRoute?.kind === "contact" ? (
+      <ContactPageView slug={commsRoute.slug} files={files} onOpenActivity={handleOpenComms} />
     ) : selected.kind === "folder" ? (
       <FolderView
         entry={selected}

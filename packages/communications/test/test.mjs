@@ -139,6 +139,22 @@ check(
   "...and none of them does I/O or imports a provider",
   !SOURCES.some((source) => /\bfetch\(|node:|require\(|googleapis|gmail/i.test(source))
 );
+/*
+  `jest-environment-jsdom` does not put `TextEncoder`/`TextDecoder` on the
+  global object — measured directly, not assumed — so a module that
+  constructs one at load time throws the moment anything imports this
+  package under it, whether or not the caller ever reaches the function that
+  needed it. That was a real regression: `apps/mobile`'s console imports
+  `parseChannelDayMessages` to *read* a day back, never `utf8Length`, and it
+  broke eight jsdom-backed test suites anyway because `note.js` built its
+  encoder at the top of the file. Checked at the source level, against every
+  file in the package, so the same mistake in a file added later fails here
+  rather than in whichever app happens to import it under jsdom first.
+*/
+check(
+  "no source builds a TextEncoder or TextDecoder outside a function body",
+  !SOURCES.some((source) => /^(export )?const \w+ = new Text(En|De)coder\(\)/m.test(source))
+);
 
 // -- the public surface
 //

@@ -33,6 +33,21 @@ import { useCallback } from "react";
  * bar — which `noteFromQuery` reads as "no note", so it would work, and would
  * put a fragment of machinery in every URL anybody copies.
  */
+/**
+ * `anchor` is cleared every time this writes, never carried over.
+ *
+ * This is the *reconciliation* path — the browser's own selection moved (a
+ * tapped row, a wikilink, an unsaved-changes guard settling) and the URL is
+ * catching up to it, which is a fresh navigation with no anchor in mind. The
+ * one path that means to name an anchor is `onOpenComms` (a contact's
+ * activity link, or a search result), and that goes through a real
+ * `router.push(noteHref(slug, path, anchor))` instead of this hook, setting
+ * both params together in the one commit that means to. Without this,
+ * `setParams` merges rather than replaces: following an activity link to
+ * `?note=A&anchor=X` and then tapping an ordinary row to open note `B` would
+ * leave the address at `?note=B&anchor=X` — a stale anchor for a message that
+ * is not even in `B`, read back the next time anybody opens that URL.
+ */
 export function useNoteUrl(): (note: string | null) => void {
   /*
     Typed to the one method used. `useNavigation`'s default is React
@@ -41,9 +56,9 @@ export function useNoteUrl(): (note: string | null) => void {
     naming the shape here is importing `@react-navigation/native`'s types for
     one call.
   */
-  const navigation = useNavigation<{ setParams: (params: { note?: string }) => void }>();
+  const navigation = useNavigation<{ setParams: (params: { note?: string; anchor?: string }) => void }>();
   return useCallback(
-    (note: string | null) => navigation.setParams({ note: note ?? undefined }),
+    (note: string | null) => navigation.setParams({ note: note ?? undefined, anchor: undefined }),
     [navigation],
   );
 }

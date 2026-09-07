@@ -362,6 +362,8 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
       calls.entries.push({ name: "copyShareLink", args });
       return { ok: false, message: null };
     },
+    ensureListing: noop,
+    readRaw: async () => null,
   };
 }
 

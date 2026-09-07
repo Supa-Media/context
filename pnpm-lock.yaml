@@ -132,6 +132,9 @@ importers:
       '@codemirror/view':
         specifier: ^6
         version: 6.43.9
+      '@context/communications':
+        specifier: workspace:*
+        version: link:../../packages/communications
       '@context/convex':
         specifier: workspace:*
         version: link:../convex
