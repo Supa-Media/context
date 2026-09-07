@@ -376,7 +376,18 @@ const CONSOLE_NOTICES = Object.freeze({
   blocked:
     "You asked this app never to record the app you are in, so it did not start. Change that in the menu bar if you meant to.",
   permissions:
-    "macOS has not granted this app the microphone yet, so nothing was recorded. Open the menu bar to grant it.",
+    "macOS has not granted this app the microphone yet, so nothing was recorded. Open System Settings → Privacy & Security → Microphone, enable Context, and record again.",
+  /*
+    Distinct from `permissions` on purpose: that one means macOS refused the
+    request; this one means macOS already granted it and the input still would
+    not open. Found on real hardware — the microphone was granted mid-run, but
+    the already-running process kept behaving on the answer it saw the first
+    time it asked. Telling that person to open System Settings again sends
+    them to a toggle that is already on, so the recovery here is the one that
+    actually works: quit and relaunch.
+  */
+  staleMicrophoneGrant:
+    "Quit and reopen Context to pick up the microphone permission.",
   captureFailed:
     "The Context app on this machine could not open an input, so this meeting is typed. Your notes still land in your bucket.",
   nothingToOpen:
@@ -921,6 +932,12 @@ async function main(): Promise<void> {
       // panel where there is one, a message box where there is not.
       missingPermissions = [...(result.missing ?? [])];
       explain(CONSOLE_NOTICES.permissions);
+    } else if (result.why === "stale-permission") {
+      // Granted, per macOS — the input just would not open in this already-
+      // running process. Sending this person to System Settings again would
+      // point at a toggle that is already on.
+      missingPermissions = [];
+      explain(CONSOLE_NOTICES.staleMicrophoneGrant);
     }
     push();
     return result;
@@ -1196,7 +1213,9 @@ async function main(): Promise<void> {
       throw new Error(
         result?.why === "permissions"
           ? CONSOLE_NOTICES.permissions
-          : CONSOLE_NOTICES.captureFailed,
+          : result?.why === "stale-permission"
+            ? CONSOLE_NOTICES.staleMicrophoneGrant
+            : CONSOLE_NOTICES.captureFailed,
       );
     }
 
