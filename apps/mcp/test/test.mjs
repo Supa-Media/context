@@ -6,6 +6,8 @@ import { runCommunicationsChecks } from "./communications.test.mjs";
 import { messageAnchor } from "../../../packages/communications/src/anchors.js";
 import { renderChannelDayNote } from "../../../packages/communications/src/note.js";
 import { runCommsSearchIndexChecks } from "./commsSearchIndex.test.mjs";
+import { runCalendarGoogleChecks } from "./calendarGoogle.test.mjs";
+import { runCalendarSyncChecks } from "./calendarSync.test.mjs";
 import { runOrientationChecks } from "./orientation.test.mjs";
 import { runSearchFilterChecks } from "./searchFilter.test.mjs";
 import { runSearchIndexerChecks } from "./searchIndexer.test.mjs";
@@ -3897,6 +3899,16 @@ await runOrientationChecks(check);
 // arrangement the "a mailbox is a folder" decision exists for.
 await runCommunicationsChecks(check);
 await runCommsSearchIndexChecks(check);
+
+// The calendar sync: the Google-shaped adapter (calendarGoogle.test.mjs) and
+// the orchestrator against a fake, stateful Calendar API server
+// (calendarSync.test.mjs, fakeCalendarServer.mjs) — syncToken paging, the 410
+// fallback, the bounded horizon, per-day regeneration, disconnect as a real
+// no-op, and two workspaces' connections never touching each other's store.
+// Neither file shares state with anything else in this suite: each stands up
+// its own fake server and store per check block.
+await runCalendarGoogleChecks(check);
+await runCalendarSyncChecks(check);
 
 // The search index. The two format halves are pure functions over their own
 // fixtures and touch no store or control plane, so they run anywhere; the

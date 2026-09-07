@@ -2972,9 +2972,9 @@ async function surveyContext(store, scope, rules, overrides) {
  * mailbox they cannot see (`canSee` already ran, in `surveyContext`, before
  * `notes` reaches here).
  *
- * Ordered `channel-day`, `meeting`, `session` — a fixed order rather than by
- * recency, so the section's shape does not reflow between calls when two
- * kinds are close in time.
+ * Ordered `channel-day`, `calendar-day`, `meeting`, `session` — a fixed order
+ * rather than by recency, so the section's shape does not reflow between
+ * calls when two kinds are close in time.
  */
 function summarizeCaptured(notes) {
   const groups = new Map();
@@ -2984,7 +2984,7 @@ function summarizeCaptured(notes) {
     if (!groups.has(kind)) groups.set(kind, []);
     groups.get(kind).push(note);
   }
-  const order = ["channel-day", "meeting", "session"];
+  const order = ["channel-day", "calendar-day", "meeting", "session"];
   const summaries = [];
   for (const kind of order) {
     const group = groups.get(kind);
@@ -3016,6 +3016,7 @@ function capturedKindLabel(kind, notes) {
   const plural = count === 1 ? "" : "s";
   if (kind === "meeting") return `${count} meeting${plural}`;
   if (kind === "session") return `${count} saved session${plural}`;
+  if (kind === "calendar-day") return `${count} calendar day${plural}`;
   const allEmail = notes.every((note) => note.key.startsWith("0-inbox/email/"));
   if (allEmail) return `${count} mail day${plural}`;
   const allChat = notes.every(

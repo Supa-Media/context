@@ -289,6 +289,32 @@ export async function runCommunicationsChecks(check) {
       );
     }
 
+    /*
+      A calendar day is its own kind, never `channel-day` — it lives at
+      `0-inbox/calendar/<date>.md` with no channel or account segment at all,
+      the layout `docs/decisions/communications.md`'s "A calendar lands beside
+      the mail, not inside it" settles. The two recognisers must never both
+      claim the same path.
+    */
+    for (const [key, expected, why] of [
+      ["0-inbox/calendar/2026-09-07.md", "calendar-day", "a calendar day"],
+      ["0-inbox/calendar/Work_Box/2026-09-07.md", null, "a folder somebody made by hand under calendar/"],
+      ["0-inbox/calendar/2026-02-30.md", null, "a day that does not exist"],
+      ["0-inbox/email/name-at-example-com/2026-09-07.md", "channel-day", "a mailbox day, still its own kind"],
+    ]) {
+      check(`classifyCaptureKind answers ${why} as ${expected}`, classifyCaptureKind(key) === expected);
+    }
+    check(
+      "a calendar day and a channel day never both claim the same path — the two recognisers are disjoint",
+      !recogniseInGateway("0-inbox/calendar/2026-09-07.md") && classifyCaptureKind("0-inbox/calendar/2026-09-07.md") !== "channel-day"
+    );
+    // Sabotage, measured: deleted the `isCalendarDayNotePath` branch from
+    // `classifyCaptureKind` — 1 check failed ("classifyCaptureKind answers a
+    // calendar day as calendar-day"), and only one, because a calendar day
+    // falling through to `null` still does not misclassify as `channel-day`
+    // or anything else — it just stops collapsing, which is the failure this
+    // suite exists to catch on its own, separately, in orientation.test.mjs.
+
     /* ----------------------------- the listing ---------------------------- */
 
     const ownerList = await callTool(env, OWNER_TOKEN, "list_channel_days", { limit: 25 });

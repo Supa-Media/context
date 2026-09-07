@@ -59,6 +59,7 @@
 
 import { isMeetingNotePath } from "../../../../packages/meetings/src/paths.js";
 import { isChannelDayNotePath } from "../../../../packages/communications/src/paths.js";
+import { isCalendarDayNotePath } from "../../../../packages/communications/src/calendar/paths.js";
 
 /**
  * `0-inbox/email/<mailbox-slug>/YYYY-MM-DD[-part-N].md`, and the flat
@@ -72,6 +73,14 @@ import { isChannelDayNotePath } from "../../../../packages/communications/src/pa
  * connected mailbox is always a *folder*, so the two shapes cannot collide.
  */
 export { isChannelDayNotePath };
+
+/**
+ * `0-inbox/calendar/YYYY-MM-DD.md` — one file per day, no account level (a
+ * calendar sync merges every connected account into one day, unlike a
+ * mailbox), re-exported from the package that owns the shape for the same
+ * reason `isChannelDayNotePath` is.
+ */
+export { isCalendarDayNotePath };
 
 /**
  * `0-inbox/sessions/<platform>/<timestamp>[-<8hex>].md` — see
@@ -98,22 +107,29 @@ export function isSavedSessionNotePath(path) {
 }
 
 /**
- * Which automated-capture kind, if any, wrote this note — the three kinds
+ * Which automated-capture kind, if any, wrote this note — the four kinds
  * `orient`'s recency list collapses. `null` means "authored": written by a
  * person, or by an agent through an ordinary tool call on their behalf, and
  * never collapsed.
  *
- * The three shapes cannot overlap — a meeting is always under
- * `0-inbox/meetings/`, a channel day never is, a session's platform segment
- * is never a date — so the order checked here is for readability only, not
- * correctness.
+ * The four shapes cannot overlap — a meeting is always under
+ * `0-inbox/meetings/`, a channel day never is, a calendar day is always
+ * exactly `0-inbox/calendar/<date>.md` with no channel segment at all, a
+ * session's platform segment is never a date — so the order checked here is
+ * for readability only, not correctness. `calendar-day` is its own kind
+ * rather than folded into `channel-day`: a day of meetings and a day of mail
+ * are both automated paperwork, but they answer a different question
+ * ("what's on my calendar" vs "what came in"), and `docs/decisions/communications.md`,
+ * "A firehose is not attention" collapses each kind to its own one-line
+ * summary for exactly that reason.
  *
  * @param {string} path
- * @returns {"meeting" | "channel-day" | "session" | null}
+ * @returns {"meeting" | "channel-day" | "calendar-day" | "session" | null}
  */
 export function classifyCaptureKind(path) {
   if (isMeetingNotePath(path)) return "meeting";
   if (isChannelDayNotePath(path)) return "channel-day";
+  if (isCalendarDayNotePath(path)) return "calendar-day";
   if (isSavedSessionNotePath(path)) return "session";
   return null;
 }
