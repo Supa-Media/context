@@ -42,7 +42,11 @@
  *    checks failed, and that is written down rather than dropped: the two are
  *    ANDed, so the order cannot change the answer. `canSee` is what holds this,
  *    not where it sits, and sabotage 1 is the one that moves it.
- * 7. **`isMailboxSlug` dropped from `parseChannelDayPath`** — 1 check failed,
+ * 7. **The gateway keeping its own channel-day regex instead of the
+ *    package's** — 7 checks failed, which is the number that says the two were
+ *    never the same rule. `orient` called nine of fourteen keys automated mail
+ *    capture that `list_channel_days` refuses to list.
+ * 8. **`isMailboxSlug` dropped from `parseChannelDayPath`** — 1 check failed,
  *    and only after a check was added: the first run said 0, because a
  *    forwarded capture is *also* refused by the "email has an account level"
  *    rule one line above, so the fixture could not tell the two guards apart.
@@ -54,6 +58,8 @@ import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { renderChannelDayNote } from "../../../packages/communications/src/note.js";
+import { isChannelDayNotePath as recogniseInPackage } from "../../../packages/communications/src/paths.js";
+import { classifyCaptureKind, isChannelDayNotePath as recogniseInGateway } from "../src/communications/paths.js";
 
 const OWNER_TOKEN = `cat_comms_owner_${"0".repeat(20)}`;
 const TEAM_TOKEN = `cat_comms_member_${"0".repeat(19)}`;
@@ -242,6 +248,46 @@ export async function runCommunicationsChecks(check) {
     // named that — and calling it one would list somebody's own filing as a
     // channel they never connected.
     bucket.seed("0-inbox/email/Work_Box/2026-09-08.md", "# My own notes on mail");
+
+    /* --------------------- one recogniser, not two ------------------------ */
+    //
+    // `src/communications/paths.js` arrived (#303) with its own regexes and a
+    // header saying they should move into `packages/communications` the day it
+    // landed. This is that day, and the move was not tidiness: the two
+    // disagreed on nine of the fourteen keys below, always with the regex the
+    // looser one — and the disagreement was live in opposite directions.
+    // `list_channel_days` refused to list `0-inbox/email/Work_Box/…` as a
+    // mailbox day (right: nothing this product writes could be named that),
+    // while `orient` collapsed it out of "Recently updated" as automated mail.
+    // A note somebody filed by hand vanished from the front page whose whole
+    // job is to say what they have been doing.
+    //
+    // Identity is asserted first, because two functions that agree on a corpus
+    // today are still two functions.
+
+    check(
+      "the gateway's channel-day recogniser IS the package's, not a copy of it",
+      recogniseInGateway === recogniseInPackage
+    );
+    for (const [key, expected, why] of [
+      ["0-inbox/email/name-at-example-com/2026-09-07.md", true, "a mailbox day"],
+      ["0-inbox/email/name-at-example-com/2026-09-07-part-2.md", true, "a part of one"],
+      ["0-inbox/google-chat/2026-09-07.md", true, "a channel with no account level"],
+      ["0-inbox/email/Work_Box/2026-09-08.md", false, "a folder somebody made by hand"],
+      ["0-inbox/email/.hidden/2026-09-07.md", false, "a dot segment"],
+      ["0-inbox/email/../2026-09-07.md", false, "a traversal"],
+      ["0-inbox/email/x/2026-02-30.md", false, "a day that does not exist"],
+      ["0-inbox/imessage/2026-09-07-part-1.md", false, "a part number never written"],
+      ["0-inbox/imessage/2026-09-07-part-02.md", false, "...nor a padded one"],
+      ["0-inbox/email/9f2c1d7a4b6e8035ac91d2f4.md", false, "a forwarded capture"],
+      ["0-inbox/meetings/2026-09-05-sync-8h9jkmnp.md", false, "a meeting"],
+    ]) {
+      check(
+        `orient and list_channel_days answer the same for ${why}`,
+        recogniseInGateway(key) === expected &&
+          (classifyCaptureKind(key) === "channel-day") === expected
+      );
+    }
 
     /* ----------------------------- the listing ---------------------------- */
 
