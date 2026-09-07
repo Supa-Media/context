@@ -14,6 +14,81 @@ works.
 Sabotage-test rather than trusting a green run: break the invariant deliberately
 and confirm the right tests fail.
 
+### A gate that only speaks at release is a gate that speaks too late
+
+#329 merged with 24 green checks and a temporal dead zone in
+`apps/desktop/src/main/index.ts`: an `onChange` handler wired above `const
+controller` called a function that reads `controller`, so every launch threw
+`ReferenceError: Cannot access 'controller' before initialization` — through a
+promise, so it surfaced as an unhandled rejection rather than a stack trace at
+the call site. `main` could not start. Nothing in `ci.yml` caught it, because
+the one check that actually starts the app — `apps/desktop/test/launch.smoke.mjs`,
+see `docs/decisions/desktop.md`'s "A release is a build that started" — was
+wired only into `deploy-desktop.yml`, which is `workflow_dispatch` only. The
+gate existed, and it spoke the truth; it just spoke hours later, on a release
+dispatch, about a commit two pull requests removed from the one that broke it.
+That is the same failure shape this file's opening rule already names — a
+guard nobody has checked in time is not a guard yet — wearing a new costume:
+this guard *worked*, and the defect reached `main` anyway, because of *when*
+it ran rather than *whether* it ran.
+
+**The fix: a `desktop-launch-smoke` job in `ci.yml`, running the same
+`--smoke` launch against the unpackaged dev bundle.** On a pull request it
+runs only when the diff touches `apps/desktop`, `packages/desktop-bridge` (the
+app's only runtime dependency outside the workspace root) or `ci.yml` itself —
+change-detection-inside-the-job, not a `paths:` filter on the trigger, for the
+reason `check-workflow-triggers.mjs` already enforces elsewhere in this file:
+a required check filtered out of the trigger never reports at all, and a pull
+request is left pending on it forever. On a push to `main` it always runs,
+ungated, as the backstop for a change that reaches the app through something
+the path list did not anticipate — a shared package, a workspace-root
+dependency bump.
+
+**Why a macOS runner on every matching pull request is affordable, not just
+tolerable.** `context` is public and MIT-licensed, and GitHub does not meter
+Actions minutes on a public repository's hosted runners by OS — a macOS
+runner here costs no more in billing than any `ubuntu-latest` job in this
+file. What it actually spends is queue time against a smaller concurrency
+pool than Linux gets, which is a reason to gate it by path (most pull requests
+touch neither `apps/desktop` nor its bridge) and not a reason to gate it to
+release time only. A run that does apply is short: install scoped to
+`./apps/desktop...`, an `esbuild` bundle, then the same launch
+`deploy-desktop.yml` runs — no certificate, no notarisation, no `.dmg`,
+nothing resembling that job's 45-minute budget. If a future change makes this
+genuinely expensive (a slower build, a queue that backs up), the answer is to
+revisit the path list or the deadline, not to move the check back to release
+time — that is the exact regression this section exists to name.
+
+**The failure has to name the app's own error, not repeat the incident's own
+shape.** The whole cost of this defect was a gate that eventually said
+"the release build failed" and pointed at a commit two pull requests removed
+from the one that broke it. `launch.smoke.mjs` already prints a `PASS`/`FAIL`
+line per check and the app's full captured output on any failure; the new
+job's failing step additionally emits an `::error::` annotation carrying the
+first line that actually names the failure — a `FAIL` line, an uncaught JS
+error, or one of the crash strings the smoke test greps for — onto the job's
+summary and check-run title, so the reason is visible without opening a log.
+
+**What this deliberately does not change.** `deploy-desktop.yml`'s own launch
+step — signed, notarised, packaged, Gatekeeper-checked — is untouched, and
+remains the only gate on a published release. The new job runs the
+*unpackaged* dev bundle, so it cannot see a packaging-only defect (an asar
+path, an `Info.plist` icon, code signing); only a defect in the module graph
+or `main()` itself, which is exactly what #329's was and exactly what nothing
+before this job ran on a pull request at all. The two gates are kept separate
+on purpose: one is meant to be cheap and fast enough to run on every relevant
+pull request, the other is meant to prove the exact bits about to ship.
+
+**The test that fails if this is reversed:** deleting the `desktop-launch-smoke`
+job, or narrowing its `if:` so a pull request that touches `apps/desktop`
+skips it, restores the exact window this section closes — a defect that
+passes every check on the pull request that introduces it and is discovered
+only at the next release dispatch. Reproduced directly against a real macOS
+Actions runner: the job went red against the still-unfixed dead zone on `main`
+before the ordering fix landed, and is expected to go green once it does —
+the live incident stood in for a synthetic sabotage commit, since the defect
+this job exists to catch was, at the time this was written, still open.
+
 ### A hand-scan is not a fix for something that has already recurred
 
 Two rounds removed numbered pointers into a document this repository does not
