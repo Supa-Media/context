@@ -630,15 +630,53 @@ jobs:
           # `require` failure that started this whole gate both say one of
           # these three things, and none of them is expected to appear whether
           # `--smoke` failed loudly (non-zero exit) or limped along and exited
-          # 0 anyway.
+          # 0 anyway. Checked for on BOTH legs, unconditionally — see below for
+          # the one thing that does differ between them.
           CRASH_STRINGS='Uncaught Exception|A JavaScript error occurred|Dynamic require'
 
-          # The app's own `--smoke` deadline is 30s, armed once its bundle
-          # evaluates. This one is the backstop for what that timer cannot see.
+          # ## Two legs, two deadlines, and why only one of them is a gate
+          #
+          # arm64 is native on this runner (`macos-latest` has been an Apple
+          # Silicon image since macos-14): the app's own `--smoke` deadline is
+          # 30s, armed once its bundle evaluates, and this 60s is the backstop
+          # for what that timer cannot see — a crash *during* module
+          # evaluation. A good arm64 launch was measured at 12s, so 60s is
+          # already generous and a timeout here is a real hang: it stays the
+          # hard gate, unconditionally fatal.
+          #
+          # x64 runs under Rosetta emulation on this same arm64 runner, and the
+          # first gated release (run 34135737601) measured a GOOD x64 launch
+          # using 57 of the old shared 60s deadline — Rosetta's translation
+          # overhead, not the app doing anything different. One slightly slower
+          # runner iteration under that shared deadline fails a release for
+          # being slow, and that failure prints the exact same "was still alive
+          # ... and had to be killed with SIGKILL" line a real launch crash
+          # does — the worst kind of false positive, because it teaches people
+          # to re-run the gate rather than trust it. So x64 gets its own, much
+          # larger allowance, and ONLY a timeout on this leg is downgraded to a
+          # warning:
+          #
+          #  - a crash string in the x64 log, or a non-zero exit before its
+          #    deadline, still fails the job exactly as it does for arm64 —
+          #    those are evidence of an actual crash, not of a slow emulator.
+          #  - still being alive at 240s, under Rosetta, is not — it is
+          #    reported with `::warning::` and does not fail the job.
+          #
+          # Both legs still print their own elapsed time on every path, so the
+          # margin against whichever deadline applies is visible in the log —
+          # which is exactly what said 57-of-60s was cutting it close before
+          # this change existed. See docs/decisions/desktop.md, "A release is
+          # a build that started", for the incident and the reasoning in full.
           SMOKE_DEADLINE_S=60
+          X64_SMOKE_DEADLINE_S=240
 
+          # `timeout_is_fatal`: "true" for the arm64 gate, "false" for x64.
+          # Nothing else about the two legs' checks differs — the crash-string
+          # grep and the non-zero-exit check below are never conditioned on
+          # this argument, on purpose: only the "still alive at the deadline"
+          # branch reads it.
           launch() {
-            local app_path="$1" log_file="$2"
+            local app_path="$1" log_file="$2" deadline="$3" timeout_is_fatal="$4"
             if [ ! -x "$app_path" ]; then
               echo "FAIL: $app_path is missing or not executable — electron-builder did not produce it where this step expected it."
               return 1
@@ -659,8 +697,10 @@ jobs:
             # Its own output goes to /dev/null so that the `sleep` this leaves
             # orphaned on the fast path is holding no handle on this step's
             # stdout — an orphan on the runner's log pipe is its own way of
-            # keeping a job open past the work being finished.
-            ( sleep "$SMOKE_DEADLINE_S"; kill -9 "$app_pid" 2>/dev/null && touch "$killed_marker" ) >/dev/null 2>&1 &
+            # keeping a job open past the work being finished. Killed at
+            # `$deadline` regardless of which leg this is — only what happens
+            # next (fatal FAIL vs. non-fatal `::warning::`) depends on the leg.
+            ( sleep "$deadline"; kill -9 "$app_pid" 2>/dev/null && touch "$killed_marker" ) >/dev/null 2>&1 &
             watchdog_pid=$!
 
             wait "$app_pid"
@@ -670,8 +710,12 @@ jobs:
             wait "$watchdog_pid" 2>/dev/null || true
 
             if [ -f "$killed_marker" ]; then
-              echo "FAIL: $app_path was still alive ${SMOKE_DEADLINE_S}s after it was started and had to be killed with SIGKILL. That is what a launch crash looks like: Electron raises a modal dialog and waits forever, so this build never got as far as printing a verdict."
-              return 1
+              if [ "$timeout_is_fatal" = "true" ]; then
+                echo "FAIL: $app_path was still alive ${elapsed}s after it was started (a ${deadline}s deadline) and had to be killed with SIGKILL. That is what a launch crash looks like: Electron raises a modal dialog and waits forever, so this build never got as far as printing a verdict."
+                return 1
+              fi
+              echo "::warning::$app_path was still alive ${elapsed}s after it was started under Rosetta (a ${deadline}s deadline) and had to be killed with SIGKILL. Rosetta emulation is slow, not a crash signal — run 34135737601 measured a good x64 launch at 57s of a 60s deadline — so a timeout on this leg warns instead of failing the job. A crash string in its log, or a non-zero exit before the deadline, still would have failed it."
+              return 2
             fi
             if [ "$status" -ne 0 ]; then
               echo "FAIL: $app_path exited $status after ${elapsed}s."
@@ -681,7 +725,7 @@ jobs:
               echo "FAIL: $app_path exited 0 but its log names a crash — a caught exception is still a crash."
               return 1
             fi
-            echo "PASS: $app_path started, ran --smoke, and exited 0 after ${elapsed}s."
+            echo "PASS: $app_path started, ran --smoke, and exited 0 after ${elapsed}s (of ${deadline}s allowed)."
             return 0
           }
 
@@ -703,8 +747,11 @@ jobs:
 
           status=0
 
+          # arm64: the gate. A timeout here (fourth arg "true") fails the job.
           arm64_log="$RUNNER_TEMP/smoke-arm64.log"
-          if ! launch "release/mac-arm64/Context.app/Contents/MacOS/Context" "$arm64_log"; then
+          launch "release/mac-arm64/Context.app/Contents/MacOS/Context" "$arm64_log" "$SMOKE_DEADLINE_S" true
+          arm64_rc=$?
+          if [ "$arm64_rc" -eq 1 ]; then
             status=1
           fi
           show_log "$arm64_log" "arm64"
@@ -732,8 +779,14 @@ jobs:
           fi
 
           if [ "$run_x64" = "true" ]; then
+            # x64: its own 240s allowance under Rosetta, and a timeout here
+            # (fourth arg "false") is a warning, not a job failure — a crash
+            # string or non-zero exit before that deadline still is one,
+            # because return code 1 (never 2) is what sets $status below.
             x64_log="$RUNNER_TEMP/smoke-x64.log"
-            if ! launch "release/mac/Context.app/Contents/MacOS/Context" "$x64_log"; then
+            launch "release/mac/Context.app/Contents/MacOS/Context" "$x64_log" "$X64_SMOKE_DEADLINE_S" false
+            x64_rc=$?
+            if [ "$x64_rc" -eq 1 ]; then
               status=1
             fi
             show_log "$x64_log" "x64"
