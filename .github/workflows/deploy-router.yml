@@ -100,8 +100,27 @@ jobs:
       # Prove the token can actually write to the account wrangler will deploy
       # into, BEFORE the opaque wrangler failure. A mis-scoped token otherwise
       # dies with "Could not route ... [code: 7003]", which says nothing about
-      # the cause. This prints the account NAME it resolves to — never the
-      # secret — so a token pointed at the wrong Cloudflare account is obvious.
+      # the cause.
+      #
+      # This calls GET /accounts/{id}/workers/scripts rather than the bare
+      # GET /accounts/{id} it used until 2026-09-07. The bare form needs
+      # "Account Settings: Read" — a permission this deploy has no other use
+      # for — and that day the token lost exactly that scope while otherwise
+      # unchanged (it could still deploy). The preflight died on Cloudflare
+      # 9109 ("Unauthorized to access requested resource") for a permission
+      # nothing downstream spends, five minutes after re-running Sync Secrets
+      # changed nothing, because the token's VALUE was never wrong. This
+      # endpoint needs only "Workers Scripts: Read", a strict subset of
+      # "Workers Scripts: Edit", which `wrangler deploy` below needs no matter
+      # what — so this preflight can never need a permission the deploy does
+      # not already require.
+      #
+      # It can no longer print the account's NAME — that field lives behind
+      # the same "Account Settings: Read" this step now deliberately avoids
+      # asking for — so it prints the script COUNT instead. A count is not an
+      # identifier; it proves the token can list this account's Workers, which
+      # is the fact this step exists to establish, without spending a
+      # permission never claimed to be needed.
       - name: Verify Cloudflare credentials (preflight)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -109,14 +128,21 @@ jobs:
         run: |
           set -euo pipefail
           resp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID")"
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts")"
           node -e '
             const d = JSON.parse(process.argv[1] || "{}");
             if (d.success) {
-              console.log("[ok] token can access account: " + ((d.result && d.result.name) || "(unknown)"));
+              console.log("[ok] token can list Workers scripts for this account (" + (d.result || []).length + " script(s)).");
             } else {
-              console.error("[FAIL] CLOUDFLARE_API_TOKEN cannot access CLOUDFLARE_ACCOUNT_ID.");
+              console.error("[FAIL] CLOUDFLARE_API_TOKEN cannot read Workers scripts for CLOUDFLARE_ACCOUNT_ID.");
               console.error("       Cloudflare errors: " + JSON.stringify(d.errors));
+              console.error("");
+              console.error("       Code 9109 (\"Unauthorized to access requested resource\") means one of:");
+              console.error("         - CLOUDFLARE_ACCOUNT_ID is wrong for this token, or");
+              console.error("         - CLOUDFLARE_API_TOKEN itself is invalid or expired, or");
+              console.error("         - the token is missing \"Workers Scripts: Read\" (or :Edit) on this account.");
+              console.error("       wrangler deploy below needs \"Workers Scripts: Edit\" regardless, so if");
+              console.error("       this is a permission gap, that same edit fixes both.");
               process.exit(1);
             }
           ' "$resp"
@@ -132,14 +158,33 @@ jobs:
       # comment on CONVEX_ORIGIN documents that state as a real one — the
       # Worker fails CLOSED on /api/auth/* rather than guessing — for a fresh
       # self-hosted deploy that has not set up Convex yet.
+      #
+      # The "skip when unset" check moved from a step-level `if:` into the
+      # shell body. `secrets` is not a valid context for `jobs.<job_id>.
+      # steps.if` — only `env`, `with`, and a job's `container`/`services`/
+      # `environment` can read it — so `if: ${{ secrets.CONTROL_PLANE_URL !=
+      # '' }}` failed the ENTIRE workflow to parse ("Unrecognized named-value:
+      # 'secrets'") on every trigger, push included, from the moment this
+      # step was added: zero jobs ever ran, and every deploy of the router —
+      # the front door — silently stayed on whatever was last live while this
+      # showed red. Caught while chasing an unrelated Cloudflare permission
+      # failure on 2026-09-07, which is the first thing that made anyone look
+      # at this job's failures at all.
       - name: Set CONVEX_ORIGIN secret (Convex HTTP-actions origin)
-        if: ${{ secrets.CONTROL_PLANE_URL != '' }}
         working-directory: infra/router
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
-        run: printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONVEX_ORIGIN
+        run: |
+          set -euo pipefail
+          if [ -z "${CONTROL_PLANE_URL:-}" ]; then
+            echo "Skipping CONVEX_ORIGIN — CONTROL_PLANE_URL is unset. Expected for a"
+            echo "fresh self-hosted deploy that has not set up Convex yet; the Worker"
+            echo "fails closed on /api/auth/* rather than guessing."
+            exit 0
+          fi
+          printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONVEX_ORIGIN
 
       - name: Deploy context-router
         working-directory: infra/router
