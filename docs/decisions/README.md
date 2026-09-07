@@ -138,6 +138,18 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - What is deliberately not built
 - Consent is the customer's, and the product may never make recording invisible
 
+## [The desktop shell](./desktop.md)
+
+- The shell loads the hosted console, and keeps a mirror of the last good load
+- Sign-in stays in the page, the grant stays in the main process, and they are not the same credential
+- The bridge is a package, it is versioned, and the gateway may never import it
+- The main process survives whole; the renderer is what is deleted
+- The shell updates itself with `electron-updater`, and never during a meeting
+- Nothing that can start a recording may come from an origin we did not pin
+- Offline is what the outbox was always for, plus a tray that needs no page
+- The order is seven pull requests, and the first one changes nothing by default
+- What is deliberately not built
+
 ## [Obsidian plugins](./obsidian-plugins.md)
 
 - The bucket is the vault, so compatibility starts as a duty not to break things

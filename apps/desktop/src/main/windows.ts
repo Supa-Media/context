@@ -13,11 +13,17 @@
  * doing, and an app that steals focus mid-sentence in a meeting is an app they
  * turn off. `showInactive()` rather than `show()` is that whole rule.
  *
+ * **The console window** is the third, and it is the one that is meant to
+ * replace the other two: it hosts `apps/mobile`'s web build rather than HTML
+ * written here, so a screen ships with the web deploy and reaches a browser, a
+ * phone and this Mac at once. It is behind `CONTEXT_DESKTOP_UI=console` until
+ * the bridge underneath it exists — `docs/decisions/desktop.md` has the order.
+ *
  * There is no dock icon at all — `app.dock.hide()` in `index.ts`. This is a
  * menu-bar presence, and a dock icon would make it a second thing to manage.
  */
 
-import { BrowserWindow, screen } from "electron";
+import { BrowserWindow, screen, shell } from "electron";
 import { join } from "node:path";
 
 export interface WindowSet {
@@ -93,6 +99,100 @@ export function createNotepad(rendererDir: string): BrowserWindow {
     }
   });
   return notepad;
+}
+
+/**
+ * The console window: the Expo app, hosted.
+ *
+ * `docs/decisions/desktop.md` is the argument for why this exists and what
+ * eventually replaces the panel and the notepad with it. Today it is behind
+ * `CONTEXT_DESKTOP_UI=console` and proves one thing: this shell can host a
+ * remote origin without giving that origin anything.
+ *
+ * Everything in `webPreferences` is a rule rather than a default. `sandbox` is
+ * on, which the panel and the notepad never needed because they loaded a local
+ * file; this window loads a page over the network and it is the difference
+ * between "our own HTML" and "whatever was served". `additionalArguments` is
+ * deliberately **not** how the origin reaches the preload — a sandboxed preload
+ * asks the main process for it, so the pin has one source and it is this
+ * process.
+ *
+ * Two navigation guards, because a note is full of other people's links:
+ * `will-navigate` cancels anything off-origin, and `setWindowOpenHandler` sends
+ * it to the person's real browser instead of opening a second window that would
+ * inherit this preload.
+ */
+function isWebUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+export function createConsoleWindow(url: string, rendererDir: string): BrowserWindow {
+  const origin = new URL(url).origin;
+  const win = new BrowserWindow({
+    width: 1_040,
+    height: 760,
+    minWidth: 720,
+    minHeight: 480,
+    show: false,
+    titleBarStyle: "hiddenInset",
+    // Painted before the page is, so a cold load shows the app's own ground
+    // rather than Chromium's white. Matches `renderer/tokens.css`.
+    backgroundColor: "#050506",
+    webPreferences: {
+      preload: join(rendererDir, "consolePreload.js"),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      // Its own jar, so the console's control-plane session is not sharing
+      // cookies with anything else this app ever loads.
+      partition: "persist:console",
+    },
+  });
+
+  /*
+    A link opens in the person's browser, and only if it is a link.
+
+    `openExternal` hands the string to the OS, which will act on `file:` and on
+    every scheme some other installed application registered. The page choosing
+    what this app asks macOS to open is the whole hazard, so the scheme is
+    allow-listed rather than filtered.
+  */
+  win.webContents.setWindowOpenHandler(({ url: target }) => {
+    if (isWebUrl(target)) void shell.openExternal(target);
+    return { action: "deny" };
+  });
+  /*
+    Off-origin navigation is cancelled, and so is a target this process cannot
+    parse — an unparseable URL is not a reason to let one through.
+  */
+  win.webContents.on("will-navigate", (event, target) => {
+    let same = false;
+    try {
+      same = new URL(target).origin === origin;
+    } catch {
+      same = false;
+    }
+    if (!same) event.preventDefault();
+  });
+  /*
+    The console is never granted a media permission.
+
+    The microphone in this app belongs to the hidden capture window, opened by
+    the main process after `core/consent/gate.ts` has said yes. So even a fully
+    compromised page cannot open one directly — the most it can do is ask the
+    bridge, and the bridge asks the gate.
+  */
+  win.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) =>
+    callback(false),
+  );
+
+  void win.loadURL(url);
+  return win;
 }
 
 /** Put the panel under the tray icon, clamped to the display it is on. */
