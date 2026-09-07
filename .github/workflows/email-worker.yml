@@ -44,8 +44,16 @@ jobs:
       # Runs before install: it needs only bash and node, and a workflow whose
       # shell does not parse is worth failing fast on. See the script's header
       # for the apostrophe that made this necessary.
+      #
+      # `--self-test` first, same reason every sibling checker below runs one:
+      # this script used to read `process.argv` nowhere at all, so passing
+      # `--self-test` here did nothing — it silently fell through to the
+      # ordinary scan and printed OK, verifying none of the cases the header
+      # claims it catches. See the script's `resolveMode`.
       - name: Workflow run blocks parse as shell
-        run: node scripts/check-workflow-shell.mjs
+        run: |
+          node scripts/check-workflow-shell.mjs --self-test
+          node scripts/check-workflow-shell.mjs
 
       # The third of the same family, and this file is its second host for the
       # same reason it is the trigger checker's: a workflow that does not parse

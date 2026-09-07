@@ -207,6 +207,20 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Runs first, and before install: it needs only bash and node, and a
+      # workflow whose shell does not parse is worth failing fast on. This
+      # file is the second host for the same two-host reasoning as the
+      # trigger and preflight checkers below — `email-worker.yml` runs it too.
+      #
+      # `--self-test` first: the script used to read `process.argv` nowhere at
+      # all, so `--self-test` did nothing and every call to it fell through to
+      # the ordinary scan, silently verifying none of the cases the header
+      # claims it catches. See the script's `resolveMode`.
+      - name: Workflow run blocks parse as shell
+        run: |
+          node scripts/check-workflow-shell.mjs --self-test
+          node scripts/check-workflow-shell.mjs
+
       # A workflow file that does not parse is not a failing check — GitHub
       # ignores the file entirely, so it produces no run, no error, and no
       # status at all. The pull request then goes green having never executed
