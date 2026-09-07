@@ -268,3 +268,36 @@ takes one round trip and one full body copy per object out of that, and no more.
 Server-side `CopyObject` behind a probed `copy` capability, one manifest write per
 operation, and a resumable job for anything larger than an invocation are the
 next three, in that order.
+
+### Dropbox's client secret is optional hardening, not a second credential to guard
+
+The Dropbox app was registered as a public client on purpose: PKCE — a
+verifier parked server-side in `dropboxConnectAttempts`, never in the browser
+— already proves which flow a code belongs to, with no secret in the system
+at all. `DROPBOX_APP_SECRET` exists on both of this project's deployments
+anyway, unused, because Dropbox's app console hands one out whether or not the
+app asks to be confidential.
+
+That secret is now read — `readAppSecret()` in `functions/dropboxConnect.ts`
+— and passed to `exchangeDropboxCode` and `refreshDropboxToken` as an
+**optional** `clientSecret`, included in the token request only when present.
+It is not required the way `DROPBOX_APP_KEY` is: PKCE already carries the
+proof this flow needs, so a deployment with no secret configured — a
+self-hoster mid-setup, or this repository's own tests — degrades to exactly
+the public-client behaviour that shipped, rather than refusing to connect.
+Where the secret **is** present, Dropbox now refuses a token request that
+gets the PKCE proof right but does not also come from a process holding it —
+a second, independent check that costs nothing because the exchange and every
+refresh already run from a scheduled Convex action, never from a browser.
+
+**What a "simplification" of this would cost.** Sending the secret
+unconditionally (`client_secret: options.clientSecret ?? ""`) would send the
+literal empty string the day a deployment's env var is unset, which Dropbox
+refuses outright — turning a deployment with no secret configured into one
+that cannot connect Dropbox at all instead of one that behaves as it always
+did. The three call sites — `exchangeAndBind`, `revokeDropboxGrant`, and the
+gateway's on-demand refresh in `functions/storage.ts` — all read the env var
+themselves rather than through a shared "requireAppSecret", because requiring
+it in one place while the other two stayed optional is exactly the kind of
+drift nobody would notice until a refresh started failing on a deployment
+that connects fine.

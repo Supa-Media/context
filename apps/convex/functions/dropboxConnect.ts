@@ -74,6 +74,17 @@ const STATE_BYTES = 32;
 const DROPBOX_APP_KEY_ENV_VAR = "DROPBOX_APP_KEY";
 
 /**
+ * The env var holding the Dropbox app secret, when this deployment has one.
+ *
+ * Unlike `DROPBOX_APP_KEY` this is read, not required: PKCE already proves
+ * the flow, so a missing secret degrades to the public-client behaviour this
+ * feature shipped with rather than refusing to connect. Both of this
+ * project's own deployments set it — see `lib/dropboxOAuth.ts` for why
+ * sending it costs nothing and buys a second, independent check.
+ */
+const DROPBOX_APP_SECRET_ENV_VAR = "DROPBOX_APP_SECRET";
+
+/**
  * Who is calling. Actions read the identity rather than a `ctx.db`, so this is
  * the action-shaped twin of `requireAuthId`, matching `bindStorage`.
  */
@@ -97,6 +108,15 @@ function requireAppKey(): string {
     });
   }
   return key;
+}
+
+/**
+ * `undefined` rather than a thrown error when unset — see the env var's
+ * comment above for why this one is optional.
+ */
+function readAppSecret(): string | undefined {
+  const secret = process.env[DROPBOX_APP_SECRET_ENV_VAR];
+  return typeof secret === "string" && secret.length > 0 ? secret : undefined;
 }
 
 /**
@@ -391,6 +411,7 @@ export const exchangeAndBind = internalAction({
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     const clientId = requireAppKey();
+    const clientSecret = readAppSecret();
     const keyset = requireKeyset();
     const context = { workspaceId: args.workspaceId as string };
     const verifier = await decryptSecret(args.encryptedVerifier, keyset, context);
@@ -399,6 +420,7 @@ export const exchangeAndBind = internalAction({
     try {
       tokens = await exchangeDropboxCode({
         clientId,
+        clientSecret,
         code: args.code,
         verifier,
         // The redirect the flow was started with, not one a caller supplied
@@ -630,10 +652,11 @@ export const revokeDropboxGrant = internalAction({
   handler: async (_ctx, args): Promise<null> => {
     try {
       const clientId = requireAppKey();
+      const clientSecret = readAppSecret();
       const keyset = requireKeyset();
       const context = { workspaceId: args.workspaceId as string };
       const refreshToken = await decryptSecret(args.encryptedRefreshToken, keyset, context);
-      const fresh = await refreshDropboxToken({ clientId, refreshToken });
+      const fresh = await refreshDropboxToken({ clientId, clientSecret, refreshToken });
       await revokeDropboxToken({ accessToken: fresh.accessToken });
       console.log(JSON.stringify({ event: "dropbox.grant_revoked", workspaceId: args.workspaceId }));
     } catch (error) {

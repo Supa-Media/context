@@ -400,6 +400,35 @@ describe("a Dropbox binding on the settings pane", () => {
   });
 
   /**
+   * "Which account is this?" was previously unanswerable from the console at
+   * all — `getStorageBinding` did not return it. This is the card that had to
+   * start saying it, and the row is absent rather than blank when the field is
+   * still unset (a binding mid-connect, before the exchange has landed).
+   */
+  test("says which Dropbox account is connected", () => {
+    const connected = mountSettings({ dropboxAccountId: "dbid:AAAAAAAAAAAAAAAAAAAA" });
+    expect(connected.text).toContain("Connected as");
+    expect(connected.text).toContain("dbid:AAAAAAAAAAAAAAAAAAAA");
+    connected.unmount();
+
+    const stillConnecting = mountSettings({});
+    expect(stillConnecting.text).not.toContain("Connected as");
+    stillConnecting.unmount();
+  });
+
+  // Not an S3 concept — an access key id is masked instead, and this row must
+  // never appear beside a bucket binding that has one.
+  test("an S3 binding never shows a Dropbox account row", () => {
+    const screen = mountSettings({
+      provider: "s3-compatible",
+      bucket: "example-bucket",
+      dropboxAccountId: undefined,
+    });
+    expect(screen.text).not.toContain("Connected as");
+    screen.unmount();
+  });
+
+  /**
    * "Which folder is this?" is the first question somebody has about a Dropbox
    * connection, and the answer the consent screen promised is "its own folder,
    * not your account". An absent row would leave that unanswered.
