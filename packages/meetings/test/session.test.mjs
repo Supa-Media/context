@@ -24,8 +24,9 @@
  *   `withAttendee` mutating the list it was given                            3
  *   the `notes` event tidying the human's Markdown                           2
  *   `normalizeTranscription` coercing an unknown engine to null              3
+ *   `hasNothingCaptured` removed from the guard on `empty`                  2
  *
- * The last row is the one that is deliberately unlike its neighbours in the
+ * The `normalizeTranscription` row is the one that is deliberately unlike its neighbours in the
  * source: `source.kind` and `device.platform` fall back, and this field
  * refuses. Coerced to `null`, a client with a typo in the word `cloud` gets a
  * note saying nothing was transcribed about a meeting that was streamed to a
@@ -40,6 +41,11 @@
  * FAILs read like a sabotage that did not land; it was a suite that could not
  * report. Every replay and every purity check now runs through `attempt`, so a
  * throw fails one check instead of taking the other 470 with it.
+ *
+ * The last row is `empty`'s own guard: without it a client's *claim* that a
+ * session captured nothing would be trusted rather than checked against the
+ * transcript and notes the session actually holds, which is exactly the shape
+ * a real note quietly stops existing in.
  */
 
 import {
@@ -49,6 +55,7 @@ import {
   applyEvent,
   applyLog,
   createSession,
+  hasNothingCaptured,
   newMeetingId,
   normalizeTranscription,
   recordedMsAt,
@@ -58,6 +65,7 @@ import {
   MEETING_ID_LENGTH,
   MEETING_TRANSITIONS,
   PROTOCOL_VERSION,
+  REASON_MAX,
   isMeetingId,
 } from "../src/protocol.js";
 import { FIXTURE_ID, at, attempt, countingRandom, deepEqual, deepFreeze, fixedRandom, segment } from "./fixtures.mjs";
@@ -270,6 +278,85 @@ export function runSessionChecks(check) {
     check("a failed recording can be written out with what it captured", partial.state === "finalizing");
     check("...transcript and all", partial.transcript.length === 1);
   }
+
+  /*
+    A session that captured nothing — no transcript, no typed notes — is not a
+    meeting to write a note for. `empty` is the gateway's own event, folded
+    from `finalizing`, and the reducer re-checks the claim against the session
+    it is actually applied to rather than trusting whoever sent it: the same
+    discipline `written` gets, because a wrong answer here is a real note that
+    silently stops existing.
+  */
+  {
+    const nothingCaptured = applyLog(fresh, [{ type: "end", at: at(1) }]);
+    check("a session with nothing captured still finalizes", nothingCaptured.state === "finalizing");
+    check("...and hasNothingCaptured agrees", hasNothingCaptured(nothingCaptured) === true);
+
+    const empty = applyEvent(nothingCaptured, { type: "empty", at: at(2), reason: "microphone not granted" });
+    check("an empty finalize marks the session empty", empty.state === "empty");
+    check("...carrying the reason", empty.emptyReason === "microphone not granted");
+    check("...with no note path", empty.notePath === null);
+    check("empty is terminal in the protocol table", MEETING_TRANSITIONS.empty.length === 0);
+    check(
+      "an empty session refuses to be written into a note",
+      attempt(() => applyEvent(empty, { type: "written", notePath: "a.md" })).error instanceof MeetingTransitionError
+    );
+
+    const withTranscript = applyLog(fresh, [
+      { type: "start", at: at(0) },
+      { type: "segment", segment: segment({ id: "z", startMs: 0, endMs: 1000, text: "hi" }) },
+      { type: "end", at: at(2) },
+    ]);
+    check(
+      "empty is refused on a session that actually captured a transcript",
+      attempt(() => applyEvent(withTranscript, { type: "empty", at: at(3), reason: "nothing" })).error instanceof
+        MeetingEventError
+    );
+    check("...and hasNothingCaptured agrees it is not empty", hasNothingCaptured(withTranscript) === false);
+
+    const withNotes = applyLog(fresh, [
+      { type: "notes", markdown: "- they said yes" },
+      { type: "end", at: at(2) },
+    ]);
+    check(
+      "...or one that captured typed notes",
+      attempt(() => applyEvent(withNotes, { type: "empty", at: at(3), reason: "nothing" })).error instanceof
+        MeetingEventError
+    );
+    check(
+      "whitespace-only notes do not save a session from being empty",
+      hasNothingCaptured(applyLog(fresh, [{ type: "notes", markdown: "   \n  " }, { type: "end", at: at(1) }])) === true
+    );
+
+    check(
+      "empty with no reason is refused",
+      attempt(() => applyEvent(nothingCaptured, { type: "empty", at: at(2), reason: "" })).error instanceof
+        MeetingEventError
+    );
+    check(
+      "...and a reason that is only whitespace is refused the same way",
+      attempt(() => applyEvent(nothingCaptured, { type: "empty", at: at(2), reason: "   " })).error instanceof
+        MeetingEventError
+    );
+
+    check(
+      "the same empty event applied twice is one empty, not two",
+      deepEqual(
+        applyLog(nothingCaptured, [
+          { type: "empty", at: at(2), reason: "microphone not granted" },
+          { type: "empty", at: at(2), reason: "microphone not granted" },
+        ]),
+        empty
+      )
+    );
+
+    check(
+      "a reason longer than the bound is capped, not refused",
+      applyEvent(nothingCaptured, { type: "empty", at: at(2), reason: "x".repeat(REASON_MAX * 2) }).emptyReason
+        .length === REASON_MAX
+    );
+  }
+
   check(
     "an unknown event type is refused rather than ignored",
     attempt(() => applyEvent(fresh, { type: "teleport" })).error instanceof MeetingEventError

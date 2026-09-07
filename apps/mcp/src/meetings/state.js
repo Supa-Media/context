@@ -64,7 +64,7 @@
  * `isMeetingNotePath` finds them, so there is no second index to drift.
  */
 
-import { CLIENT_EVENT_TYPES, ERRORS, isMeetingId } from "../../../../packages/meetings/src/protocol.js";
+import { CLIENT_EVENT_TYPES, ERRORS, REASON_MAX, isMeetingId } from "../../../../packages/meetings/src/protocol.js";
 import { applyEvent, applyLog, createSession } from "../../../../packages/meetings/src/session.js";
 import { normalizeSegment } from "../../../../packages/meetings/src/transcript.js";
 
@@ -129,6 +129,8 @@ export const LIMITS = Object.freeze({
    * write as everything else about a session.
    */
   transcribeChunksPerSession: 2_200,
+  /** `FinalizeBody.emptyReason` — a sentence for a person, not a stack trace. */
+  emptyReasonChars: REASON_MAX,
 });
 
 /**
@@ -646,5 +648,6 @@ export function sessionSummary(session) {
       : (session.segmentCount ?? 0),
     notePath: session.notePath ?? null,
     failureReason: session.failureReason ?? null,
+    emptyReason: session.emptyReason ?? null,
   };
 }

@@ -182,6 +182,10 @@ describe("a meeting is written where it was sent", () => {
     const { controller } = await harness();
 
     const id = await controller.start({ title: "Design review", destination: IN_A_PROJECT });
+    // Filler, the same way `sessionNamed` above says its own fields are: this
+    // test is about the *address* a finalize is sent to, and a session with
+    // nothing in it never reaches finalize at all since `hasNothingCaptured`.
+    controller.setNotes(id, "- discussed the portal redesign");
     await controller.end();
     await settle();
 
@@ -249,6 +253,7 @@ describe("a meeting is written where it was sent", () => {
     const { controller, gateway } = await harness();
 
     const id = await controller.start({ title: "Design review", destination: AT_THE_ROOT });
+    controller.setNotes(id, "- discussed the portal redesign");
     await controller.end();
     await settle();
 
@@ -278,6 +283,7 @@ describe("a meeting is written where it was sent", () => {
     // it, and that is a decision this change must not quietly reverse.
     const { controller } = await harness();
     const id = await controller.start({ title: "New meeting" });
+    controller.setNotes(id, "- discussed the portal redesign");
     await controller.end();
     await settle();
 
@@ -504,6 +510,7 @@ describe("a folder the gateway would not file into is not swallowed", () => {
     });
 
     const id = await controller.start({ title: "Design review", destination: IN_A_PROJECT });
+    controller.setNotes(id, "- discussed the portal redesign");
     await controller.end();
     await settle();
 
