@@ -597,7 +597,6 @@ async function main(): Promise<void> {
       push();
     },
   });
-  imessage.reconfigure();
   // `null` in console mode. Every use below is guarded rather than the flag
   // being read a second time — see `UI_MODE`.
   const panel = RENDERER_UI ? createPanel(RENDERER_DIR) : null;
@@ -674,6 +673,12 @@ async function main(): Promise<void> {
     */
     onSegment: (segment) => consoleBridge?.emitSegment(segment),
   });
+  // SCRATCH-VERIFICATION-ONLY: reconfigure() calls onChange() -> push(),
+  // which reads `controller` — moved here, after its declaration, so this
+  // is no longer a temporal dead zone. (This file is on a throwaway branch
+  // used only to prove the new CI gate goes green once the ordering is
+  // fixed; the real fix is a separate change.)
+  imessage.reconfigure();
 
   /*
     `__CONTEXT_DESKTOP_SIGNED__` is a build-time literal, not a live read of
