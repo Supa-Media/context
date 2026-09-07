@@ -12,12 +12,13 @@
     "test": "node --experimental-strip-types test/test.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "echo \"no lint configured yet\" && exit 0",
-    "package": "node scripts/build.mjs && electron-builder --mac --config electron-builder.yml"
+    "package": "node scripts/build.mjs && electron-builder --mac --config electron-builder.yml --publish never"
   },
   "dependencies": {
     "@supa-media/context-hook": "workspace:*",
     "@context/desktop-bridge": "workspace:*",
-    "@context/meetings": "workspace:*"
+    "@context/meetings": "workspace:*",
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "@electron/notarize": "^3.0.0",

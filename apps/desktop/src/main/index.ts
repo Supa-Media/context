@@ -53,6 +53,7 @@ import { transcribeChunk } from "./transcribe.ts";
 import { trayPresentation } from "../core/tray/presentation.ts";
 import type { TrayState } from "../core/tray/presentation.ts";
 import { AppTray } from "./tray.ts";
+import { DesktopUpdater } from "./updater.ts";
 import {
   createConsoleWindow,
   createNotepad,
@@ -164,6 +165,21 @@ async function main(): Promise<void> {
     onChange: () => push(),
   });
 
+  /*
+    `__CONTEXT_DESKTOP_SIGNED__` is a build-time literal, not a live read of
+    `process.env` — see `scripts/build.mjs`'s header and `env.d.ts`. A dev
+    launch (`--fake-signals` or not) is always `false` here because nothing
+    outside `deploy-desktop.yml` ever sets `CONTEXT_DESKTOP_SIGNED`, and an
+    unpackaged launch is refused by `shouldArmUpdater` regardless.
+  */
+  const updater = new DesktopUpdater({
+    packaged: app.isPackaged,
+    signed: __CONTEXT_DESKTOP_SIGNED__,
+    capturing: () => controller.recording,
+    onStateChange: () => push(),
+    log: (message) => console.log(message),
+  });
+
   const detector = await loadDetector();
   const loop = createDetectionLoop({
     collectors: FAKE ? fixedCollectors({ processes: ["zoom.us"], microphoneInUse: true }) : macosCollectors(),
@@ -204,6 +220,12 @@ async function main(): Promise<void> {
     connect: () => void connectThisMachine(),
     disconnect: () => void disconnectThisMachine(),
     toggleDetection: () => void update({ detectionEnabled: !settings.detectionEnabled }),
+    installUpdate: () => {
+      // A stray click cannot install mid-meeting: `install()` re-checks
+      // `controller.recording` itself, regardless of what this menu currently
+      // shows — see `DesktopUpdater.install()` and `mayInstall()`.
+      if (!updater.install()) push();
+    },
     quit: () => app.quit(),
   });
 
@@ -292,6 +314,7 @@ async function main(): Promise<void> {
       recording: controller.recording,
       detectionEnabled: settings.detectionEnabled,
       connected: state.connection.state === "connected",
+      updateReady: updater.state === "ready",
     });
     tray.render(
       trayPresentation({
@@ -446,6 +469,10 @@ async function main(): Promise<void> {
     push();
     await drain();
     controller.clear();
+    // The note is written; an update the download event deferred may now
+    // offer itself. See `docs/decisions/desktop.md`'s "never during a
+    // meeting" and `core/update/policy.ts`'s `deferred-for-recording` state.
+    updater.captureEnded();
 
     /*
       The detector is very likely still active — ending the recording does not
@@ -619,6 +646,7 @@ async function main(): Promise<void> {
   }
 
   loop.start();
+  updater.start();
   setInterval(() => void drain(), DRAIN_INTERVAL_MS);
   push();
 

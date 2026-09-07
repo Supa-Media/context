@@ -31,6 +31,21 @@ const watch = process.argv.includes("--watch");
 const NODE_TARGET = "node20";
 const CHROME_TARGET = "chrome128";
 
+/**
+ * Whether *this* build is code-signed, decided here rather than read live by
+ * the packaged app.
+ *
+ * `deploy-desktop.yml`'s certificate step already knows — it is the one that
+ * either builds a keychain or gives up and sets `CSC_IDENTITY_AUTO_DISCOVERY`
+ * — and passes it as `CONTEXT_DESKTOP_SIGNED` to this build, not to the packaged
+ * app: a double-clicked `.app` on somebody's Mac carries none of the
+ * environment a GitHub Actions runner set. Baked in as a literal instead, so
+ * `src/core/update/policy.ts`'s `shouldArmUpdater` — the check that decides
+ * whether `autoUpdater` is ever constructed — has a real answer instead of a
+ * guess. Unset locally, which is correct: nothing built on a laptop is signed.
+ */
+const SIGNED = process.env.CONTEXT_DESKTOP_SIGNED === "true";
+
 const configs = [
   {
     entryPoints: [join(root, "src/main/index.ts")],
@@ -39,6 +54,7 @@ const configs = [
     format: "esm",
     target: NODE_TARGET,
     external: ["electron"],
+    define: { __CONTEXT_DESKTOP_SIGNED__: JSON.stringify(SIGNED) },
   },
   {
     entryPoints: [join(root, "src/preload/index.ts")],

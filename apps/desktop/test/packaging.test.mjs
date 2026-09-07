@@ -32,6 +32,8 @@
  *   a notarisation Apple refused caught and logged instead of thrown            1
  *   `rmSync` in the hook's `finally` made a no-op (the key stays on the runner) 2
  *   the `electronPlatformName !== "darwin"` guard removed                       1
+ *   the `publish` input's default flipped to `true`                            1
+ *   the build job's `contents: write` override dropped back to `read`          1
  *
  * The first one was measured at **0** before these checks were asked of the
  * plist\'s keys rather than of its text: that file\'s header discusses every
@@ -106,9 +108,29 @@ export async function runPackagingChecks(check) {
     /entitlementsInherit:\s*build\/entitlements\.mac\.plist/.test(BUILDER),
   );
   check("it builds a dmg", /target:\s*dmg/.test(BUILDER));
+  check(
+    "IT BUILDS A ZIP TOO — Squirrel.Mac applies an update from a zip, never a dmg",
+    /target:\s*zip/.test(BUILDER),
+  );
   check("...for both architectures, because an Intel Mac is still a Mac", BUILDER.includes("arm64") && BUILDER.includes("x64"));
   check("it is a menu-bar app, with no dock icon", /LSUIElement:\s*true/.test(BUILDER));
   check("the notarisation hook is wired", BUILDER.includes("afterSign: build/notarize.cjs"));
+  check(
+    "publishing targets GitHub Releases, not left for a build to guess a provider",
+    /publish:\s*\n\s*provider:\s*github/.test(BUILDER),
+  );
+  check(
+    "...as a real release, not a draft the update check can never see",
+    /releaseType:\s*release/.test(BUILDER),
+  );
+  check(
+    "...pinned to this repository, so a fork publishes to itself rather than here",
+    /owner:\s*Supa-Media/.test(BUILDER) && /repo:\s*context/.test(BUILDER),
+  );
+  check(
+    "writeUpdateInfo is not turned off — that flag is what silently starves the updater of latest-mac.yml",
+    !/writeUpdateInfo:\s*false/.test(BUILDER),
+  );
 
   // -- the sentences macOS shows before anybody agrees to anything ----------
   for (const key of [
@@ -221,28 +243,55 @@ export async function runPackagingChecks(check) {
   check("...and it builds the bundle first, because the dmg ships `dist/`", manifest.scripts.package.includes("scripts/build.mjs"));
   check("electron-builder is a devDependency, not something a build downloads", "electron-builder" in manifest.devDependencies);
   check("...as is the notarisation tool the hook requires", "@electron/notarize" in manifest.devDependencies);
+  check(
+    "A LOCAL `pnpm package` NEVER PUBLISHES — electron-builder's own default for a config carrying a `publish` block is not something to trust a developer's ambient GH_TOKEN against",
+    /--publish\s+never/.test(manifest.scripts.package),
+  );
   /*
     What ends up inside the asar, checked as a rule rather than as a list.
 
     Pinning the exact set was the first version and it was wrong in the
     direction that matters: it would have gone red on a workspace package the
     app legitimately started using, which is a check that has to be edited to
-    stay true. What is worth holding is that this app ships **no third-party
-    runtime code** — every dependency is one of ours, in this repository, and
-    esbuild bundles it. A signed binary is the last place to grow a supply
-    chain nobody reviewed.
+    stay true. What is worth holding is that this app ships **almost no**
+    third-party runtime code — every dependency is one of ours, in this
+    repository, with exactly one named exception below — and esbuild bundles
+    all of it. A signed binary is the last place to grow a supply chain nobody
+    reviewed.
+
+    ## The one exception, and why it earns the name rather than the rule
+
+    `electron-updater` is the library `docs/decisions/desktop.md`'s "The shell
+    updates itself" section decided on, and there is no `workspace:` version of
+    it to depend on instead — it is the mechanism this step exists to add, the
+    same way `electron` and `electron-builder` already are third-party and
+    already are load-bearing. Refusing it here would be refusing the
+    deliverable, not guarding anything, so it is named once, pinned to an exact
+    version rather than left to float, and nothing else gets the same pass.
   */
+  const THIRD_PARTY_RUNTIME_DEPENDENCIES = new Set(["electron-updater"]);
   check(
-    "every runtime dependency is one of ours, in this repository",
+    "every runtime dependency is either ours, in this repository, or the one named exception",
     // `workspace:` rather than a scope prefix, and the difference is not
     // cosmetic: the first version matched `@context/` and `@context-lc/`, and
     // #263 renamed the hook to `@supa-media/context-hook` — a package that is
     // still ours, still in this repository, and would have turned this check
     // red for a rename. What is being asserted is "resolved from this
     // workspace, not downloaded", and pnpm spells that `workspace:`.
-    Object.values(manifest.dependencies).every((range) => String(range).startsWith("workspace:")),
+    Object.entries(manifest.dependencies).every(
+      ([name, range]) =>
+        THIRD_PARTY_RUNTIME_DEPENDENCIES.has(name) || String(range).startsWith("workspace:"),
+    ),
   );
-  check("...and there is at least one, so that rule is checking something", Object.keys(manifest.dependencies).length > 0);
+  check(
+    "...and the exception is pinned to an exact version, not left to float in a signed binary",
+    /^\^?\d+\.\d+\.\d+$/.test(String(manifest.dependencies["electron-updater"])),
+  );
+  check(
+    "...and it is exactly one exception, not a name that quietly grew a second meaning",
+    THIRD_PARTY_RUNTIME_DEPENDENCIES.size === 1,
+  );
+  check("...and there is at least one workspace dependency, so that rule is checking something", Object.keys(manifest.dependencies).length > THIRD_PARTY_RUNTIME_DEPENDENCIES.size);
   check(
     "...and it would notice a real one — a registry range is not a workspace range",
     !["^1.0.0", "1.0.0", "latest", "npm:left-pad@1"].some((range) => String(range).startsWith("workspace:")),
@@ -323,6 +372,53 @@ export async function runPackagingChecks(check) {
   check(
     "the notarisation key is judged before the build too, not after twenty-six seconds of signing",
     keyCheck !== undefined && steps.indexOf(keyCheck) < steps.indexOf(buildStep),
+  );
+
+  // -- publishing: a boolean input, gated permissions, and idempotency --------
+  /*
+    `docs/decisions/desktop.md`'s fourth "shell updates itself" decision: a
+    `publish` dispatch input, `contents: write` scoped to the one job that can
+    ever use it, and a refusal to publish a version this workflow already
+    released. None of this can be *exercised* here — that needs a Mac, a real
+    certificate and a real GitHub Release — but every one of these has failed
+    silently before in this exact file (see the sabotage record above), so what
+    is checked is the shape that would let it fail silently again.
+  */
+  check(
+    "a `publish` dispatch input exists and defaults to false",
+    /publish:\s*\n\s*description:[^\n]*\n\s*required:\s*false\s*\n\s*type:\s*boolean\s*\n\s*default:\s*false/.test(
+      WORKFLOW,
+    ),
+  );
+  check(
+    "the build job elevates to contents: write, not the whole workflow",
+    /^permissions:\s*\n\s*contents:\s*read/m.test(WORKFLOW) && /permissions:\s*\n\s*contents:\s*write/.test(WORKFLOW),
+  );
+  check(
+    "publishing is decided once, from the dispatch input AND both credentials — not the input alone",
+    /PUBLISH_REQUESTED/.test(WORKFLOW) &&
+      /SIGNED/.test(WORKFLOW) &&
+      /NOTARIZED/.test(WORKFLOW) &&
+      /\$PUBLISH_REQUESTED"\s*=\s*"true"\s*\]\s*&&\s*\[\s*"\$SIGNED"\s*=\s*"true"\s*\]\s*&&\s*\[\s*"\$NOTARIZED"\s*=\s*"true"/.test(
+        WORKFLOW,
+      ),
+  );
+  check(
+    "an already-released version refuses to publish again, before the build rather than after",
+    /gh release view "\$TAG"/.test(WORKFLOW) &&
+      steps.indexOf(steps.find((step) => /gh release view/.test(step))) < steps.indexOf(buildStep),
+  );
+  check(
+    "the version comes from apps/desktop/package.json, never bumped by this workflow itself",
+    /require\('\.\/package\.json'\)\.version/.test(WORKFLOW) && !/npm version|package\.json['"],?\s*JSON\.stringify/.test(WORKFLOW),
+  );
+  check(
+    "the build step decides --publish from the same decision, not a second copy of the condition",
+    buildStep !== undefined && /--publish "\$publish_policy"/.test(buildStep) && /PUBLISH: \$\{\{ steps\.decide\.outputs\.publish \}\}/.test(buildStep),
+  );
+  check(
+    "GH_TOKEN is the workflow's own built-in token — no new secret was added for this",
+    buildStep !== undefined && /GH_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/.test(buildStep),
   );
   /*
     electron-builder's own `MacPackager.doSign()` logs `identityName=Developer
