@@ -36,7 +36,7 @@ const mockEligible = [
 
 jest.mock("convex/react", () => ({
   useConvex: () => mockClient,
-  useQueries: () => ({ contexts: mockEligible }),
+  useQueries: () => ({ contexts: { eligible: mockEligible, notEligible: [] } }),
 }));
 
 import {

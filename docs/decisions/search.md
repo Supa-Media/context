@@ -941,6 +941,16 @@ is told that nothing looked, which is a different sentence from "nothing
 matched", and the two are separate states in the response (`eligibleCount`)
 precisely so they cannot collapse into each other.
 
+**The honest sentence still read as a broken page for most brains, because
+fast search is off by default, so the fix is a nudge, never a silent
+fan-out over the R2 index just to make the empty state look populated.**
+`fastSearch.searchableContexts` answers `{ eligible, notEligible }` — the
+second half is the caller's own live memberships that are not `ready`, each
+carrying whether the caller owns it and why (`off`, `preparing`, `failed`,
+`unavailable`) — and the console names each one and, for an owner staring at
+`off` or `failed`, deep-links to the one switch that already changes it
+rather than building a second.
+
 **A miss does not buy a listing here.** `searchIndexedNotes`' rule — an empty
 answer over a converged index may pay for one bucket listing and ask again — is
 right for a single context and wrong multiplied. A fan-out misses in most of its

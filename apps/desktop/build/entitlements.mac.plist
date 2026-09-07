@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  What the hardened runtime lets this app do, and nothing else.
+
+  Four keys, and each is here because something breaks without it:
+
+  - `com.apple.security.device.audio-input` — the microphone. Without it a
+    hardened-runtime build is refused by TCC before a dialog is ever shown, so
+    the app appears to record and captures silence. It is also half of what
+    ScreenCaptureKit's system-audio tap needs; the other half is Screen
+    Recording, which is a TCC grant rather than an entitlement and cannot be
+    declared here.
+  - `com.apple.security.cs.allow-jit` and
+    `com.apple.security.cs.allow-unsigned-executable-memory` — Chromium's V8.
+    Every Electron app needs both under the hardened runtime; without them the
+    renderer crashes at launch.
+  - `com.apple.security.cs.disable-library-validation` — Electron's own helper
+    binaries and any native module load into the app's process. Without it a
+    signed app refuses its own framework.
+
+  Deliberately NOT here, and each absence is a decision:
+
+  - `com.apple.security.device.camera`. This app has no video path at all. The
+    `getDisplayMedia` call takes a video track because the API requires one and
+    stops it before a frame is read.
+  - `com.apple.security.network.server`. The loopback listener that receives the
+    OAuth redirect binds 127.0.0.1 in the main process, which is not sandboxed
+    and needs no entitlement for it. Adding one would be asking for a permission
+    to do something already permitted.
+  - `com.apple.security.files.user-selected.read-write`. Nothing here opens a
+    file the person chose. Notes go to the bucket, not to disk.
+  - The App Sandbox itself. Notarised distribution outside the Mac App Store
+    does not require it, and the app reads process lists and drives Calendar
+    over JXA — both of which the sandbox forbids. If this ever goes to the Mac
+    App Store, that is a different build with a different detection story, and
+    it is a decision rather than a flag.
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+  </dict>
+</plist>

@@ -49,6 +49,53 @@ import { dirname, join } from "node:path";
 export const HOOK_MARKER = "context-hook";
 
 /**
+ * Every name this package has been published under, newest first.
+ *
+ * **Read forever, written only for the first.** The marker above is no longer
+ * written, so an installed entry is recognised by its command string alone —
+ * and an install made between the marker being dropped and the rename to
+ * `@supa-media/context-hook` carries neither the marker nor the current name.
+ *
+ * Recognising only the current name does not leave those machines alone, it
+ * leaves them worse: `install` adds a second hook beside the first, so every
+ * session posts twice, and `uninstall` reports the old one as somebody else's
+ * and walks past — leaving a session-end hook the person cannot remove with
+ * this tool, invoking a name this project no longer publishes, through
+ * `npx -y`, which fetches whatever is at that name.
+ *
+ * So a name goes into this list when it is retired and never comes out. It is
+ * the same argument `isMeetingNotePath` makes about the key shape it stopped
+ * writing: what a tool WRITES may change, what it must still RECOGNISE only
+ * grows, because the alternative is not migrating somebody — it is abandoning
+ * what is already on their machine.
+ */
+const PUBLISHED_NAMES = ["@supa-media/context-hook", "@context-lc/hook"];
+
+/**
+ * Each name as a whole token, because `uninstall` deletes what this matches.
+ *
+ * The match runs over a command in a file the person owns, and a substring test
+ * reads three different things as us: another package whose name merely starts
+ * with one of ours (`@supa-media/context-hook-extras`, `@context-lc/hooks-lint`
+ * — names anybody may register), and a person's own command that mentions one
+ * in prose. MEASURED against the unanchored version, `uninstall` deleted three
+ * of four hooks that were nobody's business but their owner's.
+ *
+ * Recognising a name forever is what makes the looseness expensive: the retired
+ * name is now permanently in the matcher, so every superstring of it is
+ * permanently at risk. A space or the string's edge on both sides is exactly
+ * how `hookCommand` writes the name and is not how any of those spell it.
+ *
+ * `\s` rather than a literal space so a command joined with a tab or a newline
+ * is still recognised — those are ours to have written, and a hook that becomes
+ * unremovable because somebody reformatted their settings file is the failure
+ * this list exists to prevent.
+ */
+const PUBLISHED_NAME_TOKENS = PUBLISHED_NAMES.map(
+  (name) => new RegExp(`(?:^|\\s)${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$)`)
+);
+
+/**
  * All three write the same nested shape:
  *
  *     { "hooks": { "<Event>": [ { "hooks": [ { "type": "command", "command": … } ] } ] } }
@@ -125,7 +172,10 @@ export function clientById(id) {
  * secret.
  */
 export function hookCommand({ endpoint, client, command = "capture" }) {
-  return `npx -y @supa-media/context-hook ${command} --client ${shellArg(client)} --endpoint ${shellArg(endpoint)}`;
+  // `PUBLISHED_NAMES[0]` rather than the literal, so the name this package
+  // writes and the newest name it recognises cannot come apart. Written twice,
+  // the next rename updates one of them and the substring match hides it.
+  return `npx -y ${PUBLISHED_NAMES[0]} ${command} --client ${shellArg(client)} --endpoint ${shellArg(endpoint)}`;
 }
 
 function shellArg(value) {
@@ -175,7 +225,8 @@ function isOurs(matcher) {
   return entries.some(
     (entry) =>
       entry?.[HOOK_MARKER] === true ||
-      (typeof entry?.command === "string" && entry.command.includes("@supa-media/context-hook"))
+      (typeof entry?.command === "string" &&
+        PUBLISHED_NAME_TOKENS.some((token) => token.test(entry.command)))
   );
 }
 

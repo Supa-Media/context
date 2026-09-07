@@ -144,6 +144,21 @@ describe("the native path never imports the editor, only the bundle", () => {
     "features/console/files/webview/protocol.ts",
   ];
 
+  /*
+    EVERY EDITOR MODULE, NOT THE ONES THAT EXISTED WHEN THIS WAS WRITTEN.
+
+    `linkComplete` and `noteLinks` were added with `[[` completion and were not
+    added here, so the guard stopped covering the graph it names. MEASURED
+    before this line existed: importing `./linkComplete` into the native
+    `LiveEditor.tsx` left this file 10/10 green, while the same import of
+    `./livePreview` failed it — the difference being only which strings
+    somebody remembered.
+
+    That is the shape this list is most likely to fail in: it does not go
+    wrong, it goes out of date, and a list that is out of date reports the same
+    green as a list that is complete. A module added to `features/console/files`
+    and used by the guest belongs here the same day.
+  */
   const FORBIDDEN = [
     "@codemirror/",
     "@lezer/",
@@ -151,6 +166,10 @@ describe("the native path never imports the editor, only the bundle", () => {
     "../livePreview",
     "./editorSetup",
     "../editorSetup",
+    "./linkComplete",
+    "../linkComplete",
+    "./noteLinks",
+    "../noteLinks",
     "./webview/guest",
     "./webview/styles",
     "./webview/entry",

@@ -1,0 +1,347 @@
+name: Deploy Desktop (build the Mac app)
+
+# A `.dmg` of the meeting recorder, built on a Mac runner — signed and notarised
+# when the credentials exist, and honestly unsigned when they do not.
+#
+# ## Why nothing about a branch triggers it
+#
+# `workflow_dispatch` only, and the same reason `deploy-mobile-native.yml` gives:
+# this produces a **binary somebody installs**. A merge to `main` deploys the
+# Convex functions, the gateway and an OTA bundle because those are reversible
+# by the next merge; a build that a person downloads and runs is not, and
+# shipping one is a decision somebody takes. CLAUDE.md says it in as many words:
+# "a native build, a store submission, rotating a secret" are what a merge
+# cannot do on its own.
+#
+# The consequence, stated rather than discovered: **merging a desktop change
+# ships nothing.** Dispatch this when there is a build worth having.
+#
+# ## Signed or not, and what the difference costs
+#
+# Everything in this file works with no signing credentials at all, and that is
+# deliberate: the certificate and the App Store Connect key do not exist yet, and
+# a workflow that cannot run until they do is a workflow nobody tests. So the
+# unsigned path produces a real `.dmg` you can install on the machine that built
+# it — enough to prove the app opens, the tray appears, and the microphone path
+# works.
+#
+# What an unsigned build does **not** get, and this is the whole reason the
+# signed path matters:
+#
+#  - Gatekeeper refuses it on any other Mac.
+#  - macOS does not grant a hardened-runtime app TCC permissions it has not
+#    verified, so **system audio does not work** — the app degrades to mic-only
+#    and says so, which is the honest behaviour and not the intended one.
+#
+# The moment `CSC_LINK`, `CSC_KEY_PASSWORD`, `ASC_API_KEY_P8`, `ASC_KEY_ID` and
+# `ASC_ISSUER_ID` are in the `production` environment, the same dispatch signs,
+# notarises and staples with no change here: electron-builder reads the first
+# two itself, and `build/notarize.cjs` reads the other three and skips cleanly
+# without them.
+#
+# ## What this cannot check
+#
+# That the signature is trusted on somebody else's Mac, that notarisation
+# actually granted TCC, or that ScreenCaptureKit hands over system audio. All
+# three need a person, a Mac and a meeting. The artifact is what they need to do
+# that with.
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why this build exists — it goes in the run's title"
+        required: false
+        default: "a build to try on a Mac"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-desktop
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the Mac app
+    # macOS, and not optional: codesign, notarytool and dmg creation are all
+    # Apple's own tools. A Linux runner can produce a directory that looks like
+    # an app and nothing that installs.
+    runs-on: macos-latest
+    timeout-minutes: 45
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Scoped to the app and what it depends on. The desktop app has one
+      # runtime dependency (`@context/meetings`, bundled by esbuild) and its
+      # build tools; the rest of the workspace is not this build's business.
+      - name: Install
+        run: pnpm install --filter "./apps/desktop..." --frozen-lockfile
+
+      # Before anything is built. A `.dmg` of a broken app is worse than no
+      # `.dmg`, because somebody installs it.
+      - name: Test
+        working-directory: apps/desktop
+        run: node --experimental-strip-types test/test.mjs
+
+      - name: Typecheck
+        working-directory: apps/desktop
+        run: pnpm exec tsc --noEmit
+
+      # Everything about the certificate that can be established before a build,
+      # established before the build — and then the keychain electron-builder
+      # will sign from, made here rather than by electron-builder.
+      #
+      # ## Why this workflow owns the keychain
+      #
+      # Handed `CSC_LINK`, electron-builder creates a throwaway keychain with a
+      # random password, imports the .p12 into it, and then runs
+      #
+      #   security set-key-partition-list -S apple-tool:,apple: -s -k <password>
+      #
+      # with the **certificate's** import password rather than that keychain's.
+      # Those are two different secrets and only the keychain's own unlocks it,
+      # so the command fails with "SecKeychainUnlock: The user name or
+      # passphrase you entered is not correct" and the build is over in forty
+      # seconds, before it has packaged anything. It is
+      # electron-userland/electron-builder#10066, its fix is in no released
+      # 26.x, and the two dispatches that failed this way are what this step
+      # exists for. The `security import` on the line before succeeded both
+      # times, which is what says the passphrase is right and the *keychain's*
+      # password was what was wrong.
+      #
+      # Avoiding that path costs one line: with no `CSC_LINK` in its
+      # environment, electron-builder signs from `CSC_KEYCHAIN` — a keychain
+      # somebody else made — instead of making one. So both signing secrets
+      # stop at this step, the Build step below is handed a keychain and no
+      # secrets at all, and the keychain is deleted in an `always()` step at
+      # the end whatever the build did.
+      #
+      # ## What it prints, and what it will not
+      #
+      # This repository is public and so are these logs. The certificate's
+      # subject names the company and carries the Apple team id, so it is never
+      # printed: the log gets the *kind* of certificate, whether the private key
+      # came with it, when it expires, and how many signing identities the
+      # keychain ended up holding. Each of those tells one failure from another,
+      # and none of them identifies anybody.
+      - name: Check the certificate, and make the keychain to sign from
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CSC_LINK:-}" ]; then
+            echo "::warning::No signing certificate — this build is UNSIGNED."
+            echo "It installs on the machine that built it and nowhere else, and"
+            echo "macOS will not give it system audio. Mic-only is expected."
+            # Without this, electron-builder looks for an identity in the
+            # runner's own keychain and fails on a machine that has none.
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          if [ -z "${CSC_KEY_PASSWORD:-}" ]; then
+            echo "::error::CSC_LINK is set but CSC_KEY_PASSWORD is not. A .p12 exported from Keychain Access always has an export password, and it is that one."
+            exit 1
+          fi
+
+          dir="$RUNNER_TEMP/desktop-signing"
+          mkdir -p "$dir"
+          chmod 700 "$dir"
+          p12="$dir/certificate.p12"
+
+          # `openssl base64 -d -A` rather than `base64 --decode`: the flag spelling
+          # differs between the BSD and GNU tools, and -A takes the whole thing as
+          # one line, which is what a secret pasted from `base64 -i cert.p12` is.
+          if ! printf '%s' "$CSC_LINK" | tr -d '\r\n' | /usr/bin/openssl base64 -d -A > "$p12" 2>/dev/null; then
+            echo "::error::CSC_LINK is not valid base64. It should be the whole .p12 file, base64-encoded, and nothing else."
+            exit 1
+          fi
+          if [ ! -s "$p12" ]; then
+            echo "::error::CSC_LINK decoded to nothing. It should be the whole .p12 file, base64-encoded."
+            exit 1
+          fi
+
+          # The certificate half. A wrong passphrase and a file that is not a
+          # PKCS#12 bundle at all fail here in the same breath, so they are told
+          # apart by what openssl said rather than reported as one guess. Its
+          # stderr is read, never echoed.
+          if ! /usr/bin/openssl pkcs12 -in "$p12" -clcerts -nokeys -passin env:CSC_KEY_PASSWORD -out "$dir/certificate.pem" 2> "$dir/openssl.err"; then
+            if grep -qi "mac verify" "$dir/openssl.err"; then
+              echo "::error::CSC_KEY_PASSWORD does not open CSC_LINK. The password wanted is the one typed when the certificate was exported from Keychain Access — check for a trailing space or newline in the secret."
+            else
+              echo "::error::CSC_LINK is not a PKCS#12 (.p12) bundle. Export the identity from Keychain Access as .p12 — a .cer or .pem is the certificate without its private key and cannot sign."
+            fi
+            exit 1
+          fi
+
+          # The private-key half, which the check above cannot see: a .p12 that
+          # holds only a certificate imports without complaint and then signs
+          # nothing. Piped, never written — an unencrypted private key does not
+          # go on a disk here.
+          keys="$(/usr/bin/openssl pkcs12 -in "$p12" -nocerts -nodes -passin env:CSC_KEY_PASSWORD 2>/dev/null | grep -c "PRIVATE KEY" || true)"
+          if [ "${keys:-0}" -eq 0 ]; then
+            echo "::error::CSC_LINK holds a certificate but no private key. Export the identity itself from Keychain Access — the row with the key under it — as .p12."
+            exit 1
+          fi
+
+          if ! /usr/bin/openssl x509 -in "$dir/certificate.pem" -noout -checkend 0 > /dev/null; then
+            echo "::error::The certificate in CSC_LINK has expired. A new Developer ID Application certificate is needed; nothing here can be signed with this one."
+            exit 1
+          fi
+          # The subject is read and NOT printed — it carries the team id. Into a
+          # variable rather than through `grep -q`, because `set -o pipefail`
+          # turns the SIGPIPE that a matching `grep -q` sends into a failure of
+          # the whole pipeline — a check that fails on the certificate it just
+          # accepted.
+          subject="$(/usr/bin/openssl x509 -in "$dir/certificate.pem" -noout -subject)"
+          case "$subject" in
+            *"Developer ID Application"*) ;;
+            *)
+              echo "::error::The certificate in CSC_LINK is not a Developer ID Application certificate. A Mac App Distribution or Development certificate cannot produce a dmg that opens on somebody else's Mac."
+              exit 1
+              ;;
+          esac
+          expires="$(/usr/bin/openssl x509 -in "$dir/certificate.pem" -noout -enddate | sed 's/^notAfter=//')"
+          echo "A Developer ID Application certificate, with its private key, valid until $expires."
+
+          # The keychain, with a password generated here and used for both the
+          # things that need it: creating it, and authorising codesign to use
+          # the key without a prompt no runner can answer.
+          keychain="$dir/signing.keychain-db"
+          keychain_password="$(/usr/bin/openssl rand -base64 24)"
+          echo "::add-mask::$keychain_password"
+          /usr/bin/security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"$//' > "$dir/keychains.before"
+          /usr/bin/security create-keychain -p "$keychain_password" "$keychain"
+          # No lock on sleep and a timeout longer than this job's, or a long
+          # notarisation returns to a locked keychain and a signature that fails.
+          /usr/bin/security set-keychain-settings -lut 21600 "$keychain"
+          /usr/bin/security unlock-keychain -p "$keychain_password" "$keychain"
+          /usr/bin/security import "$p12" -k "$keychain" -f pkcs12 -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/productbuild
+          /usr/bin/security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          # Kept on the search list alongside the runner's own, so the chain up
+          # to Apple's intermediate can still be built.
+          # shellcheck disable=SC2046
+          /usr/bin/security list-keychains -d user -s "$keychain" $(cat "$dir/keychains.before")
+          rm -f "$p12" "$dir/certificate.pem" "$dir/openssl.err"
+
+          # Counted, not printed: each line names the company and the team id.
+          identities="$(/usr/bin/security find-identity -v -p codesigning "$keychain" | grep -c "Developer ID Application" || true)"
+          if [ "${identities:-0}" -eq 0 ]; then
+            echo "::error::The certificate imported but macOS will not sign with it. The usual cause is a .p12 whose private key did not survive the export."
+            exit 1
+          fi
+          echo "The keychain holds $identities Developer ID Application signing identity(ies)."
+
+          echo "SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          echo "CSC_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          echo "CSC_IDENTITY_AUTO_DISCOVERY=true" >> "$GITHUB_ENV"
+
+          if [ -n "${ASC_API_KEY_P8:-}" ]; then
+            echo "This build will be signed and notarised."
+          else
+            echo "::warning::This build will be signed but NOT notarised — the App Store Connect key is missing."
+            echo "Gatekeeper refuses an un-notarised build on another Mac, and macOS will not give it system audio."
+          fi
+
+      # The other credential, judged by the code that will use it.
+      #
+      # The first build to get past code signing died twenty-six seconds later,
+      # after Electron had been downloaded, the app packaged and the signature
+      # applied, on `Failed to notarize via notarytool. Error:
+      # invalidPEMDocument` — which says the file the hook wrote is not a PEM
+      # and nothing about why. A `.p8` is a multi-line PEM and a secret store is
+      # a text box, so `build/notarize.cjs` repairs the four unambiguous ways it
+      # arrives damaged and refuses anything that is not a private key; running
+      # it with `--check` here applies exactly that rule, before the build,
+      # instead of a second copy of it in shell. The key stays inside that
+      # process: it is not written, echoed or exported.
+      - name: Check the notarisation key
+        working-directory: apps/desktop
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          node build/notarize.cjs --check
+
+      # The signing half arrives as `CSC_KEYCHAIN` and
+      # `CSC_IDENTITY_AUTO_DISCOVERY` from the step above, through `GITHUB_ENV`
+      # — and `CSC_LINK` deliberately does not arrive at all, because its
+      # presence is what makes electron-builder build its own keychain and fail.
+      # `build/notarize.cjs` reads the three ASC values, and treats absent as
+      # "do the unsigned thing" rather than as an error.
+      # electron-builder itself prints the signing identity at "info" level on
+      # every signed build — `MacPackager.doSign()` in app-builder-lib logs
+      # `identityName=Developer ID Application: <company> (<team id>) identityHash=<sha1>`
+      # unconditionally, with no flag to quiet it. That is the same subject the
+      # preflight above reads and refuses to print, arriving anyway through a
+      # dependency's own log line, so it is redacted here instead — on the way
+      # to the log, not before electron-builder ever sees it, and with
+      # `pipefail` so a redacted failure still fails the step.
+      - name: Build
+        working-directory: apps/desktop
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -o pipefail
+          pnpm run build
+          pnpm exec electron-builder --mac --config electron-builder.yml 2>&1 \
+            | sed -E 's/(identityName=)[^\n]*( identityHash=)[0-9A-Fa-f]+/\1[redacted]\2[redacted]/'
+
+      - name: What was produced
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          ls -la release/*.dmg
+          # `spctl` says whether Gatekeeper would accept this on another Mac. It
+          # is expected to refuse an unsigned build, so this reports rather than
+          # gates: a red X on an unsigned build is the truth, not a failure.
+          for dmg in release/*.dmg; do
+            echo "— $dmg"
+            spctl --assess --type open --context context:primary-signature -v "$dmg" 2>&1 || true
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: context-desktop-dmg
+          path: apps/desktop/release/*.dmg
+          if-no-files-found: error
+          # A build to try, not a release to keep. Long retention on an unsigned
+          # binary is how somebody installs last month's app.
+          retention-days: 14
+
+      # The private key does not outlive the job that needed it. `always()`
+      # because the run that failed is exactly the one that would otherwise
+      # leave a Developer ID key in a keychain on a machine somebody else gets
+      # next — and because the runner being thrown away afterwards is a
+      # property of GitHub's infrastructure, not a decision this repository
+      # gets to rely on.
+      - name: Delete the signing keychain
+        if: always()
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/desktop-signing"
+          if [ -n "${SIGNING_KEYCHAIN:-}" ] && [ -f "$SIGNING_KEYCHAIN" ]; then
+            if [ -s "$dir/keychains.before" ]; then
+              # shellcheck disable=SC2046
+              /usr/bin/security list-keychains -d user -s $(cat "$dir/keychains.before")
+            fi
+            /usr/bin/security delete-keychain "$SIGNING_KEYCHAIN" || true
+            echo "The signing keychain is gone."
+          fi
+          rm -rf "$dir"

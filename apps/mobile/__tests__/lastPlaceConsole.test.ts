@@ -251,7 +251,7 @@ afterEach(() => {
 
 /** Write the device's log directly, as `rememberPlace` would have left it. */
 async function seedLog(places: ReadonlyArray<{ slug: string; note: string | null }>) {
-  await mockStore.set("context.lc.place.v2.visits", JSON.stringify(places));
+  await mockStore.set("context.lc.place.v3.visits", JSON.stringify(places));
 }
 
 interface Mounted {

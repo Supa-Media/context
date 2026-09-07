@@ -192,9 +192,12 @@ export function useLiveConsoleData(): ConsoleData {
     specResults.invitations,
   );
   const workspaces = usable<WorkspaceSummary[]>(workspacesResult);
-  const searchableContexts = usable<Array<{ workspaceId: string }>>(
+  // `fastSearch.searchableContexts` answers `{ eligible, notEligible }` now
+  // (see `apps/convex/functions/fastSearch.ts`); this reader only ever wanted
+  // the count of the first half.
+  const searchableContexts = usable<{ eligible: Array<{ workspaceId: string }> }>(
     specResults.searchable,
-  )?.length;
+  )?.eligible.length;
   const failure =
     workspacesResult instanceof Error
       ? describeQueryFailure(workspacesResult, "your context")
