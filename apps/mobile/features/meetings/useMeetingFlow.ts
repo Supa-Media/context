@@ -141,12 +141,29 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
     in another layout, so a sheet opened during a cold start has to notice when
     that lands instead of staying refused until somebody closes and reopens it.
   */
-  const status = useSyncExternalStore(
+  const snapshot = useSyncExternalStore(
     controller.subscribe,
     controller.getSnapshot,
     controller.getSnapshot,
-  ).status;
-  const blocked = status === "ready" ? null : NOT_READY_REFUSAL;
+  );
+  const blocked = snapshot.status === "ready" ? null : NOT_READY_REFUSAL;
+
+  /**
+   * Whether the machine's own audio is on offer, and whether it is on.
+   *
+   * `capability.systemAudio` is the recorder's answer, which inside the desktop
+   * shell is the shell's answer to `capabilities()` — asked over the bridge,
+   * never inferred from the fact that a shell is present, because a build macOS
+   * has not verified is refused a loopback tap at the same bridge version as
+   * one it has. Everywhere else it is `false` and the sheet says plainly that
+   * the far side of a call is not in the recording.
+   *
+   * Default **on**: somebody recording a call on a machine that can hear the
+   * call means the call. The switch is there for the case that is genuinely
+   * different — a conversation in the room while something else is playing.
+   */
+  const canSystemAudio = snapshot.capture.systemAudio;
+  const [systemAudio, setSystemAudio] = useState(true);
 
   useEffect(() => {
     let live = true;
@@ -216,10 +233,32 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
       */
       await rememberDestination(store, destination);
       setRemembered(destination);
-      const id = await controller.start({ title, destination });
+      /*
+        `systemAudio` is passed only where it was asked, so a browser and a
+        phone send nothing and the controller falls back to what the build can
+        do — which is `false` for both. Sending the switch's value from a
+        surface that never drew it would be this layer inventing an answer on
+        somebody's behalf.
+      */
+      const id = await controller.start({
+        title,
+        destination,
+        ...(canSystemAudio ? { systemAudio } : {}),
+      });
       router.push(meetingHref(id));
     })();
-  }, [blocked, choice, close, controller, router, selectedIndex, store, title]);
+  }, [
+    blocked,
+    canSystemAudio,
+    choice,
+    close,
+    controller,
+    router,
+    selectedIndex,
+    store,
+    systemAudio,
+    title,
+  ]);
 
   const sheet = open
     ? createElement(DestinationSheet, {
@@ -242,6 +281,14 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
           router.push(MEETINGS_ROUTE);
         },
         blocked,
+        /*
+          Offered only where something would answer it. `null` draws the
+          mic-only sentence instead — the honest absence rather than a control
+          that cannot do what it says.
+        */
+        systemAudio: canSystemAudio
+          ? { on: systemAudio, onToggle: setSystemAudio }
+          : null,
         onClaimName:
           onClaimName === undefined
             ? undefined

@@ -11,6 +11,7 @@
     "./note": "./src/note.js",
     "./paths": "./src/paths.js",
     "./detect": "./src/detect.js",
+    "./recorder": "./src/recorder.js",
     "./chunks": "./src/chunks.js"
   },
   "scripts": {

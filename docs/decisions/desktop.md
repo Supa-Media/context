@@ -487,11 +487,12 @@ one environment variable.
    `getDesktopBridge()`, the guard that `apps/mcp` imports none of it, and the
    shell implementing the full version-1 surface against code that already
    exists. No `apps/mobile` change. *(~400 lines)*
-3. **`apps/mobile` learns the shell.** `useMeetingsSetup` gains a third gateway —
-   a `desktopGateway.ts` that proxies the existing `MeetingsGateway` interface
-   to the bridge — and `capture/audio.web.ts` takes segments from `onSegment`
-   when a shell is present instead of driving `MediaRecorder`. Everything else
-   about the screens is unchanged, which is the point. *(~450 lines)*
+3. **`apps/mobile` learns the shell.** `capture/audio.web.ts` takes segments
+   from `onSegment` when a shell is present instead of driving `MediaRecorder`,
+   the sheet offers system audio only where `capabilities()` said yes, and
+   Settings grows a "This machine" card over `connection`. Everything else about
+   the screens is unchanged, which is the point. *(~450 lines)* **Landed with
+   the gateway half deferred — see *What step 3 did not do* below.**
 4. **Flip the default** to `CONTEXT_DESKTOP_UI=console`. The old windows still
    build and are unused. *(~40 lines)*
 5. **Delete the renderer.** Panel, notepad, `tokens.css`, `preload/index.ts`,
@@ -567,6 +568,63 @@ applies that same rule as a workflow step before the build, rather than a
 second copy of it in shell; the key never leaves that process.
 
 ---
+
+### What step 3 did not do, and which of those is next
+
+Step 3 replaced the **recorder** and nothing else, which is less than the line
+above originally promised. Written down here rather than left to be discovered
+by whoever opens step 4, because two of these are the difference between a
+feature that works on somebody's Mac and one that only works in a test.
+
+**The note is still written by the console's own session, not by the shell's
+grant.** `useMeetingsSetup` builds one gateway — `convexGateway.ts`, the
+control-plane session writing through `files.writeNote`, exactly as a browser
+does — and the desktop branch swaps the recorder underneath it. So a meeting
+captured on a Mac takes two credentials: the **shell's** machine grant for the
+audio it captured and transcribed, and the **page's** Convex session for the
+note. What that costs is what `convexGateway.ts` already lists and costs
+identically in a browser — no enhancement pass, no session record under
+`.meetings/`, no `list_meetings` — plus one thing that is only true here: the
+shell's window-less outbox is not on the path, so a meeting is written by the
+page that is open rather than by the queue that survives it.
+
+`desktopGateway.ts` — a `MeetingsGateway` that proxies to `outbox` over the
+bridge — is therefore **the next step**, and it is worth taking before step 4
+flips the default: a shell whose queue drains with no window is the reason the
+grant lives in the main process at all (*Sign-in stays in the page*, above), and
+until the page uses it, the offline story on the desktop is the *page's* queue
+and not the shell's. The end-to-end check that exists today is
+`meetingsDesktop.test.ts`'s *"a meeting captured over the bridge is written by
+the gateway the app configures"*: the shell records, the app's gateway writes
+one note, and the test says which is which.
+
+**The preload still answers three members, so no real shell passes the
+validator yet.** `preload/console.ts` exposes `version`, `shell` and
+`capabilities()` — step 1's surface — and `getDesktopBridge()` refuses that as
+`surface-incomplete`, which is the right refusal and means the console inside
+the shell behaves exactly as a browser today. Wiring it is not mechanical: it is
+twelve channels, `ipcMain.handle` for each with the sender check this document
+already specifies, and the main process's capture, connection and outbox
+plumbing pointed at the console window rather than at the old renderer's
+`UiState`. It is its own pull request, and it belongs with step 4 — flipping the
+default before the bridge is answered would ship a console that silently
+degrades on every Mac.
+
+What *was* mechanical and is done: `apps/desktop/src/core/shell/console.ts` no
+longer declares `BRIDGE_VERSION`, `DesktopCapabilities` and `NO_CAPABILITIES`
+itself. #266 wrote them out because `packages/desktop-bridge` did not exist yet;
+it does now, so the shell re-exports the package's and the contract has one
+author. A shell answering `version: 1` from its own constant while the page
+checks the package's is precisely the wire bug that typechecks.
+
+**Two of the five recorders do not use the shared state machine.**
+`packages/meetings/src/recorder.js` is the answer for `notesOnly`, `fake` and
+`desktop`; `capture/audio.ts` and `capture/audio.web.ts` still keep their own
+assignments, because a `start` whose first chunk will not open returns them to
+`idle` and the four actions cannot say that. The rule that matters — *a meeting
+that has ended does not reopen the microphone* — is consequently held in three
+places, each with its own test of that name. That file's header carries the
+reason and names the conversion as its next step.
 
 ### What is deliberately not built
 

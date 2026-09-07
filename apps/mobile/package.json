@@ -23,6 +23,7 @@
     "@codemirror/state": "^6",
     "@codemirror/view": "^6",
     "@context/convex": "workspace:*",
+    "@context/desktop-bridge": "workspace:*",
     "@context/meetings": "workspace:*",
     "@context/shared": "workspace:*",
     "@convex-dev/auth": "^0.0.90",

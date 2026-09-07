@@ -30,6 +30,7 @@ library are available on all three; nothing else is.
 | `transcript.js` | Segment merging, validation, and grouping fragments into readable turns. |
 | `paths.js` | Where the note lands in the bucket. |
 | `note.js` | Rendering and parsing the one Markdown file a meeting becomes. |
+| `recorder.js` | **What the device is doing** — the recorder's own four states, shared by five implementations in two processes. Not the meeting's state machine; see the file header for why those are two. |
 | `detect.js` | Whether the person is in a meeting right now, from platform-agnostic signals. |
 | `enhance.js` | Building the enhancement request. Model-agnostic; sends nothing. |
 | `index.js` | The public surface. |

@@ -15,6 +15,14 @@ import { PaneHead } from "../ConsoleShell";
 import { atName } from "../format";
 import { loadedFolders } from "../files/browser";
 import { IngestionCard } from "../ingestion/IngestionCard";
+/*
+  The component's own path rather than the meetings barrel, deliberately: that
+  barrel re-exports `useMeetingFlow`, which imports `expo-router`, and pulling a
+  navigator into the settings pane makes every console test that renders this
+  pane mock a router it has nothing to do with. This card needs React and a
+  bridge and nothing else.
+*/
+import { ThisMachineCard } from "../../meetings/components/ThisMachineCard";
 import { FastSearchCard } from "../search/FastSearchCard";
 import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
 import { useArming } from "../useArming";
@@ -241,6 +249,23 @@ export function SettingsPane({
       </Text>
 
       <FastSearchCard view={data.fastSearch} demo={data.demo} />
+
+      {/*
+        The machine this console is running on — drawn only inside the desktop
+        shell, and by the component itself rather than by a check here.
+
+        It belongs in settings and it belongs *per person* rather than per
+        context, which is the one thing about it that looks out of place on this
+        pane: a machine's grant is one OAuth client on one computer. It is here
+        because this is where somebody comes to ask "is my stuff actually
+        landing", and because the shell records with no window open — so the
+        state that a laptop cannot send is otherwise invisible in a UI that is
+        signed in perfectly happily.
+
+        `ThisMachineCard` returns `null` in a browser and on a phone, so this is
+        a render and nothing else on every surface but one.
+      */}
+      <ThisMachineCard />
 
       {/*
         Map and Connections, re-homed.

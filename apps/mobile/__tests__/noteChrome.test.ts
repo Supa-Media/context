@@ -109,6 +109,25 @@ const FILE = [
   "",
 ].join("\n");
 
+/**
+ * The same shape as `FILE`, with a title short enough that it never needs
+ * `crumbs.ts`'s width budget to give a folder up — for the tests below whose
+ * claim is about a folder segment being *pressable*, not about what happens
+ * when the row runs out of room for one. `noteChrome.test.ts`'s own "a deep
+ * path elides its middle" test is where that second claim is made, against
+ * `FILE`'s own sentence-length title.
+ */
+const SHORT_FILE = [
+  "---",
+  'subject: "Notes"',
+  "visibility: private",
+  "status: unprocessed",
+  "---",
+  "",
+  "Short.",
+  "",
+].join("\n");
+
 const ENTRY: FolderListing["entries"][number] = {
   kind: "file",
   path: NOTE,
@@ -127,6 +146,13 @@ function dataWith(
   const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
   const files = {
     canEdit: true,
+    /*
+      The browser has caught up with the context the console selected — which
+      is what a console anybody is looking at looks like, and what `BrowsePane`
+      now requires before it draws a path. Absent, this fixture was a console
+      mid-switch, and the band would honestly draw the pill alone.
+    */
+    contextId: "w1",
     loading: false,
     busy: false,
     listings: {
@@ -286,11 +312,20 @@ describe("the note names itself, inside itself", () => {
    * (see `the path bar` below) and the naming half is not, which is the line
    * this test now holds: the note is named *inside itself*, once.
    *
-   * So "put the breadcrumb back and this fails" is no longer the rule. What
-   * fails it is putting the breadcrumb's *leaf* back — a trailing segment
-   * saying what the title one line down already says.
+   * So "put the breadcrumb back and this fails" is no longer the rule, and
+   * neither is "put its leaf back" — **that reversed too**, and this test is
+   * where the two halves are now separated properly.
+   *
+   * The leaf came back because the argument for deleting it was about the
+   * wrong element: the inline title is *inside the scroller* and is gone the
+   * moment somebody reads past the first screen, so a band that stopped at the
+   * folder above named nothing on screen from the second screen onward — and
+   * for `index.md`, which has no folder above it, named nothing at all. What
+   * still holds, and is what this asserts, is that the leaf is not a **second
+   * control**: it is a position, and the note is named once as a thing you can
+   * act on.
    */
-  test("an inline title, and no second name above it", () => {
+  test("an inline title, and the crumb's leaf is a position rather than a control", () => {
     const app = mountConsole(dataWith());
 
     const title = app.find("note-inline-title");
@@ -299,11 +334,12 @@ describe("the note names itself, inside itself", () => {
     // filename is a content hash, which is why `noteHeading` exists at all.
     expect(title!.textContent).toBe("The storage binding");
 
-    // The leaf a full breadcrumb would carry. Its absence is what makes the
-    // line above a position rather than a title drawn twice.
+    // The band says where you are, including the last segment...
+    expect(app.find("breadcrumb-leaf")).not.toBeNull();
+    // ...and it is not pressable: pressing it would re-select what is open.
     expect(app.container.querySelector(`[aria-label="Open ${NOTE}"]`)).toBeNull();
-    // …and the visibility chip stayed gone too: a note carries it as a
-    // Properties row, which is fuller than the crumb's brief version.
+    // …and the visibility chip stayed gone: a note carries it as a Properties
+    // row, which is fuller than the crumb's brief version.
     expect(app.container.textContent).not.toContain("follows its folder");
   });
 
@@ -391,8 +427,9 @@ describe("visibility survives into Properties", () => {
  * reached by a link had no route to its parent at all, and the only way to
  * another folder was the drawer, which is the surface a phone makes hardest to
  * get at. `pathOnly` is the half that navigates and none of the half that
- * labelled: no leaf, no visibility chip, and the context segment back as the
- * way up rather than as a caption.
+ * labelled: no visibility chip, and the context drawn as the pill in front of
+ * the row rather than as a caption. The **leaf is drawn** — see the reversal
+ * recorded on `an inline title` above, and `crumbs.ts` for the argument.
  *
  * Every assertion here is about *pressing* rather than about text. A path you
  * can only read is a label, and a label would satisfy a test that looked for
@@ -401,14 +438,71 @@ describe("visibility survives into Properties", () => {
 describe("the path bar", () => {
   const DEEP = "3-resources/books/the-lean-startup.md";
 
-  test("every ancestor is a target, and the note itself is not repeated", () => {
-    const app = mountConsole(dataWith({}, { path: DEEP, name: "the-lean-startup.md" }));
+  test("every ancestor is a target, and the note is the last segment", () => {
+    const app = mountConsole(
+      dataWith(
+        { editor: { ...emptyEditor, status: "clean", path: DEEP, baseline: SHORT_FILE, draft: SHORT_FILE } } as never,
+        { path: DEEP, name: "the-lean-startup.md" },
+      ),
+    );
 
     expect(app.find2("Open 3-resources")).not.toBeNull();
     expect(app.find2("Open 3-resources/books")).not.toBeNull();
-    // The leaf is the inline title one line below; a crumb ending in it would
-    // say the same words twice.
+    /*
+      The leaf is drawn and is not a target. Both halves matter: without the
+      first the line names the folder above the note somebody has open — which
+      is the screenshot this was rebuilt from — and without the second there is
+      a control whose press re-selects what is already selected.
+
+      What it says is what the note **calls itself** — `noteHeading`, the same
+      rung ladder the inline title uses — because a captured note's filename is
+      a content hash and a crumb ending in one names nothing.
+    */
+    expect(app.find("breadcrumb-leaf")!.textContent).toBe("Notes");
     expect(app.find2(`Open ${DEEP}`)).toBeNull();
+  });
+
+  test("a note at the root is a segment, not an empty row", () => {
+    /*
+      The second screenshot: `@public-worship` lit, nothing after it, and the
+      open note is that context's `index.md`. Every context has one and it is
+      the first thing anybody opens, so "no ancestors, draw nothing" was not an
+      edge case — it was the front page.
+
+      SABOTAGE: restored `if (folders.length === 0) return null`. Fails here.
+    */
+    const app = mountConsole(
+      dataWith(
+        // A note with nothing to call itself, so the leaf falls back to the
+        // filename — and drops the `.md`, which is filing rather than a name.
+        {
+          editor: { ...emptyEditor, status: "clean", path: "index.md", baseline: "", draft: "" },
+        } as never,
+        { path: "index.md", name: "index.md" },
+      ),
+    );
+    expect(app.find("breadcrumb-leaf")!.textContent).toBe("index");
+  });
+
+  test("a deep path elides its middle and keeps the last segment", () => {
+    /*
+      Nothing here fits without giving something up: four real folder names
+      beside `FILE`'s sentence-length title run well past 390pt, so the row
+      protects the leaf and gives up folders from the *front* — the immediate
+      parent (`a/b/c/d`) is the one worth keeping pressable longest, because it
+      is what "step back" actually reaches, and it is the last one to go.
+    */
+    const deep = "a/b/c/d/the-lean-startup.md";
+    const app = mountConsole(dataWith({}, { path: deep, name: "the-lean-startup.md" }));
+
+    expect(app.find("breadcrumb-gap")).not.toBeNull();
+    // The root is folded away first...
+    expect(app.find2("Open a")).toBeNull();
+    expect(app.find2("Open a/b")).toBeNull();
+    expect(app.find2("Open a/b/c")).toBeNull();
+    // ...and the immediate parent is the one still live.
+    expect(app.find2("Open a/b/c/d")).not.toBeNull();
+    expect(app.find("breadcrumb-leaf")!.textContent).toBe("The storage binding");
   });
 
   test("the context is a button at the head of the path, not a segment", () => {
@@ -436,10 +530,13 @@ describe("the path bar", () => {
   test("pressing a segment selects that folder", () => {
     const chosen: string[] = [];
     const app = mountConsole(
-      dataWith({ select: (path: string) => chosen.push(path) } as never, {
-        path: DEEP,
-        name: "the-lean-startup.md",
-      }),
+      dataWith(
+        {
+          select: (path: string) => chosen.push(path),
+          editor: { ...emptyEditor, status: "clean", path: DEEP, baseline: SHORT_FILE, draft: SHORT_FILE },
+        } as never,
+        { path: DEEP, name: "the-lean-startup.md" },
+      ),
     );
 
     app.press(app.find2("Open 3-resources/books"));
@@ -457,13 +554,51 @@ describe("the path bar", () => {
       button that stayed still while its path slid out from under it is two
       controls pretending to be one.
     */
-    const app = mountConsole(dataWith({}, { path: DEEP, name: "the-lean-startup.md" }));
+    const app = mountConsole(
+      dataWith(
+        { editor: { ...emptyEditor, status: "clean", path: DEEP, baseline: SHORT_FILE, draft: SHORT_FILE } } as never,
+        { path: DEEP, name: "the-lean-startup.md" },
+      ),
+    );
     const row = app.find("nav-band-trail");
     expect(row).not.toBeNull();
     expect(getComputedStyle(row!).flexDirection).not.toBe("column");
     // The button and the first segment are both inside it.
     expect(row!.contains(app.find("nav-context-seyi")!)).toBe(true);
     expect(row!.contains(app.find2("Open 3-resources")!)).toBe(true);
+  });
+
+  test("a switch draws no path until the browser is on the new context", () => {
+    /*
+      **The stale half of "the breadcrumb must reflect the restored place, not
+      a stale one".**
+
+      Pressing another context moves the URL first; the console selects it a
+      commit later and the file browser resets a commit after that. Everything
+      else in this pane is drawn from the browser's own state and stays
+      internally consistent for those commits — the breadcrumb does not, because
+      the pill at its head comes from the *console's* selection and moves with
+      the URL.
+
+      So without the guard the band reads `@supa / 3-resources / a-note-in-seyi`:
+      one context's pill over another context's path, a sentence that has never
+      been true, and the one the owner would read as "it persists where it last
+      was". The pill alone is honest and is where the switch is going.
+
+      SABOTAGE: dropped the `settled` guard in `BrowsePane`. Fails here.
+    */
+    const data = dataWith({ contextId: "w2" } as never, {
+      path: DEEP,
+      name: "the-lean-startup.md",
+    });
+    const app = mountConsole(data);
+
+    // The pill is drawn — that is where the switch is going, and it is the way
+    // up while the listing is on its way.
+    expect(app.find("nav-context-seyi")).not.toBeNull();
+    // …and none of the previous context's path is.
+    expect(app.find("breadcrumb-leaf")).toBeNull();
+    expect(app.find2("Open 3-resources")).toBeNull();
   });
 
   test("a pointer layout keeps the full line instead, chip and all", () => {
@@ -474,6 +609,30 @@ describe("the path bar", () => {
     expect(app.find2(`Open ${DEEP}`)).toBeNull();
     expect(app.find2("Open 3-resources")).not.toBeNull();
     expect(app.container.textContent).toContain("the-lean-startup");
+  });
+
+  test("and a pointer layout mid-switch draws neither the line nor the note's actions", () => {
+    /*
+      The same seam as the phone's, and it is worth its own case because the
+      pointer layout's header carries more than a path: its leading segment is
+      `contextLabel`, which comes from the **console**, over folders that come
+      from the **browser**, and beside them Share and the scope lock, which act
+      on the open note.
+
+      For the commits after pressing another context those two disagree — so
+      the line would name one context over another context's path, and the
+      buttons beside it would offer to share a note from the context being
+      left. Both go together, which is right rather than incidental.
+
+      SABOTAGE: dropped `settled` from the pointer branch in `BrowsePane`.
+      Fails here.
+    */
+    const app = mountConsole(
+      dataWith({ contextId: "w2" } as never, { path: DEEP, name: "the-lean-startup.md" }),
+      1200,
+    );
+    expect(app.find2("Open 3-resources")).toBeNull();
+    expect(app.find("browse-share")).toBeNull();
   });
 });
 

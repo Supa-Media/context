@@ -70,6 +70,17 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
     [tree],
   );
 
+  /**
+   * Close what is open. `select`'s inverse, and honest here for the same reason
+   * `select` is always allowed: the demo cannot edit, so there is never a draft
+   * for a guard to refuse over.
+   */
+  const deselect = useCallback((): boolean => {
+    setSelectedPath(null);
+    dispatch({ type: "closed" });
+    return true;
+  }, []);
+
   const collapseAll = useCallback(() => setExpanded(new Set<string>()), []);
 
   const toggleFolder = useCallback((path: string) => {
@@ -114,6 +125,7 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       // Nothing is ever in flight here: the demo's notes are in the bundle.
       opening: null,
       select,
+      deselect,
       /*
         The landing page has no bucket to search. It rejects rather than
         answering `{ hits: [] }`, because an empty answer is a claim about
@@ -174,6 +186,16 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       copyShareLink: async () => ({ ok: false, message: null }),
       setSharePreviewTitle: noop,
     }),
-    [collapseAll, contextId, editor, expanded, select, selectedPath, toggleFolder, tree],
+    [
+      collapseAll,
+      contextId,
+      deselect,
+      editor,
+      expanded,
+      select,
+      selectedPath,
+      toggleFolder,
+      tree,
+    ],
   );
 }

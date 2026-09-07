@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@supa-media/context-hook": "workspace:*",
+    "@context/desktop-bridge": "workspace:*",
     "@context/meetings": "workspace:*"
   },
   "devDependencies": {

@@ -128,6 +128,32 @@ export interface FileBrowser {
   select: (path: string) => boolean;
 
   /**
+   * Close what is open and stand at the context's root.
+   *
+   * **The inverse of `select`, and it did not exist.** For as long as it did
+   * not, "no note is open" was a state this browser could arrive at (a delete,
+   * a context switch) and never be *asked* for — so every surface that wanted
+   * to express it had to pretend instead. `noteAddress.ts` carried the whole
+   * argument as a limitation: a console URL that had lost its `?note=` was
+   * re-addressed back to the open note rather than obeyed, "because there is no
+   * 'close the note' for it to be expressing". That is what made the phone's
+   * lit context pill a dead control — it navigated to the context's root, the
+   * mirror put the note straight back, and pressing the one thing on the screen
+   * labelled as the way up did nothing anybody could see.
+   *
+   * Refusable, exactly like `select`: it is a navigation away from a draft, so
+   * the unsaved-changes guard gets the same say and the same `false`. And it
+   * flushes autosave first, for the same reason — a draft waiting on the idle
+   * timer is handed to the bucket on the way out rather than left to a timer
+   * that will not fire once the editor is empty.
+   *
+   * It is **not** a tab operation. Closing the note you are reading and closing
+   * the tab holding it are different intentions, and the pointer layout's strip
+   * has its own control for the second.
+   */
+  deselect: () => boolean;
+
+  /**
    * Search the whole context, not the folders that happen to be loaded.
    *
    * A read method on the browser rather than a hook the console calls

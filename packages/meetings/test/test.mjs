@@ -21,6 +21,7 @@ import { runDetectChecks } from "./detect.test.mjs";
 import { runEnhanceChecks } from "./enhance.test.mjs";
 import { runNoteChecks } from "./note.test.mjs";
 import { runPathChecks } from "./paths.test.mjs";
+import { runRecorderChecks } from "./recorder.test.mjs";
 import { runSessionChecks } from "./session.test.mjs";
 import { runTranscriptChecks } from "./transcript.test.mjs";
 
@@ -171,6 +172,9 @@ for (const name of [
   "splitTranscript",
   "detect",
   "nextDetectorState",
+  "nextRecorderState",
+  "isRecorderCapturing",
+  "RECORDER_TRANSITIONS",
   "buildEnhancementRequest",
   "applyEnhancement",
   "PROTOCOL_VERSION",
@@ -190,6 +194,7 @@ runSessionChecks(check);
 runPathChecks(check);
 runNoteChecks(check);
 runDetectChecks(check);
+runRecorderChecks(check);
 runEnhanceChecks(check);
 runChunkChecks(check);
 

@@ -444,19 +444,79 @@ describe("the URL follows the note that is open", () => {
     expect(addressed).toEqual(["3-resources"]);
   });
 
-  test("a URL that merely lost its note is re-addressed, not obeyed", async () => {
+  test("a URL that loses its note closes the note", async () => {
     /**
-     * There is no "close the note" to express: `select` takes a path and the
-     * file browser has no deselect. So a console URL with no note, over a
-     * console with a note open, is stale rather than an instruction — the rail
-     * navigating to `/console/@slug` while a note is open produces exactly it.
-     * Treating it as a request would leave the address bar disagreeing with the
-     * screen, which is the state this whole module exists to end.
+     * **This assertion is the inverse of the one it replaces, and that is the
+     * point.**
+     *
+     * It read "a URL that merely lost its note is re-addressed, not obeyed", on
+     * the reasoning that there was no "close the note" for such a URL to be
+     * expressing: `select` took a path and the browser had no deselect, so
+     * obeying it would leave the address bar disagreeing with the screen.
+     * Correct about the mechanism, and it made a control on the phone dead. The
+     * lit context pill navigates to `/console/@slug` — that is what "go to the
+     * root" *is* — and the mirror put the note straight back, so pressing the
+     * one thing on screen labelled as the way up did nothing you could see.
+     *
+     * `FileBrowser.deselect` is what that reasoning was waiting for. A console
+     * URL that had a note and now has none is somebody having gone to the
+     * context's root, which is a state the browser can now be asked for.
+     *
+     * SABOTAGE: `nextAddressStep` returning `address` for a URL that lost its
+     * note — which is the shipped behaviour. Fails here.
      */
     unmount = mount(NOTE);
     await settle();
     await act(async () => setContext("w1"));
     await settle();
+    expect(browser.selectedPath).toBe(NOTE);
+
+    await act(async () => setUrl(null));
+    await settle();
+
+    expect(browser.selectedPath).toBeNull();
+    expect(browser.editor.path).toBeNull();
+    // …and it settles there rather than the two directions taking turns.
+    expect(url).toBeNull();
+    expect(addressed).toEqual([]);
+  });
+
+  test("a URL that loses its note over a conflict settles on the screen", async () => {
+    /**
+     * `deselect` is refusable exactly like `select`, because it is a navigation
+     * away from a draft — and a conflicted one is precisely what autosave will
+     * not write and `guardLeaving` will not let go of.
+     *
+     * When the guard says no the note stays open, and the rule must then follow
+     * **the screen**: an address bar claiming somebody is at the root while a
+     * prompt asks which version of their note to keep is the disagreement this
+     * whole module exists to end. It needs no second mechanism — the next pass
+     * sees a URL it has reconciled and a selection that disagrees, and
+     * addresses the open note, which is how a refused `select` already settled.
+     *
+     * SABOTAGE: dropped the guard from `deselect`. Fails here: the conflict is
+     * closed out from under the person who has to answer it.
+     */
+    actions[name("writeNote")] = async () => {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "That file changed somewhere else while you were editing it.",
+        currentEtag: "etag-9",
+      });
+    };
+    unmount = mount(NOTE);
+    await settle();
+    await act(async () => setContext("w1"));
+    await settle();
+
+    await act(async () => {
+      browser.setDraft("# Shipping an expo app safely\n\nmine\n");
+    });
+    await act(async () => {
+      browser.save();
+    });
+    await settle();
+    expect(browser.editor.status).toBe("conflict");
 
     await act(async () => setUrl(null));
     await settle();
