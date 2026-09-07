@@ -330,6 +330,79 @@ export async function runPackagingChecks(check) {
       return error instanceof Error ? error.message : String(error);
     }
   };
+  /*
+    THE REFUSAL REACHES A PUBLIC LOG, SO IT MUST NOT CARRY THE KEY.
+
+    The `require.main === module` block at the foot of `notarize.cjs` — what
+    `--check` runs in CI — writes `::error::` plus the message into the Actions
+    log of a public, MIT-licensed repository. (`exports.default` has no catch at
+    all; an earlier version of this comment said it did, which was wrong about
+    the file it sits beside.) `privateKey`'s throw is careful
+    today — it reports a line count, a character count and whether the markers
+    were seen, and never `text` itself — but nothing was checking that, and the
+    cheapest debugging change anybody could make to it is to interpolate the
+    value that failed to parse.
+
+    This repository has already been bitten by exactly that shape once:
+    `MacPackager.doSign()` printed the signing identity, company name and Apple
+    team id to a public log on the first successful signed build, and needed a
+    `sed` in the workflow to redact it. That one was a dependency's logging. This
+    one would be ours, and it would be a private key.
+
+    So: every refusal is asked whether any run of the thing it refused survived
+    into the sentence. A base64 body is the part worth stealing, so the probe is
+    a distinctive body rather than a generic one — a message that echoed even a
+    fragment would contain a slice of it.
+  */
+  {
+    const body = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ejAxMjM0NTY3ODk";
+    const shapes = [
+      body,
+      `-----BEGIN PRIVATE KEY-----${body}-----END PRIVATE KEY-----`,
+      `-----BEGIN PRIVATE KEY-----\n${body}\n-----END EC PRIVATE KEY-----`,
+      `-----BEGIN PRIVATE KEY-----\n${body}`,
+      `  ${body}  `,
+      `-----BEGIN PRIVATE KEY-----\r\n${body}`,
+    ];
+    /*
+      EIGHT CHARACTERS OF THE BODY, not sixteen, and every offset rather than
+      every other one. MEASURED against the check above this block, which asks
+      whether one short probe survives whole: `text.slice(20, 60)` — a
+      mid-string echo — passes it and fails this; `text.slice(0, 10)` passed
+      BOTH at sixteen. A ten-character prefix of a PEM file is the `-----BEGIN`
+      marker rather than key material, so that one is not the leak it looks
+      like, but the reason has to be the run length rather than luck.
+
+      Eight is short enough to catch a partial echo and long enough not to
+      collide with the fixed prose: the refusal's own words are checked below
+      to still be there, so a run length that made this vacuous would show up
+      as this block passing while that one fails.
+    */
+    const runs = [];
+    for (let i = 0; i + 8 <= body.length; i += 1) runs.push(body.slice(i, i + 8));
+
+    const leaked = [];
+    for (const shape of shapes) {
+      const message = refused(shape);
+      // A shape this repairs rather than refuses is fine — the check is about
+      // what a REFUSAL says, and a repair says nothing at all.
+      if (message === null) continue;
+      if (message.includes(body) || runs.some((run) => message.includes(run))) {
+        leaked.push(shape.slice(0, 24));
+      }
+    }
+    check(
+      "A REFUSED App Store Connect KEY IS NEVER QUOTED BACK — the message reaches a public Actions log",
+      leaked.length === 0,
+    );
+    check(
+      "...and the refusals still say enough to act on: a count, and which marker was missing",
+      /\d+ line\(s\)/.test(refused("hello") ?? "") &&
+        /characters/.test(refused("hello") ?? "") &&
+        /-----BEGIN/.test(refused("hello") ?? ""),
+    );
+  }
+
   check("SOMETHING THAT IS NOT A PRIVATE KEY IS REFUSED, not written out for notarytool to reject", refused("hello") !== null);
   check(
     "...a truncated paste too — a BEGIN with no matching END",
