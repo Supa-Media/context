@@ -307,7 +307,18 @@ export const gatewayBinding = gatewayRoute(async (ctx, body) => {
   // and `JSON.stringify` drops an undefined value — so the normal case is the
   // key being **absent**, not present and null. A gateway on an older build
   // reads the same bytes it always did.
-  return json({ binding: opened.binding, searchIndex: opened.searchIndex });
+  //
+  // `encryptionKey` is a third sibling on exactly the same terms: absent for
+  // every context that has never encrypted a note, which is all of them until
+  // an owner turns it on, and absent again for a key this deployment could not
+  // open. A gateway that does not know the field ignores it; one that does
+  // treats its absence as "cannot decrypt", which shows a locked note rather
+  // than a missing one.
+  return json({
+    binding: opened.binding,
+    searchIndex: opened.searchIndex,
+    encryptionKey: opened.encryptionKey,
+  });
 });
 
 /* -------------------------------------------------------------------------- */

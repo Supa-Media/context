@@ -19,6 +19,7 @@ import type * as functions_cardRender from "../functions/cardRender.js";
 import type * as functions_cloudflare from "../functions/cloudflare.js";
 import type * as functions_controlPlane from "../functions/controlPlane.js";
 import type * as functions_dropboxConnect from "../functions/dropboxConnect.js";
+import type * as functions_encryptionKeys from "../functions/encryptionKeys.js";
 import type * as functions_fastSearch from "../functions/fastSearch.js";
 import type * as functions_fastSearchProvision from "../functions/fastSearchProvision.js";
 import type * as functions_files from "../functions/files.js";
@@ -87,6 +88,7 @@ declare const fullApi: ApiFromModules<{
   "functions/cloudflare": typeof functions_cloudflare;
   "functions/controlPlane": typeof functions_controlPlane;
   "functions/dropboxConnect": typeof functions_dropboxConnect;
+  "functions/encryptionKeys": typeof functions_encryptionKeys;
   "functions/fastSearch": typeof functions_fastSearch;
   "functions/fastSearchProvision": typeof functions_fastSearchProvision;
   "functions/files": typeof functions_files;

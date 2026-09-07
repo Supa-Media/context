@@ -585,8 +585,9 @@ export async function storeForSession(session, env, controlPlane) {
   // `getStorageBinding`.
   let binding;
   let searchIndex;
+  let encryptionKey;
   try {
-    ({ binding, searchIndex } = await controlPlane.getStorageBinding(
+    ({ binding, searchIndex, encryptionKey } = await controlPlane.getStorageBinding(
       session.accessToken,
       session.workspaceId
     ));
@@ -659,5 +660,52 @@ export async function storeForSession(session, env, controlPlane) {
     writable: false,
     configurable: true,
   });
+
+  /**
+   * The key that opens this context's encrypted notes, for this request only.
+   *
+   * **Non-enumerable, for exactly the reason `searchIndex` is.** `dataKey`
+   * opens every encrypted note in one context; a store is an object other code
+   * spreads, logs the shape of, and hands to helpers, and enumerable would mean
+   * one `{...store}` or one `JSON.stringify` away from that key in a log line.
+   * It dies with the request, like the bucket credential in `store` itself —
+   * "never cache a decrypted credential across requests" applies here word for
+   * word.
+   *
+   * `null` where the control plane sent nothing, sent something malformed, or
+   * could not open the key it holds. All three are the same thing to this
+   * gateway: **this request cannot decrypt.** That is a locked note rather than
+   * a missing one, and it is the normal state for every context that has never
+   * encrypted anything.
+   *
+   * It comes off the **response**, beside the binding, never out of it. Reading
+   * a sibling from inside the binding is what left fast search dead in
+   * production, and the same mistake here would mean no context in the product
+   * could ever decrypt.
+   */
+  Object.defineProperty(store, "encryptionKey", {
+    value: readEncryptionKey(encryptionKey),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   return store;
+}
+
+/**
+ * Narrow the control plane's encryption-key descriptor, or answer `null`.
+ *
+ * Both fields or neither, matching how every other partial descriptor in this
+ * gateway is treated: half a key is not a degraded key, it is no key, because
+ * there is one cure and it is the same one. A generation that is not a string,
+ * an empty one, or material that is not a string are each the whole descriptor
+ * being absent — never a `{generation: undefined}` that a later `?.` would read
+ * as present.
+ */
+function readEncryptionKey(descriptor) {
+  if (!descriptor || typeof descriptor !== "object") return null;
+  const { generation, dataKey } = descriptor;
+  if (typeof generation !== "string" || generation === "") return null;
+  if (typeof dataKey !== "string" || dataKey === "") return null;
+  return { generation, dataKey };
 }
