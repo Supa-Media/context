@@ -49,6 +49,29 @@ import { dirname, join } from "node:path";
 export const HOOK_MARKER = "context-hook";
 
 /**
+ * Every name this package has been published under, newest first.
+ *
+ * **Read forever, written only for the first.** The marker above is no longer
+ * written, so an installed entry is recognised by its command string alone —
+ * and an install made between the marker being dropped and the rename to
+ * `@supa-media/context-hook` carries neither the marker nor the current name.
+ *
+ * Recognising only the current name does not leave those machines alone, it
+ * leaves them worse: `install` adds a second hook beside the first, so every
+ * session posts twice, and `uninstall` reports the old one as somebody else's
+ * and walks past — leaving a session-end hook the person cannot remove with
+ * this tool, invoking a name this project no longer publishes, through
+ * `npx -y`, which fetches whatever is at that name.
+ *
+ * So a name goes into this list when it is retired and never comes out. It is
+ * the same argument `isMeetingNotePath` makes about the key shape it stopped
+ * writing: what a tool WRITES may change, what it must still RECOGNISE only
+ * grows, because the alternative is not migrating somebody — it is abandoning
+ * what is already on their machine.
+ */
+const PUBLISHED_NAMES = ["@supa-media/context-hook", "@context-lc/hook"];
+
+/**
  * All three write the same nested shape:
  *
  *     { "hooks": { "<Event>": [ { "hooks": [ { "type": "command", "command": … } ] } ] } }
@@ -175,7 +198,8 @@ function isOurs(matcher) {
   return entries.some(
     (entry) =>
       entry?.[HOOK_MARKER] === true ||
-      (typeof entry?.command === "string" && entry.command.includes("@supa-media/context-hook"))
+      (typeof entry?.command === "string" &&
+        PUBLISHED_NAMES.some((name) => entry.command.includes(name)))
   );
 }
 

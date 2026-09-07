@@ -720,7 +720,20 @@ await writeFile(
     // would make those pass for the wrong reason.
     hooks: {
       SessionEnd: [
-        { hooks: [{ type: "command", command: "npx -y @supa-media/context-hook capture --old", [HOOK_MARKER]: true }] },
+        /*
+          THE MARKER IS THE ONLY THING IDENTIFYING THIS ENTRY, deliberately.
+
+          It used to carry the current package name as well, so the name match
+          covered it and the marker never decided anything — MEASURED: deleting
+          the `HOOK_MARKER` arm from `isOurs` reddened nothing at all. A guard
+          with no case that reaches it is not a guard.
+
+          A path command rather than an `npx` one, because that is the shape
+          that can carry no package name: `hookCommand`'s own note says `npx`
+          was chosen over "a path into `node_modules`", so the alternative it
+          rejected is what an entry identified by nothing else looks like.
+        */
+        { hooks: [{ type: "command", command: "node /opt/hook/bin/context-hook.mjs capture", [HOOK_MARKER]: true }] },
         { hooks: [{ type: "command", command: "echo mine" }] },
       ],
       PreToolUse: [{ hooks: [{ type: "command", command: "echo also mine" }] }],
@@ -734,6 +747,85 @@ check(
   upgraded.hooks.SessionEnd.filter(isOurEntry).length === 1 &&
     upgraded.hooks.SessionEnd.some((entry) => entry.hooks[0].command === "echo mine")
 );
+check(
+  "...and the marker-only entry is GONE, which is what makes that a replacement",
+  /*
+    The count above uses this file's own `isOurEntry`, which matches the
+    current package name — so it reads 1 whether the old entry was replaced or
+    left sitting beside the new one, and MEASURED, it did: deleting the
+    `HOOK_MARKER` arm from `isOurs` reddened nothing until this line existed.
+    A count of what we recognise cannot see what we failed to recognise.
+  */
+  !JSON.stringify(upgraded).includes("/opt/hook/bin/context-hook.mjs")
+);
+
+/*
+  AND AN ENTRY FROM BEFORE THE RENAME, WHICH CARRIES NO MARKER AT ALL.
+
+  The fixture above pairs the marker with the CURRENT package name, so it
+  proves the marker path and says nothing about the name. But the marker is
+  "no longer written" — this file's own words — so an install made in the
+  window between the marker being dropped and the package being renamed is
+  identified by its command string alone, and that string is the OLD name.
+
+  Unrecognised, such an entry is not replaced and not removed: `install`
+  leaves it and adds a second hook beside it, `uninstall` reports it as
+  somebody else's and walks past. The person is then running a session-end
+  hook they cannot remove with this tool, invoking a package name this project
+  no longer publishes — and `npx -y` will fetch whatever is at that name.
+*/
+await writeFile(
+  settingsPath,
+  JSON.stringify({
+    hooks: {
+      SessionEnd: [
+        { hooks: [{ type: "command", command: "npx -y @context-lc/hook capture --client claude-code" }] },
+        { hooks: [{ type: "command", command: "echo mine" }] },
+      ],
+    },
+  })
+);
+await installHook({ clientId: "claude-code", endpoint: server.endpoint });
+const renamed = JSON.parse(await readFile(settingsPath, "utf8"));
+check(
+  "an entry written under the old package name is replaced, not stacked beside",
+  renamed.hooks.SessionEnd.filter(isOurEntry).length === 1
+);
+check(
+  "...and the person's own hook is still there",
+  renamed.hooks.SessionEnd.some((entry) => entry.hooks[0].command === "echo mine")
+);
+check(
+  "...and nothing is left invoking the name we stopped publishing",
+  !JSON.stringify(renamed).includes("@context-lc/hook")
+);
+
+await writeFile(
+  settingsPath,
+  JSON.stringify({
+    hooks: {
+      SessionEnd: [
+        { hooks: [{ type: "command", command: "npx -y @context-lc/hook capture --client claude-code" }] },
+      ],
+    },
+  })
+);
+const legacyRemoval = await uninstallHook({ clientId: "claude-code" });
+check("uninstall removes an old-name entry rather than walking past it", legacyRemoval.removed === 1);
+
+await writeFile(
+  settingsPath,
+  JSON.stringify({
+    hooks: {
+      SessionEnd: [
+        { hooks: [{ type: "command", command: "npx -y @supa-media/context-hook capture --old", [HOOK_MARKER]: true }] },
+        { hooks: [{ type: "command", command: "echo mine" }] },
+      ],
+      PreToolUse: [{ hooks: [{ type: "command", command: "echo also mine" }] }],
+    },
+  })
+);
+await installHook({ clientId: "claude-code", endpoint: server.endpoint });
 
 const removal = await uninstallHook({ clientId: "claude-code" });
 const afterRemoval = JSON.parse(await readFile(settingsPath, "utf8"));
