@@ -813,21 +813,37 @@ diagnostic that names the offending mention.
 
 A second count covers `webContents.ipc` and `webFrameMain.ipc` — Electron's
 documented way to scope a channel to one window, idiomatic, spelling no
-`ipcMain`, and invisible here until it was asked for. Two widenings, each made
-only after a review measured the hole rather than argued for it: the walk
-follows the **bundle** rather than this app's directory, because
-`packages/desktop-bridge` and `packages/meetings` are compiled into the same
-main process and a registration in either was not read; and the method name is
-any member call rather than the three verbs somebody thought of, because
-`handleOnce` and `addListener` are on the same interface and passed green.
+`ipcMain`, and invisible here until it was asked for. Three widenings, each made
+only after a review measured the hole rather than argued for it, and each one
+correcting the shape before it:
+
+- **The walk follows the bundle**, because esbuild compiles every `workspace:*`
+  dependency into the main process and a registration in one is a registration
+  in the main process.
+- **It reads that list from `package.json` rather than naming the packages.**
+  Naming them was the third shape and it was wrong within the hour: it listed
+  two and `main/connect.ts` imports a third, `@supa-media/context-hook`. **A
+  hand-written list of what a bundler includes is a boundary nobody maintains**
+  — which is what widening the walk was supposed to stop doing.
+- **The method name is any member call**, not the three verbs somebody thought
+  of, because `handleOnce` and `addListener` are on the same interface and
+  passed green.
+
+The count is also asserted **per file**, not only as a total. A total says how
+many there are and nothing about where: measured, a real registration in a new
+`src/main` file passes if one teardown call in `consoleBridge.ts` is aliased
+away in the same commit. Two wrongs, one total, and a name that claimed
+locality it was not checking.
 
 **Two things it still does not see, both measured rather than reasoned about.**
 A registration that never spells the identifier — `electron["ipc" + "Main"]
 .on(...)` passes, and no text scan will catch it. And an aliased receiver:
 `const { ipc } = win.webContents` followed by `ipc.handle(...)` spells neither
 name. Closing either needs a real import graph. Every shape of this census has
-been described as exhaustive and none was, so the claim is the smaller true one:
-**this guard is for the accident, not the adversary.**
+been described as exhaustive and none was — **including the one that shipped to
+fix that**, which is why the two above are the ones somebody wrote and ran
+rather than the ones its author believed in. So the claim is the smaller true
+one: **this guard is for the accident, not the adversary.**
 
 The lesson worth keeping is not about lexers: it is that a guard which must
 understand a language is a guard that inherits every ambiguity of that language,

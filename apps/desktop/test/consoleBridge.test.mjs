@@ -473,20 +473,44 @@ export async function runConsoleBridgeChecks(check) {
     const srcDir = new URL("../src/", import.meta.url);
     const mainDir = new URL("../src/main/", import.meta.url);
     /*
-      THE WALK IS THE BUNDLE, NOT THE DIRECTORY, and it took a review to say so.
-      `packages/desktop-bridge` and `packages/meetings` are imported by
-      `main/consoleBridge.ts` and `main/index.ts`, so esbuild pulls them into the
-      main-process bundle and a registration written in one is a registration in
-      the main process. Pointed at `src/` alone this census could not see them —
-      the same accident as "a main-process module one directory out of
-      `src/main`", which is what widening to `src/` was for, one level further
-      out. `contract.ts` already mentions the identifier in prose, which is why
-      the total below is 28 rather than 27.
+      THE WALK IS THE BUNDLE, NOT THE DIRECTORY — and it is READ FROM THE
+      MANIFEST rather than listed here, which took two reviews.
+
+      esbuild bundles `src/main/index.ts` with only `electron` external, so
+      every `workspace:*` dependency of this app compiles into the main process
+      and a registration written in one is a registration in the main process.
+      The first version of this census walked `src/main`. The second walked
+      `src/`. The third named two packages by hand — and a review found the
+      third: `main/connect.ts` imports `@supa-media/context-hook/src/oauth.js`,
+      which the bundler pulls in and the enumeration did not.
+
+      So the list is not written down. `dependencies` in `package.json` is the
+      same fact the bundler reads, and a package added there is walked without
+      anybody remembering to add it here. **A hand-written list of what a
+      bundler includes is a boundary nobody maintains**, which is the exact
+      thing widening this walk was supposed to stop doing.
+
+      `desktop-bridge/src/contract.ts` mentions the identifier in prose, which
+      is why the total below is 28 rather than 27.
     */
-    const bundled = [
-      new URL("../../../packages/desktop-bridge/src/", import.meta.url),
-      new URL("../../../packages/meetings/src/", import.meta.url),
-    ];
+    const manifest = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    );
+    const workspaceDirs = {
+      "@supa-media/context-hook": "hook",
+      "@context/desktop-bridge": "desktop-bridge",
+      "@context/meetings": "meetings",
+    };
+    const bundled = Object.entries(manifest.dependencies ?? {})
+      .filter(([, range]) => range.startsWith("workspace:"))
+      .map(([name]) => {
+        // A `workspace:*` dependency whose directory this map does not know is
+        // a package in the bundle that would go unwalked, which is the hole
+        // this whole block exists to close. Louder than skipping it.
+        const dir = workspaceDirs[name];
+        if (dir === undefined) throw new Error(`unmapped workspace dependency: ${name}`);
+        return new URL(`../../../packages/${dir}/src/`, import.meta.url);
+      });
 
     /*
       Strings out first, then comments. A regex that strips comments before
@@ -647,11 +671,14 @@ export async function runConsoleBridgeChecks(check) {
           measured green. Telling that binding from any other `ipc` needs the
           import graph this suite does not have.
 
-      Both need a real build step to close. What a review DID close, by
-      measuring the hole first: `handleOnce` and `addListener` (the method name
-      is no longer a list of three), and a registration in
-      `packages/desktop-bridge` or `packages/meetings` (the walk is the bundle
-      now, not this app's directory).
+      Both need a real build step to close. What reviews DID close, each by
+      measuring the hole rather than arguing about it: `handleOnce` and
+      `addListener` (the method name is no longer a list of three verbs); a
+      registration in a workspace package the bundler compiles in (the walk
+      reads `package.json` now, so it covers `packages/hook` — which a
+      hand-written list of two packages missed — and anything added after this);
+      and a registration that hides behind a balancing edit elsewhere (the file
+      names are asserted, not just the total).
 
       So the claim is the smaller true one: **this guard is for the accident,
       not the adversary.** It catches a channel somebody adds without thinking
@@ -679,11 +706,14 @@ export async function runConsoleBridgeChecks(check) {
     */
     let mentions = 0;
     let scoped = 0;
+    const scopedFiles = new Set();
     for (const file of [...walk(srcDir), ...bundled.flatMap(walk)]) {
       if (!/\.(?:[cm]?[jt]sx?)$/.test(file.pathname)) continue;
       const raw = readFileSync(file, "utf8");
       mentions += (raw.match(/\bipcMain\b/g) ?? []).length;
-      scoped += (raw.match(/\.ipc\.[A-Za-z_$][\w$]*\(/g) ?? []).length;
+      const calls = (raw.match(/\.ipc\.[A-Za-z_$][\w$]*\(/g) ?? []).length;
+      scoped += calls;
+      if (calls > 0) scopedFiles.add(file.pathname.split("/").pop());
     }
     // 28 and not 25: widening to `src/` picks up two mentions in prose, in
     // `core/shell/bridge.ts` and `core/shell/console.ts`, and widening to the
@@ -712,6 +742,21 @@ export async function runConsoleBridgeChecks(check) {
     check(
       `EVERY .ipc. CALL IN THE MAIN BUNDLE IS INSIDE THE GUARDED BRIDGE — ${scoped} of 5`,
       scoped === 5,
+    );
+    /*
+      A TOTAL IS NOT A LOCATION, which is the same mistake the old name made in
+      a different place. `scoped === 5` says how many there are and nothing
+      about where: MEASURED, a real `win.webContents.ipc.handle(...)` in a new
+      `src/main` file passes green if one teardown call in `consoleBridge.ts` is
+      spelled through an alias in the same commit. Two wrongs, one total.
+
+      So the file names are asserted too. `consoleBridge.ts` is where the gate
+      is; a `.ipc.` call anywhere else in the bundle is new surface whether or
+      not the count happens to balance.
+    */
+    check(
+      `...AND ALL OF THEM ARE IN ONE FILE — ${[...scopedFiles].join(", ") || "none"}`,
+      scopedFiles.size === 1 && scopedFiles.has("consoleBridge.ts"),
     );
 
     check(
