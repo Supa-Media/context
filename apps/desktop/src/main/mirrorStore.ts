@@ -43,7 +43,15 @@ export interface MirrorSaveInput {
   appVersion: string;
   origin: string;
   savedAtMs: number;
-  /** The document first: it is the index a navigation falls back to. */
+  /**
+   * `pathname + search` of the console's own document — the same string
+   * `mirrorKey` hashes, and independent of where in `files` it lands. The
+   * caller derives this from the URL the window actually navigated to
+   * (`webContents.getURL()`), never from the page's own resource list, so it
+   * is not a value a compromised page can choose.
+   */
+  documentPath: string;
+  /** The index a navigation falls back to, found by path, never by position. */
   files: readonly MirrorFile[];
 }
 
@@ -143,23 +151,28 @@ export class MirrorStore {
    * write. That is two cases, not one: an empty snapshot, and a snapshot with
    * no *document* in it.
    *
-   * **The index must be the console's own document, or nothing is written.**
-   * `MirrorSaveInput.files` documents its own first entry as the document —
-   * "the index a navigation falls back to" — and this used to trust that by
-   * writing `index ??= key` inside the loop below: whichever response was
-   * stored first became the index, with no check that it was a document at
-   * all. When `shouldMirror` was refusing every response carrying
-   * `Cache-Control: private` (the console's own document is served with
-   * exactly that), the document never survived filtering and the first thing
-   * that *did* was the JS bundle — so the manifest's index answered
-   * `application/javascript`, `mirrorIsUsable` said yes, and the offline
-   * window rendered raw minified JavaScript in a `<pre>`. So the document is
-   * checked by name before anything touches disk: if it is missing, or is not
-   * `text/html`, the whole snapshot is discarded and the mirror already on
-   * disk — the last one that *did* have a real document — is left standing.
+   * **The index must be the console's own document, or nothing is written —
+   * and it is found by matching `input.documentPath`, never by position.**
+   * This used to trust `input.files[0]` by writing `index ??= key` inside the
+   * loop below: whichever response was stored first became the index, with no
+   * check that it was even the document. When `shouldMirror` was refusing
+   * every response carrying `Cache-Control: private` (the console's own
+   * document is served with exactly that), the document never survived
+   * filtering and the first thing that *did* was the JS bundle — so the
+   * manifest's index answered `application/javascript`, `mirrorIsUsable` said
+   * yes, and the offline window rendered raw minified JavaScript in a `<pre>`.
+   * Position 0 is expected to be the document in the ordinary case —
+   * `mirrorSnapshotUrls` always asks for it first — but this reads `path`
+   * rather than trusting that order: `consoleMirror.ts`'s fetch loop drops
+   * whatever a response's own `shouldMirror` check refuses, so a document that
+   * failed for an unrelated reason must never let some other same-origin
+   * response that merely arrived first stand in for it. If nothing in `files`
+   * has `input.documentPath`, or what does isn't `text/html`, the whole
+   * snapshot is discarded and the mirror already on disk — the last one that
+   * *did* have a real document — is left standing.
    */
   async save(input: MirrorSaveInput): Promise<MirrorManifest | null> {
-    const [document] = input.files;
+    const document = input.files.find((file) => file.path === input.documentPath);
     if (document === undefined) return null;
     if (!document.contentType.toLowerCase().startsWith("text/html")) {
       console.error(

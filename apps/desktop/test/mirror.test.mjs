@@ -560,6 +560,7 @@ export async function runMirrorChecks(check) {
       appVersion: APP_VERSION,
       origin: LIVE,
       savedAtMs: NOW,
+      documentPath: "/console",
       files: [
         { path: "/console", contentType: "text/html", body: encode("<html><body>hi</body></html>") },
         { path: "/assets/app.js", contentType: "text/javascript", body: encode("console.log(1)") },
@@ -630,10 +631,45 @@ export async function runMirrorChecks(check) {
         appVersion: APP_VERSION,
         origin: LIVE,
         savedAtMs: NOW,
+        documentPath: "/console",
         files: [
           { path: "/assets/entry.js", contentType: "application/javascript", body: encode("console.log(1)") },
         ],
       })) === null,
+    );
+    check(
+      "A SNAPSHOT WHOSE ONLY text/html FILE IS NOT AT documentPath IS NOT A MIRROR EITHER — matched by path, not by finding *any* html",
+      (await store.save({
+        appVersion: APP_VERSION,
+        origin: LIVE,
+        savedAtMs: NOW,
+        documentPath: "/console",
+        files: [
+          { path: "/decoy.html", contentType: "text/html", body: encode("<html><body>not it</body></html>") },
+        ],
+      })) === null,
+    );
+    check(
+      "THE DOCUMENT IS FOUND BY PATH, NOT BY POSITION — an attacker-ordered `files` array does not change which entry becomes the index",
+      (await (async () => {
+        const decoyDir = await mkdtemp(join(tmpdir(), "context-mirror-order-"));
+        try {
+          const orderStore = new MirrorStore(decoyDir);
+          const out = await orderStore.save({
+            appVersion: APP_VERSION,
+            origin: LIVE,
+            savedAtMs: NOW,
+            documentPath: "/console",
+            files: [
+              { path: "/decoy.html", contentType: "text/html", body: encode("<html><body>decoy</body></html>") },
+              { path: "/console", contentType: "text/html", body: encode("<html><body>real</body></html>") },
+            ],
+          });
+          return out?.index === mirrorKey("/console");
+        } finally {
+          await rm(decoyDir, { recursive: true, force: true });
+        }
+      })()),
     );
     check(
       "...and the previous mirror is left standing rather than replaced by a JS-only snapshot",
@@ -661,7 +697,7 @@ export async function runMirrorChecks(check) {
 
     check(
       "A SNAPSHOT WITH NO FILES IS NOT A MIRROR, and the old one is left alone",
-      (await store.save({ appVersion: APP_VERSION, origin: LIVE, savedAtMs: NOW, files: [] })) === null &&
+      (await store.save({ appVersion: APP_VERSION, origin: LIVE, savedAtMs: NOW, documentPath: "/console", files: [] })) === null &&
         (await store.load({ appVersion: APP_VERSION, liveOrigin: LIVE, nowMs: NOW })) !== null,
     );
 
@@ -678,6 +714,7 @@ export async function runMirrorChecks(check) {
         appVersion: APP_VERSION,
         origin: LIVE,
         savedAtMs: NOW,
+        documentPath: "/console",
         files: [{ path: "/console", contentType: "text/html", body: encode("<html><body>hi</body></html>") }],
       });
       /*
@@ -700,6 +737,7 @@ export async function runMirrorChecks(check) {
       appVersion: APP_VERSION,
       origin: LIVE,
       savedAtMs: NOW,
+      documentPath: "/console",
       files: [{ path: "/console", contentType: "text/html", body: encode("<html><body>hi</body></html>") }],
     });
     await writeFile(join(store.root, "current", "manifest.json"), "{ this is not json");
@@ -713,6 +751,7 @@ export async function runMirrorChecks(check) {
       appVersion: APP_VERSION,
       origin: LIVE,
       savedAtMs: NOW,
+      documentPath: "/console",
       files: [{ path: "/console", contentType: "text/html", body: encode("<html><body>new</body></html>") }],
     });
     check(
@@ -726,6 +765,7 @@ export async function runMirrorChecks(check) {
         appVersion: APP_VERSION,
         origin: LIVE,
         savedAtMs: NOW,
+        documentPath: "/console",
         files: [
           {
             path: "/console",

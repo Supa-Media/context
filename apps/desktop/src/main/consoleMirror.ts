@@ -188,11 +188,29 @@ export function createConsoleMirror(deps: ConsoleMirrorDeps): ConsoleMirror {
         // A page that will not answer is a page we mirror the document of.
         resources = [];
       }
+      const documentUrl = win.webContents.getURL();
       const wanted = mirrorSnapshotUrls({
-        documentUrl: win.webContents.getURL(),
+        documentUrl,
         resources: Array.isArray(resources) ? resources : [],
         liveOrigin: deps.liveOrigin,
       });
+      /*
+        Read from the URL the window actually navigated to, not from `wanted[0]`
+        — `mirrorSnapshotUrls` already places the document first regardless of
+        what the page's own resource list says, but `save()` is asked to match
+        by path rather than trust that position, so this is computed the same
+        way independent of it: an attacker who can make the page report its own
+        resources in any order still cannot make this string be anything but
+        the document's own path.
+      */
+      const documentPath = (() => {
+        try {
+          const parsed = new URL(documentUrl);
+          return `${parsed.pathname}${parsed.search}`;
+        } catch {
+          return "";
+        }
+      })();
 
       const files: MirrorFile[] = [];
       for (const url of wanted) {
@@ -249,11 +267,12 @@ export function createConsoleMirror(deps: ConsoleMirrorDeps): ConsoleMirror {
         });
       }
 
-      if (files.length === 0) return;
+      if (files.length === 0 || documentPath === "") return;
       const saved = await store.save({
         appVersion: deps.appVersion,
         origin: deps.liveOrigin,
         savedAtMs: now(),
+        documentPath,
         files,
       });
       if (saved !== null) manifest = saved;

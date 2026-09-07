@@ -1687,22 +1687,43 @@ re-adding `cacheControl.includes("private")` to the refusal takes that check
 and one other red (`2`), and takes nothing else red, because nothing else in
 the suite had ever exercised the header that was actually shipping.
 
-**`MirrorStore.save` no longer *discovers* its index — it *decides* it.** The
-document is `input.files[0]` (already documented as "the index a navigation
-falls back to"; `mirrorSnapshotUrls` always puts the document first), and it
-has to be `text/html` or the whole snapshot is discarded — no manifest
-written, one `console.error` line, and the mirror already on disk is left
-exactly as it was. A snapshot whose document didn't survive `shouldMirror`
-today is a snapshot with nothing worth calling an index tomorrow either; the
-fix is to refuse the whole thing rather than let some other file stand in for
-a page it is not. The same rule catches a document too large for the mirror's
-own byte budget — `fitsInBudget` skipping the first file it is offered is
+**`MirrorStore.save` no longer *discovers* its index — it *decides* it, by
+path, never by position.** The caller passes `documentPath` — `pathname +
+search` of the URL `webContents.getURL()` actually reports, computed in
+`consoleMirror.ts` independently of the resource list — and `save` finds the
+document in `files` by matching it, not by reading `files[0]`. The review that
+merged this asked the sharper version of the original bug's question: `files`
+is built from `mirrorSnapshotUrls`, whose list comes from the page's own
+`performance.getEntriesByType('resource')` — attacker-controlled the moment a
+page can run script — so could a compromised console reorder that list and
+make some other same-origin response stand in for the document? No: the
+document's URL is `consider`ed **before** the loop over `resources` even
+starts, unconditionally, so its position in `mirrorSnapshotUrls`'s own output
+is fixed regardless of what the page reports (`mirror.test.mjs`'s "the document
+itself is always the first thing mirrored" already covered this). What was
+still positional was the one step after that — `save` trusting whichever
+`MirrorFile` happened to land at index 0 — and that step runs entirely inside
+this shell's own trusted code, but a future change to the fetch loop (batching
+it, say) could silently stop preserving order without any test noticing. Path
+equality removes the coupling instead of documenting it more carefully. It has
+to be `text/html` or the whole snapshot is discarded — no manifest written,
+one `console.error` line, and the mirror already on disk is left exactly as it
+was. A snapshot whose document didn't survive `shouldMirror` today is a
+snapshot with nothing worth calling an index tomorrow either; the fix is to
+refuse the whole thing rather than let some other file stand in for a page it
+is not. The same rule catches a document too large for the mirror's own byte
+budget — `fitsInBudget` skipping the first file it is offered is
 indistinguishable, from `save`'s point of view, from `shouldMirror` refusing
 it, so both are checked by asking one question after the loop: is the
 document's own key actually in `entries`. **The tests**: a JS-only snapshot
-(`3`, per the header comment in `mirror.test.mjs`) and a document over
-`MIRROR_LIMITS.entryBytes` (`2`) each save `null` and leave the previous
-mirror standing.
+(`3`, per the header comment in `mirror.test.mjs`), a document over
+`MIRROR_LIMITS.entryBytes` (`2`), a `text/html` file at some *other* path
+standing in for the real one (`1`), and a `files` array with the document
+listed *second*, after a decoy `text/html` entry, which still saves with the
+decoy's own path never matching `documentPath` (proving the document is found
+by name, not by finishing the fetch loop first) — each either saves `null` or
+correctly names the real document, and the previous mirror stands untouched
+whenever the answer is `null`.
 
 **`mirrorIsUsable` closes the other half: a manifest already on disk whose
 index is not `text/html` is exactly as unusable as one with the wrong app
@@ -1765,7 +1786,10 @@ edits and reverted: `shouldMirror` refusing `Cache-Control: private` again
 (`2`), `mirrorIsUsable` no longer checking the index's own content type (`1`),
 `MirrorStore.save` trusting the first response as the index regardless of type
 (`3`), `MirrorStore.save` writing an index that never fit its own budget
-(`2`), both `--smoke-load` verdicts moved outside their `if (SMOKE_LOAD)` guard
+(`2`), `MirrorStore.save` going back to reading `input.files[0]` instead of
+matching `documentPath` (`4` — the two tests that name this directly, plus the
+JS-only-snapshot pair above, which a positional read also happens to pass for
+the wrong reason), both `--smoke-load` verdicts moved outside their `if (SMOKE_LOAD)` guard
 (`2`), `[smoke]`'s `loaded` field hardcoded to `false` (`1`), `--smoke-load`
 reading the mirror before `awaitSnapshot` resolves (`1`), and
 `EFFECTIVE_SMOKE_DEADLINE_MS` collapsed back to `SMOKE_DEADLINE_MS` (`1`).
