@@ -200,6 +200,21 @@ async function run(
     who picked a folder and got the inbox was told nothing at all.
   */
   const folderRejected = ack.folderRejected === true;
+  /*
+    The defensive branch in `convexGateway.finalize()` (and the gateway's own
+    `hasNothingCaptured` check) answering after the fact, rather than before:
+    ordinarily `controller.end()` has already folded `empty` locally and this
+    step is never queued at all, but a gateway is still allowed to have the
+    last word about its own record.
+  */
+  if (ack.state === "empty") {
+    return {
+      events: [
+        { type: "empty", at: new Date(deps.now()).toISOString(), reason: ack.emptyReason ?? "Nothing was captured." },
+      ],
+      folderRejected,
+    };
+  }
   if (ack.notePath === null) {
     /*
       Finalize accepted but no path came back. That is the gateway saying "I

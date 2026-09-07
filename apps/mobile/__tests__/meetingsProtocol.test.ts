@@ -75,9 +75,13 @@ describe("the contract crosses the package boundary intact", () => {
       "finalizing",
       "complete",
       "failed",
+      "empty",
     ];
     for (const state of states) expect(Array.isArray(MEETING_TRANSITIONS[state])).toBe(true);
     expect(MEETING_TRANSITIONS.complete).toEqual([]);
+    // `empty` is terminal the same way `complete` is: nothing returns from a
+    // session that captured nothing except recording a new one.
+    expect(MEETING_TRANSITIONS.empty).toEqual([]);
     // The re-entries, and the reason `capture` failures do not end a meeting.
     expect(MEETING_TRANSITIONS.failed).toContain("recording");
     // A failed recording holds a partial transcript, and a partial transcript
@@ -86,6 +90,8 @@ describe("the contract crosses the package boundary intact", () => {
     // A finalize the gateway has not answered yet is not a finished meeting.
     // Without this the app had to fabricate a `fail` to get back to recording.
     expect(MEETING_TRANSITIONS.finalizing).toContain("recording");
+    // A session with nothing in it is the fourth move `finalizing` grew.
+    expect(MEETING_TRANSITIONS.finalizing).toContain("empty");
     // A meeting nobody recorded is still a meeting. Typed notes are the half
     // that cannot be regenerated, so `idle` finalizes without a forged `start`.
     expect(MEETING_TRANSITIONS.idle).toContain("finalizing");
@@ -417,5 +423,22 @@ describe("the badge is the one fact worth knowing about a row", () => {
     expect(meetingBadge(session({ state: "idle" }))?.label).toBe("Draft");
     expect(meetingBadge(session({ state: "finalizing" }))?.label).toBe("Finalizing");
     expect(meetingBadge(session({ state: "failed" }))).toEqual({ label: "Failed", tone: "crit" });
+  });
+
+  test("a failed meeting carries its reason, so the badge answers rather than just alarms", () => {
+    expect(meetingBadge(session({ state: "failed", failureReason: "storage_down" }))).toEqual({
+      label: "Failed — storage_down",
+      tone: "crit",
+    });
+  });
+
+  test("a session that captured nothing gets its own neutral label, not `failed`'s crit one", () => {
+    expect(
+      meetingBadge(session({ state: "empty", emptyReason: "microphone not granted" })),
+    ).toEqual({ label: "Nothing captured", tone: "neutral" });
+  });
+
+  test("...and does not fall through to Draft, `empty` is checked before the catch-all", () => {
+    expect(meetingBadge(session({ state: "empty" }))?.label).not.toBe("Draft");
   });
 });

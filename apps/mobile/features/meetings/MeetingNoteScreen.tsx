@@ -12,6 +12,7 @@ import { renderMeetingNote } from "./note";
 import { isMeetingId } from "./protocol";
 import { attendeeCount, dayHeading, duration, sourceLabel } from "./format";
 import type { MeetingRecord } from "./record";
+import { MEETINGS_ROUTE } from "./route";
 import { useMeetingsSnapshot } from "./useMeetings";
 
 /**
@@ -384,11 +385,45 @@ export const FOLDER_REJECTED_NOTICE =
  * not name the folder that was refused: the ack carries no copy of it, on
  * purpose, so the screen has none either — the path above says where the note
  * *is*, which is the answer somebody actually needs.
+ *
+ * ## A session that captured nothing is not a note that has not landed yet
+ *
+ * `session.notePath === null` is also true of an `empty` session, and reading
+ * it as "Not in your bucket yet" would be a lie in the direction this feature
+ * cannot afford: that sentence promises "sent as soon as your context
+ * answers", and a session with no transcript and no typed notes will never be
+ * sent — there is nothing for a gateway to write. So `empty` is checked first
+ * and gets its own honest sentence, naming the reason the device gave, and a
+ * way back to a fresh recording rather than a status to wait out.
  */
 function Landing({ record }: { record: MeetingRecord }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+  const router = useRouter();
   const { session } = record;
+
+  if (session.state === "empty") {
+    return (
+      <View style={styles.landing} testID="meeting-landing">
+        <Icon name="folder" size={18} color={colors.muted} />
+        <View style={styles.landingText}>
+          <Text variant="mini" testID="meeting-empty-reason">
+            Nothing was captured: {session.emptyReason ?? "no transcript and no typed notes."}
+          </Text>
+          <Pressable
+            onPress={() => router.push(MEETINGS_ROUTE)}
+            accessibilityRole="button"
+            accessibilityLabel="Record this meeting again"
+            style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+            testID="meeting-record-again"
+          >
+            <Icon name="plus" size={15} color={colors.text} />
+            <Text variant="mini">Record again</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   if (record.rejection !== undefined) {
     return (
@@ -399,6 +434,39 @@ function Landing({ record }: { record: MeetingRecord }) {
             This meeting has not left the device
           </Text>
           <Text variant="rowSub">{record.rejection.message}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  /*
+    A `failed` session is not "not in your bucket *yet*" either, and for a
+    sharper reason than an `empty` one: recovery's own `fail` is what puts a
+    meeting here, `pendingSteps` offers a finalize only for a session in
+    `finalizing`, and so nothing sends this meeting again on its own. The
+    sentence says it was not filed, names the reason the badge carries, and
+    the control beside it is the `failed -> finalizing` the contract has
+    always allowed — the "Retry a person presses" this feature's decision
+    record promises.
+  */
+  if (session.state === "failed") {
+    return (
+      <View style={[styles.landing, styles.landingCrit]} testID="meeting-landing">
+        <Icon name="close" size={18} color={colors.crit} />
+        <View style={styles.landingText}>
+          <Text variant="mini" style={styles.landingCritTitle} testID="meeting-failed-reason">
+            Not filed: {session.failureReason ?? "the finalize did not complete."}
+          </Text>
+          <Pressable
+            onPress={() => void meetings.retryFinalize(session.id)}
+            accessibilityRole="button"
+            accessibilityLabel="Try filing this meeting again"
+            style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+            testID="meeting-retry-finalize"
+          >
+            <Icon name="plus" size={15} color={colors.text} />
+            <Text variant="mini">Retry</Text>
+          </Pressable>
         </View>
       </View>
     );
