@@ -59,6 +59,7 @@ import {
   BRIDGE_CHANNELS,
   MEETING_WRITE_KINDS,
   TRAY_COMMANDS,
+  type AudioLevel,
   type CaptureStarted,
   type CaptureStateUpdate,
   type CaptureSummary,
@@ -169,6 +170,17 @@ export interface ConsoleBridge {
   /** Push the four subscribable views. Silent when there is no window. */
   push(view: ConsoleBridgeView): void;
   emitSegment(segment: TranscriptSegment): void;
+  /**
+   * How loud it is, as often as the recorder says.
+   *
+   * Its own method rather than a fifth member of `push()`, and the difference
+   * is the cadence: `push()` is every state change in the shell — a settings
+   * write, a drain, a tray render — and the level moves ten times a second on
+   * its own clock. Folding one into the other would either publish the whole
+   * shell view at 10Hz or publish the level at whatever rate the shell happened
+   * to change, and the second of those is the meter this app already had.
+   */
+  emitLevel(level: AudioLevel): void;
   /** Tell the page a machine approval opened, or that it is over (`null`). */
   emitPendingApproval(pending: PendingMachineApproval | null): void;
   emitTrayCommand(command: TrayCommand): void;
@@ -335,6 +347,13 @@ function approvalResultFrom(payload: unknown): MachineApprovalResult | null {
   const requestId = typeof source.requestId === "string" ? source.requestId : "";
   if (requestId === "" || requestId.length > 256) return null;
   return { requestId, approved: source.approved === true };
+}
+
+/** A fraction of full scale, or `0`. Nothing else may reach the glass. */
+function unit(value: unknown): number {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.min(1, Math.max(0, number));
 }
 
 function messageOf(error: unknown, fallback: string): string {
@@ -517,6 +536,15 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     },
     emitSegment(segment: TranscriptSegment): void {
       send(BRIDGE_CHANNELS.segment, segment);
+    },
+    /*
+      Rebuilt from the two fields the contract declares and clamped into 0-1,
+      like every other answer here: this goes to a page served from the network
+      and the shape it is given is the shape the contract names, never whatever
+      the recorder happened to hand over.
+    */
+    emitLevel(level: AudioLevel): void {
+      send(BRIDGE_CHANNELS.level, { mic: unit(level?.mic), systemAudio: unit(level?.systemAudio) });
     },
     /*
       Pushed rather than polled, and `null` is a value on this channel: it is

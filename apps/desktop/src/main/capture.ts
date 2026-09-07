@@ -46,7 +46,7 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { join } from "node:path";
 import type { AudioRecorder, RecorderOptions, RecorderSummary } from "../core/capture/recorder.ts";
-import type { CaptureChunk } from "../preload/capture.ts";
+import type { CaptureChunk, CaptureLevel } from "../preload/capture.ts";
 
 const CAPTURE_READY = "context:capture-ready";
 const CAPTURE_START = "context:capture-start";
@@ -54,7 +54,18 @@ const CAPTURE_STOP = "context:capture-stop";
 const CAPTURE_PAUSE = "context:capture-pause";
 const CAPTURE_RESUME = "context:capture-resume";
 const CAPTURE_CHUNK = "context:capture-chunk";
+const CAPTURE_LEVEL = "context:capture-level";
 const CAPTURE_FAILED = "context:capture-failed";
+
+/** Nothing is silent, and nothing is louder than full scale. */
+function unitLevel(value: unknown): number {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.min(1, Math.max(0, number));
+}
+
+/** What the console draws when nothing is open. Sent, never assumed. */
+const SILENT: CaptureLevel = { mic: 0, systemAudio: 0 };
 
 export class DesktopCaptureRecorder implements AudioRecorder {
   #window: BrowserWindow | null = null;
@@ -66,9 +77,23 @@ export class DesktopCaptureRecorder implements AudioRecorder {
   #rendererDir: string;
   /** Which requested channels the platform refused. Read after `start`. */
   #degraded: string[] = [];
+  /**
+   * Where the meter goes, and why it is a constructor argument.
+   *
+   * Not a member of `RecorderOptions`: the level is a fact about *this*
+   * implementation — an `AnalyserNode` in a hidden Electron window — and
+   * putting it on the shared interface would oblige the phone's recorder, the
+   * browser's and the suite's fake to answer a question none of them was asked.
+   * The controller does not route it either, for the same reason it does not
+   * route the microphone: this is the device, and the device reports itself.
+   *
+   * Defaulted, so a caller that does not want one costs nothing.
+   */
+  #onLevel: (level: CaptureLevel) => void;
 
-  constructor(rendererDir: string) {
+  constructor(rendererDir: string, onLevel: (level: CaptureLevel) => void = () => {}) {
     this.#rendererDir = rendererDir;
+    this.#onLevel = onLevel;
   }
 
   get capturing(): boolean {
@@ -134,6 +159,23 @@ export class DesktopCaptureRecorder implements AudioRecorder {
       );
     });
 
+    /*
+      The meter, read rather than trusted.
+
+      This payload comes from a renderer, so both numbers are clamped into 0–1
+      here rather than on the glass: the console is a *remote origin* and a
+      level it could not read as a fraction is a bar it draws off the end of
+      its own chrome. Dropped silently on the way out if nobody is listening —
+      `#onLevel` defaults to a no-op — because a recording does not depend on
+      anybody watching it.
+    */
+    ipcMain.on(CAPTURE_LEVEL, (_event, level: Partial<CaptureLevel> | null) => {
+      this.#onLevel({
+        mic: unitLevel(level?.mic),
+        systemAudio: unitLevel(level?.systemAudio),
+      });
+    });
+
     ipcMain.on(CAPTURE_CHUNK, (_event, chunk: CaptureChunk) => {
       this.#frames += 1;
       options.onFrame({
@@ -168,6 +210,10 @@ export class DesktopCaptureRecorder implements AudioRecorder {
   /** A start that threw must leave no window and no live track behind. */
   async #abandon(window: BrowserWindow): Promise<void> {
     ipcMain.removeAllListeners(CAPTURE_CHUNK);
+    ipcMain.removeAllListeners(CAPTURE_LEVEL);
+    // A start that failed never opened anything, and the meter says so rather
+    // than holding whatever the last meeting left on it.
+    this.#onLevel({ ...SILENT });
     if (!window.isDestroyed()) window.destroy();
   }
 
@@ -186,7 +232,12 @@ export class DesktopCaptureRecorder implements AudioRecorder {
   }
 
   async stop(): Promise<RecorderSummary> {
-    if (!this.#capturing) return { recordedMs: this.#recordedMs, frames: this.#frames };
+    if (!this.#capturing) {
+      // Safe to call twice, and the second call still says the input is shut:
+      // this is the path a console that reloaded mid-teardown lands on.
+      this.#onLevel({ ...SILENT });
+      return { recordedMs: this.#recordedMs, frames: this.#frames };
+    }
     if (!this.#paused) this.#recordedMs += Date.now() - this.#startedAt;
     this.#capturing = false;
     this.#paused = false;
@@ -202,6 +253,15 @@ export class DesktopCaptureRecorder implements AudioRecorder {
     */
     await new Promise((resolve) => setTimeout(resolve, LAST_CHUNK_GRACE_MS));
     ipcMain.removeAllListeners(CAPTURE_CHUNK);
+    /*
+      The meter is shut here rather than left to the renderer's own last post.
+      That post happens — `silenceLevels()` in `renderer/capture.ts` — but it
+      races the grace period above and the window's destruction below, and the
+      losing side is a bar frozen at whatever the person last said. This
+      process knows the input is closed, so this process is what says so.
+    */
+    ipcMain.removeAllListeners(CAPTURE_LEVEL);
+    this.#onLevel({ ...SILENT });
     // Destroyed rather than hidden: a window holding a live MediaRecorder is a
     // microphone that is still open, and "the indicator is off but the stream
     // is not" is the exact failure this app must never have.
