@@ -540,6 +540,45 @@ describe("autosave", () => {
     expect(browser.editor.draft).toBe("# note\n\nmine, and more\n");
   });
 
+  test("deciding a conflict with keep-mine writes it, without another press", async () => {
+    /*
+      **The one route into `dirty` that is not a keystroke.**
+
+      Autosave is armed from `setDraft`, which covers every other way a draft
+      becomes writable — somebody typed. "Keep mine" rebases onto the etag they
+      chose to replace and produces a writable draft with nobody having typed
+      anything, so with arming left to `setDraft` the person resolved the
+      conflict, watched nothing happen, and still owed the app a press of Save:
+      the exact thing this change removes, surviving in the one place somebody
+      has just been made to think hard.
+    */
+    let refusals = 1;
+    respond = async (write) => {
+      if (refusals-- > 0) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "Somebody else saved this note first.",
+          currentEtag: "etag-theirs",
+        });
+      }
+      return { path: write.path, etag: "etag-mine", conflictCheck: "conditional" };
+    };
+
+    await type("# note\n\nmine\n", AUTOSAVE_IDLE_MS);
+    expect(browser.editor.status).toBe("conflict");
+    expect(writes).toHaveLength(1);
+
+    act(() => browser.keepMine());
+    expect(browser.editor.status).toBe("dirty");
+
+    // No further typing. The timer alone has to carry it.
+    await tick(AUTOSAVE_IDLE_MS);
+    expect(writes).toHaveLength(2);
+    // Against the version they were shown and chose to replace.
+    expect(writes[1]!.expectedEtag).toBe("etag-theirs");
+    expect(browser.editor.status).toBe("saved");
+  });
+
   test("a failed save is not retried on its own — and typing re-arms it", async () => {
     let failing = true;
     respond = async (write) => {

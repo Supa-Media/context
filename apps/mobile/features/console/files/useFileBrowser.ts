@@ -952,6 +952,15 @@ export function useFileBrowser(options: {
       saveRuns.current.set(path, mine);
       const running = saveTimers.current.get(path);
       if (running !== undefined) clearTimeout(running);
+      /*
+        The one dispatch below that is *not* compared against the open note, and
+        it needs no comparison rather than having been missed: every caller of
+        `performSave` passes the note the editor is holding. `save` and
+        `resolveWith` read the path straight off `editorRef`, and `autosaveNow`
+        — the only caller that could ever pass another one — refuses before it
+        gets here. The settlement dispatches below are guarded because they land
+        *later*, when that is no longer true.
+      */
       dispatch({ type: "saveStarted" });
 
       saveTimers.current.set(
@@ -1228,7 +1237,23 @@ export function useFileBrowser(options: {
     const path = editorRef.current.path;
     if (path !== null) offlineRef.current.keepQueued(path);
     dispatch({ type: "conflictOverridden" });
-  }, []);
+    /*
+      And arm the timer, because this is the one route into `dirty` that is not
+      a keystroke.
+
+      Autosave is armed from `setDraft`, which is right for every other path
+      into that status — somebody typed. "Keep mine" produces a writable draft
+      without anybody typing, and leaving it unarmed meant the person resolved
+      the conflict, watched nothing happen, and still owed the app a press of
+      Save. That is precisely the thing this change exists to remove, surviving
+      in the one place somebody has just been made to think hard.
+
+      Safe to arm unconditionally: the reducer has already moved the state to
+      `dirty` on the etag they chose to replace, and `autosaveNow` re-asks
+      `autosaves` when the timer comes due anyway.
+    */
+    if (path !== null) autosave.edited(path);
+  }, [autosave]);
 
   const discard = useCallback(() => {
     const path = editorRef.current.path;
