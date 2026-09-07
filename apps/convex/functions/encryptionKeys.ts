@@ -18,7 +18,12 @@
  * second place for `structure.test.ts` to have to learn about a credential.
  *
  * So: `encryptSecret(material, requireKeyset(), { workspaceId })`, and the
- * `rekeyStorageBindings` pass moves these rows forward with the bindings.
+ * `rekeyStorageBindings` pass moves these rows forward with the bindings —
+ * which it does because `functions/storage.ts` walks `workspaceDataKeys`
+ * explicitly. Sealing a row with a scheme that carries a key id is only half of
+ * surviving a rotation; the other half is being *in the pass that retires the
+ * old one*, and an envelope that is not is destroyed at step 4 of the operator
+ * sequence rather than at step 1.
  *
  * ## The key belongs to the workspace, not to the binding
  *
@@ -40,9 +45,12 @@
  * would look exactly like a fix for "the key was missing". Two things stop it —
  * the insert re-reads under the mutation's own transaction and returns the
  * existing row rather than writing, so a race between two requests resolves to
- * one key; and there is no update path for `encryptedDataKey` in this file at
- * all. Rotation, when it is built, re-wraps notes' recipients and writes a new
- * *generation*; it does not overwrite this column in place.
+ * one key; and there is no path in this file, or anywhere, that writes
+ * *different material* into `encryptedDataKey`. The single write to that column
+ * lives in `functions/storage.ts` and re-seals the same material under a new
+ * envelope key, conditional on the bytes it read. **Workspace-key** rotation,
+ * when it is built, re-wraps notes' recipients and writes a new *generation*;
+ * it does not overwrite this column in place either.
  *
  * ## What may not happen here
  *

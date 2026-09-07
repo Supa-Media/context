@@ -758,9 +758,13 @@ const schema = defineSchema({
    * bump without the re-wrap pass that goes with it would strand every note
    * written under the old one.
    *
-   * There is no update path for `encryptedDataKey`. A second key written over
-   * the first makes every note already encrypted under it unreadable, and it
-   * would look exactly like a fix for "the key was missing".
+   * **Nothing may write different key material into this column.** A second key
+   * over the first makes every note already encrypted under it unreadable, and
+   * it would look exactly like a fix for "the key was missing". The one write
+   * that exists is `applyDataKeyRekey`, which re-seals the *same* material under
+   * a new envelope key, conditional on the exact bytes it read — the rotation
+   * pass, which must reach this column, because an envelope left behind on a
+   * retired key is that same unrecoverable loss arriving from the other side.
    */
   workspaceDataKeys: defineTable({
     workspaceId: v.id("workspaces"),

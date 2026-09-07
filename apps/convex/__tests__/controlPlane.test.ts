@@ -1521,6 +1521,41 @@ describe("/gateway/binding — the encryption key", () => {
     expect((joined.encryptionKey as { dataKey: string }).dataKey).toBe(bobKey);
   });
 
+  test("...and the refusal is byte-identical to a context that never existed", async () => {
+    const { t, aliceWs, bobWs } = await twoConnectedTenants();
+    // Both tenants hold a key. The block above compares a forbidden answer
+    // against a parsed shape, which a response carrying a *shorter* or
+    // *longer* body would still satisfy; and the byte-identical test in the
+    // binding block runs over a world where no key exists at all, so it cannot
+    // see a length that moves only when one does. This is the composition of
+    // the two, and it is the one an owner of a real context would attack.
+    await seedDataKey(t, aliceWs);
+    await seedDataKey(t, bobWs);
+    const dangling = await danglingWorkspaceId(t);
+
+    const forbidden = await responseFingerprint(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: bobWs,
+      }),
+    );
+    const nonexistent = await responseFingerprint(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: dangling,
+      }),
+    );
+    const nonsense = await responseFingerprint(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: "not-even-an-id",
+      }),
+    );
+
+    expect(forbidden).toBe(nonexistent);
+    expect(forbidden).toBe(nonsense);
+  });
+
   test("a key this deployment cannot open costs the sibling, never the binding", async () => {
     const { t, aliceWs } = await twoConnectedTenants();
     await seedDataKey(t, aliceWs);

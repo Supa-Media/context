@@ -177,10 +177,41 @@ export interface RekeyCandidates {
   unreadable: number;
 }
 
-/** What one re-encrypt pass moved. */
+/** Candidate rows outside `storageBindings`, one per envelope. */
+export interface DataKeyRekeyCandidates {
+  candidates: {
+    rowId: Id<"workspaceDataKeys">;
+    workspaceId: Id<"workspaces">;
+    envelope: string;
+  }[];
+  unreadable: number;
+}
+
+/**
+ * What one re-encrypt pass moved.
+ *
+ * The data-key counts are reported separately rather than folded into the
+ * first three, because the two failures are not the same size. A binding this
+ * pass cannot open is a credential the owner re-enters. A **workspace data key**
+ * it cannot open is every encrypted note in that context, and there is no
+ * re-entering it: the operator must stop and put the previous envelope key
+ * back rather than finish step 4.
+ */
 export interface RekeyResult {
   rekeyed: number;
   skipped: number;
+  unreadable: number;
+  dataKeysRekeyed: number;
+  dataKeysSkipped: number;
+  dataKeysUnreadable: number;
+  platformSecretsRekeyed: number;
+  platformSecretsSkipped: number;
+  platformSecretsUnreadable: number;
+}
+
+/** Platform-scoped envelopes, one per `appSecrets` row. */
+export interface PlatformSecretRekeyCandidates {
+  candidates: { rowId: Id<"appSecrets">; envelope: string }[];
   unreadable: number;
 }
 
@@ -1177,6 +1208,16 @@ export const recordDropboxRefresh = internalMutation({
 //   2. put the new key in STORAGE_SECRET_ENCRYPTION_KEY (+ a new _ID),
 //   3. run `rekeyStorageBindings` until it reports nothing left,
 //   4. unset the PREVIOUS variables.
+//
+// **The pass covers every envelope this control plane holds, not only the ones
+// on a binding.** `workspaceDataKeys.encryptedDataKey` is sealed by the same
+// scheme and carries the same key id, and it is the one envelope whose loss
+// cannot be repaired by asking the owner for the credential again — it opens
+// the encrypted notes in somebody's bucket, and nothing else does. A rotation
+// that walked only `storageBindings` would report "nothing left" while those
+// rows still sat under the outgoing key, and step 4 would then destroy them.
+// `ROTATED_ENVELOPE_COLUMNS` below is coupled to the schema so a fifth
+// encrypted column in any table fails a test rather than being remembered.
 // ---------------------------------------------------------------------------
 
 /** How many bindings one `rekeyStorageBindings` pass moves. */
@@ -1204,6 +1245,48 @@ export const ENVELOPE_FIELDS = [
 ] as const;
 
 export type EnvelopeField = (typeof ENVELOPE_FIELDS)[number];
+
+/**
+ * Every encrypted column in the schema that a rotation pass moves forward.
+ *
+ * `ENVELOPE_FIELDS` is the `storageBindings` half; this is the whole set, and
+ * it exists because the guard that used to enforce the coupling read only the
+ * `storageBindings` slice of `schema.ts`. A credential in a *new table* was
+ * therefore invisible to it — the same blindness that guard's own rationale
+ * warns about one level down, where a hand-maintained list does not know about
+ * the field nobody has thought about yet. `workspaceDataKeys.encryptedDataKey`
+ * was exactly that field.
+ */
+export const ROTATED_ENVELOPE_COLUMNS = [
+  ...ENVELOPE_FIELDS,
+  "encryptedDataKey",
+  "encryptedValue",
+] as const;
+
+/**
+ * Encrypted columns a rotation deliberately does **not** move, and why.
+ *
+ * An exemption has to be written down rather than left as a column nobody
+ * listed, because those two states look identical from inside a passing test
+ * suite and only one of them is a decision. The bar is not "small" or "not very
+ * secret" — it is that losing the envelope costs nothing that cannot be
+ * recreated by repeating an action the owner is already in the middle of.
+ *
+ *  - `cloudflareProvisioning.encryptedSetupCredential` — one in-flight bucket
+ *    creation, alive for seconds, deleted in the transaction that writes the
+  *    binding and cleared on failure. A rotation landing inside that window
+ *    fails that one attempt, which the owner retries. There is nothing here to
+ *    carry forward: by design the row is gone before a pass would reach it.
+ *
+ *  - `dropboxConnectAttempts.encryptedVerifier` — one in-flight OAuth
+ *    authorization. The PKCE verifier is replayed to Dropbox at the exchange
+ *    minutes later and the row is spent there; an unreadable one costs the
+ *    person a second press of Connect.
+ */
+export const ROTATION_EXEMPT_ENVELOPE_COLUMNS = [
+  "encryptedSetupCredential",
+  "encryptedVerifier",
+] as const;
 
 const envelopeFieldValidator = v.union(
   v.literal("encryptedSecretAccessKey"),
@@ -1295,6 +1378,145 @@ export const applyRekey = internalMutation({
 });
 
 /**
+ * Workspace data keys still on an older envelope key, one row per envelope.
+ *
+ * Its own query rather than a second shape inside `listRekeyCandidates`,
+ * because the two write to different tables and a union of row ids in one
+ * validator is a way to patch the wrong one.
+ */
+export const listDataKeyRekeyCandidates = internalQuery({
+  args: { currentKeyId: v.string(), limit: v.number() },
+  returns: v.object({
+    candidates: v.array(
+      v.object({
+        rowId: v.id("workspaceDataKeys"),
+        workspaceId: v.id("workspaces"),
+        envelope: v.string(),
+      }),
+    ),
+    unreadable: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db.query("workspaceDataKeys").take(args.limit);
+    const candidates = [];
+    let unreadable = 0;
+    for (const row of rows) {
+      const envelope = row.encryptedDataKey;
+      if (typeof envelope !== "string" || envelope.length === 0) {
+        unreadable += 1;
+        continue;
+      }
+      let keyId: string;
+      try {
+        keyId = envelopeKeyId(envelope);
+      } catch {
+        unreadable += 1;
+        continue;
+      }
+      if (keyId === args.currentKeyId) continue;
+      candidates.push({ rowId: row._id, workspaceId: row.workspaceId, envelope });
+    }
+    return { candidates, unreadable };
+  },
+});
+
+/**
+ * Re-seal one workspace data key under the current envelope key.
+ *
+ * **This is not an update path for the key.** The material is identical on both
+ * sides — only the envelope around it moves — and the write is conditional on
+ * the exact bytes the pass read, so a row that changed underneath it is skipped
+ * rather than overwritten. A path that could write *different* material is the
+ * one this feature may never have: it would make every note already encrypted
+ * under the old material unreadable, and it would look like a fix.
+ */
+export const applyDataKeyRekey = internalMutation({
+  args: {
+    rowId: v.id("workspaceDataKeys"),
+    expectedEnvelope: v.string(),
+    envelope: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.rowId);
+    if (row === null) return false;
+    if (row.encryptedDataKey !== args.expectedEnvelope) return false;
+    await ctx.db.patch(args.rowId, { encryptedDataKey: args.envelope });
+    await recordAudit(ctx, {
+      workspaceId: row.workspaceId,
+      action: "encryption.rekeyed",
+    });
+    return true;
+  },
+});
+
+/**
+ * Platform secrets still on an older envelope key.
+ *
+ * `appSecrets` is bound to the `integration` scope rather than to a workspace,
+ * so it needs its own context and could not have ridden the binding query even
+ * if the tables had matched.
+ */
+export const listPlatformSecretRekeyCandidates = internalQuery({
+  args: { currentKeyId: v.string(), limit: v.number() },
+  returns: v.object({
+    candidates: v.array(
+      v.object({ rowId: v.id("appSecrets"), envelope: v.string() }),
+    ),
+    unreadable: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db.query("appSecrets").take(args.limit);
+    const candidates = [];
+    let unreadable = 0;
+    for (const row of rows) {
+      const envelope = row.encryptedValue;
+      if (typeof envelope !== "string" || envelope.length === 0) {
+        unreadable += 1;
+        continue;
+      }
+      let keyId: string;
+      try {
+        keyId = envelopeKeyId(envelope);
+      } catch {
+        unreadable += 1;
+        continue;
+      }
+      if (keyId === args.currentKeyId) continue;
+      candidates.push({ rowId: row._id, envelope });
+    }
+    return { candidates, unreadable };
+  },
+});
+
+/**
+ * Re-seal one platform secret, conditional on the bytes the pass read.
+ *
+ * `fingerprint` is not recomputed and must not change: it is derived from the
+ * plaintext, which this does not touch. A fingerprint that moved during a
+ * rotation would tell an operator their credential had been replaced.
+ *
+ * No audit row: `recordAudit` is keyed by workspace and this credential belongs
+ * to no customer's context. Writing it against an arbitrary workspace would put
+ * a platform maintenance event in somebody's own audit trail.
+ */
+export const applyPlatformSecretRekey = internalMutation({
+  args: {
+    rowId: v.id("appSecrets"),
+    expectedEnvelope: v.string(),
+    envelope: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.rowId);
+    if (row === null) return false;
+    if (row.encryptedValue !== args.expectedEnvelope) return false;
+    await ctx.db.patch(args.rowId, { encryptedValue: args.envelope });
+    return true;
+  },
+});
+
+/**
  * Re-encrypt bindings still on an older key. INTERNAL ACTION — decrypts.
  *
  * Idempotent and resumable: run it until `rekeyed` comes back 0. A row it
@@ -1309,6 +1531,12 @@ export const rekeyStorageBindings = internalAction({
     rekeyed: v.number(),
     skipped: v.number(),
     unreadable: v.number(),
+    dataKeysRekeyed: v.number(),
+    dataKeysSkipped: v.number(),
+    dataKeysUnreadable: v.number(),
+    platformSecretsRekeyed: v.number(),
+    platformSecretsSkipped: v.number(),
+    platformSecretsUnreadable: v.number(),
   }),
   handler: async (ctx, args): Promise<RekeyResult> => {
     const keyset = requireKeyset();
@@ -1345,7 +1573,86 @@ export const rekeyStorageBindings = internalAction({
       else skipped += 1;
     }
 
-    return { rekeyed, skipped, unreadable };
+    // The workspace data keys, in the same pass and under the same budget, so
+    // that "run it until it reports nothing left" stays one instruction. An
+    // operator who has to remember a second command is an operator who
+    // eventually does not, and the cost of forgetting this one is somebody's
+    // encrypted notes rather than a credential they can re-enter.
+    const dataKeys: DataKeyRekeyCandidates = await ctx.runQuery(
+      internal.functions.storage.listDataKeyRekeyCandidates,
+      { currentKeyId: keyset.current.id, limit },
+    );
+
+    let dataKeysRekeyed = 0;
+    let dataKeysSkipped = 0;
+    let dataKeysUnreadable = dataKeys.unreadable;
+    for (const candidate of dataKeys.candidates) {
+      const context = { workspaceId: candidate.workspaceId as string };
+      let material: string;
+      try {
+        material = await decryptSecret(candidate.envelope, keyset, context);
+      } catch {
+        // Counted loudly and never deleted. This row is the only copy of the
+        // key that opens a context's notes.
+        dataKeysUnreadable += 1;
+        continue;
+      }
+      const applied: boolean = await ctx.runMutation(
+        internal.functions.storage.applyDataKeyRekey,
+        {
+          rowId: candidate.rowId,
+          expectedEnvelope: candidate.envelope,
+          envelope: await encryptSecret(material, keyset, context),
+        },
+      );
+      if (applied) dataKeysRekeyed += 1;
+      else dataKeysSkipped += 1;
+    }
+
+    // And the platform's own credentials. Losing these is an outage rather than
+    // data loss — an operator re-enters them — but a rotation that cannot be
+    // finished without one is a rotation nobody performs, which is the state
+    // this pass exists to end.
+    const platform: PlatformSecretRekeyCandidates = await ctx.runQuery(
+      internal.functions.storage.listPlatformSecretRekeyCandidates,
+      { currentKeyId: keyset.current.id, limit },
+    );
+
+    let platformSecretsRekeyed = 0;
+    let platformSecretsSkipped = 0;
+    let platformSecretsUnreadable = platform.unreadable;
+    const platformContext = { platform: "integration" as const };
+    for (const candidate of platform.candidates) {
+      let value: string;
+      try {
+        value = await decryptSecret(candidate.envelope, keyset, platformContext);
+      } catch {
+        platformSecretsUnreadable += 1;
+        continue;
+      }
+      const applied: boolean = await ctx.runMutation(
+        internal.functions.storage.applyPlatformSecretRekey,
+        {
+          rowId: candidate.rowId,
+          expectedEnvelope: candidate.envelope,
+          envelope: await encryptSecret(value, keyset, platformContext),
+        },
+      );
+      if (applied) platformSecretsRekeyed += 1;
+      else platformSecretsSkipped += 1;
+    }
+
+    return {
+      rekeyed,
+      skipped,
+      unreadable,
+      dataKeysRekeyed,
+      dataKeysSkipped,
+      dataKeysUnreadable,
+      platformSecretsRekeyed,
+      platformSecretsSkipped,
+      platformSecretsUnreadable,
+    };
   },
 });
 
