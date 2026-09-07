@@ -165,6 +165,16 @@ export function runChatChecks(check) {
       "history unavailable"
     )
   );
+  check(
+    "a non-numeric part is treated as part one for the notice, not silently dropped",
+    renderChannelDayNote({ ...chatDay(), part: "1; drop table", unavailableSpaces: [{ label: "Legal", reason: "history-off" }] }).includes(
+      "history unavailable"
+    )
+  );
+  check(
+    "...while the frontmatter still normalizes the same garbage to 0, exactly as it always has",
+    parseChannelDayNote(renderChannelDayNote({ ...chatDay(), part: "1; drop table" })).frontmatter.part === "0"
+  );
 
   // -- splitting: the space heading survives a split like the thread heading does
   const parts = planChannelDay(bulkyChatDay(20, 4_000), { threshold: PART_HEADER_RESERVE + 20_000 });

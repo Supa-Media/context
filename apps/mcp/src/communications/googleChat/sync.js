@@ -143,6 +143,10 @@ export async function syncGoogleChat({ listSpaces, listMessages, connection, now
     const historyOn = isHistoryOn(space);
 
     try {
+      // Read regardless of `historyOn`: Chat can still return the handful of
+      // messages it retains transiently even with history off, and a real
+      // message that did arrive must never be shadowed by the notice below —
+      // a day can carry both genuine content and an honest gap at once.
       const { events, latestMs } = await readSpaceMessages({ listMessages, space, account, sinceMs });
       for (const { date, event } of events) {
         if (!eventsByDay.has(date)) eventsByDay.set(date, []);

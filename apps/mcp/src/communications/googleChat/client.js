@@ -8,10 +8,11 @@
 // puts it anywhere but the one `Authorization` header of the one request it
 // is used for.
 //
-// `sync.js` depends on the *shape* this returns (`{items, nextPageToken}` for
-// a page, or `{unavailable: {reason}}` for a space this connection cannot
-// read), never on `fetch` or a base URL directly — that boundary is what the
-// fixture Chat API server in the test suite stands in for.
+// `sync.js` depends on the *shape* this returns — `{items, nextPageToken}`
+// for a page, or a thrown `ChatApiError` with `.code === "PERMISSION_DENIED"`
+// for a space this connection can no longer read — never on `fetch` or a
+// base URL directly. That boundary is what the fixture Chat API server in
+// the test suite stands in for.
 
 const CHAT_API_BASE = "https://chat.googleapis.com/v1";
 
@@ -37,15 +38,10 @@ async function chatGet({ fetchImpl, path, accessToken, params }) {
     // Chat returns 403 PERMISSION_DENIED for a space this grant can no
     // longer read (membership revoked, scope too narrow) and 404 for one
     // that has been deleted out from under the connection — both are
-    // "we cannot read this space's messages," never "retry this request."
-    let code = "PERMISSION_DENIED";
-    try {
-      const body = await response.json();
-      code = body?.error?.status ?? code;
-    } catch {
-      // Google always sends a JSON error body for these; an unparsable one
-      // is still treated as access denied rather than thrown as a surprise.
-    }
+    // "we cannot read this space's messages," never "retry this request," so
+    // both normalize to this module's own `PERMISSION_DENIED` code rather
+    // than forwarding whatever Google's body happens to say — a caller
+    // branches on one string, not on Google's full error-status vocabulary.
     throw new ChatApiError(`Google Chat API refused ${path}: ${response.status}`, "PERMISSION_DENIED", response.status);
   }
   if (!response.ok) {

@@ -842,6 +842,22 @@ own. Getting this backwards throws immediately (`channelDayNotePath` refuses a
 non-`email` channel with an account), which is the loud failure a silent
 folder collision would not have been.
 
+### Disconnecting Chat clears settings and cursors; the folder itself follows the mailbox rule
+
+"Deleting a mailbox deletes its folder" (above) assumes one folder per
+account, which Chat does not have — `0-inbox/google-chat/` is shared across
+however many Google accounts sync into it. So a Chat disconnect is two
+things, not one: the *connection's* per-space settings and cursors are
+always cleared (there is nothing left to resume), and what happens to
+`0-inbox/google-chat/` itself follows the same "disconnect and keep" /
+"disconnect and delete" choice email already offers, defaulting to keep, for
+the same reason — the notes are the customer's regardless of which
+connection wrote them. **Deleting the folder when a second Google account is
+still connected and included would delete that account's history along with
+the disconnected one's**, which is the one case this rule has to get right:
+the delete path checks whether any other Chat connection still has spaces
+included before it deletes anything, not merely whether the caller asked.
+
 ### The Chat scopes, and where they sit on Google's own restricted list
 
 `google-verification-steps.md` records the classification and it is repeated

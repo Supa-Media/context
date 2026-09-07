@@ -413,7 +413,11 @@ export function renderChannelDayNote(day) {
   const events = Array.isArray(day.events) ? day.events : [];
   const threads = groupIntoThreads(events);
   const isSpaceGrouped = day.channel === "google-chat";
-  const part = day.part ?? 1;
+  // Normalized the same direction `yamlNumber` already normalizes the
+  // frontmatter's own `part` key: a caller's non-numeric string must not
+  // silently read as "not part 1" and drop a real unavailable-space notice,
+  // nor show up verbatim in the title the way an un-normalized value would.
+  const part = Number.isInteger(day.part) ? day.part : 1;
   const unavailableSpaces = part === 1 && Array.isArray(day.unavailableSpaces) ? day.unavailableSpaces : [];
 
   // Keyed off FRONTMATTER_KEYS so the documented order and the written order
@@ -431,7 +435,11 @@ export function renderChannelDayNote(day) {
     date: yamlScalar(day.date),
     messages: yamlNumber(events.length),
     threads: yamlNumber(threads.length),
-    part: yamlNumber(part),
+    // The frontmatter reads the caller's raw value, never the normalized
+    // `part` below: `yamlNumber` already turns a non-numeric string into "0"
+    // on its own, and normalizing it to 1 first would quietly turn that
+    // same garbage into a plausible-looking "1" instead.
+    part: yamlNumber(day.part ?? 1),
     parts: yamlNumber(day.parts ?? 1),
     trust: yamlScalar(TRUST),
     origin: yamlScalar(day.origin ?? "communications-sync"),
