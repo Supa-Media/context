@@ -44,6 +44,7 @@
  *   owner-only to prevent.
  */
 
+import { indexableText } from "../encryption.js";
 import { buildTermFilter } from "./filter.js";
 import { addDoc, emptyIndex, readComms, removeDocsForNote, serializeComms } from "./indexer.js";
 import { subDocumentsFor } from "./commsIndex.js";
@@ -1665,12 +1666,34 @@ export async function syncShardedIndex(
               return null;
             }
             if (!object) return { path, gone: true };
-            // Uncapped: `subDocumentsFor` applies `NOTE_INDEX_CHAR_CAP`
-            // itself, independently per message for a channel-day note
-            // (CONTRACT.md § "Channel-day notes: one sub-document per
-            // message") and once, whole, for an ordinary note — so the cap
-            // must not have already cut the text before either path sees it.
-            const full = await object.text();
+            /*
+              `indexableText` first, and uncapped after it — both halves matter
+              and they are independent.
+
+              **`indexableText`**: an encrypted note becomes the empty string
+              here, so its *version* is still recorded — the diff converges and
+              the note stops looking stale forever — while nothing of it reaches
+              the index. This index lives in the customer's own bucket under the
+              same credential as the note, so tokenising an envelope would hand a
+              leaked bucket key the note's terms back out of a second object; and
+              for a passphrase-locked note nothing that can read the index is a
+              reader of the note at all. See `docs/decisions/encryption.md`,
+              "What search does". MEASURED: this pass is the one every search and
+              every scheduled sweep runs, and it read the body raw. The
+              `indexableText` call the decision file pointed at was in
+              `maintain.js`'s `syncIndex`, which nothing has called since this
+              index replaced it.
+
+              **Uncapped**: `subDocumentsFor` applies `NOTE_INDEX_CHAR_CAP`
+              itself, independently per message for a channel-day note
+              (CONTRACT.md § "Channel-day notes: one sub-document per message")
+              and once, whole, for an ordinary note — so the cap must not have
+              already cut the text before either path sees it. An empty string
+              is under every cap, so the two compose in this order and in no
+              other: capping first would be wrong, and excluding after the split
+              would mean excluding in two places.
+            */
+            const full = indexableText(await object.text());
             // Record the token the *next* listing will report, or the diff
             // never converges: where the listing carries a real etag that is
             // this read's etag, and where it does not, the object's real etag

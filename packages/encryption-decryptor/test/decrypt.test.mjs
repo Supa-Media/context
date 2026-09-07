@@ -53,7 +53,11 @@ import {
 
 // Imported ONLY to produce ciphertext for this file's own fixtures — see the
 // header. Nothing here calls this module's decrypt path.
-import { encryptNote, generateWorkspaceKey } from "../../../apps/mcp/src/encryption.js";
+import {
+  encryptNote,
+  encryptNoteForPassphrase,
+  generateWorkspaceKey,
+} from "../../../apps/mcp/src/encryption.js";
 
 const VECTOR = JSON.parse(
   readFileSync(
@@ -191,6 +195,43 @@ check(
   (await threw(async () => parseKeyExport({ ...exportDoc, v: 2 }))) instanceof DecryptorError &&
     (await threw(async () => parseKeyExport({ ...exportDoc, current: "k9" }))) instanceof DecryptorError,
 );
+
+/* -- (3a) the note no export will ever open -------------------------------- */
+//
+// A note locked with a passphrase carries a `passphrase` recipient and no
+// workspace one, so no key export opens it — ever, by design. What this
+// package owes such a note is the truth about WHY, because the person reading
+// it has already revoked our credential and has nobody to ask: "your export is
+// missing a generation" sends them hunting for a key that was never written
+// down anywhere, and the honest answer is that the passphrase is the key.
+//
+// Encrypted with the gateway's own passphrase writer, opened — refused — by
+// this package's own reader, which is the same arrangement as every other
+// check in this file.
+{
+  const kek = new Uint8Array(32).fill(7);
+  const lockedNote = await encryptNoteForPassphrase("locked body\n", {
+    workspaceId: WORKSPACE_ID,
+    kek,
+    kdf: { id: "argon2id", v: 19, m: 19456, t: 2, p: 1, salt: "c2FsdHNhbHRzYWx0c2E" },
+  });
+  check(
+    "a passphrase-locked note is recognised as an encrypted note and parses",
+    isEncryptedNote(lockedNote) && parseEncryptedNote(lockedNote).recipients.length === 1,
+  );
+  check(
+    "...and its KDF descriptor survives the shape check this package makes",
+    parseEncryptedNote(lockedNote).recipients[0].kind === "passphrase" &&
+      parseEncryptedNote(lockedNote).recipients[0].kdf.id === "argon2id",
+  );
+  const refusal = await threw(async () => decryptNote(lockedNote, { k1: KEY_A }));
+  check(
+    "...and a key export is refused by name rather than as a missing generation",
+    refusal instanceof DecryptorError &&
+      /locked with a passphrase/.test(refusal.message) &&
+      !/not present in this export/.test(refusal.message),
+  );
+}
 
 /* -- (3b) the independence itself, read off the source -------------------- */
 //

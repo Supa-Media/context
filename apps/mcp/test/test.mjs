@@ -28,6 +28,7 @@ import { runSearchProjectionChecks } from "./searchProjection.test.mjs";
 import { runCredentialShapeChecks } from "./credentialShape.test.mjs";
 import { runEncryptionChecks } from "./encryption.test.mjs";
 import { runEncryptionGatewayChecks } from "./encryptionGateway.test.mjs";
+import { runEncryptionPassphraseChecks } from "./encryptionPassphrase.test.mjs";
 import { runEncryptionRotationChecks } from "./encryptionRotation.test.mjs";
 import {
   CONTROL_PLANE_ORIGIN,
@@ -4014,6 +4015,7 @@ await runSearchProjectionChecks(check);
 await runCredentialShapeChecks(check);
 await runEncryptionChecks(check);
 await runEncryptionGatewayChecks(check);
+await runEncryptionPassphraseChecks(check);
 await runEncryptionRotationChecks(check);
 
 // Meeting ingestion: the routes a phone and a desktop app send a meeting to,

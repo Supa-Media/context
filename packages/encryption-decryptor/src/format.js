@@ -26,6 +26,19 @@ const KEY_EXPORT_VERSION = 1;
 const MARKER_KEY = "context_encryption";
 const FENCE_LANGUAGE = "context-encrypted";
 const RECIPIENT_WORKSPACE = "workspace";
+/**
+ * The other recipient kind the format defines, which this package can
+ * DESCRIBE and cannot open.
+ *
+ * A key export carries workspace generations. A note locked with a passphrase
+ * carries a `passphrase` recipient and no workspace one at all
+ * (`docs/decisions/encryption.md`, "Encrypted notes are for humans"), so no
+ * export will ever open it — the key is a passphrase somebody has and nothing
+ * ever wrote down. Naming the kind here is what lets this tell somebody that,
+ * instead of "your export is missing a generation", which would send them
+ * looking for a key that does not exist and cannot be made.
+ */
+const RECIPIENT_PASSPHRASE = "passphrase";
 
 export class DecryptorError extends Error {
   constructor(message) {
@@ -131,6 +144,12 @@ function assertEnvelopeShape(envelope) {
     if (typeof recipient.iv !== "string" || typeof recipient.wrapped !== "string") {
       throw new DecryptorError("envelope has a malformed recipient");
     }
+    // A `passphrase` recipient carries a KDF descriptor, and this package
+    // neither derives keys nor reads one. It is passed over intact rather than
+    // rejected: an envelope is not malformed because it holds a recipient this
+    // implementation cannot use, and a decryptor that refused the whole note on
+    // sight of one would refuse a note that ALSO has a workspace recipient it
+    // could have opened perfectly well.
   }
   return envelope;
 }
@@ -172,6 +191,13 @@ export async function decryptNote(noteText, keys) {
       candidate.kind === RECIPIENT_WORKSPACE && Object.prototype.hasOwnProperty.call(keys, candidate.id),
   );
   if (recipient === undefined) {
+    const kinds = new Set(envelope.recipients.map((candidate) => candidate.kind));
+    if (!kinds.has(RECIPIENT_WORKSPACE) && kinds.has(RECIPIENT_PASSPHRASE)) {
+      throw new DecryptorError(
+        "that note is locked with a passphrase and carries no workspace recipient; " +
+          "no key export opens it — only the passphrase does",
+      );
+    }
     throw new DecryptorError(
       "no supplied key opens that note; it names a generation not present in this export",
     );

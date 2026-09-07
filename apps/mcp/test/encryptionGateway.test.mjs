@@ -92,9 +92,29 @@
 
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
-import { indexableText, isEncryptedNote, parseEncryptedNote } from "../src/encryption.js";
+import {
+  FENCE_LANGUAGE,
+  indexableText,
+  isEncryptedNote,
+  parseEncryptedNote,
+} from "../src/encryption.js";
 import { parseLinks } from "../src/links.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+/**
+ * The pinned passphrase-locked note, shared with `encryptionPassphrase.test.mjs`.
+ *
+ * One fixture, two suites: that file proves the bytes open with the right key,
+ * this one proves the gateway cannot open them and cannot destroy them either.
+ */
+const PASSPHRASE_VECTOR = JSON.parse(
+  readFileSync(
+    fileURLToPath(new URL("./encryptionPassphraseVector.fixtures.json", import.meta.url)),
+    "utf8",
+  ),
+);
 
 /** A bucket stub with the same shape `test.mjs`'s has, and no more. */
 function makeBucket() {
@@ -601,6 +621,44 @@ export async function runEncryptionGatewayChecks(check) {
     );
 
     /*
+     * AND THE INDEX THAT WAS ACTUALLY BUILT HOLDS NONE OF IT.
+     *
+     * The line above is a unit assertion about `indexableText`, and it was the
+     * whole of the evidence for "nothing of an encrypted note reaches the
+     * index". MEASURED: it was not true. `syncShardedIndex` — the pass every
+     * search and every scheduled sweep actually runs — read note bodies with a
+     * bare `object.text()`, so an envelope's own terms (`a256gcm`,
+     * `context-encrypted`, the callout's words, the base64url of `ct`) were
+     * tokenised into `.index/v2/shard-*.json`, an object that lives **in the
+     * customer's own bucket under the same credential as the note**. The
+     * `indexableText` call the decision file points at lived in `syncIndex`,
+     * which nothing has called since the v2 index landed.
+     *
+     * That is not a plaintext leak — the terms come from the ciphertext the
+     * bucket already holds — and it is exactly the shape `testing.md` calls a
+     * guard nobody has checked: the assertion above passes for an
+     * implementation that never calls the function it asserts about.
+     *
+     * So this asks the index itself, in both directions, because an assertion
+     * that only checks for absence passes just as well against an index that
+     * was never built.
+     */
+    const indexObjects = [...a.objects.keys()]
+      .filter((key) => key.startsWith(".index/"))
+      .map((key) => new TextDecoder().decode(a.objects.get(key).bytes))
+      .join("\n");
+    check(
+      "the index that was really built holds the plaintext notes it should",
+      indexObjects.length > 0 && indexObjects.includes("pointer"),
+    );
+    check(
+      "...and not one term of an encrypted note's envelope",
+      !/a256gcm/i.test(indexObjects) &&
+        !indexObjects.includes(FENCE_LANGUAGE) &&
+        !indexObjects.includes(parseEncryptedNote(ciphertextBefore).ct.slice(0, 24)),
+    );
+
+    /*
      * THE LINK REWRITER'S SKIP, ASKED THE ONLY WAY IT CAN BE ASKED.
      *
      * Deleting `rewriteReferences`' `isEncryptedNote` guard breaks nothing
@@ -808,7 +866,142 @@ export async function runEncryptionGatewayChecks(check) {
         !audit.includes(KEY_A.slice(0, 16)),
     );
 
-    /* -- (14) export_encryption_keys ---------------------------------------- */
+    /* -- (14) a passphrase-locked note, which this gateway is not a reader of */
+    //
+    // The Phase 2 mode, and the one this section exists to police: a note whose
+    // only recipient is a passphrase. Nothing here can open it, no tool takes a
+    // passphrase, and the failure that would be catastrophic is not "a client
+    // cannot read it" — it is a client *writing* to it, because the gateway
+    // would otherwise have sealed the replacement with the workspace key and
+    // reported success while destroying the only copy of the note.
+    //
+    // Every call below runs inside a log capture, and the checks run after it is
+    // released — a check that prints into its own evidence is a check nobody can
+    // read, and the first version of this section did exactly that.
+
+    const LOCKED = "1-projects/locked.md";
+    const lockedBytes = PASSPHRASE_VECTOR.document.replace(
+      PASSPHRASE_VECTOR.workspaceId,
+      "ws_enc_a",
+    );
+    await storeA.put(LOCKED, lockedBytes);
+    await storeA.put("1-projects/keyless.md", readA("1-projects/conflict.md") ?? lockedBytes);
+
+    const lockedBefore = readA(LOCKED);
+    const lockedLines = [];
+    const realLockedLog = console.log;
+    let locked;
+    console.log = (...args) => lockedLines.push(args.map(String).join(" "));
+    try {
+      locked = {
+        read: await call(OWNER_A, "read_note", { path: LOCKED }),
+        // The same refusal a note whose *key* did not arrive gets. Two reasons,
+        // one answer: a client cannot learn from a refusal whether a note is
+        // passphrase-locked or merely unreachable today, so Phase 2 adds no
+        // inference channel that Phase 1 did not already have.
+        keyless: await call(KEYLESS, "read_note", { path: "1-projects/keyless.md" }),
+        write: await call(OWNER_A, "write_note", {
+          path: LOCKED,
+          content: "# I am overwriting this\n",
+        }),
+        // The argument that does not exist. A client that has heard of the
+        // feature and guesses at an interface must not find one.
+        writeWithPassphrase: await call(OWNER_A, "write_note", {
+          path: LOCKED,
+          content: "# I am overwriting this\n",
+          passphrase: PASSPHRASE_VECTOR.passphrase,
+          password: PASSPHRASE_VECTOR.passphrase,
+        }),
+        readWithPassphrase: await call(OWNER_A, "read_note", {
+          path: LOCKED,
+          passphrase: PASSPHRASE_VECTOR.passphrase,
+        }),
+        decrypt: await call(OWNER_A, "set_encryption", {
+          path: LOCKED,
+          encrypted: false,
+          passphrase: PASSPHRASE_VECTOR.passphrase,
+        }),
+        search: await call(OWNER_A, "search_notes", { query: "pinned passphrase vector" }),
+        list: await call(OWNER_A, "list_notes", { prefix: "1-projects" }),
+        tools: await (async () => {
+          const res = await worker.fetch(
+            new Request("https://x/mcp", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${OWNER_A}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ jsonrpc: "2.0", id: 9001, method: "tools/list" }),
+            }),
+            env,
+            { waitUntil() {} },
+          );
+          return (await res.json()).result.tools;
+        })(),
+      };
+    } finally {
+      console.log = realLockedLog;
+    }
+    const lockedAfter = readA(LOCKED);
+
+    check(
+      "a client cannot read a passphrase-locked note, and is not handed its envelope",
+      textOf(locked.read).includes("encrypted") &&
+        !textOf(locked.read).includes("A256GCM") &&
+        !textOf(locked.read).includes("pinned passphrase vector"),
+    );
+    check(
+      "...and the refusal is the same shape as the one a missing key produces",
+      textOf(locked.read).replace(LOCKED, "\u00abpath\u00bb") ===
+        textOf(locked.keyless).replace("1-projects/keyless.md", "\u00abpath\u00bb"),
+    );
+    check(
+      "a write to a passphrase-locked note is refused",
+      textOf(locked.write).includes("encrypted") && !textOf(locked.write).includes("written:"),
+    );
+    check("...and the stored object is byte-for-byte what it was", lockedAfter === lockedBefore);
+    check(
+      "...and supplying a passphrase to the gateway changes nothing at all",
+      textOf(locked.writeWithPassphrase) === textOf(locked.write),
+    );
+    check("...on the read path either", textOf(locked.readWithPassphrase) === textOf(locked.read));
+    check(
+      "...and `set_encryption` cannot turn the lock off with one",
+      !textOf(locked.decrypt).includes("decrypted:"),
+    );
+    check(
+      "no tool this gateway advertises takes a passphrase, a password or a key",
+      locked.tools.every((tool) =>
+        Object.keys(tool.inputSchema?.properties ?? {}).every(
+          (name) => !/pass(phrase|word)|secret|kek|key$/i.test(name),
+        ),
+      ),
+    );
+    check(
+      "search does not quote a passphrase-locked note",
+      !textOf(locked.search).includes("Only the passphrase beside this"),
+    );
+    check(
+      "...and the note is still listed, because its existence was never the secret",
+      textOf(locked.list).includes("locked.md"),
+    );
+
+    const lockedLog = JSON.stringify(lockedLines);
+    check(
+      "nothing about a locked note reaches a log line but its path",
+      lockedLines.length > 0 &&
+        !lockedLog.includes(PASSPHRASE_VECTOR.passphrase) &&
+        !lockedLog.includes(PASSPHRASE_VECTOR.kek) &&
+        !lockedLog.includes("Only the passphrase beside this"),
+    );
+    const lockedAudit = [...a.objects.keys()]
+      .filter((key) => key.startsWith(".audit/"))
+      .map((key) => new TextDecoder().decode(a.objects.get(key).bytes))
+      .join("\n");
+    check(
+      "...and no audit row carries a passphrase, because no call ever had one to record",
+      !lockedAudit.includes(PASSPHRASE_VECTOR.passphrase) &&
+        !lockedAudit.includes(PASSPHRASE_VECTOR.kek),
+    );
+
+    /* -- (15) export_encryption_keys ---------------------------------------- */
 
     const teamExport = await call(TEAM_A, "export_encryption_keys", {});
     check(
@@ -930,6 +1123,12 @@ export async function runEncryptionGatewayChecks(check) {
     check(
       "the export says what it means and points at the offline decryptor",
       /one-way action/.test(exportedText) && exportedText.includes("packages/encryption-decryptor"),
+    );
+    check(
+      "...and names the one thing it does not open, rather than leaving it to be discovered",
+      /locked with a passphrase is not\s+opened by this file|locked with a passphrase is not opened by this file/.test(
+        exportedText.replace(/\s+/g, " "),
+      ),
     );
     check(
       "the export never appears in the audit trail",
@@ -1054,7 +1253,7 @@ export async function runEncryptionGatewayChecks(check) {
         JSON.parse(readA(counterKey)).count === counter.count,
     );
 
-    /* -- (15) rotate_encryption_keys ------------------------------------------ */
+    /* -- (16) rotate_encryption_keys ------------------------------------------ */
 
     const teamRotate = await call(TEAM_A, "rotate_encryption_keys", {});
     check(
@@ -1068,17 +1267,34 @@ export async function runEncryptionGatewayChecks(check) {
       !keylessRotate?.isError && /nothing to rotate/.test(textOf(keylessRotate)),
     );
 
-    // Two encrypted notes exist by this point: `1-projects/vault/private-secret.md`
-    // (encrypted in section (3) and never decrypted) and `1-projects/conflict.md`
-    // (left encrypted by section (12)). `1-projects/moved-secret.md`, the note
-    // moved in section (6), was decrypted again in section (10) and is plaintext.
+    // Three WORKSPACE-encrypted notes exist by this point:
+    // `1-projects/vault/private-secret.md` (encrypted in section (3) and never
+    // decrypted), `1-projects/conflict.md` (left encrypted by section (12)),
+    // and the one section (14) re-sealed while proving the write guard.
+    // `1-projects/moved-secret.md`, moved in section (6), was decrypted again
+    // in section (10) and is plaintext.
+    //
+    // And one note that is NOT among them: `1-projects/locked.md`, the
+    // passphrase-locked note from section (14), which carries a `passphrase`
+    // recipient and no workspace one. The rotation walk must pass it by —
+    // there is no workspace recipient in it to move, its key is not ours, and
+    // the failure to avoid is a pass that counts it as a note it could not
+    // place and therefore never reports itself finished. It is skipped on the
+    // frontmatter marker, which `renderEncryptedNote` omits for a note with no
+    // workspace recipient precisely so this walk does not go looking for a key
+    // called "undefined".
     const beforeRotate = readA("1-projects/vault/private-secret.md");
+    const lockedBeforeRotate = readA(LOCKED);
     const rotated = await call(OWNER_A, "rotate_encryption_keys", {});
     check(
       "rotation reports what it did and completes in one call for a small context",
       !rotated?.isError &&
         /rotation complete: k1 → k2/.test(textOf(rotated)) &&
-        /2 note\(s\) re-wrapped/.test(textOf(rotated)),
+        /3 note\(s\) re-wrapped/.test(textOf(rotated)),
+    );
+    check(
+      "a passphrase-locked note is passed over by the walk, byte for byte, and does not stall it",
+      readA(LOCKED) === lockedBeforeRotate,
     );
 
     const afterRotate = readA("1-projects/vault/private-secret.md");
@@ -1111,7 +1327,11 @@ export async function runEncryptionGatewayChecks(check) {
       "rotating again with no walk in progress starts and completes a fresh rotation",
       !rotateAgain?.isError &&
         /rotation complete: k2 → k3/.test(textOf(rotateAgain)) &&
-        /2 note\(s\) re-wrapped/.test(textOf(rotateAgain)),
+        /3 note\(s\) re-wrapped/.test(textOf(rotateAgain)),
+    );
+    check(
+      "...and the locked note is still exactly what it was, two rotations later",
+      readA(LOCKED) === lockedBeforeRotate,
     );
 
     const auditAfterRotate = [...a.objects.keys()]
