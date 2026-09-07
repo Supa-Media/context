@@ -899,15 +899,26 @@ minus what a phone already says:
   heading, so a trailing segment is the same words twice.
 - **No visibility chip.** A note carries it as a Properties row and a folder
   states it in a sentence directly beneath, both fuller than the brief chip.
-- **The context segment comes back, pressable.** The full line drops it because
-  the switcher above says it; here it is not a label but the way *up*, and
-  without it the bar bottoms out one level short of home. What that duplication
-  argument was paying for — a line that ellipsised at both ends — is refunded by
-  the leaf and the chip being gone.
+- **No context segment, and this is the half that changed back.** It was here,
+  pressable, on the argument that it is not a label but the way *up* — without
+  it the bar bottoms out one level short of home — and that the duplication it
+  cost was refunded by the leaf and the chip being gone. That was true while the
+  contexts were a slot in the frame's top bar, two rows away. They are the row
+  directly above this one now (see *The contexts moved into the scroller*
+  below), so the segment was `@seyi` said twice in consecutive lines, on the
+  surface with the least room to say anything once. The way up went with it and
+  is the lit pill, which opens its own context at its root rather than at the
+  place the device last had open there.
+- **And it scrolls horizontally.** `3-resources/books/reading-notes/…` is wider
+  than 390pt within three segments; wrapping makes the band a variable number of
+  rows and ellipsising leaves the segment you are standing next to unreadable.
+  `ContextStrip`'s rule, one row down: nothing truncates, the row gets longer,
+  the scroll absorbs it.
 
-Selecting the root is what that segment does, so the root needs a name:
-`baseName("")` is empty, and `FolderView` takes a `contextLabel` for the one
-folder with no name of its own. A context's root folder *is* the context.
+A top-level folder therefore draws no path row at all — its ancestors are empty
+and the pill above says where it is — rather than a band holding one word.
+`FolderView` still takes a `contextLabel` for the root, which is the one folder
+with no name of its own: a context's root folder *is* the context.
 
 **It is built once and handed to two surfaces**, because a note and a folder
 scroll in different containers on a phone: `NoteEditor` owns its own scroller so
@@ -928,11 +939,68 @@ reason, and the one sentence that has stopped being true is "the only way to
 another folder was the drawer". The section below is what that removal cost
 elsewhere.
 
+### The contexts moved into the scroller, because navigation is not a verb
+
+The context strip was a slot in the phone's floating top bar. Two things about
+that arrangement were reported from a phone by the person using it, and they
+are one decision:
+
+**A floating bar means the document runs behind it, and navigation has not
+earned that.** The frame's shape at `compact` is deliberate — a full-bleed
+document with chrome lying over both ends, so the first line can be scrolled out
+from under the top and the last out from under the toolbar. The bottom toolbar
+earns its place there because its keys are verbs about the note in front of you,
+and a verb you cannot reach is a verb you do not have. A row of context pills is
+not a verb about anything: it lay across the twentieth line of somebody's note
+at every scroll position, with no scroll position that clears it. "The top
+workspaces should scroll with the note; to change workspace I should have to
+scroll up."
+
+**And it said the context twice.** The strip named the current context one line
+above a breadcrumb whose first segment named it again — on a 390pt screen, two
+of the few rows it has.
+
+So the contexts went to where the path already was. `features/console/NavBand.tsx`
+is the band: the contexts on top, the path under them, both inside whatever
+scroller the surface owns — `BrowsePane`'s on a note or a folder,
+`EditorRegion`'s on Map, Connections and Settings. It scrolls away with the
+document and comes back by scrolling up, which is what was asked for. The
+duplication is gone because the band names the context in exactly one place, the
+lit pill, and the path below starts at the first folder.
+
+Three consequences that are decisions rather than placement:
+
+- **The lit pill is the way up.** Dropping the context segment took the route
+  from a top-level folder back to the root with it. Pressing the current
+  context's pill carries that now — it resolves to `browseHref` rather than to
+  `contextHrefFrom`, which is the one press on the strip that used to do nothing
+  you could see, since "where you last were" in the context you are standing in
+  is where you are.
+- **The strip is built by the layout and passed down, not rebuilt at the leaf.**
+  It needs the context list, the recently-visited log and the router, and it has
+  to be drawn two levels below. A second one assembled where it is drawn is two
+  copies of a control, which is how one of them ends up with a handler the other
+  does not have — the failure `NoteEditor.pathBar` already exists to prevent one
+  layer down. It travels as a `ReactNode` through a context (`NavBandProvider`).
+- **The frame's top row is two slots now, not three.** The account mark stays
+  pinned at the leading edge because it is the product's only sign-out and a
+  control you have to scroll to find is one somebody concludes is missing; the
+  trailing capsule is untouched, because the scope and Share act on what is on
+  screen and were never navigation. `appFrameRender.test.ts` asserts the pair
+  and their order; `consoleChrome.test.ts` asserts that the strip is on the
+  screen and inside the band rather than in the bar.
+
+What did **not** change is the landmark: the strip is still the phone's single
+`role="navigation"`, labelled `Contexts`, and the bottom row is still a toolbar.
+Moving a landmark down the tree does not remove it, and
+`consoleChrome.test.ts` still counts exactly one on a mounted phone console.
+
 ### A phone has no left panel, so the one thing its footer said had to move
 
 The rail sheet, the file-tree drawer, both toggles and their scrim are gone at
-`compact`; navigation is a context strip along the top and a seven-key bottom
-row, neither of which has to be summoned. `features/app/frame.ts` carries the
+`compact`; navigation is a context strip (in the scroller, above the path — see
+the section above) and a seven-key bottom row, neither of which has to be
+summoned. `features/app/frame.ts` carries the
 whole of that decision and amends its own paragraphs in place.
 
 What that removal cost is one line, and it is worth naming because deleting it
@@ -1014,7 +1082,7 @@ correctly while the density renders none of it is the failure this replaces.
 **Sign-out moved with the panels and had to grow.** It is the only sign-out
 control in the product; it was at the foot of the rail, which a phone can no
 longer reach, and it is now the pinned account slot at the leading end of the
-top row. The mark stays `layout.accountAvatar` (34) and the pressable around it
+top row — since the contexts left that row, the only thing in it at that end. The mark stays `layout.accountAvatar` (34) and the pressable around it
 is `layout.minTouchTarget` — it had been padding by 4, so the target was 34 and
 under the floor, and the row's width budget in `tokens.ts` and `AppFrame` was
 written against the mark rather than the target. Both are corrected there.

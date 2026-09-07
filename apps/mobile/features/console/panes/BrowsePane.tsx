@@ -6,6 +6,7 @@ import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
+import { NavBand } from "../NavBand";
 import { Breadcrumb } from "../files/Breadcrumb";
 import { ConflictResolver } from "../files/ConflictResolver";
 import { contextFootLine } from "../files/contextFoot";
@@ -296,23 +297,36 @@ export function BrowsePane({
    * `NoteEditor`'s own header states the rule this follows: two copies of a
    * tree is how a control ends up on one surface and missing from the other.
    *
-   * `pathOnly` is the subtractive form: ancestors and the context root, all
-   * pressable, and none of the naming a phone already does inside the
-   * document. `Breadcrumb`'s header has the argument.
+   * `pathOnly` is the subtractive form: ancestors, pressable, and none of the
+   * naming a phone already does inside the document. `Breadcrumb`'s header has
+   * the argument.
+   *
+   * **The path is the second row of `NavBand`, not the whole of it.** The
+   * contexts are the first, and they are here rather than in the floating top
+   * bar because navigation that lies across somebody's note is an overlap
+   * rather than reachability — `NavBand` has that argument and the duplication
+   * argument beside it. The band is built even with nothing selected, because
+   * the contexts do not depend on a selection; it draws nothing at all off a
+   * phone, where the rail is the contexts and the full breadcrumb is the path.
    */
-  const pathBar =
-    compact && selected !== null ? (
-      <Breadcrumb
-        pathOnly
-        path={selected.path}
-        contextLabel={contextLabel}
-        visibility={selected.visibility}
-        inherited={selected.inherited}
-        exception={selected.exception}
-        readOnly={selected.readOnly}
-        onSelectFolder={files.select}
-      />
-    ) : null;
+  const pathBar = compact ? (
+    <NavBand
+      path={
+        selected === null ? null : (
+          <Breadcrumb
+            pathOnly
+            path={selected.path}
+            contextLabel={contextLabel}
+            visibility={selected.visibility}
+            inherited={selected.inherited}
+            exception={selected.exception}
+            readOnly={selected.readOnly}
+            onSelectFolder={files.select}
+          />
+        )
+      }
+    />
+  ) : null;
 
   /**
    * Where a phone starts, when nothing has been opened yet.
@@ -466,7 +480,7 @@ export function BrowsePane({
           readOnly: selected.readOnly,
         }}
         notices={compact ? notices : null}
-        pathBar={compact ? pathBar : null}
+        pathBar={pathBar}
         onChange={files.setDraft}
         onSave={files.save}
         onDiscard={files.discard}

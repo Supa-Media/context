@@ -411,11 +411,23 @@ describe("the path bar", () => {
     expect(app.find2(`Open ${DEEP}`)).toBeNull();
   });
 
-  test("the context is the first segment and it is pressable", () => {
-    // Without it the bar bottoms out one level short of home: a top-level
-    // folder has no ancestors, so there would be nothing to press at all.
+  test("the context is not a segment, because the pill above it is", () => {
+    /*
+      It used to be the first segment, pressable, on the argument that a
+      top-level folder has no ancestors and the bar would otherwise bottom out
+      one level short of home. That was true while the contexts were a slot in
+      the frame's top bar. They are the row directly above this one now
+      (`NavBand`), so the segment was `@seyi` twice on a 390pt screen — and the
+      way up is the lit pill, which opens its own context at the root.
+
+      A top-level folder therefore draws no path row at all rather than a band
+      holding one word.
+    */
     const app = mountConsole(dataWith({}, { kind: "folder", path: "3-resources", name: "3-resources" }));
-    expect(app.find2("Open @seyi")).not.toBeNull();
+    expect(app.find2("Open @seyi")).toBeNull();
+    expect(app.find("breadcrumb-path-scroll")).toBeNull();
+    // And the contexts are there, one row up, saying it once.
+    expect(app.find("context-strip")).not.toBeNull();
   });
 
   test("pressing a segment selects that folder", () => {
@@ -428,10 +440,17 @@ describe("the path bar", () => {
     );
 
     app.press(app.find2("Open 3-resources/books"));
-    app.press(app.find2("Open @seyi"));
-    // The root is `""`, which is what `FolderView` needs a `contextLabel` for:
-    // it is the one folder with no name of its own.
-    expect(chosen).toEqual(["3-resources/books", ""]);
+    expect(chosen).toEqual(["3-resources/books"]);
+  });
+
+  test("the path scrolls rather than wrapping or truncating", () => {
+    // `3-resources/books/reading-notes/…` is wider than a phone within three
+    // segments. Same rule as the contexts above it: nothing truncates, the row
+    // gets longer, the scroll absorbs it.
+    const app = mountConsole(dataWith({}, { path: DEEP, name: "the-lean-startup.md" }));
+    const row = app.find("breadcrumb-path-scroll");
+    expect(row).not.toBeNull();
+    expect(getComputedStyle(row!).flexDirection).not.toBe("column");
   });
 
   test("a pointer layout keeps the full line instead, chip and all", () => {

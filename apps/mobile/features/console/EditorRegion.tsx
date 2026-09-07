@@ -6,6 +6,7 @@ import { space } from "../design/tokens";
 import { useThemedStyles } from "../design/theme";
 import { ScreenScroll } from "../app/Screen";
 import { canReload, reloadApp } from "../app/reload";
+import { NavBand } from "./NavBand";
 import { TabStrip } from "./files/TabStrip";
 import type { useTabs } from "./files/useTabs";
 import type { ConsoleData } from "./types";
@@ -117,6 +118,19 @@ export function EditorRegion({
       chrome={phone ? PANE_GUTTER_PHONE : PANE_GUTTER}
       contentContainerStyle={[styles.paneContent, phone && styles.paneContentPhone]}
     >
+      {/*
+        The contexts, first in the scroller and scrolling with it.
+
+        These three panes have no path to draw, so the band is one row here.
+        It is inside the scroller rather than above it for `NavBand`'s reason:
+        a phone's navigation used to lie over the document from the floating
+        bar, and Settings is exactly where that read worst — a column of cards
+        with a row of pills across the top of it.
+
+        It renders nothing where there is nothing to render: `useNavBand` is
+        `null` at every pointer density, where the rail is the contexts.
+      */}
+      <NavBand />
       {banner}
       {children}
     </ScreenScroll>

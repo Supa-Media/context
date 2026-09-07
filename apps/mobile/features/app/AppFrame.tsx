@@ -301,7 +301,7 @@ export interface AppFrameProps {
   /**
    * The context switcher, at the leading edge of the top bar. **Pointer
    * layouts only** — at compact the leading edge is `accountSlot` and the
-   * contexts are `contextStrip`.
+   * contexts are not in this bar at all (see `accountSlot`).
    *
    * It used to travel with a `switcherLabel: string`, and that prop is gone
    * with the control it named. The chip was *pressable* on a phone — it was
@@ -329,11 +329,25 @@ export interface AppFrameProps {
    * it and where nothing on a phone can reach any more — so it comes out to the
    * one corner of the glass that is always visible.
    *
-   * Pinned rather than scrolled, and that is the whole reason it is a slot of
-   * its own rather than the first thing in `contextStrip`. A strip long enough
-   * to scroll must not be able to push a person's own identity off the screen,
-   * which is the argument `ConsoleRail` already makes about pinning the account
-   * block above a scrolling list — the same rule, one surface over.
+   * **It is the only thing pinned at this edge, and it used to have the
+   * contexts beside it.** They were a `contextStrip` slot here: a row of pills
+   * in the floating bar, lying over the note. Two things were wrong with that
+   * and both were reported from a phone. The bar floats, so the document ran
+   * *behind* the pills — a line of body text sliding under a row of chrome,
+   * permanently, with no scroll position that clears it. And the strip named
+   * the current context one line above a breadcrumb that named it again, so a
+   * 390pt screen spent two of its rows saying `@seyi`.
+   *
+   * The contexts are navigation, so they went to the navigation: they are the
+   * first row of `features/console/NavBand.tsx`, inside the scroller, above the
+   * path. They scroll away with the document and come back by scrolling up,
+   * which is what the person asking for this described. What is left here is
+   * the identity and the trailing capsule — Obsidian's own shape for this bar.
+   *
+   * This slot stays pinned for the reason it always was: it holds the
+   * product's only sign-out, and a control you have to scroll to find is one
+   * somebody concludes is missing. That is the argument `ConsoleRail` makes
+   * about pinning the account block above a scrolling list.
    *
    * `layout.accountAvatar` is the *mark* the geometry is budgeted against and
    * `layout.minTouchTarget` is the pressable around it; the frame imposes
@@ -342,37 +356,6 @@ export interface AppFrameProps {
    * `ConsoleRail.AccountBlock`.
    */
   accountSlot?: ReactNode;
-  /**
-   * **Compact only.** The flexible middle of the phone's top row.
-   *
-   * The contexts. It flexes — it takes what `accountSlot` and the trailing
-   * capsule leave, and it is expected to scroll rather than to grow, because
-   * the capsule holds the controls that act on the note and a navigation row is
-   * not allowed to push them off the glass.
-   *
-   * **`AppFrame` does not know what a context is, or what an account is.** It
-   * lays out slots, exactly as it already does for `switcher` and `topTrailing`
-   * — the frame "knows about geometry and nothing else", which is what lets it
-   * be mounted in a test without a Convex subscription behind it. The scrolling,
-   * the ordering, the fade and the pills belong to whatever is passed in.
-   *
-   * The geometry it is budgeted against, on a 390pt phone:
-   *
-   *     390 − 2 × 12 gutters            = 366
-   *     366 − 44 account − 8 gap        = 314
-   *     314 − 92 capsule − 8 gap        ≈ 214pt for the strip
-   *
-   * where 92 is the trailing capsule holding two `chromeButton` targets inside
-   * `space.x1` of padding. That is the number the strip has to be legible in,
-   * and it is written here rather than in the strip because this file is the one
-   * that decides it.
-   *
-   * **The account term was 34 and is 44**, and the ten points are not a
-   * revision of taste: 34 is `accountAvatar`, the *mark*, and the slot holds
-   * the *pressable*, which is the phone's only sign-out and has to clear
-   * `minTouchTarget`. See that token for the corrected arithmetic.
-   */
-  contextStrip?: ReactNode;
   /** Opens the palette. Renders the search field on web, a button on touch. */
   onSearch?: () => void;
   /**
@@ -391,8 +374,9 @@ export interface AppFrameProps {
    * navigate out of."
    *
    * The premise in that sentence is the half that expired — *through this node
-   * and no other*. On a phone the other contexts are the `contextStrip`, the
-   * signed-in identity is the `accountSlot` beside it, and the app's other
+   * and no other*. On a phone the other contexts are the navigation band
+   * inside the scroller (`features/console/NavBand.tsx`), the signed-in
+   * identity is the `accountSlot` in the top bar, and the app's other
    * places are keys on the bottom row; none of the three is behind a control,
    * so none of them can be missing. The conclusion still holds wherever the
    * premise does, which is medium and wide: there this is a permanent column
@@ -425,7 +409,6 @@ export function AppFrame({
   switcher,
   topTrailing,
   accountSlot,
-  contextStrip,
   onSearch,
   rail,
   explorer,
@@ -688,8 +671,9 @@ export function AppFrame({
           ]}
         >
           {/*
-            The phone's top row, in three parts: a pinned account mark, the
-            contexts, and the trailing capsule.
+            The phone's top row, in two parts: a pinned account mark and the
+            trailing capsule. The contexts were the third and are now the first
+            row of the navigation band inside the scroller — see `accountSlot`.
 
             **Two controls used to be here and both are gone with the panels.**
             A round drawer toggle at the leading edge pulled the file tree in —
@@ -707,14 +691,12 @@ export function AppFrame({
             <>
               {accountSlot == null ? null : (
                 /*
-                  Pinned, and first. It does not scroll with the strip beside
-                  it — see the prop — and it is not inside the strip's own
-                  scroller, so a long list of contexts can never push a
-                  person's identity off the leading edge of the glass.
+                  Pinned, and alone at this edge. The contexts used to sit
+                  beside it and are now the first row of the navigation band
+                  inside the scroller — see the prop.
                 */
                 <View style={styles.accountLead}>{accountSlot}</View>
               )}
-              {contextStrip}
             </>
           ) : (
             <View style={styles.topLead}>{switcher}</View>

@@ -78,7 +78,18 @@ jest.mock("react-native-safe-area-context", () => ({
 }));
 
 jest.mock("expo-router", () => ({
-  Slot: () => null,
+  /*
+    The smallest thing a real pane is. The contexts are drawn inside the pane's
+    own scroller now rather than in the frame's top bar (`NavBand`), so a `Slot`
+    rendering `null` would be a layout with no navigation in it and every press
+    below would be pressing the fixture.
+  */
+  Slot: () => {
+    const { createElement: h } = require("react") as typeof import("react");
+    const { NavBand } =
+      require("../features/console/NavBand") as typeof import("../features/console/NavBand");
+    return h(NavBand);
+  },
   useRouter: () => ({
     replace: (href: string) => mockReplaced.push(href),
     push: (href: string) => mockPushed.push(href),

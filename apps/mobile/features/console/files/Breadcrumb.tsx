@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { densityFor } from "../../app/frame";
 import { PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
@@ -63,11 +63,23 @@ import type { Visibility } from "./types";
  * - **No visibility chip.** A note carries it as a Properties row and a folder
  *   states it in a sentence directly beneath. Both are fuller than the brief
  *   chip, and both are already on screen.
- * - **And the context segment comes back, pressable.** It is dropped in the
- *   full line because the switcher above says it — but here it is not a label,
- *   it is the way *up* from a top-level folder, and without it a path bar
- *   bottoms out one level short of home. The duplication that argument was
- *   about is paid for by the leaf and the chip, which are gone.
+ * - **No context segment, which is the half of this that changed back.** It
+ *   was here, pressable, on the argument that it is not a label but the way
+ *   *up* from a top-level folder, and that the duplication was paid for by the
+ *   leaf and the chip being gone. The premise expired when the contexts moved
+ *   into the scroller: the lit pill is now the line directly above this one, so
+ *   the segment was the same word twice again — the thing this whole component
+ *   is careful about — on the surface with the least room for it. The way up
+ *   went with it and is that pill, which opens its own context at the root
+ *   (`console/_layout`). See `NavBand`.
+ *
+ * ## And it scrolls, because a path is longer than a phone
+ *
+ * `3-resources/books/reading-notes/…` is wider than 390pt within three
+ * segments, and the two ways to fit it are both worse than moving it: wrapping
+ * makes the band a variable number of rows, ellipsising leaves the segment you
+ * are standing next to unreadable. Same rule as `ContextStrip`'s and for the
+ * same reason — nothing truncates, the row gets longer, the scroll absorbs it.
  */
 export function Breadcrumb({
   path,
@@ -123,24 +135,32 @@ export function Breadcrumb({
   const compact = densityFor(useWindowDimensions().width) === "compact";
 
   if (pathOnly === true) {
+    /*
+      A folder page's own folder is its heading, so the crumb is its ancestors
+      — which means a top-level folder has none, and the row would be an empty
+      band under the contexts. The pill above is where you are and the way up
+      from here, so there is nothing left to draw.
+    */
+    if (folders.length === 0) return null;
     return (
-      <View style={[styles.bar, styles.barCompact, styles.barPath]}>
-        <PressRow
-          accessibilityLabel={`Open ${contextLabel}`}
-          onPress={() => onSelectFolder?.("")}
-          radius={radii.xs}
-          style={styles.segment}
-          hoverStyle={styles.segmentHover}
-        >
-          <Text variant="mono" style={styles.folder} numberOfLines={1}>
-            {contextLabel}
-          </Text>
-        </PressRow>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={[styles.bar, styles.barCompact, styles.barPath]}
+        testID="breadcrumb-path-scroll"
+      >
         {folders.map((segment, index) => {
           const folder = segments.slice(0, index + 1).join("/");
           return (
             <Fragment key={folder}>
-              <Separator />
+              {/*
+                No separator in front of the first segment. There is nothing to
+                its left now the context is gone, and an unconditional one
+                renders the path as "/ 1-projects / note" — a leading slash
+                reading as an absolute path into the bucket root, which is not
+                the addressing this product uses. Same rule as the full line's.
+              */}
+              {index === 0 ? null : <Separator />}
               <PressRow
                 accessibilityLabel={`Open ${folder}`}
                 onPress={() => onSelectFolder?.(folder)}
@@ -148,14 +168,14 @@ export function Breadcrumb({
                 style={styles.segment}
                 hoverStyle={styles.segmentHover}
               >
-                <Text variant="mono" style={styles.folder} numberOfLines={1}>
+                <Text variant="mono" style={styles.folder}>
                   {segment}
                 </Text>
               </PressRow>
             </Fragment>
           );
         })}
-      </View>
+      </ScrollView>
     );
   }
 

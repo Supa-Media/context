@@ -335,7 +335,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         navigation: [
           {
             file: CONSOLE_LAYOUT,
-            contains: ["onOpen={(slug) => router.replace(contextHrefFrom(slug))}"],
+            contains: ["contextHrefFrom(slug)", "router.replace("],
           },
         ],
         region: "contextStrip",

@@ -50,9 +50,11 @@ import { isDirty } from "../../../features/console/files/editor";
 import { useUnsavedGuard } from "../../../features/console/files/useUnsavedGuard";
 import { atName } from "../../../features/console/format";
 import { ContextStrip } from "../../../features/console/ContextStrip";
+import { NavBandProvider } from "../../../features/console/NavBand";
 import { useContextHref, useContextPlaces } from "../../../features/console/useLastPlace";
 import { useMeetingFlow } from "../../../features/meetings/useMeetingFlow";
 import {
+  browseHref,
   hrefFor,
   resolveContextRoute,
   routeForPath,
@@ -542,45 +544,17 @@ export default function ConsoleLayout() {
         }
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
         /*
-          A phone's navigation, in the one row it always has in front of it.
+          A phone's top row, and the one thing left pinned in it.
 
-          The account is pinned so it never scrolls away — it is the only
-          sign-out control in the product, and a control you have to scroll to
-          find is one somebody concludes is missing. The strip flexes beside
-          it and scrolls; the trailing capsule is untouched, because the scope
-          and Share act on what is on screen and were never navigation.
+          The account never scrolls away — it is the only sign-out control in
+          the product, and a control you have to scroll to find is one somebody
+          concludes is missing. The contexts used to be pinned beside it and are
+          now the first row of `NavBand`, inside the scroller: navigation that
+          lay across the note has become navigation that scrolls with it. The
+          trailing capsule is untouched, because the scope and Share act on what
+          is on screen and were never navigation.
         */
         accountSlot={<Account data={data} compact touch />}
-        contextStrip={
-          <ContextStrip
-            contexts={data.contexts}
-            currentSlug={current?.slug ?? null}
-            recent={places}
-            loading={data.loading}
-            /*
-              Resolved at press time, never when the strip rendered: the log
-              moves on every navigation, so an href worked out at render is
-              the answer to where somebody was two contexts ago.
-
-              This is what keeps a switch on the path you had open there
-              rather than dropping you at the root. `contextHrefFrom` falls
-              back to the root on its own when nothing is remembered, when the
-              slug is no longer reachable, or when the path does not resolve.
-            */
-            onOpen={(slug) => router.replace(contextHrefFrom(slug))}
-            onSelect={(next) => {
-              if (!sameRoute(next, route)) router.replace(hrefFor(next));
-            }}
-            onLeaveContext={(id) => {
-              void data.leaveContext?.(id);
-              router.replace("/console");
-            }}
-            onClaimContext={data.demo ? undefined : () => router.push(WELCOME_ROUTE)}
-            onCreateWorkspace={
-              data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE)
-            }
-          />
-        }
         rail={(mode) => <Rail data={data} route={route} mode={mode} />}
         /*
           `browsing`, not `insideContext`.
@@ -649,15 +623,76 @@ export default function ConsoleLayout() {
           onSearch={() => setPaletteOpen(true)}
           paletteOpen={paletteOpen || treeOverlay || switcherOpen}
         />
-        <EditorRegion
-          browse={browsing}
-          failure={data.failure}
-          tabs={browsing && !phone ? tabs : null}
-          onCloseTab={closeTab}
-          phone={phone}
+        {/*
+          The contexts, built here and drawn inside whatever scroller the
+          surface below owns — Browse's on a note or a folder,
+          `EditorRegion`'s on Map, Connections and Settings. See `NavBand`.
+
+          `phone` gates it because at every other density the contexts are the
+          rail, which is a permanent column there. Building it here rather than
+          at the leaf is what keeps one strip in the app: it needs the context
+          list, the recently-visited log and the router, and a second copy
+          assembled where it is drawn is how one of them ends up with a handler
+          the other does not have.
+        */}
+        <NavBandProvider
+          node={
+            phone ? (
+              <ContextStrip
+                contexts={data.contexts}
+                currentSlug={current?.slug ?? null}
+                recent={places}
+                loading={data.loading}
+                /*
+                  Resolved at press time, never when the strip rendered: the
+                  log moves on every navigation, so an href worked out at
+                  render is the answer to where somebody was two contexts ago.
+
+                  This is what keeps a switch on the path you had open there
+                  rather than dropping you at the root. `contextHrefFrom` falls
+                  back to the root on its own when nothing is remembered, when
+                  the slug is no longer reachable, or when the path does not
+                  resolve.
+
+                  **The context you are already in is the exception, and it is
+                  the way up.** Its pill used to resolve to the place this
+                  device last had open there, which is where you are standing —
+                  the one press on the strip that did nothing you could see.
+                  The path line below it no longer carries a context segment
+                  (`Breadcrumb.pathOnly`, and `NavBand` for why), so this is
+                  what takes somebody from a top-level folder back to the root
+                  of their own context.
+                */
+                onOpen={(slug) =>
+                  router.replace(
+                    slug === current?.slug ? browseHref(slug) : contextHrefFrom(slug),
+                  )
+                }
+                onSelect={(next) => {
+                  if (!sameRoute(next, route)) router.replace(hrefFor(next));
+                }}
+                onLeaveContext={(id) => {
+                  void data.leaveContext?.(id);
+                  router.replace("/console");
+                }}
+                onClaimContext={data.demo ? undefined : () => router.push(WELCOME_ROUTE)}
+                onCreateWorkspace={
+                  data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE)
+                }
+              />
+            ) : null
+          }
         >
-          <Slot />
-        </EditorRegion>
+          <EditorRegion
+            browse={browsing}
+            failure={data.failure}
+            tabs={browsing && !phone ? tabs : null}
+            onCloseTab={closeTab}
+            phone={phone}
+          >
+            <Slot />
+          </EditorRegion>
+        </NavBandProvider>
 
         {/*
           The tab sheet, mounted only where there is a control that opens it.

@@ -72,7 +72,7 @@ interface Mounted {
 function mountFrame(
   width: number,
   children: ReactNode = "the note",
-  options: { explorer?: boolean; accountSlot?: boolean; contextStrip?: boolean } = {},
+  options: { explorer?: boolean; accountSlot?: boolean } = {},
 ): Mounted {
   // Widening the window in jsdom takes more than it looks like it should, and
   // getting it wrong is silent rather than loud.
@@ -108,21 +108,16 @@ function mountFrame(
       createElement(AppFrame, {
         switcher: createElement("span", { "data-testid": "switcher" }, "@seyi"),
         /*
-          The two compact slots, as stubs. `AppFrame` "knows about geometry and
-          nothing else", so what a test needs from them is that they are laid
-          out in the right places and drawn at the right densities — what they
-          contain is `ContextStrip`'s business and `contextStrip.test.ts`'s.
+          The phone's leading slot, as a stub. `AppFrame` "knows about geometry
+          and nothing else", so what a test needs from it is that it is laid out
+          in the right place and drawn at the right densities — what it contains
+          is `Account`'s business.
         */
         accountSlot:
           options.accountSlot === false
             ? undefined
             : createElement("span", { "data-testid": "account" }, "you"),
-        contextStrip:
-          options.contextStrip === false
-            ? undefined
-            : createElement("span", { "data-testid": "strip" }, "contexts"),
-        // The trailing capsule, which the strip beside it may never push off
-        // the glass — the controls in it act on the note.
+        // The trailing capsule, at the other end of the same row.
         topTrailing: createElement("span", { "data-testid": "trailing" }, "actions"),
         rail: (mode: "full" | "icons" | "sheet") =>
           createElement("span", { "data-testid": `rail-${mode}` }, "rail"),
@@ -424,38 +419,40 @@ describe("a phone", () => {
   });
 
   /* ------------------------------------------------------------------ *
-   * The three slots that replaced them.
+   * The two slots that replaced them.
    * ------------------------------------------------------------------ */
 
   /**
    * The order is the assertion, and it is asserted as document order rather
-   * than as "all three are present".
+   * than as "both are present".
    *
-   * A pinned account mark, then the contexts, then the trailing capsule. Get
-   * the middle one anywhere else and the strip is no longer the thing that
-   * flexes: put it after the capsule and the capsule stops being at the
-   * trailing edge; put the account inside the strip and a long list of contexts
-   * scrolls a person's own identity off the glass.
+   * A pinned account mark, then the trailing capsule. Put the capsule first and
+   * it stops being at the trailing edge; put the account after it and the one
+   * sign-out in the product is no longer the thing at the leading corner.
    *
-   * SABOTAGE: rendered `contextStrip` before `accountSlot`. Fails here.
+   * **There was a third slot between them and it is gone**: the contexts were a
+   * `contextStrip` here, and a floating bar meant the note ran behind them at
+   * every scroll position. They are the first row of `NavBand` now, inside the
+   * scroller — `contextStrip.test.ts` and `noteChrome.test.ts` hold that end.
+   *
+   * SABOTAGE: rendered `topTrailing` before `accountSlot`. Fails here.
    */
-  test("the top row is an account mark, the contexts, and the trailing group", () => {
+  test("the top row is an account mark and the trailing group", () => {
     const app = mountFrame(390);
     const row = app.find("account")!.parentElement!.parentElement!;
     const order = [...row.querySelectorAll("[data-testid]")]
       .map((node) => (node as HTMLElement).dataset.testid)
-      .filter((id) => id === "account" || id === "strip" || id === "trailing");
-    expect(order).toEqual(["account", "strip", "trailing"]);
+      .filter((id) => id === "account" || id === "trailing");
+    expect(order).toEqual(["account", "trailing"]);
     app.unmount();
   });
 
   /**
    * SABOTAGE: `flexShrink: 1` on `accountLead`. Fails here only.
    */
-  test("the account mark is pinned, and the strip is what gives way", () => {
-    // The mark is the first child of a row whose second child is a list. A
-    // flex child that may shrink is one the list squeezes the moment somebody
-    // joins a fourth workspace.
+  test("the account mark is pinned rather than shrinkable", () => {
+    // It holds the product's only sign-out. A flex child that may shrink is one
+    // that whatever lands beside it later squeezes.
     const app = mountFrame(390);
     const lead = app.find("account")!.parentElement!;
     expect(styleOf(lead, "flex-shrink")).toBe("0");
@@ -463,17 +460,16 @@ describe("a phone", () => {
   });
 
   /**
-   * SABOTAGE: rendered the two slots at every density (`compact ?` → `true ?`).
+   * SABOTAGE: rendered the slot at every density (`compact ?` → `true ?`).
    * Fails here and in "the switcher chip is the pointer layout's" — the two
    * directions of the same swap, which is the right blast radius.
    */
-  test("neither slot is drawn on a pointer layout", () => {
-    // They are the phone's answer to a rail that is a real column at these
-    // widths. Drawing both would be the contexts listed twice on one screen.
+  test("the account slot is not drawn on a pointer layout", () => {
+    // It is the phone's answer to a rail that is a real column at these widths,
+    // and the rail carries the account block at its foot.
     for (const width of [1024, 1440]) {
       const app = mountFrame(width);
       expect(app.find("account")).toBeNull();
-      expect(app.find("strip")).toBeNull();
       expect(app.find("rail-full") ?? app.find("rail-icons")).not.toBeNull();
       app.unmount();
     }
@@ -481,8 +477,9 @@ describe("a phone", () => {
 
   test("and the switcher chip is the pointer layout's, not the phone's", () => {
     // It used to be drawn at every density, and to be *pressable* on a phone —
-    // it was how the rail sheet came in. The contexts are the strip now, so the
-    // chip has nothing to say here that the strip does not say better.
+    // it was how the rail sheet came in. The contexts are the navigation band
+    // now, so the chip has nothing to say here that the band does not say
+    // better.
     const app = mountFrame(390);
     expect(app.find("switcher")).toBeNull();
     app.unmount();
@@ -492,12 +489,10 @@ describe("a phone", () => {
     desktop.unmount();
   });
 
-  test("a frame given neither slot still draws its row rather than crashing", () => {
-    // The landing page's picture of the console passes neither, and a phone
-    // with exactly one context is given a `ContextStrip` that renders `null`
-    // (see `stripEntries`) — so an absent middle is an ordinary state, not an
-    // error one.
-    const app = mountFrame(390, "the note", { accountSlot: false, contextStrip: false });
+  test("a frame given no account slot still draws its row rather than crashing", () => {
+    // The landing page's picture of the console passes none, so an absent
+    // leading slot is an ordinary state rather than an error one.
+    const app = mountFrame(390, "the note", { accountSlot: false });
     expect(app.find("app-frame")).not.toBeNull();
     expect(app.text()).toContain("the note");
     expect(app.find("bottom")).not.toBeNull();
@@ -862,8 +857,7 @@ describe("what toggling the explorer means", () => {
       expect(app.find("frame-drawer")).toBeNull();
       expect(app.find("frame-scrim")).toBeNull();
       // And the navigation that is there is still there: a no-op that took the
-      // strip or the toolbar with it would be the old bug in a new place.
-      expect(app.find("strip")).not.toBeNull();
+      // account mark or the toolbar with it would be the old bug in a new place.
       expect(app.find("account")).not.toBeNull();
       expect(app.find("bottom")).not.toBeNull();
 
