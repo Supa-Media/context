@@ -34,19 +34,23 @@ import { useCallback } from "react";
  * put a fragment of machinery in every URL anybody copies.
  */
 /**
- * `anchor` is cleared every time this writes, never carried over.
+ * An anchor never goes stale here, and it does not need its own clearing
+ * logic to say so.
  *
- * This is the *reconciliation* path — the browser's own selection moved (a
- * tapped row, a wikilink, an unsaved-changes guard settling) and the URL is
- * catching up to it, which is a fresh navigation with no anchor in mind. The
- * one path that means to name an anchor is `onOpenComms` (a contact's
- * activity link, or a search result), and that goes through a real
- * `router.push(noteHref(slug, path, anchor))` instead of this hook, setting
- * both params together in the one commit that means to. Without this,
- * `setParams` merges rather than replaces: following an activity link to
- * `?note=A&anchor=X` and then tapping an ordinary row to open note `B` would
- * leave the address at `?note=B&anchor=X` — a stale anchor for a message that
- * is not even in `B`, read back the next time anybody opens that URL.
+ * `noteHref`'s anchor is embedded in the `note` value itself — `path#anchor`,
+ * one query key, split back apart by `noteFromQuery`/`anchorFromQuery` — so
+ * this hook's `note ?? undefined` fully **replaces** whatever `?note=` held
+ * before, anchor included, the same way writing a new value to any other
+ * single key would. That is different from two independent params, where
+ * `setParams` merging rather than replacing would leave one behind when only
+ * the other changed; there is only one key here; there is nothing to leave
+ * behind. This is the *reconciliation* path — the browser's own selection
+ * moved (a tapped row, a wikilink, an unsaved-changes guard settling) and the
+ * URL is catching up with a fresh navigation, always to a plain path with no
+ * anchor of its own. The one path that means to open a specific message is
+ * `onOpenComms` (a contact's activity link, or a search result), and that
+ * goes through a real `router.push(noteHref(slug, path, anchor))` instead of
+ * this hook.
  */
 export function useNoteUrl(): (note: string | null) => void {
   /*
@@ -56,9 +60,9 @@ export function useNoteUrl(): (note: string | null) => void {
     naming the shape here is importing `@react-navigation/native`'s types for
     one call.
   */
-  const navigation = useNavigation<{ setParams: (params: { note?: string; anchor?: string }) => void }>();
+  const navigation = useNavigation<{ setParams: (params: { note?: string }) => void }>();
   return useCallback(
-    (note: string | null) => navigation.setParams({ note: note ?? undefined, anchor: undefined }),
+    (note: string | null) => navigation.setParams({ note: note ?? undefined }),
     [navigation],
   );
 }

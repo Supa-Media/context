@@ -64,19 +64,22 @@ export default function ContextBrowseRoute() {
   const data = useConsoleData();
   const router = useRouter();
   const slug = useContextSlug(data);
-  const params = useLocalSearchParams<{ note?: string | string[]; anchor?: string | string[] }>();
+  const params = useLocalSearchParams<{ note?: string | string[] }>();
   const note = noteFromQuery(params.note);
   /*
-    `?anchor=` — the routing contract `noteHref` writes for "open this note and
-    scroll to one place inside it" (see its own comment). Read alongside
-    `note` rather than through `useNoteAddress`: an anchor is where to look
-    inside the note the URL already names, never a second thing to reconcile
-    against the browser's own selection, so it does not belong in that state
-    machine. `BrowsePane` hands it to whichever communications view the open
-    path resolves to, and it is inert everywhere else — an ordinary note
-    never reads it.
+    The same `?note=` value, read again for its other half: `noteHref`'s
+    anchor is embedded as `path#anchor` in this one query value rather than a
+    second `?anchor=` parameter — the shape a per-message search hit already
+    deep-links as (`apps/mcp/src/search/CONTRACT.md`) — so `note` and `anchor`
+    are two reads of the same string, never two params that could disagree.
+    Read alongside `note` rather than through `useNoteAddress`: an anchor is
+    where to look inside the note the URL already names, never a second thing
+    to reconcile against the browser's own selection, so it does not belong in
+    that state machine. `BrowsePane` hands it to whichever communications view
+    the open path resolves to, and it is inert everywhere else — an ordinary
+    note never reads it.
   */
-  const anchor = anchorFromQuery(params.anchor);
+  const anchor = anchorFromQuery(params.note);
 
   useNoteAddress(
     data.files,

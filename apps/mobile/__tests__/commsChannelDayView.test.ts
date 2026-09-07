@@ -10,6 +10,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { PART_HEADER_RESERVE } from "@context/communications/protocol";
 import { messageAnchor, planChannelDay } from "@context/communications";
+import type { CommunicationEvent } from "@context/communications/protocol";
 import { ChannelDayView } from "../features/console/communications/ChannelDayView";
 import { space } from "../features/design/tokens";
 import { emptyEditor } from "../features/console/files/editor";
@@ -93,12 +94,15 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
   };
 }
 
-function commsMessage(overrides: Record<string, unknown>) {
+function commsMessage(
+  overrides: Partial<CommunicationEvent> &
+    Pick<CommunicationEvent, "messageId" | "threadId" | "sentAt" | "subject" | "from" | "body">,
+): CommunicationEvent {
   return {
-    channel: "email" as const,
+    channel: "email",
     account: "name-at-example-com",
     to: [{ address: "name@example.com" }],
-    attachments: [] as { filename?: string; contentType?: string; size?: number }[],
+    attachments: [],
     ...overrides,
   };
 }

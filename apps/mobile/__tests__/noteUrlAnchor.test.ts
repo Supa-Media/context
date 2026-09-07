@@ -9,10 +9,12 @@ import { createRoot } from "react-dom/client";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 /**
- * `useNoteUrl` always clears `?anchor=` when it writes `?note=` — see its own
- * comment for the stale-anchor bug this closes: `setParams` merges rather
- * than replaces, so writing `note` alone after a comms link had set both
- * would leave an old message's anchor attached to a new note.
+ * `useNoteUrl` writes a plain `?note=` with no anchor of its own — see its
+ * own comment. An anchor is embedded inside a `note` value (`path#anchor`,
+ * the shape a per-message search hit and a contact's activity link both
+ * produce), not a second query key, so overwriting `note` here replaces
+ * whatever it held, anchor included, the same as writing any other single
+ * value would.
  */
 describe("useNoteUrl", () => {
   const calls: Record<string, unknown>[] = [];
@@ -51,15 +53,15 @@ describe("useNoteUrl", () => {
     return address;
   }
 
-  test("writing a note also clears anchor", () => {
+  test("writing a note writes only the note", () => {
     const address = mount();
     act(() => address("1-projects/a.md"));
-    expect(calls.at(-1)).toEqual({ note: "1-projects/a.md", anchor: undefined });
+    expect(calls.at(-1)).toEqual({ note: "1-projects/a.md" });
   });
 
-  test("clearing the note (closing) also clears anchor", () => {
+  test("clearing the note (closing) clears it", () => {
     const address = mount();
     act(() => address(null));
-    expect(calls.at(-1)).toEqual({ note: undefined, anchor: undefined });
+    expect(calls.at(-1)).toEqual({ note: undefined });
   });
 });

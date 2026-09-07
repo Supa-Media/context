@@ -149,35 +149,25 @@ export function browseHref(slug: string): string {
  * note there would collide with that grammar; a query parameter is additive and
  * the parser already strips it.
  *
- * `anchor`, when given, adds `&anchor=…`: this is the routing contract for
- * "open this note and scroll to one place inside it" — every wikilink this
- * product writes into a channel-day or a contact page is `path#anchor`, and
- * this is where that address becomes a URL. See `anchorFromQuery` for the
- * read side and `docs/decisions/app-and-console.md`, *A note's anchor is a
- * query parameter, not a URL fragment*, for why it is not a literal `#anchor`
- * on the end of this string. Both a search result and a channel-day's own
- * message list call this the same way, so the two can never drift into two
- * link shapes for one target.
+ * `anchor`, when given, is appended to `path` as `#anchor` before either is
+ * URL-encoded — **not** a second query parameter. This is the same shape a
+ * search result over a channel-day message already deep-links as
+ * (`apps/mcp/src/search/CONTRACT.md`, "What a search result carries for a
+ * hit, and the deep link": `<notePath>#<anchor>`, the shape a wikilink into
+ * one already uses) and the one `splitNoteAnchor`/`noteFromQuery`/
+ * `anchorFromQuery` below already read back apart — so a contact's activity
+ * link, a channel-day's own message list, and a per-message search hit all
+ * produce and consume one link shape rather than three. `encodeURIComponent`
+ * turns the `#` into `%23`, so it never becomes a literal URL fragment; see
+ * `docs/decisions/app-and-console.md`, *A note's anchor is a query
+ * parameter, not a URL fragment*. This third argument used to add its own
+ * `&anchor=…` instead — a second, independent read of `?anchor=` existed
+ * beside the one below until this was reconciled with the already-shipped
+ * search deep link, which is the version every reader here now agrees with.
  */
 export function noteHref(slug: string, path: string, anchor?: string): string {
-  const base = `${browseHref(slug)}?note=${encodeURIComponent(path)}`;
-  return anchor ? `${base}&anchor=${encodeURIComponent(anchor)}` : base;
-}
-
-/**
- * The anchor a console URL is asking to scroll to, or `null`.
- *
- * Read the same defensive way `noteFromQuery` reads `?note=`: a bare string,
- * trimmed, empty reads as absent. There is no path-traversal class of attack
- * here the way there is on a note path — an anchor is never used to address
- * storage, only to find a heading already on the page — so this does not need
- * `safeNotePath`'s refusals, only its shape of "empty is absent."
- */
-export function anchorFromQuery(value: string | string[] | undefined): string | null {
-  const raw = Array.isArray(value) ? value[0] : value;
-  if (typeof raw !== "string") return null;
-  const trimmed = raw.trim();
-  return trimmed === "" ? null : trimmed;
+  const target = anchor ? `${path}#${anchor}` : path;
+  return `${browseHref(slug)}?note=${encodeURIComponent(target)}`;
 }
 
 /**
