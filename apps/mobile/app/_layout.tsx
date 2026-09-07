@@ -5,6 +5,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SupaConvexProvider } from "@supa-media/core/providers";
 import { ErrorBoundary } from "../features/app/ErrorBoundary";
+import { ShellTitleBand } from "../features/app/ShellTitleBand";
 import { holdSplash, releaseSplash } from "../features/app/splash";
 import { shouldHandleCodeHere } from "../features/auth/handleCode";
 import { ensureFontsLoaded } from "../features/design/fonts";
@@ -108,9 +109,22 @@ function AppGround() {
       <StatusBar style={scheme === "dark" ? "light" : "dark"} />
       {/* One opaque ground under every route, so nothing flashes the host's. */}
       <View style={{ flex: 1, backgroundColor: colors.ground }}>
-        <ErrorBoundary>
-          <Slot />
-        </ErrorBoundary>
+        {/*
+          Absent everywhere but a Mac inside the desktop shell — see
+          `ShellTitleBand`. Above every route rather than inside `(app)` or
+          `(auth)` alone, because it has to appear identically on both: the
+          shell hosts the sign-in screen before there is a session and the
+          console after, and the offline mirror `apps/desktop` serves from
+          disk is this same bundle. In normal flow, not `position:
+          "absolute"`, so it shifts the route below down rather than floating
+          over it — nothing under it for a stray click to land on instead.
+        */}
+        <ShellTitleBand />
+        <View style={{ flex: 1, minHeight: 0 }}>
+          <ErrorBoundary>
+            <Slot />
+          </ErrorBoundary>
+        </View>
       </View>
     </>
   );
