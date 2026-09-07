@@ -117,6 +117,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Nothing joins the call
 - Transcription is cloud on the paid tier and on-device on the free tier, and that seam is disclosed, not glossed
 - The cloud path knows _who_ is asking, opaquely, and the ceiling is the control plane's
+- The desktop is an OAuth client of the gateway, and it asks for the tier its meetings are filed at
+- A recorder that holds a grant transcribes at the gateway, and the meeting's own record is the ceiling
+- A microphone is never opened for a meeting nothing will transcribe
+- A chunk of audio is a whole file, and every recorder cuts on the same clock
 - A client-supplied id is bounded where it enters, not where it lands
 - The recorder is one interface with two implementations, and nothing above it knows which
 - The watch is a remote control, never a recorder
