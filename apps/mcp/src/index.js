@@ -1731,17 +1731,39 @@ function modernErrorResponse(id, code, message, status, data) {
  * decided, so adding a protocol revision can never quietly add a second, laxer
  * copy of either.
  */
+/**
+ * Tools a connection that reads at the private tier *nowhere* must not even be
+ * shown.
+ *
+ * `list_plugins` is here because it reads a prefix the privacy manifest does
+ * not reach, so it is the context owner's however harmless the read is.
+ *
+ * The two encryption tools are here for a stronger reason, and the listing is
+ * where it has to be enforced. `callTool` answers both with the byte-identical
+ * `unknown tool: …` an invented name gets — `docs/decisions/encryption.md`'s
+ * "a team-tier caller does not even learn the tool exists". A refusal that
+ * says "unknown tool" while `tools/list` has already handed the same caller
+ * the name, the description and the sentence "export this context's workspace
+ * data key(s) in the clear" is not masking anything; it is a masked answer
+ * about a capability the same connection was just advertised. Both halves or
+ * neither.
+ */
+const PRIVATE_TIER_ONLY_TOOLS = new Set([
+  "list_plugins",
+  "export_encryption_keys",
+  "rotate_encryption_keys",
+]);
+
 function toolsForSession(session) {
   const offered = writesAnywhere(session)
     ? toolDefinitions()
     : toolDefinitions().filter((tool) => tool.annotations?.readOnlyHint === true);
-  // `readOnlyHint` is not the whole of the question. `list_plugins` reads a
-  // prefix the privacy manifest does not reach, so it is the context owner's
-  // however harmless the read is — offered to a connection that owns one of the
+  // `readOnlyHint` is not the whole of the question — see
+  // `PRIVATE_TIER_ONLY_TOOLS`. Offered to a connection that owns one of the
   // contexts it covers, and refused per call in the ones it does not.
   return readsPrivateAnywhere(session)
     ? offered
-    : offered.filter((tool) => tool.name !== "list_plugins");
+    : offered.filter((tool) => !PRIVATE_TIER_ONLY_TOOLS.has(tool.name));
 }
 
 
@@ -4259,8 +4281,20 @@ async function toolRotateEncryptionKeys(store, scope) {
     if (!isEncryptedNote(text) || encryptedNoteKeyId(text) !== fromGeneration) continue;
 
     if (rewrapped >= ROTATION_BATCH_CAP) {
+      /*
+        This note is genuinely still on the outgoing generation, and this call
+        has spent its batch. STOP HERE rather than reading the rest of the
+        bucket to count them.
+
+        One pending note is the whole of what the caller needs to know: the
+        walk is not done, call again. Counting the exact remainder costs one
+        object read per note on a bucket whose size is the reason the cap
+        exists — measured at 601 reads per call over a 600-note bucket, of
+        which 400 bought nothing but a number in a sentence that already says
+        "at least". The report stays true because it was always a floor.
+      */
       stillPending += 1;
-      continue;
+      break;
     }
     let rewrappedText;
     try {

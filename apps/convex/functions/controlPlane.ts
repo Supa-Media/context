@@ -934,32 +934,6 @@ export const openStorageBinding = internalAction({
     }
 
     /*
-      THE ENCRYPTION KEY, FOR THE SAME WORKSPACE AND NOBODY ELSE'S.
-
-      `workspaceId` again — the id read off the row the grant resolved to, the
-      only id in this handler a caller cannot choose. Same rule as the index
-      credential above, and `structure.test.ts` fails the build if
-      `args.expectedWorkspaceId` is ever used to select rather than to compare.
-
-      `create` is deliberately absent, which means false. A read must never be
-      the thing that brings a key into existence: a context that has never
-      encrypted a note has no row, holds no key, and is one less thing for this
-      control plane to be holding on somebody's behalf. The row is written when
-      an owner turns encryption on, and not before.
-
-      Absent is therefore the ordinary answer, and a failure is answered the
-      same way for the same reason as the two catches above: a caller holding
-      the gateway secret must not be able to tell "this context has no key" from
-      "we could not open the key it has". The gateway degrades to refusing to
-      decrypt, which is a note that reads as locked rather than a note that
-      reads as gone.
-
-      A separate `runAction` rather than a shared helper, matching the index
-      credential immediately above and for the same stated reason: a
-      module-level helper would attribute its calls to every export in this
-      file and hide this edge in a crowd.
-    */
-    /*
       A ROTATION THE GATEWAY ASKED TO START OR COMPLETE, FOR THE SAME
       WORKSPACE AND NOBODY ELSE'S.
 

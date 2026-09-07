@@ -28,6 +28,13 @@
  *
  *   `toolRotateEncryptionKeys` counting a `put` conflict as done rather
  *   than pending                                                          2
+ *
+ * Added in adversarial review:
+ *
+ *   the batch-cap stop turned back into a `continue`, so one call reads
+ *   the whole bucket instead of the batch it is allowed to move           2
+ *   `rewrapWorkspaceRecipient` giving the body a fresh `iv` — a re-encrypt
+ *   wearing a re-wrap's costume                                          10
  */
 
 import worker from "../src/index.js";
@@ -177,13 +184,58 @@ export async function runEncryptionRotationChecks(check) {
 
     /* -- (1) the walk is resumable ------------------------------------------ */
 
+    /*
+      THE BODY CIPHERTEXT OF EVERY NOTE, BEFORE ANY OF THIS.
+
+      "Rotation re-wraps note keys and never re-encrypts bodies" is the claim
+      the whole per-note-key design exists to make true, and it is a claim
+      about all of them: one note's `ct` matching proves the code path taken
+      for one note, and a rotation that re-encrypted every *other* note would
+      pass that. Compared over the whole bucket after the walk finishes.
+    */
+    const ciphertextBefore = new Map();
+    for (const key of [...a.objects.keys()].filter((k) => k.startsWith("1-projects/"))) {
+      const envelope = parseEncryptedNote(readA(key));
+      ciphertextBefore.set(key, `${envelope.ct}|${envelope.iv}|${envelope.aad}`);
+    }
+
+    /*
+      AND WHAT ONE CALL READS.
+
+      There is no persisted cursor: the walk re-lists the bucket every call.
+      That is a deliberate trade (see "Rotation" in
+      `docs/decisions/encryption.md`), and its cost is one object read per note
+      *examined* — which is why the walk stops at the first note it finds still
+      pending once its batch is spent, rather than reading to the end of the
+      bucket to count the remainder. Without that stop this call read 601
+      objects over a 600-note bucket to move 200 of them; a Worker invocation
+      has a subrequest budget and a bucket has no upper bound, so the cost of
+      one call may not scale with the size of the bucket.
+    */
+    const realGet = a.bucket.get.bind(a.bucket);
+    let getsDuringFirstCall = 0;
+    a.bucket.get = async (key) => {
+      getsDuringFirstCall += 1;
+      return realGet(key);
+    };
     const first = await call("rotate_encryption_keys", {});
+    a.bucket.get = realGet;
+    check(
+      "one call reads about as many objects as it re-wraps, not as many as the bucket holds",
+      getsDuringFirstCall <= ROTATION_BATCH_CAP + 5 && getsDuringFirstCall >= ROTATION_BATCH_CAP,
+    );
     check(
       "the first call re-wraps a bounded batch and reports it is not done",
       !first?.isError &&
         /rotation in progress: k1 → k2/.test(textOf(first)) &&
         new RegExp(`${ROTATION_BATCH_CAP} note\\(s\\) re-wrapped`).test(textOf(first)) &&
-        /at least 5 left/.test(textOf(first)),
+        // A FLOOR, not a census. The walk stops at the first note it finds
+        // still on the outgoing generation once its batch is spent, rather
+        // than reading the rest of the bucket to count them — see the
+        // `ROTATION_BATCH_CAP` break in `toolRotateEncryptionKeys`. What must
+        // stay true is that it never reports zero left while notes remain,
+        // which the next check asks of the bucket rather than of the sentence.
+        /at least 1 left/.test(textOf(first)),
     );
 
     const onK1AfterFirst = [...a.objects.keys()].filter(
@@ -274,6 +326,22 @@ export async function runEncryptionRotationChecks(check) {
       }
     }
     check("every one of the notes still opens to exactly its plaintext after the full rotation", allOpen);
+
+    // And not one body was re-encrypted on the way. Same `ct`, same `iv`, same
+    // `aad`, for every note in the bucket — only the recipient's `wrapped` and
+    // the frontmatter marker moved.
+    let bodiesUntouched = ciphertextBefore.size === noteCount;
+    for (const [key, before] of ciphertextBefore) {
+      const envelope = parseEncryptedNote(readA(key));
+      if (`${envelope.ct}|${envelope.iv}|${envelope.aad}` !== before) {
+        bodiesUntouched = false;
+        break;
+      }
+    }
+    check(
+      "not one note's body ciphertext changed across the whole rotation",
+      bodiesUntouched,
+    );
 
     /* -- (4) the retired generation is not purged, and still opens ---------- */
     //

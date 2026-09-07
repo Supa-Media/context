@@ -29,7 +29,7 @@
  */
 
 import { readFile, writeFile, mkdir, stat, readdir, copyFile } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { dirname, join } from "node:path";
 import { decryptNote, isEncryptedNote, parseKeyExport } from "../src/format.js";
 
 function usageError(message) {
@@ -101,7 +101,28 @@ async function main() {
   if (inputStat.isFile()) {
     const text = await readFile(inputPath, "utf8");
     const result = await decryptOne(text, keys, inputPath);
-    if (result.failed) process.exitCode = 2;
+    if (result.failed) {
+      /*
+        NOTHING IS WRITTEN AND NOTHING IS PRINTED — the same rule the
+        directory walk below applies, which is where it was written down
+        first: "a note this run could not open must not silently become
+        indistinguishable, in the output, from one that was never encrypted at
+        all."
+
+        The single-file path used to fall through to `result.text ?? text`,
+        which wrote the envelope to the output path under a plaintext-looking
+        name and announced it as "copied (already plaintext)" — and, with no
+        output path, piped the ciphertext to stdout, so
+        `context-decrypt keys.json note.md > note.txt` produced a file of
+        base64 that looks like a recovered note until somebody opens it. The
+        exit code was right; the bytes were not.
+      */
+      process.stderr.write(
+        `nothing written for ${inputPath}: it is an encrypted note this key file does not open.\n`,
+      );
+      process.exitCode = 2;
+      return;
+    }
     const output = result.text ?? text;
     if (outputArg) {
       await mkdir(dirname(outputArg), { recursive: true });

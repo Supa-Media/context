@@ -34,6 +34,16 @@
  *   `openStorageBinding` omitting `encryptionKey` from its answer         2
  *   `openWorkspaceDataKey` sealing to a fixed AAD, not the workspace      1
  *   the `datakey` entry removed from `PLAINTEXT_CREDENTIAL_FIELDS`        1
+ *   `authorizeEncryptionExport`'s `requireWorkspaceRole` removed          3
+ *   a public function elsewhere returning a `material` field, with
+ *   `material` absent from `PLAINTEXT_CREDENTIAL_FIELDS`             0 -> 1
+ *
+ * The last row is the one worth reading twice: it measured ZERO as the branch
+ * was written. The workspace data key stopped being called `dataKey` when
+ * rotation made it a set, so the guard that names credential fields no longer
+ * named anything this feature returns, and a public function handing one back
+ * passed. `material` is listed now, with the two functions allowed to declare
+ * it enumerated beside it.
  *
  * The fourth row is the one worth naming, and it is one on purpose. Binding the
  * envelope to a constant instead of to the workspace looks harmless — every row
@@ -464,6 +474,106 @@ describe("exportEncryptionKeys (the console action)", () => {
         workspaceId,
       }),
     ).rejects.toThrow();
+  });
+
+  /**
+   * THE ID IS AN ARGUMENT, WHICH MAKES IT THE ATTACK.
+   *
+   * `exportEncryptionKeys` takes a `workspaceId` from its caller — the one
+   * thing the gateway path never does (`/gateway/binding` compares the id it
+   * is given and reads the workspace off the grant instead). So the console's
+   * export has to answer the question the gateway's cannot be asked: an owner
+   * of their own context, signed in, naming somebody else's id.
+   *
+   * Both halves. A *member* of the target is refused on role, and a complete
+   * stranger is refused on membership — and the stranger case is the one a
+   * role check alone would let through if `requireWorkspaceAccess` ever
+   * stopped being the first thing `requireWorkspaceRole` does.
+   */
+  test("an owner of one context cannot export another's key by naming its id", async () => {
+    const t = setupTest();
+    const mine = await createUser(t, "mine@example.invalid");
+    const theirs = await createUser(t, "theirs@example.invalid");
+    await createWorkspace(t, mine, "mine");
+    const theirWorkspace = await createWorkspace(t, theirs, "theirs");
+    const opened = await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId: theirWorkspace,
+      create: true,
+    });
+
+    let refusal: unknown;
+    try {
+      await asUser(t, mine).action(api.functions.encryptionKeys.exportEncryptionKeys, {
+        workspaceId: theirWorkspace,
+      });
+    } catch (error) {
+      refusal = error;
+    }
+    expect(refusal).toBeInstanceOf(ConvexError);
+    // Not the material, and not a hint that the material exists.
+    expect(JSON.stringify((refusal as ConvexError<Record<string, string>>).data)).not.toContain(
+      opened!.keys.k1,
+    );
+
+    // A stranger's failed attempt is not recorded against the workspace they
+    // named either — the audit row is written in the same transaction as the
+    // authorization, after it.
+    const events = await t.run((ctx) => ctx.db.query("auditEvents").collect());
+    expect(events.some((e) => e.action === "encryption.export")).toBe(false);
+  });
+
+  test("a member — read-only in the context — is refused as firmly as a stranger", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const reader = await createUser(t, "reader@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "alpha");
+    await addMember(t, workspaceId, reader, "member");
+    await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId,
+      create: true,
+    });
+
+    await expect(
+      asUser(t, reader).action(api.functions.encryptionKeys.exportEncryptionKeys, {
+        workspaceId,
+      }),
+    ).rejects.toThrow();
+  });
+
+  /**
+   * THE LIMIT IS THE CONTEXT'S, NOT THE SESSION'S.
+   *
+   * A rate limit a second sign-in resets is not a rate limit. The key is
+   * `encryption.export:<workspaceId>`, so two owners of the same context share
+   * one window — which is the shape that actually defends the thing being
+   * defended, since the harm is a compromised session harvesting the key by
+   * retrying and a compromised session can start a second one.
+   */
+  test("two owners of one context share one window — a second identity does not reset it", async () => {
+    const t = setupTest();
+    const first = await createUser(t, "first@example.invalid");
+    const second = await createUser(t, "second@example.invalid");
+    const workspaceId = await createWorkspace(t, first, "alpha");
+    await addMember(t, workspaceId, second, "owner");
+    await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId,
+      create: true,
+    });
+
+    let accepted = 0;
+    let refused = 0;
+    // Alternating identities, ten attempts, five allowed between them.
+    for (const who of [first, second, first, second, first, second, first, second, first, second]) {
+      try {
+        await asUser(t, who).action(api.functions.encryptionKeys.exportEncryptionKeys, {
+          workspaceId,
+        });
+        accepted += 1;
+      } catch {
+        refused += 1;
+      }
+    }
+    expect({ accepted, refused }).toEqual({ accepted: 5, refused: 5 });
   });
 
   test("a signed-out caller is refused", async () => {

@@ -808,15 +808,19 @@ const schema = defineSchema({
    * `insertDataKeyIfAbsent` already relies on for a workspace's very first key.
    *
    * The actual re-wrap walk — which notes are done, which are left — is
-   * **not** tracked here. It lives in the customer's own bucket
-   * (`.context/encryption-rotation.json`), because that is where the gateway
-   * already has to read and write to do the walk at all, and because a walk
-   * that is idempotent by construction (`rewrapWorkspaceRecipient` is safe to
-   * call twice) does not need a precise cursor to be resumable — only a
-   * boolean saying whether one may be *started*. This table is that boolean,
-   * shared across every Worker isolate and every client, which the bucket
-   * alone cannot be: two racing gateways could both see no cursor file yet and
+   * **not** tracked here, and is not tracked anywhere else either: there is no
+   * cursor, in this table, in the bucket, or in a file. Each note carries its
+   * own generation in its own frontmatter, so "already done" is read off the
+   * note rather than off a second piece of state that could go stale, and a
+   * walk that is idempotent by construction (`rewrapWorkspaceRecipient` is
+   * safe to call twice) needs no cursor to be resumable — only a boolean
+   * saying whether one may be *started*. This table is that boolean, shared
+   * across every Worker isolate and every client, which the bucket alone
+   * cannot be: two racing gateways would both find no rotation under way and
    * both try to mint a new generation.
+   *
+   * What that costs is in `docs/decisions/encryption.md` under "Rotation" and
+   * is real: every call re-lists the bucket, and reads every note it examines.
    */
   workspaceKeyRotations: defineTable({
     workspaceId: v.id("workspaces"),

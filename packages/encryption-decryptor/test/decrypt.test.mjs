@@ -30,6 +30,12 @@
  *
  *   `isEncryptedNote` returning `false` unconditionally                    12
  *   `decryptNote`'s wrap AAD built from a constant, not the envelope         6
+ *
+ * Added in adversarial review:
+ *
+ *   the CLI's single-file path falling back to "write what was read" when
+ *   a note cannot be opened                                                 2
+ *   `src/format.js` importing one constant from the gateway's module        1
  */
 
 import { execFileSync } from "node:child_process";
@@ -186,6 +192,54 @@ check(
     (await threw(async () => parseKeyExport({ ...exportDoc, current: "k9" }))) instanceof DecryptorError,
 );
 
+/* -- (3b) the independence itself, read off the source -------------------- */
+//
+// Every check above proves the two implementations AGREE. None of them proves
+// they are two implementations: this file could import the gateway's module
+// for its own decrypt path, or `src/format.js` could reach it through one
+// hop, and every assertion would still pass — greenly, while the property the
+// package exists for was gone.
+//
+// So the shipped surface is read as text. `package.json`'s `files` is `bin`
+// and `src`; every import in those two directories must be either a `node:`
+// builtin or a path inside this package. One relative hop into `apps/` or a
+// bare npm specifier fails here — and a bare specifier would also break the
+// "zero dependencies, runs from a folder and a Node" promise the README makes
+// to somebody who has already revoked our credential.
+{
+  const shippedDirs = ["../src", "../bin"];
+  const offenders = [];
+  for (const dir of shippedDirs) {
+    const dirPath = fileURLToPath(new URL(dir, import.meta.url));
+    for (const entry of readdirSync(dirPath)) {
+      if (!entry.endsWith(".js")) continue;
+      const source = readFileSync(join(dirPath, entry), "utf8");
+      for (const match of source.matchAll(/^\s*(?:import|export)[^;]*?from\s+["']([^"']+)["']/gm)) {
+        const specifier = match[1];
+        const isBuiltin = specifier.startsWith("node:");
+        const isInsidePackage =
+          (specifier.startsWith("./") || specifier.startsWith("../")) &&
+          !specifier.includes("../../");
+        if (!isBuiltin && !isInsidePackage) offenders.push(`${dir}/${entry} -> ${specifier}`);
+      }
+      for (const match of source.matchAll(/\bimport\(\s*["']([^"']+)["']/g)) {
+        offenders.push(`${dir}/${entry} -> dynamic import ${match[1]}`);
+      }
+    }
+  }
+  check(
+    "nothing this package ships imports the gateway's module, or anything off npm",
+    offenders.length === 0,
+  );
+  // And the scanner is not vacuous: it finds the one deliberate import in
+  // THIS file, which is the gateway module used to produce ciphertext.
+  const ownSource = readFileSync(fileURLToPath(import.meta.url), "utf8");
+  check(
+    "...and the scanner would see such an import if there were one",
+    /from\s+["']\.\.\/\.\.\/\.\.\/apps\/mcp\/src\/encryption\.js["']/.test(ownSource),
+  );
+}
+
 /* -- (4) the CLI itself, against a small on-disk bucket -------------------- */
 
 const workdir = mkdtempSync(join(tmpdir(), "context-decryptor-test-"));
@@ -260,6 +314,70 @@ try {
   check(
     "a note this run cannot open is left out of the output tree rather than copied as ciphertext",
     !survivedEntries.includes("unopenable.md") && survivedEntries.includes("secret.md"),
+  );
+
+  /* -- (5) the same rule, in single-file mode ------------------------------- */
+  //
+  // The directory walk's rule — a note this run could not open is never
+  // written out under a plaintext-looking name — has to hold for one note as
+  // well, and it did not: single-file mode fell through to "write what we
+  // read", so an output file appeared containing the envelope and the run
+  // announced it as "copied (already plaintext)". Both forms are asked here.
+  //
+  // The input is a note whose envelope is well-formed and whose CIPHERTEXT is
+  // corrupt — the shape a truncated sync or a bad restore leaves, and the one
+  // that reaches furthest into the decryptor before failing.
+  const corrupted = freshlyEncrypted.replace(
+    /"ct":"([A-Za-z0-9_-]{8})/,
+    (_match, head) => `"ct":"${head.split("").reverse().join("")}`,
+  );
+  const corruptedPath = join(bucketDir, "1-projects", "corrupted.md");
+  writeFileSync(corruptedPath, corrupted);
+
+  const refusedOut = join(workdir, "refused.md");
+  let singleExit = 0;
+  let singleStderr = "";
+  try {
+    execFileSync(process.execPath, [binPath, keysPath, corruptedPath, refusedOut], {
+      stdio: "pipe",
+      encoding: "utf8",
+    });
+  } catch (error) {
+    singleExit = error.status;
+    singleStderr = String(error.stderr ?? "");
+  }
+  let wroteAnything = true;
+  try {
+    readFileSync(refusedOut, "utf8");
+  } catch {
+    wroteAnything = false;
+  }
+  check(
+    "a corrupted envelope is refused cleanly in single-file mode: nothing written, exit 2, and a reason",
+    singleExit === 2 && wroteAnything === false && /nothing written/.test(singleStderr),
+  );
+
+  let stdoutExit = 0;
+  let stdoutBytes = "";
+  try {
+    stdoutBytes = execFileSync(process.execPath, [binPath, keysPath, corruptedPath], {
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+  } catch (error) {
+    stdoutExit = error.status;
+    stdoutBytes = String(error.stdout ?? "");
+  }
+  check(
+    "...and with no output path it prints no ciphertext to stdout either",
+    stdoutExit === 2 && stdoutBytes === "",
+  );
+
+  // Not a crash, and not a stack trace: the person running this has no
+  // gateway to ask, so the message is the whole of what they get.
+  check(
+    "the refusal names the cause rather than throwing a stack trace",
+    /tampered ciphertext|does not open/.test(singleStderr) && !/at Object|at async/.test(singleStderr),
   );
 } finally {
   rmSync(workdir, { recursive: true, force: true });

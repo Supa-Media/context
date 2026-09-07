@@ -599,6 +599,27 @@ which is which is a decision.**
   piece of state that can itself drift from the truth; this trades efficiency
   for having one less thing that can be wrong.
 
+  **What it costs, measured rather than asserted.** One object read per note
+  the walk *examines*, plus one conditional write per note it moves. Over a
+  600-note bucket, three calls at a batch cap of 200: 1,205 reads and 603
+  writes in total, and — the number that matters — **202 reads in the first
+  call rather than 601**, because the walk stops at the first note it finds
+  still on the outgoing generation once its batch is spent, instead of reading
+  to the end of the bucket to count the remainder. It never needed that count:
+  the report has always said "at least *n* left", and one is enough to mean
+  "call again". Without the stop, the reads a single call issues scale with the
+  size of the bucket rather than with the size of the batch, which is the wrong
+  quantity to hand a Worker invocation with a subrequest budget — and on an
+  S3-backed store, where every read is a subrequest, it is the difference
+  between a rotation that finishes and one that cannot. The honest residue: a
+  *resumed* call still reads past everything already done to reach what is
+  left, so a full rotation costs on the order of `notes x calls / 2` reads.
+  That is affordable for the hundreds-to-low-thousands of notes a context
+  holds and is not affordable at a hundred thousand. A persisted cursor is the
+  answer at that size; it is not the size anything here is, and
+  `apps/mcp/test/encryptionRotation.test.mjs` now fails if one call's reads
+  start scaling with the bucket again.
+
 **The grace period is a policy, not a sweep.** A retired generation is kept —
 not deleted, not archived elsewhere, simply left as a row with `retiredAt` set
 — indefinitely, by this codebase, on purpose. Three reasons a note can still
@@ -634,6 +655,16 @@ finishes exactly what was left, sabotage-tested by miscounting a conflict as
 done (`apps/mcp/test/encryptionRotation.test.mjs`); and a note wrapped under a
 generation retired long enough ago that a real deployment would consider
 purging it still opens, because nothing purges it.
+
+And one more, which belongs to the *other* rotation in this file's list of
+three: `STORAGE_SECRET_ENCRYPTION_KEY`'s pass must move **every** generation
+forward, not only the current one. A retired row left behind on the outgoing
+envelope key becomes unreadable the moment an operator completes step 4 of
+that sequence and unsets the PREVIOUS variables — and the notes it strands are
+exactly the ones the grace period above exists to protect. `workspaceDataKeys`
+held one row per workspace until this shipped, so nothing had ever asked;
+`storage.test.ts` asks now, with a rotated workspace, both rows, and the old
+envelope key gone from the environment.
 
 ---
 
@@ -711,6 +742,17 @@ exported bucket, copying everything that is not an encrypted note through
 byte-for-byte and leaving a note it cannot open out of the output tree rather
 than passing ciphertext through under a plaintext-looking name.
 
+**That rule is the same rule for one note as for a tree**, which it was not at
+first: single-file mode fell through to "write back what was read", so
+`context-decrypt keys.json note.md out.md` on a corrupted envelope wrote the
+envelope to `out.md` and announced it as "copied (already plaintext)", and
+`... note.md > note.txt` piped base64 into a file that looks like a recovered
+note. The exit code was 2 in both cases and the bytes were still wrong, which
+is the failure mode worth naming: the person running this has already revoked
+our credential, so a file that looks recovered and is not is a loss they find
+out about later. Nothing is written and nothing is printed for a note this key
+file does not open — only the reason.
+
 Five consequences, each a decision:
 
 - **Exporting widens the blast radius, one way, and both surfaces say so at the
@@ -724,6 +766,20 @@ Five consequences, each a decision:
   caller gets for a name it invented, the same idiom `canSee` already applies
   to a path ("byte-identical to a path that never existed"), now applied to a
   capability rather than a note.
+
+  **That claim is two halves, and it was one for a while.** The refusal is in
+  `callTool`; the listing is in `toolsForSession`, and until
+  `PRIVATE_TIER_ONLY_TOOLS` existed the second half was missing — `tools/list`
+  handed a team-tier connection the name, the description and the sentence
+  "export this context's workspace data key(s) in the clear", and then the
+  call said the tool was unknown. A masked refusal about a capability the same
+  connection has just been advertised masks nothing, and the mechanism that
+  fixes it already existed for `list_plugins`, which is the shape this should
+  have been copied from. Both `export_encryption_keys` and
+  `rotate_encryption_keys` are now filtered out of the listing for a
+  connection that reads at the private tier in no context it covers, and the
+  listing half is asserted beside the call half — either alone passes for a
+  gateway that gets the other one wrong.
 - **Rate limited**, independently on each surface because the two share no
   state to spend a round trip reaching: the console's `authorizeEncryptionExport`
   counts against `apps/convex/functions/lib/rateLimit.ts`'s table, five per
@@ -779,9 +835,24 @@ breaks the first non-negotiable — the one thing this file is not allowed to do
 
 **The tests that fail if this is reversed.** An exported key decrypts a note
 taken straight out of the bucket, through the pure module, with no gateway and
-no control plane in the path; a non-owner is refused; and `structure.test.ts`
-counts the export as an enumerated barrier rather than letting a public function
-quietly reach a key.
+no control plane in the path; a non-owner is refused — an editor, a `member`,
+and a signed-in owner of a *different* context naming this one's id, which is
+the only id the console's export lets a caller choose; the rate limit is spent
+per context rather than per session, so two owners of one context share one
+window and a second client does not get five more; and `structure.test.ts`
+counts the export as an enumerated barrier rather than letting a public
+function quietly reach a key.
+
+**And the credential-field guard names the field the key actually travels
+under.** `PLAINTEXT_CREDENTIAL_FIELDS` listed `datakey`, which was the name on
+`/gateway/binding` until rotation made a context's keys a set; the export
+returns `material`. Nothing was called `dataKey` any more, so for a while a
+public Convex function could have returned a workspace data key and passed the
+guard — measured, by adding one: 0 failures. `material` is listed now, with
+`DELIBERATE_KEY_DISCLOSURES` enumerating the two functions allowed to declare
+it, so a third fails CI loudly. That is the same shape, and the same stated
+residual risk, as `CREDENTIAL_BARRIERS`: the enumeration is the mitigation,
+because it forces the conversation.
 
 ---
 

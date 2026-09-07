@@ -704,6 +704,91 @@ describe("rotating the encryption key", () => {
     );
   });
 
+  /**
+   * THE RETIRED GENERATION, WHICH IS THE ONE A PASS COULD MOST EASILY MISS.
+   *
+   * After a workspace-key rotation this table holds more than one row per
+   * workspace, and the extra rows are the ones nothing is currently writing
+   * with. A pass that moved only the *current* generation forward would report
+   * "nothing left" with the retired rows still sealed under the outgoing
+   * envelope key — and step 4 of the operator sequence, unsetting the PREVIOUS
+   * variables, would then make every note still wrapped under that generation
+   * permanently unreadable. Those notes are exactly the ones the grace period
+   * in `docs/decisions/encryption.md` exists to protect: a restore from bucket
+   * versioning, a client that synced the bucket directly, a walk that has not
+   * reached them yet.
+   *
+   * `listDataKeyRekeyCandidates` walks the table rather than a workspace's
+   * current row, so this passes — and it is asked here because nothing else
+   * asks it, and because "one row per workspace" was true of this table until
+   * rotation shipped.
+   */
+  test("a RETIRED generation is moved forward too, and still opens once the old key is gone", async () => {
+    const { t, workspaceId } = await boundWorkspace();
+    const originalKey = process.env.STORAGE_SECRET_ENCRYPTION_KEY!;
+
+    await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId,
+      create: true,
+    });
+    await t.action(internal.functions.encryptionKeys.startWorkspaceKeyRotation, {
+      workspaceId,
+    });
+    const before = await t.action(
+      internal.functions.encryptionKeys.openWorkspaceDataKey,
+      { workspaceId },
+    );
+    expect(Object.keys(before!.keys).sort()).toEqual(["k1", "k2"]);
+
+    const sealed = async () =>
+      (
+        await t.run((ctx) =>
+          ctx.db
+            .query("workspaceDataKeys")
+            .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+            .collect(),
+        )
+      )
+        .map((row) => row.encryptedDataKey)
+        .sort();
+    expect((await sealed()).every((envelope) => envelope.startsWith("v2:k1:"))).toBe(true);
+
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: originalKey,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: "k1",
+      },
+      async () => {
+        // BOTH rows, not one: the retired generation is a candidate too.
+        expect(
+          await t.action(internal.functions.storage.rekeyStorageBindings, {}),
+        ).toMatchObject({ dataKeysRekeyed: 2, dataKeysUnreadable: 0 });
+        expect((await sealed()).every((envelope) => envelope.startsWith("v2:k2:"))).toBe(true);
+      },
+    );
+
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: undefined,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: undefined,
+      },
+      async () => {
+        // Same material on both generations, with the old envelope key gone
+        // from the environment entirely — which is the state a finished
+        // rotation leaves, and the state a note on k1 has to survive.
+        expect(
+          await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+            workspaceId,
+          }),
+        ).toEqual(before);
+      },
+    );
+  });
+
   test("a data key the pass cannot open is counted, never rewritten", async () => {
     const { t, workspaceId } = await boundWorkspace();
     const originalKey = process.env.STORAGE_SECRET_ENCRYPTION_KEY!;

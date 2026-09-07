@@ -52,8 +52,19 @@
  *   `indexableText` returning its argument unchanged                         1
  *   `rewriteReferences` dropping its `isEncryptedNote` skip                  0
  *
- * Three of those rows are findings about this file rather than about the
- * source.
+ * Added in adversarial review, with their own counts:
+ *
+ *   `export_encryption_keys`/`rotate_encryption_keys` left out of
+ *   `PRIVATE_TIER_ONLY_TOOLS`, so `tools/list` advertises them to a
+ *   team-tier connection the call then tells they do not exist              1
+ *   `toolExportEncryptionKeys`'s `scope !== "private"` gate removed         3
+ *   `EXPORT_RATE_LIMIT.limit` moved from 5 to 1                             2
+ *   the export document written to a `console.log`                          1
+ *   the audit detail carrying `Object.values(key.keys)` (the material
+ *   itself) instead of its generation ids                                   2
+ *
+ * Three of the original rows are findings about this file rather than about
+ * the source.
  *
  * **The scan skip measured zero**, because the only search in the file used a
  * needle out of the note's plaintext, which no envelope contains — so the scan
@@ -798,6 +809,99 @@ export async function runEncryptionGatewayChecks(check) {
       teamExport?.isError === true && textOf(teamExport) === "unknown tool: export_encryption_keys",
     );
 
+    /*
+      THE OTHER HALF OF "DOES NOT EVEN LEARN THE TOOL EXISTS", and the half
+      that was missing: the refusal above says `unknown tool` while
+      `tools/list` was, until this check existed, handing the same connection
+      the name, the description and the sentence "Export this context's
+      workspace data key(s) in the clear". A masked refusal about a capability
+      the same connection was just advertised masks nothing.
+
+      Asked on the listing AND on the call, because either alone passes for a
+      gateway that gets the other one wrong.
+    */
+    const listedFor = async (token) => {
+      const res = await worker.fetch(
+        new Request("https://x/mcp", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method: "tools/list", params: {} }),
+        }),
+        env,
+        { waitUntil() {} },
+      );
+      return ((await res.json()).result?.tools ?? []).map((tool) => tool.name);
+    };
+    const ownerTools = await listedFor(OWNER_A);
+    const teamTools = await listedFor(TEAM_A);
+    check(
+      "an owner is offered both encryption tools",
+      ownerTools.includes("export_encryption_keys") && ownerTools.includes("rotate_encryption_keys"),
+    );
+    check(
+      "a team connection is not offered either of them — the listing masks what the call masks",
+      !teamTools.includes("export_encryption_keys") &&
+        !teamTools.includes("rotate_encryption_keys") &&
+        // and the listing is not simply empty for that connection
+        teamTools.includes("read_note"),
+    );
+
+    /*
+      BYTE-IDENTICAL, asserted on the whole payload rather than on the message.
+      `canSee`'s own idiom is that the refusal for a thing you may not have is
+      indistinguishable from the refusal for a thing that never existed, and a
+      check on the text alone would pass for a payload that differed in
+      `isError`, in a second content block, or in a `_meta` hint.
+    */
+    const invented = await call(TEAM_A, "export_encryption_keys_x", {});
+    check(
+      "the refusal is byte-identical to the one an invented tool name gets",
+      JSON.stringify(teamExport).replace("export_encryption_keys", "export_encryption_keys_x") ===
+        JSON.stringify(invented),
+    );
+
+    /*
+      NAMING SOMEBODY ELSE'S CONTEXT.
+
+      The tool takes no arguments, so the only id an attacker can supply is the
+      routing one — `context`, which `callToolForSession` resolves before the
+      tool runs. A connection that owns context A and is merely an *editor* in
+      context B holds `context:private` in the grant and reads private in A,
+      so the tool is legitimately theirs *there*: the question is whether the
+      capability travels with the connection or is re-decided in the context it
+      is routed to. It is re-decided — `target.scope` for B is `team`, and the
+      answer is the same masked refusal, with none of B's key material in it.
+    */
+    const OWNER_A_IN_B = "cat_test_enc_owner_a_in_b_0000000000";
+    await controlPlane.addGrant({
+      accessToken: OWNER_A_IN_B,
+      workspaceId: "ws_enc_a",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "mcp_client_enc_owner_a_in_b",
+      userId: "user_enc_owner_a_in_b",
+      alsoMemberOf: [{ workspaceId: "ws_enc_b", role: "editor" }],
+    });
+    const crossExport = await call(OWNER_A_IN_B, "export_encryption_keys", { context: "@encb" });
+    check(
+      "an owner of one context cannot export the key of another they are only an editor in",
+      crossExport?.isError === true &&
+        textOf(crossExport) === "unknown tool: export_encryption_keys" &&
+        !textOf(crossExport).includes(KEY_B),
+    );
+    const crossRotate = await call(OWNER_A_IN_B, "rotate_encryption_keys", { context: "@encb" });
+    check(
+      "...and cannot rotate it either",
+      crossRotate?.isError === true && textOf(crossRotate) === "unknown tool: rotate_encryption_keys",
+    );
+    const strangerExport = await call(OWNER_B, "export_encryption_keys", { context: "@enca" });
+    check(
+      "a context the connection is not a member of at all answers with no-access, not with a key",
+      strangerExport?.isError === true &&
+        !textOf(strangerExport).includes(KEY_A) &&
+        /no access to that context/.test(textOf(strangerExport)),
+    );
+
     const keylessExport = await call(KEYLESS, "export_encryption_keys", {});
     check(
       "a context that has never encrypted anything has nothing to export, and it is not a refusal",
@@ -829,15 +933,118 @@ export async function runEncryptionGatewayChecks(check) {
       })()),
     );
 
-    // Rate limited after the configured number of exports in one window.
-    let rateLimited = null;
-    for (let i = 0; i < 6; i += 1) {
-      const attempt = await call(OWNER_A, "export_encryption_keys", {});
-      if (attempt?.isError) rateLimited = attempt;
+    /*
+      THE KEY LEAVES IN THE RESPONSE BODY AND NOWHERE ELSE.
+
+      The audit check above covers `.audit/`. This one covers the gateway's
+      own structured logs, which are the other place a value that passes
+      through a request routinely ends up — `console.log` is captured for the
+      length of one export and searched for the material itself. A log line is
+      not a place a key can be revoked from.
+    */
+    const captured = [];
+    const exportLogSpy = console.log;
+    const exportWarnSpy = console.warn;
+    const exportErrorSpy = console.error;
+    console.log = (...parts) => captured.push(parts.map(String).join(" "));
+    console.warn = (...parts) => captured.push(parts.map(String).join(" "));
+    console.error = (...parts) => captured.push(parts.map(String).join(" "));
+    let loggedExport;
+    try {
+      loggedExport = await call(OWNER_A, "export_encryption_keys", {});
+    } finally {
+      console.log = exportLogSpy;
+      console.warn = exportWarnSpy;
+      console.error = exportErrorSpy;
     }
     check(
-      "exporting is rate limited",
-      rateLimited !== null && /rate limited/.test(textOf(rateLimited)),
+      "the exported key material never reaches a log line",
+      !loggedExport?.isError &&
+        textOf(loggedExport).includes(KEY_A) && // it IS in the response — the check is not vacuous
+        !captured.join("\n").includes(KEY_A),
+    );
+
+    /*
+      THE RATE LIMIT, ASKED THE WAY AN ATTACKER WOULD.
+
+      Two exports have happened above — the first one, and the log-capture
+      one — so exactly three of the six attempts below may be accepted. The
+      limit is five per rolling day per CONTEXT,
+      and the three ways a caller would try to get around it are all the same
+      question — is the counter attached to the session, or to the context?
+
+        - a second call on the same connection
+        - a *different* grant, a different OAuth client, a different user, on
+          the same context
+        - a reconnection (every `call` here is already a fresh session: this
+          worker holds no per-connection state between requests, so the loop
+          below is a reconnect on every iteration)
+
+      The counter lives in the customer's own bucket, so all three meet it.
+      Asserted as an exact count rather than "one of them failed", which is
+      what the first version of this check measured — a limit of one and a
+      limit of five both pass that.
+    */
+    const OWNER_A2 = "cat_test_enc_owner_a2_00000000000000";
+    await controlPlane.addGrant({
+      accessToken: OWNER_A2,
+      workspaceId: "ws_enc_a",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "mcp_client_enc_owner_a_second",
+      userId: "user_enc_owner_a_second",
+    });
+    let accepted = 0;
+    let refused = 0;
+    let lastRefusal = null;
+    // Alternating tokens: a second client cannot spend a budget of its own.
+    for (const token of [OWNER_A, OWNER_A2, OWNER_A, OWNER_A2, OWNER_A, OWNER_A2]) {
+      const attempt = await call(token, "export_encryption_keys", {});
+      if (attempt?.isError) {
+        refused += 1;
+        lastRefusal = attempt;
+      } else {
+        accepted += 1;
+      }
+    }
+    check(
+      "exactly five exports per context per window are accepted, counting the ones already spent",
+      accepted === 3 && refused === 3,
+    );
+    check(
+      "a second client, a second grant and a reconnection all meet the same counter",
+      lastRefusal !== null && /rate limited/.test(textOf(lastRefusal)),
+    );
+    check(
+      "a rate-limited attempt returns no key material at all",
+      !textOf(lastRefusal).includes(KEY_A),
+    );
+
+    /*
+      THE COUNTER IS A NEW OBJECT IN SOMEBODY'S BUCKET, so it has to behave
+      like the plumbing it claims to be: written under `.context/`, never
+      listed as a note, never readable as one, and carrying nothing but two
+      numbers. A counter a tool could read would leak how often the owner
+      exports; a counter a tool could *write* would be a rate limit anyone
+      holding a write scope could reset.
+    */
+    const counterKey = ".context/encryption-export-rate.json";
+    const counter = JSON.parse(readA(counterKey) ?? "null");
+    const listedNotes = await call(OWNER_A, "list_notes", {});
+    const readCounter = await call(OWNER_A, "read_note", { path: counterKey });
+    const wroteCounter = await call(OWNER_A, "write_note", {
+      path: counterKey,
+      content: "{\"windowStartedAt\":0,\"count\":0}",
+    });
+    check(
+      "the export counter is plumbing: two numbers, unlisted, unreadable, unwritable",
+      counter !== null &&
+        Object.keys(counter).sort().join(",") === "count,windowStartedAt" &&
+        !textOf(listedNotes).includes("encryption-export-rate") &&
+        readCounter?.isError === true &&
+        wroteCounter?.isError === true &&
+        // and the refused write did not reset it
+        JSON.parse(readA(counterKey)).count === counter.count,
     );
 
     /* -- (15) rotate_encryption_keys ------------------------------------------ */
