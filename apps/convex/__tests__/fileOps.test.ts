@@ -39,6 +39,7 @@ import {
   listFolder,
   movePath,
   readFile,
+  removeNoteEncryption,
   resetPrivacyManifest,
   setFolderVisibility,
   setVisibility,
@@ -4515,6 +4516,313 @@ describe("an encrypted note", () => {
     );
     // Byte-for-byte, in the style of `isolation.test.ts`: encrypting a note must
     // add no way to tell it apart from a path that never existed.
+    expect(errorShape(hidden)).toBe(errorShape(missing));
+  });
+});
+
+/**
+ * A PASSPHRASE-LOCKED NOTE, EDITED, RE-PASSPHRASED AND REMOVED THROUGH THE
+ * CONTROL PLANE.
+ *
+ * The console never holds a workspace key, so the only encrypted note it can
+ * ever legitimately *produce* is one with a `passphrase` recipient and nothing
+ * else — see `apps/mobile/features/console/encryption/envelope.ts`. These
+ * fixtures build that shape by hand, in the control plane's own test, so this
+ * suite exercises `canReplaceEncryptedNote` (and the door it guards) without
+ * pulling the mobile app's crypto into a Convex test file.
+ */
+function passphraseNote(
+  recipients: Array<{ kind?: string; id: string }>,
+  body: { iv?: string; ct?: string } = {},
+): string {
+  const envelope = {
+    v: 1,
+    alg: "A256GCM",
+    iv: body.iv ?? "AAAAAAAAAAAAAAAA",
+    ct: body.ct ?? "AAAA",
+    aad: "context-note-v1:ws_x",
+    recipients: recipients.map((recipient) => ({
+      kind: recipient.kind ?? "passphrase",
+      id: recipient.id,
+      alg: "A256GCM",
+      iv: "BBBBBBBBBBBBBBBB",
+      wrapped: "CCCC",
+      kdf:
+        (recipient.kind ?? "passphrase") === "passphrase"
+          ? { id: "argon2id", v: 19, m: 19456, t: 2, p: 1, salt: "DDDDDDDDDDDDDDDD" }
+          : undefined,
+    })),
+  };
+  return [
+    "---",
+    "context_encryption: v1",
+    "---",
+    "",
+    "> [!NOTE] This note is encrypted.",
+    "",
+    "```context-encrypted",
+    JSON.stringify(envelope),
+    "```",
+    "",
+  ].join("\n");
+}
+
+describe("writeFile's widened door: an envelope may replace an envelope", () => {
+  test("the same recipient set, re-encrypted under a fresh IV, is accepted — an edit while unlocked", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    const after = passphraseNote([{ id: "p1" }], { iv: "QQQQQQQQQQQQQQQQ", ct: "ZZZZ" });
+    const written = await writeFile(store, {
+      path: "1-projects/locked.md",
+      text: after,
+      expectedEtag: read.etag,
+      scope: "private",
+      now: NOW,
+    });
+    expect(written.path).toBe("1-projects/locked.md");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(after);
+  });
+
+  test("the same single recipient, rewrapped under a new passphrase, is accepted — a passphrase change", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    // Same recipient `{kind, id}`, different `wrapped` and `kdf.salt` — exactly
+    // what `changePassphrase` in the console produces, and nothing about the
+    // body (`ct`/`iv`/`aad`) moves.
+    const after = before.replace("CCCC", "EEEE").replace("DDDDDDDDDDDDDDDD", "FFFFFFFFFFFFFFFF");
+    const written = await writeFile(store, {
+      path: "1-projects/locked.md",
+      text: after,
+      expectedEtag: read.etag,
+      scope: "private",
+      now: NOW,
+    });
+    expect(written.path).toBe("1-projects/locked.md");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(after);
+  });
+
+  test("plaintext is still refused, even though the door is now open for envelopes", async () => {
+    const store = bucket();
+    store.seed("1-projects/locked.md", passphraseNote([{ id: "p1" }]));
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    const refused = await capture(() =>
+      writeFile(store, {
+        path: "1-projects/locked.md",
+        text: "# I decrypted this myself\n",
+        expectedEtag: read.etag,
+        scope: "private",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("NOTE_ENCRYPTED");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(passphraseNote([{ id: "p1" }]));
+  });
+
+  test("a different recipient id is refused — the door is not a rename", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    const refused = await capture(() =>
+      writeFile(store, {
+        path: "1-projects/locked.md",
+        text: passphraseNote([{ id: "p2" }]),
+        expectedEtag: read.etag,
+        scope: "private",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("NOTE_ENCRYPTED");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(before);
+  });
+
+  test("an added workspace recipient is refused — nothing may sneak a second key onto a passphrase note", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    const refused = await capture(() =>
+      writeFile(store, {
+        path: "1-projects/locked.md",
+        text: passphraseNote([{ id: "p1" }, { kind: "workspace", id: "k1" }]),
+        expectedEtag: read.etag,
+        scope: "private",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("NOTE_ENCRYPTED");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(before);
+  });
+
+  test("a replacement envelope this control plane cannot parse is refused", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    const brokenReplacement = [
+      "---",
+      "context_encryption: v1",
+      "---",
+      "",
+      "```context-encrypted",
+      "not json",
+      "```",
+      "",
+    ].join("\n");
+    const refused = await capture(() =>
+      writeFile(store, {
+        path: "1-projects/locked.md",
+        text: brokenReplacement,
+        expectedEtag: read.etag,
+        scope: "private",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("NOTE_ENCRYPTED");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(before);
+  });
+
+  test("a stored envelope this control plane cannot parse refuses every replacement, even an identical-looking one", async () => {
+    const store = bucket();
+    const broken = "---\ncontext_encryption: v1\n---\n\nnot an envelope\n";
+    store.seed("1-projects/broken.md", broken);
+
+    const refused = await capture(() =>
+      writeFile(store, {
+        path: "1-projects/broken.md",
+        text: passphraseNote([{ id: "p1" }]),
+        scope: "private",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("NOTE_ENCRYPTED");
+    expect(store.snapshot()["1-projects/broken.md"]).toBe(broken);
+  });
+});
+
+describe("removeNoteEncryption: the one door that writes plaintext over an encrypted note", () => {
+  test("removes a passphrase lock with the right etag, writing plain Markdown", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    const written = await removeNoteEncryption(store, {
+      path: "1-projects/locked.md",
+      text: "# no longer locked\n",
+      expectedEtag: read.etag,
+      scope: "private",
+    });
+    expect(written.path).toBe("1-projects/locked.md");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe("# no longer locked\n");
+  });
+
+  test("refuses a note that was never encrypted", async () => {
+    const store = bucket();
+    const read = await readFile(store, { path: "1-projects/context-lc.md", scope: "private" });
+    const refused = await capture(() =>
+      removeNoteEncryption(store, {
+        path: "1-projects/context-lc.md",
+        text: "# still not locked\n",
+        expectedEtag: read.etag,
+        scope: "private",
+      }),
+    );
+    expect(refused.code).toBe("NOTE_NOT_ENCRYPTED");
+  });
+
+  test("refuses without an expected etag — removal never treats a note as new", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const refused = await capture(() =>
+      removeNoteEncryption(store, {
+        path: "1-projects/locked.md",
+        text: "# no longer locked\n",
+        scope: "private",
+      }),
+    );
+    expect(refused.code).toBe("CONFLICT");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(before);
+  });
+
+  test("refuses a stale etag, and the bytes do not move", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const refused = await capture(() =>
+      removeNoteEncryption(store, {
+        path: "1-projects/locked.md",
+        text: "# no longer locked\n",
+        expectedEtag: "an-etag-that-was-never-issued",
+        scope: "private",
+      }),
+    );
+    expect(refused.code).toBe("CONFLICT");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(before);
+  });
+
+  /**
+   * THE SABOTAGE THIS TEST EXISTS FOR.
+   *
+   * `removeNoteEncryption` is a narrower door than `writeFile`, not a weaker
+   * one — see its own doc comment. If it accepted a still-encrypted
+   * replacement, it would become a second way to swap a note's recipients that
+   * skips `writeFile`'s own recipient-set check entirely: call the "remove"
+   * action, submit an envelope with a *different* recipient, and the guard the
+   * suite above spends six tests proving never opens is open again under a
+   * different name.
+   */
+  test("refuses a replacement that is itself still an encrypted note, even with the right etag", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    const refused = await capture(() =>
+      removeNoteEncryption(store, {
+        path: "1-projects/locked.md",
+        // A different recipient entirely — exactly what `writeFile` refuses on
+        // its own, submitted here instead to prove this door refuses it too.
+        text: passphraseNote([{ kind: "workspace", id: "k1" }]),
+        expectedEtag: read.etag,
+        scope: "private",
+      }),
+    );
+    expect(refused.code).toBe("NOTE_ENCRYPTED");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(before);
+  });
+
+  test("a team caller cannot remove encryption from a private note — the same refusal as a missing one", async () => {
+    const store = bucket();
+    store.seed("2-areas/vault.md", passphraseNote([{ id: "p1" }]));
+
+    const hidden = await capture(() =>
+      removeNoteEncryption(store, {
+        path: "2-areas/vault.md",
+        text: "# now plaintext\n",
+        expectedEtag: "whatever",
+        scope: "team",
+      }),
+    );
+    const missing = await capture(() =>
+      removeNoteEncryption(store, {
+        path: "2-areas/no-such-note.md",
+        text: "# now plaintext\n",
+        expectedEtag: "whatever",
+        scope: "team",
+      }),
+    );
     expect(errorShape(hidden)).toBe(errorShape(missing));
   });
 });

@@ -592,6 +592,16 @@ describe("a stranger cannot reach another workspace's files", () => {
           path: "1-projects/x.md",
           text: "x",
         }),
+      // The separate, narrower door that writes plaintext over an encrypted
+      // note — see `removeNoteEncryption` in `lib/fileOps.ts`. It reads
+      // `privacy.md` and the target note exactly as `writeNote` does, so it
+      // carries the same cross-tenant risk and needs the same refusal.
+      (workspaceId) =>
+        as.action(api.functions.files.removeNoteEncryption, {
+          workspaceId,
+          path: "1-projects/x.md",
+          text: "x",
+        }),
       (workspaceId) =>
         as.action(api.functions.files.moveEntry, { workspaceId, from: "a.md", to: "b.md" }),
       (workspaceId) =>
