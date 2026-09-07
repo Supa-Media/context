@@ -201,6 +201,71 @@ export function runNoteChecks(check) {
     "...while a body keeps the sender's brackets verbatim, because it is inside the fence",
     renderChannelDayNote(day({ events: [message({ body: "see [[their note]]" })] })).includes("see [[their note]]")
   );
+  check(
+    "a STORED attachment renders as a wikilink, and a hostile filename cannot close it early — the label is defanged, the path is ours",
+    (() => {
+      const rendered = renderChannelDayNote(
+        day({
+          events: [
+            message({
+              attachments: [
+                {
+                  filename: "invoice]] and [[.audit/x|evil",
+                  contentType: "application/pdf",
+                  size: 42,
+                  path: "0-inbox/email/x/attachments/2026-09-07/abc123-invoice.pdf",
+                },
+              ],
+            }),
+          ],
+        })
+      );
+      const line = rendered.split("\n").find((row) => row.includes("attachments/2026-09-07"));
+      // Exactly one opening and one closing pair around the whole entry — a
+      // hostile label cannot inject a second link or close the first early.
+      return (
+        line !== undefined &&
+        line.startsWith("- [[0-inbox/email/x/attachments/2026-09-07/abc123-invoice.pdf|") &&
+        (line.match(/\[\[/g) || []).length === 1 &&
+        (line.match(/\]\]/g) || []).length === 1
+      );
+    })()
+  );
+  check(
+    "an attachment with no path is named and sized only, and says so",
+    renderChannelDayNote(
+      day({ events: [message({ attachments: [{ filename: "report.pdf", contentType: "application/pdf", size: 10 }] })] })
+    ).includes("(not stored)")
+  );
+  // The PATH half of `[[path|label]]` is supposed to be ours — a content hash
+  // and a filename the gateway already stripped of link syntax. This renderer
+  // is a pure function with several callers, so it does not take that on
+  // trust: a caller whose sanitiser regressed costs a link that renders as
+  // unstored, never a second wikilink a stranger chose inside a note the owner
+  // reads as their own. Sabotage: drop the `!/[[\]|]/.test(path)` guard and
+  // this check fails while every other attachment check still passes.
+  check(
+    "a caller-supplied attachment path carrying wikilink syntax cannot open a link of its own",
+    (() => {
+      const rendered = renderChannelDayNote(
+        day({
+          events: [
+            message({
+              attachments: [
+                {
+                  filename: "invoice.pdf",
+                  contentType: "application/pdf",
+                  size: 10,
+                  path: "0-inbox/email/x/attachments/2026-09-07/h-a]] and [[.audit/secrets",
+                },
+              ],
+            }),
+          ],
+        })
+      );
+      return !rendered.includes(".audit/secrets]]") && rendered.includes("(not stored)");
+    })()
+  );
   check("defangLinks leaves text with no link syntax in it alone", defangLinks("ordinary text") === "ordinary text");
 
   // -- order and grouping --------------------------------------------------
