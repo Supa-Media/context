@@ -211,3 +211,115 @@ jobs:
         run: |
           node scripts/check-gateway-imports.mjs --self-test
           node scripts/check-gateway-imports.mjs apps/mcp/src
+
+  # ── NO WEBKIT IN CI OR IN AN AGENT SANDBOX, UNTIL NOW ─────────────────────
+  #
+  # Every iOS-only editor bug in `docs/decisions/app-and-console.md`'s "A long
+  # press has two signals" — the WebKit long-press recogniser's own
+  # `touchcancel`, and the caret/touch trap it argues through — was reproduced
+  # by SIMULATING WebKit's event sequence in Chromium (`editorLinks.test.ts`,
+  # jsdom). That is enough to fix a bug once somebody has already found it on a
+  # phone; it is not enough to prove the fix holds, because nothing in this
+  # repository's CI, and nothing in the sandbox an agent here runs in, had ever
+  # executed the editor inside an actual WebKit engine.
+  #
+  # This job closes that gap, and only that gap — see
+  # `docs/decisions/testing.md` for what a green run here proves and does not
+  # (Linux WebKit is close to iOS Safari's DOM event handling, not identical).
+  #
+  # `ubuntu-latest` rather than `macos-latest`: this repository runs no job on
+  # macOS today, and Linux WebKit is the documented cheap path for exactly this
+  # trade — a real WebKit engine's touch event pipeline, at a fraction of a
+  # macOS runner's cost and queue time. If a bug ever surfaces here that Linux
+  # WebKit cannot see and only iOS Safari can, that is the point to spend a
+  # macOS runner, not before.
+  #
+  # `apps/mobile/e2e/webkit/playwright.config.ts` carries the rest of the
+  # reasoning — what the suite runs against (the built web export, not `expo
+  # start`), why the fixture route exists and how it is kept out of every real
+  # build, and why case (a) steps outside `page.touchscreen` to dispatch one
+  # `TouchEvent` by hand.
+  editor-webkit:
+    name: Editor in WebKit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      # Change detection lives INSIDE the job, as a step, rather than as a
+      # `paths:` filter on the trigger above — see mcp.yml's header and
+      # `scripts/check-workflow-triggers.mjs`, which enforces the rule this
+      # repeats: a required check filtered out of the trigger never reports at
+      # all, and GitHub leaves the pull request pending on it forever. This way
+      # the job always runs and always reports; an unrelated pull request just
+      # finds every step after this one skipped, which is a pass.
+      - name: Does this touch the editor or what it runs on?
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            mobile:
+              - "apps/mobile/**"
+              - "packages/**"
+              - ".github/workflows/ci.yml"
+
+      - uses: pnpm/action-setup@v4
+        if: steps.changes.outputs.mobile == 'true'
+
+      - uses: actions/setup-node@v5
+        if: steps.changes.outputs.mobile == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.changes.outputs.mobile == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # Pinned by `apps/mobile/package.json`'s `@playwright/test` version, not
+      # by a version here — `playwright install` always installs the browser
+      # matching the npm package `pnpm install` just resolved, so the two
+      # cannot drift, and bumping the browser is the same pull request as
+      # bumping the dependency.
+      - name: Install Playwright's WebKit
+        if: steps.changes.outputs.mobile == 'true'
+        working-directory: apps/mobile
+        run: pnpm exec playwright install --with-deps webkit
+
+      # `EXPO_PUBLIC_E2E_FIXTURE=1` is the only thing that makes `/e2e-fixture`
+      # render anything — see that route's own header. Every other export in
+      # this repository (`deploy-web.yml`, `deploy-mobile-*.yml`, a laptop's
+      # `expo start`) leaves it unset, so this build is never what ships.
+      # `EXPO_PUBLIC_CONVEX_URL` is a syntactically valid, deliberately
+      # unreachable host — the fixture console never opens a Convex
+      # subscription (`useDemoConsoleData` is literals), so nothing here ever
+      # dials out to it.
+      - name: Build the web export with the E2E fixture route enabled
+        if: steps.changes.outputs.mobile == 'true'
+        working-directory: apps/mobile
+        env:
+          EXPO_PUBLIC_E2E_FIXTURE: "1"
+          EXPO_PUBLIC_CONVEX_URL: "https://e2e-fixture.invalid"
+        run: npx expo export --platform web --output-dir web-build --clear
+
+      - name: Run the suite in WebKit
+        if: steps.changes.outputs.mobile == 'true'
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+        run: pnpm test:e2e:webkit
+
+      # Playwright's own HTML report — screenshots, traces, and the exact
+      # assertion that failed — rather than the raw `test-results/` directory,
+      # which is one PNG per failure with no way to see which case it was
+      # without cross-referencing the log. `playwright.config.ts` sets
+      # `screenshot: "only-on-failure"` and `trace: "retain-on-failure"`, so a
+      # red run always has both without a slow run ever paying for them.
+      - name: The failing case's screenshot and trace
+        if: failure() && steps.changes.outputs.mobile == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-webkit-report
+          path: apps/mobile/e2e/webkit/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore

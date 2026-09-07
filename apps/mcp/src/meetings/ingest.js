@@ -350,8 +350,21 @@ function notesFrom(body) {
  * implementation of "what visibility does a new note get" is the drift that
  * privacy bugs are made of. This module decides *what* Markdown to write and
  * where; `index.js` decides what writing it means.
+ *
+ * `resolveNotePath` is injected for the same reason and for M1
+ * (`docs/decisions/app-and-console.md`): the search index this module would
+ * need to re-find a moved note lives in `index.js`, and a second copy of
+ * "which notes can this tier see" here is exactly the drift `publishNote`'s
+ * injection already avoids. Absent (the default) means a caller that has
+ * nothing wired up gets the stored path back unchanged — see `readOneSession`.
  */
-export async function handleMeetings(request, path, store, session, { publishNote, transcribe = null }) {
+export async function handleMeetings(
+  request,
+  path,
+  store,
+  session,
+  { publishNote, transcribe = null, resolveNotePath = null },
+) {
   const route = matchMeetingRoute(path);
   if (!route) return json({ error: ERRORS.invalid, error_description: "no such meeting route" }, 404);
 
@@ -372,7 +385,9 @@ export async function handleMeetings(request, path, store, session, { publishNot
       return methodNotAllowed();
     }
     if (route.kind === "session") {
-      if (request.method === "GET") return await readOneSession(request, store, route.id, tier);
+      if (request.method === "GET") {
+        return await readOneSession(request, store, route.id, tier, resolveNotePath);
+      }
       return methodNotAllowed();
     }
     if (request.method !== "POST") return methodNotAllowed();
@@ -770,18 +785,40 @@ async function unclaimedNotePath(store, candidate) {
  * `read_meeting` omits it: forty minutes of speech is about forty kilobytes,
  * and a client checking whether its session is still alive should not have to
  * download the meeting to find out. `?transcript=true` includes it.
+ *
+ * **M1**: `notePath` is resolved fresh rather than handed back as stored — see
+ * `resolveNotePath`'s own header in `index.js`. This is the one meeting
+ * endpoint that answers "where is *this* meeting's note" for a single,
+ * specific session, which is what a client polling for its own recording asks
+ * and the shape resolution is worth paying for. `listMeetingSessions` below
+ * deliberately does not do the same for up to `LIMITS.listLimit` records at
+ * once — see its own note.
  */
-async function readOneSession(request, store, id, tier) {
+async function readOneSession(request, store, id, tier, resolveNotePath) {
   const record = await readSession(store, id, tier);
   if (!record) throw notFound();
   const url = new URL(request.url);
   const wanted = url.searchParams.get("transcript");
-  const body = { session: sessionSummary(record.session), etag: record.etag };
+  const summary = sessionSummary(record.session);
+  if (typeof resolveNotePath === "function" && summary.notePath !== null) {
+    summary.notePath = await resolveNotePath(store, record.session, tier);
+  }
+  const body = { session: summary, etag: record.etag };
   if (wanted === "true" || wanted === "1") body.transcript = record.session.transcript;
   return json(body);
 }
 
-/** `GET /meetings/sessions` — what this context has recorded, newest first. */
+/**
+ * `GET /meetings/sessions` — what this context has recorded, newest first.
+ *
+ * **Does not resolve `notePath` the way `readOneSession` does.** Each
+ * resolution is a search, paid only when the stored path has actually gone
+ * missing, and a listing can return up to `LIMITS.listLimit` records — a
+ * device polling its own recent sessions would pay a search per stale entry
+ * on every poll. `readOneSession` is what a client asks about one specific
+ * meeting it is looking at, which is the case worth the cost; a listing's own
+ * stale path is corrected the moment that one session is opened.
+ */
 async function listMeetingSessions(request, store, tier) {
   const url = new URL(request.url);
   const limit = Number(url.searchParams.get("limit") || 20);

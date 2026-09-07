@@ -269,6 +269,17 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     marker: "the OAuth consent screen",
   },
   {
+    route: "/e2e-fixture",
+    file: "app/e2e-fixture.tsx",
+    reachable: false,
+    reason:
+      "The editable demo console `apps/mobile/e2e/webkit`'s Playwright suite drives. " +
+      "It renders only when a build set EXPO_PUBLIC_E2E_FIXTURE at export time, which " +
+      "no real export does — every ordinary build redirects it to `/` — so there is " +
+      "nothing in the product for a control to lead to.",
+    marker: "Only the `Editor in WebKit` CI job",
+  },
+  {
     route: "/connect/dropbox",
     file: "app/connect/dropbox.tsx",
     reachable: false,
