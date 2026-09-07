@@ -83,7 +83,7 @@ jest.mock("convex/react", () => {
 });
 
 // Imported after the mock, which `jest.mock` hoists above it anyway.
-import { useFileBrowser } from "../features/console/files/useFileBrowser";
+import { draftIsKept, useFileBrowser } from "../features/console/files/useFileBrowser";
 
 const NOTE_PATH = "1-projects/note.md";
 const OTHER_PATH = "1-projects/other.md";
@@ -658,6 +658,19 @@ describe("autosave", () => {
     act(() => inFlight[0]!.reject(conflictError()));
     await settle();
     expect(browser.notice).toContain(NOTE_PATH);
+  });
+
+  test("what it says about where that draft is depends on the store", () => {
+    /*
+      A notice about a save that did not land has to answer "so where is what I
+      typed", and the answer is worth exactly as much as the store is. A
+      browser refusing `localStorage` gives a copy that lives as long as the
+      tab, and the same sentence there would be a durability claim the console
+      cannot make — the rule the queued-save message already follows.
+    */
+    expect(draftIsKept(true)).toContain("kept on this device");
+    expect(draftIsKept(false)).not.toContain("kept on this device");
+    expect(draftIsKept(false)).toContain("Closing the app loses it");
   });
 
   test("discarding a draft cancels the write that was coming for it", async () => {

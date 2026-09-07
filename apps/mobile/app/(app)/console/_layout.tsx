@@ -737,7 +737,7 @@ export default function ConsoleLayout() {
         {closingTab === null ? null : (
           <Confirm
             title="Close without settling this?"
-            body={`${closingTab} has changes your bucket has not accepted — a version somebody else wrote, or a save that failed. Autosave will not decide it for you. The draft stays on this device and comes back when you open the note, but it is not in your bucket.`}
+            body={`${closingTab} has changes your bucket has not accepted — somebody else wrote it while you had it open, or the save failed. Autosave will not decide that for you, and closing this tab leaves it undecided. What you typed is not in your bucket.`}
             confirmLabel="Close anyway"
             onCancel={() => setClosingTab(null)}
             onConfirm={() => {

@@ -70,6 +70,22 @@ import type { VisibilityTier } from "../visibility";
 const DELETE_CONFIRMATION = "permanently delete";
 
 /**
+ * Where the draft for a note nobody is looking at actually is.
+ *
+ * Said out loud because the alternative is a notice about a save that did not
+ * land and no answer to "so where is what I typed". It is on the device — and
+ * how much that is worth depends on whether the store is durable, exactly as
+ * the queued-save message does: a browser refusing `localStorage` gives a copy
+ * that lives as long as the tab, and telling somebody it is kept there would
+ * be a durability claim the console cannot make.
+ */
+export function draftIsKept(durable: boolean): string {
+  return durable
+    ? "Its draft is kept on this device — open the note to try again."
+    : "Its draft is held for this session — open the note to try again. Closing the app loses it.";
+}
+
+/**
  * How long to wait for one file operation before giving the toolbar back.
  *
  * Longer than `SAVE_TIMEOUT_MS` (30s), and for the same reason
@@ -951,7 +967,7 @@ export function useFileBrowser(options: {
           // See the failure branch below for the whole argument.
           if (editorRef.current.path !== path) {
             setNotice(
-              `${path} is still waiting on your bucket, so we stopped waiting. We don't know whether that save landed. Your draft for it is kept on this device.`,
+              `${path} is still waiting on your bucket, so we stopped waiting. We don't know whether that save landed. ${draftIsKept(offlineRef.current.durable)}`,
             );
             return;
           }
@@ -1036,7 +1052,7 @@ export function useFileBrowser(options: {
               text is rather than implying it is gone.
             */
             setNotice(
-              `${path} could not be saved: ${failure.message} Your draft for it is kept on this device — open it to try again.`,
+              `${path} could not be saved: ${failure.message} ${draftIsKept(offlineRef.current.durable)}`,
             );
             return;
           }
