@@ -421,8 +421,10 @@ export async function runConsoleBridgeChecks(check) {
     reddens 1 — with the offending mention named in the failure, because a
     census that says only "the number moved" leaves somebody grepping.
 
-    A legitimate `import { ipcMain as … }` rename reddens nothing. The previous
-    shape reddened 3 on it, which is the other way a scan is wrong.
+    An `import { ipcMain as … }` rename reddens, by name. An earlier version of
+    this comment said it reddened nothing and called that legitimate — the hole
+    described as the feature, which the block below already says in its own
+    words while this sentence went on contradicting it.
 
     Recursive, and over every extension the bundler will load, because "under
     `src/main`" is what the sentence says and a non-recursive `.ts`-only scan is
@@ -435,6 +437,23 @@ export async function runConsoleBridgeChecks(check) {
     them.
   */
   {
+    /*
+      TWO SCOPES, BECAUSE THE TWO CHECKS CAN DO DIFFERENT THINGS.
+
+      The raw count walks all of `src/`: a registration in
+      `src/core/evilRegistration.ts` was invisible at 987 PASS / 0 FAIL simply
+      because the directory was not walked, and a main-process module landing
+      one level out is an accident rather than an attack. Counting bytes works
+      anywhere, so there is no reason to stop at a boundary nobody maintains.
+
+      The lexed classification stays on `src/main`, where it was written and
+      where every mention is a registration, a teardown, an import or the
+      hand-off. Pointed at `src/core` it reports `contract.ts` as ending mid
+      block-comment — a lexer bug, on a file with no `ipcMain` in it at all, and
+      the fourth time this lexer has been wrong about something. It is the
+      diagnostic; the count is the guard.
+    */
+    const srcDir = new URL("../src/", import.meta.url);
     const mainDir = new URL("../src/main/", import.meta.url);
 
     /*
@@ -583,16 +602,48 @@ export async function runConsoleBridgeChecks(check) {
       A guard that complains when the surface is DESCRIBED differently is
       cheaper than one that stays silent when the surface IS different.
 
+      WHAT IT STILL CANNOT SEE, said plainly rather than claimed away, because
+      five shapes of this census have each been described as exhaustive and none
+      was: **a registration that never spells the identifier.**
+      `electron["ipc" + "Main"].on(...)` passes, and no text scan will ever
+      catch it — the name is not in the bytes. Closing it needs a real import
+      graph, which is a build step this suite does not have.
+
+      So the claim is the smaller true one: **this guard is for the accident,
+      not the adversary.** It catches a channel somebody adds without thinking
+      about the gate, in every spelling anybody has actually written. It does
+      not catch somebody hiding one on purpose. That is worth having and is not
+      worth overstating.
+
       The classification below keeps its place as the diagnostic — it names
       which mention is unrecognised, which is what a person needs — but it is no
       longer what stands between a new ungated channel and a green run.
     */
+    /*
+      `webContents.ipc` AND `webFrameMain.ipc` ARE IPC TOO, and neither spells
+      `ipcMain`. They are Electron's documented way to scope a channel to one
+      window, so a registration through them is idiomatic rather than obscure —
+      and it was invisible here at 987 / 0. The two inside `consoleBridge.ts`
+      are the guarded helpers; any third is new surface.
+    */
     let mentions = 0;
-    for (const file of walk(mainDir)) {
+    let scoped = 0;
+    for (const file of walk(srcDir)) {
       if (!/\.(?:[cm]?[jt]sx?)$/.test(file.pathname)) continue;
-      mentions += (readFileSync(file, "utf8").match(/\bipcMain\b/g) ?? []).length;
+      const raw = readFileSync(file, "utf8");
+      mentions += (raw.match(/\bipcMain\b/g) ?? []).length;
+      scoped += (raw.match(/\.ipc\.(?:on|once|handle)\(/g) ?? []).length;
     }
-    check(`EVERY MENTION OF ipcMain UNDER src/main IS ACCOUNTED FOR — ${mentions} of 25`, mentions === 25);
+    // 27 and not 25: widening to `src/` picks up two mentions in prose, in
+    // `core/shell/bridge.ts` and `core/shell/console.ts`, both comments about
+    // this very guard. That is exactly the false positive this check accepts by
+    // design — the number moves when the surface is DESCRIBED differently,
+    // which is cheaper than silence when it IS different.
+    check(`EVERY MENTION OF ipcMain UNDER src IS ACCOUNTED FOR — ${mentions} of 27`, mentions === 27);
+    check(
+      `EVERY PER-WINDOW ipc REGISTRATION IS ONE OF THE BRIDGE'S TWO HELPERS — ${scoped} of 2`,
+      scoped === 2,
+    );
 
     check(
       `EVERY \`ipcMain\` UNDER src/main IS A FORM THIS CENSUS RECOGNISES${unrecognised.length ? ` — ${unrecognised[0]}` : ""}`,
