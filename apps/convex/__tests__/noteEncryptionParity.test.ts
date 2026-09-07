@@ -100,6 +100,24 @@ const CORPUS: Array<[label: string, text: string]> = [
     "---\ncontext_encryption: draft\n---\n\nbody\n",
   ],
   ["a fence with no frontmatter", "```context-encrypted\n{\"v\":1}\n```\n"],
+  // The two shapes a file picks up by passing through somebody's editor or
+  // sync client. Both must still be recognised: a false negative here is the
+  // console and the gateway agreeing to write plaintext over an envelope,
+  // which is this feature's one unrecoverable failure.
+  [
+    "an encrypted note with CRLF line endings",
+    "---\r\ncontext_encryption: v1\r\ncontext_encryption_key: ws:k1\r\n---\r\n\r\n" +
+      "```context-encrypted\r\n{\"v\":1}\r\n```\r\n",
+  ],
+  [
+    "an encrypted note behind a byte-order mark",
+    "\uFEFF---\ncontext_encryption: v1\n---\n\n```context-encrypted\n{\"v\":1}\n```\n",
+  ],
+  // And the line that is not crossed: frontmatter must start at the first byte.
+  [
+    "a marker after a leading blank line",
+    "\n---\ncontext_encryption: v1\n---\n\nbody\n",
+  ],
 ];
 
 describe("the encryption marker means the same thing in both runtimes", () => {
@@ -113,6 +131,30 @@ describe("the encryption marker means the same thing in both runtimes", () => {
     const answers = CORPUS.map(([, text]) => gatewaySays(text));
     expect(answers).toContain(true);
     expect(answers).toContain(false);
+  });
+
+  /**
+   * The corpus asserts the two agree; these assert *what* they agree on.
+   *
+   * Parity is satisfied by two implementations that are wrong together, and
+   * wrong together is exactly what a shared regex produces. The direction that
+   * costs a note is the false negative, so it is pinned by value here rather
+   * than only by agreement.
+   */
+  test("a file that has been through an editor is still recognised", () => {
+    const crlf =
+      "---\r\ncontext_encryption: v1\r\n---\r\n\r\n```context-encrypted\r\n{}\r\n```\r\n";
+    const bom = "\uFEFF---\ncontext_encryption: v1\n---\n\nbody\n";
+    expect(gatewaySays(crlf)).toBe(true);
+    expect(controlPlaneSays(crlf)).toBe(true);
+    expect(gatewaySays(bom)).toBe(true);
+    expect(controlPlaneSays(bom)).toBe(true);
+  });
+
+  test("...but frontmatter still has to start at the first byte", () => {
+    const shifted = "\n---\ncontext_encryption: v1\n---\n\nbody\n";
+    expect(gatewaySays(shifted)).toBe(false);
+    expect(controlPlaneSays(shifted)).toBe(false);
   });
 
   test("non-strings are refused identically", () => {
