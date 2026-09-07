@@ -23,6 +23,7 @@ import { runControllerChecks } from "./controller.test.mjs";
 import { runTrayChecks } from "./tray.test.mjs";
 import { runPlatformChecks } from "./platform.test.mjs";
 import { runContractChecks } from "./contract.test.mjs";
+import { runShellChecks } from "./shell.test.mjs";
 
 let failures = 0;
 let skipped = 0;
@@ -54,6 +55,7 @@ await runGatewayChecks(check);
 await runControllerChecks(check);
 runTrayChecks(check);
 runPlatformChecks(check);
+runShellChecks(check);
 await runContractChecks(check, skip);
 
 console.log(
