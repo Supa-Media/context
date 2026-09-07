@@ -201,3 +201,60 @@ export function shouldExposeBridge(exposure: BridgeExposure): boolean {
   if (origin === "" || origin === "null") return false;
   return origin === pinned;
 }
+
+/**
+ * Whether the address a launch actually resolved is the one it should have.
+ *
+ * `consoleUrl` is a pure function with unit checks, and the defect it exists to
+ * prevent was **not in it** — it was in the call site, which asked the question
+ * with the wrong argument. So this is asked of the address the window was
+ * really pointed at, from inside a running app, by `--smoke`.
+ *
+ * Two properties, and the first is the load-bearing one because it re-derives
+ * nothing:
+ *
+ *  - **A packaged launch is never pointed at loopback**, unless the operator
+ *    set `CONTEXT_DESKTOP_UI_URL` and therefore asked for it. That is F3 stated
+ *    as a fact about the world rather than as a second call to the function
+ *    being checked, and it is the sentence a release gate needs: an installed
+ *    build resolving `http://localhost:8081` is a blank window on a Mac where
+ *    nothing is listening. The mirror image — a development launch that quietly
+ *    points at production — is refused for the same reason.
+ *  - **And the address matches what this launch resolves**, which does catch a
+ *    call site passing the wrong flag, because the flag arrives here from
+ *    `app.isPackaged` rather than being guessed.
+ *
+ * Returns `null` when there is nothing wrong, and otherwise the sentence
+ * `--smoke` exits non-zero with. A string rather than a boolean so the failure
+ * names the address it found, which is the whole diagnostic.
+ */
+export function unexpectedConsoleAddress(
+  env: ConsoleUrlEnv,
+  packaged: boolean,
+  resolved: string | null,
+): string | null {
+  if (resolved === null) return "the console window resolved no address at all";
+
+  let url: URL;
+  try {
+    url = new URL(resolved);
+  } catch {
+    return `the console address is not a URL: ${resolved}`;
+  }
+
+  const configured = (env.CONTEXT_DESKTOP_UI_URL ?? "").trim() !== "";
+  if (!configured && packaged && isLoopback(url))
+    return `a packaged launch was pointed at ${resolved}, where nothing on a person's Mac is listening`;
+  if (!configured && !packaged && !isLoopback(url))
+    return `an unpackaged launch was pointed at ${resolved} rather than the local dev server`;
+
+  let expected: string;
+  try {
+    expected = consoleUrl(env, packaged);
+  } catch (error) {
+    return `the console address cannot be resolved a second time: ${(error as Error).message}`;
+  }
+  return resolved === expected
+    ? null
+    : `the window was pointed at ${resolved}, but this launch resolves ${expected}`;
+}

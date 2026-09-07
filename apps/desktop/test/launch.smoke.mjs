@@ -230,12 +230,13 @@ check("THE MAIN PROCESS LOADS WITHOUT THROWING", crash === undefined, crash && `
 check("IT ENDS ON ITS OWN, WITHOUT BEING KILLED", !result.timedOut, `nothing after ${TIMEOUT_MS}ms`);
 check("IT EXITS ZERO", result.code === 0, `exit code ${result.code}`);
 /*
-  The release step's whole contract is "exit 0 inside ten seconds", so the bound
-  is checked here rather than trusted. Generous against the app's own 10s
-  deadline because this measures process start to process end — Electron's own
-  startup, on a cold runner — and the app's timer only begins at `whenReady`.
+  The release step's whole contract is "exit 0, on its own, well inside a
+  minute", so the bound is checked here rather than trusted. Generous against
+  the app's own 30s deadline because this measures process start to process end
+  — Gatekeeper's first-launch assessment and Electron's own startup, on a cold
+  runner — and the app's timer only begins when its bundle evaluates.
 */
-check("IT IS DONE WELL INSIDE THE RELEASE STEP'S BUDGET", elapsedMs < 30_000, `${elapsedMs}ms`);
+check("IT IS DONE WELL INSIDE THE RELEASE STEP'S BUDGET", elapsedMs < 45_000, `${elapsedMs}ms`);
 
 const report = smokeReport(result.output);
 check("IT REPORTS FROM INSIDE A READY APP", report !== null && report.ready === true);

@@ -63,6 +63,7 @@ import {
   consoleUrl,
   desktopUiMode,
   shouldExposeBridge,
+  unexpectedConsoleAddress,
 } from "../src/core/shell/console.ts";
 
 const PINNED = "https://context.lc";
@@ -229,6 +230,93 @@ export function runShellChecks(check) {
   check(
     "the pinned origin is derived from the URL rather than configured twice",
     consoleOrigin("https://context.example/console?x=1#y") === "https://context.example",
+  );
+
+  /*
+    ── THE ADDRESS A LAUNCH REALLY RESOLVED ─────────────────────────────────
+
+    `unexpectedConsoleAddress` is what `--smoke` exits non-zero on, and it is the
+    half of F3 the unit checks above cannot be: those ask `consoleUrl` a question
+    with the right arguments and get the right answer, which is exactly what the
+    suite did while every installed build opened a blank window. This one is
+    asked *about the address the window was pointed at*, so the wrong answer is
+    visible whatever produced it.
+
+    Sabotage record, run as temporary local edits and reverted. Counts are FAIL
+    lines across the whole `apps/desktop` suite.
+
+      returning `null` unconditionally (the guard made a no-op)               6
+      dropping the packaged-launch loopback refusal, alone                    0
+      dropping the unpackaged-launch production refusal, alone                0
+      `consoleUrl`'s fallback regressed to the dev URL for every build        4
+      ...and the packaged-launch loopback refusal dropped as well             6
+
+    **Two of those rows are zero, and they are written down rather than left
+    out.** The last check in this function compares the resolved address with
+    what `consoleUrl` says this launch resolves, and in a healthy tree that
+    comparison already refuses everything the two explicit refusals refuse. A
+    reviewer counting FAIL lines would conclude those branches are dead.
+
+    They are not, and the last two rows are the witness. The comparison asks
+    `consoleUrl` a second time and **agrees with a bug inside it** — precisely
+    the failure this file's header records about `NODE_ENV`, where the suite
+    was green for months about a variable nothing sets. With `consoleUrl`
+    regressed so that every build resolves the dev URL, `A PACKAGED LAUNCH
+    POINTED AT LOOPBACK IS A FAILED SMOKE RUN` still holds, because the
+    refusal states a fact about the world instead of re-deriving one; delete
+    the refusal on top of that and it goes red with two others. The explicit
+    refusals are the half that survives the function being wrong.
+
+    The first row is the one worth naming: made `() => null` this function
+    still typechecks, `--smoke` still exits 0, and the release gate still goes
+    green on the build that shipped — which is the whole failure this PR is
+    about, arriving one layer further out.
+  */
+  check(
+    "A PACKAGED LAUNCH POINTED AT LOOPBACK IS A FAILED SMOKE RUN",
+    unexpectedConsoleAddress({}, true, "http://localhost:8081/") !== null,
+  );
+  check(
+    "...and that is true of every spelling of loopback",
+    ["http://127.0.0.1:8081/", "http://[::1]:8081/"].every(
+      (address) => unexpectedConsoleAddress({}, true, address) !== null,
+    ),
+  );
+  check(
+    "a packaged launch on the hosted console is fine",
+    unexpectedConsoleAddress({}, true, DEFAULT_CONSOLE_URL) === null,
+  );
+  check(
+    "AN UNPACKAGED LAUNCH POINTED AT PRODUCTION IS A FAILED SMOKE RUN",
+    unexpectedConsoleAddress({}, false, DEFAULT_CONSOLE_URL) !== null,
+  );
+  check(
+    "a development launch on the dev server is fine",
+    unexpectedConsoleAddress({}, false, `${DEV_CONSOLE_URL}/`) === null,
+  );
+  check(
+    "A SELF-HOSTER WHO ASKED FOR AN ADDRESS GETS IT, PACKAGED OR NOT",
+    unexpectedConsoleAddress(
+      { CONTEXT_DESKTOP_UI_URL: "https://context.example/console" },
+      true,
+      "https://context.example/console",
+    ) === null,
+  );
+  check(
+    "...but an address nobody asked for is still refused, override or no override",
+    unexpectedConsoleAddress(
+      { CONTEXT_DESKTOP_UI_URL: "https://context.example/console" },
+      true,
+      "https://somewhere.else.invalid/console",
+    ) !== null,
+  );
+  check(
+    "a window that resolved no address at all is a failure, not a pass",
+    unexpectedConsoleAddress({}, true, null) !== null,
+  );
+  check(
+    "and the failure says which address it found, because that is the diagnostic",
+    (unexpectedConsoleAddress({}, true, "http://localhost:8081/") ?? "").includes("localhost:8081"),
   );
 
   // --- the version-1 surface -------------------------------------------------

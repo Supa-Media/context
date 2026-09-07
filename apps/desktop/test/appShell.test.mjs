@@ -46,6 +46,9 @@
  *   `LSUIElement: true` put back in `electron-builder.yml`                  1
  *   the `NODE_ENV` fallback restored in `core/shell/console.ts`             4
  *   the comment stripper made a no-op (its own self-test)                   3
+ *   `--smoke` no longer asking `unexpectedConsoleAddress`                   1
+ *   `--smoke` no longer asking about the application menu                   1
+ *   the `SMOKE_DEADLINE_MS` timer deleted                                   1
  *
  * The last row is why the stripper has a self-test at all: made into `(s) => s`
  * the three checks that scan for an *absent* string all invert, because the
@@ -175,4 +178,44 @@ export function runAppShellChecks(check) {
     "...and by nothing named NODE_ENV, which nothing in this repository sets",
     source.includes("NODE_ENV") === false && consoleSource.includes("NODE_ENV") === false,
   );
+
+  /* --- the gate itself: `--smoke`'s exit code has to carry the verdict ----- */
+
+  /*
+    THE RELEASE STEP READS AN EXIT CODE AND NOTHING ELSE.
+
+    `test/launch.smoke.mjs` asserts the address, the Dock tile and the menu from
+    outside the process — but `deploy-desktop.yml` runs the packaged binary
+    directly, because the runner has a `.app` and not a checkout. Anything the
+    app does not check itself is therefore not checked by the release gate, and
+    F3 in particular would have gone out green a second time: a build pointed at
+    `http://localhost:8081` still initialises, still opens a window, and still
+    prints its line.
+
+    Matched as *code*, after the stripper, because the smoke block's own
+    comments argue about `localhost:8081` and about menu roles at length.
+  */
+  {
+    const smoke = source.match(/if \(SMOKE\) \{[\s\S]*?\n  \}\n\}/)?.[0] ?? "";
+    check(
+      "`--smoke` EXITS NON-ZERO ON AN ADDRESS THAT DISAGREES WITH `app.isPackaged`",
+      /unexpectedConsoleAddress\(process\.env, app\.isPackaged, consoleAddress\)/.test(smoke) &&
+        /endSmoke\(1, wrongAddress\)/.test(smoke),
+    );
+    check(
+      "...and on an application menu with no clipboard or undo roles",
+      ["undo", "cut", "copy", "paste", "selectall", "quit"].every((role) =>
+        new RegExp(`"${role}"`).test(smoke),
+      ) && /endSmoke\(1, `the application menu is missing/.test(smoke),
+    );
+    check(
+      "...and it still exits non-zero when no window was created",
+      /if \(windows < 1\) return endSmoke\(1,/.test(smoke),
+    );
+    check(
+      "A HUNG LAUNCH ENDS ITSELF, SO A RELEASE JOB IS NEVER HELD OPEN",
+      /const SMOKE_DEADLINE_MS = \d[\d_]*;/.test(source) &&
+        /setTimeout\(\(\) => endSmoke\(1, [^)]*\), SMOKE_DEADLINE_MS\)/.test(source),
+    );
+  }
 }

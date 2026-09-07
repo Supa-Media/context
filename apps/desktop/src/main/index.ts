@@ -65,7 +65,12 @@ import {
   positionPanelUnderTray,
   revealNotepadQuietly,
 } from "./windows.ts";
-import { consoleOrigin, consoleUrl, desktopUiMode } from "../core/shell/console.ts";
+import {
+  consoleOrigin,
+  consoleUrl,
+  desktopUiMode,
+  unexpectedConsoleAddress,
+} from "../core/shell/console.ts";
 import { darwinMajorFrom, systemAudioCapability } from "../core/shell/capabilities.ts";
 import { createConsoleBridge } from "./consoleBridge.ts";
 import type { ConsoleBridge } from "./consoleBridge.ts";
@@ -100,10 +105,15 @@ const FAKE = process.argv.includes("--fake-signals");
  * **The contract the release workflow depends on is the exit code**, so it is
  * stated here rather than left to a harness:
  *
- *  - **0** — the app initialised, a window was created, and one `[smoke]` line
- *    was printed. Nothing else exits 0.
- *  - **non-zero** — no window was created, an uncaught exception or rejection
- *    reached the top, or `main()` did not finish inside {@link SMOKE_DEADLINE_MS}.
+ *  - **0** — the app initialised, a window was created, one `[smoke]` line was
+ *    printed, **and every defect this flag exists for was checked**: the
+ *    renderer directory resolved, the console window was pointed at the address
+ *    this launch should resolve, and the application menu carries the clipboard
+ *    and undo roles. Nothing else exits 0.
+ *  - **non-zero** — no window was created, the renderer directory is missing,
+ *    the console address disagrees with `app.isPackaged`, the application menu
+ *    is missing a role, an uncaught exception or rejection reached the top, or
+ *    `main()` did not finish inside {@link SMOKE_DEADLINE_MS}.
  *  - **it always ends.** The deadline is armed before `whenReady`, so a hung
  *    launch fails rather than holding a release job open.
  *
@@ -132,8 +142,25 @@ const FAKE = process.argv.includes("--fake-signals");
  */
 const SMOKE = process.argv.includes("--smoke");
 
-/** The whole of a `--smoke` run, from `whenReady` to the exit code. */
-const SMOKE_DEADLINE_MS = 10_000;
+/**
+ * The whole of a `--smoke` run, from module evaluation to the exit code.
+ *
+ * **Thirty seconds and not ten**, and the widening is the review's, not the
+ * author's. The only measurement anyone has is `EXIT=0 ELAPSED_MS=12217` for a
+ * packaged launch on an M2 Pro — wall clock from `spawn` to exit, which is
+ * Gatekeeper's first-launch assessment plus Electron's own startup plus this
+ * app's, with no way to read off how much of it was inside this timer. A budget
+ * that a good launch on the fastest hardware in the story finished somewhere
+ * inside is a budget a cold CI runner loses, and what that failure looks like
+ * is a **red release on a working build** — the one outcome a gate must not
+ * produce, because the response to it is to stop trusting the gate.
+ *
+ * Nothing is weakened by the larger number: the promise is *that a smoke run
+ * ends*, which holds at any finite value, and the layer above keeps its own
+ * harder kill for the crash this one cannot see — the release step and
+ * `test/launch.smoke.mjs` both stop the process themselves at sixty seconds.
+ */
+const SMOKE_DEADLINE_MS = 30_000;
 
 /**
  * Say why, and stop — never `app.quit()`.
@@ -1456,6 +1483,14 @@ async function main(): Promise<void> {
   if (SMOKE) {
     const menu = Menu.getApplicationMenu();
     const windows = BrowserWindow.getAllWindows().length;
+    /*
+      Electron lowercases a role, so these read `selectall` and not `selectAll`
+      — the same spelling `test/launch.smoke.mjs` asserts, and the reason the
+      list below is written in that case rather than the source's.
+    */
+    const menuRoles: string[] = (menu?.items ?? []).flatMap((item) =>
+      (item.submenu?.items ?? []).map((entry) => entry.role).filter((role) => role != null),
+    );
     console.log(
       `[smoke] ${JSON.stringify({
         ready: true,
@@ -1465,9 +1500,7 @@ async function main(): Promise<void> {
         // a `Tray` this process actually owns.
         trayBounds: tray.bounds(),
         dock: app.dock?.isVisible() ? "visible" : "hidden",
-        menuRoles: (menu?.items ?? []).flatMap((item) =>
-          (item.submenu?.items ?? []).map((entry) => entry.role).filter((role) => role != null),
-        ),
+        menuRoles,
         consoleUrl: consoleAddress,
         /*
           The `__dirname` change that came with building this entry as CommonJS,
@@ -1482,6 +1515,42 @@ async function main(): Promise<void> {
     );
     if (windows < 1) return endSmoke(1, "no window was created");
     if (!existsSync(RENDERER_DIR)) return endSmoke(1, `the renderer directory is missing: ${RENDERER_DIR}`);
+
+    /*
+      THE VERDICT IS THE EXIT CODE, AND IT COVERS ALL THREE DEFECTS.
+
+      The printed line above is a diagnostic; **the exit code is the contract**,
+      and it is the only thing the release step reads. `test/launch.smoke.mjs`
+      does assert the address and the menu from outside — but the release step
+      runs the packaged binary *directly*, not the harness, because the harness
+      needs a checkout and the runner has the `.app`. So a check that lives only
+      in the harness is a check the release gate does not have, and F3 —
+      an installed build pointed at a dead `http://localhost:8081` — would ship
+      green a second time, past a gate written to catch exactly it.
+
+      The Dock tile is the one thing still only reported and not asserted here,
+      on purpose: `app.dock.isVisible()` is an answer from the window server,
+      which a headless runner is entitled to answer differently, and both halves
+      of it already have offline guards that cannot flake —
+      `test/appShell.test.mjs` reads `LSUIElement` out of `electron-builder.yml`
+      and the `RENDERER_UI`-conditional `app.dock?.hide()` out of this file.
+      The harness asserts it where there is a real desktop to ask.
+    */
+    if (CONSOLE_UI) {
+      const wrongAddress = unexpectedConsoleAddress(process.env, app.isPackaged, consoleAddress);
+      if (wrongAddress !== null) return endSmoke(1, wrongAddress);
+
+      /*
+        The console hosts a text editor, and with no Edit menu Cmd-C, Cmd-V and
+        Cmd-Z are dead keys — that is F2, and it is app state rather than
+        anything a display server has an opinion about.
+      */
+      const missing = ["undo", "cut", "copy", "paste", "selectall", "close", "quit"].filter(
+        (role) => !menuRoles.includes(role),
+      );
+      if (missing.length > 0)
+        return endSmoke(1, `the application menu is missing ${missing.join(", ")}`);
+    }
     return endSmoke(0, "the app started, opened a window, and is exiting cleanly");
   }
 }

@@ -575,7 +575,7 @@ the fact that is true of precisely the builds this got wrong — **passed in**
 rather than read inside, so `consoleUrl` stays a pure function with no Electron
 in it, matching `core/shell/capabilities.ts` and `core/update/policy.ts`, which
 both take the same flag and both document it as *"false for `electron
-dist/main/index.js` in development."* `CONTEXT_DESKTOP_UI_URL` still beats both,
+dist/main/index.cjs` in development."* `CONTEXT_DESKTOP_UI_URL` still beats both,
 because a self-hoster's own origin is the one answer neither can guess, and the
 refusal of a non-https, non-loopback address is untouched.
 
@@ -583,6 +583,47 @@ refusal of a non-https, non-loopback address is untouched.
 lesson of this section: what broke was the *wiring*, and a test that asks
 `consoleUrl` a second time agrees with itself. `--smoke` reports the address the
 window was actually pointed at.
+
+#### `--smoke`'s exit code is the gate, and it carries all three verdicts
+
+Found in review of the pull request above, before it merged. The first version
+of `--smoke` *printed* the address, the Dock state and the menu roles, and
+exited non-zero on only two things: no window, and no renderer directory. Every
+other assertion lived in `test/launch.smoke.mjs`, which reads the printed line
+from outside.
+
+That is a gate with a hole in it, and the hole is shaped exactly like the defect
+it was built for. **The release step runs the packaged binary directly** —
+`Context.app/Contents/MacOS/Context --smoke` — because the runner has an `.app`
+and not a checkout, so the only thing it can read is an exit code. A build
+pointed at `http://localhost:8081` initialises, opens a window, finds its
+renderer directory and prints its line: F3 would have gone out green a second
+time, past the gate written to catch it.
+
+So the app asserts its own verdict. `unexpectedConsoleAddress` in
+`core/shell/console.ts` is a pure function `--smoke` calls with `process.env`,
+`app.isPackaged` and the address the window was really given, and the menu roles
+are checked in the same block. **The Dock tile is deliberately still reported
+rather than asserted there**: `app.dock.isVisible()` is an answer from the window
+server, which a headless runner may answer differently, and both halves of that
+defect already have offline guards that cannot flake — `appShell.test.mjs` reads
+`LSUIElement` out of `electron-builder.yml` and the `RENDERER_UI`-conditional
+`app.dock?.hide()` out of `main/index.ts`. A gate that goes red on a working
+build is the one failure a gate must not have, because the response to it is to
+stop trusting the gate. That is the same reason `SMOKE_DEADLINE_MS` is thirty
+seconds and not ten: the only measurement anyone has is a 12.2 s wall clock on
+an M2 Pro, with no way to read off how much of it was inside the timer.
+
+`unexpectedConsoleAddress` states its refusals as facts about the world — a
+packaged launch is never on loopback, a development launch is never on
+production — **and not only as a second call to `consoleUrl`**. The distinction
+is the paragraph above this one: a comparison against `consoleUrl` agrees with a
+bug inside `consoleUrl`. The test that fails if this is reversed is in
+`shell.test.mjs`, and it takes two edits to witness, which is why the sabotage
+record there carries two zero rows and an explanation instead of hiding them:
+regress `consoleUrl`'s fallback to the dev URL and `A PACKAGED LAUNCH POINTED AT
+LOOPBACK IS A FAILED SMOKE RUN` still holds; drop the explicit refusal as well
+and it goes red.
 
 ### Nothing that can start a recording may come from an origin we did not pin
 
