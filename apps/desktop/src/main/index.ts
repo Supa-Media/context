@@ -173,6 +173,8 @@ const CONSOLE_NOTICES = Object.freeze({
     "There is nothing for this machine to record, so this meeting is typed. Your notes still land in your bucket.",
   captureDisabled:
     "This machine is not recording meetings yet. Connect it from the menu bar — that dialog is where you say this machine may record, and it is what turns recording on.",
+  noConsole:
+    "This machine could not open its window, so the menu bar is the whole app for now. Recording still works from here, and anything it records is queued until it can be sent.",
 });
 
 async function main(): Promise<void> {
@@ -290,11 +292,33 @@ async function main(): Promise<void> {
    * popover that appears *during* a meeting on its own — it opens because
    * somebody clicked the menu bar, and a window that answers a click by
    * appearing behind what they were doing reads as a window that did not open.
+   *
+   * A window that is *gone* is `openConsoleWindow`'s business, not this
+   * function's: the panel is hidden when somebody dismisses it, while the
+   * console window is destroyed, and which of "raise it" and "build it again"
+   * a caller means is exactly what the two names carry.
+   *
+   * Answers whether there is a window now, so a caller can say why there is not
+   * rather than doing nothing at all.
    */
-  function showConsoleWindow(): void {
-    if (consoleWindow === null || consoleWindow.isDestroyed()) return;
+  function showConsoleWindow(): boolean {
+    if (consoleWindow === null || consoleWindow.isDestroyed()) return false;
     consoleWindow.show();
     consoleWindow.focus();
+    return true;
+  }
+
+  /**
+   * The window a menu-bar click asks for, built again if it is gone.
+   *
+   * Separate from `showConsoleWindow` because the two callers want different
+   * things: `explain()` raises a window that already exists behind a sentence
+   * and must not conjure one for a refusal, while the menu-bar click *is* the
+   * request for the window and has nowhere else to go.
+   */
+  function openConsoleWindow(): boolean {
+    if (consoleWindow === null || consoleWindow.isDestroyed()) openConsoleWindowIfAsked();
+    return showConsoleWindow();
   }
 
   /**
@@ -325,10 +349,14 @@ async function main(): Promise<void> {
 
   const tray = new AppTray({
     togglePanel: (bounds) => {
-      // No panel means the console is the window this app has, so the menu-bar
-      // click raises that instead of doing nothing.
+      /*
+        No panel means the console is the window this app has, so the menu-bar
+        click raises that — and says why when there is none to raise, which is
+        the only way this launch can have no UI: `consoleUrl` refused the
+        address it was given, and that was logged where nobody is looking.
+      */
       if (panel === null) {
-        showConsoleWindow();
+        if (!openConsoleWindow()) explain(CONSOLE_NOTICES.noConsole);
         return;
       }
       if (panel.isVisible()) {
@@ -338,7 +366,13 @@ async function main(): Promise<void> {
       positionPanelUnderTray(panel, bounds);
       panel.showInactive();
     },
-    openNotepad: () => (notepad === null ? showConsoleWindow() : revealNotepadQuietly(notepad)),
+    openNotepad: () => {
+      if (notepad !== null) {
+        revealNotepadQuietly(notepad);
+        return;
+      }
+      if (!openConsoleWindow()) explain(CONSOLE_NOTICES.noConsole);
+    },
     record: () => void pressed("record", () => recordNow()),
     end: () => void pressed("end", () => endMeeting()),
     connect: () => void connectThisMachine(),

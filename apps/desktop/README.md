@@ -95,6 +95,11 @@ permission never granted — are shown in a message box with the window raised
 behind it, in the same words the panel used. A button that silently does nothing
 is the outcome that was not acceptable.
 
+Closing the console window is not the end of this app's UI: unlike the panel it
+is *destroyed* rather than hidden, so the next menu-bar click builds it again.
+If it cannot be built — the only way that happens is a `CONTEXT_DESKTOP_UI_URL`
+this app refuses — the click says so rather than doing nothing.
+
 `CONTEXT_DESKTOP_UI=renderer` puts the old windows back, unchanged, until
 `docs/decisions/desktop.md`'s step 5 deletes them — and that step is waiting on
 the confirmations only a Mac can give.

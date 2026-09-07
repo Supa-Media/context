@@ -680,6 +680,21 @@ sentence in a message box. The sentences are `CONSOLE_NOTICES` and
 `PLAN_NOTICES`, unchanged and never assembled at the call site; a silent button
 is the one outcome that was not acceptable.
 
+**A closed console window is opened again, because it is destroyed rather than
+hidden.** Found in review, and it is the same rule as the message box one level
+up: the panel hides when somebody dismisses it, while `closed` on the console
+window sets `consoleWindow`, its bridge and its mirror to `null` — so a
+menu-bar click that only *raises* a window is a click that does nothing for the
+rest of the run, on an app whose only UI the person just closed. `showConsoleWindow`
+raises what is there and `openConsoleWindow` builds it again, and the two names
+are the difference between a refusal that wants a window behind it and a click
+that *is* the request for one. Reopening is safe by construction: `closed`
+disposed the bridge, and `createConsoleMirror` unregisters the scheme on its
+partition before registering it — the case that file's own comment anticipated
+and nothing exercised until now. The one launch that can still have no window is
+a `CONTEXT_DESKTOP_UI_URL` this app refuses, and that click now says so from the
+same closed set as every other refusal.
+
 What this step **does not** carry across, stated so step 5 does not inherit a
 surprise: the panel also *renders state* — the evidence list, the blocklist, the
 transcription setting — and the console shows its own version of that from the
@@ -690,7 +705,15 @@ a place in the contract or deliberately dropped.
 **The checks**: `THE DEFAULT UI IS THE HOSTED CONSOLE`, `THE OLD RENDERER IS ONE
 ENVIRONMENT VARIABLE AWAY`, `A MISSPELT MODE IS THE DEFAULT, NOT A REFUSAL`, and
 `A DEFAULT LAUNCH OPENS THE CONSOLE, AND THE BRIDGE IS PINNED TO WHAT IT
-OPENED`. Both halves are sabotage-tested and non-zero, because a step that only
+OPENED`. `test/trayOnly.test.mjs` holds the rest, and it exists because this
+step is what makes the tray load-bearing: it walks detection → consent → plan →
+controller → outbox with no window in the process at all, and then reads
+`main/index.ts` for the three facts that are Electron's — the panel and the
+notepad are not built, both menu-bar routes reach the console window and say
+why when there is none, and every sentence `explain` shows comes from a closed
+set (`A WHOLE MEETING RECORDED FROM THE MENU BAR STILL BECOMES A NOTE`, `A
+CLOSED CONSOLE WINDOW IS OPENED AGAIN`, `EVERY SENTENCE THE TRAY EXPLAINS COMES
+FROM THE CLOSED SET`). Both halves are sabotage-tested and non-zero, because a step that only
 flips the default is not revertible by one variable, and revertibility is what
 the order rests on.
 
