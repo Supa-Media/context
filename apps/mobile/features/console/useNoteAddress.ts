@@ -34,8 +34,9 @@ import { nextAddressStep, type Reconciled } from "./noteAddress";
  * and addresses the *open* note. The URL then follows what is on screen, which
  * is the honest answer while a prompt is asking whether to discard a draft.
  *
- * `deselect` is refused by the same guard and settles by the same route, which
- * is why the `close` step needs no answer of its own here.
+ * `deselect` is refused by the same guard and does **not** settle by the same
+ * route — see the `close` branch below for which failure that is and why it is
+ * answered where a refused `select` is left alone.
  */
 export function useNoteAddress(
   files: FileBrowser,

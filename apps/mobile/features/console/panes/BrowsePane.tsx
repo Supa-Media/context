@@ -110,6 +110,13 @@ export function BrowsePane({
    * has never been true. Nothing rather than a stale path: the pill alone is
    * honest, it is where the switch is going, and the path arrives with the
    * listing a moment later.
+   *
+   * **The pointer layout's region header gets the same guard**, because it has
+   * the same seam for the same reason: its leading segment is `contextLabel`,
+   * which comes from the console, over folders that come from the browser. It
+   * takes the note's action row with it, which is right rather than incidental
+   * — Share and the scope lock act on the open note, and for those commits the
+   * open note belongs to the context being left.
    */
   const settled = files.contextId === data.selectedContextId;
 
@@ -576,7 +583,7 @@ export function BrowsePane({
         no chip and no Share on it, and it is the only way up on a density with
         no panel.
       */}
-      {selected !== null && !compact ? (
+      {selected !== null && settled && !compact ? (
         <View style={[styles.noteHead, compact && styles.noteHeadCompact]}>
           <View style={styles.crumb}>
             <Breadcrumb

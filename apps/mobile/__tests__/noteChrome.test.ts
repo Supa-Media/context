@@ -575,6 +575,30 @@ describe("the path bar", () => {
     expect(app.find2("Open 3-resources")).not.toBeNull();
     expect(app.container.textContent).toContain("the-lean-startup");
   });
+
+  test("and a pointer layout mid-switch draws neither the line nor the note's actions", () => {
+    /*
+      The same seam as the phone's, and it is worth its own case because the
+      pointer layout's header carries more than a path: its leading segment is
+      `contextLabel`, which comes from the **console**, over folders that come
+      from the **browser**, and beside them Share and the scope lock, which act
+      on the open note.
+
+      For the commits after pressing another context those two disagree — so
+      the line would name one context over another context's path, and the
+      buttons beside it would offer to share a note from the context being
+      left. Both go together, which is right rather than incidental.
+
+      SABOTAGE: dropped `settled` from the pointer branch in `BrowsePane`.
+      Fails here.
+    */
+    const app = mountConsole(
+      dataWith({ contextId: "w2" } as never, { path: DEEP, name: "the-lean-startup.md" }),
+      1200,
+    );
+    expect(app.find2("Open 3-resources")).toBeNull();
+    expect(app.find("browse-share")).toBeNull();
+  });
 });
 
 describe("the top row ends in one group, and it is the note's", () => {

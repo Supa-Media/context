@@ -143,6 +143,14 @@ function dataWith(over: Partial<FileBrowser> = {}, entry: Partial<FolderListing[
   const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
   const files = {
     canEdit: true,
+    /*
+      The browser has caught up with the context the console selected, which is
+      what a console anybody is looking at looks like. `BrowsePane` draws no
+      breadcrumb and no note action row until it has — the pill and the folders
+      come from two places, and for the commits after a switch they name two
+      different contexts. Absent here, this fixture was a console mid-switch.
+    */
+    contextId: "w1",
     loading: false,
     busy: false,
     listings: {

@@ -55,9 +55,10 @@
  * it opened. The `seen` pair is what tells the two apart, and it is the same
  * pair that already told a followed link from an echo of the last one.
  *
- * A refused close settles the same way a refused `select` does, and by the same
- * route: the guard leaves the note open, the next pass sees a URL it has
- * reconciled disagreeing with the screen, and addresses what is on the screen.
+ * A refused close leaves the note open, and `useNoteAddress` puts the address
+ * back on it rather than leaving the two disagreeing — which a refused `select`
+ * deliberately does not get. That asymmetry is a real one and the reason is
+ * there.
  *
  * **Otherwise the selection wins.**
  *
