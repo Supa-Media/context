@@ -8,6 +8,10 @@ node_modules
 
 # Build outputs
 dist/
+# electron-builder's output (`directories.output` in apps/desktop/electron-builder.yml):
+# a packaged, signed .app and its DMGs — 873MB the first time anyone runs
+# `pnpm --filter @context/desktop package`, and never a thing to commit.
+release/
 .next/
 .expo/
 *.tsbuildinfo

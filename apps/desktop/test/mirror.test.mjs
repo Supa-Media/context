@@ -102,6 +102,47 @@
  * `loadURL` is called" — modelled below as *trusting that promise's own
  * timing* — reddens the check named **REPRODUCES THE HARDWARE FINDING**.
  *
+ * Found on a Mac session, on hardware, against a packaged build, after the row
+ * above had shipped and *did not move the hardware row*:
+ *
+ *   `awaitFallbackSettled` settling on the failed load's own error page        3
+ *   `smokeLoadFailure` offering a list its own report cannot choose from       3
+ *
+ * **That row is the fourth finding, and it is why the third one did not work.**
+ * Waiting for an event was still the same bug one layer along. A launch
+ * instrumented with a listener on every `webContents` navigation event says it
+ * in four lines:
+ *
+ * ```
+ * 101ms  did-fail-load         ERR_PROXY_CONNECTION_FAILED https://context.lc/console
+ * 105ms  did-start-navigation  app://console/   getURL=https://context.lc/console
+ * 138ms  did-finish-load                        getURL=https://context.lc/console
+ *        -> awaitFallbackSettled resolved false
+ * ```
+ *
+ * **A failed navigation is not finished when it fails.** Chromium commits an
+ * error document at the address that failed, and that commit raises a
+ * `did-finish-load` of its own — 37ms later, with `getURL()` still naming the
+ * dead live address. `awaitFallbackSettled` listened with `once`, so the dying
+ * live navigation's event was handed to the fallback's wait, which read the
+ * live URL, answered "not the mirror", and resolved `false` a second and a half
+ * before the mirror actually committed. Note what was *not* wrong:
+ * `isMirrorUrl` and `originOfUrl` spell `app://console` out and match it
+ * exactly, so the origin comparison was never the fault. The fix is `on` rather
+ * than `once`, ignoring every event that leaves `getURL()` somewhere other than
+ * the target, and counting a `did-fail-load` only for the target's own URL.
+ * Sabotaging it back to `once` reddens **THE FAILED LIVE LOAD'S OWN ERROR PAGE
+ * IS NOT THE FALLBACK ARRIVING**.
+ *
+ * The second half of that row is the sentence `--smoke-load` exits with. It
+ * offered four possibilities and said "the report line above says which"; the
+ * report line prints `mirrorServed:false`, which is the question rather than
+ * the answer. On the run that mattered its premise was also simply false — a
+ * usable mirror *had* served the console, and a person reading it went looking
+ * for a directory that was there. `smokeLoadFailure` now takes
+ * `snapshotIsHtmlDocument`, which the report already carries, and names the one
+ * case the flags actually support.
+ *
  * **The `private` row is the finding, stated as a test.** `context.lc/console`
  * is served with `must-revalidate, private, max-age=0`; refusing `private`
  * refused the document on every load, so the only thing ever mirrored was the
@@ -549,21 +590,62 @@ export async function runMirrorChecks(check) {
   // --- `--smoke-load`'s exit rule: `loaded || mirrorServed`, and nothing else -
 
   const DEADLINE = 30_000;
+  const failureFor = (loaded, mirrorServed, snapshotIsHtmlDocument) =>
+    smokeLoadFailure({ loaded, mirrorServed, snapshotIsHtmlDocument, deadlineMs: DEADLINE });
   check(
     "A LIVE LOAD IS A PASS ON ITS OWN, whatever the mirror did",
-    smokeLoadFailure({ loaded: true, mirrorServed: false, deadlineMs: DEADLINE }) === null,
+    failureFor(true, false, null) === null,
   );
   check(
     "OFFLINE WITH A USABLE MIRROR IS ALSO A PASS — no network is not a broken app",
-    smokeLoadFailure({ loaded: false, mirrorServed: true, deadlineMs: DEADLINE }) === null,
+    failureFor(false, true, true) === null,
   );
   check(
     "OFFLINE WITH NO MIRROR IS THE ONLY FAILURE",
-    smokeLoadFailure({ loaded: false, mirrorServed: false, deadlineMs: DEADLINE }) !== null,
+    failureFor(false, false, null) !== null,
   );
   check(
     "the failure names the deadline that was actually armed",
-    smokeLoadFailure({ loaded: false, mirrorServed: false, deadlineMs: DEADLINE })?.includes(String(DEADLINE)),
+    failureFor(false, false, null)?.includes(String(DEADLINE)),
+  );
+
+  /*
+    THE SENTENCE CLAIMS ONLY WHAT THE REPORT LINE ABOVE IT SHOWS.
+
+    It used to end "(no mirror on disk, a poisoned one already deleted, a
+    refused fallback, or a genuine hang — the report line above says which)"
+    while the report line said `mirrorServed:false`, which is the question and
+    not the answer. On the hardware run that mattered its premise was false
+    outright: a usable mirror had served the console. `snapshotIsHtmlDocument`
+    is the flag that tells the three cases apart, so the sentence takes it and
+    names one.
+  */
+  check(
+    "NO MIRROR ON DISK SAYS SO, AND SAYS NOTHING ELSE",
+    failureFor(false, false, null)?.includes("no mirror on disk") === true &&
+      failureFor(false, false, null)?.includes("says which") === false,
+  );
+  check(
+    "A MIRROR WHOSE INDEX IS NOT A DOCUMENT IS NAMED AS THAT, NOT AS A MISSING ONE",
+    failureFor(false, false, false)?.includes("no text/html index") === true &&
+      failureFor(false, false, false)?.includes("no mirror on disk") === false,
+  );
+  /*
+    The bug that shipped twice, stated as the sentence a person would have read.
+    A usable mirror on disk plus `mirrorServed:false` is not "no mirror" — it is
+    the fallback navigation never landing, which is exactly what
+    `awaitFallbackSettled` is for and exactly what the old sentence hid.
+  */
+  check(
+    "A USABLE MIRROR THE WINDOW NEVER REACHED IS NAMED AS THE FALLBACK'S FAULT",
+    failureFor(false, false, true)?.includes("a usable mirror is on disk") === true &&
+      failureFor(false, false, true)?.includes("fallback navigation") === true,
+  );
+  check(
+    "and no ending guesses at a reason the flags do not carry",
+    [null, false, true].every(
+      (snapshot) => (failureFor(false, false, snapshot)?.includes("poisoned") ?? true) === false,
+    ),
   );
 
   // --- the fallback navigation has to actually finish before it is trusted ---
@@ -642,6 +724,108 @@ export async function runMirrorChecks(check) {
         win.emit("did-finish-load");
       }, 5);
       return (await settled) === true && wasMirrorServed(win.getURL(), true) === true;
+    })(),
+  );
+
+  /*
+    THE ROW THE THIRD FIX DID NOT MOVE, AND WHY.
+
+    The sequence above is the tidy one. The instrumented launch printed a fifth
+    event nobody had modelled, between the failure and the fallback's arrival:
+
+      101ms  did-fail-load     ERR_PROXY_CONNECTION_FAILED  https://context.lc/console
+      105ms  did-start-navigation  app://console/  getURL=https://context.lc/console
+      138ms  did-finish-load                       getURL=https://context.lc/console
+
+    Chromium commits an **error document at the address that failed**, and that
+    commit raises a `did-finish-load` with `getURL()` still naming the dead live
+    address. Listening with `once` handed that event to the fallback's wait,
+    which read the live URL and resolved `false` — a second and a half before
+    `app://console/` actually committed, with nothing left watching for it.
+    That is the whole of why #318 shipped and the hardware row did not move.
+  */
+  check(
+    "THE FAILED LIVE LOAD'S OWN ERROR PAGE IS NOT THE FALLBACK ARRIVING",
+    await (async () => {
+      const win = fakeWebContents(`${LIVE}/console`);
+      win.emit("did-fail-load", {}, -130, "ERR_PROXY_CONNECTION_FAILED", `${LIVE}/console`, true);
+      const settled = awaitFallbackSettled({
+        events: win.events,
+        getURL: win.getURL,
+        targetOrigin: MIRROR_ORIGIN,
+        deadlineMs: 2_000,
+      });
+      // 105ms: the fallback starts. 138ms: the *live* navigation's error
+      // document finishes loading, still at the live address.
+      setTimeout(() => {
+        win.emit("did-start-navigation", {}, `${MIRROR_ORIGIN}/`);
+        win.emit("did-finish-load");
+      }, 5);
+      // 1759ms on hardware: the mirror actually commits. Nothing must have
+      // stopped listening before this.
+      setTimeout(() => {
+        win.commit(`${MIRROR_ORIGIN}/`);
+        win.emit("did-navigate", {}, `${MIRROR_ORIGIN}/`);
+        win.emit("did-finish-load");
+      }, 40);
+      return (await settled) === true && wasMirrorServed(win.getURL(), true) === true;
+    })(),
+  );
+
+  /*
+    The same shape for the other terminal event: a `did-fail-load` that names an
+    address which is not the target says nothing about the fallback. The live
+    failure that *started* this wait can be re-raised for a subframe, and
+    treating it as the fallback's own refusal is the `once` bug again.
+  */
+  check(
+    "...AND NEITHER IS A did-fail-load FOR AN ADDRESS THAT IS NOT THE MIRROR",
+    await (async () => {
+      const win = fakeWebContents(`${LIVE}/console`);
+      const settled = awaitFallbackSettled({
+        events: win.events,
+        getURL: win.getURL,
+        targetOrigin: MIRROR_ORIGIN,
+        deadlineMs: 2_000,
+      });
+      setTimeout(() => {
+        win.emit("did-fail-load", {}, -130, "ERR_PROXY_CONNECTION_FAILED", `${LIVE}/assets/app.js`, false);
+      }, 5);
+      setTimeout(() => {
+        win.commit(`${MIRROR_ORIGIN}/`);
+        win.emit("did-navigate", {}, `${MIRROR_ORIGIN}/`);
+      }, 40);
+      return (await settled) === true;
+    })(),
+  );
+
+  /*
+    Nothing is left attached to a window this wait no longer speaks for — an
+    `on` listener that is never removed is a leak on a window that outlives the
+    wait by the whole of a session, and the deadline's own exit is the path
+    where forgetting is easiest.
+  */
+  check(
+    "EVERY EXIT DETACHES ITS LISTENERS, THE DEADLINE'S INCLUDED",
+    await (async () => {
+      const win = fakeWebContents(`${LIVE}/console`);
+      const before = win.events.eventNames().length;
+      const settled = awaitFallbackSettled({
+        events: win.events,
+        getURL: win.getURL,
+        targetOrigin: MIRROR_ORIGIN,
+        deadlineMs: 20,
+      });
+      const during =
+        win.events.listenerCount("did-navigate") +
+        win.events.listenerCount("did-finish-load") +
+        win.events.listenerCount("did-fail-load");
+      await settled;
+      const after =
+        win.events.listenerCount("did-navigate") +
+        win.events.listenerCount("did-finish-load") +
+        win.events.listenerCount("did-fail-load");
+      return before === 0 && during === 3 && after === 0;
     })(),
   );
 
