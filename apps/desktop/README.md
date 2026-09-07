@@ -55,10 +55,21 @@ pnpm --filter @context/desktop typecheck
 `CONTEXT_DESKTOP_UI=console` opens a third window that hosts `apps/mobile`'s web
 build — `CONTEXT_DESKTOP_UI_URL` says where from, defaulting to
 `http://localhost:8081` outside production so `expo start` is what you develop
-against. It carries a bridge whose every capability answers `false`, which is
-step one of `docs/decisions/desktop.md`: the UI moves out of this app and ships
-with the web deploy, and the shell keeps the tray, the audio, the credential and
-the queue.
+against. It carries the whole bridge from `@context/desktop-bridge` — capture,
+connection, outbox, and the meeting writes of version 2 — over this app's real
+plumbing: `preload/console.ts` is four statements over `core/shell/bridge.ts`,
+and `main/consoleBridge.ts` answers each channel only for the console window's
+own top frame at the pinned origin. That is `docs/decisions/desktop.md`'s plan:
+the UI moves out of this app and ships with the web deploy, and the shell keeps
+the tray, the audio, the credential and the queue. The default is still
+`renderer` — the panel and the notepad — until that document's step 4.
+
+A meeting the console records is **written by this machine's grant**, not by the
+page's own session: the page composes and hands each of the meetings protocol's
+four writes to `outbox.ts` over `meetings.write`, so it drains through the same
+queue as a recording somebody started from the menu bar with no window open. The
+shell's own controller does not queue for such a meeting (`queueWrites: false`)
+— one meeting is one writer.
 
 `start` accepts `--fake-signals`, which runs the whole app against the
 deterministic collectors and the fake recorder and transcriber. That is how the
@@ -252,6 +263,11 @@ the settings file, put in a URL, or exposed to a renderer.
 - The console shell's origin pin: a foreign origin, a lookalike host, an opaque
   origin and a subframe each get no bridge, and the shell refuses to load a UI
   over plaintext from anything that is not really loopback.
+- The bridge itself, both ends: the object the preload exposes is run through
+  `getDesktopBridge()`, every subscription is proved to detach, every answer and
+  every push is walked for anything credential-shaped, and the main process's
+  sender check is driven with a foreign `webContents`, a foreign origin and a
+  subframe.
 
 Every one of those areas has a **sabotage record** in its test file: the
 invariant was broken deliberately, the run was watched, and the count of

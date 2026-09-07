@@ -29,6 +29,14 @@ import { fakeDesktopBridge, type FakeDesktopBridge } from "@context/desktop-brid
  *    surface out of four, and a regression here would be invisible to whoever
  *    is working on it.
  *
+ * And a third, from the half step 3 deferred: **in a shell, the shell also
+ * writes.** `desktopGateway.ts` hands each of the meetings protocol's four
+ * writes to the machine's own queue, so a meeting on a Mac takes one credential
+ * rather than two and the outbox that drains with no window open is on the
+ * path. The check `docs/decisions/desktop.md` names is *the page does not write
+ * directly in desktop mode*, and it is the one below that asserts the page's
+ * own writer was never called.
+ *
  * Between the two sits the rule the whole feature turns on — **nothing on
  * screen may claim a capability the shell did not report**. A build macOS has
  * not verified is refused a loopback tap at the same bridge version as one it
@@ -62,6 +70,10 @@ import { fakeDesktopBridge, type FakeDesktopBridge } from "@context/desktop-brid
  *   the `ending` flag dropped, so every End reports a failure                 1
  *   the platform half of detection dropped, so a phone with a shell uses it   1
  *   a native-resolved capture module importing `./desktop`                    1
+ *   `meetingsWriterFor` returning the fallback inside a shell                 3
+ *   `desktopGateway.finalize` acking a queued write as written                1
+ *   the destination dropped instead of refused when the slug is unroutable    1
+ *   `createDesktopGateway` sending the shell's bodies, not the protocol's      1
  *
  * The last two were added by review, because the first of them measured **0**
  * against the suite as written: *"a phone asked of the web module is still a
@@ -114,6 +126,10 @@ const { ThisMachineCard } =
   require("../features/meetings/components/ThisMachineCard") as typeof import("../features/meetings/components/ThisMachineCard");
 const { describeMachine, machineTitle } =
   require("../features/meetings/thisMachine") as typeof import("../features/meetings/thisMachine");
+const { createDesktopGateway, meetingsWriterFor, DESKTOP_WRITE_SENTENCES } =
+  require("../features/meetings/desktopGateway") as typeof import("../features/meetings/desktopGateway");
+const { MeetingGatewayError } =
+  require("../features/meetings/gateway") as typeof import("../features/meetings/gateway");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 /* -------------------------------------------------------------------------- */
@@ -634,54 +650,68 @@ describe("the meeting's own id goes to the shell", () => {
   });
 });
 
-describe("the shell records it, and the app's own gateway writes it", () => {
+describe("the shell records it, and the shell writes it", () => {
   /**
-   * WHERE A DESKTOP MEETING IS ACTUALLY WRITTEN, TODAY.
+   * ONE MEETING IS ONE CREDENTIAL, AND ON A MAC IT IS THE MACHINE'S.
    *
-   * Step 3 replaced the *recorder* and nothing else, so the two halves of a
-   * meeting in the shell take two different credentials, and it is worth one
-   * test saying so out loud rather than three files implying it:
+   * Step 3 replaced the *recorder* and nothing else, so a meeting in the shell
+   * took two: the shell's machine grant for the audio it captured and
+   * transcribed, and the **page's** control-plane session for the note. What
+   * that cost is what `convexGateway.ts` already lists — no enhancement pass, no
+   * `.meetings/` session record, no `list_meetings` — plus one thing that was
+   * only true here: the shell's window-less outbox was not on the path, so a
+   * meeting was written by the page that happened to be open rather than by the
+   * queue that survives it.
    *
-   *  - **the audio** is captured by the shell and transcribed in the main
-   *    process with *this machine's* revocable grant, which is what makes it
-   *    attributable and bounded (`docs/decisions/meetings.md`);
-   *  - **the note** is written by the same gateway a browser uses —
-   *    `convexGateway.ts`, the console's own control-plane session, through
-   *    `files.writeNote`. The shell's grant and its window-less outbox are not
-   *    on this path yet: `desktopGateway.ts` is the deferred half of step 3 and
-   *    `docs/decisions/desktop.md` names it as the next step.
+   * `desktopGateway.ts` is that half. The page composes and the **shell**
+   * writes, through the same outbox the tray-only recording uses, so a meeting
+   * recorded with the window closed and one recorded from the console take the
+   * same path with the same credential.
    *
-   * What that costs is what `convexGateway.ts` already lists — no enhancement
-   * pass, no `.meetings/` session record, no `list_meetings` — and it costs it
-   * identically on a Mac and in a browser, which is the point of one runtime.
-   * The end-to-end check is that a meeting captured entirely over the bridge
-   * still lands as exactly one note.
+   * The test the decision names is `the page does not write directly in desktop
+   * mode`: it fails the moment `useMeetingsSetup` stops swapping the writer, or
+   * a screen starts calling the control-plane one behind its back.
    */
-  test("a meeting captured over the bridge is written by the gateway the app configures", async () => {
-    const shell = fakeDesktopBridge({ capabilities: { mic: true } });
+  const segment = (id: string, text: string) => ({
+    id,
+    startMs: 0,
+    endMs: 2_000,
+    text,
+    speaker: null,
+    channel: "mic" as const,
+    confidence: null,
+  });
+
+  /** A shell whose queue drains: every finalize comes back with a note path. */
+  function writingShell(notePath = "5-meetings/2026-09-07-standup.md") {
+    return fakeDesktopBridge({
+      capabilities: { mic: true },
+      write: (write) =>
+        write.kind === "finalize"
+          ? { sessionId: write.sessionId, queued: false, notePath, rejected: null }
+          : { sessionId: write.sessionId, queued: true, notePath: null, rejected: null },
+    });
+  }
+
+  test("A MEETING RECORDED FROM THE CONSOLE IS WRITTEN BY THE MACHINE'S OWN GRANT", async () => {
+    const shell = writingShell();
     installShell(shell);
 
     const recorder = await resolveRecorder("web");
-    const gateway = fakeGateway();
+    const page = fakeGateway();
     const controller = new MeetingsController();
     await controller.configure({
       workspaceId: "ws_1",
       store: memoryStore(),
-      gateway,
+      // The one line `useMeetingsSetup` runs, with the browser's writer as the
+      // fallback it would have used outside a shell.
+      gateway: meetingsWriterFor(page),
       recorder,
       device: { platform: "web" },
     });
 
     const id = await controller.start({ title: "Standup" });
-    shell.emitSegment({
-      id: "seg-1",
-      startMs: 0,
-      endMs: 2_000,
-      text: "we should ship it",
-      speaker: null,
-      channel: "mic",
-      confidence: null,
-    });
+    shell.emitSegment(segment("seg-1", "we should ship it"));
     await controller.end();
 
     // The shell held the input, and this page never asked for one.
@@ -690,12 +720,229 @@ describe("the shell records it, and the app's own gateway writes it", () => {
     expect(getUserMediaCalls).toBe(0);
     expect(recorderInstances).toBe(0);
 
-    // And the note came out of the app's gateway, under the id the app minted,
-    // with the words the shell produced in it.
-    expect(gateway.calls).toContain("finalize");
-    expect(gateway.notesWritten()).toBe(1);
-    expect(gateway.held.get(id)?.state).toBe("complete");
-    expect(gateway.held.get(id)?.notePath).not.toBeNull();
+    // THE PAGE DID NOT WRITE. Every write went to the machine's queue.
+    expect(page.calls).toEqual([]);
+    expect(page.notesWritten()).toBe(0);
+
+    const kinds = shell.writes.map((write) => write.kind);
+    expect(kinds).toContain("session");
+    expect(kinds).toContain("segments");
+    expect(kinds).toContain("finalize");
+    expect(shell.writes.every((write) => write.sessionId === id)).toBe(true);
+    // ...and the transcript the shell produced went back to the shell to be
+    // filed, under the id the page minted, so one meeting is one note.
+    const segments = shell.writes.find((write) => write.kind === "segments");
+    expect((segments?.body.segments as { text: string }[])[0].text).toBe("we should ship it");
+  });
+
+  /**
+   * THE EMPTY-NOTES RACE, AS CLOSE TO END-TO-END AS THIS SIDE OF THE IPC GOES.
+   *
+   * This is what `BeginInput.queueWrites: false` exists to prevent, seen from
+   * the page: with two writers on one meeting, the shell's `end()` queues an
+   * **empty** `notes` and a finalize and drains them, and the gateway writes the
+   * note before the person's typed Markdown has left this process. The note
+   * somebody opens afterwards has the transcript and none of their notes in it.
+   *
+   * The shell half is checked in `apps/desktop`'s controller suite — a
+   * console-started meeting queues nothing there. This is the other half: one
+   * meeting, one session id, and the writes that reach the machine carry the
+   * transcript *and* the typed notes, with exactly one finalize behind them.
+   */
+  test("ONE MEETING, ONE SESSION, AND BOTH THE TRANSCRIPT AND THE TYPED NOTES REACH IT", async () => {
+    const shell = writingShell();
+    installShell(shell);
+
+    const controller = new MeetingsController();
+    await controller.configure({
+      workspaceId: "ws_1",
+      store: memoryStore(),
+      gateway: meetingsWriterFor(fakeGateway()),
+      recorder: await resolveRecorder("web"),
+      device: { platform: "web" },
+    });
+
+    const id = await controller.start({ title: "Standup" });
+    shell.emitSegment(segment("seg-1", "we should ship it"));
+    controller.setNotes(id, "- ship it\n- tell everyone");
+    await controller.end();
+
+    const sessions = new Set(shell.writes.map((write) => write.sessionId));
+    expect([...sessions]).toEqual([id]);
+
+    const segments = shell.writes.filter((write) => write.kind === "segments");
+    const notes = shell.writes.filter((write) => write.kind === "notes");
+    const finalizes = shell.writes.filter((write) => write.kind === "finalize");
+
+    expect(
+      segments.flatMap((write) => (write.body.segments as { text: string }[]) ?? []).map((one) => one.text),
+    ).toContain("we should ship it");
+    expect(notes.map((write) => write.body.markdown)).toContain("- ship it\n- tell everyone");
+    // Not an empty one before them, which is the race written as an assertion.
+    expect(notes.every((write) => write.body.markdown !== "")).toBe(true);
+    expect(finalizes).toHaveLength(1);
+  });
+
+  test("...and the note path the gateway chose is what the record ends up holding", async () => {
+    const shell = writingShell("5-meetings/2026-09-07-standup.md");
+    installShell(shell);
+
+    const controller = new MeetingsController();
+    await controller.configure({
+      workspaceId: "ws_1",
+      store: memoryStore(),
+      gateway: meetingsWriterFor(fakeGateway()),
+      recorder: await resolveRecorder("web"),
+      device: { platform: "web" },
+    });
+    const id = await controller.start({ title: "Standup" });
+    await controller.end();
+
+    const record = controller.getSnapshot().records.find((one) => one.session.id === id);
+    expect(record?.session.notePath).toBe("5-meetings/2026-09-07-standup.md");
+  });
+
+  /**
+   * The parity the decision asks for, stated as one assertion rather than as
+   * prose: the writes a console-recorded meeting produces are the meetings
+   * protocol's four, addressed the same way the tray's own recording addresses
+   * them — same routes, same credential, same queue.
+   */
+  test("a meeting from the console reaches the queue as the protocol's own four writes", async () => {
+    const shell = writingShell();
+    installShell(shell);
+
+    const gateway = createDesktopGateway(shell.bridge.meetings!);
+    const session = {
+      id: "mtg_abcdefghjkmnpqrstvwx",
+      state: "finalizing",
+      transcript: [segment("seg-1", "hello")],
+      startedAt: "2026-09-07T10:00:00.000Z",
+    } as never;
+
+    await gateway.putSession(null, session);
+    await gateway.putSegments(null, "mtg_abcdefghjkmnpqrstvwx", [segment("seg-1", "hello")]);
+    await gateway.putNotes(null, "mtg_abcdefghjkmnpqrstvwx", "my notes");
+    await gateway.finalize(null, session);
+
+    expect(shell.writes.map((write) => write.kind)).toEqual([
+      "session",
+      "segments",
+      "notes",
+      "finalize",
+    ]);
+    // The bodies are `createHttpGateway`'s, because this is the same request
+    // made with the same credential — the shell is transport, not a protocol.
+    expect(shell.writes[1].body).toEqual({ segments: [segment("seg-1", "hello")] });
+    expect(shell.writes[2].body).toEqual({ markdown: "my notes" });
+    expect(shell.writes[3].body).toEqual({});
+    expect(shell.writes.every((write) => write.context === null)).toBe(true);
+  });
+
+  test("a destination rides as a context name, never as a path", async () => {
+    const shell = writingShell();
+    const gateway = createDesktopGateway(shell.bridge.meetings!);
+    await gateway.putNotes({ kind: "personalInbox" as const, contextSlug: "acme", folder: "5-meetings" }, "mtg_1", "notes");
+    expect(shell.writes[0].context).toBe("acme");
+
+    await gateway.finalize(
+      { kind: "personalInbox" as const, contextSlug: "acme", folder: "5-meetings" },
+      { id: "mtg_1", transcript: [] } as never,
+    );
+    expect(shell.writes[1].body).toEqual({ folder: "5-meetings" });
+  });
+
+  /**
+   * A slug the gateway's own selector would not read falls off the front of the
+   * path and the request is served by whatever context the credential defaults
+   * to — a meeting written into the wrong tenant, in silence. Refusing to send
+   * is the only answer that is not that.
+   */
+  test("A DESTINATION THE GATEWAY WOULD IGNORE IS REFUSED RATHER THAN SENT", async () => {
+    const shell = writingShell();
+    const gateway = createDesktopGateway(shell.bridge.meetings!);
+    await expect(
+      gateway.putNotes({ kind: "personalInbox" as const, contextSlug: "Acme Corp", folder: "5-meetings" }, "mtg_1", "notes"),
+    ).rejects.toBeInstanceOf(MeetingGatewayError);
+    expect(shell.writes).toEqual([]);
+  });
+
+  /**
+   * The rule `docs/decisions/app-and-console.md` states: the UI must never claim
+   * a write it has not seen acknowledged. A queued finalize is the shell holding
+   * a meeting, not a note in a bucket, so it is a transient refusal — the record
+   * keeps asking, and re-finalizing is answered with the note that already
+   * exists once it lands.
+   */
+  test("a finalize the shell has only queued is not an acknowledgement", async () => {
+    const shell = fakeDesktopBridge({ capabilities: { mic: true } });
+    const gateway = createDesktopGateway(shell.bridge.meetings!);
+    await expect(
+      gateway.finalize(null, { id: "mtg_1", transcript: [] } as never),
+    ).rejects.toMatchObject({ message: DESKTOP_WRITE_SENTENCES.queued });
+  });
+
+  test("...and a finalize that landed carries the path the gateway chose", async () => {
+    const shell = writingShell("5-meetings/x.md");
+    const gateway = createDesktopGateway(shell.bridge.meetings!);
+    const ack = await gateway.finalize(null, { id: "mtg_1", transcript: [] } as never);
+    expect(ack.notePath).toBe("5-meetings/x.md");
+    expect(ack.state).toBe("complete");
+    // Nothing was written conditionally, and this ack does not claim it was.
+    expect(ack.conflictSafe).toBe(false);
+  });
+
+  test("a meeting the shell's queue parked is parked here too, with the shell's sentence", async () => {
+    const shell = fakeDesktopBridge({
+      capabilities: { mic: true },
+      write: (write) => ({
+        sessionId: write.sessionId,
+        queued: false,
+        notePath: null,
+        rejected: { code: "meeting_forbidden", message: "your context would not take it" },
+      }),
+    });
+    const gateway = createDesktopGateway(shell.bridge.meetings!);
+    await expect(gateway.putSession(null, { id: "mtg_1", transcript: [] } as never)).rejects.toMatchObject({
+      code: "meeting_forbidden",
+      message: "your context would not take it",
+    });
+  });
+
+  test("...and a code this build does not know parks rather than retrying forever", async () => {
+    const shell = fakeDesktopBridge({
+      capabilities: { mic: true },
+      write: (write) => ({
+        sessionId: write.sessionId,
+        queued: false,
+        notePath: null,
+        rejected: { code: "meeting_teapot", message: "no" },
+      }),
+    });
+    const gateway = createDesktopGateway(shell.bridge.meetings!);
+    await expect(gateway.putSession(null, { id: "mtg_1", transcript: [] } as never)).rejects.toMatchObject({
+      code: "meeting_invalid",
+    });
+  });
+
+  /* --- which writer, and when it is not this one ------------------------- */
+
+  test("a browser keeps the writer it had", () => {
+    const page = fakeGateway();
+    expect(meetingsWriterFor(page, null)).toBe(page);
+  });
+
+  test("A SHELL OLDER THAN THIS BUNDLE KEEPS IT TOO — version 1 has no `meetings`", () => {
+    const page = fakeGateway();
+    const old = fakeDesktopBridge({ noMeetings: true, capabilities: { mic: true } });
+    expect(old.bridge.version).toBe(1);
+    expect(meetingsWriterFor(page, old.bridge)).toBe(page);
+  });
+
+  test("...and a shell that offers one does not", () => {
+    const page = fakeGateway();
+    const shell = writingShell();
+    expect(meetingsWriterFor(page, shell.bridge)).not.toBe(page);
   });
 });
 

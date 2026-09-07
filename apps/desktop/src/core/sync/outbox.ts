@@ -49,6 +49,25 @@ export interface OutboxEntry {
   id: string;
   sessionId: string;
   kind: OutboxKind;
+  /**
+   * The `@name` this meeting is addressed to, without the `@`, or `null`.
+   *
+   * `null` — and everything the tray records — means **the connection's own
+   * default context**, which is the one this machine's grant was minted for.
+   * That is not a fallback: a machine holds one grant, and "the context this
+   * credential is for" and "this person's brain" are the same bucket by
+   * construction.
+   *
+   * It exists because the console can address a meeting somewhere else. The
+   * gateway routes on an optional `@name` at the front of the path, so this is
+   * a *slug* rather than a path: `routableContext` checks it against the same
+   * pattern the gateway's own selector accepts, and a value that fails is
+   * refused rather than falling off the front of the URL and being served by
+   * whatever context the credential defaults to. That silent fallback is a
+   * meeting written into the wrong tenant, which is the one outcome worth
+   * refusing to send.
+   */
+  context?: string | null;
   /** The JSON body posted to the route for this kind. */
   body: Record<string, unknown>;
   queuedAt: number;
@@ -83,6 +102,8 @@ export function normalizeOutbox(raw: unknown): Outbox {
   const source = raw as { version?: unknown; entries?: unknown };
   if (source.version !== OUTBOX_VERSION || !Array.isArray(source.entries)) return emptyOutbox();
   const entries = source.entries.filter((entry): entry is OutboxEntry => {
+    // See below: `context` is read at send time rather than trusted here.
+
     if (typeof entry !== "object" || entry === null) return false;
     const candidate = entry as Partial<OutboxEntry>;
     return (
@@ -122,8 +143,51 @@ export interface QueueInput {
   sessionId: string;
   kind: OutboxKind;
   body: Record<string, unknown>;
+  /** See `OutboxEntry.context`. Absent and `null` both mean this machine's own. */
+  context?: string | null;
   now: number;
 }
+
+/**
+ * A slug the gateway's workspace selector will read as one, or `null`.
+ *
+ * `splitWorkspacePath` in `apps/mcp/src/session.js` accepts `[a-z0-9-]{2,32}`
+ * and treats anything else as "no slug at all" — the path is then served by the
+ * connection's default context. Restated here rather than imported, because the
+ * desktop app does not depend on the worker's source; the point of mirroring it
+ * is that a value this pattern refuses is exactly a value that would be
+ * *ignored* on the far end, and being ignored is what makes it dangerous.
+ *
+ * `null` in is `null` out and means the connection's own context, which is the
+ * ordinary case and everything the tray records.
+ */
+export function routableContext(value: unknown): string | null {
+  /*
+    Absent is the only thing that means "this machine's own context".
+
+    Anything else that is not a legal slug is `UNROUTABLE` rather than `null`,
+    including an empty string and a value a queue file on disk was corrupted
+    into. Reading those as "the default" is precisely the silent wrong-tenant
+    write this function exists to prevent — the difference between "nobody named
+    a context" and "somebody named one and we could not read it" is the whole
+    point, and only the first is an address.
+  */
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") return UNROUTABLE;
+  return ROUTABLE_SLUG.test(value) ? value : UNROUTABLE;
+}
+
+const ROUTABLE_SLUG = /^[a-z0-9-]{2,32}$/;
+
+/**
+ * What `routableContext` answers for a value that is a name and not a legal one.
+ *
+ * A separate sentinel from `null`, because the two must not be confused: `null`
+ * is "this machine's own context" and is a correct address, while this is "a
+ * context nobody can route to" and must never be sent. `contextRouteFor`
+ * refuses the entry rather than dropping the slug.
+ */
+export const UNROUTABLE = "\u0000unroutable";
 
 /**
  * Add or collapse one write.
@@ -144,6 +208,7 @@ export function queueWrite(outbox: Outbox, input: QueueInput): Outbox {
       id,
       sessionId: input.sessionId,
       kind: input.kind,
+      context: input.context ?? null,
       body: input.body,
       queuedAt: input.now,
       updatedAt: input.now,
@@ -168,6 +233,12 @@ export function queueWrite(outbox: Outbox, input: QueueInput): Outbox {
 
   const next: OutboxEntry = {
     ...existing,
+    /*
+      The newest address wins, exactly as the newest body does. A meeting whose
+      destination was changed between two writes is one meeting going one place;
+      keeping the first address would send half of it to the other.
+    */
+    context: input.context ?? null,
     body,
     updatedAt: input.now,
     ...(existing.state === "parked"
@@ -205,7 +276,19 @@ export function backoffMs(attempts: number, jitter = 0): number {
 }
 
 export type DrainResult =
-  | { ok: true }
+  | {
+      ok: true;
+      /**
+       * Where the note landed, for a finalize the gateway answered with one.
+       *
+       * The one fact in a successful ingest the client did not already know,
+       * and the reason it is carried rather than dropped: on the console path
+       * the *page* is waiting to hear that its meeting reached the bucket, and
+       * "the queue accepted it" is not that. Absent for every other kind, and
+       * for a gateway that answered without one.
+       */
+      notePath?: string | null;
+    }
   | { ok: false; code: string; message: string; retryable: boolean };
 
 /**
@@ -256,6 +339,67 @@ export function applyDrain(
     ];
   });
   return { ...outbox, entries };
+}
+
+/**
+ * PUT A DRAIN'S OUTCOME BACK ON A QUEUE THAT MOVED WHILE IT WAS IN FLIGHT.
+ *
+ * A drain is a snapshot plus a network round trip, and the queue is not frozen
+ * for the duration: a segment is spoken, somebody types in the notepad, the
+ * console hands over a write. Assigning the drain's result over the live queue
+ * — `outbox = report.outbox` — silently drops every one of those, and the write
+ * it drops has already been reported to whoever queued it as accepted. On the
+ * console path that is a **false acknowledgement**: `meetings.write` answered
+ * `queued: true` for a note the queue no longer holds, and
+ * `docs/decisions/app-and-console.md`'s rule is exactly that a UI may never
+ * claim a write it has not seen land.
+ *
+ * So the drain's outcome is *re-applied* rather than assigned, entry by entry:
+ *
+ *  - **Queued during the drain** — the drain knows nothing about it, so it is
+ *    kept untouched. This is the case that was being lost.
+ *  - **Acknowledged, and unchanged since** — removed, which is what an
+ *    acknowledgement means.
+ *  - **Acknowledged, but changed since** — kept. What the gateway acknowledged
+ *    is not what the queue is now holding: a `segments` entry that merged three
+ *    more segments while its predecessor was in flight is not the entry that
+ *    was sent, and dropping it drops those three. Re-sending the whole entry is
+ *    safe by the protocol's own rule — segments merge on a stable id and every
+ *    route upserts.
+ *  - **Refused or parked** — the drain's bookkeeping (the backoff it earned,
+ *    the parked flag it set) is kept, over whatever content the queue now
+ *    holds. A refusal is about the meeting, not about the bytes.
+ *
+ * Compared on `updatedAt` because `queueWrite` stamps it on every collapse,
+ * which makes it exactly "the content changed" and nothing else.
+ */
+export function reconcileDrain(before: Outbox, drained: Outbox, live: Outbox): Outbox {
+  if (live === before) return drained;
+
+  const wasById = new Map(before.entries.map((entry) => [entry.id, entry]));
+  const drainedById = new Map(drained.entries.map((entry) => [entry.id, entry]));
+
+  const entries = live.entries.flatMap((entry): OutboxEntry[] => {
+    const was = wasById.get(entry.id);
+    if (was === undefined) return [entry];
+
+    const changed = entry.updatedAt !== was.updatedAt;
+    const after = drainedById.get(entry.id);
+    if (after === undefined) return changed ? [entry] : [];
+    if (!changed) return [after];
+
+    const kept: OutboxEntry = {
+      ...entry,
+      attempts: after.attempts,
+      nextAttemptAt: after.nextAttemptAt,
+      state: after.state,
+    };
+    if (after.parked !== undefined) kept.parked = after.parked;
+    if (after.lastError !== undefined) kept.lastError = after.lastError;
+    return [kept];
+  });
+
+  return { ...live, entries };
 }
 
 /** Every entry for one session — what "this meeting has not been saved" means. */

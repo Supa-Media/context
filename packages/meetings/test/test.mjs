@@ -105,6 +105,40 @@ check(
   ROUTES.session("mtg_x") !== ROUTES.sessions
 );
 check("the per-session routes are built from the id", ROUTES.segments("mtg_x").endsWith("/mtg_x/segments"));
+
+/*
+  AN ID IN A URL IS A ROUTE, NOT A NAME.
+
+  These builders are string interpolation, and their output is concatenated onto
+  a base URL and fetched with a bearer credential by `apps/desktop`. `fetch`
+  normalises what it is given, so an id carrying `..` or `#` moves the request:
+  MEASURED with `new URL`, `a/../../../inbox#` under `.../finalize` resolves to
+  `POST /inbox`, and `a#frag` truncates the path so `/finalize` is dropped
+  entirely.
+
+  Callers validate — the gateway runs `isMeetingId` at `matchMeetingRoute`, and
+  `apps/desktop`'s bridge does the same on the id a page mints. This is the
+  other half: **encode here, so a traversal cannot be spelled even by a caller
+  that forgets to ask.** A validator protects one caller; an encoder protects
+  the shape.
+*/
+for (const [name, build] of [
+  ["session", ROUTES.session],
+  ["segments", ROUTES.segments],
+  ["notes", ROUTES.notes],
+  ["finalize", ROUTES.finalize],
+  ["transcribe", ROUTES.transcribe],
+]) {
+  const moved = new URL(build("a/../../../inbox#"), "https://gateway.invalid").pathname;
+  check(
+    `ROUTES.${name} cannot be walked out of /meetings/sessions`,
+    moved.startsWith("/meetings/sessions/"),
+  );
+}
+check(
+  "...and a well-formed id still round-trips unchanged, so the encoding costs nothing",
+  ROUTES.finalize("mtg_abcdefghjkmnpqrstvwx") === "/meetings/sessions/mtg_abcdefghjkmnpqrstvwx/finalize",
+);
 check(
   "...and hang off the one-session route rather than restating it",
   ["segments", "notes", "finalize", "transcribe"].every((name) =>

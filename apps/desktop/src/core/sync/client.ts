@@ -24,7 +24,7 @@
 import { ERRORS, ROUTES } from "../contract.ts";
 import type { OutboxEntry } from "./outbox.ts";
 import type { DrainResult } from "./outbox.ts";
-import { isRetryable } from "./outbox.ts";
+import { UNROUTABLE, isRetryable, routableContext } from "./outbox.ts";
 
 export interface GatewayConfig {
   /** Origin plus any fixed path, no trailing slash. See `acceptableGatewayUrl`. */
@@ -36,7 +36,28 @@ export interface GatewayConfig {
   timeoutMs?: number;
 }
 
-/** The route one entry posts to. */
+/**
+ * The full path one entry posts to, or `null` when it is not addressable.
+ *
+ * `null` is a refusal rather than a fallback, and that direction is the whole
+ * point: an `@name` the gateway's selector will not read falls off the front of
+ * the path and the request is served by whatever context the credential
+ * defaults to — a meeting written into the wrong tenant, in silence. Refusing
+ * parks the entry with a sentence instead, which is what an absent capability
+ * looks like everywhere else in this app.
+ *
+ * The `@` is written even though the selector treats it as cosmetic: it is what
+ * a person sees in their MCP client settings, and a name in a URL that reads as
+ * a name is the difference between a path segment and a directory.
+ */
+export function contextRouteFor(entry: Pick<OutboxEntry, "kind" | "sessionId" | "context">): string | null {
+  const route = routeFor(entry);
+  const slug = routableContext(entry.context);
+  if (slug === UNROUTABLE) return null;
+  return slug === null ? route : `/@${slug}${route}`;
+}
+
+/** The route one entry posts to, before the context is put on the front. */
 export function routeFor(entry: Pick<OutboxEntry, "kind" | "sessionId">): string {
   switch (entry.kind) {
     case "session":
@@ -67,6 +88,22 @@ function codeForStatus(status: number): string {
 }
 
 export async function postEntry(config: GatewayConfig, entry: OutboxEntry): Promise<DrainResult> {
+  const address = contextRouteFor(entry);
+  if (address === null) {
+    /*
+      Not retryable, because it will read the same way on every attempt, and a
+      refusal retried forever against somebody's gateway is what parking exists
+      to stop. The message does not echo the slug back: a refusal that repeats
+      what it was sent is a reflection, and this string is written to a log.
+    */
+    return {
+      ok: false,
+      code: ERRORS.invalid,
+      message: "this meeting is addressed to a context this machine cannot reach",
+      retryable: false,
+    };
+  }
+
   const token = await config.token();
   if (token === null) {
     // Not a rejection: this machine is simply not connected yet. The meeting
@@ -80,7 +117,7 @@ export async function postEntry(config: GatewayConfig, entry: OutboxEntry): Prom
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs ?? 20_000);
 
   try {
-    const response = await doFetch(`${config.baseUrl}${routeFor(entry)}`, {
+    const response = await doFetch(`${config.baseUrl}${address}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -93,12 +130,25 @@ export async function postEntry(config: GatewayConfig, entry: OutboxEntry): Prom
     if (response.ok) {
       // A 2xx that is not JSON is a proxy, not the gateway. Retryable, and
       // never counted as an ingest.
+      let ack: { notePath?: unknown };
       try {
-        await response.clone().json();
+        ack = (await response.clone().json()) as { notePath?: unknown };
       } catch {
         return retryable(ERRORS.unavailable, "the reply was not from a gateway");
       }
-      return { ok: true };
+      /*
+        The note's path, when the gateway answered with one.
+
+        Read off the ack rather than composed here — where a note lands is the
+        gateway's decision, including the folder fallback it applies when the
+        one it was asked for is refused, so a path this client guessed would be
+        the wrong one exactly when it mattered. Carried only for a finalize
+        because that is the only kind whose answer contains one.
+      */
+      return {
+        ok: true,
+        notePath: typeof ack?.notePath === "string" && ack.notePath !== "" ? ack.notePath : null,
+      };
     }
 
     let code = codeForStatus(response.status);

@@ -35,6 +35,8 @@
  *    shell-side check that the exposed bridge is frozen — not weakening this
  *    one, which is what makes a planted bridge visible at all.)
  *  - **A version this bundle does not understand.** See below.
+ *  - **A surface that is missing a member its own version promised.** Checked
+ *    per version, against the row that was true when that shell shipped.
  *  - **A credential-shaped member.** `desktop.md` is unambiguous: *"There is no
  *    `getToken` here and there must not be."* A shell that grew one is a shell
  *    this bundle refuses to talk to, which turns that sentence into a check
@@ -123,29 +125,49 @@ export type BridgeRefusal =
  * satisfy. Editing the v1 row is how a bundle starts refusing shells that are
  * doing nothing wrong.
  */
+const VERSION_1_MEMBERS: readonly string[] = Object.freeze([
+  "capabilities",
+  "startCapture",
+  "pauseCapture",
+  "resumeCapture",
+  "stopCapture",
+  "onSegment",
+  "onLevel",
+  "onCaptureState",
+  "onDetection",
+  "onTrayCommand",
+]);
+
 const REQUIRED_MEMBERS: Readonly<Record<number, readonly string[]>> = Object.freeze({
-  1: Object.freeze([
-    "capabilities",
-    "startCapture",
-    "pauseCapture",
-    "resumeCapture",
-    "stopCapture",
-    "onSegment",
-    "onLevel",
-    "onCaptureState",
-    "onDetection",
-    "onTrayCommand",
-  ]),
+  1: VERSION_1_MEMBERS,
+  /*
+    Version 2 adds `meetings`, which is a sub-object rather than a method, so
+    this row is version 1's list unchanged. It is written as a reference to the
+    same frozen array rather than retyped: the two rows really are the same
+    list, and a copy is a place for them to drift apart one member at a time.
+  */
+  2: VERSION_1_MEMBERS,
 });
 
 /** The sub-objects, and the methods each must carry, per version. */
+const VERSION_1_SUB_MEMBERS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  connection: Object.freeze(["get", "connect", "disconnect", "onChange"]),
+  outbox: Object.freeze(["status", "drain", "onChange"]),
+});
+
 const REQUIRED_SUB_MEMBERS: Readonly<
   Record<number, Readonly<Record<string, readonly string[]>>>
 > = Object.freeze({
-  1: Object.freeze({
-    connection: Object.freeze(["get", "connect", "disconnect", "onChange"]),
-    outbox: Object.freeze(["status", "drain", "onChange"]),
-  }),
+  1: VERSION_1_SUB_MEMBERS,
+  /*
+    **The version-1 row above is untouched, and that is the rule this table
+    exists for.** A shell in somebody's Applications folder answers `1` and is
+    checked against the list that was true when it shipped, which is the only
+    list it can satisfy. Adding `meetings` to row 1 would make this bundle
+    refuse every shell that predates it — shells that are doing nothing wrong —
+    and the page would silently become a browser on every one of them.
+  */
+  2: Object.freeze({ ...VERSION_1_SUB_MEMBERS, meetings: Object.freeze(["write"]) }),
 });
 
 /**

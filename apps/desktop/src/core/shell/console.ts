@@ -128,12 +128,21 @@ export interface BridgeExposure {
  *    whoever the page embedded.
  *
  * This function runs in the renderer, and a compromised renderer is the threat,
- * so it is not the only layer: `mayAnswerSender` below is what the main process
- * applies to the sender of every console channel, and the two are not one check
- * written twice. **That one decides which renderer is answered — by frame
- * identity, which the page cannot spell — and this one decides which document
- * is trusted.** Either alone leaves a hole, and until `#272` the second one
- * existed only in a sentence here saying that it did not.
+ * so it is not the only layer: `isBridgeSender` in `main/consoleBridge.ts` is
+ * what the main process applies to the sender of every bridge channel, and the
+ * two are not one check written twice. **That one decides which renderer is
+ * answered — by frame identity and the sender's own origin, neither of which
+ * the page can spell — and this one decides which document is trusted.**
+ *
+ * Either alone leaves a hole, and for a while the second one existed only in
+ * sentences like this one. `#272` found it stated here, specified as guard 3 in
+ * `docs/decisions/desktop.md` beside a named test and a sabotage record for
+ * that test, and repeated in `packages/desktop-bridge` as the reason its own
+ * credential check is allowed to be a name check a Proxy walks past — while
+ * `senderFrame` and `event.sender` appeared nowhere in `apps/desktop/src` and
+ * none of the seventeen `ipcMain` handlers looked at who was asking. `#277`
+ * built it. What this paragraph is now is a pointer to code rather than a
+ * description of code that was never written.
  */
 export function shouldExposeBridge(exposure: BridgeExposure): boolean {
   const { pinned, origin, isTopFrame } = exposure;
@@ -141,138 +150,4 @@ export function shouldExposeBridge(exposure: BridgeExposure): boolean {
   if (pinned === "" || pinned === "null") return false;
   if (origin === "" || origin === "null") return false;
   return origin === pinned;
-}
-
-/**
- * What the main process can see about who sent an IPC message.
- *
- * Two facts, both read off `event` in `main/index.ts` and neither of them the
- * renderer's word for anything — which is the difference between this and
- * `shouldExposeBridge`, where `location.origin` is what the document says
- * about itself.
- */
-export interface SenderEvidence {
-  /** `event.sender === consoleWindow.webContents`. */
-  isConsoleWindow: boolean;
-  /**
-   * `event.senderFrame?.parent === null`.
-   *
-   * `parent` and not `event.senderFrame === event.sender.mainFrame`, though
-   * both were measured to work: Electron's own typings caution that "distinct
-   * `WebFrameMain` instances that refer to the same underlying frame will have
-   * the same `routingId`", which is the API telling you not to lean on `===`
-   * between frames. `parent === null` for the top frame is documented
-   * behaviour rather than an identity invariant. A `senderFrame` of `null` —
-   * a frame that has gone away — gives `undefined === null`, which is false.
-   */
-  isMainFrame: boolean;
-}
-
-/**
- * May the main process answer this sender on a console channel?
- *
- * ## This is the half `shouldExposeBridge`'s docblock claimed already existed
- *
- * It said the main process "re-checks the sender on every channel it handles",
- * and `docs/decisions/desktop.md` specified it as guard 3 — "each
- * `ipcMain.handle` compares `event.senderFrame.url`'s origin to the pinned one"
- * — beside a named test and a sabotage record for it. MEASURED when those were
- * read against the tree: `senderFrame` and `event.sender` appeared nowhere in
- * `apps/desktop/src`, **none of the seventeen** `ipcMain` handlers looked at who
- * was asking, and the named test did not exist. The layer was prose, and so was
- * the sabotage that was supposed to have proved it.
- *
- * Nothing had leaked, and the reason is not the one it is tempting to write.
- * Both console channels answer values that are already public — the origin is in
- * the window's own URL, the shell info is a name and a version. What protects
- * the twelve `COMMANDS.*` channels is **not** a sendless preload:
- * `preload/index.ts` exposes twelve send verbs, `record` and `connect` among
- * them. It is that every window holding that preload is a `loadFile` of HTML
- * this app ships, and the one window that loads a remote origin gets
- * `preload/console.ts`, which exposes no way to send at all.
- *
- * ## Why identity and not the sender's origin
- *
- * Not because the origin is unreadable. MEASURED on Electron 33.4.11, driving
- * the real binary: `event.senderFrame.origin` is already correct at preload
- * time, on the initial load and after a reload.
- *
- * Because it is **weaker**. The same measurement put a second `BrowserWindow`
- * on the same origin as the console, and its main frame reported that origin
- * exactly as the console's did — so the comparison guard 3 specified admits any
- * other window this app opens at that address, which is the case an
- * answering-side check most obviously exists to refuse. Identity refuses it:
- * `sender === win.webContents` was false for it and true for the console,
- * across the initial load, a reload and a cross-process navigation.
- *
- * The origin comparison keeps its place in `shouldExposeBridge`, where
- * `location.origin` is the document's own and is exactly what a redirect has to
- * get past: `will-navigate` does not fire for redirects, so a 3xx off the pin
- * lands a foreign document in this window — and the preload re-runs there, sees
- * a different origin, and exposes nothing. The main process answering that
- * frame with a public string costs nothing.
- *
- * So the two layers are: **this one decides which renderer is answered, that
- * one decides which document is trusted.** Neither is the other written twice.
- */
-/**
- * Read the two facts off the event, without trusting or throwing.
- *
- * ## Why this is here rather than inline in `main/index.ts`
- *
- * Because it is the half of guard 3 that actually touches Electron, and while
- * it lived in `main/index.ts` **nothing checked it**. MEASURED: replacing the
- * two expressions with the literals `true, true` left the suite at 586 PASS, 0
- * FAIL. `mayAnswerSender`'s own checks feed it fabricated evidence, and the
- * source-text check only looks for the call — so a reader that always answered
- * yes was a gate that always opened, tested by both of its guards and caught by
- * neither. That is the defect this whole file is a record of, one level down,
- * which is a good enough reason to move fourteen characters of expression.
- *
- * ## Three refusals, and each is a real way to be wrong
- *
- * **A `parent` that throws.** Electron raises `Render frame was disposed before
- * WebFrameMain could be accessed` on a frame whose render frame has gone, and
- * `?.` does not guard that — it guards `null`, not a throwing getter. Measured
- * consequence if it ever fired in a handler: `event.returnValue` is never set,
- * and a `sendSync` nobody answers **hangs the renderer** (also measured — a
- * listener answers in about a millisecond, no listener never returns). Nobody
- * has reproduced it through `event.senderFrame`, which is why this is a
- * `try` rather than a paragraph.
- *
- * **An absent window.** `sender === consoleContents` with both `undefined` is
- * `true`, which would open the gate on a build where the window is gone. The
- * expected contents must be a real value before the comparison counts.
- *
- * **An event that is not one.** Absence is a refusal here as everywhere else in
- * this file.
- *
- * @param event the `IpcMainEvent`, taken structurally so a fake can drive it.
- * @param consoleContents `win.webContents` — the console window's, and no
- *   other's.
- */
-export function senderEvidenceFrom(
-  event: { sender?: unknown; senderFrame?: unknown } | null | undefined,
-  consoleContents: unknown
-): SenderEvidence {
-  if (!event || typeof event !== "object") return { isConsoleWindow: false, isMainFrame: false };
-  const known = consoleContents !== undefined && consoleContents !== null;
-  let isMainFrame = false;
-  try {
-    isMainFrame = (event.senderFrame as { parent?: unknown } | null | undefined)?.parent === null;
-  } catch {
-    // A disposed frame is not a main frame. See the header: the alternative is
-    // an exception that leaves `returnValue` unset and hangs the sender.
-    isMainFrame = false;
-  }
-  return { isConsoleWindow: known && event.sender === consoleContents, isMainFrame };
-}
-
-export function mayAnswerSender(evidence: SenderEvidence | null | undefined): boolean {
-  // Absent evidence is a refusal, not a default. `event.senderFrame` is `null`
-  // for a frame that has already gone away, and a missing field must not read
-  // as a quiet yes — the same "absence is a refusal" the preload applies to a
-  // window that is not there.
-  if (!evidence || typeof evidence !== "object") return false;
-  return evidence.isConsoleWindow === true && evidence.isMainFrame === true;
 }
