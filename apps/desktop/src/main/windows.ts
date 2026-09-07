@@ -19,8 +19,16 @@
  * phone and this Mac at once. It is behind `CONTEXT_DESKTOP_UI=console` until
  * the bridge underneath it exists — `docs/decisions/desktop.md` has the order.
  *
- * There is no dock icon at all — `app.dock.hide()` in `index.ts`. This is a
- * menu-bar presence, and a dock icon would make it a second thing to manage.
+ * **There is a Dock icon**, and this paragraph used to say the opposite: *"no
+ * dock icon at all — `app.dock.hide()` in `index.ts`. This is a menu-bar
+ * presence, and a dock icon would make it a second thing to manage."* That was
+ * true of an app with no window. The console window made it false, and the
+ * first signed build proved it: an app with a window, no Dock tile and no app
+ * switcher entry is one the person who installed it cannot find. What was
+ * reasoned about as "a second thing to manage" is, to somebody who owns a Mac,
+ * the only way they open anything. The menu-bar item stays exactly as it was —
+ * recording still needs no window — and `docs/decisions/desktop.md`, "The app
+ * is in the Dock", records the reversal and whose reason it is.
  */
 
 import { BrowserWindow, screen, shell } from "electron";
@@ -140,6 +148,14 @@ export function createConsoleWindow(url: string, rendererDir: string): BrowserWi
     minWidth: 720,
     minHeight: 480,
     show: false,
+    /*
+      Named, because the title bar is not the only place a window title is read:
+      it is the Window menu's entry and what the app switcher and Mission
+      Control show. `hiddenInset` hides the bar's own text, and a page is free
+      to set `document.title` over this — `title` here is what the window is
+      called before the console has loaded, and on a launch where it never does.
+    */
+    title: "Context",
     titleBarStyle: "hiddenInset",
     // Painted before the page is, so a cold load shows the app's own ground
     // rather than Chromium's white. Matches `renderer/tokens.css`.

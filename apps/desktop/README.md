@@ -1,7 +1,8 @@
 # `@context/desktop` — the app that notices the meeting
 
-A menu-bar app for macOS that recognises when you are in a meeting, asks
-whether to take notes, and records it **without anything joining the call**.
+A Mac app — a window in the Dock **and** an item in the menu bar — that
+recognises when you are in a meeting, asks whether to take notes, and records it
+**without anything joining the call**.
 No bot, no extra participant, no "Context Notetaker has joined". The machine
 captures its own system audio and your microphone locally, and the note lands
 as plain Markdown in the bucket you own — readable through the Context MCP
@@ -53,7 +54,39 @@ pnpm --filter @context/desktop start     # electron dist/main/index.cjs
 pnpm --filter @context/desktop dev       # rebuild on change; start in another shell
 pnpm --filter @context/desktop test      # offline; no Electron needed
 pnpm --filter @context/desktop typecheck
+pnpm --filter @context/desktop smoke     # starts it in real Electron; needs a build
 ```
+
+### The check that starts the app
+
+`pnpm test` is offline and has no Electron in it, which is right for what it
+checks and is exactly why it could not see the worst bug this app has had: the
+first signed, notarised build **could not launch at all**, and it went out
+through 922 passing checks because nothing here had ever *started* it.
+
+`pnpm smoke` is that check. It builds nothing, starts the app in real Electron
+with `--smoke`, and reads the answers off a running process — the module graph
+evaluated, a window exists, macOS gave it a tray, a Dock tile and an application
+menu, and which address the console was pointed at. Run it against the packaged
+app too, which is what a person installs and where the console address differs:
+
+```sh
+pnpm --filter @context/desktop package
+pnpm --filter @context/desktop smoke -- --app release/mac-arm64/Context.app
+```
+
+`--smoke` is a mode of the app rather than of the harness, and **its exit code
+is the contract**: 0 only if it initialised, created a window and printed one
+`[smoke]` line; non-zero for no window, an uncaught error, or a `main()` that
+did not finish in ten seconds. It needs no network — the assertion is that the
+window was *created*, not that the page loaded.
+
+The one failure it cannot exit on is the one it was written for. A throw during
+module evaluation happens before any line of the app runs; Electron answers that
+with a modal dialog and an indefinite wait, so **whatever runs `--smoke` must
+impose its own limit** — the harness kills the process, and a release step has
+to wrap it in `timeout`. Measured, against a deliberately reverted build: the
+packaged app printed nothing, opened nothing, and was still alive at 60s.
 
 ### Which UI a launch hosts
 
@@ -69,11 +102,17 @@ CONTEXT_DESKTOP_UI_URL=https://context.example/console \
 ```
 
 `CONTEXT_DESKTOP_UI_URL` says where the console comes from, defaulting to
-`http://localhost:8081` outside production so **`expo start` is what you develop
-against** — start it first, or the window will show the offline page because
-there is nothing at that address yet. Anything other than `renderer` in
+`https://context.lc/console` in an **installed** build and to
+`http://localhost:8081` in an unpackaged one, so **`expo start` is what you
+develop against** — start it first, or the window will show the offline page
+because there is nothing at that address yet. Anything other than `renderer` in
 `CONTEXT_DESKTOP_UI` is read as `console`: a misspelt mode is not a reason to
 start an app with no UI at all.
+
+That choice is `app.isPackaged` and deliberately not `NODE_ENV`, which nothing
+in this repository or in macOS ever sets — until this was fixed, every installed
+build pointed at a `localhost` port nothing was listening on and opened a blank
+window. `docs/decisions/desktop.md` has the whole of it.
 
 The console window carries the whole bridge from `@context/desktop-bridge` —
 capture, connection, outbox, and the meeting writes of version 2 — over this
@@ -270,6 +309,19 @@ never quietly drop.
   every asset through `performance.getEntriesByType` is a fact about Chromium;
   `[mirror]` in the log and the size of `mirror/v1/current` in the app's
   `Application Support` directory are the evidence.
+- **The permission dialogs still behave.** `LSUIElement` and `app.dock.hide()`
+  are gone from a console launch, and both affect whether an app can become the
+  active application — which is what a TCC prompt appears over. Nothing about
+  the entitlements, the usage strings or the permission call sites changed, and
+  the expectation is that the microphone and Screen Recording dialogs behave
+  *more* normally rather than less, but that is reasoning and not a result.
+  Grant the microphone to a signed build and watch what the dialog does.
+- **The menu-bar item is visible on a Mac with room for it.** Verified here that
+  `Tray` is created and answers with bounds in both the packaged app and a dev
+  launch; on the machine this was fixed on, twelve other menu-bar extras beside a
+  notch meant macOS drew none of the overflow, including this one — in the *old*
+  accessory-mode build as well, so it is not a consequence of this change.
+  Somebody with a less crowded menu bar should confirm the ring appears.
 
 ## Consent, because this app watches what you are doing
 
@@ -301,7 +353,7 @@ the settings file, put in a URL, or exposed to a renderer.
 
 ## What is real, and what is not
 
-### Real, and checked by the suite (895 checks, offline, no network)
+### Real, and checked by the suite (935 checks, offline, no network)
 
 - The detection loop against fake collectors, including the flicker cases: one
   poll of a conferencing app does not start a recording, a two-poll blip does
@@ -373,10 +425,16 @@ failures — and the checks were rewritten until each sabotage reports itself.
   contiguous arithmetic rather than a clock, system audio degrading to mic-only
   rather than failing the meeting, and every track stopped on every exit path.
 
+- **That the app starts at all**, which is `pnpm smoke` and not this suite. It
+  is separate because it needs a build and a real Electron, and it exists
+  because the offline suite was green for every build that could not launch.
+
 ### Real, but only a person on a Mac can confirm it
 
 - The Electron main process, tray, windows, IPC and preloads. They compile and
-  bundle; nothing here can run them, because there is no display.
+  bundle; the offline suite cannot run them, because there is no display —
+  `pnpm smoke` runs them on a Mac, and is the reason this list is shorter than
+  it was.
 - `src/main/capture.ts` — the hidden window itself and
   `setDisplayMediaRequestHandler` with `audio: "loopback"`. The renderer half's
   rotation, offsets and degradation are checked above against a fake browser;

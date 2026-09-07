@@ -10,6 +10,7 @@
     "dev": "node scripts/build.mjs --watch",
     "build": "node scripts/build.mjs",
     "test": "node --experimental-strip-types test/test.mjs",
+    "smoke": "node test/launch.smoke.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "echo \"no lint configured yet\" && exit 0",
     "package": "node scripts/build.mjs && electron-builder --mac --config electron-builder.yml --publish never"

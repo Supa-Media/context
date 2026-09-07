@@ -17,8 +17,8 @@
  * dropped rather than starting a recording of whatever is happening instead.
  */
 
-import { app, dialog, ipcMain, session } from "electron";
-import type { BrowserWindow } from "electron";
+import { BrowserWindow, Menu, app, dialog, ipcMain, session } from "electron";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { release } from "node:os";
 import { createDetectionLoop, loadDetector } from "../core/detection/loop.ts";
@@ -90,6 +90,70 @@ import type { DesktopSettings } from "../core/settings.ts";
 /** `--fake-signals` runs the whole app against the deterministic collectors. */
 const FAKE = process.argv.includes("--fake-signals");
 /**
+ * `--smoke` starts the app, says what it found, and exits with a verdict.
+ *
+ * The only test scaffolding in this process, and it is here because the
+ * alternative shipped: a build that threw `Dynamic require of "events"` from
+ * the first line of the bundle went out signed, notarised and stapled through
+ * 922 passing checks, because nothing in this repository had ever *started* it.
+ *
+ * **The contract the release workflow depends on is the exit code**, so it is
+ * stated here rather than left to a harness:
+ *
+ *  - **0** — the app initialised, a window was created, and one `[smoke]` line
+ *    was printed. Nothing else exits 0.
+ *  - **non-zero** — no window was created, an uncaught exception or rejection
+ *    reached the top, or `main()` did not finish inside {@link SMOKE_DEADLINE_MS}.
+ *  - **it always ends.** The deadline is armed before `whenReady`, so a hung
+ *    launch fails rather than holding a release job open.
+ *
+ * It needs **no network**. The assertion is that the console window was
+ * *created*, not that the page loaded: on a runner nothing answers the console
+ * address, the mirror serves its failure page, and a check that waited for a
+ * load would be a check that fails on every machine that is not a laptop.
+ * Checked rather than assumed, because the rejection handler below would
+ * otherwise turn a runner's own dead network into a failed smoke run: pointed
+ * at an unresolvable host, `createConsoleWindow`'s `void win.loadURL(url)`
+ * produces an Electron *warning* — `Failed to load URL … ERR_NAME_NOT_RESOLVED`
+ * — and no unhandled rejection.
+ *
+ * The one thing it cannot cover is stated rather than papered over: the crash
+ * this exists for threw while the module graph was still evaluating, before any
+ * line of this file ran, so no handler installed here could have caught it.
+ * What Electron does then is print `App threw an error during load`, raise a
+ * modal dialog, and wait forever. So the caller must impose its own limit —
+ * `test/launch.smoke.mjs` kills the process, and the release step wraps the run
+ * in `timeout`. The deadline below covers everything *after* load.
+ *
+ * A flag on `process.argv` rather than an environment variable, for the same
+ * reason `--fake-signals` above is one: it cannot be inherited by accident from
+ * whatever launched this, and a packaged `.app` double-clicked from the Dock
+ * carries no arguments at all.
+ */
+const SMOKE = process.argv.includes("--smoke");
+
+/** The whole of a `--smoke` run, from `whenReady` to the exit code. */
+const SMOKE_DEADLINE_MS = 10_000;
+
+/**
+ * Say why, and stop — never `app.quit()`.
+ *
+ * `quit()` runs `before-quit`, which this app legitimately cancels while a
+ * meeting is recording, and a smoke run that can be refused is a smoke run that
+ * hangs. `exit()` is unconditional and carries the code, which is the contract.
+ *
+ * It returns, and every caller must `return` with it. `app.exit()` tears the
+ * process down but does **not** stop the frame that called it, and the first
+ * version of this function ended in `throw new Error("unreachable")` on that
+ * assumption: the throw ran, the handlers below caught it, called back in here,
+ * and a passing smoke run exited **7**. The launch check found that within a
+ * minute of existing, which is the argument for it in one line.
+ */
+function endSmoke(code: number, why: string): void {
+  console.log(`[smoke] ${why}`);
+  app.exit(code);
+}
+/**
  * Which UI this shell hosts, and **the default is now the console**.
  *
  * `docs/decisions/desktop.md`'s step 4: the window hosts `apps/mobile`'s web
@@ -117,7 +181,8 @@ const RENDERER_UI = UI_MODE === "renderer";
  * process shipped an app that could not start. In a CJS build esbuild warns
  * about `import.meta` and then empties it, which would make every preload path
  * relative to the process's working directory: a window that loads, looks
- * right, and has no bridge on it.
+ * right, and has no bridge on it. `--smoke` reports whether this directory
+ * exists so that failure is loud rather than silent.
  */
 const RENDERER_DIR = join(__dirname, "..", "renderer");
 const DRAIN_INTERVAL_MS = 30_000;
@@ -147,6 +212,17 @@ let connecting = false;
  */
 let consoleWindow: BrowserWindow | null = null;
 let consoleBridge: ConsoleBridge | null = null;
+/**
+ * The address this launch resolved the console to, once it has.
+ *
+ * Recorded rather than re-derived, because the bug it exists to expose was in
+ * the *wiring* and not in `consoleUrl` itself: a signed build resolved
+ * `http://localhost:8081` and showed a blank window, and a check that asks
+ * `consoleUrl(process.env, app.isPackaged)` a second time would have agreed
+ * with itself and reported nothing. This is what the window was actually
+ * pointed at.
+ */
+let consoleAddress: string | null = null;
 /**
  * The offline mirror, and the authority on which origin is pinned.
  *
@@ -187,9 +263,92 @@ const CONSOLE_NOTICES = Object.freeze({
     "This machine could not open its window, so the menu bar is the whole app for now. Recording still works from here, and anything it records is queued until it can be sent.",
 });
 
+/**
+ * The application menu, because this is an application.
+ *
+ * There was none: `Menu.setApplicationMenu` was never called, and a menu-bar-only
+ * build did not need one — an accessory app shows no menu bar, so there was
+ * nothing to put in it. That stopped being true twice over. The console hosts a
+ * *text editor*, and a window with no Edit menu has no Cmd-C, Cmd-V, Cmd-X,
+ * Cmd-Z or Cmd-A, because on macOS those are menu key equivalents and nothing
+ * else. And a window that Cmd-W cannot close, or that Cmd-Q cannot quit, is not
+ * a Mac app.
+ *
+ * Every item is a `role`, which is deliberate: a role is macOS's own behaviour
+ * with macOS's own accelerator and macOS's own localisation, and each one this
+ * file spelled out by hand would be a keystroke somebody has to keep working.
+ * The *View* menu carries reload and nothing else — a window pinned to one
+ * origin has one page to reload, and `toggleDevTools` in a shipped build is a
+ * console on somebody's private notes.
+ *
+ * `close` and not `quit` on Cmd-W is the whole of "closing the window must not
+ * end a meeting": `window-all-closed` below refuses to quit, the tray stays,
+ * and a recording in progress runs on in this process with no window at all.
+ */
+function installApplicationMenu(): void {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: app.getName(),
+        submenu: [
+          { role: "about" },
+          { type: "separator" },
+          { role: "hide" },
+          { role: "hideOthers" },
+          { role: "unhide" },
+          { type: "separator" },
+          { role: "quit" },
+        ],
+      },
+      {
+        label: "Edit",
+        submenu: [
+          { role: "undo" },
+          { role: "redo" },
+          { type: "separator" },
+          { role: "cut" },
+          { role: "copy" },
+          { role: "paste" },
+          { role: "pasteAndMatchStyle" },
+          { role: "delete" },
+          { role: "selectAll" },
+        ],
+      },
+      { label: "View", submenu: [{ role: "reload" }, { type: "separator" }, { role: "togglefullscreen" }] },
+      {
+        label: "Window",
+        submenu: [{ role: "minimize" }, { role: "zoom" }, { type: "separator" }, { role: "close" }],
+      },
+    ]),
+  );
+}
+
 async function main(): Promise<void> {
-  // A menu-bar app, not a dock app.
-  app.dock?.hide();
+  /*
+    A Dock tile, an app-switcher entry and a menu bar — and the tray as well.
+
+    This app hid from the Dock (`app.dock.hide()` here, `LSUIElement: true` in
+    `electron-builder.yml`) because it began as a menu-bar app with no window of
+    its own. Step 4 ended that: *"the console is what a launch opens"*, and a
+    windowed application with no Dock tile and no app-switcher entry is one the
+    person who installed it cannot find. The owner's words, holding the first
+    signed build: **"I dont even see a launched app, I should be able to open
+    the app locally like all these other apps."**
+
+    Nothing about the menu bar changes — the tray is still built below, still
+    records with no window open, and is still the whole app on a launch whose
+    window could not be built. This is a Dock tile *as well as*, never instead
+    of. `docs/decisions/desktop.md`, "The app is in the Dock", is the argument.
+
+    **And it is conditional on the UI this launch hosts, not unconditional.**
+    `CONTEXT_DESKTOP_UI=renderer` is still the panel and the notepad — a popover
+    under the menu-bar icon, with no window a person opens — and that really is
+    an accessory app. It keeps `app.dock.hide()` and gets no application menu,
+    because macOS shows an accessory app's menu bar to nobody. The one escape
+    hatch step 5 is waiting to remove goes on behaving exactly as it did.
+  */
+  if (RENDERER_UI) app.dock?.hide();
+  else installApplicationMenu();
 
   const store = new DesktopStore(app.getPath("userData"));
   settings = await store.readSettings();
@@ -1035,6 +1194,7 @@ async function main(): Promise<void> {
       console.error(`CONTEXT_DESKTOP_UI=console, but ${(error as Error).message}`);
       return;
     }
+    consoleAddress = url;
 
     const origin = consoleOrigin(url);
     consoleMirror = createConsoleMirror({
@@ -1261,6 +1421,69 @@ async function main(): Promise<void> {
     event.preventDefault();
     void endMeeting().then(() => app.quit());
   });
+
+  /*
+    Clicking the Dock tile brings the app back, which is the other half of
+    having one.
+
+    On macOS `activate` fires for a Dock click, an app-switcher pick and a
+    double-click on the `.app` while it is already running. The window is
+    *destroyed* when it is closed rather than hidden (see
+    `openConsoleWindowIfAsked`), so this has to be able to build it again — a
+    handler that only raised an existing window would leave the Dock tile inert
+    for the rest of the run, which is the same bug `openConsoleWindow` was
+    written for one level up, arriving through a different door.
+
+    On a `CONTEXT_DESKTOP_UI=renderer` launch there is no console window and the
+    panel is the UI, so that is what a Dock click raises.
+  */
+  app.on("activate", () => {
+    if (panel !== null) {
+      showPanel();
+      return;
+    }
+    if (!openConsoleWindow()) explain(CONSOLE_NOTICES.noConsole);
+  });
+
+  /*
+    `--smoke`: say what a running app can say, and exit with the verdict.
+
+    Reported from the last line of `main()` on purpose — every fact below is
+    only true once the whole startup path has run, and reaching this line at all
+    is what proves the module graph evaluated. The exit code is the contract the
+    release step reads; see the flag's own comment above.
+  */
+  if (SMOKE) {
+    const menu = Menu.getApplicationMenu();
+    const windows = BrowserWindow.getAllWindows().length;
+    console.log(
+      `[smoke] ${JSON.stringify({
+        ready: true,
+        packaged: app.isPackaged,
+        windows,
+        // Real evidence rather than a constant: macOS answered with a frame for
+        // a `Tray` this process actually owns.
+        trayBounds: tray.bounds(),
+        dock: app.dock?.isVisible() ? "visible" : "hidden",
+        menuRoles: (menu?.items ?? []).flatMap((item) =>
+          (item.submenu?.items ?? []).map((entry) => entry.role).filter((role) => role != null),
+        ),
+        consoleUrl: consoleAddress,
+        /*
+          The `__dirname` change that came with building this entry as CommonJS,
+          checked rather than assumed: an empty `RENDERER_DIR` is a window that
+          loads, looks right and has no bridge on it. Answered from inside
+          Electron because in a packaged app this path is inside the asar, which
+          only Electron's patched `fs` can see.
+        */
+        rendererDir: RENDERER_DIR,
+        rendererDirExists: existsSync(RENDERER_DIR),
+      })}`,
+    );
+    if (windows < 1) return endSmoke(1, "no window was created");
+    if (!existsSync(RENDERER_DIR)) return endSmoke(1, `the renderer directory is missing: ${RENDERER_DIR}`);
+    return endSmoke(0, "the app started, opened a window, and is exiting cleanly");
+  }
 }
 
 /*
@@ -1271,7 +1494,40 @@ async function main(): Promise<void> {
 */
 if (CONSOLE_UI) registerMirrorScheme();
 
+/*
+  A `--smoke` run always ends, and it ends with a verdict.
+
+  Armed before `whenReady` so it covers the whole of a launch: a `main()` that
+  never resolves, a promise nobody caught, an exception after load. A hung smoke
+  run is a hung release job, and the one thing this flag exists to promise is
+  that the process stops on its own.
+
+  What it cannot cover is the crash it was written for — that threw while the
+  module graph was still evaluating, before this line existed to run — so the
+  caller keeps its own limit. See the flag's docblock.
+*/
+if (SMOKE) {
+  // Never cleared: every way out of a `--smoke` run goes through `endSmoke`,
+  // which exits the process. A timer that outlives that has nothing to fire in.
+  setTimeout(() => endSmoke(1, `nothing finished within ${SMOKE_DEADLINE_MS}ms`), SMOKE_DEADLINE_MS);
+  process.on("uncaughtException", (error) => endSmoke(1, `uncaught exception: ${error.message}`));
+  process.on("unhandledRejection", (reason) => endSmoke(1, `unhandled rejection: ${String(reason)}`));
+}
+
 app.whenReady().then(main);
 
-// No windows means no app on macOS — except this one, which is a menu bar.
+/*
+  Closing the window does not end the app, and it must not end a meeting.
+
+  Electron's default is to quit when the last window closes on every platform
+  but macOS; this handler overrides it everywhere, and the reason is stronger
+  than the platform convention. The recorder, the detector, the outbox and the
+  tray all live in this process and none of them needs a window: somebody who
+  closes the console mid-meeting keeps their recording, the menu bar goes on
+  saying it is recording, and *End & write up* still writes the note. Quitting
+  is `before-quit` above, which stops the microphone first.
+
+  Reopening is `activate` above — the Dock tile, the app switcher — and the
+  menu-bar click, which is why closing the window is not a way to lose the app.
+*/
 app.on("window-all-closed", () => undefined);
