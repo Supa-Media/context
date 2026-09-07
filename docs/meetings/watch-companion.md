@@ -79,10 +79,16 @@ is **not** a watchOS app: widgets and Live Activities are not a watch target.
   everything over the air on a pinned `runtimeVersion` of `1.0.0`. A watch app
   changes only when a new binary ships through the App Store. A bug in the watch
   UI is a two-week fix, not a two-hour one.
-- **`ios.appleTeamId` has to enter `app.config.js`.** It is in `eas.json` today
-  under `submit.production.ios`. That is a public repository consideration
-  rather than a secret one — a team id is not a credential — but it is a change
-  to a file with a documented no-surprises policy.
+- **`ios.appleTeamId` has to enter `app.config.js`.** The Apple team id no
+  longer lives in `eas.json` at all — it is an account identifier, and this is
+  a public, MIT-licensed repository (CLAUDE.md: "no internal hostnames, no
+  account identifiers"), so `submit.production.ios` carries no `appleTeamId`
+  key and `eas submit` reads it from the `EXPO_APPLE_TEAM_ID` environment
+  variable instead (set from the `APPLE_TEAM_ID` secret in
+  `deploy-mobile-native.yml`). `@bacons/apple-targets` wants the same value
+  under `ios.appleTeamId` in `app.config.js` for signing the watch target, so
+  adding this plugin means `app.config.js` reads `process.env.APPLE_TEAM_ID`
+  too — the same secret, a second consumer, still never committed.
 - **A second bundle identifier and a second provisioning profile.** EAS
   resolves credentials for companion watch targets by walking target
   dependencies recursively; this was a real source of build failures

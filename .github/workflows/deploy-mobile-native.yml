@@ -62,11 +62,20 @@ name: Deploy Mobile Native (build + submit)
 # on credentials, run `eas credentials` locally once — the fix is on the EAS
 # account, not in this file.
 #
-# `EXPO_PUBLIC_CONVEX_URL` is deliberately NOT read here. A native build's env
-# comes from `eas.json`'s per-profile `env` block, evaluated on EAS, so setting
-# it in the runner would be a value that looks authoritative and is ignored.
-# That is the opposite of the OTA workflow, where the bundle is exported in the
-# runner and the variable is load-bearing.
+# `EXPO_PUBLIC_CONVEX_URL` and `EAS_PROJECT_ID` are not read directly by the
+# build itself. A native build's env comes from `eas.json`'s per-profile `env`
+# block, evaluated on EAS — so setting them as *this job's* env would be a
+# value that looks authoritative and is ignored. That is the opposite of the
+# OTA workflow, where the bundle is exported in the runner and the variable is
+# load-bearing. Instead, the "Inject build-time values into eas.json" step
+# below writes the real secrets into the checked-out `eas.json` immediately
+# before `eas build` reads it — never into git, only into this run's ephemeral
+# working copy — because those two are account identifiers this repository
+# does not commit (CLAUDE.md: "no internal hostnames, no account identifiers").
+#
+# `APPLE_TEAM_ID` IS an ordinary step env, because `eas submit` reads it
+# straight from `EXPO_APPLE_TEAM_ID` in its own process environment rather
+# than from a config file EAS evaluates remotely.
 
 on:
   workflow_dispatch:
@@ -102,6 +111,13 @@ jobs:
     name: Build ${{ inputs.platform }} (${{ inputs.profile }})
     runs-on: ubuntu-latest
     environment: production
+    env:
+      # `eas build`/`eas submit` resolve the project locally (in this runner)
+      # from app.config.js's extra.eas.projectId before ever talking to EAS's
+      # remote worker, so this has to be a real value here too — separately
+      # from the "Inject build-time values into eas.json" step below, which
+      # supplies the *remote* worker's own copy.
+      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -118,6 +134,9 @@ jobs:
       - name: Preflight
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+          EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # Passed as env rather than interpolated into the node script below,
           # so a profile or platform name can never become JavaScript. They are
           # `choice` inputs today, but that is a property of this file's `on:`
@@ -126,15 +145,29 @@ jobs:
           PLATFORM: ${{ inputs.platform }}
         run: |
           set -euo pipefail
-          if [ -z "${EXPO_TOKEN:-}" ]; then
-            echo "ERROR: missing required secret 'EXPO_TOKEN' in the 'production' environment."
-            echo "It is in scripts/secrets-allowlist.json; run the Sync Secrets workflow."
-            exit 1
-          fi
+          missing=0
+          for var in EXPO_TOKEN EAS_PROJECT_ID EXPO_PUBLIC_CONVEX_URL; do
+            if [ -z "${!var:-}" ]; then
+              echo "ERROR: missing required secret '$var' in the 'production' environment."
+              echo "It is in scripts/secrets-allowlist.json; run the Sync Secrets workflow."
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
 
           if [ "${{ inputs.submit }}" != "true" ]; then
             echo "Submit not requested; skipping submit-profile checks."
             exit 0
+          fi
+
+          if [ "${PLATFORM}" = "ios" ] || [ "${PLATFORM}" = "both" ]; then
+            if [ -z "${APPLE_TEAM_ID:-}" ]; then
+              echo "ERROR: missing 'APPLE_TEAM_ID' in the 'production' environment, needed for"
+              echo "'eas submit --platform ios' (read as EXPO_APPLE_TEAM_ID). It is in"
+              echo "scripts/secrets-allowlist.json; run the Sync Secrets workflow, or re-run with"
+              echo "submit=false."
+              exit 1
+            fi
           fi
 
           node -e '
@@ -148,7 +181,8 @@ jobs:
             if (missing.length > 0) {
               console.error(
                 `apps/mobile/eas.json has no submit.${profile} config for: ${missing.join(", ")}.\n` +
-                `Add it (iOS needs appleTeamId, Android needs a service-account key), or re-run with submit=false.`
+                `Add it (iOS needs an "ios": {} entry — the team id comes from the\n` +
+                `APPLE_TEAM_ID secret — Android needs a service-account key), or re-run with submit=false.`
               );
               process.exit(1);
             }
@@ -162,6 +196,46 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # `eas.json` commits a placeholder ("REPLACED_BY_CI") for these two —
+      # both account identifiers, so this repository does not hold the real
+      # values (CLAUDE.md: "no internal hostnames, no account identifiers").
+      # `eas build` uploads this checked-out copy of the project to a remote
+      # worker that evaluates `app.config.js` itself using exactly this file's
+      # per-profile `env` block, so the real values have to land here, in the
+      # ephemeral working copy this run made from git — never committed.
+      - name: Inject build-time values into eas.json
+        working-directory: apps/mobile
+        env:
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+          EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("node:fs");
+            const path = "eas.json";
+            const eas = JSON.parse(fs.readFileSync(path, "utf8"));
+            const values = {
+              EAS_PROJECT_ID: process.env.EAS_PROJECT_ID,
+              EXPO_PUBLIC_CONVEX_URL: process.env.EXPO_PUBLIC_CONVEX_URL,
+            };
+            let replaced = 0;
+            for (const profile of Object.values(eas.build || {})) {
+              if (!profile.env) continue;
+              for (const key of Object.keys(values)) {
+                if (profile.env[key] === "REPLACED_BY_CI") {
+                  profile.env[key] = values[key];
+                  replaced++;
+                }
+              }
+            }
+            if (replaced === 0) {
+              console.error("No REPLACED_BY_CI placeholder found in eas.json build.*.env.");
+              process.exit(1);
+            }
+            fs.writeFileSync(path, JSON.stringify(eas, null, 2) + "\n");
+            console.log(`Injected build-time values into ${replaced} eas.json env entr${replaced === 1 ? "y" : "ies"}.`);
+          '
 
       # Waits for the build rather than `--no-wait`, because the submit steps
       # below use `--latest` and a submission that does not wait would pick up
@@ -179,6 +253,11 @@ jobs:
       - name: Submit iOS to App Store Connect
         if: ${{ inputs.submit && (inputs.platform == 'ios' || inputs.platform == 'both') }}
         working-directory: apps/mobile
+        env:
+          # eas-cli reads this directly — apps/mobile/eas.json no longer
+          # commits an `appleTeamId`, since it is an account identifier this
+          # public repository does not hold.
+          EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: eas submit --platform ios --latest --profile ${{ inputs.profile }} --non-interactive
 
       - name: Submit Android to Play Console

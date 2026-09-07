@@ -7,6 +7,14 @@ name: Deploy Mobile Update (OTA)
 # `eas update` exports the JS bundle in this runner, so a missing
 # EXPO_PUBLIC_CONVEX_URL would ship `undefined` and crash the app on launch —
 # exactly like a native build without it. (See docs/SECRETS.md.)
+#
+# EAS_PROJECT_ID is the same story for a different reason: `eas update` reads
+# `app.config.js`'s `extra.eas.projectId` — evaluated in THIS runner, unlike a
+# native build's — to know which EAS project to publish to. It is an account
+# identifier this public repository does not commit (CLAUDE.md), so
+# `app.config.js` falls back to a placeholder without it; missing here, that
+# placeholder would make `eas update` either fail outright or publish to the
+# wrong project, so the preflight below refuses to continue without it.
 
 on:
   push:
@@ -28,6 +36,8 @@ jobs:
     env:
       # Inlined into the OTA JS bundle at export time.
       EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      # Read by app.config.js to resolve extra.eas.projectId — see the header.
+      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -42,7 +52,7 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          for v in EXPO_TOKEN EXPO_PUBLIC_CONVEX_URL; do
+          for v in EXPO_TOKEN EXPO_PUBLIC_CONVEX_URL EAS_PROJECT_ID; do
             if [ -z "${!v:-}" ]; then
               echo "ERROR: missing required secret '$v' in the 'production' environment."
               exit 1
