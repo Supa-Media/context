@@ -1,8 +1,10 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useConsoleData } from "../../../../features/console/ConsoleDataContext";
 import {
+  anchorFromQuery,
   contextIdForSlug,
   noteFromQuery,
+  noteHref,
   settingsHref,
 } from "../../../../features/console/nav";
 import { placeFor } from "../../../../features/console/lastPlace";
@@ -62,7 +64,22 @@ export default function ContextBrowseRoute() {
   const data = useConsoleData();
   const router = useRouter();
   const slug = useContextSlug(data);
-  const note = noteFromQuery(useLocalSearchParams<{ note?: string | string[] }>().note);
+  const params = useLocalSearchParams<{ note?: string | string[] }>();
+  const note = noteFromQuery(params.note);
+  /*
+    The same `?note=` value, read again for its other half: `noteHref`'s
+    anchor is embedded as `path#anchor` in this one query value rather than a
+    second `?anchor=` parameter — the shape a per-message search hit already
+    deep-links as (`apps/mcp/src/search/CONTRACT.md`) — so `note` and `anchor`
+    are two reads of the same string, never two params that could disagree.
+    Read alongside `note` rather than through `useNoteAddress`: an anchor is
+    where to look inside the note the URL already names, never a second thing
+    to reconcile against the browser's own selection, so it does not belong in
+    that state machine. `BrowsePane` hands it to whichever communications view
+    the open path resolves to, and it is inert everywhere else — an ordinary
+    note never reads it.
+  */
+  const anchor = anchorFromQuery(params.note);
 
   useNoteAddress(
     data.files,
@@ -83,6 +100,20 @@ export default function ContextBrowseRoute() {
         was the first attempt and closed only the first half.
       */
       pendingNote={note}
+      anchor={anchor}
+      /*
+        A contact's activity link names a path *and* an anchor, which
+        `files.select` has no way to carry — so this is a real navigation
+        rather than a selection, the same URL a pasted link or a search
+        result would use. `noteHref` with no anchor is exactly `noteHref`
+        without one, so this never behaves differently for a plain link.
+      */
+      onOpenComms={
+        slug === null
+          ? undefined
+          : (path, targetAnchor) => router.push(noteHref(slug, path, targetAnchor))
+      }
     />
   );
 }
+

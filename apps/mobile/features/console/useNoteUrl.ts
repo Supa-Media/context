@@ -33,6 +33,25 @@ import { useCallback } from "react";
  * bar — which `noteFromQuery` reads as "no note", so it would work, and would
  * put a fragment of machinery in every URL anybody copies.
  */
+/**
+ * An anchor never goes stale here, and it does not need its own clearing
+ * logic to say so.
+ *
+ * `noteHref`'s anchor is embedded in the `note` value itself — `path#anchor`,
+ * one query key, split back apart by `noteFromQuery`/`anchorFromQuery` — so
+ * this hook's `note ?? undefined` fully **replaces** whatever `?note=` held
+ * before, anchor included, the same way writing a new value to any other
+ * single key would. That is different from two independent params, where
+ * `setParams` merging rather than replacing would leave one behind when only
+ * the other changed; there is only one key here; there is nothing to leave
+ * behind. This is the *reconciliation* path — the browser's own selection
+ * moved (a tapped row, a wikilink, an unsaved-changes guard settling) and the
+ * URL is catching up with a fresh navigation, always to a plain path with no
+ * anchor of its own. The one path that means to open a specific message is
+ * `onOpenComms` (a contact's activity link, or a search result), and that
+ * goes through a real `router.push(noteHref(slug, path, anchor))` instead of
+ * this hook.
+ */
 export function useNoteUrl(): (note: string | null) => void {
   /*
     Typed to the one method used. `useNavigation`'s default is React

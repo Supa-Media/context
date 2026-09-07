@@ -20,6 +20,9 @@
 module.exports = {
   testEnvironment: "node",
   testMatch: ["**/__tests__/**/*.test.js", "**/__tests__/**/*.test.ts"],
+  // See jest.setup.js: `jest-environment-jsdom` has no `TextEncoder`/
+  // `TextDecoder`, which every real engine this app ships to already does.
+  setupFiles: ["<rootDir>/jest.setup.js"],
   transform: {
     "^.+\\.[jt]sx?$": ["babel-jest", { presets: ["babel-preset-expo"] }],
   },
