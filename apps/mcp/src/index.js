@@ -3736,7 +3736,7 @@ async function openStoredNote(store, stored) {
  */
 async function generatedNoteFor(store, text, storedText) {
   return await generatedNoteBytes(text, storedText, (plaintext) =>
-    sealNoteContent(store, plaintext),
+    sealNoteContent(store, plaintext, storedText),
   );
 }
 
@@ -3754,9 +3754,29 @@ async function storedTextAt(store, key) {
  * 2 above expressed as a call graph rather than as a check somebody has to
  * remember to write.
  */
-async function sealNoteContent(store, plaintext) {
+async function sealNoteContent(store, plaintext, storedText) {
   const context = encryptionContext(store);
   if (context === null) return null;
+  /*
+   * A NOTE THIS REQUEST CANNOT OPEN IS A NOTE THIS REQUEST CANNOT WRITE.
+   *
+   * Phase 2 put a second kind of encrypted note in the bucket: one whose only
+   * recipient is a passphrase, which nothing here can open, by design. Sealing
+   * *that* note's replacement with the workspace key would leave a perfectly
+   * valid encrypted note at the path — encrypted for us, readable by every
+   * connected client, with the owner's lock gone and the ciphertext that was
+   * under it destroyed. It would look like a successful write.
+   *
+   * So the openability of the stored object gates the write, and the answer is
+   * `null`, which every caller already reads as *leave the note alone*. This is
+   * the same rule the file's header states, taken one step further than Phase 1
+   * needed: whether a write is encrypted is decided by the stored object, and
+   * whether it may happen at all is decided by the same place.
+   */
+  if (typeof storedText === "string" && isEncryptedNote(storedText)) {
+    const opened = await openStoredNote(store, storedText);
+    if (!opened.ok) return null;
+  }
   return await encryptNote(plaintext, {
     workspaceId: context.workspaceId,
     workspaceKey: context.dataKey,
@@ -3875,7 +3895,7 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
    */
   let body = content;
   if (storedBody !== null && isEncryptedNote(storedBody)) {
-    const sealed = await sealNoteContent(store, content);
+    const sealed = await sealNoteContent(store, content, storedBody);
     // No key, so this write cannot preserve the encryption the note already
     // has. Refusing is the only safe direction: the alternative is storing the
     // plaintext, which is the feature silently turning itself off.
@@ -3970,7 +3990,7 @@ async function toolSetEncryption(store, scope, rules, overrides, args) {
 
   let body;
   if (args.encrypted) {
-    body = await sealNoteContent(store, opened.text);
+    body = await sealNoteContent(store, opened.text, stored);
     if (body === null) {
       // No key reached this request. Encrypting with one we cannot read back
       // would be writing a note nothing can open, so this refuses instead.
