@@ -1419,6 +1419,173 @@ THE MACHINE'S OWN GRANT"*: the shell records, every write reaches
 a shell takes three tests red; acking a queued finalize as written takes one;
 dropping an unroutable destination instead of refusing it takes one.
 
+### A release is a build that started
+
+A Mac session's report on 2026-09-07 is why this section exists: the signed,
+notarised artifact that `deploy-desktop.yml` had been producing crashed on
+launch —
+`Dynamic require of "events"`, from `electron-updater`'s inlined CommonJS —
+and nothing in this repository had ever started the app it packages. 922
+checks passed on a build that could not open a window, because every one of
+them checks what the build *contains*, not whether it *runs*. The Gatekeeper
+verification `#285` added (*"Verify the signed app inside each dmg"*) comes
+closest and still is not this: `spctl`, `codesign --verify` and
+`stapler validate` all judge the app's signature and its packaging, and none
+of them execute a single instruction of it.
+
+**The fix is not a smarter static check — it is running the thing.** The Mac
+session's own pull request gives the app a `--smoke` mode: initialise, open
+the console window, log one line, exit 0 inside its own deadline; exit
+non-zero on any uncaught error, if no window was created, if the console
+address disagrees with `app.isPackaged`, or if the application menu is missing
+its clipboard and undo roles. This decision is the other half, owned here: a
+step in `deploy-desktop.yml`, *"Launch the app it just built"*, that runs
+`Context.app/Contents/MacOS/Context --smoke` against the exact binary
+electron-builder just produced, on a 60-second deadline it enforces itself,
+and fails the job on a non-zero exit, on the process still being alive at the
+deadline, or on the captured log naming `Uncaught Exception`, `A JavaScript
+error occurred`, or `Dynamic require` — the exact three strings a
+caught-and-swallowed crash can still leave behind after exiting 0.
+
+Five decisions inside that one step.
+
+**The deadline is `SIGKILL`, because the state it exists to catch is a process
+that has stopped answering.** Found in review, changed before merge. The first
+version was `perl -e 'alarm 30; exec @ARGV'`: macOS ships no `timeout(1)`,
+`alarm` schedules `SIGALRM`, and `exec` replaces perl's image with the app in
+place so there is no wrapper left to reap. It is the tidier shape and it rests
+on three assumptions nobody could check: that a pending `alarm(2)` survives
+`execve(2)` on Darwin, that nothing in Electron, Chromium, libuv or Node
+catches, blocks or ignores `SIGALRM`, and that a process parked in a modal
+`NSAlert` run loop dies of it anyway. **`SIGALRM` is catchable**, and the
+failure this gate exists for is precisely an app that has stopped responding —
+the Mac session measured it, alive and silent at sixty seconds behind
+Electron's crash dialog. A deadline the app can catch is not a deadline, and
+what it produces is worse than no gate at all: a release job that hangs for its
+full 45 minutes on a build that cannot start.
+
+So the step launches the app in the background, `wait`s for it, and arms a
+watchdog that sends signal 9 at the deadline. `SIGKILL` cannot be caught,
+blocked or ignored, and it does not care what run loop the main thread is in.
+The watchdog touches a marker file, so *"still alive at the deadline"* is
+reported as itself rather than inferred from an exit code that could mean
+something else. Sixty seconds rather than thirty because `--smoke` now arms its
+own 30-second deadline once its bundle evaluates: this one is the backstop for
+what that timer cannot see, a crash *during* module evaluation, which is the
+crash that shipped. A good launch was measured at 12 seconds. **The tests that
+fail if this is reversed** are in `packaging.test.mjs`: `THE DEADLINE IS
+kill -9, WHICH A CRASH DIALOG CANNOT CATCH, BLOCK OR IGNORE`, and beside it
+`...and it is not a catchable signal exec'd into the app, which is what this
+replaced`, which goes red the moment `alarm` comes back.
+
+**The launch deletes `ELECTRON_RUN_AS_NODE` rather than merely not setting
+it.** That variable makes the Electron binary run as plain Node: it swaps the
+module loader, hands the bundle a real CommonJS `require`, and never creates an
+`app` object at all — so the build that shipped, the one that threw `Dynamic
+require of "events"`, loads under it without a word. It is the single
+environment variable that turns this gate into a check that proves nothing, and
+a runner image, a composite action or a future `env:` block on this job could
+all supply it. `test/launch.smoke.mjs` deletes it for the same reason on the
+other path. `NODE_ENV` is deliberately not set either: the app chooses its
+console address from `app.isPackaged`, and a workflow that supplied `NODE_ENV`
+would be proving a packaged launch works under a variable no packaged launch
+has — which is the exact shape of the unit checks that were green while every
+installed build opened a blank window.
+
+**It runs on the unsigned path too, unconditionally.** `spctl`'s refusal is a
+check against the quarantine attribute a *download* sets; a binary this same
+runner just built and executes by its own path never carries one, so an
+unsigned build launches here exactly as a signed one does. Nothing in the step
+is gated on `steps.certificate.outputs.signed` or
+`steps.notarize_check.outputs.notarized` — which matters because `publish`
+defaults to `false` and most dispatches never reach a signed, notarised build
+at all. Gating the launch on either would have left the common path — the one
+the original crash report actually came from — exactly as unguarded as it was
+before this decision.
+
+**It sits before the artifact upload, and before publishing too — build and
+publish are two steps now, not one.** The first version of this decision left
+a real gap and said so rather than hiding it: `electron-builder --mac
+--config electron-builder.yml --publish always` used to run *inside* the
+Build step, and electron-builder's own GitHub provider uploaded to the
+release as part of building — before this launch step, or anything else, had
+a chance to object. That was flagged here as follow-up rather than shipped as
+if it were already closed, and closing it turned out to matter immediately:
+`electron-updater` polls the *latest published release* and would auto-install
+whatever is there onto every Mac already running this app, so a crashing
+build reaching that release is not a "red CI, nobody trusts it" outcome — it
+is a real regression pushed to a live install base. **So the Build step now
+always passes `--publish never`, full stop**, and publishing is a separate
+step, *"Publish the release"*, gated on `steps.decide.outputs.publish ==
+'true'` (the pre-existing publish/signed/notarised decision) **AND
+`steps.smoke.outcome == 'success'`** — this launch step's own outcome, by its
+step id. Nothing that fails to start can reach the release any more, not just
+the CI artifact.
+
+**Publishing reuses the exact bits the launch step tested, rather than
+building a second time.** The obvious-looking fix — build once ungated, gate,
+then run `electron-builder --publish always` again to publish — was rejected:
+a second invocation re-signs, re-notarises and re-packages from scratch, which
+is a *different* set of bytes than the ones that were just launched and
+verified. That defeats the entire point of testing first. So the Publish step
+instead runs `gh release create "$TAG" release/*.dmg release/*.zip
+release/latest-mac.yml`, uploading the exact files the Build step already
+produced, with the workflow's own built-in `GH_TOKEN` — no new secret. `gh
+release create` on a tag this repository already released fails outright
+rather than overwriting it, which backstops the earlier "Refuse to publish a
+version already released" step rather than replacing it.
+
+**What actually has to be in that upload was read out of the dependency,
+not assumed.** `node_modules/electron-updater`'s own `GitHubProvider.js`
+shows `getLatestVersion()` fetching `<tag>/latest-mac.yml` (macOS's channel
+file — `getChannelFilePrefix()` returns `-mac` there) and `resolveFiles()`
+resolving each entry inside it against the same release; the updater never
+asks for the dmg at all. So the three files uploaded are exactly `latest-mac.yml`,
+the zip(s) it names, and the dmg — the last one for a person's first, manual
+install, not for the updater, which is unchanged from what electron-builder
+was already uploading before this decision, just uploaded by `gh` now instead
+of by electron-builder.
+
+**The x64 launch is attempted only where the runner can actually run it.**
+`macos-latest` has been an Apple Silicon image since macos-14, and an arm64
+runner needs Rosetta to execute the x64 build under `release/mac/` at all —
+GitHub's arm64 images do not carry it by default. `arch -x86_64 /usr/bin/true`
+probes for it rather than assuming either way; its absence is a named
+`::warning::` skip, not folded into the job's pass/fail, because it is a fact
+about the runner rather than about the app. The **arm64 launch is what
+actually gates this job** — it is unconditional — and the x64 skip means that
+build ships with this one check unverified until Rosetta lands on the image or
+a person confirms it by hand, exactly as honestly stated as every other gap
+this file already documents (system audio, Gatekeeper trust on somebody else's
+Mac).
+
+**Only the last 40 lines of the captured log reach a public log, through the
+same `build/redact-signing-log.sh` the Build step already pipes through.** A
+crash log is exactly the kind of thing somebody pastes into an issue, and
+Electron's own crash reporter can echo recent log output on the way out —
+including, in principle, the signing-identity line `#285` already redacts
+once. Reusing the one shared script rather than a second copy of its pattern
+is the same reasoning `#285`'s own decision gives for that script existing at
+all: two copies of a regex are two chances for them to drift, and the exact
+way this repository's own redaction bug shipped once already.
+
+**The tests that fail if this is reversed**: `packaging.test.mjs`'s
+`"IT PRECEDES THE ARTIFACT UPLOAD — nothing that fails this gate is ever
+kept"` reads the step order in `deploy-desktop.yml` and fails if the launch
+step is not strictly before `actions/upload-artifact@v4`; deleting the launch
+step outright takes twelve checks in that file red at once, and dropping any
+one of the three crash strings from its grep takes exactly one red. For the
+publish split: `"THE BUILD STEP ALWAYS PASSES --publish never"` goes red alone
+if `--publish always` is put back on the Build step's electron-builder
+invocation; `"a step publishes the release, separately from Build"` and its
+seven neighbours (eight in total) go red together if the Publish step is
+deleted outright; `"IT COMES AFTER THE LAUNCH STEP, NOT BEFORE"` goes red
+alone if the Publish step is moved ahead of the launch step; and `"IT IS GATED
+ON THE LAUNCH STEP'S OWN OUTCOME"` goes red alone if
+`steps.smoke.outcome == 'success'` is dropped from the Publish step's `if:`.
+Every count above was produced by sabotaging the actual workflow file and
+restoring it, not guessed at.
+
 ### What is deliberately not built
 
 Not built, and none of them foreclosed:
