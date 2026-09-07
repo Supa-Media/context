@@ -207,6 +207,10 @@ export async function runPackagingChecks(check) {
     !(refused("sensitive-nonsense") ?? "").includes("sensitive-nonsense"),
   );
   check(
+    "...and base64 of something binary is named as what it almost certainly is — the certificate, in the wrong secret",
+    /belongs in CSC_LINK/.test(refused(Buffer.from([0x30, 0x82, 0x0a, 0x1f, 0x02, 0x01, 0x03]).toString("base64")) ?? ""),
+  );
+  check(
     "a key present but unusable is not a skip — the build was asked to notarise and cannot",
     refused("hello") !== null && credentials({ ASC_API_KEY_P8: "", ASC_KEY_ID: "k", ASC_ISSUER_ID: "i" }) === null,
   );

@@ -69,9 +69,11 @@ function privateKey(raw) {
   if (text.includes("\\n")) {
     text = text.replace(/\\r/g, "").replace(/\\n/g, "\n").trim();
   }
+  let base64OfSomethingElse = false;
   if (!text.includes("-----BEGIN") && /^[A-Za-z0-9+/=\n]+$/.test(text)) {
     const decoded = Buffer.from(text, "base64").toString("utf8").replace(/\r\n?/g, "\n").trim();
     if (decoded.includes("-----BEGIN")) text = decoded;
+    else base64OfSomethingElse = true;
   }
   // The `\1` is the point: a BEGIN whose END does not match it is a truncated
   // paste, and notarytool reports that as the same three words as everything
@@ -82,7 +84,14 @@ function privateKey(raw) {
     throw new Error(
       `ASC_API_KEY_P8 is not a PEM private key — ${lines} line(s), ${text.length} characters, and ` +
         `${sawBegin ? "no -----END line that matches its -----BEGIN" : "no -----BEGIN line at all"}. ` +
-        "It should be the contents of the AuthKey_XXXXXXXXXX.p8 file Apple issued, newlines and all.",
+        "It should be the contents of the AuthKey_XXXXXXXXXX.p8 file Apple issued, newlines and all — " +
+        "around 250 characters over three or four lines." +
+        // The one guess worth making, because it is the mistake the two secrets
+        // invite: CSC_LINK is base64 and this one is not, and a value that is
+        // base64 of something binary is almost certainly the certificate.
+        (base64OfSomethingElse
+          ? " What is there is base64 that decodes to something that is not a PEM at all, which is what a base64-encoded .p12 certificate looks like — that value belongs in CSC_LINK, not here."
+          : ""),
     );
   }
   // notarytool reads a file, and a PEM's last line ends.
