@@ -75,7 +75,7 @@ afterEach(() => {
 });
 
 /** Mount `LiveEditor` with a fixed note, write the page, and return the view. */
-function mount(caretAt: number): HTMLDivElement {
+function mount(): HTMLDivElement {
   container = document.createElement("div");
   container.style.width = `${WIDTH}px`;
   container.style.height = `${HEIGHT}px`;
@@ -111,7 +111,7 @@ function write(name: string, body: string): void {
 
 describe("editor-polish shots", () => {
   test("R3 — a JS fence is highlighted; K1/P1 — the surface Tab and spellcheck act on", () => {
-    const node = mount(0);
+    const node = mount();
     // Asserts the surface is what it claims before photographing it — the
     // rule `design-shots.ts` learned the hard way (see its own header).
     expect(node.querySelector(".cm-lp-code-keyword")?.textContent).toBe("const");
