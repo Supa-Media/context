@@ -53,11 +53,22 @@
  *   a synchronous channel letting its own answer throw                        1
  *   the bridge taking a hidden-capture-window channel name back               1
  *   the closed console window leaving its handlers registered                 1
+ *   `meetingWriteFrom` trusting the payload rather than reading it            1
+ *   ...accepting a `kind` outside the protocol's four routes                  1
+ *   the preload defaulting an unknown `kind` to `session`                     2
+ *   an empty `context` read as this machine's own, in the main process        1
+ *   ...and in the preload                                                     1
  *
  * The identity row is 4 rather than 3 since the hidden capture window was
  * added as an attacker in its own right: it is the second window in this
  * process, it holds a live microphone, and "one of ours" is not a reason to
  * answer it.
+ *
+ * The last three rows are one rule with two boundaries: `kind` is a route and
+ * `context` is a bucket, and a value either boundary *repairs* is a value the
+ * guard that owns the queue never gets to refuse. A default of `session` posts
+ * a body to a collection nobody named; reading `""` as "no context" files a
+ * meeting in whatever context the credential defaults to.
  *
  * Rows two and three are the pair that had to be measured rather than assumed:
  * the identity check and the origin check are two different refusals of two
@@ -239,6 +250,7 @@ const QUEUE = Object.freeze({ pending: 2, parked: 0, lastError: null });
 
 function mainBridge(overrides = {}) {
   const calls = [];
+  const written = [];
   const window = overrides.window ?? fakeWindow();
   const ipc = fakeIpcMain();
   const bridge = createConsoleBridge({
@@ -278,9 +290,14 @@ function mainBridge(overrides = {}) {
       return { ...QUEUE };
     },
     drain: () => void calls.push("drain"),
+    writeMeeting: async (write) => {
+      calls.push("writeMeeting");
+      written.push(write);
+      return { sessionId: write.sessionId, queued: true, notePath: null, rejected: null };
+    },
     ...overrides.deps,
   });
-  return { bridge, ipc, window, calls };
+  return { bridge, ipc, window, calls, written };
 }
 
 /** Every channel the main process answers with `handle`. */
@@ -295,7 +312,16 @@ const HANDLED = [
   BRIDGE_CHANNELS.connectionDisconnect,
   BRIDGE_CHANNELS.outboxStatus,
   BRIDGE_CHANNELS.outboxDrain,
+  BRIDGE_CHANNELS.meetingsWrite,
 ];
+
+/** A well-formed write, so a check can vary exactly one field of it. */
+const WRITE = Object.freeze({
+  sessionId: "mtg_abcdefghjkmnpqrstvwx",
+  kind: "finalize",
+  context: null,
+  body: { folder: "5-meetings" },
+});
 
 /* ------------------------------------------------------------------ *
  * Walking a payload for anything credential-shaped.
@@ -447,6 +473,62 @@ export async function runConsoleBridgeChecks(check) {
         shell.invoked.some((call) => call.channel === channel),
       );
     }
+  }
+
+  {
+    const shell = installed({
+      replies: {
+        [BRIDGE_CHANNELS.meetingsWrite]: (write) => ({
+          ok: true,
+          value: {
+            sessionId: write.sessionId,
+            queued: false,
+            notePath: "5-meetings/standup.md",
+            rejected: null,
+            accessToken: "sk-live-should-never-arrive",
+          },
+        }),
+      },
+    });
+    const ack = await shell.bridge.meetings.write({
+      sessionId: "mtg_1",
+      kind: "finalize",
+      context: "acme",
+      body: { folder: "5-meetings" },
+      cookie: "should not be forwarded",
+    });
+    const call = shell.invoked.find((one) => one.channel === BRIDGE_CHANNELS.meetingsWrite);
+    check("`meetings.write` sends the four declared fields and nothing else", Object.keys(call.args[0]).sort().join() === "body,context,kind,sessionId");
+    check("...carrying the protocol's own body untouched", call.args[0].body.folder === "5-meetings");
+    check("...and the note path comes back", ack.notePath === "5-meetings/standup.md");
+    check("A FIELD THE MAIN PROCESS ADDED IS NOT HANDED TO THE PAGE", contamination(ack).length === 0);
+  }
+  {
+    const shell = installed({
+      replies: {
+        [BRIDGE_CHANNELS.meetingsWrite]: {
+          ok: true,
+          value: {
+            sessionId: "mtg_1",
+            queued: false,
+            notePath: null,
+            rejected: { code: "meeting_forbidden", message: "your context would not take it" },
+          },
+        },
+      },
+    });
+    const ack = await shell.bridge.meetings.write({ sessionId: "mtg_1", kind: "finalize", context: null, body: {} });
+    check(
+      "a parked meeting comes back as a refusal a person can read",
+      ack.rejected?.code === "meeting_forbidden" && ack.queued === false,
+    );
+  }
+  {
+    const shell = installed();
+    check(
+      "the version-2 member is on the surface the shell exposes",
+      typeof shell.bridge.meetings?.write === "function" && Object.isFrozen(shell.bridge.meetings),
+    );
   }
 
   /* --- a refusal is a sentence, never Electron's own wrapper -------------- */
@@ -837,7 +919,11 @@ export async function runConsoleBridgeChecks(check) {
     const { ipc, calls } = mainBridge();
     const answers = [];
     for (const channel of HANDLED) {
-      answers.push(await ipc.handlers.get(channel)(sender(), { sessionId: "m_1", mic: true, systemAudio: true }));
+      const payload =
+        channel === BRIDGE_CHANNELS.meetingsWrite
+          ? { ...WRITE }
+          : { sessionId: "m_1", mic: true, systemAudio: true };
+      answers.push(await ipc.handlers.get(channel)(sender(), payload));
     }
     check("the pinned console window is answered on every channel", answers.every((answer) => answer?.ok === true));
     check("...and every verb behind it ran", calls.length === HANDLED.length);
@@ -883,6 +969,133 @@ export async function runConsoleBridgeChecks(check) {
     const { ipc } = mainBridge();
     const answer = await ipc.handlers.get(BRIDGE_CHANNELS.startCapture)(sender(), { sessionId: "", mic: true, systemAudio: false });
     check("a capture with no meeting to file it under is refused", answer.ok === false);
+  }
+
+  /* --- the meeting is written by the machine's own grant ------------------ */
+
+  /*
+    THE VERSION-2 ADDITION, AND THE ONE THING IT MUST NOT BECOME.
+
+    `meetings.write` is the page handing a write to this machine's queue, and
+    its body is the meetings protocol's own JSON — which this file deliberately
+    does not read. What stops that being a generic `invoke` is that the body
+    never chooses an address: the route comes from `kind`, which is one of four
+    words, and the context from `context`, which the queue checks against the
+    gateway's own slug pattern. A payload that fails either is refused here
+    rather than queued and discovered at drain time.
+  */
+  {
+    const { ipc, written } = mainBridge();
+    const answer = await ipc.handlers.get(BRIDGE_CHANNELS.meetingsWrite)(sender(), { ...WRITE });
+    check("a well-formed write reaches the queue", answer.ok === true && written.length === 1);
+    check("...as the four fields the contract declares", Object.keys(written[0]).sort().join() === "body,context,kind,sessionId");
+    check("...and the ack says the shell is holding it", answer.value.queued === true);
+  }
+  {
+    const { ipc, written } = mainBridge();
+    const answers = [];
+    for (const bad of [
+      { ...WRITE, sessionId: "" },
+      { ...WRITE, sessionId: "   " },
+      { ...WRITE, kind: "enhance" },
+      { ...WRITE, kind: undefined },
+      { ...WRITE, body: "folder=5-meetings" },
+      { ...WRITE, body: [1, 2, 3] },
+      { ...WRITE, body: null },
+      "not an object at all",
+    ]) {
+      answers.push(await ipc.handlers.get(BRIDGE_CHANNELS.meetingsWrite)(sender(), bad));
+    }
+    check(
+      "A WRITE THE CONTRACT DOES NOT DESCRIBE IS REFUSED, NOT QUEUED",
+      answers.every((answer) => answer.ok === false) && written.length === 0,
+    );
+    check(
+      "...with a sentence rather than a channel name",
+      answers.every((answer) => !answer.message.includes("context:")),
+    );
+  }
+  {
+    const { ipc, written } = mainBridge();
+    await ipc.handlers.get(BRIDGE_CHANNELS.meetingsWrite)(sender(), {
+      ...WRITE,
+      context: "acme",
+      extra: "a field nobody agreed to",
+    });
+    check("a context the page named is carried as a name", written[0]?.context === "acme");
+    check(
+      "...and a field the contract does not declare is not passed on to the queue",
+      written[0] !== undefined && !("extra" in written[0]),
+    );
+  }
+
+  /*
+    ABSENT IS AN ADDRESS; UNREADABLE IS NOT. THEY MUST NOT COLLAPSE HERE.
+
+    `routableContext` in the queue draws exactly that line: `null` means this
+    machine's own context, which is where everything the tray records goes, and
+    a name it cannot read is refused rather than dropped from the front of the
+    URL. A boundary that turned `""` into `null` on the way in would decide that
+    question before the queue ever saw it, and the answer it gives is the wrong
+    one — a meeting filed in whatever context the credential defaults to.
+  */
+  {
+    const { ipc, written } = mainBridge();
+    await ipc.handlers.get(BRIDGE_CHANNELS.meetingsWrite)(sender(), { ...WRITE, context: "" });
+    await ipc.handlers.get(BRIDGE_CHANNELS.meetingsWrite)(sender(), { ...WRITE, context: null });
+    await ipc.handlers.get(BRIDGE_CHANNELS.meetingsWrite)(sender(), { ...WRITE, context: undefined });
+    check(
+      "AN EMPTY CONTEXT IS NOT THIS MACHINE'S OWN — the queue is left to refuse it",
+      written[0]?.context === "",
+    );
+    check(
+      "...and an absent one is, which is what everything the tray records means",
+      written[1]?.context === null && written[2]?.context === null,
+    );
+  }
+
+  /*
+    And the preload does not repair either of them on the way out.
+
+    It runs in the renderer, so a value it "fixes" is a value the guard in the
+    main process never gets to refuse. `kind` is a route and `context` is a
+    bucket; a default for the first is a body posted to a collection nobody
+    named, and a default for the second is the wrong-tenant write above.
+  */
+  {
+    const shell = installed({ replies: { [BRIDGE_CHANNELS.meetingsWrite]: { ok: true, value: {} } } });
+    await shell.bridge.meetings.write({ sessionId: "m_1", kind: "enhance", context: "", body: {} });
+    const sent = shell.invoked.find((one) => one.channel === BRIDGE_CHANNELS.meetingsWrite)?.args[0];
+    check(
+      "A KIND THE CONTRACT DOES NOT NAME IS NOT REWRITTEN INTO ONE THAT ROUTES",
+      sent?.kind === "enhance",
+    );
+    check("...and an empty context crosses as itself", sent?.context === "");
+
+    const { ipc, written } = mainBridge();
+    const answer = await ipc.handlers.get(BRIDGE_CHANNELS.meetingsWrite)(sender(), sent);
+    check(
+      "...so the process that owns the queue is the one that refuses it",
+      answer.ok === false && written.length === 0,
+    );
+  }
+  {
+    const { ipc } = mainBridge({
+      deps: {
+        writeMeeting: async (write) => ({
+          sessionId: write.sessionId,
+          queued: false,
+          notePath: "5-meetings/standup.md",
+          rejected: null,
+        }),
+      },
+    });
+    const answer = await ipc.handlers.get(BRIDGE_CHANNELS.meetingsWrite)(sender(), { ...WRITE });
+    check(
+      "a finalize that reached the bucket answers with the path the gateway chose",
+      answer.value.notePath === "5-meetings/standup.md",
+    );
+    check("...and nothing credential-shaped came back with it", contamination(answer).length === 0);
   }
 
   /* --- pushing to the console window ------------------------------------- */

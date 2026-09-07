@@ -60,6 +60,8 @@ import {
   type DesktopCapabilities,
   type DesktopShell,
   type DetectionView,
+  type MeetingWrite,
+  type MeetingWriteAck,
   type OutboxStatus,
   type StartCaptureRequest,
   type TranscriptSegment,
@@ -236,6 +238,20 @@ function startedFrom(payload: unknown, request: StartCaptureRequest): CaptureSta
   };
 }
 
+function writeAckFrom(payload: unknown, sessionId: string): MeetingWriteAck {
+  const source = record(payload);
+  const rejected = record(source.rejected);
+  return {
+    sessionId: text(source.sessionId, sessionId),
+    queued: source.queued === true,
+    notePath: sentence(source.notePath),
+    rejected:
+      source.rejected === null || source.rejected === undefined
+        ? null
+        : { code: text(rejected.code), message: text(rejected.message) },
+  };
+}
+
 function summaryFrom(payload: unknown): CaptureSummary {
   const source = record(payload);
   return {
@@ -405,6 +421,51 @@ export function desktopBridge(ipc: PreloadIpc): DesktopBridge {
       drain: (): void => tell(ipc, BRIDGE_CHANNELS.outboxDrain),
       onChange: (handler: (status: OutboxStatus) => void): Unsubscribe =>
         subscribe(ipc, BRIDGE_CHANNELS.outboxChange, outboxFrom, handler),
+    }),
+
+    meetings: Object.freeze({
+      write: (write: MeetingWrite): Promise<MeetingWriteAck> => {
+        /*
+          Rebuilt from the four fields the contract declares, like every other
+          request — and the `body` is the one place that cannot be, because it
+          is the protocol's own JSON and this file is not the protocol. What is
+          checked instead is that it *is* an object and that the kind is one of
+          four: the shell puts the body on the wire unread, so a `kind` it did
+          not recognise would be a route nobody agreed to.
+        */
+        /*
+          `kind` and `context` cross as they were given, and neither is repaired
+          here. This file runs in the renderer, so a value it "fixes" is a value
+          the guard in the main process never gets to refuse — and both of these
+          choose an address:
+
+           - a `kind` outside the four is a **route**, and defaulting it to
+             `session` would turn a page's mistake into a body posted to a
+             collection nobody named;
+           - an **empty** `context` is not the same as an absent one. Absent
+             means this machine's own context and is a correct address;
+             a name that cannot be read is `UNROUTABLE` in `routableContext` and
+             is refused. Collapsing `""` to `null` here would make it mean "my
+             own context", which is the silent wrong-bucket write that whole
+             function exists to prevent.
+
+          So they are carried and `consoleBridge.ts` reads them against the
+          closed sets, in the process that owns the queue and the credential.
+        */
+        const asked = {
+          sessionId: text((write as { sessionId?: unknown })?.sessionId),
+          kind: text((write as { kind?: unknown })?.kind),
+          context:
+            (write as { context?: unknown })?.context === null ||
+            (write as { context?: unknown })?.context === undefined
+              ? null
+              : text((write as { context?: unknown })?.context),
+          body: record((write as { body?: unknown })?.body),
+        };
+        return ask(ipc, BRIDGE_CHANNELS.meetingsWrite, asked, (value) =>
+          writeAckFrom(value, asked.sessionId),
+        );
+      },
     }),
   });
 }

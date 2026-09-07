@@ -109,6 +109,17 @@ export {
   type MeetingsGateway,
 } from "./gateway";
 export { fakeGateway, type FakeGateway } from "./fakeGateway";
+/*
+  The writer a meeting takes inside the desktop shell: the machine's own grant,
+  through the queue that drains with no window open. `useMeetingsSetup` is the
+  one line in the feature that chooses between the three.
+*/
+export {
+  createDesktopGateway,
+  meetingsWriterFor,
+  DESKTOP_WRITE_SENTENCES,
+  type DesktopMeetings,
+} from "./desktopGateway";
 
 /*
   Through `./capture`, never past it. That barrel is the one audited door into
