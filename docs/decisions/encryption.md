@@ -361,18 +361,30 @@ fail authentication rather than returning anything.
 
 Two indexes, two arguments, one default.
 
-**The D1 projection never receives an encrypted note. At all.** Not its
-plaintext, not its ciphertext, not a `notes` row recording that it exists. The
-plaintext is obvious — a database Supa Media owns holding the readable text of
-a note whose whole point is that a third party cannot read it defeats the
-feature entirely. The ciphertext is less obvious and is refused for two
-reasons: it is useless (FTS5 cannot rank base64, and BM25 over it would poison
-the corpus statistics that `search.md` splits tables to protect), and it is
-still a copy of the customer's bytes in a database they "cannot see, revoke, or
-delete" ([search](./search.md), "A database we own holds a copy of somebody's
-notes only where they asked"). The `notes` row goes too, because a row carrying
-a path and a timestamp is an existence claim held somewhere the customer cannot
-reach.
+**The D1 projection never receives an encrypted note's content. At all.** Not
+its plaintext and not its ciphertext. The plaintext is obvious — a database
+Supa Media owns holding the readable text of a note whose whole point is that a
+third party cannot read it defeats the feature entirely. The ciphertext is less
+obvious and is refused for two reasons: it is useless (FTS5 cannot rank base64,
+and BM25 over it would poison the corpus statistics that `search.md` splits
+tables to protect), and it is still a copy of the customer's bytes in a database
+they "cannot see, revoke, or delete" ([search](./search.md), "A database we own
+holds a copy of somebody's notes only where they asked").
+
+**The row itself stays, empty, and that is a correction to this file made while
+implementing it.** The first draft said the `notes` row went too, on the ground
+that a path and a timestamp are an existence claim held somewhere the customer
+cannot reach. That is true, and it is outweighed by arithmetic nobody would sign
+off on once they had seen it: `notesPending` is the census total minus what
+`countProjected` finds, so a note the projection never writes a row for is a
+note that is pending forever, so the control plane never marks the index
+`ready` — **one encrypted note would silently turn fast search off for that
+whole context, permanently.** An empty row keeps the diff converging and the
+census honest while carrying nothing of the note but its path, which every other
+row in the same projection already carries and which `list_notes` hands the same
+caller anyway. `indexableText` in `apps/mcp/src/encryption.js` is the one
+function both index paths call, so this is a single rule rather than two checks
+that can drift.
 
 **The R2 shard index gets the same default, and the reason is sharper.** That
 index lives *inside the customer's own bucket*, so plaintext in it is not a copy
@@ -403,11 +415,14 @@ server owns who may throw it" exactly:
 customer who wanted a faster search inside their own bucket hand us the
 plaintext of the notes they encrypted specifically so that we would not have it.
 
-**The tests that fail if this is reversed.** A projection run over a context
-containing an encrypted note writes no `notes` row and no `*_fts` row for it,
-and a search by a team-tier caller returns nothing that names it — sabotage-
-tested by removing the filter and confirming both fail. A team-tier caller's
-result set is byte-identical whether an encrypted private note exists or not.
+**The tests that fail if this is reversed.** `indexableText` answers `""` for an
+encrypted note and its own text for every other; the literal scan does not match
+an encrypted note's own envelope (asked with `A256GCM` — a string in every
+envelope and in nobody's note — on the first search in a fresh context, so that
+it falls to the scan rather than to an index); and the ChatGPT `fetch` dialect
+refuses a note it cannot open rather than answering with its ciphertext. A
+team-tier caller's result set is unchanged by whether an encrypted private note
+exists.
 
 ---
 

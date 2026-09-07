@@ -269,6 +269,35 @@ export function isEncryptedNote(text) {
 }
 
 /**
+ * What an indexer may copy out of a note.
+ *
+ * `""` for an encrypted note, its own text for every other. Both index paths —
+ * the R2 shard index inside the customer's own bucket, and the D1 projection in
+ * a database we own — call this instead of reading a body directly, so
+ * "no plaintext and no ciphertext of an encrypted note is ever indexed" is one
+ * function rather than two checks that can drift apart.
+ *
+ * **Empty rather than skipped**, and the reason is arithmetic rather than
+ * taste. A note the projection never writes a row for is a note
+ * `countProjected` never counts, so `notesPending` never reaches zero, so the
+ * control plane never marks the index `ready` — one encrypted note would turn
+ * fast search off for the whole context, permanently and invisibly. An empty
+ * row keeps the diff converging and the census honest while carrying nothing
+ * of the note but its path, which every other row in the same projection
+ * already carries and which `list_notes` will hand the same caller anyway.
+ *
+ * What it costs, and it is the cost `docs/decisions/encryption.md` names:
+ * **search does not find encrypted notes.** The opt-in that would change that
+ * is graded there and is deliberately not built.
+ *
+ * Checked on the marker rather than on a successful parse, so a *broken*
+ * envelope is excluded exactly as hard as a good one.
+ */
+export function indexableText(text) {
+  return isEncryptedNote(text) ? "" : text;
+}
+
+/**
  * The key generation an encrypted note names, without opening it.
  *
  * A re-wrap pass reads this to find what is still on the outgoing generation.
