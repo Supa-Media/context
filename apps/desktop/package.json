@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@supa-media/context-hook": "workspace:*",
+    "@context/communications": "workspace:*",
     "@context/desktop-bridge": "workspace:*",
     "@context/meetings": "workspace:*",
     "electron-updater": "6.3.9"

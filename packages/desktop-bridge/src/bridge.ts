@@ -156,6 +156,11 @@ const REQUIRED_MEMBERS: Readonly<Record<number, readonly string[]>> = Object.fre
     this row is version 1's list unchanged for the same reason version 2's is.
   */
   3: VERSION_1_MEMBERS,
+  /*
+    Version 4 adds `imessage`, another sub-object, so this row is unchanged
+    again — the same reason version 2's and 3's rows are.
+  */
+  4: VERSION_1_MEMBERS,
 });
 
 /** The sub-objects, and the methods each must carry, per version. */
@@ -196,6 +201,25 @@ const REQUIRED_SUB_MEMBERS: Readonly<
       "resolveApproval",
     ]),
     meetings: Object.freeze(["write"]),
+  }),
+  /*
+    Version 4 adds `imessage`. Rows 1-3 are untouched, for the same reason
+    every earlier row is: a shell that shipped before this existed answers
+    that earlier version and is checked against the list that was true then.
+  */
+  4: Object.freeze({
+    ...VERSION_1_SUB_MEMBERS,
+    connection: Object.freeze([
+      "get",
+      "connect",
+      "disconnect",
+      "onChange",
+      "pendingApproval",
+      "onPendingApproval",
+      "resolveApproval",
+    ]),
+    meetings: Object.freeze(["write"]),
+    imessage: Object.freeze(["status", "setEnabled", "onChange"]),
   }),
 });
 
