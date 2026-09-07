@@ -48,6 +48,7 @@
  *   the exposed object not frozen                                             3
  *   `systemAudioCapability` ignoring the probe's `false`                      1
  *   ...ignoring `packaged`, so a dev build claims a loopback tap              1
+ *   ...ignoring `signed`, so an unsigned packaged build claims one            1
  *   the guard reading Electron's live getters unprotected again               1
  *   a synchronous channel letting its own answer throw                        1
  *   the bridge taking a hidden-capture-window channel name back               1
@@ -995,27 +996,31 @@ export async function runConsoleBridgeChecks(check) {
 
   check(
     "system audio is refused outright on anything but macOS",
-    systemAudioCapability({ platform: "win32", packaged: true, darwinMajor: 24, probed: null }) === false,
+    systemAudioCapability({ platform: "win32", packaged: true, signed: true, darwinMajor: 24, probed: null }) === false,
   );
   check(
     "AN UNPACKAGED BUILD CLAIMS NO LOOPBACK TAP — macOS will not give one to a build it has not verified",
-    systemAudioCapability({ platform: "darwin", packaged: false, darwinMajor: 24, probed: null }) === false,
+    systemAudioCapability({ platform: "darwin", packaged: false, signed: true, darwinMajor: 24, probed: null }) === false,
   );
   check(
     "macOS older than 13 claims none either",
-    systemAudioCapability({ platform: "darwin", packaged: true, darwinMajor: 21, probed: null }) === false,
+    systemAudioCapability({ platform: "darwin", packaged: true, signed: true, darwinMajor: 21, probed: null }) === false,
   );
   check(
-    "a packaged build on macOS 13 or later claims one until something asks",
-    systemAudioCapability({ platform: "darwin", packaged: true, darwinMajor: 22, probed: null }) === true,
+    "a packaged, signed build on macOS 13 or later claims one until something asks",
+    systemAudioCapability({ platform: "darwin", packaged: true, signed: true, darwinMajor: 22, probed: null }) === true,
+  );
+  check(
+    "A PACKAGED BUT UNSIGNED BUILD CLAIMS NONE — a dmg built on a laptop is packaged and gets no tap",
+    systemAudioCapability({ platform: "darwin", packaged: true, signed: false, darwinMajor: 24, probed: null }) === false,
   );
   check(
     "THE PROBE OVERRULES THE GUESS — a build that was refused a tap reports none",
-    systemAudioCapability({ platform: "darwin", packaged: true, darwinMajor: 24, probed: false }) === false,
+    systemAudioCapability({ platform: "darwin", packaged: true, signed: true, darwinMajor: 24, probed: false }) === false,
   );
   check(
     "...and a build that was given one reports it, packaged or not",
-    systemAudioCapability({ platform: "darwin", packaged: false, darwinMajor: 24, probed: true }) === true,
+    systemAudioCapability({ platform: "darwin", packaged: false, signed: false, darwinMajor: 24, probed: true }) === true,
   );
   check("the Darwin major is read off `os.release()`", darwinMajorFrom("23.6.0") === 23);
   check("...and a release string this build cannot read is `0`, which is below every floor", darwinMajorFrom("") === 0);

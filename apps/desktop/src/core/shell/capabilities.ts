@@ -16,8 +16,18 @@
 export interface SystemAudioInput {
   /** `process.platform`. */
   platform: string;
-  /** `app.isPackaged`. See below for why this stands in for "signed". */
+  /** `app.isPackaged` — false for `electron dist/main/index.js` in development. */
   packaged: boolean;
+  /**
+   * Whether **this build** was code-signed with the Developer ID certificate.
+   *
+   * `__CONTEXT_DESKTOP_SIGNED__`, the same build-time literal
+   * `shouldArmUpdater` reads, and asked for the same reason: it is never
+   * inferred from `packaged`, because an unsigned `.dmg` built by
+   * `pnpm --filter @context/desktop package` on somebody's laptop is packaged
+   * and unsigned, and macOS hands *that* build no loopback tap.
+   */
+  signed: boolean;
   /**
    * The Darwin kernel major from `os.release()` — `22` is macOS 13.
    *
@@ -47,12 +57,13 @@ export interface SystemAudioInput {
  *  - **Not macOS, no tap.** `audio: "loopback"` is a ScreenCaptureKit binding.
  *    A Windows shell would need WASAPI loopback and a Linux one has no general
  *    answer, so both answer false and the UI already knows what to do with that.
- *  - **Not packaged, no tap.** ScreenCaptureKit wants a hardened runtime, the
- *    audio-input entitlement and a notarised, code-signed app, and `isPackaged`
- *    is the closest thing this process can ask about that: `false` is
- *    definitely not signed. `true` is *probably* signed and may not be — a
- *    locally packaged unsigned build passes it — which is exactly why the probe
- *    overrules it on the first meeting rather than this claim standing.
+ *  - **Not packaged and signed, no tap.** ScreenCaptureKit wants a hardened
+ *    runtime, the audio-input entitlement and a notarised, code-signed app.
+ *    Both, not either, and for the same reason `shouldArmUpdater` asks for
+ *    both: an unsigned `.dmg` built on somebody's laptop is packaged and gets
+ *    nothing, and a signed build run from a terminal in development is not
+ *    packaged. What remains unproven above this is notarisation, which no
+ *    process can ask itself about — that is what the probe is for.
  *  - **Older than macOS 13, no tap.** Electron's loopback path needs it.
  *
  * The direction of the residual is the one that matters: claiming a capability
@@ -64,7 +75,7 @@ export interface SystemAudioInput {
 export function systemAudioCapability(input: SystemAudioInput): boolean {
   if (input.probed !== null) return input.probed;
   if (input.platform !== "darwin") return false;
-  if (!input.packaged) return false;
+  if (!input.packaged || !input.signed) return false;
   return input.darwinMajor >= MACOS_13_DARWIN_MAJOR;
 }
 
