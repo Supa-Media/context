@@ -54,6 +54,8 @@
  *   the bridge taking a hidden-capture-window channel name back               1
  *   the closed console window leaving its handlers registered                 1
  *   `meetingWriteFrom` trusting the payload rather than reading it            1
+ *   the capture-state normaliser dropping `notice`                            2
+ *   the summary normaliser dropping `frames`                                  1
  *   ...accepting a `kind` outside the protocol's four routes                  1
  *   the preload defaulting an unknown `kind` to `session`                     2
  *   an empty `context` read as this machine's own, in the main process        1
@@ -908,7 +910,7 @@ export async function runConsoleBridgeChecks(check) {
         }),
         [BRIDGE_CHANNELS.stopCapture]: {
           ok: true,
-          value: { sessionId: "m_1", endedAtMs: 9, durationMs: 4, segments: 2, pending: 1 },
+          value: { sessionId: "m_1", endedAtMs: 9, durationMs: 4, segments: 2, frames: 7, pending: 1 },
         },
         [BRIDGE_CHANNELS.connectionGet]: { ok: true, value: { ...CONNECTED } },
         [BRIDGE_CHANNELS.outboxStatus]: { ok: true, value: { ...QUEUE } },
@@ -939,6 +941,16 @@ export async function runConsoleBridgeChecks(check) {
     await shell.bridge.resumeCapture();
     const summary = await shell.bridge.stopCapture();
     check("`stopCapture` answers a summary with counts and no audio in it", summary.segments === 2 && summary.durationMs === 4);
+    /*
+      FRAMES AND SEGMENTS ARE TWO NUMBERS, AND THE PAIR IS THE DIAGNOSIS.
+
+      `frames: 0` is a microphone that produced nothing; `frames: 7,
+      segments: 0` is audio the far end would not take. Different faults,
+      different fixes, and indistinguishable from this payload until the field
+      existed — which is why finding the SEGMENT_MS/DRAIN_INTERVAL_MS race
+      needed `fetch` patched by hand in the main process.
+    */
+    check("...including how much audio was produced, separately from how much came back", summary.frames === 7);
     check(
       "pause and resume reach their own channels",
       shell.invoked.some((c) => c.channel === BRIDGE_CHANNELS.pauseCapture) &&
@@ -1082,6 +1094,57 @@ export async function runConsoleBridgeChecks(check) {
     check("a pushed segment reaches the handler", seen[0]?.text === "hello");
 
     for (const off of offs) off();
+  }
+
+  /* --- and the sentence a meeting acquires reaches the page ---------------- */
+  //
+  // `CaptureStateUpdate` was `{state, capturing, fault}`, and a notice is not a
+  // fault — so `CAPTURE_NOTICES.refused`, "this meeting is not being
+  // transcribed", had no member to travel on. The shell said it to its own tray
+  // while the console drew a perfectly healthy recording, which is why a defect
+  // that killed the transcript of every desktop recording survived a day of
+  // use. The field is read through the real normaliser here, not a fake.
+  {
+    const shell = installed();
+    const seen = [];
+    const off = shell.bridge.onCaptureState((update) => seen.push(update));
+
+    shell.emit(BRIDGE_CHANNELS.captureState, {
+      state: "recording",
+      capturing: true,
+      fault: null,
+      notice: "This meeting is not being transcribed.",
+    });
+    check(
+      "A NOTICE THE SHELL RAISES MID-MEETING REACHES THE PAGE",
+      seen[0]?.notice === "This meeting is not being transcribed.",
+    );
+    check("...without being mistaken for a fault, which would end the recording", seen[0]?.fault === null);
+
+    /*
+      And every notice, not only the refusal. The transcriber raises three —
+      `dropped`, `failed` and `refused` — and `capturePlan` raises its own about
+      system audio. All four are one field on the shell's `SessionView`, so all
+      four cross; a field that carried only the worst one would be a second
+      decision about which sentences matter, made in the wrong process.
+    */
+    for (const sentence of ["a few seconds were not transcribed", "only your microphone", ""]) {
+      shell.emit(BRIDGE_CHANNELS.captureState, { state: "recording", capturing: true, fault: null, notice: sentence });
+    }
+    check(
+      "...and it is the shell's sentence verbatim, whichever of them it is",
+      seen[1]?.notice === "a few seconds were not transcribed" && seen[2]?.notice === "only your microphone",
+    );
+    check("...with nothing to say reading as nothing to say", seen[3]?.notice === null);
+
+    /*
+      A shell older than the field says nothing rather than breaking the page.
+      `MIN_BRIDGE_VERSION` is still 1, so this is a build in the estate today.
+    */
+    shell.emit(BRIDGE_CHANNELS.captureState, { state: "recording", capturing: true, fault: null });
+    check("a shell built before the field simply has no notice", seen[4]?.notice === null);
+
+    off();
     check("UNSUBSCRIBING REMOVES THE IPC LISTENER — the count returns to zero", shell.listenerCount() === 0);
 
     const before = seen.length;

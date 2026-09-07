@@ -38,6 +38,7 @@
  */
 
 import { MAX_INFLIGHT_CHUNKS, chunkIdFor, segmentIdFor } from "@context/meetings/chunks";
+import { DRAIN_INTERVAL_MS } from "../sync/drain.ts";
 import type { TranscriptSegment } from "../contract.ts";
 import type { AudioFrame } from "./recorder.ts";
 import type {
@@ -67,11 +68,21 @@ export interface TranscribeRequest {
  */
 export class TranscribeRefused extends Error {
   readonly permanent: boolean;
+  /**
+   * The far end says it does not know this — which is as often "not yet" as it
+   * is "never", and one reply cannot tell you which.
+   *
+   * A separate bit from `permanent` because the two answer different questions.
+   * `main/transcribe.ts`'s `notYet` is where it is set and where the whole
+   * argument is written down; what it buys is below, in the `catch`.
+   */
+  readonly notYet: boolean;
 
-  constructor(message: string, permanent: boolean) {
+  constructor(message: string, permanent: boolean, notYet = false) {
     super(message);
     this.name = "TranscribeRefused";
     this.permanent = permanent;
+    this.notYet = notYet;
   }
 }
 
@@ -91,10 +102,62 @@ export const CAPTURE_NOTICES = Object.freeze({
     "This meeting is not being transcribed — the gateway would not accept the audio. Your notes and the meeting still land in your bucket.",
 });
 
+/**
+ * HOW LONG A MEETING KEEPS TRYING AFTER THE FAR END SAYS "I DO NOT KNOW THAT".
+ *
+ * A wall clock, and **two full drain periods** of it, because the thing being
+ * waited for is a drain: the session row goes out through the outbox and the
+ * audio comes straight from here, so between the first chunk leaving and the
+ * row landing there is a window in which the gateway honestly does not know
+ * this meeting and answers 404. Believing that answer once threw away every
+ * remaining chunk, which is what made every desktop recording produce an empty
+ * transcript.
+ *
+ * ## Why a clock rather than a count of refusals
+ *
+ * A count is a proxy for time that stops being one the moment anything changes:
+ * lengthen `SEGMENT_MS` and the same count is four minutes; drop chunks at
+ * `MAX_INFLIGHT_CHUNKS` and it is spent without any time passing at all. Two
+ * drain periods is the *actual* quantity that matters — "long enough that the
+ * outbox has certainly had its turn, twice" — and it stays true when either
+ * number moves. It is derived from `DRAIN_INTERVAL_MS` rather than typed out
+ * for exactly that reason.
+ *
+ * ## Why not "once the session write is known flushed"
+ *
+ * That was the other candidate and it is worse in the case that matters. It
+ * needs the queue's state inside the recorder — a coupling from `core/capture`
+ * to `core/sync/outbox` that does not exist today — and, having paid for it, it
+ * is **unbounded exactly where a bound is needed**: a session write that is
+ * *parked* (a grant that cannot file meetings privately, which `postEntry`
+ * refuses before the network) never becomes flushed, so a meeting that will
+ * never be known would go on uploading a full chunk of audio every twenty
+ * seconds for its whole length. The case it would protect — a machine offline
+ * long enough for the row not to land — is already covered, because an offline
+ * machine's chunks fail as *network* errors rather than 404s, and those have
+ * never counted against anything.
+ *
+ * ## What the bound costs, stated
+ *
+ * A meeting that really is another workspace's, or a gateway that really has no
+ * such route and answers 404 instead of 501, uploads about a minute of audio —
+ * three chunks, roughly a megabyte — before this stops. That is the price of
+ * never discarding a meeting on one unlucky 404, and it is the right way round.
+ *
+ * The deadline is armed by the *first* such refusal and **reset by any
+ * success**, so an intermittent 404 in the middle of a healthy meeting never
+ * accumulates toward it.
+ */
+export const NOT_YET_GRACE_MS = 2 * DRAIN_INTERVAL_MS;
+
 export interface GatewayTranscriberDeps {
   send: SendChunk;
   /** Bounded for the suite; the default is the shared one every recorder uses. */
   maxInFlight?: number;
+  /** Bounded for the suite; the default is `NOT_YET_GRACE_MS`. */
+  notYetGraceMs?: number;
+  /** The clock the grace above is measured on. Injected so a test owns it. */
+  now?: () => number;
 }
 
 /**
@@ -106,6 +169,8 @@ export interface GatewayTranscriberDeps {
  */
 export function gatewayTranscriber(deps: GatewayTranscriberDeps): Transcriber {
   const limit = deps.maxInFlight ?? MAX_INFLIGHT_CHUNKS;
+  const graceMs = deps.notYetGraceMs ?? NOT_YET_GRACE_MS;
+  const now = deps.now ?? (() => Date.now());
 
   return {
     id: "cloud",
@@ -119,6 +184,13 @@ export function gatewayTranscriber(deps: GatewayTranscriberDeps): Transcriber {
       /** Per channel, so mic chunk 3 and system chunk 3 are different files. */
       const counters = new Map<string, number>();
       let givenUp = false;
+      /**
+       * When the far end first said it did not know this meeting, or `null`.
+       *
+       * Cleared by any success, so a 404 in the middle of a healthy meeting
+       * starts the clock again rather than continuing somebody else's.
+       */
+      let notYetSince: number | null = null;
 
       function notice(value: TranscriptionNotice): void {
         try {
@@ -158,6 +230,9 @@ export function gatewayTranscriber(deps: GatewayTranscriberDeps): Transcriber {
           const run = deps
             .send(request)
             .then((segments) => {
+              // A chunk got through, so whatever was not known a moment ago is
+              // known now. The grace below measures an *unbroken* run.
+              notYetSince = null;
               segments.forEach((segment, index) => {
                 options.onSegment({
                   ...segment,
@@ -185,6 +260,29 @@ export function gatewayTranscriber(deps: GatewayTranscriberDeps): Transcriber {
               });
             })
             .catch((error: unknown) => {
+              /*
+                "I do not know that" is checked before `permanent`, and it is
+                the only refusal with a deadline rather than a verdict.
+
+                The gateway cannot tell "not written yet" from "never existed"
+                and must not — `sessionGone()`'s single code is the isolation
+                guarantee — so this side waits `graceMs` for the session row to
+                land before believing the second reading. Every chunk of every
+                meeting used to be thrown away on the first of these, which is a
+                race read as a permission. **One 404 must never end a meeting**,
+                and with the clock armed here rather than counted, it cannot.
+              */
+              if (error instanceof TranscribeRefused && error.notYet) {
+                const at = now();
+                if (notYetSince === null) notYetSince = at;
+                if (at - notYetSince < graceMs) {
+                  notice({ recoverable: true, message: CAPTURE_NOTICES.failed });
+                  return;
+                }
+                givenUp = true;
+                notice({ recoverable: false, message: CAPTURE_NOTICES.refused });
+                return;
+              }
               if (error instanceof TranscribeRefused && error.permanent) {
                 // Made true rather than repeated: giving up is what stops this
                 // being the same sentence every twenty seconds.
