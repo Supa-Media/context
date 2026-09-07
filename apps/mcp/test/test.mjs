@@ -20,6 +20,7 @@ import { runCrossContextChecks } from "./crossContext.test.mjs";
 import { runLinkChecks } from "./links.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
+import { runGmailSyncChecks } from "./gmailSync.test.mjs";
 import { runSearchD1Checks } from "./searchD1.test.mjs";
 import { runSearchProjectionChecks } from "./searchProjection.test.mjs";
 import { runCredentialShapeChecks } from "./credentialShape.test.mjs";
@@ -3941,6 +3942,12 @@ await runEncryptionGatewayChecks(check);
 // single write, so — like the tenancy suite — it swaps globalThis.fetch and
 // restores it, and must not run while anything above still owns that global.
 await runMeetingChecks(check);
+
+// A connected Gmail mailbox's sync job: Gmail API response parsing, backfill
+// and incremental sync against a fake Gmail server, idempotent upserts,
+// gap detection and full reconcile, and the quota bound. No network and no
+// dependency: `gmailSync.js` takes its socket and its store as parameters.
+await runGmailSyncChecks(check);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);
