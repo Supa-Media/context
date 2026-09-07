@@ -680,7 +680,18 @@ export function createControlPlane(env, options = {}) {
      */
     async getStorageBinding(accessToken, expectedWorkspaceId) {
       const parsed = await post("/gateway/binding", { accessToken, expectedWorkspaceId });
-      return { binding: required(parsed, "binding"), searchIndex: parsed.searchIndex ?? null };
+      // Three siblings on the response, not one shape with the other two
+      // nested inside it. `binding` is required; `searchIndex` and
+      // `encryptionKey` are absent in the ordinary case — no index opted in, no
+      // note ever encrypted — and absent again when the control plane could not
+      // open one. Reading either out of the binding instead of off the response
+      // is the bug that left fast search dead in production for a year, so both
+      // are read here, beside each other, where the shape is visible.
+      return {
+        binding: required(parsed, "binding"),
+        searchIndex: parsed.searchIndex ?? null,
+        encryptionKey: parsed.encryptionKey ?? null,
+      };
     },
 
     async registerClient(registration) {

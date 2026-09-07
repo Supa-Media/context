@@ -669,6 +669,34 @@ export interface OpenedGatewayBinding {
   binding: GatewayBinding;
   /** Absent is the normal case: no opt-in, or one not yet provisioned. */
   searchIndex?: GatewaySearchIndex;
+  /**
+   * The key that opens this context's encrypted notes, where one exists.
+   *
+   * Absent is the ordinary answer and means "this context has never encrypted
+   * anything", which is every context today. It is deliberately **not** created
+   * on this path: reading a context that has never used the feature must not
+   * write a key row to it, so `create` is false here and the key comes into
+   * existence at the moment an owner turns encryption on for a note.
+   *
+   * A sibling of the binding rather than a field inside it, for the reason
+   * `searchIndex` is one: the key belongs to the workspace, and a binding is
+   * only the storage that workspace currently points at. See
+   * `docs/decisions/encryption.md`.
+   */
+  encryptionKey?: GatewayEncryptionKey;
+}
+
+/**
+ * The workspace data key, as the gateway receives it.
+ *
+ * `dataKey` is radioactive on exactly the terms `secretAccessKey` is: it opens
+ * every encrypted note in one context. It lives for one request, it is never
+ * logged, and `structure.test.ts` fails the build if a public function declares
+ * a field by that name.
+ */
+export interface GatewayEncryptionKey {
+  generation: string;
+  dataKey: string;
 }
 
 /** The credentialed S3 payload, as a validator. Declared once, used twice. */
@@ -694,6 +722,11 @@ const dropboxBindingValidator = v.object({
   rootPrefix: v.optional(v.string()),
   capabilities: v.object({ conditionalWrite: v.boolean() }),
   status: v.string(),
+});
+
+const encryptionKeyValidator = v.object({
+  generation: v.string(),
+  dataKey: v.string(),
 });
 
 const searchIndexValidator = v.object({
@@ -746,6 +779,7 @@ export const openStorageBinding = internalAction({
     v.object({
       binding: v.union(s3BindingValidator, dropboxBindingValidator),
       searchIndex: v.optional(searchIndexValidator),
+      encryptionKey: v.optional(encryptionKeyValidator),
     }),
   ),
   // Annotated, not inferred: this handler references its own module through
@@ -863,6 +897,43 @@ export const openStorageBinding = internalAction({
       searchIndex = undefined;
     }
 
+    /*
+      THE ENCRYPTION KEY, FOR THE SAME WORKSPACE AND NOBODY ELSE'S.
+
+      `workspaceId` again — the id read off the row the grant resolved to, the
+      only id in this handler a caller cannot choose. Same rule as the index
+      credential above, and `structure.test.ts` fails the build if
+      `args.expectedWorkspaceId` is ever used to select rather than to compare.
+
+      `create` is deliberately absent, which means false. A read must never be
+      the thing that brings a key into existence: a context that has never
+      encrypted a note has no row, holds no key, and is one less thing for this
+      control plane to be holding on somebody's behalf. The row is written when
+      an owner turns encryption on, and not before.
+
+      Absent is therefore the ordinary answer, and a failure is answered the
+      same way for the same reason as the two catches above: a caller holding
+      the gateway secret must not be able to tell "this context has no key" from
+      "we could not open the key it has". The gateway degrades to refusing to
+      decrypt, which is a note that reads as locked rather than a note that
+      reads as gone.
+
+      A separate `runAction` rather than a shared helper, matching the index
+      credential immediately above and for the same stated reason: a
+      module-level helper would attribute its calls to every export in this
+      file and hide this edge in a crowd.
+    */
+    let encryptionKey: GatewayEncryptionKey | undefined;
+    try {
+      const opened = await ctx.runAction(
+        internal.functions.encryptionKeys.openWorkspaceDataKey,
+        { workspaceId },
+      );
+      encryptionKey = opened === null ? undefined : opened;
+    } catch {
+      encryptionKey = undefined;
+    }
+
     // Built per provider, never spread. A workspace rebound from a bucket to
     // Dropbox can still have an `accessKeyId` sitting on its row; spread into
     // this payload it would reach the gateway as a credential for storage this
@@ -885,6 +956,7 @@ export const openStorageBinding = internalAction({
           status: "active",
         },
         searchIndex,
+        encryptionKey,
       };
     }
 
@@ -906,6 +978,7 @@ export const openStorageBinding = internalAction({
         status: "active",
       },
       searchIndex,
+      encryptionKey,
     };
   },
 });

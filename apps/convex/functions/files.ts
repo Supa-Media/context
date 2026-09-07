@@ -220,6 +220,14 @@ const fileValidator = v.object({
   inherited: visibilityValidator,
   exception: v.boolean(),
   readOnly: v.boolean(),
+  /**
+   * The note is stored encrypted and `text` is its ciphertext.
+   *
+   * `readOnly` is already true whenever this is, so a console that predates the
+   * field still refuses to edit one — the flag adds the *explanation*, not the
+   * protection. See `docs/decisions/encryption.md`.
+   */
+  encrypted: v.boolean(),
 });
 
 const writtenValidator = v.object({
@@ -548,6 +556,8 @@ type OperationResult =
       inherited: "private" | "team";
       exception: boolean;
       readOnly: boolean;
+      /** Stored encrypted; `text` is the ciphertext and the note is not editable here. */
+      encrypted: boolean;
     }
   | {
       kind: "written";

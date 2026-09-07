@@ -62,6 +62,15 @@ export interface EditorState {
   /** `privacy.md` — shown, explained, never typed into. */
   readOnly: boolean;
   /**
+   * The open note is stored encrypted, so `baseline` and `draft` are its
+   * ciphertext and there is nothing here to edit.
+   *
+   * Always accompanied by `readOnly`, which is what actually holds the editor
+   * shut. This is the copy: "Read-only" is what `privacy.md` is, and it is the
+   * wrong word for a note whose content this console has no key for.
+   */
+  encrypted: boolean;
+  /**
    * What the open note's visibility is, carried from the `OpenNote` that
    * opened it.
    *
@@ -147,6 +156,7 @@ export const emptyEditor: EditorState = {
   draft: "",
   etag: null,
   readOnly: false,
+  encrypted: false,
   visibility: "private",
   inherited: "private",
   exception: false,
@@ -220,6 +230,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         draft: action.note.text,
         etag: action.note.etag,
         readOnly: action.note.readOnly,
+        encrypted: action.note.encrypted === true,
         // Carried from the OpenNote, same as the other construction below —
         // the Properties panel reads the manifest's answer from here.
         visibility: action.note.visibility,
@@ -253,6 +264,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         draft: action.note.text,
         etag: action.note.etag,
         readOnly: action.note.readOnly,
+        encrypted: action.note.encrypted === true,
         visibility: action.note.visibility,
         inherited: action.note.inherited,
         exception: action.note.exception,
@@ -516,6 +528,10 @@ export function guardLeaving(state: EditorState): { allowed: boolean; prompt?: s
  * — and pressing it is the same conditional write autosave would have made.
  */
 export function saveButton(state: EditorState): { label: string; disabled: boolean } {
+  // Before the `readOnly` arm, because both are true for an encrypted note and
+  // this is the one that says something. "Read-only" describes a file this
+  // console generates; an encrypted note is a file it cannot open.
+  if (state.encrypted) return { label: "Encrypted", disabled: true };
   if (state.readOnly) return { label: "Read-only", disabled: true };
   switch (state.status) {
     case "saving":
