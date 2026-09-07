@@ -64,8 +64,14 @@
  * not in the threat model**: the process that could plant such a bridge is the
  * process that already owns the window, the preload and the credential itself.
  * The boundary that matters runs the other way and lives where the page cannot
- * reach it — `shouldExposeBridge` in the shell, and the main process re-checking
- * the sender on every channel. What this refusal buys is that the sentence in
+ * reach it — `shouldExposeBridge` in the shell, and `mayAnswerSender` beside it
+ * in the main process. That second clause read "the main process re-checking
+ * the sender on **every** channel" when this file was written, which was a
+ * sentence copied from a docblock that was itself describing a layer nobody had
+ * built; it is now two channels of seventeen, and `docs/decisions/desktop.md`
+ * carries the rest as named remaining work. The correction is here rather than
+ * silent because this paragraph is load-bearing for the refusal above: it is
+ * why a check that a Proxy walks past is acceptable. What this refusal buys is that the sentence in
  * `docs/decisions/desktop.md` — *"There is no `getToken` here and there must not
  * be"* — is enforced against the code this house writes, on every load, with the
  * page failing closed to "this is a browser" rather than drawing a shell it has

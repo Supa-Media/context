@@ -61,7 +61,12 @@ import {
   positionPanelUnderTray,
   revealNotepadQuietly,
 } from "./windows.ts";
-import { consoleOrigin, consoleUrl, mayAnswerSender } from "../core/shell/console.ts";
+import {
+  consoleOrigin,
+  consoleUrl,
+  mayAnswerSender,
+  senderEvidenceFrom,
+} from "../core/shell/console.ts";
 import { CONSOLE_ORIGIN_CHANNEL, CONSOLE_SHELL_CHANNEL } from "../preload/console.ts";
 import { CHANNELS, COMMANDS } from "./ipc.ts";
 import type { UiState } from "./ipc.ts";
@@ -662,12 +667,8 @@ function openConsoleWindowIfAsked(): void {
     no bridge. `event.returnValue` has to be SET whatever the answer is, because
     a `sendSync` that no listener answers hangs the renderer.
   */
-  const senderEvidence = (event: Electron.IpcMainEvent) => ({
-    isConsoleWindow: event.sender === win.webContents,
-    // `?.` because `senderFrame` is `null` for a frame that has gone away, and
-    // `undefined === null` is false — which is the answer that refuses.
-    isMainFrame: event.senderFrame?.parent === null,
-  });
+  const senderEvidence = (event: Electron.IpcMainEvent) =>
+    senderEvidenceFrom(event, win.webContents);
   ipcMain.on(CONSOLE_ORIGIN_CHANNEL, (event) => {
     event.returnValue = mayAnswerSender(senderEvidence(event)) ? origin : null;
   });

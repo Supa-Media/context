@@ -44,6 +44,7 @@ import {
   consoleOrigin,
   consoleUrl,
   mayAnswerSender,
+  senderEvidenceFrom,
   shouldExposeBridge,
 } from "../src/core/shell/console.ts";
 
@@ -199,8 +200,91 @@ export function runShellChecks(check) {
     "...and every one of them refuses a sender the gate rejects",
     consoleHandlers.length === 2 &&
       consoleHandlers.every(([, body]) =>
-        /event\.returnValue\s*=\s*mayAnswerSender\(/.test(withoutComments(body)),
+        // `: null` and not just the call. MEASURED with only the call matched:
+        // `mayAnswerSender(senderEvidence(event)) ? origin : origin` — the gate
+        // evaluated and both branches identical — passed 594/0. A guard has to
+        // see the refusal, not merely the question.
+        /event\.returnValue\s*=\s*mayAnswerSender\(senderEvidence\(event\)\)[\s\S]*?:\s*null/.test(
+          withoutComments(body),
+        ),
       ),
+  );
+  check(
+    /*
+      The ARGUMENT and not just the call. MEASURED with the looser pattern:
+      `mayAnswerSender({ isConsoleWindow: true, isMainFrame: true })` — the gate
+      called, the evidence a constant — passed 586/0, and so did
+      `mayAnswerSender(...) ? origin : origin`. A guard that only asks whether a
+      function is named is a guard against forgetting, not against opening.
+
+      This is a text check and it stays a smell test: a gate deleted with the
+      token left in a string literal still passes it. What makes that acceptable
+      is that the two things it cannot see are now checked properly elsewhere —
+      the predicate by its own cases, and the reader by `senderEvidenceFrom`'s.
+    */
+    "...and the evidence they pass is read off the event, not a constant",
+    /const senderEvidence = \(event: Electron\.IpcMainEvent\) =>\s*\n?\s*senderEvidenceFrom\(event, win\.webContents\);/.test(
+      withoutComments(mainSource),
+    ),
+  );
+
+  // --- and the reader that touches Electron is checked too -------------------
+
+  /*
+    THE HALF OF GUARD 3 THAT NOTHING WAS CHECKING.
+
+    MEASURED before this block existed: replacing the reader's two expressions
+    with the literals `true, true` left the suite at 586 PASS, 0 FAIL. The
+    predicate's own checks feed it fabricated evidence and the text check only
+    looked for the call, so a reader that always said yes was a gate that always
+    opened — tested by both of its guards and caught by neither.
+  */
+  const contents = { id: "console" };
+  const topFrame = { parent: null };
+  const evidenceFor = (over = {}) =>
+    senderEvidenceFrom({ sender: contents, senderFrame: topFrame, ...over }, contents);
+
+  check(
+    "the console window's own main frame reads as both",
+    (() => {
+      const e = evidenceFor();
+      return e.isConsoleWindow === true && e.isMainFrame === true;
+    })(),
+  );
+  check(
+    "ANOTHER WINDOW'S CONTENTS READ AS NOT THE CONSOLE",
+    evidenceFor({ sender: { id: "panel" } }).isConsoleWindow === false,
+  );
+  check(
+    "a subframe reads as not the main frame",
+    evidenceFor({ senderFrame: { parent: topFrame } }).isMainFrame === false,
+  );
+  check(
+    "a `senderFrame` of null reads as not the main frame",
+    evidenceFor({ senderFrame: null }).isMainFrame === false,
+  );
+  check(
+    "A DISPOSED FRAME IS REFUSED RATHER THAN THROWN — `?.` does not guard a throwing getter",
+    (() => {
+      const disposed = {
+        get parent() {
+          throw new Error("Render frame was disposed before WebFrameMain could be accessed");
+        },
+      };
+      // The throw would leave `event.returnValue` unset, and a `sendSync` that
+      // nothing answers hangs the renderer. So the reader must return, not throw.
+      return evidenceFor({ senderFrame: disposed }).isMainFrame === false;
+    })(),
+  );
+  check(
+    "AN ABSENT WINDOW DOES NOT MATCH AN ABSENT SENDER, though `undefined === undefined`",
+    senderEvidenceFrom({ sender: undefined, senderFrame: topFrame }, undefined).isConsoleWindow ===
+      false,
+  );
+  check(
+    "...and an event that is not one is refused rather than read",
+    senderEvidenceFrom(null, contents).isConsoleWindow === false &&
+      senderEvidenceFrom(undefined, contents).isMainFrame === false,
   );
 
   // --- what the shell is willing to load ------------------------------------

@@ -234,6 +234,59 @@ export interface SenderEvidence {
  * So the two layers are: **this one decides which renderer is answered, that
  * one decides which document is trusted.** Neither is the other written twice.
  */
+/**
+ * Read the two facts off the event, without trusting or throwing.
+ *
+ * ## Why this is here rather than inline in `main/index.ts`
+ *
+ * Because it is the half of guard 3 that actually touches Electron, and while
+ * it lived in `main/index.ts` **nothing checked it**. MEASURED: replacing the
+ * two expressions with the literals `true, true` left the suite at 586 PASS, 0
+ * FAIL. `mayAnswerSender`'s own checks feed it fabricated evidence, and the
+ * source-text check only looks for the call — so a reader that always answered
+ * yes was a gate that always opened, tested by both of its guards and caught by
+ * neither. That is the defect this whole file is a record of, one level down,
+ * which is a good enough reason to move fourteen characters of expression.
+ *
+ * ## Three refusals, and each is a real way to be wrong
+ *
+ * **A `parent` that throws.** Electron raises `Render frame was disposed before
+ * WebFrameMain could be accessed` on a frame whose render frame has gone, and
+ * `?.` does not guard that — it guards `null`, not a throwing getter. Measured
+ * consequence if it ever fired in a handler: `event.returnValue` is never set,
+ * and a `sendSync` nobody answers **hangs the renderer** (also measured — a
+ * listener answers in about a millisecond, no listener never returns). Nobody
+ * has reproduced it through `event.senderFrame`, which is why this is a
+ * `try` rather than a paragraph.
+ *
+ * **An absent window.** `sender === consoleContents` with both `undefined` is
+ * `true`, which would open the gate on a build where the window is gone. The
+ * expected contents must be a real value before the comparison counts.
+ *
+ * **An event that is not one.** Absence is a refusal here as everywhere else in
+ * this file.
+ *
+ * @param event the `IpcMainEvent`, taken structurally so a fake can drive it.
+ * @param consoleContents `win.webContents` — the console window's, and no
+ *   other's.
+ */
+export function senderEvidenceFrom(
+  event: { sender?: unknown; senderFrame?: unknown } | null | undefined,
+  consoleContents: unknown
+): SenderEvidence {
+  if (!event || typeof event !== "object") return { isConsoleWindow: false, isMainFrame: false };
+  const known = consoleContents !== undefined && consoleContents !== null;
+  let isMainFrame = false;
+  try {
+    isMainFrame = (event.senderFrame as { parent?: unknown } | null | undefined)?.parent === null;
+  } catch {
+    // A disposed frame is not a main frame. See the header: the alternative is
+    // an exception that leaves `returnValue` unset and hangs the sender.
+    isMainFrame = false;
+  }
+  return { isConsoleWindow: known && event.sender === consoleContents, isMainFrame };
+}
+
 export function mayAnswerSender(evidence: SenderEvidence | null | undefined): boolean {
   // Absent evidence is a refusal, not a default. `event.senderFrame` is `null`
   // for a frame that has already gone away, and a missing field must not read

@@ -348,8 +348,13 @@ three independent guards rather than one:
 1. **The preload refuses to expose the bridge off-origin.**
    `shouldExposeBridge({ pinned, origin, isTopFrame })` is a pure function that
    answers false for a different origin, for an `about:blank`, and for **any
-   subframe** — a preload runs in every frame, so an iframe on a page is
-   otherwise a bridge. The pin reaches the preload by a `sendSync` to the main
+   subframe**. That last one is defence in depth rather than load-bearing, and
+   the difference is worth stating because the sentence here used to assert the
+   opposite: "a preload runs in every frame" is true only with
+   `nodeIntegrationInSubFrames`, which `createConsoleWindow` does not set —
+   measured on the real binary, in both directions. It is kept because the day
+   somebody sets that flag, or relaxes the origin rule for a sibling origin, is
+   the day an iframe would otherwise inherit a bridge. The pin reaches the preload by a `sendSync` to the main
    process and deliberately **not** through
    `webPreferences.additionalArguments`, which this paragraph specified and the
    code never did: a sandboxed preload asks, so the pin has one source and it is
@@ -391,6 +396,17 @@ three independent guards rather than one:
    than `senderFrame === sender.mainFrame` because Electron's own typings
    caution that distinct `WebFrameMain` instances may refer to one frame; both
    were measured to work, and only one of them is documented behaviour.
+
+   **And the honest scope: two of the seventeen.** The twelve `COMMANDS.*` and
+   the three capture channels are still answered to whoever asks. They are safe
+   because every window whose preload can send them is a `loadFile` of this
+   app's own HTML — `preload/index.ts` exposes twelve send verbs and
+   `preload/capture.ts` three, and the three capture ones are the closest to the
+   microphone of any channel here. So this is written down as remaining work
+   rather than left for somebody to infer from a guard that says "every
+   channel": the gate is one function and the panel, the notepad and the capture
+   window each have exactly one legitimate sender to compare against. Nothing
+   here should be read as saying it is already done.
 
 And one rule that is stronger than any of them: **the console window is never
 granted a media permission.** Its session's
