@@ -271,6 +271,30 @@ export function useFileBrowser(options: {
   const operationRun = useRef(0);
 
   /**
+   * The generation of the note (or context) `openNote` is answering for.
+   *
+   * The same shape as `operationRun`, for a read rather than a write: a read
+   * answers the request that made it, or nobody. `openNote` closes over
+   * `workspaceId` and has no other way to tell "the read I started" from "the
+   * read that happens to resolve while I am waiting" — two contexts and two
+   * quick opens both look identical to a promise that has already gone out.
+   *
+   * Bumped in three places, each a moment nothing already on screen may be
+   * answered into: the "load whenever context changes" effect (a read for the
+   * *previous* context settling in the new one is note A's body under note
+   * B's chrome), `openNote` itself (a second open makes the first one's
+   * eventual answer stale, whatever path it was for), and `deselect` (closing
+   * the note is not itself an open, but it is exactly as invalidating as one —
+   * without this bump a read in flight when somebody closes the note would
+   * spring the editor back open with content nobody asked for any more).
+   *
+   * Captured at the start of `openNote`, compared just before every dispatch
+   * and `setNotice` that would otherwise let a stale answer speak for the
+   * request now in flight (or for nothing in flight at all).
+   */
+  const openRun = useRef(0);
+
+  /**
    * The autosave timers, and the one function they are allowed to call.
    *
    * The controller is created once for the life of the hook, so it cannot be
@@ -520,6 +544,12 @@ export function useFileBrowser(options: {
 
   /** Load the root whenever the context changes, and forget the old one. */
   useEffect(() => {
+    // Invalidates a read still in flight for the *previous* context before
+    // anything else in this effect runs — see `openRun`. Without this, a read
+    // started under the old `workspaceId` and answering after this effect has
+    // already reset everything below would dispatch straight into the new
+    // context's editor.
+    openRun.current += 1;
     setListings({});
     setExpanded(new Set());
     setSelectedPath(null);
@@ -648,6 +678,16 @@ export function useFileBrowser(options: {
     async (path: string): Promise<void> => {
       if (workspaceId === null) return;
       const offline = offlineRef.current;
+      /*
+        This open's own generation. A new open (this one) makes whatever this
+        hook was waiting on before stale, and everything this call eventually
+        does — every `dispatch`, every `setNotice` — is guarded by comparing
+        `mine` back against `openRun.current` first. See `openRun`'s own
+        comment for the three moments that move it out from under a call
+        already in flight.
+      */
+      openRun.current += 1;
+      const mine = openRun.current;
       setOpening(path);
       try {
         let note: OpenNote | null = null;
@@ -668,6 +708,11 @@ export function useFileBrowser(options: {
           } catch (error) {
             const cached = isServerRefusal(error) ? null : await offline.cachedNote(path);
             if (cached === null) {
+              // Superseded: do not put a *different* request's failure into
+              // the notice line, and do not close whatever is open now on its
+              // behalf — that state belongs to the open (or close) that came
+              // after this one.
+              if (openRun.current !== mine) return;
               dispatch({ type: "closed" });
               setNotice(toFileError(error).message);
               return;
@@ -679,6 +724,7 @@ export function useFileBrowser(options: {
         }
 
         if (note === null) {
+          if (openRun.current !== mine) return;
           dispatch({ type: "closed" });
           setNotice(NOT_CACHED);
           return;
@@ -689,15 +735,26 @@ export function useFileBrowser(options: {
           pending: offline.pendingFor(path),
           draft: await offline.savedDraft(path),
         });
+        // The one that matters most: a superseded read must not put its note
+        // in an editor that has moved on to another context, another note, or
+        // no note at all — see the module comment at the top of this file.
+        if (openRun.current !== mine) return;
         dispatch({ type: "opened", note, fromCache, notice, restored });
       } finally {
         /*
-          Every exit, including the three early returns above that end in
-          `closed` plus a notice. A read that failed is not still opening, and
-          leaving the flag set would hold the region blank under the failure's
-          own message.
+          Every exit, including the early returns above that end in `closed`
+          plus a notice. A read that failed is not still opening, and leaving
+          the flag set would hold the region blank under the failure's own
+          message.
+
+          Guarded the same way: a superseded call's `opening` was already
+          moved on by whatever superseded it (a new open sets its own path, a
+          context switch or a `deselect` sets it to `null`), and clearing it
+          here — even through the path comparison inside `settleOpening` —
+          could still race a same-path reopen and clear a flag belonging to
+          the call that came after it.
         */
-        settleOpening(path);
+        if (openRun.current === mine) settleOpening(path);
       }
     },
     [readNote, settleOpening, workspaceId],
@@ -788,10 +845,13 @@ export function useFileBrowser(options: {
    * leaving the flag set would hold the region blank over an empty selection.
    *
    * The read itself is not cancelled — nothing here can cancel a Convex action
-   * — and it does not need to be: `openNote` dispatches `opened`, which
-   * `editorReducer` applies to a buffer nothing is rendering, and the next
-   * `select` overwrites it. What must not happen is the *selection* coming
-   * back, and it cannot: `selectedPath` is only ever written by `select`.
+   * — and it does not need to be: bumping `openRun` is what stops it mattering.
+   * `openNote` compares its own generation against `openRun.current` before
+   * every `dispatch`, so a read still in flight when this runs finds itself
+   * superseded and drops its answer rather than springing the editor back open
+   * with a note nobody is looking at any more. What must not happen either is
+   * the *selection* coming back, and it cannot: `selectedPath` is only ever
+   * written by `select` and `deselect`.
    */
   const deselect = useCallback((): boolean => {
     autosave.flush();
@@ -800,6 +860,9 @@ export function useFileBrowser(options: {
       setNotice(guard.prompt ?? null);
       return false;
     }
+    // See `openRun`: a read still in flight for the note being closed must not
+    // be able to dispatch `opened` back into an editor this call just closed.
+    openRun.current += 1;
     setSelectedPath(null);
     setOpening(null);
     setNotice(null);
