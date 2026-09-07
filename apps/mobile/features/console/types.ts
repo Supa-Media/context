@@ -85,6 +85,16 @@ export interface ConsoleStorage {
   region?: string;
   rootPrefix?: string;
   accessKey?: string;
+  /**
+   * Whose Dropbox this is (`dbid:…`), so the settings card can say "Connected
+   * as …" and a reconnect onto a different account reads differently from a
+   * reconnect onto the same one. Absent for every other provider, and absent
+   * for a Dropbox binding nobody has finished connecting yet. This is a live
+   * subscription value, not something the client remembers between renders —
+   * a reconnect that lands on a different account shows up the moment the
+   * binding updates.
+   */
+  dropboxAccountId?: string;
   /** Real, from the connect-time capability probe. */
   conditionalWrite: boolean;
   /**

@@ -15,8 +15,9 @@
  *   gateway → `getBindingForGateway` (INTERNAL action) envelope → plaintext
  *
  * There is deliberately no public path from the row back to the plaintext.
- * `getStorageBinding` returns status and a masked access key id and nothing
- * else. If you are adding a function that returns `encryptedSecretAccessKey`
+ * `getStorageBinding` returns status, a masked access key id, and — for
+ * Dropbox — the account id it is connected to, and nothing else. If you are
+ * adding a function that returns `encryptedSecretAccessKey`
  * to a client, you are building a credential-disclosure endpoint even though
  * the value looks opaque — an offline attack on a leaked key beats a value
  * that never left the server.
@@ -1087,10 +1088,15 @@ async function dropboxAccessToken(
       message: "Dropbox is not configured on this deployment.",
     });
   }
+  // Optional, unlike the key above: PKCE already proved this flow, so a
+  // deployment with no secret configured refreshes as the public client this
+  // feature shipped with. See `lib/dropboxOAuth.ts` for why sending one where
+  // it is available costs nothing and buys an independent check.
+  const clientSecret = process.env.DROPBOX_APP_SECRET || undefined;
 
   let refreshed;
   try {
-    refreshed = await refreshDropboxToken({ clientId, refreshToken });
+    refreshed = await refreshDropboxToken({ clientId, clientSecret, refreshToken });
   } catch (error) {
     // A revoked grant is not a transient failure, and the two need different
     // words: one is "reconnect Dropbox", the other is "try again".
@@ -1364,6 +1370,18 @@ export const getStorageBinding = query({
       rootPrefix: v.optional(v.string()),
       maskedAccessKeyId: v.optional(v.string()),
       forcePathStyle: v.optional(v.boolean()),
+      /**
+       * Whose Dropbox this is — `dbid:…`, never a token. Absent for every
+       * other provider, and absent for a Dropbox binding nobody has finished
+       * connecting yet.
+       *
+       * Not gated by role: it identifies an account the same way `bucket`
+       * identifies a bucket, and every member of a context can already see
+       * that. It is a live read of the row, so a reconnect onto a different
+       * Dropbox account is reflected the moment the binding is patched — the
+       * console never caches the account it showed last.
+       */
+      dropboxAccountId: v.optional(v.string()),
       capabilities: v.object({ conditionalWrite: v.boolean() }),
       status: v.string(),
       lastVerifiedAt: v.optional(v.number()),
@@ -1446,6 +1464,7 @@ export const getStorageBinding = query({
         ? maskAccessKeyId(binding.accessKeyId)
         : undefined,
       forcePathStyle: binding.forcePathStyle,
+      dropboxAccountId: binding.dropboxAccountId,
       capabilities: binding.capabilities,
       status: binding.status,
       lastVerifiedAt: binding.lastVerifiedAt,
