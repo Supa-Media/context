@@ -29,6 +29,8 @@ function settle(start: { note: string | null; selected: string | null }, passes 
   let seen: Reconciled | null = null;
   const writes: (string | null)[] = [];
   const opened: string[] = [];
+  /** How many times the rule asked for the note to be closed. */
+  let closed = 0;
 
   for (let pass = 0; pass < passes; pass += 1) {
     const inputs: AddressInputs = {
@@ -40,19 +42,24 @@ function settle(start: { note: string | null; selected: string | null }, passes 
       seen,
     };
     const step = nextAddressStep(inputs);
-    if (step.action === "wait") return { note, selected, writes, opened, settled: false };
+    if (step.action === "wait") return { note, selected, writes, opened, closed, settled: false };
     // The hook records before acting; see `useNoteAddress` for why.
     seen = { contextId: CTX, note, selected };
-    if (step.action === "hold") return { note, selected, writes, opened, settled: true };
+    if (step.action === "hold") return { note, selected, writes, opened, closed, settled: true };
     if (step.action === "open") {
       opened.push(step.path);
       selected = step.path;
+    } else if (step.action === "close") {
+      // The browser's `deselect`, allowed. The refused case is
+      // `linkedNote.test.ts`'s, which has a real guard to refuse with.
+      closed += 1;
+      selected = null;
     } else {
       writes.push(step.note);
       note = step.note;
     }
   }
-  return { note, selected, writes, opened, settled: false };
+  return { note, selected, writes, opened, closed, settled: false };
 }
 
 describe("the rule that keeps ?note= and the open note in step", () => {
@@ -235,11 +242,50 @@ describe("the rule that keeps ?note= and the open note in step", () => {
     ).toEqual({ action: "address", note: null });
   });
 
-  test("a URL that lost its note is re-addressed rather than obeyed", () => {
+  test("a URL that lost its note closes the note", () => {
+    /**
+     * The inverse of what this asserted, deliberately. It read "re-addressed
+     * rather than obeyed", because there was no close for such a URL to be
+     * expressing — and that made the phone's lit context pill, whose whole
+     * press is `/console/@slug` with no note, a control that did nothing.
+     *
+     * `FileBrowser.deselect` is what was missing. The rule is now symmetric: a
+     * URL that **changed** is a navigation, and it is honoured whichever way it
+     * went. See `linkedNote.test.ts` for the same thing against the real
+     * browser, including what happens when the guard refuses.
+     */
     const seen: Reconciled = { contextId: CTX, note: A, selected: A };
     expect(
       nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: null, selected: A, seen }),
+    ).toEqual({ action: "close" });
+  });
+
+  test("a URL that never had a note does not close what the person just opened", () => {
+    /**
+     * The case the symmetry must not swallow, and the one that makes "changed"
+     * load-bearing rather than decorative.
+     *
+     * Somebody standing at `/console/@seyi` taps a note. The selection moves;
+     * the URL has not been written yet, so `note` is `null` — as it was last
+     * time, which is what tells the two apart. Reading *that* as a close would
+     * shut every note the moment it was opened, one commit after it opened.
+     *
+     * SABOTAGE: `if (note === null) return { action: "close" }`. Fails here.
+     */
+    const seen: Reconciled = { contextId: CTX, note: null, selected: null };
+    expect(
+      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: null, selected: A, seen }),
     ).toEqual({ action: "address", note: A });
+  });
+
+  test("a close settles: nothing is left to reconcile once both are empty", () => {
+    // What the commit after a close looks like. A rule that answered anything
+    // but `hold` here would be the oscillation this module is a pure function
+    // to make testable.
+    const seen: Reconciled = { contextId: CTX, note: null, selected: A };
+    expect(
+      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: null, selected: null, seen }),
+    ).toEqual({ action: "hold" });
   });
 
   test("agreement is a hold, whatever it agrees on", () => {

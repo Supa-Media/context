@@ -111,6 +111,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A note link is a path with a keyword in front, because a scheme has a host
 - A reference follows the note it points at, and a link is something you follow
 - The console autosaves, and the prompt that is left is about a decision
+- The breadcrumb is the whole path, and its head is a real way up
 
 ## [Meetings](./meetings.md)
 

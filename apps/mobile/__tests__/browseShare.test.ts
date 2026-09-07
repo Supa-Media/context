@@ -593,9 +593,17 @@ describe("who does not get it", () => {
       name: "privacy.md",
       readOnly: true,
     });
-    // The note IS open — otherwise this would pass for the wrong reason, which
-    // is what the first version of this test did.
-    expect(pane.textContent).toContain("privacy.md");
+    /*
+      The note IS open — otherwise this would pass for the wrong reason, which
+      is what the first version of this test did.
+
+      `privacy`, not `privacy.md`: the breadcrumb's leaf drops the extension on
+      both densities now, which is the trim `noteHeading` has always made when
+      it falls back to a filename. The chip beside it is what says this file is
+      the access map.
+    */
+    expect(pane.textContent).toContain("privacy");
+    expect(pane.textContent).toContain("the access map");
     expect(pane.querySelector('[data-testid="browse-share"]')).toBeNull();
   });
 

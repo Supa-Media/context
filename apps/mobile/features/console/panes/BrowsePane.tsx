@@ -96,6 +96,24 @@ export function BrowsePane({
       : entryAt(files.listings, files.selectedPath, files.editor);
 
   /**
+   * Whether the file browser is talking about the context the console is on.
+   *
+   * They differ for the commits between pressing another context and the
+   * browser resetting under it — the same lag `noteAddress.ts` waits out, from
+   * the other end. Everything else in this pane is drawn from the browser's own
+   * state and is therefore internally consistent while that happens; the
+   * **breadcrumb is not**, because its head is `CurrentContextPill`, which is
+   * built from the console's selection and moves first.
+   *
+   * So for those commits the band would read `@supa / 1-projects / a-note-in-seyi`
+   * — one context's pill over another context's path, which is a sentence that
+   * has never been true. Nothing rather than a stale path: the pill alone is
+   * honest, it is where the switch is going, and the path arrives with the
+   * listing a moment later.
+   */
+  const settled = files.contextId === data.selectedContextId;
+
+  /**
    * The note the share dialog is open for, or `null`.
    *
    * Held here rather than lifted into `Explorer`'s dialog union: that state
@@ -319,10 +337,27 @@ export function BrowsePane({
       */
       gutter={layout.readingMargin}
       path={
-        selected === null ? null : (
+        selected === null || !settled ? null : (
           <Breadcrumb
             pathOnly
             path={selected.path}
+            /*
+              What the note calls itself, where it calls itself anything — the
+              same rule the pointer layout's breadcrumb applies, and passed here
+              for the same reason. A captured note's filename is a content hash,
+              so on a phone the only line naming what is on screen was naming
+              nothing.
+
+              Only when the editor is holding *this* note: `files.editor` is one
+              buffer and the selection can move ahead of it, so titling the
+              crumb from a draft belonging to a different path would put one
+              note's subject over another note's name.
+            */
+            title={
+              selected.kind === "file" && files.editor.path === selected.path
+                ? noteHeading(files.editor.draft, selected.path)
+                : undefined
+            }
             contextLabel={contextLabel}
             visibility={selected.visibility}
             inherited={selected.inherited}

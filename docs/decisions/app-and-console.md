@@ -1973,3 +1973,141 @@ real draft clean (`saveTimeout.test.ts`). One guard is recorded in
 `autosaveEditor.test.ts` as *not* covered rather than quietly claimed:
 `performSave` cancelling the timer it supersedes is redundant with the
 fire-time `autosaves` check, and nothing can distinguish the two.
+
+### The breadcrumb is the whole path, and its head is a real way up
+
+Two screenshots from a phone, and one report:
+
+> when you click on a workspace it puts it inside the breadcrumb. But clicking
+> on the workspace name in the breadcrumb should take you to the root. Right now
+> it doesn't do anything. It persists where it last was, which is good when
+> you're going from one workspace to a new workspace, but not good for a
+> breadcrumb. It doesn't even show the rest of the items, what path you're in.
+> The UX there is pretty broken; you're not able to really navigate.
+
+Three defects, and each of them is a decision recorded above being right about
+its own case and wrong one step later.
+
+#### 1. The lit pill did nothing, because there was no "close the note"
+
+`CurrentContextPill` presses to `browseHref(slug)` — `/console/@seyi`, no
+`?note=` — which is exactly what "open its root" means. **The URL is a mirror**
+(above) then re-addressed the open note within the same tick, because
+`noteAddress.ts` read a console URL that had lost its note as *stale* rather
+than as an instruction, on this reasoning:
+
+> there is no "close the note" for it to be expressing — `select` takes a path
+> and the file browser has no deselect — so treating it as one would leave the
+> address bar disagreeing with the screen.
+
+Correct about the mechanism, and the cost was the one control on the screen
+labelled as the way up doing nothing at all. So the missing verb is the fix
+rather than the excuse: `FileBrowser.deselect` is `select`'s inverse — flush
+autosave, ask `guardLeaving`, clear the selection, empty the editor, drop
+`opening` — and the address rule becomes symmetric. **A URL that changed is a
+navigation**, honoured whichever way it went: to a note it is a link, to nothing
+it is a close.
+
+The asymmetry that is left is the one doing the work. A URL that did *not*
+change is not a navigation, whatever it says — somebody tapping a note at
+`/console/@seyi` produces a commit where `note` is `null` and the selection has
+moved, and reading that as a close would shut every note one commit after it
+opened (`noteAddress.test.ts`, "a URL that never had a note does not close what
+the person just opened").
+
+Two consequences that are not obvious and are each held by a test:
+
+- **A refused close puts the note back in the address**, where a refused
+  `select` does not. A refused `select` leaves `?note=` naming the note somebody
+  was going to, and a reload opens it — where they were headed anyway. A refused
+  close leaves the address at the root with a conflicted note still open and
+  unanswered, and the phone writes that address to the device: the next launch
+  would come back to the root with the conflict gone from the screen and the
+  draft still in the outbox.
+- **Closing settings has to name the note behind it.** `SettingsPane` is pushed
+  over Browse and leaves it mounted, and the route dismissed it with
+  `router.replace(browseHref(slug))` — harmless while a bare console URL meant
+  nothing, an instruction to close somebody's note now. `settingsClose.test.ts`
+  exists to stop that being tidied back into the one-liner it was.
+
+The device record needs no new machinery: `useRememberPlace` is fed the *URL's*
+note (see **A URL is a context and a note**), so a press that clears `?note=`
+files the context at its root by construction, and the relaunch after it does
+not reopen what was just closed.
+
+#### 2. The path stopped one segment short of where you were
+
+**A phone gets a path bar** (above) argues the leaf away: the note names itself
+inside the document, so a trailing segment says the same words twice. The rule
+is real — `ShareScreen` was fixed for exactly it — and it was applied to the
+wrong element. Both of the names it defers to are **inside the scroller**: they
+are gone the moment somebody reads past the first screen, and the band is what
+stays. Worse, it made `index.md` — every context's front page, and the first
+note anybody opens — render as a lit pill and nothing else, over an open editor.
+That is the second screenshot.
+
+So the leaf is drawn, on both densities, and it is a **position rather than a
+control**: pressing it would re-select what is already open. It says what the
+note *calls itself* (`noteHeading`, the same ladder the inline title climbs)
+and, falling back to the filename, drops the `.md` — filing, not a name, and the
+same trim `noteHeading` already made.
+
+The count of segments is capped and no label is ever shortened, which is
+`ContextStrip`'s rule kept and its scope corrected. Nothing truncates is right
+about **names** — `3-resour…` and `3-resour…` are two folders that look
+identical on the control whose job is telling them apart. It is not an answer
+for **depth**, because the segment that scrolls off the trailing edge is the
+leaf, and somebody who has to drag a row they have no reason to think is
+draggable in order to learn which note is open has the same non-answer with a
+gesture in front of it. Past `MAX_FOLDER_CRUMBS` (three) the middle elides to
+`…`, keeping the first folder — the PARA bucket, where you go to start again —
+and the last two — the parent and its parent, where you go to step back. Nothing
+becomes unreachable: the first folder is drawn and pressing it lists what is
+under it, which is how anybody reached the hidden ones in the first place.
+
+`crumbs.ts` is one pure function and both renderers map over it, the pointer
+layout passing `maxFolders: null` because it has the width for the whole path
+and a chip beside it. That is the answer to "unify rather than duplicate": the
+last time the two surfaces each decided for themselves what a segment was, one
+of them dropped the leaf, then the context, and shipped.
+
+#### 3. A switch must not draw the old context's path under the new one's pill
+
+**A URL is a context and a note** (above) fixed the address and the device
+record across a switch. The band has the same lag from the other end and needed
+saying: everything else in `BrowsePane` is drawn from the file browser's own
+state and stays internally consistent while the browser catches up — the
+breadcrumb does not, because the pill at its head comes from the *console's*
+selection and moves with the URL. Uncorrected it reads
+`@supa / 3-resources / a-note-in-seyi`: one context's pill over another's path,
+a sentence that has never been true, and exactly the "it persists where it last
+was" in the report. `BrowsePane` draws the path only while
+`files.contextId === data.selectedContextId`; until then the pill stands alone,
+which is honest and is where the switch is going. Restoring the other context's
+place is unchanged and is still the good half.
+
+#### The tests that fail if any of it is reversed
+
+Sabotage record — each applied as a local edit, run, reverted. Counts are
+failing tests.
+
+    the URL that lost its note re-addressed (the shipped rule)          5
+    `close` whenever the URL has no note (every note shuts on open)     1
+    `deselect`'s refusal ignored by `useNoteAddress`                    2
+    `deselect` without the unsaved-changes guard                        1
+    the leaf dropped again (ancestors only)                            16
+    no elision, the row just gets longer                                3
+    `BrowsePane` drawing the previous context's path                    1
+    settings closing to the bare console href                           1
+
+`breadcrumbPath.test.ts` owns the pure path model, `breadcrumbRoot.test.ts` the
+pill press end to end (it closes the note, the device stops remembering it, a
+refused close comes back, and pressing *another* context still restores where
+you were there), `noteChrome.test.ts` the rendered band, `linkedNote.test.ts`
+the close against the real `useFileBrowser`, and `settingsClose.test.ts` the
+one href a tidy-up would undo.
+
+**What is not covered here**: the elision was chosen for a 390pt viewport and
+checked in a browser at that size, not on a device. Whether three folder
+segments plus a leaf plus a pill is the right budget on a 320pt phone is a
+number to revisit with one in hand, not an invariant.
