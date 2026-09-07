@@ -476,6 +476,96 @@ describe("a list is drawn as a list", () => {
 
 /* -------------------------------------------------------------------------- */
 
+/**
+ * NOTHING IS DECORATED INSIDE THE FRONTMATTER, AND A LIST IS THE CASE THAT
+ * MAKES THAT MORE THAN A TIDINESS RULE.
+ *
+ * `hiddenMarkRanges` and the style pass have both excluded the frontmatter
+ * since the block was first drawn as metadata rather than as the note's largest
+ * heading. The list and table passes are new and had to be told the same thing:
+ * a `tags:` block is a **YAML sequence**, the grammar reads it as a Markdown
+ * list, and the first version of this drew a bullet over somebody's metadata
+ * and indented it by two columns.
+ *
+ * ## Sabotage record
+ *
+ * Run as temporary local edits and reverted.
+ *
+ *   the frontmatter cutoff dropped from the list passes                 3
+ *   the cutoff computed but not passed on by `decorationsFor`           1
+ */
+describe("the frontmatter is metadata, not a list", () => {
+  const NOTE = [
+    "---",
+    "updated: 2026-09-07",
+    "tags:",
+    "  - editor",
+    "  - polish",
+    "---",
+    "",
+    "- a real list item",
+  ].join("\n");
+
+  /** Where the frontmatter ends, the way `decorationsFor` computes it. */
+  function frontEnd(doc: string): number {
+    return frontmatterRange(doc)?.to ?? 0;
+  }
+
+  test("a YAML sequence gets no bullet", () => {
+    const state = stateFor(NOTE);
+    const glyphs = listGlyphs(state, [{ from: 0, to: 0 }], frontEnd(NOTE));
+    // Exactly one: the real list item below the block, not the two YAML rows.
+    expect(glyphs).toHaveLength(1);
+    expect(state.doc.lineAt(glyphs[0].from).text).toBe("- a real list item");
+  });
+
+  test("and no hanging indent", () => {
+    const state = stateFor(NOTE);
+    const lines = hangingIndents(state, frontEnd(NOTE)).map(
+      (indent) => state.doc.lineAt(indent.from).text,
+    );
+    expect(lines).toEqual(["- a real list item"]);
+  });
+
+  test("and the real decoration set has nothing but the metadata line in there", () => {
+    /*
+      The three above call the passes directly, which leaves the wiring
+      untested: `decorationsFor` computes the cutoff once and hands it to all
+      three, and setting *that* to zero passed every assertion above. This is
+      the test that fails when it does.
+
+      Everything drawn inside the block must be the `cm-lp-frontmatter` line
+      decoration and nothing else — no widget standing in for a `-`, no
+      per-line indent.
+    */
+    const state = stateFor(NOTE);
+    const inside: string[] = [];
+    decorationsFor(state).between(0, frontEnd(NOTE), (_from, _to, value) => {
+      const spec = value.spec as { class?: string; widget?: unknown; attributes?: unknown };
+      inside.push(
+        spec.widget !== undefined
+          ? "widget"
+          : spec.attributes !== undefined
+            ? `styled:${spec.class ?? ""}`
+            : (spec.class ?? "other"),
+      );
+    });
+    expect([...new Set(inside)]).toEqual(["cm-lp-frontmatter"]);
+  });
+
+  test("without the cutoff the YAML would be decorated — the control", () => {
+    /*
+      The positive half. Passing 0 is what the code did before, and it proves
+      the assertions above are held by the cutoff rather than by the grammar
+      declining to parse the block.
+    */
+    const state = stateFor(NOTE);
+    expect(listGlyphs(state, [{ from: 0, to: 0 }], 0).length).toBeGreaterThan(1);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
 describe("a table is drawn in the face its columns need", () => {
   const TABLE = ["| a | b |", "| --- | --- |", "| 1 | 2 |"].join("\n");
 

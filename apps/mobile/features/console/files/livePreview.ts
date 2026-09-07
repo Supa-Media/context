@@ -399,13 +399,21 @@ export interface HangingIndent {
  * Pure over the state, and exported for its own test: the interesting cases are
  * nesting, a wrapped item and a marker wider than one character, and all three
  * are properties of a tree rather than of a rendered editor.
+ *
+ * `frontEnd` is where the YAML frontmatter ends, and nothing before it is
+ * touched — for the reason `hiddenMarkRanges` states at length. A `tags:` block
+ * is a YAML sequence, the grammar reads it as a Markdown list, and indenting
+ * somebody's metadata by two columns is the same class of mistake as drawing
+ * it as a heading. Defaults to zero so a caller with no frontmatter — every
+ * test that is not about this — says nothing.
  */
-export function hangingIndents(state: EditorState): HangingIndent[] {
+export function hangingIndents(state: EditorState, frontEnd = 0): HangingIndent[] {
   const byLine = new Map<number, number>();
   syntaxTree(state).iterate({
     from: 0,
     to: state.doc.length,
     enter(node) {
+      if (node.from < frontEnd) return;
       if (node.name !== "ListItem") return;
       const mark = node.node.getChild("ListMark");
       if (mark === null) return;
@@ -451,10 +459,15 @@ export interface ListGlyph {
  * reader wants to see, and replacing it with a drawn one would mean this editor
  * renumbering a list, which is a document model doing the counting — the exact
  * thing this file exists not to have.
+ *
+ * `frontEnd` excludes the frontmatter — see `hangingIndents`. A YAML sequence
+ * drawn with bullets would be the editor decorating text it has already decided
+ * to draw as plain metadata.
  */
 export function listGlyphs(
   state: EditorState,
   selection: readonly TextRange[],
+  frontEnd = 0,
 ): ListGlyph[] {
   const glyphs: ListGlyph[] = [];
   const revealed = (at: number): boolean => {
@@ -466,6 +479,7 @@ export function listGlyphs(
     from: 0,
     to: state.doc.length,
     enter(node) {
+      if (node.from < frontEnd) return;
       if (node.name === "ListMark") {
         const parent = node.node.parent;
         // `1.` is a number, not a marker to redraw. See above.
@@ -503,13 +517,16 @@ export function listGlyphs(
  * A real grid is a block widget replacing a range of lines, which is a much
  * larger piece of work than decorating what is there and is recorded as the
  * next step rather than claimed here.
+ *
+ * `frontEnd` excludes the frontmatter — see `hangingIndents`.
  */
-export function tableLines(state: EditorState): number[] {
+export function tableLines(state: EditorState, frontEnd = 0): number[] {
   const lines: number[] = [];
   syntaxTree(state).iterate({
     from: 0,
     to: state.doc.length,
     enter(node) {
+      if (node.from < frontEnd) return;
       if (node.name !== "Table") return;
       for (let line = state.doc.lineAt(node.from); ; ) {
         lines.push(line.from);
@@ -628,6 +645,13 @@ export function decorationsFor(state: EditorState): DecorationSet {
     a note's metadata is drawn as its largest heading.
   */
   const front = frontmatterRange(state.doc.toString());
+  /*
+    Passed to the three list/table passes below rather than recomputed by each
+    of them, which is not only tidiness: `frontmatterRange` reads the whole
+    document as a string, and this runs on every keystroke and every cursor
+    move. One read, four consumers.
+  */
+  const frontEnd = front === null ? 0 : front.to;
 
   const lines: Range<Decoration>[] = [];
   if (front !== null) {
@@ -647,7 +671,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
     above rather than the mark pass below — see `hangingIndents` and
     `tableLines`.
   */
-  for (const indent of hangingIndents(state)) {
+  for (const indent of hangingIndents(state, frontEnd)) {
     lines.push(
       Decoration.line({
         class: "cm-lp-li",
@@ -657,7 +681,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
       }).range(indent.from),
     );
   }
-  for (const from of tableLines(state)) {
+  for (const from of tableLines(state, frontEnd)) {
     lines.push(Decoration.line({ class: "cm-lp-table" }).range(from));
   }
 
@@ -687,7 +711,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
     they belong with the hides, and they obey the same reveal rule. See
     `listGlyphs`.
   */
-  for (const glyph of listGlyphs(state, selection)) {
+  for (const glyph of listGlyphs(state, selection, frontEnd)) {
     hides.push(
       Decoration.replace({
         widget: new GlyphWidget(
