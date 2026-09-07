@@ -851,6 +851,10 @@ async function route(request, env, ctx) {
           // the ordinary state of a self-hosted install and answers 501 rather
           // than pretending. See `meetings/transcribe.js`.
           transcribe: transcriptionForwarder(env),
+          // M1: resolve a session's note by id when its stored path has moved.
+          // See `resolveMeetingNotePath`'s own header for why this lives here
+          // rather than in `meetings/ingest.js`.
+          resolveNotePath: resolveMeetingNotePath,
         });
       }
 
@@ -6259,6 +6263,108 @@ async function callerHash(workspaceId, secret) {
   );
   const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(String(workspaceId)));
   return [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * How many store operations one note-path resolution may spend, once the
+ * direct read at the stored path has already come back missing.
+ *
+ * Small on purpose: this only runs at all on a 404, and it answers "where did
+ * this one note go", not "search the bucket" — a handful of shard reads is the
+ * whole cost, and anything left over belongs to the request that follows.
+ */
+const MEETING_RESOLVE_SEARCH_BUDGET = 20;
+
+/**
+ * How many ranked candidates a resolution reads before giving up.
+ *
+ * Wider than 1 on purpose — see `resolveMeetingNotePath`'s note on why the
+ * query cannot be the meeting id itself. A handful of frontmatter reads is
+ * still small next to a bucket listing, and each one is a note this search
+ * already ranked as plausible.
+ */
+const MEETING_RESOLVE_CANDIDATES = 8;
+
+/**
+ * Where a completed session's note actually is, resolved fresh rather than
+ * trusted from `session.notePath` — M1 in the editor-polish sweep
+ * (`docs/decisions/app-and-console.md`).
+ *
+ * **The problem, and the option this rejects.** `notePath` is written once, at
+ * finalize, and nothing updates it when the note is later moved: moving is
+ * `move_note`'s job, and teaching it to patch meeting state would couple two
+ * features that do not otherwise know about each other, and would need
+ * updating again for every future mover — rename, archive, whatever comes
+ * next. So the pointer is resolved on *read* instead of kept correct on
+ * *write*, against the one thing a move cannot change: the note's own
+ * `meeting-id` frontmatter (`packages/meetings/src/note.js`), stamped in at
+ * finalize and never rewritten by anything.
+ *
+ * **The common case costs one op and no search at all.** A direct read at the
+ * stored path is tried first, and answers for every meeting nobody has moved
+ * — which is nearly all of them. The search below runs only on a miss.
+ *
+ * **The query cannot be the meeting id itself.** `extractFields` in
+ * `search/indexer.js` indexes a note's title, headings, `tags:` and body —
+ * never arbitrary frontmatter — so `meeting-id: mtg_…` is never a searchable
+ * term no matter how long the index has had to catch up. What *is* indexed is
+ * the note's own `# title` heading, which `renderMeetingNote` always writes,
+ * so the query is built from the session's title instead. That is a weaker
+ * anchor than the id would be — two meetings can share a title, and a session
+ * nobody named reads back as the generic default title — which is exactly why
+ * the next paragraph exists rather than trusting the top hit.
+ *
+ * **A hit is never trusted from the ranking alone.** Up to
+ * `MEETING_RESOLVE_CANDIDATES` ranked results are read and each one's own
+ * frontmatter is compared against this session's *id* before anything is
+ * returned — the one field a title search cannot forge. `isVisible` here is
+ * exactly `canSee` at this caller's own tier, because a search is a locator
+ * and never a permission: what this function may hand back must never be
+ * wider than an ordinary `read_note` at the same path would allow, whatever
+ * the index itself holds regardless of who is asking.
+ *
+ * Falls back to the stored (and now known-stale) path on every kind of
+ * "cannot tell": no index, a privacy manifest that will not parse, no title to
+ * search with, a search budget of nothing left, no hit among the candidates
+ * read, every candidate turning out to be some other note. None of those is
+ * treated as "the note is gone" — only as "this could not be resolved this
+ * time", the same honesty the search index itself practises everywhere else
+ * in this file.
+ */
+async function resolveMeetingNotePath(store, session, tier) {
+  const notePath = session.notePath;
+  if (!notePath) return null;
+  if (await store.get(notePath)) return notePath;
+
+  const title = typeof session.title === "string" ? session.title.trim() : "";
+  if (!title) return notePath;
+
+  const privacy = await loadPrivacyState(store);
+  if (privacy.error) return notePath;
+  const { rules, overrides } = privacy;
+
+  let found;
+  try {
+    found = await searchIndexedNotes(store, {
+      isVisible: (key) => canSee(key, tier, rules, overrides),
+      isIndexable: (key) => key.endsWith(".md") && !isPlumbing(key),
+      query: title,
+      limit: MEETING_RESOLVE_CANDIDATES,
+      budget: createSearchBudget(MEETING_RESOLVE_SEARCH_BUDGET),
+      refreshOnMiss: false,
+    });
+  } catch {
+    return notePath;
+  }
+  if (!found.indexed || !found.hits) return notePath;
+
+  for (const hit of found.hits) {
+    const stored = await store.get(hit.key);
+    if (!stored) continue;
+    const parsed = parseMeetingNote(await stored.text());
+    if ((parsed.frontmatter || {})["meeting-id"] === session.id) return hit.key;
+  }
+  return notePath;
 }
 
 async function publishMeetingNote(store, scope, { path, markdown, segmentCount }) {
