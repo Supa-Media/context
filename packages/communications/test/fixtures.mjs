@@ -58,6 +58,83 @@ export function bulkyDay(count, bytesEach = 4_000, overrides = {}) {
   return day({ events, ...overrides });
 }
 
+/** One Google Chat message, with everything a renderer reads. */
+export function chatMessage(overrides = {}) {
+  return {
+    channel: "google-chat",
+    account: "chat-connection-1",
+    messageId: "spaces/AAAA1111/messages/msg-a1",
+    threadId: "spaces/AAAA1111/threads/thr-1",
+    sentAt: "2026-09-07T09:00:00.000Z",
+    subject: "",
+    from: { name: "Adam Okonkwo", address: "" },
+    to: [],
+    body: "Morning! Can we push the release to Thursday?",
+    attachments: [],
+    space: { key: "spaces/AAAA1111", displayName: "Engineering Team", type: "group_chat" },
+    ...overrides,
+  };
+}
+
+/**
+ * A Google Chat day: two spaces (a named group chat and a DM), three
+ * threads between them, deliberately out of order and interleaved so
+ * grouping — not arrival order — has to be what puts them back together.
+ */
+export function chatDay(overrides = {}) {
+  return {
+    channel: "google-chat",
+    // Deliberately no day-level `account`: Google Chat has one shared folder
+    // regardless of how many Google accounts sync into it (`channelFolder`
+    // refuses an account for a non-email channel), while each *event* still
+    // carries its own `account` for anchor/thread/space hashing. `address` is
+    // the frontmatter's human label and is a separate field for exactly this
+    // reason — see docs/decisions/communications.md, "Google Chat groups
+    // spaces, then threads, then messages".
+    address: "chat-connection-1",
+    date: "2026-09-07",
+    nonce: "0123456789abcdef",
+    now: "2026-09-07T18:04:11.221Z",
+    events: [
+      chatMessage({
+        messageId: "spaces/BBBB2222/messages/msg-d2",
+        threadId: "spaces/BBBB2222/threads/thr-2",
+        sentAt: "2026-09-07T14:00:00.000Z",
+        subject: "Lunch?",
+        from: { name: "Bea Lindqvist" },
+        body: "Thursday works for me too.",
+        space: { key: "spaces/BBBB2222", displayName: "", type: "direct_message" },
+      }),
+      chatMessage(),
+      chatMessage({
+        messageId: "spaces/AAAA1111/messages/msg-a2",
+        threadId: "spaces/AAAA1111/threads/thr-1",
+        sentAt: "2026-09-07T09:05:00.000Z",
+        from: { name: "Bea Lindqvist" },
+        body: "Thursday works for the release.",
+      }),
+      chatMessage({
+        messageId: "spaces/AAAA1111/messages/msg-a3",
+        threadId: "spaces/AAAA1111/threads/thr-3",
+        sentAt: "2026-09-07T11:00:00.000Z",
+        subject: "Standup notes",
+        from: { name: "Cy Nakamura" },
+        body: "Posting today's standup notes here.",
+      }),
+      chatMessage({
+        messageId: "spaces/BBBB2222/messages/msg-d1",
+        threadId: "spaces/BBBB2222/threads/thr-2",
+        sentAt: "2026-09-07T13:55:00.000Z",
+        subject: "Lunch?",
+        from: { name: "Bea Lindqvist" },
+        body: "Lunch Thursday?",
+        space: { key: "spaces/BBBB2222", displayName: "", type: "direct_message" },
+      }),
+    ],
+    ...overrides,
+  };
+}
+
 /**
  * The strings that have to survive being written into a file somebody's agent
  * reads. Each is a real attack rather than a smoke test.

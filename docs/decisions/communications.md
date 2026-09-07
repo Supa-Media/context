@@ -769,6 +769,121 @@ leaving it as an omission: IMAP means holding a password or an app-specific
 credential for somebody's mail, which is a credential class this product does
 not have and does not want on the way to a scope it will get anyway.
 
+### Google Chat groups spaces, then threads, then messages
+
+The scoping note says a Google Chat day is *"grouped by space, direct message,
+and thread"*. Email and iMessage group messages into threads and nothing
+above that; Chat needs one more level, because a person's Chat activity spans
+several rooms and DMs in a single day and a flat list of threads across all of
+them reads as noise. So a Chat day note is `## <space>` → `### Thread — ` →
+`#### <message>` — one heading level deeper at every rung than the shape every
+other channel uses — selected by `day.channel === "google-chat"` alone, so an
+email or iMessage day is unaffected byte-for-byte whether or not this code
+path exists. `groupIntoSpaces` in `note.js` does the grouping; `spaceKey` in
+`anchors.js` is the hash it is keyed by, the same NUL-joined,
+hash-not-write construction `threadKey` and `messageAnchor` already use, for
+the same three reasons: a space's resource name (`spaces/AAAA1111`) means
+something to Google and nothing to the customer, and a folder-listing test in
+this suite proves it never reaches the file. A space with no display name
+(every direct message, always) is still labelled — `Direct message`, or
+`Direct message — <name>` when Chat gives one — because a room with no
+heading reads as a bug, not as "nothing to report."
+
+**Frontmatter stays a fixed list across every channel.** `FRONTMATTER_KEYS` is
+not extended with a chat-only field: the fixed list is deliberately uniform,
+and forking it per channel is the first step toward a schema that drifts by
+channel and a renderer that has to remember which fields which channel gets.
+History-unavailable, below, is recorded in the body for the same reason.
+
+The check is `an email or iMessage day never gains a space heading, whatever
+data would trigger one for Chat`.
+
+### An honest gap: history unavailable is written down, not smoothed over
+
+The scoping note is explicit: *"Never claim complete history where Workspace
+policy, membership, or disabled history prevents it."* Two situations make a
+space's history genuinely unreadable — Chat's own per-space history setting is
+off (`spaceHistoryState !== "HISTORY_ON"`), or this connection has lost access
+to list the space's messages at all (membership changed, or the grant is too
+narrow) — and both are facts about the *provider*, never a caller's string, so
+`renderChannelDayNote`'s `unavailableSpaces` takes a fixed two-value `reason`
+(`"history-off"` | `"no-access"`) and prints one of two fixed sentences,
+exactly the same "enum in, fixed prose out" shape the trust warning already
+uses. A silently-omitted space looks identical to "nothing happened here
+today," which is the false claim the scoping note forbids; the marker is
+`## <space> (history unavailable)` plus a `[!warning]` line, written once on
+part 1 of the day (a part is a byte-packing artifact of one day, not a place
+this fact needs repeating) and never in place of real messages that did
+arrive — a space with both real activity and an unavailable gap (history
+turned on partway through the day) renders both.
+
+The check is `a day with zero events but an unavailable space is still a
+well-formed note, never "(no messages)"`, and the sabotage that mattered here
+was in the test suite, not the code: a check that chains a `.find()` straight
+into a property access with nothing to catch `undefined` can crash the whole
+process, which looks exactly like the zero-failures a passing suite reports.
+Every check in `chat.test.mjs` that could fail that way now can't — a check
+nobody sees fail is not a check.
+
+### Chat's account field is per-message, not per-day
+
+Email gets a folder per mailbox because `privacy.md` rules are folder rules
+(above); Chat does not, because the scoping note draws one `0-inbox/google-chat/`
+regardless of how many Google accounts a person connects, and a per-account
+Chat folder was never asked for. So `channelFolder("google-chat", account)`
+refuses a truthy `account` exactly as it always has — but a `CommunicationEvent`
+still carries its own `account`, because `messageAnchor`, `threadKey` and
+`spaceKey` all need it: two Google accounts could otherwise sync a message
+into the same file with colliding hashes. The two are deliberately different
+fields at different levels — `day.account`/`day.address` decide the folder and
+the frontmatter's human label; `event.account` decides identity — and a Chat
+day is built by omitting the day-level `account` while every event keeps its
+own. Getting this backwards throws immediately (`channelDayNotePath` refuses a
+non-`email` channel with an account), which is the loud failure a silent
+folder collision would not have been.
+
+### The Chat scopes, and where they sit on Google's own restricted list
+
+`google-verification-steps.md` records the classification and it is repeated
+here because it changes what phase 1 can promise: reading Chat messages needs
+`chat.messages.readonly`, which Google's own restricted-scopes list places in
+the **same class as `gmail.readonly`** — restricted, not merely sensitive —
+confirmed against
+[Google's restricted scopes list](https://support.google.com/cloud/answer/13464325)
+on 2026-09-07. `chat.spaces.readonly` (listing spaces and DMs to read from) is
+**sensitive**, one tier down, and is not on that restricted list as of the same
+check. Both are **user-authorized** scopes read against the connecting
+person's own account, and Google's Chat API configuration docs say directly
+that read-only user-authorized calls need no Chat app configuration (name,
+avatar, interactive features) at all — that page is for a bot that posts into
+spaces, which this product does not do and will not.
+
+Restricted means the same CASA security-assessment gate `docs/decisions/communications.md`
+already states for Gmail applies to Chat too — it is not a Gmail-only line
+item, and a plan that budgets CASA against Gmail alone under-budgets it. So
+**the Chat connect flow sits behind the same flag as Gmail's**, off until that
+verification lands, for the same reason: v1 runs on fixtures precisely because
+a restricted scope cannot reach real user data before Google grants it.
+
+### Chat sync is built against an injected client, never against Convex directly
+
+The account that authorizes Chat calls — one OAuth grant per Google account,
+sealed refresh token, per-product scopes, sync cursors — is the control
+plane's, and it is being built as one shared row across Gmail, Calendar and
+Chat rather than three parallel connection tables (`docs/decisions/storage-and-credentials.md`
+already argues why credentials get one seal and one owner, not three). This
+package and the Chat sync module in `apps/mcp` are written *against that
+shape* without importing it: every function that needs a token, a cursor, or
+a per-space setting takes it as a parameter or an injected `{listSpaces,
+listMessages}` client, so the whole transform-and-render path is tested end to
+end on fixtures today and the only code still to land once the shared
+connection ships is the few lines that read a token and a cursor out of it and
+hand them in. Building a second, competing connection table here to unblock
+testing sooner was rejected: two tables that both claim to own "the Google
+account's grant" is the exact drift the shared-row decision exists to
+prevent, and a merge conflict between them would be resolved by deleting one —
+better to never write it.
+
 ### The five open decisions, and who settles them
 
 The scoping note lists five. Three are recommended and taken here; **two are
@@ -1037,7 +1152,11 @@ communications-specific privacy tier or grant scope; a workspace or team
 inbox; reply, send, archive, delete or mark-read (v1 is read-only, and the
 mail client stays the mail client); a second inbox root; a search path that
 does not go through `searchIndexedNotes`; and any note in this tree that is
-not an ordinary note at an ordinary path.
+not an ordinary note at an ordinary path. For Chat specifically: a Chat *app*
+(bot identity, posting, interactive cards) — v1 reads with the person's own
+user-authorized grant and configures nothing in Google's Chat app console; and
+a per-Google-account Chat folder — one shared `0-inbox/google-chat/` regardless
+of how many accounts sync into it, argued above.
 
 ### iMessage reads `chat.db` in place, through the one binary every Mac already has
 
