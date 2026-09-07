@@ -549,6 +549,20 @@ somebody opening a note to open a note. The tests that fail are
 deleting the claim outright fails too) and the four "choose a note" cases in
 `browseShare.test.ts`.
 
+`opening` clearing is not the only thing a stale read must not do. `openNote`
+closes over `workspaceId` with no generation of its own, and `useFileBrowser`
+is one instance for the whole console — so a read still in flight when
+somebody switches context, opens a second note before the first lands, or
+`deselect`s before either resolves, used to answer regardless: note A's body
+under context B's chrome, or note B's request settled by note A's text.
+`openRun`, the same generation-counter shape `saveRuns`/`operationRun` already
+use for a write and a toolbar operation, is bumped on a context switch, on
+every new `openNote`, and on `deselect`, and `openNote` compares its own
+generation before every `dispatch` and `setNotice` rather than trusting
+whichever answer arrives first. **A read answers the request that made it, or
+nobody.** `__tests__/openNoteRace.test.ts` drives all three shapes against the
+real hook; dropping the comparison fails exactly those three and nothing else.
+
 ### Offline is a queue and a cache, and a conflict is parked rather than resolved
 
 The console holds a customer's notes and is used on laptops and phones, so
