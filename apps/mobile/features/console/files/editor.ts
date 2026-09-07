@@ -502,7 +502,19 @@ export function guardLeaving(state: EditorState): { allowed: boolean; prompt?: s
   };
 }
 
-/** What the save button should say and whether it should be pressable. */
+/**
+ * What the save button should say and whether it should be pressable.
+ *
+ * **The resting label is a fact, not an instruction.** With autosave on, a note
+ * that matches the bucket has nothing owed to anybody, and a dim "Save" sitting
+ * over it read as a chore somebody had not got round to. It says "Saved".
+ *
+ * The button does not disappear, and the two states it is pressable in are why:
+ * a save that failed and a conflict are exactly the cases autosave refuses
+ * (`autosaves`), so the manual route has to stay reachable. ⌘S keeps working in
+ * `dirty` too — every editor lets somebody save now rather than in two seconds
+ * — and pressing it is the same conditional write autosave would have made.
+ */
 export function saveButton(state: EditorState): { label: string; disabled: boolean } {
   if (state.readOnly) return { label: "Read-only", disabled: true };
   switch (state.status) {
@@ -519,7 +531,19 @@ export function saveButton(state: EditorState): { label: string; disabled: boole
     case "dirty":
     case "error":
       return { label: "Save", disabled: false };
+    case "clean":
+    case "saved":
+      /*
+        "Saved" is a durability claim, so it is not made for a body that came
+        off the device. `fromCache` means nothing has asked the bucket about
+        this note since it was read, and a button saying otherwise would be the
+        console telling somebody their context contains something it does not
+        — the same rule `status.ts` and `NoteEditor`'s durability line follow.
+      */
+      return { label: state.fromCache === true ? "Save" : "Saved", disabled: true };
     default:
+      // `empty`: nothing is open, so there is no note for either word to be
+      // about. The pane draws no button here.
       return { label: "Save", disabled: true };
   }
 }

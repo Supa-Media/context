@@ -28,6 +28,8 @@
  *   `autosaves` dropping the `isDirty` half                             1
  *   `needsDecision` returning false for a conflict                      2
  *   `guardLeaving` refusing an ordinary dirty draft again              10
+ *   the resting button reading "Save" again                             1
+ *   a cached body's button reading "Saved"                              1
  */
 
 import { describe, expect, test } from "@jest/globals";
@@ -42,6 +44,7 @@ import {
   emptyEditor,
   guardLeaving,
   needsDecision,
+  saveButton,
   type EditorState,
 } from "../features/console/files/editor";
 import type { OpenNote } from "../features/console/files/types";
@@ -466,5 +469,38 @@ describe("what leaving still asks about", () => {
     const queued = editorReducer(dirty(), { type: "saveQueued", message: "No connection." });
     expect(guardLeaving(queued).allowed).toBe(true);
     expect(guardLeaving(opened()).allowed).toBe(true);
+  });
+});
+
+describe("the button stops asking for something", () => {
+  test("a note that matches the bucket reads as saved, not as a chore", () => {
+    expect(saveButton(opened())).toEqual({ label: "Saved", disabled: true });
+    const saved = editorReducer(editorReducer(dirty(), { type: "saveStarted" }), {
+      type: "saveSucceeded",
+      etag: "etag-2",
+      conflictCheck: "conditional",
+    });
+    expect(saveButton(saved)).toEqual({ label: "Saved", disabled: true });
+  });
+
+  test("a body read off the device does not claim to be saved", () => {
+    // `fromCache` means nothing has asked the bucket about this note since it
+    // was read. "Saved" there would be the console vouching for a bucket it
+    // has not spoken to.
+    const cached = editorReducer(emptyEditor, { type: "opened", note: NOTE, fromCache: true });
+    expect(saveButton(cached).label).toBe("Save");
+  });
+
+  test("the manual route stays for the two states autosave refuses", () => {
+    const failed = editorReducer(dirty(), {
+      type: "saveFailed",
+      error: { code: "UNKNOWN", message: "That did not work." },
+    });
+    expect(saveButton(failed)).toEqual({ label: "Save", disabled: false });
+    const conflicted = editorReducer(dirty(), {
+      type: "saveFailed",
+      error: { code: "CONFLICT", message: "Somebody else saved first.", currentEtag: "etag-9" },
+    });
+    expect(saveButton(conflicted)).toEqual({ label: "Overwrite theirs", disabled: false });
   });
 });

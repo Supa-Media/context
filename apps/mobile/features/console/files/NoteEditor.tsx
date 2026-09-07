@@ -941,7 +941,15 @@ function statusLine(state: EditorState): string {
     case "empty":
       return "";
     case "dirty":
-      return "Unsaved changes";
+      /*
+        Not "Unsaved changes". The three lines this switch can print for a
+        note being worked on now read as one progression — "Saving soon",
+        "Saving…", "Saved in your bucket" — and the first of them is a
+        statement about what is about to happen rather than a debt. See
+        `status.ts`, which makes the same change to the strip and argues the
+        tone.
+      */
+      return "Saving soon";
     case "saving":
       return "Saving…";
     /*
