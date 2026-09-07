@@ -926,6 +926,76 @@ export async function runConsoleBridgeChecks(check) {
     check("a tray command outside the contract's list is dropped", trays.length === 1 && trays[0] === "record");
   }
 
+  /* --- the machine approval the page answers ------------------------------ */
+  //
+  // Version 3. The shell hands the page a parked authorization request and the
+  // page answers it with the session it already holds — `core/shell/autoGrant.ts`
+  // is the argument. What this file owns is the boundary: what the page is
+  // handed is one field, and what it hands back is read against the contract
+  // before it reaches the process that owns the credential.
+
+  {
+    const { ipc } = mainBridge({ pending: { requestId: "req_this_mac" } });
+    const answer = await ipc.handlers.get(BRIDGE_CHANNELS.connectionPendingApproval)(
+      sender(),
+      null,
+    );
+    check(
+      "the page is handed the parked request, and one field of it",
+      answer.ok === true && Object.keys(answer.value).join() === "requestId",
+    );
+    check("...and its value is the id the shell is waiting on", answer.value.requestId === "req_this_mac");
+  }
+
+  {
+    const { ipc } = mainBridge();
+    const answer = await ipc.handlers.get(BRIDGE_CHANNELS.connectionPendingApproval)(
+      sender(),
+      null,
+    );
+    check(
+      "a shell with nothing in flight hands over nothing",
+      answer.ok === true && answer.value === null,
+    );
+  }
+
+  {
+    const { ipc, answered } = mainBridge({ pending: { requestId: "req_this_mac" } });
+    await ipc.handlers.get(BRIDGE_CHANNELS.connectionResolveApproval)(sender(), {
+      requestId: "req_this_mac",
+      approved: true,
+      // A third field, which must not reach the main process.
+      code: "an-authorization-code",
+    });
+    check(
+      "AN ANSWER REACHES THE SHELL AS TWO FIELDS AND NEVER THREE",
+      answered.length === 1 &&
+        Object.keys(answered[0]).sort().join() === "approved,requestId",
+    );
+    check("...carrying what the page said", answered[0].requestId === "req_this_mac" && answered[0].approved === true);
+  }
+
+  {
+    const { ipc, answered } = mainBridge({ pending: { requestId: "req_this_mac" } });
+    for (const payload of [null, {}, { approved: true }, { requestId: 42 }, { requestId: "x".repeat(300) }]) {
+      await ipc.handlers.get(BRIDGE_CHANNELS.connectionResolveApproval)(sender(), payload);
+    }
+    check(
+      "A MALFORMED ANSWER IS DROPPED RATHER THAN FORWARDED",
+      answered.length === 0,
+    );
+    // `approved` is read with `=== true`, like every other boolean crossing
+    // this boundary: a truthy string is not an approval.
+    await ipc.handlers.get(BRIDGE_CHANNELS.connectionResolveApproval)(sender(), {
+      requestId: "req_this_mac",
+      approved: "yes",
+    });
+    check(
+      "...and a truthy answer that is not `true` is a refusal",
+      answered.length === 1 && answered[0].approved === false,
+    );
+  }
+
   /* --- the main process re-checks the sender ----------------------------- */
 
   {

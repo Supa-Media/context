@@ -33,6 +33,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Ingestion is on the apex, which makes the reserved-name list a security control
 - Mail lands in a personal context and nowhere else
 - The privacy tier is a scope on the grant, never an inference from a role
+- A first-party signed shell may have its own grant approved by the session hosting it
 - One connection reaches every context its person belongs to
 - A grant is one person's tooling, and the refusal follows the listing
 - An invitation is addressed to a string, and its token is stored in the clear
@@ -183,6 +184,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Step 7 landed: a release, not a draft, and the meeting always wins
 - Nothing that can start a recording may come from an origin we did not pin
 - The approval happens in the app's own window, and that buys exactly one new address
+- And then the approval stopped happening at all, which is the point
 - Offline is what the outbox was always for, plus a tray that needs no page
 - Step 6 landed: one origin at a time, and a mirror that refuses data
 - The order is seven pull requests, and the first one changes nothing by default

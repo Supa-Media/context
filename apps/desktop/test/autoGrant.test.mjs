@@ -31,19 +31,27 @@
  *
  *   `parkedRequestFrom` not comparing the origin                          3
  *   ...not comparing the path                                             1
- *   ...accepting any `request_id` shape                                   2
- *   ...answering for an empty console origin                              1
+ *   ...accepting any `request_id` shape                                   1
+ *   ...answering for an empty console origin                              0
  *   `isParkingRedirect` accepting a 200                                   1
  *   `ApprovalHandover.take` ignoring the id it was given                  2
  *   ...not clearing what it took, so an answer can be replayed            1
- *   `end()` not clearing the handover                                     1
- *   the opener trying the page before checking `approvalTargetFor`        1
- *   the fallback chain in `index.ts` reordered or shortened               2
+ *   `endApproval` not clearing the handover                               2
+ *   the fallback chain in `index.ts` reordered or shortened               1
  *
  * The `take` rows are the ones worth reading twice: a handover that answers
  * about a request this machine never parked is a page choosing which flow it
  * is talking about, and a handover that does not clear is the same answer
  * accepted twice.
+ *
+ * **The zero row is recorded rather than deleted, and it is a real zero.** The
+ * empty-console-origin guard cannot change an answer on its own: an empty
+ * expected origin fails the `url.origin !== consoleOrigin` comparison below it
+ * for every URL that parses, so removing the early return leaves the same
+ * `null`. It stays because it says what the case *means* — a launch with no
+ * console window has no page to hand an id to — and because it is the line that
+ * keeps that true if the origin comparison is ever rewritten. The check above
+ * it is the one that would go red, which is the honest reading of the row.
  */
 
 import { readFileSync } from "node:fs";

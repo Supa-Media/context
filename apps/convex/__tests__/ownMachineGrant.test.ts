@@ -35,22 +35,25 @@
  * Run as temporary local edits and reverted. Counts are failing tests across
  * the whole `apps/convex` suite.
  *
- *   `decideMachineApproval` returning `{ ok: true }` unconditionally      7
- *   ...dropping the software-id condition                                 1
+ *   `decideMachineApproval` answering `ok` unconditionally               12
+ *   ...dropping the software-id condition                                 2
  *   ...dropping the loopback condition                                    3
- *   ...dropping the scope-equality condition                              2
- *   ...dropping the tier condition                                        1
- *   `isLoopbackRedirect` accepting any hostname                           2
+ *   ...dropping the scope-equality condition                              5
+ *   ...dropping the tier condition                                        2
+ *   `isLoopbackRedirect` accepting any hostname                           1
  *   ...accepting `https`                                                  1
- *   the mutation skipping `requireWorkspaceAccess`                        2
+ *   the mutation skipping `requireWorkspaceAccess`                        1
  *   the mutation not checking `status === "pending"`                      1
  *   the mutation not checking `expiresAt`                                 1
  *   the rate limit removed                                                1
- *   `arm` not writing `grantedScope`                                      6
+ *   `arm` not writing `grantedScope`                                     13
  *
- * The `arm` row is large because both approvals share it, which is the point of
- * having one: a refactor that stops recording what was granted fails on the
- * consent screen's tests too, not only on this file's.
+ * The `arm` row is the largest because both approvals share that function,
+ * which is the point of having one: a refactor that stops recording what was
+ * granted reddens the consent screen's tests as well as this file's. And the
+ * `isLoopbackRedirect` rows are **1** each because the mutation-level checks
+ * above them catch the same class first — the pure function's own block is
+ * where each spelling is named, and it is one `expect` per row by design.
  *
  * Every client, code and credential here is obviously fake. This repository is
  * public.

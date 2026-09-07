@@ -1026,6 +1026,147 @@ tier this machine asked for. Sabotage there, as failing tests across
 `private` **11** — the second is larger because defaulting private for a client
 that asked for nothing is the older, wider bug.
 
+### And then the approval stopped happening at all, which is the point
+
+The owner, on the first end-to-end desktop capture, 2026-09-07: *"I don't love
+this setup; when installing Granola I didn't have to 'connect' a machine, things
+just worked."*
+
+He was signed in **in the window the approve screen was drawn in**, and the app
+still asked him to authorise the same person, on the same machine, to the same
+context. The section above moved that screen out of a browser and called it "one
+click"; a click is one more than zero, and zero is what a person who is already
+signed in has actually consented to being asked for.
+
+So the step goes and the grant stays. On first launch, once the console inside
+the shell has a session, the shell obtains its machine grant from that session
+automatically. Signed out, nothing is minted and the person meets the screen
+above, which begins with the console's own sign-in.
+
+**The shape, and it is a narrowing of the section above rather than an
+addition.** The gateway's `/oauth/authorize` **parks** the request and answers
+`302 Location:` the consent screen. So the shell follows that one hop itself —
+in the main process, `redirect: "manual"`, no credential in the request and none
+in the answer — reads `request_id` out of the `Location`, and hands **the page**
+that id over the bridge. The page calls `approveOwnMachineGrant` with its own
+session and navigates to the redirect it is given, which is this flow's own
+loopback listener. The window is never sent to the authorization server at all:
+this feature makes *fewer* off-console navigations than the approve screen did,
+and the one it makes is the same one, bounded by the same
+`createApprovalRoute()` allowance, to the same address.
+
+#### The four things that did not move
+
+- **The shell never receives the console's session**, and the page never
+  receives the machine's PKCE verifier, its `state`, or anything the shell
+  stores. What crosses the bridge is one request id out and `{requestId,
+  approved}` back. The authorization code arrives at the loopback listener in
+  the main process, where the verifier that redeems it lives — so *Nothing
+  credential-shaped crosses the bridge* is unchanged, and is now the reason the
+  page navigates rather than handing the shell a URL.
+- **The grant is still the machine's.** `context:write context:private`, one
+  client per machine (`Context on <hostname>`), in `safeStorage`, spent by a
+  queue that drains with no window open. Every reason in *Sign-in stays in the
+  page, the grant stays in the main process* still holds; what that section
+  refused was the console's session **standing in for** the machine's grant, and
+  nothing here does that.
+- **The control plane decides.** `approveOwnMachineGrant` refuses a client that
+  did not declare itself the shell, a redirect that is not loopback, a scope
+  that is not exactly the default, and an approver whose role cannot grant the
+  tier — and it is rate limited.
+  `docs/decisions/identity-and-access.md`, *A first-party signed shell may have
+  its own grant approved by the session hosting it*, is the argument and says
+  what auto-approving any client would cost.
+- **`grantCoversMeetings` and hold-not-park are untouched.** A machine that ends
+  up without the tier still refuses to send, still holds the meeting with its
+  reason on the card, and still drains itself when the grant is fixed.
+
+#### Every refusal costs a screen, and never a grant
+
+That is the property the whole design is arranged around, because it is what
+makes a new failure mode impossible rather than unlikely. A page that is signed
+out, a control plane that refuses, a `Location` at an origin this window is not
+pinned to, a network that failed, a bundle older than bridge version 3, a window
+serving the offline mirror, a page that answers nothing at all — every one of
+them ends with `approveInConsoleWindow`, which is exactly what shipped in #312,
+and then with the system browser for a tray-only launch. The page-that-answers-
+nothing case is a four-second timeout in the shell rather than a hope: without
+it, an old bundle would wait out the listener's five minutes on a console that
+says "Connecting".
+
+**A self-hoster who split the console and the consent screen onto different
+origins** lands in that same fallback, deliberately. `parkedRequestFrom` reads
+the id only from the origin the window is pinned to, because the session that
+can answer it belongs to an origin — and the section above already chose this
+direction when the pin refused a hop: *a pin a server can move is not a pin.*
+
+#### What `apps/mobile` learned, and the sentence that reverses
+
+*"Nothing in `apps/mobile` learned that it is inside the shell"* was the measure
+of #312 being the small change. This reverses it, and the reversal is bounded to
+where it cannot become a second code path through the consent screen:
+
+- the **consent screen is untouched** — no bridge member, no
+  `getDesktopBridge()` branch, no shell-shaped variant. It is still what every
+  other client, and every refusal here, goes through;
+- what learned about the shell is **`ThisMachineCard`**, a component that only
+  renders inside the shell in the first place, and the rule for when it may mint
+  is a pure function (`features/meetings/machineApproval.ts`) rather than three
+  `if`s in a component.
+
+The card's line names the context the control plane resolved — "This machine can
+write to @name" — because that slug is a fact the page has and the shell has
+not: a `ConnectionRecord` holds a gateway base URL and never a name. Naming the
+context the console merely happens to be *showing* would be a sentence about the
+wrong thing on the one card whose job is saying where meetings go.
+
+#### The tests that fail if any of it is loosened
+
+`apps/desktop/test/autoGrant.test.mjs` drives the two pure pieces and then the
+whole flow through `connectMachine` with a page-shaped opener, so what is
+asserted is the app's own path: the window is never navigated to the
+authorization server, the page is handed one request id and nothing else, and
+the code comes back through `mayNavigateConsoleWindow` to this flow's own
+listener. `apps/convex/__tests__/ownMachineGrant.test.ts` proves each refusal in
+the control plane, including that somebody else's parked request grants *their*
+context and never yours. `apps/mobile/__tests__/meetingsDesktop.test.ts` proves
+the page mints once, tells the shell either way, and draws itself against a
+version-2 shell without calling members it never promised.
+
+Sabotage, measured as failing tests across each suite. Desktop:
+`parkedRequestFrom` not comparing the origin **3**, not comparing the path
+**1**, accepting any id shape **1**, answering for an empty console origin
+**0**; `isParkingRedirect` accepting a 200 **1**; `ApprovalHandover.take`
+ignoring the id **2** or not clearing **1**; `endApproval` not closing the
+handover **2**; the fallback chain reordered **1**. Convex:
+`decideMachineApproval` answering `ok` unconditionally **12**, dropping the
+software-id condition **2**, the loopback condition **3**, the scope condition
+**5**, the tier condition **2**; `isLoopbackRedirect` accepting any hostname
+**1** or `https` **1**; the mutation skipping `requireWorkspaceAccess` **1**,
+its `pending` check **1**, its expiry check **1**; the rate limit removed **1**;
+`arm` not writing `grantedScope` **13**. Mobile: `decideMachineApproval`
+minting unconditionally **13**, ignoring `answered` **9**, `auth.isLoading`
+**2**, an already-connected machine **2**; the card not telling the shell about
+a refusal **1** or a success **2**; not navigating to the redirect **1**; the
+refusal line naming what the control plane said **2**.
+
+**The mobile rows were measured as zero on the first attempt**, and the reason
+is recorded in `meetingsDesktop.test.ts` rather than quietly fixed: the harness
+read the suite's stdout and Jest writes its summary to stderr. A sabotage run
+that cannot see a failure reports a guard that does not exist as a guard that
+is not needed, which is the exact failure mode this whole practice exists to
+avoid — so the number to distrust in any sabotage record is a zero that arrived
+without an explanation beside it.
+
+Two rows are worth reading twice. `arm` is the largest because both approvals
+share that function, which is why it is one function — a refactor that stops
+recording what was granted reddens the consent screen's tests as well. And the
+desktop **0** is a real zero, kept rather than deleted: an empty console origin
+already fails the origin comparison on the line below it, so that early return
+cannot change an answer on its own. It stays because it names what the case
+means and because it is what keeps that true if the comparison is rewritten;
+`autoGrant.test.mjs` records the same row with the same reasoning.
+
 ### Offline is what the outbox was always for, plus a tray that needs no page
 
 The data half is already built and does not change: a meeting recorded with no
