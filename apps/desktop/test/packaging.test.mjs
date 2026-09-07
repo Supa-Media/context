@@ -46,6 +46,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { createPrivateKey, generateKeyPairSync } from "node:crypto";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -208,6 +209,73 @@ export async function runPackagingChecks(check) {
   );
   check("...and one with quotes left round it", privateKey(`"${P8}"`) === P8 + "\n");
   check("an intact key is returned intact, with the newline notarytool reads to", privateKey(P8) === P8 + "\n");
+
+  /*
+    A fifth way the .p8 arrives damaged, found on a real run rather than
+    guessed at: every newline gone, not escaped to `\n` and not CRLF, just
+    absent — what a single-line ("password"-typed) field in 1Password does to
+    a multi-line paste. The BEGIN/END markers and the base64 body survive
+    intact, run together on one line. Unambiguous because a real PEM's body
+    is pure base64 and its BEGIN/END labels match, so this is repaired by
+    re-wrapping rather than refused — anything that does not fit that exact
+    shape falls through to the ordinary refusal below.
+  */
+  const realPem = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey.export({
+    type: "pkcs8",
+    format: "pem",
+  });
+  const oneLine = realPem.trim().split("\n").join("");
+  check(
+    "a real key with every newline lost — BEGIN, base64 and END run onto one line — is repaired",
+    (() => {
+      // Not equality against `realPem`: this only asserts the repaired text
+      // is a PEM `node:crypto` accepts, which is what "repaired" has to mean
+      // — the wrapping algorithm need not reproduce Node's own line breaks
+      // byte-for-byte to be a valid, parseable PKCS#8 document.
+      try {
+        createPrivateKey(privateKey(oneLine));
+        return true;
+      } catch {
+        return false;
+      }
+    })(),
+  );
+  check(
+    "...wrapped at 64 characters a line, like the file Apple issued",
+    privateKey(oneLine)
+      .trim()
+      .split("\n")
+      .slice(1, -1)
+      .every((line) => line.length <= 64),
+  );
+  check(
+    "...ending in the newline notarytool reads to, same as every other shape",
+    privateKey(oneLine).endsWith("\n"),
+  );
+  const oneLineBody = oneLine.slice("-----BEGIN PRIVATE KEY-----".length, -"-----END PRIVATE KEY-----".length);
+  check(
+    "a one-line body with a stray character is refused, not silently dropped",
+    (() => {
+      try {
+        privateKey(`-----BEGIN PRIVATE KEY-----${oneLineBody.slice(0, -1)}!-----END PRIVATE KEY-----`);
+        return false;
+      } catch {
+        return true;
+      }
+    })(),
+  );
+  check(
+    "...and mismatched one-line labels are refused, not paired up by guesswork",
+    (() => {
+      try {
+        privateKey(`-----BEGIN PRIVATE KEY-----${oneLineBody}-----END EC PRIVATE KEY-----`);
+        return false;
+      } catch {
+        return true;
+      }
+    })(),
+  );
+
   const refused = (value) => {
     try {
       privateKey(value);

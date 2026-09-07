@@ -60,6 +60,17 @@ const { join } = require("node:path");
  * throws with a sentence somebody can act on — counting lines and characters,
  * never printing any of them, because this is a private key and the logs of a
  * public repository are public.
+ *
+ * A fifth shape joins those four, found on a real run rather than guessed at:
+ * every newline gone — not escaped to a literal `\n`, not CRLF, just absent —
+ * which is what a single-line ("password"-typed) field in 1Password does to a
+ * multi-line paste. `-----BEGIN ... -----`, the base64 body and
+ * `-----END ... -----` survive, run together on one line. That is unambiguous
+ * enough to re-wrap: a real PEM's body is pure base64 and its BEGIN/END labels
+ * match, so anything of that exact shape is repaired below, and anything that
+ * is merely close to it (a stray character in the body, labels that do not
+ * match) is left for the ordinary refusal at the end of this function rather
+ * than guessed at.
  */
 function privateKey(raw) {
   let text = String(raw).replace(/\r\n?/g, "\n").trim();
@@ -68,6 +79,12 @@ function privateKey(raw) {
   }
   if (text.includes("\\n")) {
     text = text.replace(/\\r/g, "").replace(/\\n/g, "\n").trim();
+  }
+  const oneLine = /^-----BEGIN ([A-Z ]+)-----([A-Za-z0-9+/=]+)-----END \1-----$/.exec(text);
+  if (oneLine) {
+    const [, label, body] = oneLine;
+    const wrapped = body.match(/.{1,64}/g) ?? [body];
+    text = `-----BEGIN ${label}-----\n${wrapped.join("\n")}\n-----END ${label}-----`;
   }
   let base64OfSomethingElse = false;
   if (!text.includes("-----BEGIN") && /^[A-Za-z0-9+/=\n]+$/.test(text)) {
@@ -85,7 +102,10 @@ function privateKey(raw) {
       `ASC_API_KEY_P8 is not a PEM private key — ${lines} line(s), ${text.length} characters, and ` +
         `${sawBegin ? "no -----END line that matches its -----BEGIN" : "no -----BEGIN line at all"}. ` +
         "It should be the contents of the AuthKey_XXXXXXXXXX.p8 file Apple issued, newlines and all — " +
-        "around 250 characters over three or four lines." +
+        "around 250 characters over three or four lines. A single line with matching " +
+        "-----BEGIN/-----END markers and a base64 body in between is repaired automatically " +
+        "(what a single-line field in a secret store does to a multi-line paste) — this value " +
+        "is not that either." +
         // The one guess worth making, because it is the mistake the two secrets
         // invite: CSC_LINK is base64 and this one is not, and a value that is
         // base64 of something binary is almost certainly the certificate.
