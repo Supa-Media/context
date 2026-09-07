@@ -188,6 +188,82 @@ export async function runPackagingChecks(check) {
     !["^1.0.0", "1.0.0", "latest", "npm:left-pad@1"].some((range) => String(range).startsWith("workspace:")),
   );
 
+  // -- the workflow that builds it, and the keychain it signs from -----------
+  /*
+    Why a check in the desktop suite reads a file in `.github/`: because the
+    dmg this suite is about was, twice, not built at all. Both dispatches of
+    `deploy-desktop.yml` on the signed path died in forty seconds inside
+    electron-builder's own keychain setup:
+
+      security set-key-partition-list -S apple-tool:,apple: -s -k *** <temp>.keychain
+      security: SecKeychainUnlock: The user name or passphrase you entered is not correct.
+
+    `createKeychain()` makes a throwaway keychain with a random password and
+    then hands `set-key-partition-list -k` the **certificate's** import
+    password instead of that keychain's — two different secrets, and only the
+    keychain's own unlocks it (electron-userland/electron-builder#10066, whose
+    fix is not in any released 26.x). The `security import` immediately before
+    it succeeded, which is what proves `CSC_KEY_PASSWORD` is right and the
+    keychain password is what was wrong.
+
+    So the workflow owns the keychain now, and electron-builder is handed
+    `CSC_KEYCHAIN` and never `CSC_LINK` — because `CSC_LINK` is the switch that
+    selects the broken path (`macPackager.ts`: with a csc link it calls
+    `createKeychain`, without one it uses `process.env.CSC_KEYCHAIN`). That is a
+    property of a YAML file with no test of its own and a forty-minute feedback
+    loop through a Mac runner, which is exactly the kind of thing this file is
+    for.
+
+    Read with comment lines removed, for the reason the entitlements checks
+    above give: that workflow's header explains at length why it does what it
+    does, and a check that reads prose is a check that passes on a sentence
+    about itself.
+  */
+  const WORKFLOW = readFileSync(join(ROOT, "..", "..", ".github/workflows/deploy-desktop.yml"), "utf8")
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line))
+    .join("\n");
+  /* Steps start at one indent inside `steps:`; that is enough of a parser. */
+  const steps = WORKFLOW.split(/\n(?=      - )/);
+  const buildStep = steps.find((step) => /electron-builder --mac/.test(step));
+  const preflight = steps.find((step) => /openssl pkcs12/.test(step));
+  const cleanup = steps.find((step) => /delete-keychain/.test(step));
+
+  check("the workflow still builds with electron-builder", buildStep !== undefined);
+  check(
+    "CSC_LINK NEVER REACHES ELECTRON-BUILDER — it is the switch that selects the broken temp-keychain path",
+    buildStep !== undefined && !/CSC_LINK/.test(buildStep),
+  );
+  check(
+    "...and neither does CSC_KEY_PASSWORD, which is what that path mis-uses",
+    buildStep !== undefined && !/CSC_KEY_PASSWORD/.test(buildStep),
+  );
+  check("the identity comes from a keychain this workflow made", /CSC_KEYCHAIN=/.test(WORKFLOW));
+  check(
+    "the certificate is checked before anything is built, not after forty seconds of packaging",
+    preflight !== undefined && steps.indexOf(preflight) < steps.indexOf(buildStep),
+  );
+  check(
+    "...including that it carries a private key, so a .cer exported by mistake is named as one",
+    preflight !== undefined && /-nocerts/.test(preflight),
+  );
+  check(
+    "SET-KEY-PARTITION-LIST IS GIVEN THE KEYCHAIN'S OWN PASSWORD — the bug, in one line",
+    preflight !== undefined && /set-key-partition-list[^\n]*-k "\$keychain_password"/.test(preflight),
+  );
+  check(
+    "...which is the password the keychain was created with",
+    preflight !== undefined && /create-keychain -p "\$keychain_password"/.test(preflight),
+  );
+  check(
+    "the keychain is deleted whether the build passed or failed",
+    cleanup !== undefined && /if: always\(\)/.test(cleanup),
+  );
+  check(
+    "nothing about a branch triggers this workflow, signing or no signing",
+    /^on:\n  workflow_dispatch:/m.test(WORKFLOW) && !/^\s*(push|pull_request):/m.test(WORKFLOW),
+  );
+
   // -- the hook when Apple says no -------------------------------------------
   /*
     The other half of "all three, or nothing". A hook that swallowed a failed
