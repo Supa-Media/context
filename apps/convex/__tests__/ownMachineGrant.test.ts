@@ -43,7 +43,7 @@
  *   `isLoopbackRedirect` accepting any hostname                           1
  *   ...accepting `https`                                                  1
  *   the mutation skipping `requireWorkspaceAccess`                        1
- *   the mutation not checking `status === "pending"`                      1
+ *   the mutation not checking `status === "pending"`                      2
  *   the mutation not checking `expiresAt`                                 1
  *   the rate limit removed                                                1
  *   `arm` not writing `grantedScope`                                     13
@@ -428,6 +428,36 @@ describe("the ordinary refusals still hold with no screen in the way", () => {
     // request is a hint rather than an instruction.
     expect(workspaceSlug).toBe("alphabet");
     expect((await rowOf(t, requestId)).workspaceId).not.toBe(aliceWs);
+  });
+
+  test("...and the most that costs her is the screen she would have had anyway", async () => {
+    /*
+      The residual, stated rather than left to be discovered.
+
+      A signed-in third party holding a live request id cannot reach Alice's
+      context with it — the test above — but they *can* spend it, and then her
+      own page's mint finds a row that is no longer pending. That is the burn,
+      and it is bounded twice over: the id reaches nobody but the process that
+      followed the parking redirect and the page the shell handed it to (a
+      foreign origin gets no bridge, and the card reads it from nowhere else,
+      which `apps/mobile/__tests__/meetingsDesktop.test.ts` holds), and the
+      outcome is the refusal every other condition here produces — #312's
+      approve screen, in her own window, on a second parked request.
+
+      What Bob is left holding is a code for **his** context that he cannot
+      redeem: the PKCE verifier for it never left Alice's Mac.
+    */
+    const { t, alice, bob } = await aMacAndItsOwner();
+    const requestId = await parkMachineRequest(t);
+    await mint(t, bob, requestId);
+
+    expect(errorCode(await captureError(() => mint(t, alice, requestId)))).toBe(
+      "AUTHORIZATION_REQUEST_NOT_FOUND",
+    );
+    // Her machine's next connect parks its own request and is minted normally,
+    // so a burn costs a screen rather than the ability to connect at all.
+    const second = await parkMachineRequest(t);
+    expect((await mint(t, alice, second)).workspaceSlug).toBe("alpha");
   });
 
   test("a caller with no context of their own learns nothing and grants nothing", async () => {

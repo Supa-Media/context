@@ -1100,6 +1100,14 @@ the id only from the origin the window is pinned to, because the session that
 can answer it belongs to an origin — and the section above already chose this
 direction when the pin refused a hop: *a pin a server can move is not a pin.*
 
+**And it refuses the opaque origin by name, on both sides of that comparison.**
+`new URL("data:/authorize?request_id=…").origin` is the *string* `"null"`, as is
+a `file:` URL's, so two opaque origins compare equal to each other. The pin
+cannot be opaque today — `consoleUrl` admits only `https` and loopback `http` —
+but *Nothing that can start a recording may come from an origin we did not pin*
+already refuses `"null"` by name in `shouldExposeBridge` for this exact reason,
+and `parkedRequestFrom` was the one origin comparison in the shell that did not.
+
 #### What `apps/mobile` learned, and the sentence that reverses
 
 *"Nothing in `apps/mobile` learned that it is inside the shell"* was the measure
@@ -1136,19 +1144,21 @@ version-2 shell without calling members it never promised.
 Sabotage, measured as failing tests across each suite. Desktop:
 `parkedRequestFrom` not comparing the origin **3**, not comparing the path
 **1**, accepting any id shape **1**, answering for an empty console origin
-**0**; `isParkingRedirect` accepting a 200 **1**; `ApprovalHandover.take`
+**0**, not refusing the opaque origin by name **1**; `isParkingRedirect`
+accepting a 200 **1**; `ApprovalHandover.take`
 ignoring the id **2** or not clearing **1**; `endApproval` not closing the
 handover **2**; the fallback chain reordered **1**. Convex:
 `decideMachineApproval` answering `ok` unconditionally **12**, dropping the
 software-id condition **2**, the loopback condition **3**, the scope condition
 **5**, the tier condition **2**; `isLoopbackRedirect` accepting any hostname
 **1** or `https` **1**; the mutation skipping `requireWorkspaceAccess` **1**,
-its `pending` check **1**, its expiry check **1**; the rate limit removed **1**;
+its `pending` check **2**, its expiry check **1**; the rate limit removed **1**;
 `arm` not writing `grantedScope` **13**. Mobile: `decideMachineApproval`
 minting unconditionally **13**, ignoring `answered` **9**, `auth.isLoading`
 **2**, an already-connected machine **2**; the card not telling the shell about
 a refusal **1** or a success **2**; not navigating to the redirect **1**; the
-refusal line naming what the control plane said **2**.
+refusal line naming what the control plane said **2**; the card seeding a
+pending approval from `?request_id=` **2**.
 
 **The mobile rows were measured as zero on the first attempt**, and the reason
 is recorded in `meetingsDesktop.test.ts` rather than quietly fixed: the harness

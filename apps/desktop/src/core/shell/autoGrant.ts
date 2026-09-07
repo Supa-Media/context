@@ -93,15 +93,29 @@ const REQUEST_ID = /^[A-Za-z0-9_-]{16,128}$/;
  * `consoleOrigin` is the origin the main process pinned the window to. An empty
  * one refuses everything, which is the honest answer from a launch that has no
  * console window: there is no page to answer with.
+ *
+ * ## The opaque origin is refused by name, on both sides
+ *
+ * `new URL("data:/authorize?request_id=…").origin` is the **string** `"null"`,
+ * and so is a `file:` URL's, an `about:`'s, and every other scheme the URL
+ * standard gives no tuple origin. Two of those compare equal to each other, so
+ * an origin comparison that does not name the case is a comparison that would
+ * hand a `data:` document a parked request id the moment the pinned origin were
+ * ever opaque itself. It cannot be today — `consoleUrl` refuses everything but
+ * `https` and loopback `http`, so `consoleOrigin` is always a real tuple — and
+ * this is here because that is one function away, and because
+ * `shouldExposeBridge` already refuses `"null"` by name for exactly this
+ * reason. The one origin comparison in this shell that did not was this one.
  */
 export function parkedRequestFrom(location: string, consoleOrigin: string): string | null {
-  if (consoleOrigin === "") return null;
+  if (consoleOrigin === "" || consoleOrigin === "null") return null;
   let url: URL;
   try {
     url = new URL(location);
   } catch {
     return null;
   }
+  if (url.origin === "null") return null;
   if (url.origin !== consoleOrigin) return null;
   if (url.pathname !== CONSENT_PATH) return null;
   const requestId = url.searchParams.get("request_id");

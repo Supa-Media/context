@@ -33,6 +33,7 @@
  *   ...not comparing the path                                             1
  *   ...accepting any `request_id` shape                                   1
  *   ...answering for an empty console origin                              0
+ *   ...not refusing the opaque origin by name                             1
  *   `isParkingRedirect` accepting a 200                                   1
  *   `ApprovalHandover.take` ignoring the id it was given                  2
  *   ...not clearing what it took, so an answer can be replayed            1
@@ -115,6 +116,20 @@ export async function runAutoGrantChecks(check) {
   check(
     "A LAUNCH WITH NO CONSOLE WINDOW HAS NO PAGE TO HAND IT TO",
     parkedRequestFrom(`${LIVE}/authorize?request_id=${REQUEST_ID}`, "") === null,
+  );
+  check(
+    "AN OPAQUE ORIGIN IS REFUSED BY NAME, NOT BY LUCK",
+    // `new URL("data:/authorize?…").origin` is the *string* "null", as is a
+    // `file:` URL's — so two opaque origins compare equal to each other. The
+    // pin cannot be opaque today (`consoleUrl` refuses everything but https and
+    // loopback http), and this is the check that keeps that from being the only
+    // thing standing between a `data:` document and a parked request id.
+    parkedRequestFrom(`data:/authorize?request_id=${REQUEST_ID}`, "null") === null &&
+      parkedRequestFrom(`file:///authorize?request_id=${REQUEST_ID}`, "null") === null,
+  );
+  check(
+    "...and it is refused against a real pin too, however it reads",
+    parkedRequestFrom(`data:/authorize?request_id=${REQUEST_ID}`, LIVE) === null,
   );
   check(
     "an unparseable location is refused rather than assumed",

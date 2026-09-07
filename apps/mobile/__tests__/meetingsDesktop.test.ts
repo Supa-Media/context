@@ -1119,6 +1119,7 @@ describe("this machine, in settings", () => {
  *   ...not telling it about a success                                   2
  *   the card not navigating to the redirect it was given                1
  *   the refusal line naming what the control plane said                 2
+ *   the card seeding a pending approval from `?request_id=`             2
  *
  * The first two are large for the reason the **20** above is: a card that
  * mints on every render mints inside a dozen other tests that merely happen to
@@ -1297,6 +1298,83 @@ describe("this machine connects itself when its owner is already signed in", () 
     ]);
 
     mounted.unmount();
+  });
+
+  /*
+    THE LINK THE WHOLE FEATURE HANGS FROM.
+
+    `software_id` is client-asserted: anything that can register can claim to be
+    the shell, and `docs/decisions/identity-and-access.md` says so out loud. So
+    what stops a forged client from getting an auto-approved grant is not the
+    declaration — it is that the *request id* only ever reaches this page over
+    the shell's bridge. A page at a foreign origin gets no bridge at all
+    (`shouldExposeBridge`, in the preload), and a page at this origin reads the
+    id from nowhere else: not a query parameter, not the fragment, not a
+    `postMessage` from an opener, not a global somebody set.
+
+    That is a property of *this file*, which is why it is checked twice — once
+    by driving the card with all three of those in place and no bridge push, and
+    once by reading the two source files for the shapes that would make it
+    false. The second check is the one that survives a refactor: a future deep
+    link that read `?request_id=` into this card would be a confused deputy with
+    a signed-in session behind it, and it would go red here rather than in
+    production.
+  */
+  test("A REQUEST ID THAT DID NOT COME OVER THE BRIDGE MINTS NOTHING", async () => {
+    // A shell is present — so the card renders and the bridge is live — but it
+    // is holding no approval. Everything below is an attacker's delivery route.
+    const shell = fakeDesktopBridge({ pendingApproval: null });
+    installShell(shell);
+
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        href: "https://context.lc/console?request_id=req_forged#request_id=req_forged",
+        search: "?request_id=req_forged",
+        hash: "#request_id=req_forged",
+        assign: (next: string) => {
+          navigated = next;
+        },
+      },
+    });
+    (globalThis as Record<string, unknown>).__pendingApproval = { requestId: "req_forged" };
+
+    const mounted = mount(createElement(ThisMachineCard));
+    await settle();
+
+    window.postMessage({ requestId: "req_forged" }, "*");
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: { pendingApproval: { requestId: "req_forged" } },
+        origin: "https://attacker.invalid",
+      }),
+    );
+    await settle();
+
+    expect(mockMintCalls).toEqual([]);
+    expect(shell.approvals).toEqual([]);
+    expect(navigated).toBe(null);
+    expect(has(mounted.container, "this-machine-approval")).toBe(false);
+
+    mounted.unmount();
+    delete (globalThis as Record<string, unknown>).__pendingApproval;
+  });
+
+  test("...and neither source file has a second way to learn one", () => {
+    const sources = [
+      "../features/meetings/machineApproval.ts",
+      "../features/meetings/components/ThisMachineCard.tsx",
+    ].map((path) => readFileSync(join(__dirname, path), "utf8"));
+
+    for (const source of sources) {
+      // Every shape that would let something other than the shell name the
+      // request this page answers.
+      expect(source).not.toMatch(/location|URLSearchParams|useLocalSearchParams|useSearchParams/);
+      expect(source).not.toMatch(/postMessage|"message"|'message'|window\.opener|referrer/);
+    }
+    // And the one member it does read it from, named so a rename is a red test
+    // rather than a silent widening.
+    expect(sources[1]).toMatch(/connection\.pendingApproval\(\)/);
   });
 
   test("A VERSION-2 SHELL IS DRAWN WITHOUT CALLING MEMBERS IT NEVER PROMISED", async () => {

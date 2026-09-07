@@ -182,6 +182,23 @@ listener on the person's own machine, (b) settle for the default scope, and (c)
 have code running as the console origin call the mutation for its request id —
 and anything with (c) could already have driven the Approve button.
 
+**The link (c) hangs from is that the request id reaches the page over the
+bridge and nowhere else**, so it is held by a test rather than by the shape of
+the current code: `apps/mobile/__tests__/meetingsDesktop.test.ts` drives the
+card with `?request_id=`, a fragment, a `postMessage` and a global all naming a
+forged request, and reads both source files for a second way to learn one. A
+deep link that seeded this card from a URL would be a confused deputy with a
+signed-in session behind it, and it goes red there.
+
+**The residual, stated rather than left to be found.** Somebody signed in who
+holds a live request id can *spend* it — it grants **their** context, never the
+person whose machine parked it, and the code it produces needs a PKCE verifier
+that never left that machine. What it costs the other person is the approve
+screen on a second parked request, which is where every other refusal here ends
+too. Getting the id in the first place means being the process that followed the
+parking redirect, or code running as the console origin — and either of those
+could already have driven the Approve button.
+
 **Rate limited on successful mints, three an hour per person.** A refusal rolls
 the counter back with its transaction, which is the right unit: every success is
 a permanent client row and a live credential, and connecting machines is
