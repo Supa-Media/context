@@ -308,13 +308,23 @@ export function visibleIndex(index, isVisible) {
  * it is applied here rather than to the view — scores must not be a function of
  * which folder was searched.
  *
- * @param {{ path: string }[]} ranked
+ * `isVisible` is applied to `notePath` when a result carries one — v2's
+ * channel-day sub-documents do (`shardQuery.js`'s `scoreCollected`), keyed
+ * `<notePath>#<anchor>`, and a doc key is not a path `canSee` was ever asked
+ * about. v1's `searchIndex` results carry no `notePath` at all, so `?? path`
+ * is exactly its existing behaviour — this function does not change what v1
+ * checks, only what a caller that does carry the field gets checked on.
+ * `prefix` stays on `path`: for a sub-document `path` is `notePath` with a
+ * `#anchor` suffix, which `startsWith` a folder prefix exactly when
+ * `notePath` does, so folder-scoping needs no split of its own.
+ *
+ * @param {{ path: string, notePath?: string }[]} ranked
  * @param {(path: string) => boolean} isVisible
  * @param {string} [prefix]
  */
 export function rankedVisibleTo(ranked, isVisible, prefix) {
   return ranked.filter(
-    ({ path }) => isVisible(path) && (!prefix || path.startsWith(prefix))
+    (entry) => isVisible(entry.notePath ?? entry.path) && (!prefix || entry.path.startsWith(prefix))
   );
 }
 

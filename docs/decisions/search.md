@@ -1013,3 +1013,64 @@ carries an author at all, so all three would be new index fields, which this
 change deliberately does not add. The date filter is the one worth revisiting:
 it needs the listing plumbed through the projection pass, which is a change to
 what the sync returns, not to the page.
+
+### A note is the unit of the index, except when it is bundled mail
+
+The R2 shard index's whole-note cap (`NOTE_INDEX_CHAR_CAP`, above) makes a
+bundled channel-day note unsearchable past its first two or three messages —
+argued in full and built in `docs/decisions/communications.md`, "Search must
+index messages, and today's index cannot". The rule that belongs here rather
+than there, because it is a rule about *this* index's own visibility
+machinery and not about the communications format: **a channel-day note's
+messages become several documents in the index — `<notePath>#<anchor>` — and
+every one of them is a document about that one note as far as `canSee` is
+concerned.**
+
+The consequence a tidy-up would get wrong is the same one `visibleIndex` and
+`collectShardCandidates` already exist to get right for the index as a whole,
+one level down: `isVisible` is applied to `doc.notePath`, **never** to a
+document's own key, at both places a doc's visibility is decided
+(`shardQuery.js`'s collector, and `rankedVisibleTo`'s second, independent
+check in `query.js`). A sub-document's key is not a path `canSee` was ever
+asked about, and checking it directly is not merely a different way of asking
+the same question — a `privacy.md` rule that names a note exactly (an
+*exact-note* override, not a folder default) would never match
+`notePath#anchor`, so a note somebody explicitly marked private would leak
+every message inside it to exactly the query shape that should have found
+none. That is why the test for this (`commsSearchIndex.test.mjs`) uses an
+exact-path predicate rather than a folder prefix: a prefix check cannot tell
+the two apart, since a `#anchor` suffix never changes whether a string starts
+with a folder path, and a guard a folder-prefix test cannot fail is a guard
+nobody has checked (`docs/decisions/testing.md`).
+
+**Both guards are now driven one at a time, because two correct guards hide
+each other.** The end-to-end check cannot tell a working guard from an
+unnecessary one: with the collector filtering, `rankedVisibleTo` has nothing
+left to remove. So `commsSearchIndex.test.mjs` runs the collector followed
+straight by `scoreCollected` with no ranked filter at all, and then
+`rankedVisibleTo` over a collection gathered with `isVisible = () => true` —
+and asserts, in the middle, that the private day *is* in the unfiltered list,
+so the fixture is known to be able to show a leak. Measured: pointing
+`rankedVisibleTo` back at `entry.path` reddened 2 checks before that section
+existed and 7 after, and the 2 it reddened were both "the answer went empty",
+which is the guard failing in the direction nobody is harmed by.
+
+**And a document count is not a note count, which is where the existence
+oracle would have been.** A private day of forty messages that all match is
+forty sub-documents; a team caller's `matchCount` is computed from the
+*visible* list, so it stays 1 — asserted by comparing the whole
+caller-visible answer, and the number of objects the answer read, against the
+same query over a bucket where the private day does not exist at all. Equal
+reads is the deterministic form of "no timing tell".
+
+The format itself — the doc-entry fields, the placement rule, the
+regeneration rule, the no-message fallback and the deep link the read tools
+accept — is pinned in `apps/mcp/src/search/CONTRACT.md`, "Channel-day notes:
+one sub-document per message", the way every other shape in this file is
+pinned there rather than argued twice. **The sizing is not part of that
+format and does not yet fit a mailbox**: `chooseShardCount` counts the notes
+a listing found, and a heavy mailbox's sub-documents therefore all land in
+the shard its one note hashes to. Measured at 90 days x 200 messages, that
+shard passes `SHARD_PARSE_BYTE_CAP` and is refused on every pass, so the
+whole context — ordinary notes included — has no index at all. The numbers
+and what they gate are in `docs/decisions/communications.md`.
