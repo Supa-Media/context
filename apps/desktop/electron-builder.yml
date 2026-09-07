@@ -76,9 +76,8 @@ asar: true
 mac:
   category: public.app-category.productivity
   # `distribution`, not `development`: it decides which certificate
-  # electron-builder looks for and which provisioning rules apply. It is NOT
-  # what makes this a menu-bar app — `LSUIElement` below is, and the two are
-  # easy to conflate into deleting the one that matters.
+  # electron-builder looks for and which provisioning rules apply. It says
+  # nothing about the Dock or the menu bar in either direction.
   type: distribution
   hardenedRuntime: true
   gatekeeperAssess: false
@@ -94,9 +93,25 @@ mac:
         - arm64
         - x64
   extendInfo:
-    # A menu-bar app with no dock icon. Without this macOS puts it in the dock
-    # and in the app switcher, which is not what a tray app is.
-    LSUIElement: true
+    # `LSUIElement: true` used to be here, paired with `app.dock.hide()` in
+    # `src/main/index.ts`, and it is deliberately gone.
+    #
+    # It was right when it was written: a menu-bar app with no window of its own
+    # has nothing to put in the Dock. Step 4 ended that — "the console is what a
+    # launch opens" — and the first signed build reached the owner as an app
+    # with a window, no Dock tile, no app-switcher entry and no menu bar, which
+    # reads as an app that did not install. Their words: "I dont even see a
+    # launched app, I should be able to open the app locally like all these
+    # other apps."
+    #
+    # An accessory app also shows no application menu, and the console hosts a
+    # text editor — no menu means no Cmd-C, Cmd-V or Cmd-Z, because on macOS
+    # those are menu key equivalents and nothing else.
+    #
+    # The tray is untouched: `main/index.ts` still builds it, still records a
+    # whole meeting with no window open, and closing the window still does not
+    # quit. A Dock tile as well as a menu-bar item, never instead of it. See
+    # `docs/decisions/desktop.md`, "The app is in the Dock".
     NSMicrophoneUsageDescription: >-
       Context records the meetings you ask it to. Your microphone is opened only
       after you press Take notes or Record, and the audio is transcribed and

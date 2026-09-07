@@ -32,8 +32,10 @@ built, it says so rather than pretending the code is already gone.
 ### The shell loads the hosted console, and keeps a mirror of the last good load
 
 **The window loads a URL**: `CONTEXT_DESKTOP_UI_URL`, defaulting to
-`https://context.lc/console` and to `http://localhost:8081` when
-`NODE_ENV !== "production"` so `expo start` is what a desktop developer runs.
+`https://context.lc/console` in an installed build and to `http://localhost:8081`
+in an unpackaged one, so `expo start` is what a desktop developer runs. (That
+sentence said `NODE_ENV !== "production"` until the first signed build opened a
+blank window — see "Nothing had ever started this app" below.)
 A self-hoster who deployed the Expo web app at their own origin points the same
 variable at it, which is the same shape as `settings.gatewayEndpoint`: there is
 no hard-coded address of ours anywhere in this app, and there must not be one.
@@ -392,6 +394,236 @@ dispatch input AND both credentials"` requires all three of
 always` is ever passed to electron-builder; deleting either credential check
 and leaving only the dispatch input passes that regex's first half and fails
 its second.
+
+### Nothing had ever started this app
+
+The first signed, notarised, stapled build — `03f1c8c`, Actions run
+34125953592 — was installed on the owner's Mac and **could not launch**. It
+opened a modal dialog:
+
+```
+A JavaScript error occurred in the main process
+Uncaught Exception:
+Error: Dynamic require of "events" is not supported
+    at file:///Applications/Context.app/Contents/Resources/app.asar/dist/main/index.js:11:9
+    at .../builder-util-runtime/out/CancellationToken.js
+    at .../electron-updater/out/main.js
+```
+
+It had passed 922 checks, a typecheck, a code signature, an Apple notarisation
+and a Gatekeeper assessment. **Not one of those starts the process.** Three
+separate defects were in that build, and the second and third were invisible
+because the first one killed the app before they could show:
+
+1. it threw before `app.whenReady()`;
+2. it had no Dock tile, no app-switcher entry and no application menu;
+3. it pointed its window at `http://localhost:8081`.
+
+The durable decision is the fourth item, and it is the only one that would have
+caught the other three.
+
+#### The main process is CommonJS
+
+`electron-updater` and `builder-util-runtime` are CommonJS and `require("events")`
+when they load. Bundled into an **ESM** main process, esbuild inlines them and
+emits its own shim — `if (typeof require !== "undefined") … throw Error('Dynamic
+require of "' + x + '" is not supported')` — and in an ES module `require` is
+undefined, so the first line of the app throws. It arrived with `9368591`/`#279`
+and every build since was dead on launch.
+
+Three fixes were built and measured rather than argued about.
+
+- **`external: ["electron-updater"]`, shipped from `node_modules`** is the
+  tidiest-sounding and does not work: esbuild emits `import { autoUpdater } from
+  "electron-updater"`, Node's ESM loader cannot see a named export on a CommonJS
+  module, and the app dies at load with `SyntaxError: Named export 'autoUpdater'
+  not found` — the same launch-time death wearing a different sentence, *in
+  development*, before packaging is even reached. Making it work needs
+  `src/main/updater.ts` rewritten to a default import plus a destructure **and**
+  `electron-builder.yml`'s `files:` extended to carry electron-updater and its
+  transitive tree into the asar — which pnpm keeps under
+  `node_modules/.pnpm/electron-updater@6.3.9/node_modules/`, not where a flat
+  glob finds it, and which falsifies that file's own "`node_modules` is not
+  copied because every runtime dependency is bundled". Two source changes and a
+  packaging change, to close the hazard for one package.
+- **A `createRequire(import.meta.url)` banner** is two lines and does work —
+  verified by launching it. It leaves esbuild's `Dynamic require of` shim in the
+  shipped bundle, merely unreachable, so the property worth asserting ("this
+  bundle cannot throw that") becomes unassertable; and it puts a top-level `const
+  require` into an ES module, one name collision away from a `SyntaxError`.
+- **`format: "cjs"`**, which is what shipped. The main process is a CommonJS
+  world — Electron's own main-process ecosystem, electron-builder and
+  electron-updater all are — and `src/main/` needed nothing an ES module
+  provides. As CJS, `require` is real, **esbuild emits no shim at all**, and this
+  config now says the same thing as the three preload configs for the same
+  reason.
+
+What it costs, stated so nobody rediscovers it: `"type": "module"` means the
+output is `dist/main/index.cjs`, `main` and `start` name that file, and
+`src/main/index.ts` uses `__dirname` rather than `import.meta.dirname`, which
+esbuild warns about and silently empties in a CJS build. That last one decides
+where the preloads are found, so `--smoke` reports whether `RENDERER_DIR` exists.
+
+**What a "simplification" of this costs**: switching the main bundle back to
+`format: "esm"` reintroduces the shim, and the next CommonJS dependency anybody
+adds to the main process ships an app that will not start.
+
+#### A launch is a check, and it is the only one that would have caught this
+
+`--smoke` is a flag on the app itself, and its **exit code is the contract**:
+
+- **0** — it initialised, a window was created, `RENDERER_DIR` exists, and one
+  `[smoke]` line was printed. Nothing else exits 0.
+- **non-zero** — no window, an uncaught exception or rejection, or `main()` did
+  not finish inside ten seconds.
+- **it always ends.** The deadline is armed before `whenReady`, because a hung
+  smoke run is a hung release job.
+
+It needs **no network**: the assertion is that the console window was *created*,
+not that the page loaded. On a runner nothing answers the console address, the
+mirror serves its failure page, and a check that waited for a load would fail on
+every machine that is not a laptop.
+
+The one thing it cannot cover is stated rather than papered over: the crash it
+exists for threw while the module graph was still evaluating, before any line of
+the app ran, so no handler inside it could have caught it. Electron's answer to
+that is a modal dialog and an indefinite wait, so the **caller** must impose a
+limit — `test/launch.smoke.mjs` kills the process, and the release step wraps
+the run in `timeout`.
+
+`test/launch.smoke.mjs` is the harness: it builds nothing, starts either
+`dist/main/index.cjs` or a packaged `.app`, and reads the facts off the running
+process. It deliberately does **not** use `ELECTRON_RUN_AS_NODE` — that variable
+makes the Electron binary run as plain Node, which swaps the module loader,
+supplies a real CommonJS `require`, and creates no `app` at all; it would have
+loaded the broken bundle without complaint. The harness deletes it from the
+child's environment rather than merely not setting it.
+
+What it does not prove: the page **rendered**. A window pointed at a dead
+address is still a window. What it checks instead is the address, which is the
+fact that was wrong.
+
+**Sabotage, which is the result that matters.** With `format: "esm"` restored,
+the packaged app's own `--smoke` run reproduces the shipped crash exactly:
+`Dynamic require of "events" is not supported`, no `[smoke]` line, and a process
+that never exits until the harness kills it. That is the proof this gate would
+have stopped the build that went out.
+
+#### The app is in the Dock
+
+`app.dock.hide()` and `LSUIElement: true` were right when they were written: a
+menu-bar app with no window of its own has nothing to put in the Dock, and
+`src/main/windows.ts` argued for it in as many words. **Step 4 made it false** —
+"the console is what a launch opens" — and the first signed build is what
+demonstrated the cost. The owner, holding it: *"I dont even see a launched app,
+I should be able to open the app locally like all these other apps."*
+
+That is the reason, and it outranks the original argument because it is a fact
+about how people use a Mac rather than a preference about tidiness. What was
+reasoned about as "a second thing to manage" is, to the person who installed it,
+the only way they open anything.
+
+So a console launch is an ordinary Mac application: a Dock tile, an
+app-switcher entry, a window on launch, and an application menu built entirely
+from `role`s. The menu is not cosmetic — the console hosts a text editor, and on
+macOS Cmd-C, Cmd-V, Cmd-X, Cmd-Z and Cmd-A are menu key equivalents and nothing
+else, so an app with no Edit menu has none of them. There was no
+`Menu.setApplicationMenu` call at all before this, which an accessory app did
+not need and a windowed one cannot do without.
+
+**It is conditional, not unconditional.** `CONTEXT_DESKTOP_UI=renderer` is still
+the panel and the notepad — a popover under a menu-bar icon, with no window a
+person opens — and that genuinely is an accessory app: it keeps
+`app.dock.hide()` and gets no application menu, because macOS shows an accessory
+app's menu bar to nobody. The escape hatch step 5 is waiting to remove behaves
+exactly as it did.
+
+**The menu bar is untouched.** The tray is still built, still records a whole
+meeting with no window open, and is still the whole app on a launch whose window
+could not be built. This is a Dock tile *as well as*, never instead of. Cmd-W
+closes the window without quitting (`window-all-closed` refuses to quit, so a
+recording in progress runs on in this process with no window at all), Cmd-Q
+quits through `before-quit`, which stops the microphone first, and a Dock click
+*rebuilds* the window rather than only raising it — the console window is
+destroyed on close, so a handler that only raised one would leave the Dock tile
+inert for the rest of the run.
+
+**What only a Mac can confirm, and has not been**: whether removing
+`LSUIElement` changes the microphone or Screen Recording prompt. Reasoned, not
+verified: an accessory app cannot become the active application, so the TCC
+dialog it raises appears over whatever *is* — removing accessory status should
+make the prompt behave more normally, not less. No entitlement, no usage string
+and no permission call site was touched. Somebody has to grant the microphone to
+a signed build and watch what the dialog does.
+
+#### The console address is `app.isPackaged`, never `NODE_ENV`
+
+`consoleUrl` picked its fallback with `env.NODE_ENV === "production"`, and
+**nothing sets `NODE_ENV`** — not `scripts/build.mjs`, whose esbuild `define`
+carries only `__CONTEXT_DESKTOP_SIGNED__`; not `electron-builder.yml`; not
+`package.json`; not `deploy-desktop.yml`; not Electron; and least of all the
+launchd environment an app launched from the Dock inherits. Every installed
+build therefore resolved `http://localhost:8081`, where nothing on a person's
+Mac is listening. The suite proved the production branch worked while no build
+ever took it.
+
+The rule was already written down one function above, in `desktopUiMode`'s own
+docblock: *"a misspelt address is refused, because loading the wrong page is
+worse than loading none."* A default pointing at a dead loopback port is the
+milder version of exactly that, chosen silently. It is now `app.isPackaged` —
+the fact that is true of precisely the builds this got wrong — **passed in**
+rather than read inside, so `consoleUrl` stays a pure function with no Electron
+in it, matching `core/shell/capabilities.ts` and `core/update/policy.ts`, which
+both take the same flag and both document it as *"false for `electron
+dist/main/index.cjs` in development."* `CONTEXT_DESKTOP_UI_URL` still beats both,
+because a self-hoster's own origin is the one answer neither can guess, and the
+refusal of a non-https, non-loopback address is untouched.
+
+**The unit check is necessary and is not sufficient**, and that is the whole
+lesson of this section: what broke was the *wiring*, and a test that asks
+`consoleUrl` a second time agrees with itself. `--smoke` reports the address the
+window was actually pointed at.
+
+#### `--smoke`'s exit code is the gate, and it carries all three verdicts
+
+Found in review of the pull request above, before it merged. The first version
+of `--smoke` *printed* the address, the Dock state and the menu roles, and
+exited non-zero on only two things: no window, and no renderer directory. Every
+other assertion lived in `test/launch.smoke.mjs`, which reads the printed line
+from outside.
+
+That is a gate with a hole in it, and the hole is shaped exactly like the defect
+it was built for. **The release step runs the packaged binary directly** —
+`Context.app/Contents/MacOS/Context --smoke` — because the runner has an `.app`
+and not a checkout, so the only thing it can read is an exit code. A build
+pointed at `http://localhost:8081` initialises, opens a window, finds its
+renderer directory and prints its line: F3 would have gone out green a second
+time, past the gate written to catch it.
+
+So the app asserts its own verdict. `unexpectedConsoleAddress` in
+`core/shell/console.ts` is a pure function `--smoke` calls with `process.env`,
+`app.isPackaged` and the address the window was really given, and the menu roles
+are checked in the same block. **The Dock tile is deliberately still reported
+rather than asserted there**: `app.dock.isVisible()` is an answer from the window
+server, which a headless runner may answer differently, and both halves of that
+defect already have offline guards that cannot flake — `appShell.test.mjs` reads
+`LSUIElement` out of `electron-builder.yml` and the `RENDERER_UI`-conditional
+`app.dock?.hide()` out of `main/index.ts`. A gate that goes red on a working
+build is the one failure a gate must not have, because the response to it is to
+stop trusting the gate. That is the same reason `SMOKE_DEADLINE_MS` is thirty
+seconds and not ten: the only measurement anyone has is a 12.2 s wall clock on
+an M2 Pro, with no way to read off how much of it was inside the timer.
+
+`unexpectedConsoleAddress` states its refusals as facts about the world — a
+packaged launch is never on loopback, a development launch is never on
+production — **and not only as a second call to `consoleUrl`**. The distinction
+is the paragraph above this one: a comparison against `consoleUrl` agrees with a
+bug inside `consoleUrl`. The test that fails if this is reversed is in
+`shell.test.mjs`, and it takes two edits to witness, which is why the sabotage
+record there carries two zero rows and an explanation instead of hiding them:
+regress `consoleUrl`'s fallback to the dev URL and `A PACKAGED LAUNCH POINTED AT
+LOOPBACK IS A FAILED SMOKE RUN` still holds; drop the explicit refusal as well
+and it goes red.
 
 ### Nothing that can start a recording may come from an origin we did not pin
 

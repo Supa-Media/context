@@ -35,7 +35,7 @@ export function runUpdatePolicyChecks(check) {
     shouldArmUpdater({ packaged: true, signed: false }) === false,
   );
   check(
-    "A SIGNED BUILD RUN UNPACKAGED IS NOT ARMED EITHER — `electron dist/main/index.js` in development",
+    "A SIGNED BUILD RUN UNPACKAGED IS NOT ARMED EITHER — `electron dist/main/index.cjs` in development",
     shouldArmUpdater({ packaged: false, signed: true }) === false,
   );
   check("neither is not armed", shouldArmUpdater({ packaged: false, signed: false }) === false);
