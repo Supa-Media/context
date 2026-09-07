@@ -24,6 +24,8 @@ export {
   FENCE_MARKER,
   NO_SUBJECT,
   defangFence,
+  defangLinks,
+  defangOutsideFence,
   groupIntoThreads,
   parseChannelDayNote,
   planChannelDay,

@@ -14,6 +14,10 @@
 //   drop the anchor from the message heading              -> 5 checks failed
 //   pack parts by message count instead of bytes          -> 1 check failed
 //   write part 1 as `-part-1`                             -> 7 checks failed
+//   drop the defang from the message and thread headings  -> 2 checks failed
+//   make defangLinks a no-op everywhere                   -> 5 checks failed
+//   write the provider message id into the heading        -> 8 checks failed
+//   break the anchor tiebreak in the chronological sort   -> 1 check failed
 //
 // The first two are the two independent layers of the frontmatter defence, and
 // each defends the whole corpus alone - which is why removing one is invisible
@@ -24,6 +28,7 @@ import { FRONTMATTER_KEYS, PART_HEADER_RESERVE, SPLIT_BYTE_THRESHOLD } from "../
 import {
   FENCE_MARKER,
   defangFence,
+  defangLinks,
   groupIntoThreads,
   parseChannelDayNote,
   planChannelDay,
@@ -136,6 +141,67 @@ export function runNoteChecks(check) {
       renderChannelDayNote(day({ events: [message({ body: "### 09:00 x {#msg-0000000000000000}" })] }))
     ).anchors.length === 1
   );
+
+  /*
+    The decision's own check, and it was missing: *"the same message rendered
+    twice gets the same anchor, **and no raw provider id appears in the
+    output**"*. The anchor module proves a provider id never survives into an
+    anchor; this proves it never reaches the file by any other route — a
+    heading, a thread key, a debugging line somebody adds later. The ids are
+    the fixture's, so this fails the moment one is written rather than hashed.
+  */
+  check(
+    "no provider message id or thread id reaches the bucket",
+    (() => {
+      const text = renderChannelDayNote(day());
+      const ids = day().events.flatMap((event) => [event.messageId, event.threadId]);
+      return ids.length === 6 && ids.every((id) => id && !text.includes(id));
+    })()
+  );
+  check(
+    "...not even stripped of the angle brackets a Message-ID comes in",
+    !renderChannelDayNote(day()).includes("a1@mail.example.net")
+  );
+  check(
+    "...and a provider id a sender chose to make path-shaped does not land either",
+    !renderChannelDayNote(
+      day({ events: [message({ messageId: "<../../privacy.md@x>", threadId: "../../.audit/x" })] })
+    ).includes("privacy.md")
+  );
+
+  /*
+    The other place a sender's words leave their quotation. Bodies are fenced;
+    a heading is not, and a subject written into `### … · <subject> {#anchor}`
+    or into a contact page's `[[…|<subject>]]` is markdown the renderer emits
+    in its own voice. `]]` closes the link, `[[` opens one the sender chose.
+  */
+  check(
+    "a subject cannot open or close a wikilink in a heading it lands in",
+    (() => {
+      const attack = "ok]] and [[.audit/anything|click";
+      const text = renderChannelDayNote(day({ events: [message({ subject: attack, from: { name: attack } })] }));
+      const heading = text.split("\n").find((row) => row.startsWith("### "));
+      return !heading.includes("]]") && !heading.includes("[[") && heading.includes("ok");
+    })()
+  );
+  check(
+    "...nor in the thread heading built from it",
+    !renderChannelDayNote(day({ events: [message({ subject: "x]] [[y" })] }))
+      .split("\n")
+      .find((row) => row.startsWith("## Thread"))
+      .includes("[["),
+  );
+  check(
+    "...nor an attachment filename, which is a sender-chosen string on a line of ours",
+    !renderChannelDayNote(
+      day({ events: [message({ attachments: [{ filename: "a]] [[.audit/x", contentType: "text/plain", size: 1 }] })] })
+    ).includes("[[")
+  );
+  check(
+    "...while a body keeps the sender's brackets verbatim, because it is inside the fence",
+    renderChannelDayNote(day({ events: [message({ body: "see [[their note]]" })] })).includes("see [[their note]]")
+  );
+  check("defangLinks leaves text with no link syntax in it alone", defangLinks("ordinary text") === "ordinary text");
 
   // -- order and grouping --------------------------------------------------
   check("messages are grouped into threads", groupIntoThreads(day().events).length === 2);

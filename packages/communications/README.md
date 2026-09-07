@@ -64,5 +64,25 @@ node test/test.mjs
 
 No framework, no install. Each test module carries a **sabotage record**: what
 was deliberately broken, and how many checks noticed. Two of the checks in
-`paths.test.mjs` and two in `note.test.mjs` exist because the first run of that
-table said zero.
+`paths.test.mjs`, two in `note.test.mjs` and one in `contacts.test.mjs` exist
+because the first run of that table said zero.
+
+## The two defangs, and why there are two
+
+A sender's words leave their quotation in two ways, so they are closed
+separately and both are in `note.js`:
+
+- **`defangFence`** stops a body from ending the untrusted region it is quoted
+  in. The fence carries a per-note nonce, so a marker cannot be pre-written;
+  this handles the near-miss.
+- **`defangOutsideFence`** is for every string this package writes *outside* a
+  fence — a message heading, a thread heading, an attachment filename, and
+  every field of a contact page, which has no fence at all because it is
+  presented as the owner's own derived index. A subject of
+  `x]] and [[.audit/anything` written into `[[<path>#<anchor>|<subject>]]`
+  closes the link the renderer opened and opens one the sender chose, which
+  `links.js` then resolves and rewrites like a link the owner made.
+
+Bodies go through the first and deliberately **not** the second: inside a
+fence, a stranger's brackets are their words, and quoting them verbatim is what
+the fence is for.

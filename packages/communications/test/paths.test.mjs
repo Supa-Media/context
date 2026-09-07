@@ -11,6 +11,7 @@
 //   drop isCalendarDate's round-trip (pattern only)       -> 3 checks failed
 //   let a slug carry a dot, so a mailbox can be plumbing  -> 2 checks failed
 //   return the base slug from chooseMailboxSlug always    -> 1 check failed
+//   accept any segment as the account level               -> 5 checks failed
 
 import {
   CHANNELS,
@@ -198,6 +199,38 @@ export function runPathChecks(check) {
   check("a day under a mailbox-shaped folder with a bad date is not one", !isChannelDayNotePath("0-inbox/email/name-at-example-com/2026-02-30.md"));
   check("`-part-1` is not a name this module writes, so it is not one it reads", !isChannelDayNotePath("0-inbox/imessage/2026-09-07-part-1.md"));
   check("a part number with a leading zero is not one either", !isChannelDayNotePath("0-inbox/imessage/2026-09-07-part-02.md"));
+  /*
+    The recogniser is what a listing is built from, so a key it accepts is a
+    key a tool will read. These are the shapes a crafted key arrives in — a
+    traversal that would leave the mailbox folder, the percent-encoded spelling
+    of it (the storage adapter decodes before it compares), and an absolute
+    path, which is a different key entirely and must not be read as this one
+    with a leading slash.
+  */
+  for (const crafted of [
+    "0-inbox/email/../../etc/2026-09-07.md",
+    "0-inbox/email/a-at-b/../2026-09-07.md",
+    "0-inbox/email/../2026-09-07.md",
+    "0-inbox/email/..%2f..%2fetc/2026-09-07.md",
+    "0-inbox/email/%2e%2e/2026-09-07.md",
+    "0-inbox/email/./2026-09-07.md",
+    "/0-inbox/imessage/2026-09-07.md",
+    "//0-inbox/imessage/2026-09-07.md",
+    "0-inbox//imessage/2026-09-07.md",
+    "0-inbox/email/name-at-example-com//2026-09-07.md",
+  ]) {
+    check(`a crafted key is not a channel-day note: ${crafted}`, !isChannelDayNotePath(crafted));
+  }
+  check(
+    "...and a traversal cannot climb out of the customer's chosen root either",
+    !isChannelDayNotePath("brain/../0-inbox/imessage/2026-09-07.md", { root: "brain" }) &&
+      !isChannelDayNotePath("0-inbox/imessage/2026-09-07.md", { root: "brain" })
+  );
+  check(
+    "a contact page is held to the same rule",
+    !isContactNotePath("0-inbox/contacts/../privacy.md") && !isContactNotePath("/0-inbox/contacts/adam.md")
+  );
+
   check(
     "a key outside the customer's chosen root is not theirs",
     !isChannelDayNotePath("0-inbox/imessage/2026-09-07.md", { root: "brain" })

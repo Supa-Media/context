@@ -25,7 +25,7 @@
 // regenerating one file rather than unpicking a year of edits.
 
 import { contactSlug } from "./paths.js";
-import { defangFence, singleLine } from "./note.js";
+import { defangOutsideFence, singleLine } from "./note.js";
 
 /** The identifier kinds a contact can be recognised by. */
 export const IDENTIFIER_KINDS = Object.freeze(["email", "phone", "chat", "provider-user"]);
@@ -156,13 +156,20 @@ export function mergeContacts(preferred, other) {
  *
  * `[[path#anchor|label]]` — the form `links.js` already resolves and rewrites
  * when a note moves, so a contact page's links survive somebody tidying their
- * folders. The label is defanged because a subject is sender-written.
+ * folders.
+ *
+ * The label is a **subject**, which a stranger wrote. `]]` in it would close
+ * the link this line opened and `[[` would open one the sender chose, in a
+ * page presented as the owner's own — so it goes through
+ * `defangOutsideFence`, which is the fence rule for the file that has no
+ * fence. The `path` is ours; it is built by `channelDayNotePath` and never
+ * from a message.
  */
 export function activityLink(entry) {
   const path = String(entry?.path ?? "").replace(/\.md$/, "");
   const anchor = String(entry?.anchor ?? "");
   const target = anchor ? `${path}#${anchor}` : path;
-  const label = defangFence(singleLine(entry?.label)) || String(entry?.date ?? "");
+  const label = defangOutsideFence(singleLine(entry?.label)) || String(entry?.date ?? "");
   return `[[${target}|${label}]]`;
 }
 
@@ -191,23 +198,27 @@ export function renderContactNote(contact) {
 
   const out = [
     "---",
+    // `singleLine` *and* a JSON string literal on every value, which is the
+    // rule protocol.js states for the day note. `slug` had only the second
+    // layer, and a defence that is two layers in one renderer and one in the
+    // other is one layer.
     `updated: ${JSON.stringify(singleLine(contact.now ?? new Date().toISOString()))}`,
     'type: "contact"',
-    `slug: ${JSON.stringify(slug)}`,
+    `slug: ${JSON.stringify(singleLine(slug))}`,
     "---",
     "",
-    `# ${defangFence(name)}`,
+    `# ${defangOutsideFence(name)}`,
     "",
   ];
 
   const organization = singleLine(contact.organization);
-  if (organization) out.push(`**Organization:** ${defangFence(organization)}`, "");
+  if (organization) out.push(`**Organization:** ${defangOutsideFence(organization)}`, "");
 
   const identifiers = (contact.identifiers ?? []).filter((identifier) => normalizeIdentifier(identifier) !== null);
   if (identifiers.length) {
     out.push("## Identifiers", "");
     for (const identifier of identifiers) {
-      out.push(`- ${singleLine(identifier.kind)}: ${defangFence(singleLine(identifier.value))}`);
+      out.push(`- ${singleLine(identifier.kind)}: ${defangOutsideFence(singleLine(identifier.value))}`);
     }
     out.push("");
   }
@@ -220,7 +231,7 @@ export function renderContactNote(contact) {
       "what it said, so the choice is visible rather than silently made._",
       ""
     );
-    for (const conflict of conflicts) out.push(`- ${defangFence(conflict)}`);
+    for (const conflict of conflicts) out.push(`- ${defangOutsideFence(conflict)}`);
     out.push("");
   }
 
