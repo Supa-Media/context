@@ -239,6 +239,54 @@ describe("the reducer refuses rather than guessing", () => {
     refuses(done, { type: "fail", at: at(6), reason: "no" });
   });
 
+  /*
+    `empty` is folded from the gateway's own finalize answer — the same way
+    `written` is — never sent by this app. It still checks the session it is
+    folded onto, mirroring `hasNothingCaptured` in `session.js`: a bug upstream
+    that tried to fold `empty` over a real transcript is refused rather than
+    trusted, because trusting it is how a real note quietly stops existing.
+  */
+  test("a session with nothing in it folds to empty, carrying the reason", () => {
+    const nothing = fold([{ type: "end", at: at(1) }]);
+    expect(nothing.session.state).toBe("finalizing");
+    const empty = applyMeetingEvent(nothing, {
+      type: "empty",
+      at: at(2),
+      reason: "microphone not granted",
+    });
+    expect(empty.session.state).toBe("empty");
+    expect(empty.session.emptyReason).toBe("microphone not granted");
+    expect(empty.session.notePath).toBeNull();
+    expect(empty.runningSince).toBeNull();
+  });
+
+  test("empty is refused on a session that actually has a transcript", () => {
+    const withTranscript = fold([
+      { type: "start", at: at(0) },
+      { type: "segment", segment: fakeSegment("z", 0, "hi") },
+      { type: "end", at: at(2) },
+    ]);
+    refuses(withTranscript, { type: "empty", at: at(3), reason: "nothing" });
+  });
+
+  test("...or one that has typed notes", () => {
+    const withNotes = fold([
+      { type: "notes", markdown: "- they said yes" },
+      { type: "end", at: at(1) },
+    ]);
+    refuses(withNotes, { type: "empty", at: at(2), reason: "nothing" });
+  });
+
+  test("an empty session is terminal too", () => {
+    const empty = applyMeetingEvent(fold([{ type: "end", at: at(1) }]), {
+      type: "empty",
+      at: at(2),
+      reason: "nothing",
+    });
+    refuses(empty, { type: "start", at: at(3) });
+    refuses(empty, { type: "written", notePath: "0-inbox/a.md" });
+  });
+
   test("resuming something already recording changes nothing about it", () => {
     const running = fold([{ type: "start", at: at(0) }]);
     const again = applyMeetingEvent(running, { type: "resume", at: at(3) });

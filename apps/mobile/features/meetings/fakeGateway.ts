@@ -187,6 +187,7 @@ export function fakeGateway(
       segmentCount: segments.get(session.id)?.size ?? session.transcript.length,
       notePath: session.notePath,
       failureReason: session.failureReason,
+      emptyReason: session.emptyReason,
     };
   }
 

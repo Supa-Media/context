@@ -14,7 +14,8 @@
  * that stops the next one from landing the same way: silently, in a file
  * nobody thought to grep.
  *
- * Three rules, one per identifier shape:
+ * Four rules. The first three are identifier shapes; the fourth is a pointer
+ * into a document this repository does not contain:
  *
  *   1. A 10-character uppercase-alphanumeric string next to `appleTeamId` or
  *      `teamId` — the shape of an Apple Developer Team ID.
@@ -29,6 +30,41 @@
  *      subdomains already in use in tests and CI (`YOUR-DEPLOYMENT`,
  *      `example-deployment`) that are obviously fake rather than a
  *      forgotten real one.
+ *   4. A numbered pointer into the private security register — either the
+ *      register named outright, or a bare two-or-more-digit `row N` /
+ *      `entry N` ordinal, which is what one is left as once somebody deletes
+ *      the lead-in that named it.
+ *
+ * Rule 4 is here because the class recurred twice. Two test files carried a
+ * "Row N of the security register" lead-in into this public tree; the round
+ * that removed those two left five bare ordinals behind, including, in a file
+ * it was editing, a sentence USING one of the numbers three lines below the
+ * sentence that had defined it. `SECURITY.md` forbids a public issue for a security
+ * problem, and a numbered pointer to a private register is a smaller version
+ * of the same disclosure: it names the register, its shape, and which row of
+ * it is about the reader's own code. Both rounds scanned by hand and both
+ * missed; measured against the tree before the fix, this rule finds all seven
+ * and finds nothing at all after it. That is the whole argument for it being
+ * a regex rather than a habit.
+ *
+ * The first thing rule 4 caught was a sentence about rule 4, in `ci.yml` —
+ * the same lesson `SELF` exists for one file down. Prose that has to discuss
+ * this rule names the noun some other way; there is no marker to opt out with,
+ * because a marker is a thing a real pointer can also carry.
+ *
+ * What it does NOT cover, said plainly rather than left to be discovered:
+ * **commit messages and pull-request bodies**, which are equally public and
+ * equally permanent. This scans `git ls-files`, so a pointer written into the
+ * message of the commit that removes one is out of its reach, and one was.
+ *
+ * `rows?` and `entr(y|ies)`/`items?` at two digits or more, so the protocol
+ * tables in `packages/desktop-bridge` ("row 1", "row 3") and the console's
+ * "row 0" layout comments stay legal. `lines?` is deliberately absent: citing
+ * "line 217" of a source file is ordinary prose. If a real table in this
+ * repository ever grows past nine rows, add the file to
+ * `REGISTER_POINTER_ALLOWLIST` and say which table it means — the allowlist is
+ * empty today, and an entry in it is a claim that the number has a referent
+ * somebody reading this repository can actually follow.
  *
  * Scans `git ls-files` — the tracked, public tree — rather than walking the
  * filesystem, so node_modules, build output and anything .gitignore already
@@ -67,6 +103,20 @@ const CONVEX_HOST_RE = /([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)\.convex\.(?:c
 const CONVEX_HOST_ALLOWLIST = new Set(["your-deployment", "example-deployment"]);
 
 /**
+ * Two spellings of the same disclosure: the register named, and the ordinal
+ * left behind when somebody removes the words that named it. The second is the
+ * one that actually survived a cleanup, so it is not the optional half.
+ */
+const REGISTER_POINTER_RES = [
+  /\b(?:security|risk|private|internal)\s+register\b/gi,
+  /\b(?:rows?|entr(?:y|ies)|items?)\s+#?\d{2,}\b/gi,
+];
+
+/** Files whose two-digit ordinals point at a table inside this repository.
+ * Empty on purpose: every entry is a promise a reader can follow the number. */
+const REGISTER_POINTER_ALLOWLIST = new Set([]);
+
+/**
  * Rule 1: an Apple Developer Team ID committed beside its key.
  *
  * Scoped to the key names rather than to "any 10-char uppercase-alphanumeric
@@ -97,6 +147,16 @@ export function findConvexHosts(path, text) {
     const subdomain = match[1].toLowerCase();
     if (CONVEX_HOST_ALLOWLIST.has(subdomain)) continue;
     found.push({ path, value: match[0] });
+  }
+  return found;
+}
+
+/** Rule 4: a pointer into the private security register, in either spelling. */
+export function findRegisterPointers(path, text) {
+  if (REGISTER_POINTER_ALLOWLIST.has(path)) return [];
+  const found = [];
+  for (const re of REGISTER_POINTER_RES) {
+    for (const match of text.matchAll(re)) found.push({ path, value: match[0] });
   }
   return found;
 }
@@ -143,14 +203,23 @@ function main() {
           `    or use one of the allowlisted placeholders if this is a fixture.`,
       );
     }
+    for (const { path: p, value } of findRegisterPointers(path, text)) {
+      problems.push(
+        `${p}: a pointer into the private security register ("${value}") is committed.\n` +
+          `    State the claim instead — the sentence after the colon was always the substance.\n` +
+          `    If this number means a table in this repository, allowlist the file and say which.`,
+      );
+    }
   }
 
   if (problems.length > 0) {
-    console.error("Account identifiers found in the tracked tree:\n");
+    console.error("Account identifiers or private-register pointers found in the tracked tree:\n");
     for (const problem of problems) console.error(`  - ${problem}\n`);
     process.exit(1);
   }
-  console.log("OK — no Apple team id, EAS project id, or Convex hostname in the tracked tree.");
+  console.log(
+    "OK — no Apple team id, EAS project id, Convex hostname, or register pointer in the tracked tree.",
+  );
 }
 
 /**
@@ -160,7 +229,9 @@ function main() {
  */
 function selfTest() {
   const failures = [];
+  let checked = 0;
   const expect = (label, condition) => {
+    checked += 1;
     if (!condition) failures.push(label);
   };
 
@@ -222,12 +293,44 @@ function selfTest() {
     findConvexHosts("worker.test.ts", "https://example-deployment.convex.site").length === 0,
   );
 
+  // Rule 4. The first two are the exact bytes this tree carried; the rest are
+  // the spellings a cleanup leaves behind, and the prose that must stay legal.
+  expect(
+    "catches the register named outright",
+    findRegisterPointers("x.test.ts", " * Row 4711 of the security register: every guard").length === 2,
+  );
+  expect(
+    "catches the bare ordinal a deleted lead-in leaves behind",
+    findRegisterPointers("y.test.ts", "// the same habit as row 4712, so the claim").length === 1,
+  );
+  expect(
+    "catches it possessive, mid-sentence",
+    findRegisterPointers("z.test.mjs", " *    true. At head it is row 4713's shape exactly").length === 1,
+  );
+  expect(
+    "catches the entry/item spellings of the same pointer",
+    findRegisterPointers("a.md", "see entry 4714 and item 4715 for the reasoning").length === 2,
+  );
+  expect(
+    "leaves a single-digit table row alone",
+    findRegisterPointers("bridge.ts", "Adding `meetings` to row 1 would make this bundle").length === 0,
+  );
+  expect(
+    "leaves a source line citation alone",
+    findRegisterPointers("notes.md", "the throw on line 217 of the worker").length === 0,
+  );
+  expect(
+    "honours the allowlist for a table that really is in this repository",
+    findRegisterPointers("scripts/check-no-identifiers.mjs", "row 4716").length === 0 ||
+      !REGISTER_POINTER_ALLOWLIST.has("scripts/check-no-identifiers.mjs"),
+  );
+
   if (failures.length > 0) {
     console.error("Self-test failed:");
     for (const failure of failures) console.error(`  - ${failure}`);
     process.exit(1);
   }
-  console.log(`Self-test passed (${12} checks).`);
+  console.log(`Self-test passed (${checked} checks).`);
 }
 
 if (process.argv.includes("--self-test")) selfTest();

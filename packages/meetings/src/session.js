@@ -33,6 +33,7 @@ import {
   MEETING_SOURCE_KINDS,
   MEETING_TRANSITIONS,
   PROTOCOL_VERSION,
+  REASON_MAX,
   TRANSCRIPTION_ENGINES,
   WATCH_FLAG_LABEL_MAX,
   isMeetingId,
@@ -327,9 +328,32 @@ export function createSession(input = {}) {
     transcription: normalizeTranscription(input.transcription),
     notePath: typeof input.notePath === "string" ? input.notePath : null,
     failureReason: typeof input.failureReason === "string" ? input.failureReason : null,
+    emptyReason: typeof input.emptyReason === "string" ? input.emptyReason : null,
     recordingSince: null,
     appliedAt: {},
   };
+}
+
+/**
+ * Whether this session captured nothing a note could hold: no transcript and
+ * no words the human typed.
+ *
+ * The one rule behind `finalizing -> empty`, and the reason it is a function
+ * rather than a state a client asserts: it reads the same two fields a note
+ * would be built from, so a client and the gateway can never disagree about
+ * whether a meeting qualifies — either both see an empty session or neither
+ * does, because both are looking at the same transcript and the same notes.
+ *
+ * `notes` is checked trimmed, so whitespace nobody meant to type does not save
+ * a session from being empty — a stray space is not a typed note.
+ *
+ * @param {MeetingSession} session
+ * @returns {boolean}
+ */
+export function hasNothingCaptured(session) {
+  const transcript = Array.isArray(session?.transcript) ? session.transcript : [];
+  const notes = typeof session?.notes === "string" ? session.notes : "";
+  return transcript.length === 0 && notes.trim() === "";
 }
 
 /**
@@ -524,6 +548,29 @@ export function applyEvent(session, event) {
       }
       const state = transitionTo(session, "complete");
       return { ...session, state, notePath: event.notePath, recordingSince: null };
+    }
+
+    case "empty": {
+      const at = toIso(event.at, "empty.at");
+      if (typeof event.reason !== "string" || !event.reason.trim()) {
+        throw new MeetingEventError("empty.reason must be a non-empty string");
+      }
+      // A session that actually captured something is refused rather than
+      // silently kept as-is: the gateway derives this event from the record it
+      // holds, and a caller that reaches this with a transcript or typed notes
+      // has a bug worth hearing about, not a note worth losing.
+      if (!hasNothingCaptured(session)) {
+        throw new MeetingEventError("empty is refused on a session that captured something");
+      }
+      if (alreadyApplied(session, "empty", at)) return session;
+      const state = transitionTo(session, "empty");
+      const reason = event.reason.trim().slice(0, REASON_MAX);
+      if (session.state === "empty") return stamp({ ...session, emptyReason: reason }, "empty", at);
+      return stamp(
+        { ...session, state, emptyReason: reason, notePath: null, ...closeSpan(session, at) },
+        "empty",
+        at
+      );
     }
 
     case "fail": {
