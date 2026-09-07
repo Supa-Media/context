@@ -70,6 +70,7 @@ import { createRoot } from "react-dom/client";
 type MockControls = {
   wrap(before: string, after: string): void;
   toggleLinePrefix(prefix: string): void;
+  insertLink(): void;
   undo(): void;
   redo(): void;
   blur(): void;
@@ -111,6 +112,17 @@ jest.mock("../features/console/files/LiveEditor", () => ({
             ? text.slice(0, from) + text.slice(from + prefix.length)
             : text.slice(0, from) + prefix + text.slice(from),
         );
+      },
+      insertLink() {
+        // The real `insertLink` (editorSetup.ts) drops any selected text
+        // rather than wrapping it — `[[some text]]` names nothing — so this
+        // mirrors that against the mock's own selection rather than
+        // reproducing `wrap`'s behaviour under a different name.
+        const text = props.value;
+        const { start, end } = mockSelection;
+        props.onChange(`${text.slice(0, start)}[[]]${text.slice(end)}`);
+        mockSelection.start = start + 2;
+        mockSelection.end = start + 2;
       },
       undo() {
         mockCalls.undo += 1;
@@ -164,6 +176,7 @@ const KEYS: [id: string, label: string][] = [
   ["redo", "Redo"],
   ["task", "Task checkbox"],
   ["bullet", "Bulleted list"],
+  ["link", "Insert link"],
   ["heading", "Heading"],
   ["bold", "Bold"],
   ["italic", "Italic"],
@@ -442,6 +455,31 @@ describe("what the keys do", () => {
       frontmatter + body.slice(0, line) + prefix + body.slice(line),
     );
     expect(app.changes[0]!.startsWith(FRONTMATTER)).toBe(true);
+  });
+
+  /**
+   * A2 in the editor-polish sweep, reversing `NoteAccessory.tsx`'s own
+   * earlier argument against a link key — see
+   * `docs/decisions/app-and-console.md`, "A link key on the accessory bar".
+   */
+  test("link inserts [[]] at the caret, dropping any selected text", () => {
+    const app = mountEditor(390);
+    app.focus();
+
+    const { frontmatter, body } = splitNote(FILE);
+    const start = body.indexOf("first");
+    // Selected text on purpose: a link names a note, it does not wrap one
+    // that is already typed — the one way this key must not behave like
+    // `wrap`.
+    mockSelection.start = start;
+    mockSelection.end = start + "first".length;
+
+    app.press(app.find("note-accessory-link"));
+
+    expect(app.changes[0]).toBe(
+      frontmatter + body.slice(0, start) + "[[]]" + body.slice(start + "first".length),
+    );
+    expect(app.changes[0]).not.toContain("first]]");
   });
 
   test("undo and redo reach the editor rather than being reimplemented here", () => {

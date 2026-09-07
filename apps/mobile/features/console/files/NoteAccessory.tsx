@@ -46,11 +46,14 @@ import type { EditorControls } from "./LiveEditor";
  * fill, no border, `radii.pill` on the capsule so the corner radius is half its
  * height rather than a rectangle wearing a pill's radius.
  *
- * ## Two keys the reference has that this deliberately does not
+ * ## Two keys the reference has that this deliberately does not, and one it
+ * has again
  *
  * Obsidian's row is undo, redo, `[ ]`, a page mark, **tag**, **attach**, H, B,
  * I. Ours drops tag and attach, and this is the sentence that says so on
  * purpose rather than leaving the next reader to think they were forgotten.
+ * The page mark is back, as `link`, and the paragraph after the next one says
+ * why.
  *
  * Context has **no tag model** — nothing indexes `#tag`, nothing lists tags,
  * nothing searches by one — and **no attachment upload from the console**:
@@ -60,11 +63,16 @@ import type { EditorControls } from "./LiveEditor";
  * is present and does nothing, which is the defect this codebase keeps
  * recording against itself. The bar is what ships, and the bar tells the truth.
  *
- * The page/file mark goes for a related reason — it is Obsidian's wikilink key,
- * and the `[ ]` beside it already covers the one bracket pair that means
- * something here. `brackets` therefore draws the **task checkbox**, which is
- * the one thing on this list a person writing notes in a hurry actually reaches
- * for.
+ * The page/file mark — Obsidian's wikilink key — went for a related reason,
+ * argued here at the time: `[ ]` already covered the one bracket pair that
+ * meant something here, because a bare `[[name]]` did nothing at all. That
+ * argument is reversed now, and the reversal is `link` below, not deleted from
+ * this file: see `docs/decisions/app-and-console.md`, "A link key on the
+ * accessory bar", for what changed underneath it (**L1**'s note-path index,
+ * **L3**'s touch-followable underline) and why the bracket-pair objection was
+ * never actually an objection to a *second* key. `brackets` still draws the
+ * task checkbox, which stays the one thing on this list from that era a person
+ * writing notes in a hurry reaches for most.
  *
  * ## Where it sits
  *
@@ -116,6 +124,14 @@ const KEYS: readonly AccessoryKey[] = [
     lone non-list prefix on this side of the bar.
   */
   { id: "bullet", label: "Bulleted list", icon: "bulletList", run: (c) => c.toggleLinePrefix("- ") },
+  /*
+    A2 in the sweep, reversing the decision this file's own header used to
+    argue for — see `docs/decisions/app-and-console.md`, "A link key on the
+    accessory bar". Placed beside `bullet` and `task`: the sweep's own words
+    for that pair, "the thing a person writing notes in a hurry actually
+    reaches for", apply to a link to another note at least as much.
+  */
+  { id: "link", label: "Insert link", icon: "link", run: (c) => c.insertLink() },
   { id: "heading", label: "Heading", icon: "heading", run: (c) => c.toggleLinePrefix("# ") },
   { id: "bold", label: "Bold", icon: "bold", run: (c) => c.wrap("**", "**") },
   { id: "italic", label: "Italic", icon: "italic", run: (c) => c.wrap("*", "*") },

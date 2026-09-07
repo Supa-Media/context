@@ -28,6 +28,7 @@ import {
 } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore, redo, undo } from "@codemirror/commands";
+import { startCompletion } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 import type { SyntaxNode } from "@lezer/common";
 import { codeHighlighting, livePreview, markdownLanguage } from "./livePreview";
@@ -218,6 +219,37 @@ function toggleLinePrefix(view: EditorView, prefix: string): void {
 }
 
 /**
+ * `[[]]`, caret between the brackets, completion opened immediately — A2 in
+ * the editor-polish sweep (`docs/decisions/app-and-console.md`).
+ *
+ * `changeByRange` for the reason `wrapSelection` uses it: more than one
+ * cursor is an ordinary document here, and each range gets its own pair
+ * rather than every dispatch after the first landing at positions the
+ * previous one already moved. Selected text is deliberately dropped rather
+ * than wrapped — `[[some text]]` is not a link to anything, and a person
+ * reaching for this key wants to *name* a note, not wrap one they already
+ * typed.
+ *
+ * `startCompletion` is the explicit request `linkComplete.ts`'s own comment
+ * describes: typing `[[` does not open the list on an empty query so the
+ * first two keystrokes of a link are not fought over, but a request made
+ * through this key already *is* the explicit ask that rule exists to
+ * distinguish from typing.
+ */
+function insertLink(view: EditorView): void {
+  view.dispatch(
+    view.state.update(
+      view.state.changeByRange((range) => ({
+        changes: [{ from: range.from, to: range.to, insert: "[[]]" }],
+        range: EditorSelection.cursor(range.from + 2),
+      })),
+      { scrollIntoView: true, userEvent: "input" },
+    ),
+  );
+  startCompletion(view);
+}
+
+/**
  * Run one of the accessory bar's commands against a real editor.
  *
  * **Here rather than in either `LiveEditor`**, and that is the same argument
@@ -261,6 +293,9 @@ export function runCommand(view: EditorView, command: EditorCommand): void {
       break;
     case "toggleLinePrefix":
       toggleLinePrefix(view, command.prefix);
+      break;
+    case "insertLink":
+      insertLink(view);
       break;
     case "undo":
       undo(view);
