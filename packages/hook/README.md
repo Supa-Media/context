@@ -1,11 +1,11 @@
-# @context-lc/hook
+# @supa-media/context-hook
 
 Brackets an AI coding session with your [Context](https://context.lc): the
 orientation goes in at the start, what was learned comes back at the end, and
 neither depends on the agent remembering to.
 
 ```sh
-npx -y @context-lc/hook install
+npx -y @supa-media/context-hook install
 ```
 
 That signs you in once in your browser and adds two hooks to
@@ -34,7 +34,7 @@ a credential that lives on your laptop unattended. That is why it is a flag you
 type rather than a default you discover later.
 
 ```sh
-npx -y @context-lc/hook install --orient
+npx -y @supa-media/context-hook install --orient
 ```
 
 Neither version ever asks for `context:private`. A hook that could read every
@@ -97,9 +97,9 @@ carries no secret.
 ## Commands
 
 ```sh
-npx -y @context-lc/hook install      # sign in, then add the hook
-npx -y @context-lc/hook status       # is this machine signed in?
-npx -y @context-lc/hook uninstall    # remove the hook, forget the credential
+npx -y @supa-media/context-hook install      # sign in, then add the hook
+npx -y @supa-media/context-hook status       # is this machine signed in?
+npx -y @supa-media/context-hook uninstall    # remove the hook, forget the credential
 ```
 
 `--endpoint <url>` points it at your own gateway if you self-host.
@@ -112,8 +112,8 @@ carrying `session_id`, `transcript_path` and `cwd`, and an `additionalContext`
 field at session start that injects text into the model's context.
 
 ```sh
-npx -y @context-lc/hook install --client codex
-npx -y @context-lc/hook install --client gemini-cli
+npx -y @supa-media/context-hook install --client codex
+npx -y @supa-media/context-hook install --client gemini-cli
 ```
 
 They differ in three details this package handles for you: the file
@@ -127,6 +127,19 @@ a number that means two different things depending on where it lands.
 `stop`) but no documented transcript path, so the capture half has nothing to
 read. Hosted ChatGPT has no hook system at all — it is a product rather than a
 harness, and the MCP connector is the whole surface.
+
+Every one of those clients still has some standing-instruction surface it
+re-reads on its own — a system prompt setting, a rules file — even without a
+hook to install into it. Paste this there once and the client starts every
+turn already knowing to check:
+
+> Always orient using the Context MCP (call `orient`) before answering
+> anything about me or my work, and save what you learn with `save_context`
+> before you finish.
+
+The Context console's connect card has this pre-filled per client, with where
+to paste it — Settings → Personalization for ChatGPT, `CLAUDE.md` for Claude
+Code, and so on.
 
 **One honest caveat.** The transcript parser was written against Claude Code's
 format. Codex and Gemini CLI hand over a path to their own; the parser drops

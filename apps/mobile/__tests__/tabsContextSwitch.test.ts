@@ -85,6 +85,7 @@ function browser(
     editor: openPath === null ? emptyEditor : { ...emptyEditor, status: "clean", path: openPath },
     setDraft: noop,
     save: noop,
+    flushAutosave: () => false,
     useTheirs: noop,
     keepMine: noop,
     conflict: null,

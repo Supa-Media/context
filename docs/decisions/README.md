@@ -109,6 +109,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The URL is a mirror of the open note, and the phone's copy of it is a pointer
 - A note link is a path with a keyword in front, because a scheme has a host
 - A reference follows the note it points at, and a link is something you follow
+- The console autosaves, and the prompt that is left is about a decision
 
 ## [Meetings](./meetings.md)
 
@@ -154,3 +155,4 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [This repository is public, and review is self-review](./repository-and-review.md)
 
 - This repository is public and MIT licensed
+- Every package this org publishes is `@supa-media/*`, through the framework's pipeline

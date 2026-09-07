@@ -66,6 +66,27 @@
  * context they are not in, so the tier check is defence in depth and only the
  * team-tier test can see it move. The alternative — asserting it from several
  * angles — would be several tests measuring the same one thing.
+ *
+ * ## Sabotage record, second pass
+ *
+ * Measured over this file and `files.test.ts` together, adversarially rather
+ * than by the author:
+ *
+ *   `searchNotes`' `isVisible` returning true for every path              4
+ *   `resolveScope` mapping over `requested` instead of intersecting       4
+ *   ...and the fan-out then skipping `authorizeFileAccess` as well        4,
+ *     with the other tenant's bucket recording four reads it had not made
+ *   `searchContexts` reading offset zero instead of the cursor's          1
+ *   `searchableFor` accepting any projection state but `null`             1
+ *   the blended total staying exact when a source failed                  1
+ *
+ * The third line is the one that mattered. It is what proves the recorded-
+ * request assertion is load-bearing rather than decorative: with both the
+ * scope filter and the authorization gone, the other tenant's bucket went from
+ * thirteen requests to seventeen, which is the read a response-shaped
+ * assertion cannot see. And the first line is the honest shape of "there is no
+ * second privacy filter" — bypassing the one filter is enough to redden this,
+ * because there is nowhere else the fan-out could have caught it.
  */
 
 import { describe, expect, test, vi, afterEach } from "vitest";
@@ -593,5 +614,152 @@ describe("the blended search, across contexts", () => {
     );
     // And it names only contexts this caller belongs to.
     expect(offered.map((row) => row.slug).sort()).toEqual(["alice-context", "bob-context"]);
+  });
+
+  test("a context that cannot be reached costs itself, and the total says so", async () => {
+    const f = await twoTenants();
+    await addMember(f.t, f.bobWs, f.alice, "member", f.bob);
+    await asUser(f.t, f.bob).action(api.functions.files.setDirectoryVisibility, {
+      workspaceId: f.bobWs,
+      path: "1-projects",
+      visibility: "team",
+    });
+    await indexBucket(f.t, f.bobWs);
+
+    // Bob's bucket stops answering. A rejection and a timeout reach the same
+    // line — `withDeadline` returns `null` for both — so this drives the
+    // partial-failure path without making the suite wait seven seconds for it.
+    let bobIsDown = true;
+    vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = new URL(typeof input === "string" ? input : String(input));
+      const first = decodeURIComponent(url.pathname.replace(/^\/+/, "").split("/")[0] ?? "");
+      if (first === BOB_BUCKET) {
+        if (bobIsDown) throw new TypeError("network error: connection refused");
+        return await f.bobBucket.fetchImpl(input, init);
+      }
+      return await f.aliceBucket.fetchImpl(input, init);
+    });
+
+    const partial = await asUser(f.t, f.alice).action(api.functions.files.searchContexts, {
+      query: SHARED_WORD,
+    });
+    // The rest of the page still arrives. One unreachable bucket holding every
+    // other context's results behind it is the failure a blended list makes
+    // worse rather than better.
+    expect(partial.results.map((row) => row.slug)).toEqual(["alice-context"]);
+    const rows = new Map(partial.sources.map((row) => [row.slug, row]));
+    expect(rows.get("bob-context")?.state).toBe("failed");
+    expect(rows.get("alice-context")?.state).toBe("ok");
+    // **And the total is a floor.** A source that was never read is a walk cut
+    // short, which is the one condition under which every other count in this
+    // system stops claiming to be exact. Without this the page would print a
+    // confident number over a scope it only half searched.
+    expect(partial.matchCount).toBeGreaterThan(0);
+    expect(partial.matchCountIsFloor).toBe(true);
+    // A failed row says which context and nothing about why: the reason would
+    // be a storage provider's sentence about somebody else's bucket.
+    expect(JSON.stringify(partial)).not.toContain("connection refused");
+
+    // Per-source retry is the same call with that one id in `contexts`, which
+    // is the whole of the retry story — there is no second endpoint.
+    bobIsDown = false;
+    const retry = await asUser(f.t, f.alice).action(api.functions.files.searchContexts, {
+      query: SHARED_WORD,
+      contexts: [f.bobWs],
+    });
+    expect(retry.sources.map((row) => row.state)).toEqual(["ok"]);
+    expect(retry.results.map((row) => row.slug)).toEqual(["bob-context"]);
+    expect(retry.matchCountIsFloor).toBe(false);
+  });
+
+  test("a member removed between two pages does not keep the context", async () => {
+    const f = await twoTenants();
+    await addMember(f.t, f.bobWs, f.alice, "member", f.bob);
+    await asUser(f.t, f.bob).action(api.functions.files.setDirectoryVisibility, {
+      workspaceId: f.bobWs,
+      path: "1-projects",
+      visibility: "team",
+    });
+    await indexBucket(f.t, f.bobWs);
+
+    const first = await asUser(f.t, f.alice).action(api.functions.files.searchContexts, {
+      query: SHARED_WORD,
+    });
+    expect(first.sources.map((row) => row.slug).sort()).toEqual([
+      "alice-context",
+      "bob-context",
+    ]);
+
+    // Bob takes her out of the workspace between one request and the next.
+    await f.t.run(async (ctx) => {
+      const memberships = await ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_user", (q) => q.eq("userId", f.alice))
+        .collect();
+      for (const membership of memberships) {
+        if (membership.workspaceId === f.bobWs) await ctx.db.delete(membership._id);
+      }
+    });
+
+    const before = f.bobBucket.requests.length;
+    const next = await asUser(f.t, f.alice).action(api.functions.files.searchContexts, {
+      query: SHARED_WORD,
+      // A cursor she legitimately held a moment ago, naming the context she has
+      // just lost. This is the crafted-cursor attack without the crafting: the
+      // scope is re-resolved from live memberships every page, so the offsets
+      // for a context no longer in it are read by nobody.
+      cursor: encodeCursor(queryFingerprint(SHARED_WORD), {
+        [f.aliceWs]: 0,
+        [f.bobWs]: 0,
+      }),
+    });
+    expect(next.sources.map((row) => row.slug)).toEqual(["alice-context"]);
+    expect(next.eligibleCount).toBe(1);
+    expect(JSON.stringify(next)).not.toContain(f.bobWs);
+    // Not merely absent from the answer — not read. A response that omits what
+    // it touched is still a touch.
+    expect(f.bobBucket.requests.length).toBe(before);
+  });
+
+  test("page two resumes each context, through the action and its cursor", async () => {
+    const f = await twoTenants();
+    // Enough matches that one page cannot hold them: `BLEND_PAGE_SIZE` results
+    // come back and a cursor says where each source stopped. Without this the
+    // offset wiring in `searchContexts` — `offsets[workspaceId]`, and the depth
+    // it asks for — is never exercised by anything but a unit test of the
+    // arithmetic it feeds.
+    for (let index = 0; index < BLEND_PAGE_SIZE + 4; index += 1) {
+      f.aliceBucket.seed(
+        `1-projects/note-${index}.md`,
+        `# Note ${index}\n\nThe ${SHARED_WORD} again, item ${index}.\n`,
+      );
+    }
+    await indexBucket(f.t, f.aliceWs);
+
+    const as = asUser(f.t, f.alice);
+    const one = await as.action(api.functions.files.searchContexts, { query: SHARED_WORD });
+    expect(one.results.length).toBe(BLEND_PAGE_SIZE);
+    expect(one.cursor).not.toBeNull();
+
+    const two = await as.action(api.functions.files.searchContexts, {
+      query: SHARED_WORD,
+      cursor: one.cursor ?? undefined,
+    });
+    expect(two.results.length).toBeGreaterThan(0);
+    // Page two is below page one rather than page one again, which is the whole
+    // point of a per-source offset.
+    const firstPaths = new Set(one.results.map((row) => `${row.slug}/${row.path}`));
+    for (const row of two.results) {
+      expect(firstPaths.has(`${row.slug}/${row.path}`)).toBe(false);
+    }
+
+    // A cursor from this query cannot page a different one: the fingerprint
+    // does not match, so the reader starts at the top rather than splicing one
+    // query's second page onto another's first.
+    const other = await as.action(api.functions.files.searchContexts, {
+      query: "Alice",
+      cursor: one.cursor ?? undefined,
+    });
+    expect(other.results.some((row) => firstPaths.has(`${row.slug}/${row.path}`))).toBe(false);
   });
 });

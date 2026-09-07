@@ -118,10 +118,22 @@ describe("the save segment", () => {
     expect(byId(withoutTime, "save")?.text).toBe("Saved");
   });
 
-  test("unsaved changes are a warning, not a footnote", () => {
+  test("a draft on its way to the bucket is not a warning", () => {
+    /*
+      This asserted "Unsaved changes", `warn`, which was true while the only
+      route into the bucket was a button. Autosave writes it a couple of
+      seconds after typing stops, so a standing warning over typing is the
+      console asking to be looked after — and the tones that are left mean
+      something again: `queued`, `error` and a cached body are the states that
+      persist without the bucket hearing about them.
+    */
     const segments = statusSegments(facts({ editor: editorWith("dirty", "typed more") }));
-    expect(byId(segments, "save")?.text).toBe("Unsaved changes");
-    expect(byId(segments, "save")?.tone).toBe("warn");
+    expect(byId(segments, "save")?.text).toBe("Saving soon");
+    expect(byId(segments, "save")?.tone).toBe("quiet");
+    expect(byId(segments, "save")?.detail).toContain("written to your bucket");
+    // The states that really are not in the bucket keep their tone.
+    expect(byId(statusSegments(facts({ editor: editorWith("queued") })), "save")?.tone).toBe("warn");
+    expect(byId(statusSegments(facts({ editor: editorWith("error") })), "save")?.tone).toBe("crit");
   });
 
   test("saving, and having just saved", () => {

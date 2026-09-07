@@ -418,10 +418,24 @@ export function hangingIndents(state: EditorState, frontEnd = 0): HangingIndent[
       const mark = node.node.getChild("ListMark");
       if (mark === null) return;
       const first = state.doc.lineAt(mark.from);
-      // The marker's own columns, counted from the margin, plus the one space
-      // that separates it from the text. `12.` indents further than `-`, which
-      // is the whole reason this is measured rather than a constant.
-      const columns = mark.to - first.from + 1;
+      /*
+        The marker's own columns, counted from the margin, plus the one space
+        that separates it from the text. `12.` indents further than `-`, which
+        is the whole reason this is measured rather than a constant.
+
+        **A task's marker is `- [ ]`, not `-`.** `TaskMarker` is a child of the
+        item beside `ListMark`, and measuring only the `ListMark` under-indented
+        every wrapped line of a task by the width of its own checkbox — so the
+        second line of a wrapped task ran back under the box, which is the exact
+        thing this function exists to prevent, on the one list item that draws
+        the widest marker. Seen in a browser at 390pt; no test covered it
+        because every task fixture fitted on one line.
+      */
+      // `ListItem > Task > TaskMarker`, never a direct child — checked against
+      // the real tree rather than assumed, because `getChild("TaskMarker")`
+      // answers `null` here and reads exactly like a line that works.
+      const task = node.node.getChild("Task")?.getChild("TaskMarker") ?? null;
+      const columns = (task ?? mark).to - first.from + 1;
       for (let line = first; ; ) {
         // Written unconditionally: a deeper item is entered after its parent,
         // so the last write for a line is the innermost item that owns it.
@@ -966,10 +980,28 @@ export const livePreviewStyles = `
   Both widgets hold the width of the characters they replaced, so the hanging
   indent above stays true on a wrapped line. A bullet stands in for one
   character and a checkbox for three.
+
+  ## text-indent: 0 is not tidying, it is the whole of "bullets look broken"
+
+  The hanging indent is padding-left:Nch with text-indent:-Nch on the line,
+  which puts the first line's content back at the margin and every wrapped line
+  clear of the marker. TEXT-INDENT IS INHERITED, and both of these are
+  inline-level boxes with their own inner line box — so each widget applied the
+  line's negative indent a second time, inside itself. Measured in a browser at
+  390pt: the bullet glyph drew at -20.4px, a full indent OUTSIDE the reading
+  margin, while the text after it started correctly at 10.2px. A bullet adrift
+  in the left gutter, a third of an inch from the line it belongs to — and a
+  nested item, whose indent is twice as deep, drew its bullet off the left edge
+  of the screen entirely.
+
+  An ordered list was never affected and that is the tell: "1." is real text,
+  not a widget, so it took the indent once and landed correctly. Only what was
+  replaced went wrong.
 */
 .cm-lp-bullet {
   display: inline-block;
   width: 1ch;
+  text-indent: 0;
   color: var(--lp-muted);
 }
 /*
@@ -988,6 +1020,8 @@ export const livePreviewStyles = `
 .cm-lp-task {
   display: inline-flex;
   align-items: center;
+  /* Inherited text-indent, for .cm-lp-bullet's reason. */
+  text-indent: 0;
   justify-content: center;
   width: 3ch;
   cursor: pointer;

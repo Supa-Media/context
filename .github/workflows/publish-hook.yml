@@ -1,0 +1,154 @@
+# Publish `@supa-media/context-hook` to npmjs.com (public).
+#
+# The package the console and every README tell people to run has never been
+# published — `npm view @supa-media/context-hook version` 404s. This is the workflow
+# that fixes that, and the one thing it cannot do on its own is the point:
+# `workflow_dispatch` only, so a publish is a decision somebody takes, not a
+# side effect of a merge to `main`. Same shape as `deploy-mobile-native.yml`
+# and the reason stated there — this SHIPS something a person downloads and
+# runs unattended, and there is no branch trigger that would make that safe.
+#
+# ## Why this is not `deploy-hook.yml`
+#
+# `scripts/check-workflow-triggers.mjs` classifies a workflow as a deploy by
+# name (`deploy-*.yml`) in one direction and by command in the other, and
+# `npm publish` is not in its DEPLOY_COMMANDS denylist today — so this file
+# earns no obligations from that checker either way, and is named for what it
+# does (`publish-hook.yml`) rather than borrowed into a convention with a
+# stricter meaning elsewhere in this repo (a deploy pushes infrastructure this
+# account owns; this hands a tarball to a public registry once).
+#
+# ## Auth: NPM_TOKEN, not token-less trusted publishing — for now
+#
+# npm's OIDC "trusted publishing" needs a package that already exists on the
+# registry before a trusted publisher can be attached to it in the npmjs.com
+# UI — there is no pending-publisher flow for a name that has never been
+# published, unlike PyPI. `@supa-media/context-hook` has never been published, so that
+# door is not open yet. This mirrors `supa-framework`'s own `release.yml`
+# (`@supa-media/*`), which also authenticates with `NPM_TOKEN` rather than
+# trusted publishing, so this is the org's existing pattern rather than a
+# regression from a better one.
+#
+# What this DOES do already: `--provenance` with `permissions.id-token: write`
+# attaches a Sigstore-signed build provenance attestation to the published
+# package, using the run's own OIDC token — independent of, and a prerequisite
+# for, trusted publishing later. Once this package has a first published
+# version, an operator can add "Supa-Media/context" + this workflow's filename
+# as a trusted publisher on the package's npmjs.com settings page, and
+# `NPM_TOKEN` can be dropped from a later revision of this file.
+#
+# ## The one thing an operator must do before this can succeed
+#
+# This package publishes under the org's existing `@supa-media` npm scope —
+# the same scope `supa-framework`'s own `release.yml` publishes to — so it
+# needs no new npm token: reuse the automation token already used to publish
+# `@supa-media/*` from `supa-framework` (type "Automation", exempt from 2FA on
+# publish; an account with publish rights on the `@supa-media` npm org).
+#
+# 1Password: create (or copy the value into) an `NPM_TOKEN` item in the
+# `Context` vault — same secret NAME as every other app vault uses for this
+# token, same VALUE as whatever 1Password item backs `supa-framework`'s own
+# `NPM_TOKEN` GitHub secret, one copy per app vault per the "one vault per
+# app" model in `supa-framework`'s `docs/SECRETS.md`.
+#
+# `NPM_TOKEN` is already listed in `scripts/secrets-allowlist.json` as
+# optional, so once the value exists in the `Context` vault,
+# `sync-secrets.yml` (workflow_dispatch, environment: production) carries it
+# into this repo's `production` GitHub Environment — the same way `EXPO_TOKEN`
+# reaches `deploy-mobile-native.yml`. Setting it directly on the GitHub
+# environment works too, but a later real (non-dry-run) secrets sync will then
+# delete it, because an `optional` name absent from the vault is removed
+# rather than left alone — see that workflow's header.
+name: Publish Session Hook
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack and verify only — do not publish"
+        type: boolean
+        default: false
+
+# A second dispatch while one is in flight could publish the same version
+# twice, and npm refuses a re-publish of a version that already exists — so
+# queue rather than run in parallel, and never cancel a publish already
+# talking to the registry.
+concurrency:
+  group: publish-hook
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # Lets `npm publish --provenance` mint a Sigstore attestation from this run's
+  # own OIDC token. Not sufficient by itself for npm's separate "trusted
+  # publishing" (token-less) feature — see the header above.
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish @supa-media/context-hook
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: packages/hook
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          # Bare node, no pnpm install: the package has zero dependencies in
+          # any field (hook.yml's own "Hook stays dependency-free" job proves
+          # it on every push), so nothing here needs the workspace installed.
+          package-manager-cache: false
+          registry-url: "https://registry.npmjs.org"
+          scope: "@supa-media"
+
+      - name: Run test suite
+        run: node test/test.mjs
+
+      - name: Pack and inspect the tarball
+        run: |
+          set -euo pipefail
+          npm pack --dry-run
+          echo ""
+          echo "Verifying the bin entry exists and is executable..."
+          node -e '
+            const pkg = require("./package.json");
+            const fs = require("node:fs");
+            for (const [name, rel] of Object.entries(pkg.bin || {})) {
+              const stat = fs.statSync(rel);
+              const executable = (stat.mode & 0o111) !== 0;
+              console.log(`  ${name} -> ${rel} (${executable ? "executable" : "NOT EXECUTABLE"})`);
+              if (!executable) process.exit(1);
+            }
+          '
+
+      - name: Publish
+        if: ${{ inputs.dry_run != true }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "ERROR: missing required secret 'NPM_TOKEN' in the 'production' environment."
+            echo "It is in scripts/secrets-allowlist.json; see this file's header for the one-time setup."
+            exit 1
+          fi
+          npm publish --provenance --access public
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Session hook publish"
+            echo ""
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              echo "Dry run only — nothing was published."
+            else
+              echo "Published \`$(node -p "require('./package.json').name")@$(node -p "require('./package.json').version")\`."
+            fi
+            echo ""
+            echo "- **Commit:** \`${GITHUB_SHA::7}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

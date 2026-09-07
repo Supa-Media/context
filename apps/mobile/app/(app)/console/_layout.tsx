@@ -45,11 +45,11 @@ import {
 } from "../../../features/console/files/rowCommand";
 import { TabSwitcher, tabCountLabel } from "../../../features/console/files/TabSwitcher";
 import { statusSegments } from "../../../features/console/files/status";
-import { dirtyCount, isTabDirty } from "../../../features/console/files/tabs";
-import { isDirty } from "../../../features/console/files/editor";
+import { closeIntent, dirtyCount, isTabDirty } from "../../../features/console/files/tabs";
+import { needsDecision } from "../../../features/console/files/editor";
 import { useUnsavedGuard } from "../../../features/console/files/useUnsavedGuard";
 import { atName } from "../../../features/console/format";
-import { ContextStrip } from "../../../features/console/ContextStrip";
+import { ContextStrip, CurrentContextPill } from "../../../features/console/ContextStrip";
 import { NavBandProvider } from "../../../features/console/NavBand";
 import { useContextHref, useContextPlaces } from "../../../features/console/useLastPlace";
 import { useMeetingFlow } from "../../../features/meetings/useMeetingFlow";
@@ -167,18 +167,23 @@ export default function ConsoleLayout() {
     `tabs.ts`'s `closed` case says a modal decision has no business inside a
     data structure and that "the UI confirms before dispatching". Nothing did:
     the tab's ×, the switcher sheet and ⌘W all reached the reducer directly, so
-    a dirty tab closed silently and the draft — which nothing autosaves and
-    nothing persists — was gone. One state, so all three routes ask.
+    a dirty tab closed silently and the draft was gone. One state, so all three
+    routes ask.
+
+    What they ask about is now much narrower. A draft autosave can write is
+    written on the way out instead of being asked about — see `closeTab` — so
+    this is raised only for a conflict or a failed save.
   */
   const [closingTab, setClosingTab] = useState<string | null>(null);
 
   /*
-    The exit the app does not own. `guardLeaving` covers opening another note
-    and the confirm above covers closing a tab; this covers closing the browser
-    tab and reloading, which lost the draft in silence. Native is deliberately
-    a no-op — see the hook.
+    The exit the app does not own. Opening another note and closing a tab both
+    write the pending draft now; this is the one the app cannot do that for by
+    itself, so on web it flushes when the tab is hidden or closed and prompts
+    only for a draft nothing will ever write — a conflict, or a save that
+    failed. Native is deliberately a no-op — see the hook.
   */
-  useUnsavedGuard(isDirty(data.files.editor));
+  useUnsavedGuard({ editor: data.files.editor, flush: data.files.flushAutosave });
   /*
     A menu or a dialog raised by the tree is an overlay too, not just the
     palette. Without this, ⌘K opens the palette *behind* an open context menu:
@@ -278,18 +283,35 @@ export default function ConsoleLayout() {
   }, [phone, browsing]);
 
   /**
-   * Close a tab, asking first when that would throw a draft away.
+   * Close a tab: write what is pending, and ask only about what cannot be.
    *
    * The clean tabs — nearly all of them — still close on one press. A confirm
    * on every close would train people to dismiss it, which is how the one that
-   * mattered gets dismissed too.
+   * mattered gets dismissed too, and closing a tab with an ordinary draft in it
+   * used to raise exactly that: a question whose honest answer was always
+   * "yes, obviously save it".
+   *
+   * So the ordinary draft is flushed instead — by path, because the tab being
+   * closed is not always the note in the editor, and closing tab B must not
+   * spend a write on tab A's draft before its own timer is due. What is left is
+   * `needsDecision`: a conflict, and a save that failed. Both are about the
+   * note in the editor, which is the only note the console holds a draft for.
    */
   const closeTab = useCallback(
     (path: string) => {
-      if (isTabDirty(tabs.state, path)) setClosingTab(path);
-      else tabs.close(path);
+      const editor = data.files.editor;
+      const intent = closeIntent({
+        dirty: isTabDirty(tabs.state, path),
+        open: editor.path === path,
+        undecided: needsDecision(editor),
+      });
+      if (intent === "confirm") return setClosingTab(path);
+      // By path: closing tab B must not spend a write on tab A's draft before
+      // its own timer is due. A `close` intent has nothing pending anyway.
+      if (intent === "flush") data.files.flushAutosave(path);
+      tabs.close(path);
     },
-    [tabs],
+    [data.files, tabs],
   );
 
   const contextLabel = atName(current?.slug ?? "your context");
@@ -637,8 +659,35 @@ export default function ConsoleLayout() {
           the other does not have.
         */}
         <NavBandProvider
-          node={
-            phone ? (
+          nodes={{
+            /*
+              The context you are IN, at the head of the breadcrumb — the way up
+              to its root, and the long-press route to its settings. Absent
+              outside a context (the app-level panes), where there is no root to
+              open and nothing to name.
+            */
+            current:
+              phone && current !== null ? (
+                <CurrentContextPill
+                  context={current}
+                  /*
+                    The root, and never `contextHrefFrom`. That resolves to the
+                    place this device last had open in the context — which, for
+                    the context you are standing in, is where you already are.
+                    This is the press that takes somebody up from a top-level
+                    folder, so it is the root by construction.
+                  */
+                  onOpenRoot={() => router.replace(browseHref(current.slug))}
+                  onSelect={(next) => {
+                    if (!sameRoute(next, route)) router.replace(hrefFor(next));
+                  }}
+                  onLeaveContext={(id) => {
+                    void data.leaveContext?.(id);
+                    router.replace("/console");
+                  }}
+                />
+              ) : null,
+            contexts: phone ? (
               <ContextStrip
                 contexts={data.contexts}
                 currentSlug={current?.slug ?? null}
@@ -655,20 +704,11 @@ export default function ConsoleLayout() {
                   the slug is no longer reachable, or when the path does not
                   resolve.
 
-                  **The context you are already in is the exception, and it is
-                  the way up.** Its pill used to resolve to the place this
-                  device last had open there, which is where you are standing —
-                  the one press on the strip that did nothing you could see.
-                  The path line below it no longer carries a context segment
-                  (`Breadcrumb.pathOnly`, and `NavBand` for why), so this is
-                  what takes somebody from a top-level folder back to the root
-                  of their own context.
+                  Every pill here is a context you are **not** in — the current
+                  one is `CurrentContextPill` above — so there is no case where
+                  this resolves to where somebody already is.
                 */
-                onOpen={(slug) =>
-                  router.replace(
-                    slug === current?.slug ? browseHref(slug) : contextHrefFrom(slug),
-                  )
-                }
+                onOpen={(slug) => router.replace(contextHrefFrom(slug))}
                 onSelect={(next) => {
                   if (!sameRoute(next, route)) router.replace(hrefFor(next));
                 }}
@@ -681,8 +721,8 @@ export default function ConsoleLayout() {
                   data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE)
                 }
               />
-            ) : null
-          }
+            ) : null,
+          }}
         >
           <EditorRegion
             browse={browsing}
@@ -715,9 +755,9 @@ export default function ConsoleLayout() {
 
         {closingTab === null ? null : (
           <Confirm
-            title="Discard unsaved changes?"
-            body={`${closingTab} has changes that have not been saved to your bucket. Closing this tab throws them away — nothing here is autosaved.`}
-            confirmLabel="Discard and close"
+            title="Close without settling this?"
+            body={`${closingTab} has changes your bucket has not accepted — somebody else wrote it while you had it open, or the save failed. Autosave will not decide that for you, and closing this tab leaves it undecided. What you typed is not in your bucket.`}
+            confirmLabel="Close anyway"
             onCancel={() => setClosingTab(null)}
             onConfirm={() => {
               tabs.close(closingTab);
@@ -871,9 +911,22 @@ function Shortcuts({
 
           /* ---- the note ------------------------------------------------- */
           case "save":
-            // The one people try first. It is `editor`-scoped, so it fires from
-            // inside the textarea and nowhere else.
-            if (!files.canEdit || files.editor.status !== "dirty") return false;
+            /*
+              The one people try first, and it still works with autosave on:
+              every editor lets somebody save *now* rather than in two seconds,
+              and the press is the same conditional write the timer would have
+              made.
+
+              `error` as well as `dirty`, which it was not before. That is the
+              state autosave deliberately does not retry from, so the keyboard
+              has to be able to reach it — the same reason `saveButton` keeps
+              the button pressable there. `conflict` is left out: a plain save
+              would be checked against an etag somebody else has moved past and
+              come straight back as the same refusal, and the answer to it is
+              the resolver's three choices.
+            */
+            if (!files.canEdit) return false;
+            if (files.editor.status !== "dirty" && files.editor.status !== "error") return false;
             files.save();
             return true;
 
@@ -1228,9 +1281,11 @@ function ConsoleBottomBar({
           label: "Save this note",
           icon: "check" as const,
           // Absent rather than dead would move every other button mid-reach,
-          // so it dims in place — see `BottomBar`.
-          disabled: files.editor.status !== "dirty",
-          marker: files.editor.status === "dirty",
+          // so it dims in place — see `BottomBar`. Live for `error` too: that
+          // is the one state autosave will not retry from, so the thumb has to
+          // be able to. Same set as ⌘S; see `Shortcuts`.
+          disabled: files.editor.status !== "dirty" && files.editor.status !== "error",
+          marker: files.editor.status === "dirty" || files.editor.status === "error",
           onPress: files.save,
         },
         /*

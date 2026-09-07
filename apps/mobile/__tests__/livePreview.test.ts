@@ -25,6 +25,7 @@ import {
   frontmatterRange,
   completedTasks,
   hangingIndents,
+  livePreviewStyles,
   listGlyphs,
   markdownLanguage,
   hiddenMarkRanges,
@@ -400,6 +401,66 @@ describe("a list is drawn as a list", () => {
 
   test("a paragraph outside a list gets no indent at all", () => {
     expect(hangingIndents(stateFor("just a paragraph"))).toEqual([]);
+  });
+
+  /**
+   * A TASK'S MARKER IS `- [ ]`, NOT `-`.
+   *
+   * Measured only from the `ListMark`, every wrapped line of a task
+   * under-indented by the width of its own checkbox and ran back underneath
+   * it — the precise thing this function exists to prevent, on the one list
+   * item that draws the widest marker. It survived because every task fixture
+   * in this file fitted on a single line, so nothing ever wrapped.
+   *
+   * The lookup is `ListItem > Task > TaskMarker`; `getChild("TaskMarker")`
+   * answers `null` and reads exactly like a line that works, which is why the
+   * shape is asserted here rather than trusted.
+   *
+   * SABOTAGE: `(task ?? mark)` → `mark`. Fails here and nowhere else.
+   */
+  /**
+   * THE DRAWN MARKERS MUST NOT TAKE THE HANGING INDENT TWICE.
+   *
+   * The indent is `padding-left: Nch` with `text-indent: -Nch` on the line, and
+   * `text-indent` is **inherited**. Both markers are inline-level boxes with
+   * their own inner line box, so each applied the line's negative indent a
+   * second time inside itself: measured in a browser at 390pt, the bullet glyph
+   * drew at −20.4px — a full indent outside the reading margin — while the text
+   * after it started correctly at 10.2px. That gap is the whole of "the bullet
+   * point list looks broken", and a nested item drew its bullet off the left
+   * edge of the screen entirely.
+   *
+   * **This assertion is weaker than the defect.** jsdom does not lay out, so
+   * what is checked is that the declaration exists; whether it *positions*
+   * correctly was verified by rendering the editor in Chromium at 390pt and
+   * measuring the boxes, which is also the only way it was found. An ordered
+   * list was never affected — `1.` is real text rather than a widget — which is
+   * why nothing in this file caught it.
+   *
+   * SABOTAGE: removed either `text-indent: 0`. Fails here.
+   */
+  test("a drawn marker resets the inherited text-indent", () => {
+    const rule = (selector: string) => {
+      const at = livePreviewStyles.indexOf(selector + " {");
+      expect(at).toBeGreaterThan(-1);
+      return livePreviewStyles.slice(at, livePreviewStyles.indexOf("}", at));
+    };
+    expect(rule(".cm-lp-bullet")).toContain("text-indent: 0");
+    expect(rule(".cm-lp-task")).toContain("text-indent: 0");
+  });
+
+  test("a task's wrapped lines clear its checkbox, not just its bullet", () => {
+    // `- [ ] ` is six columns: bullet, space, three for the box, space.
+    expect(indentsByLine("- [ ] a task")).toEqual({ "- [ ] a task": 6 });
+    expect(indentsByLine("- [x] done")).toEqual({ "- [x] done": 6 });
+  });
+
+  test("...and a plain item beside one is still two", () => {
+    // The negative control: reading the task marker must not widen every item.
+    expect(indentsByLine("- [ ] a task\n- plain")).toEqual({
+      "- [ ] a task": 6,
+      "- plain": 2,
+    });
   });
 
   /**

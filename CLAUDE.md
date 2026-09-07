@@ -62,7 +62,7 @@ apps/web/        landing page
 apps/mcp/        Cloudflare Worker: MCP gateway, privacy engine, tools,
                  storage adapter, email ingestion
 packages/shared/ types and constants shared across apps
-packages/hook/   `npx @context-lc/hook` — the session-end hook that saves a
+packages/hook/   `npx @supa-media/context-hook` — the session-end hook that saves a
                  coding session without the agent having to remember to
 ```
 
