@@ -40,11 +40,15 @@
  * without a browser, a renderer, or a mounted editor.
  */
 
-import { EditorState, Range, RangeSet, StateField } from "@codemirror/state";
+import { EditorState, Range, RangeSet, StateField, type Extension } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, WidgetType } from "@codemirror/view";
-import { syntaxTree } from "@codemirror/language";
+import { HighlightStyle, LanguageDescription, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
+import { css } from "@codemirror/lang-css";
+import { html } from "@codemirror/lang-html";
+import { javascript } from "@codemirror/lang-javascript";
 import { GFM } from "@lezer/markdown";
+import { tags } from "@lezer/highlight";
 import type { SyntaxNode, Tree } from "@lezer/common";
 
 /**
@@ -67,7 +71,71 @@ import type { SyntaxNode, Tree } from "@lezer/common";
  * the product would be asserting against a grammar nobody uses.
  */
 export function markdownLanguage() {
-  return markdown({ extensions: [GFM] });
+  return markdown({ extensions: [GFM], codeLanguages: FENCE_LANGUAGES });
+}
+
+/**
+ * The three languages a fenced code block can be parsed *inside*, R3 in the
+ * sweep.
+ *
+ * Only these three: `@codemirror/lang-javascript`, `-html` and `-css` are
+ * already transitive dependencies of `@codemirror/lang-markdown` (GFM tables
+ * and task lists pull in `lang-markdown`, and `lang-markdown` pulls these in
+ * for embedded script/style blocks) — bytes the bundle carries whether or not
+ * anything imports them. Reaching for `@codemirror/language-data`'s full
+ * catalogue instead would add every language nobody asked for to a bundle
+ * that is committed and shipped over the air (see `bundle.generated.ts`).
+ *
+ * A fence in any other language — bash, python, whatever a note happens to
+ * quote — is left exactly as it was: an unhighlighted `CodeText` leaf, still
+ * drawn in the mono face by `cm-lp-fence`. That is an honest gap rather than a
+ * silently wrong highlight, the same choice R4 makes about a table this
+ * editor cannot lay out.
+ */
+const FENCE_LANGUAGES: readonly LanguageDescription[] = [
+  LanguageDescription.of({
+    name: "javascript",
+    alias: ["js", "jsx", "mjs", "cjs", "ts", "tsx", "typescript"],
+    support: javascript({ jsx: true, typescript: true }),
+  }),
+  LanguageDescription.of({ name: "html", alias: ["htm"], support: html() }),
+  LanguageDescription.of({ name: "css", support: css() }),
+];
+
+/**
+ * Fenced code's own tokens, mapped to CSS classes rather than to inline
+ * colours.
+ *
+ * Every other style in this file is a class reaching into `--lp-*` custom
+ * properties (`livePreviewStyles` below, set from `features/design/tokens` by
+ * `LiveEditor.web.tsx`) rather than a colour baked into the extension — so a
+ * fourth palette-specific token is deliberately not added here. Three classes,
+ * three of the tokens this file already has:
+ *
+ *  - `--lp-link` for a keyword — the same accent already used for a followable
+ *    link, which is the other place this editor draws something "active".
+ *  - `--lp-heading` for a string literal — the note's own emphasis colour.
+ *  - `--lp-muted` for a comment, italic — code that is not code, same as a
+ *    blockquote (`cm-lp-quote`) uses the identical pairing.
+ *
+ * Deliberately not exhaustive: numbers, types and tag names are left in the
+ * body colour rather than spending a fourth or fifth class on a distinction a
+ * note's code fences rarely need. `HighlightStyle`'s `class` field — rather
+ * than the inline-style form most examples use — is what makes this compose
+ * with the rest of the theme instead of fighting it.
+ */
+export const fenceHighlightStyle = HighlightStyle.define([
+  {
+    tag: [tags.keyword, tags.controlKeyword, tags.operatorKeyword, tags.modifier, tags.definitionKeyword],
+    class: "cm-lp-code-keyword",
+  },
+  { tag: [tags.string, tags.special(tags.string), tags.regexp], class: "cm-lp-code-string" },
+  { tag: [tags.comment, tags.lineComment, tags.blockComment], class: "cm-lp-code-comment" },
+]);
+
+/** The extension that actually paints `fenceHighlightStyle`'s classes on. */
+export function codeHighlighting(): Extension {
+  return syntaxHighlighting(fenceHighlightStyle);
 }
 
 /**
@@ -966,6 +1034,14 @@ export const livePreviewStyles = `
   font-size: 0.92em;
   background: var(--lp-code-bg);
 }
+/*
+  R3 in the sweep: a fence in one of the three languages the bundle already
+  carries (see FENCE_LANGUAGES) is coloured with tokens this file already has
+  rather than a new one — see fenceHighlightStyle's own comment for why.
+*/
+.cm-lp-code-keyword { color: var(--lp-link); }
+.cm-lp-code-string { color: var(--lp-heading); }
+.cm-lp-code-comment { color: var(--lp-muted); font-style: italic; }
 .cm-lp-quote { color: var(--lp-muted); font-style: italic; }
 .cm-lp-link { color: var(--lp-link); text-decoration: underline; }
 /*

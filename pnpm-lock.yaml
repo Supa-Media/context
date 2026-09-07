@@ -108,6 +108,15 @@ importers:
       '@codemirror/commands':
         specifier: ^6
         version: 6.11.0
+      '@codemirror/lang-css':
+        specifier: ^6
+        version: 6.3.1
+      '@codemirror/lang-html':
+        specifier: ^6
+        version: 6.4.12
+      '@codemirror/lang-javascript':
+        specifier: ^6
+        version: 6.2.5
       '@codemirror/lang-markdown':
         specifier: ^6
         version: 6.5.2
@@ -141,6 +150,9 @@ importers:
       '@lezer/common':
         specifier: ^1
         version: 1.5.2
+      '@lezer/highlight':
+        specifier: ^1
+        version: 1.2.3
       '@lezer/markdown':
         specifier: ^1
         version: 1.7.2

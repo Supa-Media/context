@@ -20,8 +20,10 @@
 import { describe, expect, test } from "@jest/globals";
 import { EditorState } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
+import { highlightTree } from "@lezer/highlight";
 import {
   decorationsFor,
+  fenceHighlightStyle,
   frontmatterRange,
   completedTasks,
   hangingIndents,
@@ -876,5 +878,70 @@ describe("frontmatter is metadata, not the note's largest heading", () => {
     expect(frontmatterRange("")).toBeNull();
     expect(frontmatterRange("---")).toBeNull();
     expect(frontmatterRange("---\n")).toBeNull();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                    R3 — fenced code is not highlighted                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `markdownLanguage()` had no `codeLanguages`, so `@lezer/markdown` parsed a
+ * fence's body as one opaque `CodeText` leaf whatever the info string said —
+ * `livePreview.ts` could draw the *block* in the mono face (`cm-lp-fence`,
+ * F2/#252) but had nothing inside it to colour. The sweep names the packages
+ * this spends: `@codemirror/lang-javascript`, `-html` and `-css` are already
+ * transitive dependencies of `@codemirror/lang-markdown` — paid for, unused —
+ * so wiring them in adds no bytes the bundle was not already carrying.
+ *
+ * Tested against the real tree rather than the classes alone: the interesting
+ * failure is "the nested parser never ran", which only shows up as an absence
+ * of any highlighted range at all, not as a wrong one.
+ */
+function highlightedRanges(
+  doc: string,
+): { from: number; to: number; classes: string }[] {
+  const state = EditorState.create({ doc, extensions: [markdownLanguage()] });
+  const tree = syntaxTree(state);
+  const found: { from: number; to: number; classes: string }[] = [];
+  highlightTree(tree, fenceHighlightStyle, (from, to, classes) => {
+    found.push({ from, to, classes });
+  });
+  return found;
+}
+
+describe("R3 — a fenced code block is highlighted by its own language", () => {
+  const JS = ["```js", "const total = 1; // running total", "```"].join("\n");
+
+  test("a keyword inside a ```js fence is tagged, not left as plain code text", () => {
+    const ranges = highlightedRanges(JS);
+    const doc = JS;
+    const keyword = ranges.find((r) => doc.slice(r.from, r.to) === "const");
+    expect(keyword).toBeDefined();
+    expect(keyword!.classes).toContain("cm-lp-code-keyword");
+  });
+
+  test("a comment inside the same fence is tagged distinctly from the keyword", () => {
+    const ranges = highlightedRanges(JS);
+    const comment = ranges.find((r) => JS.slice(r.from, r.to).startsWith("// running"));
+    expect(comment).toBeDefined();
+    expect(comment!.classes).toContain("cm-lp-code-comment");
+    expect(comment!.classes).not.toContain("cm-lp-code-keyword");
+  });
+
+  test("prose outside any fence is never touched", () => {
+    const ranges = highlightedRanges(`plain paragraph, no fence at all\n\n${JS}`);
+    for (const range of ranges) {
+      expect(range.from).toBeGreaterThanOrEqual("plain paragraph, no fence at all\n\n".length);
+    }
+  });
+
+  test("an untagged language (bash) still renders as an honest monospace block", () => {
+    // Not every language is wired — only the three already paid for. A fence
+    // this editor cannot highlight must fall through to the existing plain
+    // `cm-lp-fence` treatment rather than throwing or silently mislabelling it.
+    const doc = ["```bash", "echo hi", "```"].join("\n");
+    expect(() => highlightedRanges(doc)).not.toThrow();
+    expect(highlightedRanges(doc)).toEqual([]);
   });
 });
