@@ -205,15 +205,42 @@ jobs:
       - name: Install
         run: pnpm install --filter "./infra/email-worker..." --frozen-lockfile
 
-      # Push the Worker's secret from GitHub on every deploy, so the live Worker
-      # is reproducible from this repository rather than from whatever somebody
-      # once typed at a terminal. `wrangler secret put` is idempotent and reads
-      # the value from STDIN, so it is never placed on a command line, in the
-      # process table, or in a log.
+      # This used to compare infra/router/wrangler.jsonc's CONVEX_ORIGIN
+      # against this worker's own CONTROL_PLANE_URL, both committed literals
+      # that could drift independently. Now that both are the identical
+      # `CONTROL_PLANE_URL` secret (set below and in deploy-router.yml), they
+      # cannot drift from each other — only "Verify required secrets" above
+      # can still fail, if the secret itself is unset.
+
+      - name: Deploy context-email
+        working-directory: infra/email-worker
+        run: pnpm exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # Push the Worker's secrets from GitHub on every deploy, so the live
+      # Worker is reproducible from this repository rather than from whatever
+      # somebody once typed at a terminal. `wrangler secret put` is idempotent
+      # and reads the value from STDIN, so it is never placed on a command
+      # line, in the process table, or in a log.
       #
-      # It must be the same value the control plane holds — it is what proves
-      # "this caller is the email worker" — so it lives in one place, GitHub,
-      # and is pushed from there.
+      # EMAIL_WORKER_SECRET must be the same value the control plane holds —
+      # it is what proves "this caller is the email worker" — so it lives in
+      # one place, GitHub, and is pushed from there.
+      #
+      # AFTER deploy, not before: CONTROL_PLANE_URL used to be a plaintext var
+      # in this file's wrangler.jsonc, naming an account identifier (which
+      # Convex deployment) a public repo does not commit — same secret and
+      # pattern apps/mcp already uses for this value. While that var was still
+      # committed, the account's LIVE script carried it that way, and
+      # `wrangler secret put` acts on whatever version is currently live —
+      # so pushing the secret before `wrangler deploy` collided with the
+      # stale var on every run: Cloudflare 10053, "Binding name
+      # 'CONTROL_PLANE_URL' already in use", forever, because the one step
+      # that would retire the var (`wrangler deploy`) never got to run.
+      # Deploying first retires it immediately, and this step then sets the
+      # secret against a live script that no longer declares it.
       - name: Sync the Worker's secrets
         working-directory: infra/email-worker
         env:
@@ -224,26 +251,8 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$EMAIL_WORKER_SECRET" | pnpm exec wrangler secret put EMAIL_WORKER_SECRET
-          # CONTROL_PLANE_URL used to be a plaintext var in this file's
-          # wrangler.jsonc, naming an account identifier (which Convex
-          # deployment) a public repo does not commit. Same secret and pattern
-          # apps/mcp already uses for this value.
           printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONTROL_PLANE_URL
           echo "OK — the Worker's secrets match this repository's."
-
-      # This used to compare infra/router/wrangler.jsonc's CONVEX_ORIGIN
-      # against this worker's own CONTROL_PLANE_URL, both committed literals
-      # that could drift independently. Now that both are the identical
-      # `CONTROL_PLANE_URL` secret (set above and in deploy-router.yml), they
-      # cannot drift from each other — only "Verify required secrets" above
-      # can still fail, if the secret itself is unset.
-
-      - name: Deploy context-email
-        working-directory: infra/email-worker
-        run: pnpm exec wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       # ── Verification 1: something was actually deployed, by this run. ──────
       #
