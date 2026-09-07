@@ -349,6 +349,7 @@ const ROUTES: Record<string, Coverage> = {
   "(app)/console/_layout.tsx": { kind: "framed" },
   "(app)/console/index.tsx": { kind: "framed" },
   "(app)/console/map.tsx": { kind: "framed" },
+  "(app)/console/search.tsx": { kind: "framed" },
   "(app)/console/connections.tsx": { kind: "framed" },
   "(app)/console/[slug]/index.tsx": { kind: "framed" },
   "(app)/console/[slug]/settings.tsx": { kind: "framed" },
