@@ -54,7 +54,7 @@ import {
   refreshTokens,
   registerClient,
   stateMatches,
-} from "@context-lc/hook/src/oauth.js";
+} from "@supa-media/context-hook/src/oauth.js";
 import { RefreshFailed, gatewayBaseFrom, isFatalOAuthError } from "../core/sync/connection.ts";
 import type { ConnectionRecord, RefreshedTokens } from "../core/sync/connection.ts";
 

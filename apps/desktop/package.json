@@ -14,7 +14,7 @@
     "lint": "echo \"no lint configured yet\" && exit 0"
   },
   "dependencies": {
-    "@context-lc/hook": "workspace:*",
+    "@supa-media/context-hook": "workspace:*",
     "@context/meetings": "workspace:*"
   },
   "devDependencies": {

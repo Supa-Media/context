@@ -62,12 +62,12 @@ importers:
 
   apps/desktop:
     dependencies:
-      '@context-lc/hook':
-        specifier: workspace:*
-        version: link:../../packages/hook
       '@context/meetings':
         specifier: workspace:*
         version: link:../../packages/meetings
+      '@supa-media/context-hook':
+        specifier: workspace:*
+        version: link:../../packages/hook
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
