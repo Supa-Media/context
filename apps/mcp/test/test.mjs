@@ -30,6 +30,7 @@ import { runCredentialShapeChecks } from "./credentialShape.test.mjs";
 import { runEncryptionChecks } from "./encryption.test.mjs";
 import { runEncryptionGatewayChecks } from "./encryptionGateway.test.mjs";
 import { runEncryptionPassphraseChecks } from "./encryptionPassphrase.test.mjs";
+import { runEncryptionRotationChecks } from "./encryptionRotation.test.mjs";
 import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
@@ -424,7 +425,7 @@ const tools = await rpc("priv-token", "tools/list");
 // one and that a model has to ask for them. 27 with `set_encryption`, which is
 // a write over one note's own bytes and, like `set_visibility` beside it, a
 // personal connection's.
-check("27 tools listed", tools.result?.tools.length === 27);
+check("29 tools listed", tools.result?.tools.length === 29);
 
 // -- list_plugins through the worker
 //
@@ -1203,7 +1204,7 @@ check(
 );
 
 const modernList = await modernFetch({ method: "tools/list" });
-check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 27);
+check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 29);
 check(
   "modern tools/list carries the required freshness hints",
   typeof modernList.body.result?.ttlMs === "number" &&
@@ -1429,7 +1430,7 @@ for (const verb of ["GET", "DELETE"]) {
 // --- and now the half that must not have moved: legacy clients ---
 check(
   "a legacy client sending no version header still works",
-  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 27
+  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 29
 );
 async function legacyWithVersionHeader(version) {
   return worker.fetch(
@@ -4016,6 +4017,7 @@ await runCredentialShapeChecks(check);
 await runEncryptionChecks(check);
 await runEncryptionGatewayChecks(check);
 await runEncryptionPassphraseChecks(check);
+await runEncryptionRotationChecks(check);
 
 // Meeting ingestion: the routes a phone and a desktop app send a meeting to,
 // the one note it becomes, and the neighbour who knows its session id. Its own

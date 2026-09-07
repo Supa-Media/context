@@ -586,8 +586,9 @@ export async function storeForSession(session, env, controlPlane) {
   let binding;
   let searchIndex;
   let encryptionKey;
+  let rotation;
   try {
-    ({ binding, searchIndex, encryptionKey } = await controlPlane.getStorageBinding(
+    ({ binding, searchIndex, encryptionKey, rotation } = await controlPlane.getStorageBinding(
       session.accessToken,
       session.workspaceId
     ));
@@ -689,23 +690,86 @@ export async function storeForSession(session, env, controlPlane) {
     writable: false,
     configurable: true,
   });
+
+  /**
+   * A workspace-key rotation in progress, or `null`.
+   *
+   * `null` is the ordinary case — no rotation ever started, or the last one
+   * finished — and it is read exactly like `encryptionKey`: off the response,
+   * beside the binding, defensively narrowed so a malformed or partial
+   * descriptor reads as "no rotation" rather than throwing later. This is
+   * enough for `rotate_encryption_keys` to know a walk is outstanding without
+   * a second round trip, and enough for every other tool to simply ignore it.
+   */
+  Object.defineProperty(store, "encryptionRotation", {
+    value: readRotation(rotation),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+
+  /**
+   * Ask the control plane to start (or continue) a workspace-key rotation, or
+   * to report a completed walk — the two optional flags `/gateway/binding`
+   * accepts beside the ordinary request, spending the same two proofs this
+   * store was already built from rather than a second credential.
+   *
+   * Bound to this request's own session and control plane so
+   * `rotate_encryption_keys` need not be handed either: a tool function only
+   * has the store, on purpose, and this is the one operation that needs to
+   * reach the control plane a second time within one request.
+   *
+   * @param {{start?: true, complete?: string}} request exactly one of the two
+   * @returns {Promise<{encryptionKey: {current: string, keys: Record<string,string>}|null, rotation: {fromGeneration: string, toGeneration: string}|null}>}
+   */
+  Object.defineProperty(store, "rotateEncryptionKeys", {
+    value: async (request) => {
+      const response = await controlPlane.getStorageBinding(
+        session.accessToken,
+        session.workspaceId,
+        request
+      );
+      return {
+        encryptionKey: readEncryptionKey(response.encryptionKey),
+        rotation: readRotation(response.rotation),
+      };
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   return store;
 }
 
 /**
  * Narrow the control plane's encryption-key descriptor, or answer `null`.
  *
- * Both fields or neither, matching how every other partial descriptor in this
- * gateway is treated: half a key is not a degraded key, it is no key, because
- * there is one cure and it is the same one. A generation that is not a string,
- * an empty one, or material that is not a string are each the whole descriptor
- * being absent — never a `{generation: undefined}` that a later `?.` would read
- * as present.
+ * `current` and `keys` or neither, matching how every other partial
+ * descriptor in this gateway is treated: half a key is not a degraded key, it
+ * is no key, because there is one cure and it is the same one. A `current`
+ * that is not a string, an empty one, a `keys` that is not an object, or a
+ * `keys` with nothing under `current` are each the whole descriptor being
+ * absent — never a shape a later `?.` or bracket lookup would read as present
+ * and then fail on.
  */
 function readEncryptionKey(descriptor) {
   if (!descriptor || typeof descriptor !== "object") return null;
-  const { generation, dataKey } = descriptor;
-  if (typeof generation !== "string" || generation === "") return null;
-  if (typeof dataKey !== "string" || dataKey === "") return null;
-  return { generation, dataKey };
+  const { current, keys } = descriptor;
+  if (typeof current !== "string" || current === "") return null;
+  if (!keys || typeof keys !== "object" || Array.isArray(keys)) return null;
+  if (typeof keys[current] !== "string" || keys[current] === "") return null;
+  return { current, keys };
+}
+
+/**
+ * Narrow the control plane's rotation descriptor, or answer `null`.
+ *
+ * Same discipline as `readEncryptionKey`: both fields or neither.
+ */
+function readRotation(descriptor) {
+  if (!descriptor || typeof descriptor !== "object") return null;
+  const { fromGeneration, toGeneration } = descriptor;
+  if (typeof fromGeneration !== "string" || fromGeneration === "") return null;
+  if (typeof toGeneration !== "string" || toGeneration === "") return null;
+  return { fromGeneration, toGeneration };
 }

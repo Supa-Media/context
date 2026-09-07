@@ -34,6 +34,16 @@
  *   `openStorageBinding` omitting `encryptionKey` from its answer         2
  *   `openWorkspaceDataKey` sealing to a fixed AAD, not the workspace      1
  *   the `datakey` entry removed from `PLAINTEXT_CREDENTIAL_FIELDS`        1
+ *   `authorizeEncryptionExport`'s `requireWorkspaceRole` removed          3
+ *   a public function elsewhere returning a `material` field, with
+ *   `material` absent from `PLAINTEXT_CREDENTIAL_FIELDS`             0 -> 1
+ *
+ * The last row is the one worth reading twice: it measured ZERO as the branch
+ * was written. The workspace data key stopped being called `dataKey` when
+ * rotation made it a set, so the guard that names credential fields no longer
+ * named anything this feature returns, and a public function handing one back
+ * passed. `material` is listed now, with the two functions allowed to declare
+ * it enumerated beside it.
  *
  * The fourth row is the one worth naming, and it is one on purpose. Binding the
  * envelope to a constant instead of to the workspace looks harmless — every row
@@ -45,10 +55,11 @@
  * nothing about the AAD at all.
  */
 
+import { ConvexError } from "convex/values";
 import { describe, expect, test } from "vitest";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { createUser, createWorkspace, setupTest } from "./fixtures.helpers";
+import { addMember, asUser, createUser, createWorkspace, setupTest } from "./fixtures.helpers";
 
 async function keyRow(t: ReturnType<typeof setupTest>, workspaceId: Id<"workspaces">) {
   return await t.run(async (ctx) =>
@@ -79,7 +90,8 @@ describe("the workspace data key", () => {
     // strand every note encrypted under the first, and it is exactly what an
     // unconditional insert produces.
     expect(second).toEqual(first);
-    expect(first!.generation).toBe("k1");
+    expect(first!.current).toBe("k1");
+    expect(Object.keys(first!.keys)).toEqual(["k1"]);
 
     // And there is one row, which is the same claim asked of the database
     // rather than of the return value.
@@ -104,7 +116,7 @@ describe("the workspace data key", () => {
     // makes this fail if somebody ever stores the key in the clear beside its
     // envelope "for the rekey pass".
     expect(row!.encryptedDataKey.startsWith("v2:")).toBe(true);
-    expect(row!.encryptedDataKey).not.toContain(opened!.dataKey);
+    expect(row!.encryptedDataKey).not.toContain(opened!.keys[opened!.current]!);
   });
 
   test("is one key per context, and one context's envelope does not open in another", async () => {
@@ -122,7 +134,7 @@ describe("the workspace data key", () => {
       create: true,
     });
 
-    expect(alphaKey!.dataKey).not.toBe(betaKey!.dataKey);
+    expect(alphaKey!.keys[alphaKey!.current]).not.toBe(betaKey!.keys[betaKey!.current]);
 
     // Now the half a "two random keys differ" assertion cannot reach: copy
     // alpha's envelope onto beta's row and ask beta for its key. The AAD binds
@@ -204,5 +216,426 @@ describe("the workspace data key", () => {
     expect((await keyRow(t, workspaceId))!.encryptedDataKey).toBe(
       "v2:k1:AAAAAAAAAAAAAAAA:AAAA",
     );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Workspace-key rotation                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `startWorkspaceKeyRotation` and `applyStartWorkspaceKeyRotation` —
+ * `functions/controlPlane.ts`'s `/gateway/binding` test file carries the
+ * behavioural, over-the-wire half; this one is the table underneath it.
+ *
+ * The property that matters most is the one a review of green tests would
+ * miss: **two callers racing to start a rotation must mint exactly one new
+ * generation between them.** `applyStartWorkspaceKeyRotation`'s re-read is
+ * what buys that, on the same shape `insertDataKeyIfAbsent` already relies on
+ * for a workspace's first key, and it is sabotage-tested below by calling the
+ * mutation directly with the guard's own re-check skipped.
+ */
+describe("workspace-key rotation", () => {
+  test("mints k2, retires k1, and both rows persist with the right retiredAt shape", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "alpha");
+    await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId,
+      create: true,
+    });
+
+    const started = await t.action(
+      internal.functions.encryptionKeys.startWorkspaceKeyRotation,
+      { workspaceId },
+    );
+    expect(started).toEqual({ fromGeneration: "k1", toGeneration: "k2" });
+
+    const rows = await t.run((ctx) =>
+      ctx.db
+        .query("workspaceDataKeys")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .collect(),
+    );
+    expect(rows).toHaveLength(2);
+    const k1 = rows.find((r) => r.generation === "k1")!;
+    const k2 = rows.find((r) => r.generation === "k2")!;
+    expect(k1.retiredAt).toBeTypeOf("number");
+    expect(k2.retiredAt).toBeUndefined();
+    // Different material, not the same row re-labelled.
+    expect(k2.encryptedDataKey).not.toBe(k1.encryptedDataKey);
+  });
+
+  test("opening the key after rotation returns BOTH generations, current pointing at the new one", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const before = await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId,
+      create: true,
+    });
+    await t.action(internal.functions.encryptionKeys.startWorkspaceKeyRotation, { workspaceId });
+
+    const after = await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId,
+    });
+    expect(after!.current).toBe("k2");
+    expect(Object.keys(after!.keys).sort()).toEqual(["k1", "k2"]);
+    // The old generation's material is UNCHANGED by the rotation — a note
+    // still on k1 must open with exactly the key it was wrapped under.
+    expect(after!.keys.k1).toBe(before!.keys.k1);
+  });
+
+  test("a workspace that never had a key has nothing to rotate", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "alpha");
+
+    expect(
+      await t.action(internal.functions.encryptionKeys.startWorkspaceKeyRotation, {
+        workspaceId,
+      }),
+    ).toBeNull();
+  });
+
+  test("starting a rotation while one is in progress returns the SAME target, not a third generation", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "alpha");
+    await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId,
+      create: true,
+    });
+
+    const first = await t.action(internal.functions.encryptionKeys.startWorkspaceKeyRotation, {
+      workspaceId,
+    });
+    const second = await t.action(internal.functions.encryptionKeys.startWorkspaceKeyRotation, {
+      workspaceId,
+    });
+    expect(second).toEqual(first);
+
+    const rows = await t.run((ctx) => ctx.db.query("workspaceDataKeys").collect());
+    expect(rows).toHaveLength(2); // k1, k2 — never a k3.
+    const rotations = await t.run((ctx) => ctx.db.query("workspaceKeyRotations").collect());
+    expect(rotations).toHaveLength(1);
+  });
+
+  /**
+   * SABOTAGE: skip the re-check the guard depends on, and confirm two racing
+   * starts mint two separate rotations instead of converging on one — the
+   * exact failure `applyStartWorkspaceKeyRotation`'s re-read exists to
+   * prevent. This calls the *mutation* directly, twice, with material two
+   * independent callers of the action would have prepared concurrently, to
+   * isolate the mutation's own guard from the action's read-then-write shape.
+   */
+  test("sabotage: without the mutation's re-check, two racing starts would mint two rotations", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "alpha");
+    await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId,
+      create: true,
+    });
+
+    // Two callers, both reading "current generation is k1" before either
+    // writes — exactly what `startWorkspaceKeyRotation`'s own read does before
+    // calling this mutation, reproduced here so the guard is isolated.
+    const first = await t.mutation(
+      internal.functions.encryptionKeys.applyStartWorkspaceKeyRotation,
+      { workspaceId, fromGeneration: "k1", toGeneration: "k2", encryptedDataKey: "v2:k1:AAAAAAAAAAAAAAAA:AAAA" },
+    );
+    expect(first).toEqual({ fromGeneration: "k1", toGeneration: "k2" });
+
+    // The real guard refuses this second call outright, because by now the
+    // active rotation is k1->k2, not k1->k3 — asserting that IS the guard
+    // working. A version of this mutation with the "active rotation already
+    // exists" check removed would instead insert a second `workspaceKeyRotations`
+    // row and a third `workspaceDataKeys` row, which is the corruption this
+    // test exists to catch if that check is ever weakened.
+    await expect(
+      t.mutation(internal.functions.encryptionKeys.applyStartWorkspaceKeyRotation, {
+        workspaceId,
+        fromGeneration: "k1",
+        toGeneration: "k3",
+        encryptedDataKey: "v2:k1:BBBBBBBBBBBBBBBB:BBBB",
+      }),
+    ).resolves.toEqual({ fromGeneration: "k1", toGeneration: "k2" }); // hands back the winner, mints nothing
+
+    const rows = await t.run((ctx) => ctx.db.query("workspaceDataKeys").collect());
+    expect(rows.map((r) => r.generation).sort()).toEqual(["k1", "k2"]);
+    const rotations = await t.run((ctx) => ctx.db.query("workspaceKeyRotations").collect());
+    expect(rotations).toHaveLength(1);
+  });
+
+  test("completing a rotation is idempotent, and a stale target completes nothing", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "alpha");
+    await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId,
+      create: true,
+    });
+    await t.action(internal.functions.encryptionKeys.startWorkspaceKeyRotation, { workspaceId });
+
+    expect(
+      await t.mutation(internal.functions.encryptionKeys.completeWorkspaceKeyRotation, {
+        workspaceId,
+        toGeneration: "k9",
+      }),
+    ).toBe(false);
+    expect(
+      await t.query(internal.functions.encryptionKeys.getActiveWorkspaceKeyRotation, {
+        workspaceId,
+      }),
+    ).not.toBeNull();
+
+    expect(
+      await t.mutation(internal.functions.encryptionKeys.completeWorkspaceKeyRotation, {
+        workspaceId,
+        toGeneration: "k2",
+      }),
+    ).toBe(true);
+    expect(
+      await t.query(internal.functions.encryptionKeys.getActiveWorkspaceKeyRotation, {
+        workspaceId,
+      }),
+    ).toBeNull();
+
+    // Idempotent: completing an already-done rotation again is a no-op, not
+    // an error — the gateway's walk cannot always tell which of those it races.
+    expect(
+      await t.mutation(internal.functions.encryptionKeys.completeWorkspaceKeyRotation, {
+        workspaceId,
+        toGeneration: "k2",
+      }),
+    ).toBe(false);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Key export                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `exportEncryptionKeys` — the console's action. `structure.test.ts` proves
+ * the *structural* half (it is public, it reaches a decrypt, and it is only
+ * safe because it does so through the enumerated barrier); this asks whether
+ * it behaves.
+ */
+describe("exportEncryptionKeys (the console action)", () => {
+  test("an owner gets every live generation's material in the clear", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const opened = await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId,
+      create: true,
+    });
+    await t.action(internal.functions.encryptionKeys.startWorkspaceKeyRotation, { workspaceId });
+
+    const exported = await asUser(t, owner).action(
+      api.functions.encryptionKeys.exportEncryptionKeys,
+      { workspaceId },
+    );
+    expect(exported!.current).toBe("k2");
+    const byGeneration = Object.fromEntries(
+      exported!.keys.map((entry) => [entry.generation, entry.material]),
+    );
+    expect(byGeneration.k1).toBe(opened!.keys.k1);
+    expect(byGeneration.k2).toBeDefined();
+  });
+
+  test("a workspace that has never encrypted anything exports nothing, not a refusal", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "alpha");
+
+    expect(
+      await asUser(t, owner).action(api.functions.encryptionKeys.exportEncryptionKeys, {
+        workspaceId,
+      }),
+    ).toBeNull();
+  });
+
+  test("an editor is refused — write access to notes is not authority over the key that opens them", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const editor = await createUser(t, "editor@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "alpha");
+    await addMember(t, workspaceId, editor, "editor");
+    await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId,
+      create: true,
+    });
+
+    await expect(
+      asUser(t, editor).action(api.functions.encryptionKeys.exportEncryptionKeys, {
+        workspaceId,
+      }),
+    ).rejects.toThrow();
+  });
+
+  /**
+   * THE ID IS AN ARGUMENT, WHICH MAKES IT THE ATTACK.
+   *
+   * `exportEncryptionKeys` takes a `workspaceId` from its caller — the one
+   * thing the gateway path never does (`/gateway/binding` compares the id it
+   * is given and reads the workspace off the grant instead). So the console's
+   * export has to answer the question the gateway's cannot be asked: an owner
+   * of their own context, signed in, naming somebody else's id.
+   *
+   * Both halves. A *member* of the target is refused on role, and a complete
+   * stranger is refused on membership — and the stranger case is the one a
+   * role check alone would let through if `requireWorkspaceAccess` ever
+   * stopped being the first thing `requireWorkspaceRole` does.
+   */
+  test("an owner of one context cannot export another's key by naming its id", async () => {
+    const t = setupTest();
+    const mine = await createUser(t, "mine@example.invalid");
+    const theirs = await createUser(t, "theirs@example.invalid");
+    await createWorkspace(t, mine, "mine");
+    const theirWorkspace = await createWorkspace(t, theirs, "theirs");
+    const opened = await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId: theirWorkspace,
+      create: true,
+    });
+
+    let refusal: unknown;
+    try {
+      await asUser(t, mine).action(api.functions.encryptionKeys.exportEncryptionKeys, {
+        workspaceId: theirWorkspace,
+      });
+    } catch (error) {
+      refusal = error;
+    }
+    expect(refusal).toBeInstanceOf(ConvexError);
+    // Not the material, and not a hint that the material exists.
+    expect(JSON.stringify((refusal as ConvexError<Record<string, string>>).data)).not.toContain(
+      opened!.keys.k1,
+    );
+
+    // A stranger's failed attempt is not recorded against the workspace they
+    // named either — the audit row is written in the same transaction as the
+    // authorization, after it.
+    const events = await t.run((ctx) => ctx.db.query("auditEvents").collect());
+    expect(events.some((e) => e.action === "encryption.export")).toBe(false);
+  });
+
+  test("a member — read-only in the context — is refused as firmly as a stranger", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const reader = await createUser(t, "reader@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "alpha");
+    await addMember(t, workspaceId, reader, "member");
+    await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId,
+      create: true,
+    });
+
+    await expect(
+      asUser(t, reader).action(api.functions.encryptionKeys.exportEncryptionKeys, {
+        workspaceId,
+      }),
+    ).rejects.toThrow();
+  });
+
+  /**
+   * THE LIMIT IS THE CONTEXT'S, NOT THE SESSION'S.
+   *
+   * A rate limit a second sign-in resets is not a rate limit. The key is
+   * `encryption.export:<workspaceId>`, so two owners of the same context share
+   * one window — which is the shape that actually defends the thing being
+   * defended, since the harm is a compromised session harvesting the key by
+   * retrying and a compromised session can start a second one.
+   */
+  test("two owners of one context share one window — a second identity does not reset it", async () => {
+    const t = setupTest();
+    const first = await createUser(t, "first@example.invalid");
+    const second = await createUser(t, "second@example.invalid");
+    const workspaceId = await createWorkspace(t, first, "alpha");
+    await addMember(t, workspaceId, second, "owner");
+    await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId,
+      create: true,
+    });
+
+    let accepted = 0;
+    let refused = 0;
+    // Alternating identities, ten attempts, five allowed between them.
+    for (const who of [first, second, first, second, first, second, first, second, first, second]) {
+      try {
+        await asUser(t, who).action(api.functions.encryptionKeys.exportEncryptionKeys, {
+          workspaceId,
+        });
+        accepted += 1;
+      } catch {
+        refused += 1;
+      }
+    }
+    expect({ accepted, refused }).toEqual({ accepted: 5, refused: 5 });
+  });
+
+  test("a signed-out caller is refused", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "alpha");
+
+    await expect(
+      t.action(api.functions.encryptionKeys.exportEncryptionKeys, { workspaceId }),
+    ).rejects.toThrow();
+  });
+
+  test("every export writes an audit row naming the acting owner", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "alpha");
+    await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId,
+      create: true,
+    });
+
+    await asUser(t, owner).action(api.functions.encryptionKeys.exportEncryptionKeys, {
+      workspaceId,
+    });
+
+    const events = await t.run((ctx) => ctx.db.query("auditEvents").collect());
+    const exportEvent = events.find((e) => e.action === "encryption.export");
+    expect(exportEvent).toBeDefined();
+    expect(exportEvent!.workspaceId).toBe(workspaceId);
+    expect(exportEvent!.actorUserId).toBe(owner);
+    // The exported bytes never appear in the audit trail.
+    expect(JSON.stringify(exportEvent)).not.toMatch(/[A-Za-z0-9+/]{40,}={0,2}/);
+  });
+
+  test("rate limited after five exports in the window, and the sixth attempt writes no audit row", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "alpha");
+    await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+      workspaceId,
+      create: true,
+    });
+
+    for (let i = 0; i < 5; i += 1) {
+      await asUser(t, owner).action(api.functions.encryptionKeys.exportEncryptionKeys, {
+        workspaceId,
+      });
+    }
+    const before = await t.run((ctx) => ctx.db.query("auditEvents").collect());
+
+    let rateLimited: unknown;
+    try {
+      await asUser(t, owner).action(api.functions.encryptionKeys.exportEncryptionKeys, {
+        workspaceId,
+      });
+    } catch (error) {
+      rateLimited = error;
+    }
+    expect(rateLimited).toBeInstanceOf(ConvexError);
+    expect((rateLimited as ConvexError<{ code: string }>).data.code).toBe("RATE_LIMITED");
+
+    const after = await t.run((ctx) => ctx.db.query("auditEvents").collect());
+    expect(after).toHaveLength(before.length);
   });
 });
