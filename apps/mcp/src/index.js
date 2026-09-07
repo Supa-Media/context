@@ -104,6 +104,7 @@ import {
   searchIndexedNotes,
   snippetLinesFor,
 } from "./search/visible.js";
+import { splitMessageAnchor } from "./search/commsIndex.js";
 import { indexIsBehind, loadIndexManifest, syncShardedIndex } from "./search/shards.js";
 import { createD1Client } from "./search/d1/client.js";
 import { answerFromProjection } from "./search/d1/serve.js";
@@ -3630,7 +3631,15 @@ async function toolListNotes(store, scope, rules, overrides, prefixArg) {
 }
 
 async function toolReadNote(store, scope, rules, overrides, pathArg) {
-  const path = normalizePath(pathArg);
+  const named = normalizePath(pathArg);
+  if (!named) return toolError("invalid path");
+  // A search hit inside a channel-day note is keyed `<notePath>#<anchor>`,
+  // and that is the string an agent's next call arrives with. The file is
+  // what gets read — it is the unit `canSee` decides and the unit a share
+  // link covers — so the anchor is dropped here, exactly as the console's
+  // `noteFromQuery` drops it. Without this the one key search prints for a
+  // message is the one key `read_note` answers "not found" for.
+  const path = splitMessageAnchor(named).path;
   if (!path) return toolError("invalid path");
   if (!canSee(path, scope, rules, overrides)) return toolError("not found");
   const obj = await store.get(path);
@@ -5769,7 +5778,11 @@ async function toolOpenAiSearch(store, scope, rules, overrides, query) {
 }
 
 async function toolOpenAiFetch(store, scope, rules, overrides, idArg) {
-  const path = normalizePath(idArg);
+  // `search` answers a message inside a channel-day note with the id
+  // `<notePath>#<anchor>`, and `fetch(id)` is the only thing ChatGPT does
+  // with an id it was given. Split before the `.md` test, which that id
+  // would otherwise fail one line before the read ever happened.
+  const path = splitMessageAnchor(normalizePath(idArg) ?? "").path;
   if (!path || !path.endsWith(".md")) return toolError("invalid id");
   if (isPlumbing(path)) return toolError("not found");
   if (!canSee(path, scope, rules, overrides)) return toolError("not found");

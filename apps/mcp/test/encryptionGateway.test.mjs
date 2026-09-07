@@ -543,10 +543,17 @@ export async function runEncryptionGatewayChecks(check) {
      * `visible.js` drops an encrypted note when it reads the body for a
      * snippet, but `matchCount` is `visible.length` — taken before that drop.
      * The index holds the note with empty content, so no body term ranks it,
-     * but its PATH still can: MEASURED, a search for "moved" — a word that
-     * appears only in `1-projects/moved-secret.md` — answered
+     * but its PATH still can: MEASURED, a search for "moved" answered
      * "2 matching notes — the 1 best shown" with the encrypted note counted
      * and withheld.
+     *
+     * The word is NOT unique to `1-projects/moved-secret.md`, and an earlier
+     * version of this comment said it was — contradicted by the check twelve
+     * lines below, which asserts the plaintext hit and calls it correct. The
+     * move rewrote `1-projects/alpha.md`'s link to `[[1-projects/moved-secret]]`
+     * before that note was renamed, so the word is in a body this caller may
+     * read. Which is why the assertion is about the COUNT rather than about
+     * where the word occurs.
      *
      * Nothing leaks: `rankedVisibleTo` runs first, so only notes this caller
      * may see are ever counted, and the byte-identical promise

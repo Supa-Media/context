@@ -186,6 +186,12 @@ export const DEVICE_PLATFORMS = Object.freeze([
  *   visible after the meeting recovered — a refused microphone, an interrupted
  *   recorder — is holding a fact about the *device*, which is client-local
  *   state and does not belong on the session that lands in somebody's bucket.
+ * @property {string|null} emptyReason   Why the session is in `empty`, on the
+ *   same rule `failureReason` follows: null in every other state, set on the
+ *   way into `empty`. `failed` is something went wrong that a retry might fix;
+ *   `empty` is that nothing was ever there to write — no transcript and no
+ *   typed notes — so the two need their own field rather than one that means
+ *   two different things depending on which state it is read beside.
  * @property {string|null} [recordingSince] The open recording span: when the
  *   current stretch of capture began, or null when nothing is running. Derived
  *   state — a holder that loses it rebuilds it by replaying the log — and the
@@ -223,7 +229,7 @@ export const DEVICE_PLATFORMS = Object.freeze([
  */
 
 /**
- * @typedef {"idle"|"recording"|"paused"|"finalizing"|"complete"|"failed"} MeetingState
+ * @typedef {"idle"|"recording"|"paused"|"finalizing"|"complete"|"failed"|"empty"} MeetingState
  */
 
 /**
@@ -256,15 +262,25 @@ export const DEVICE_PLATFORMS = Object.freeze([
  * `complete` stays terminal, and nothing returns from it: once the note is in
  * the customer's bucket, the note is the meeting and it is edited as a note.
  *
+ * **`finalizing -> empty` is the fourth, added later than the rest.** A session
+ * that reaches finalize with no transcript and no typed notes captured nothing
+ * a note could hold — not a failure, not a draft, nothing to write out. Writing
+ * it anyway is how a refused microphone becomes a permanent empty file in
+ * somebody's bucket, once per attempt. `empty` is terminal like `complete`: the
+ * one way back to a meeting is to record a new one, which `idle -> recording`
+ * already allows. See `hasNothingCaptured` in `session.js`, which is the one
+ * place that decides whether a session qualifies.
+ *
  * @type {Readonly<Record<MeetingState, readonly MeetingState[]>>}
  */
 export const MEETING_TRANSITIONS = Object.freeze({
   idle: ["recording", "finalizing", "failed"],
   recording: ["paused", "finalizing", "failed"],
   paused: ["recording", "finalizing", "failed"],
-  finalizing: ["recording", "complete", "failed"],
+  finalizing: ["recording", "complete", "empty", "failed"],
   complete: [],
   failed: ["recording", "finalizing"],
+  empty: [],
 });
 
 /**
@@ -295,8 +311,18 @@ export const MEETING_TRANSITIONS = Object.freeze({
  *   | {type:"end", at:string}
  *   | {type:"enhanced", markdown:string, templateId:string}
  *   | {type:"written", notePath:string}
- *   | {type:"fail", at:string, reason:string}} MeetingEvent
+ *   | {type:"fail", at:string, reason:string}
+ *   | {type:"empty", at:string, reason:string}} MeetingEvent
  */
+
+/**
+ * The longest reason a session may carry into `empty` or `failed`.
+ *
+ * Both fields exist to be read by a person, on a badge or a note-that-was-not-
+ * written screen — not to carry a stack trace or a storage provider's raw XML.
+ * `WATCH_FLAG_LABEL_MAX` is a wrist's worth of text; this is a sentence's.
+ */
+export const REASON_MAX = 200;
 
 /**
  * The events a client is allowed to send, which is every one above except
@@ -325,8 +351,19 @@ export const CLIENT_EVENT_TYPES = Object.freeze([
   "fail",
 ]);
 
-/** The events only the gateway may emit. See `CLIENT_EVENT_TYPES`. */
-export const GATEWAY_EVENT_TYPES = Object.freeze(["written"]);
+/**
+ * The events only the gateway may emit. See `CLIENT_EVENT_TYPES`.
+ *
+ * `empty` joins `written` here for the same reason: it is the gateway that
+ * holds the transcript and the notes at the moment finalize runs, so it is the
+ * gateway that answers "did this session capture anything" — via
+ * `hasNothingCaptured` — and folds the event itself. A client that could send
+ * `empty` directly could claim a meeting captured nothing when the gateway's
+ * own record disagrees, which is a way to make a real note vanish rather than
+ * one to make an empty one not exist. Clients still *fold* the `empty` a
+ * finalize answers with, the same way they fold `written`.
+ */
+export const GATEWAY_EVENT_TYPES = Object.freeze(["written", "empty"]);
 
 // --- identity --------------------------------------------------------------
 
@@ -528,6 +565,17 @@ export const ROUTES = Object.freeze({
  * @property {MeetingSource} [source]
  * @property {Attendee[]} [attendees]
  * @property {string} [notes]
+ * @property {string} [emptyReason]  Why this device believes nothing was
+ *   captured — "microphone not granted", "no input device" — offered for the
+ *   gateway to use *if* it independently agrees nothing was captured.
+ *
+ *   **A hint, never a trigger.** `hasNothingCaptured` is decided from the
+ *   record the gateway holds — its transcript, its notes — not from this
+ *   string, so a client cannot make a real note vanish by claiming otherwise.
+ *   A finalize with a transcript or typed notes writes a note exactly as
+ *   before, whatever this field says. Absent, or a session that did capture
+ *   something, gets the generic sentence `note.js`'s renderer would have
+ *   written anyway. Capped at `REASON_MAX` and never quoted back on refusal.
  *
  * @typedef {Object} TranscribeChunkBody
  * @property {string} audioBase64  `POST …/transcribe`. One **complete,
@@ -587,6 +635,7 @@ export const ROUTES = Object.freeze({
  * @property {number} segmentCount   The transcript is never in a summary.
  * @property {string|null} notePath
  * @property {string|null} failureReason
+ * @property {string|null} emptyReason
  */
 
 /**
@@ -634,6 +683,10 @@ export const ROUTES = Object.freeze({
  *   doing nothing — which is the whole reason the field exists rather than a
  *   nicety.
  * @property {string} [etag]           Bucket etag of the written note.
+ * @property {string} [emptyReason]    Present exactly when `state` is `empty`
+ *   on this answer: why nothing was written. The gateway's own finding, not an
+ *   echo of `FinalizeBody.emptyReason` — see that field for why the two can
+ *   differ.
  */
 
 /**

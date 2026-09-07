@@ -19,10 +19,12 @@ import type {
   MeetingSource,
 } from "./protocol";
 import { PROTOCOL_VERSION } from "./protocol";
+import { checkFinalizeTimeout } from "./recovery";
 import {
   applyMeetingEvent,
   can,
   elapsedMs,
+  hasNothingCaptured,
   isLive,
   seedProjection,
   transcriptionFor,
@@ -181,6 +183,9 @@ export const PERSIST_DEBOUNCE_MS = 800;
  */
 export const SYNC_THROTTLE_MS = 5_000;
 
+/** Shown when a session captured nothing and the device gave no reason why. */
+export const DEFAULT_EMPTY_REASON = "Nothing was recorded and no notes were typed.";
+
 const NO_CAPTURE: MeetingRecorder["capability"] = {
   audio: false,
   systemAudio: false,
@@ -275,6 +280,63 @@ export class MeetingsController {
       durabilityReason: input.store.durable ? null : NOT_DURABLE_REASON,
       capture: input.recorder.capability,
     });
+
+    /*
+      "On app launch, any `finalizing` session older than the bound is handled
+      the same way" — and opening this feature, on this device, is the closest
+      thing a phone has to a launch: a session that has been `finalizing`
+      since before the app was last quit is read back right here, from the
+      records `loadMeetings` just restored.
+    */
+    this.recoverStaleFinalizes();
+  }
+
+  /**
+   * A session stuck `finalizing` too long is retried once, then failed.
+   *
+   * The glue around `checkFinalizeTimeout` (`@context/meetings/recovery`, the
+   * pure rule) — see its own header for why "retry once, then fail" rather
+   * than either extreme. Called here on `configure()` (the phone's nearest
+   * thing to "on launch") and at the top of `sync()`, so a session that goes
+   * stale while the app stays open is not left until somebody happens to
+   * relaunch it.
+   *
+   * `retrySync` clears `rejection` on the way through both branches: a
+   * *retry* must actually reach the gateway even if a previous attempt at
+   * this same finalize was parked, and a *fail* must reach it too, or the
+   * local `fail` this method just folded sits on the device forever behind a
+   * rejection nothing is asking it to clear.
+   *
+   * This changes local state and persists it, the same as every other event
+   * this controller folds — it does not itself ask for a drain. `sync()`
+   * calls it immediately before reading what is waiting, so a call already in
+   * progress picks up the change in the same pass; a screen watching the
+   * snapshot asks for one the ordinary way, through its own `requestSync()`
+   * effect, the ones already wired for every other local change.
+   */
+  recoverStaleFinalizes(now?: number): void {
+    const config = this.config;
+    if (config === null) return;
+    const at = now ?? config.now?.() ?? Date.now();
+
+    for (const record of this.snapshot.records) {
+      if (record.session.state !== "finalizing") continue;
+      const outcome = checkFinalizeTimeout(record.session, at, { retriedAt: record.retriedAt ?? null });
+      if (outcome.action === "none") continue;
+
+      if (outcome.action === "retry") {
+        this.put(retrySync({ ...record, retriedAt: at }), { immediate: true });
+        continue;
+      }
+
+      this.apply(record.session.id, {
+        type: "fail",
+        at: new Date(at).toISOString(),
+        reason: outcome.reason ?? "finalize did not complete in time",
+      });
+      const failed = this.find(record.session.id);
+      if (failed !== undefined) this.put(retrySync(failed), { immediate: true });
+    }
   }
 
   /**
@@ -428,6 +490,22 @@ export class MeetingsController {
    * double press racing itself — must not leave the microphone open; on iOS
    * that is a red bar across somebody's status bar after they thought they had
    * finished.
+   *
+   * ## A session with nothing in it is never sent to sync
+   *
+   * The owner's own bug report: a refused microphone left four empty notes in
+   * the bucket, one per attempt — "0 min, typed session", no transcript, no
+   * typed notes. `hasNothingCaptured` is checked right here, on the device,
+   * before `sync()` ever gets a chance to ask a gateway to finalize: there is
+   * no request worth making for a session that has nothing in it, on either
+   * writer this app holds (`createConvexGateway` writes nothing for it either,
+   * defensively, in case this check is ever bypassed — see its own header).
+   *
+   * `captureError` is the device-local reason a recorder never got going — a
+   * refused microphone, a device already in use — and it is exactly the fact
+   * `MeetingSession.emptyReason` exists to carry once a meeting has nothing
+   * else in it. Absent, a generic sentence takes its place rather than an
+   * empty string.
    */
   async end(): Promise<void> {
     const config = this.require();
@@ -438,7 +516,18 @@ export class MeetingsController {
 
     const live = this.snapshot.live;
     if (live === null) return;
-    this.apply(live.session.id, { type: "end", at: this.nowIso() });
+    const endedAt = this.nowIso();
+    this.apply(live.session.id, { type: "end", at: endedAt });
+
+    const ended = this.find(live.session.id);
+    if (ended && hasNothingCaptured(ended.session)) {
+      this.apply(live.session.id, {
+        type: "empty",
+        at: endedAt,
+        reason: this.snapshot.captureError ?? DEFAULT_EMPTY_REASON,
+      });
+    }
+
     this.flush(live.session.id);
     await this.sync();
   }
@@ -482,6 +571,57 @@ export class MeetingsController {
     await this.sync();
   }
 
+  /**
+   * Take a meeting recovery gave up on back to `finalizing`, at the person's
+   * own request.
+   *
+   * **The other half of "retry once, then fail".** `recoverStaleFinalizes`
+   * ends at a `failed` session with a reason on the badge, and
+   * `MEETING_TRANSITIONS.failed` has allowed `failed -> finalizing` since a
+   * partial recording had to be writable out — but nothing in this app ever
+   * made that move, and `pendingSteps` only offers a `finalize` for a session
+   * in `finalizing`. So without this method a stuck finalize that timed out
+   * was not "failed until somebody retries", it was **never sent again**: a
+   * phone that lost signal for twenty minutes after a meeting kept the words
+   * somebody typed on the device permanently, behind a badge that said the
+   * meeting had failed and no control that did anything about it.
+   *
+   * `end` is the event, exactly as `end()` folds it: it moves `failed ->
+   * finalizing`, clears `failureReason` on the way through, and restamps
+   * `endedAt` — which is also the clock `checkFinalizeTimeout` reads, so a
+   * retry a person asked for gets its own full window rather than being
+   * failed again on the next tick. `retriedAt` is cleared with it, for the
+   * same reason `queueWrite` clears the desktop's copy: the one retry this
+   * session had spent belongs to the attempt that failed, not to this one.
+   *
+   * **`acked.finalized` is cleared too, and that is the half without which
+   * this method does nothing at all in the case it exists for.** The stuck
+   * meeting the owner reported is a gateway that *accepted* a finalize and
+   * never came back with a path — `sync.ts`'s "finalize accepted but no path
+   * came back" branch — and that acknowledgement is exactly what stops
+   * `pendingSteps` from offering the step again. Asking again is the whole
+   * request being made here, and the protocol is idempotent by construction:
+   * a second finalize on a session the gateway did write answers with the
+   * note it already wrote.
+   */
+  async retryFinalize(meetingId: string): Promise<void> {
+    const record = this.find(meetingId);
+    if (record === undefined || record.session.state !== "failed") return;
+    this.apply(meetingId, { type: "end", at: this.nowIso() });
+    const reopened = this.find(meetingId);
+    if (reopened !== undefined) {
+      this.put(
+        {
+          ...retrySync(reopened),
+          retriedAt: undefined,
+          acked: { ...reopened.acked, finalized: false },
+        },
+        { immediate: true },
+      );
+    }
+    await this.sync();
+  }
+
   /* --------------------------------- sync --------------------------------- */
 
   /**
@@ -513,6 +653,11 @@ export class MeetingsController {
   async sync(): Promise<void> {
     const config = this.config;
     if (config === null || this.snapshot.syncing) return;
+
+    // A session that went stale while the app stayed open, caught on the same
+    // schedule as everything else that reaches the gateway — not only on the
+    // next `configure()`. See `recoverStaleFinalizes`'s own header.
+    this.recoverStaleFinalizes(config.now?.() ?? Date.now());
 
     const waiting = this.snapshot.records.filter(
       (record) => !isSynced(record) && record.rejection === undefined,

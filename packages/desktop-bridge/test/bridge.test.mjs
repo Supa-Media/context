@@ -64,8 +64,9 @@ const refusalFor = (desktop) => inspectDesktopBridge({ desktop }).refusal;
 /**
  * A structurally complete bridge at the *current* version, from plain values.
  *
- * It carries `meetings` and the machine-approval trio because `BRIDGE_VERSION`
- * is 3 and row 3 of the required table asks for both. `version1Bridge` below is
+ * It carries `meetings` and the machine-approval trio because rows 3 and 4 of
+ * the required table both ask for them — version 4 added two payload fields and
+ * no members at all. `version1Bridge` below is
  * the same object with `meetings` removed and `version: 1`, and
  * `version2Bridge` is it without the trio — the two shells somebody has in
  * their Applications folder, both of which this bundle still has to accept.
@@ -399,7 +400,7 @@ export function runBridgeChecks(check) {
     refusalFor(frozenBridge({ meetings: { drain: () => {} } })) === "surface-incomplete",
   );
   check(
-    "A VERSION-2 SHELL IS STILL A BRIDGE, though this bundle is version 3",
+    "A VERSION-2 SHELL IS STILL A BRIDGE, though this bundle is version 4",
     getDesktopBridge({ desktop: version2Bridge() }) !== null &&
       refusalFor(version2Bridge()) === null,
   );
@@ -412,6 +413,14 @@ export function runBridgeChecks(check) {
     refusalFor(
       Object.freeze({ ...version2Bridge(), version: 3 }),
     ) === "surface-incomplete",
+  );
+  check(
+    "A VERSION-3 SHELL IS STILL A BRIDGE — version 4 added fields, not members",
+    getDesktopBridge({ desktop: Object.freeze({ ...bridgeLike(), version: 3 }) }) !== null,
+  );
+  check(
+    "...and this bundle's own version is accepted by its own table",
+    refusalFor(frozenBridge({})) === null && BRIDGE_VERSION === 4,
   );
   check(
     "a version between the floor and the ceiling is still not an integer version",

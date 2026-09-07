@@ -48,6 +48,7 @@
  */
 
 import { isEncryptedNote } from "../encryption.js";
+import { messageSegmentFor } from "./commsIndex.js";
 import { readTermFilter, termFilterMayHold } from "./filter.js";
 import { createSearchBudget, inWaves } from "./maintain.js";
 import { MAX_RESULTS, parseQuery, rankedVisibleTo } from "./query.js";
@@ -502,32 +503,60 @@ async function answerFromIndex(store, options) {
     if (!budget.take()) break;
     wanted.push(hit);
   }
-  const read = await inWaves(wanted, SNIPPET_READ_CONCURRENCY, async ({ path, matchedTerms }) => {
-    try {
-      // The body read is inside the `try` as well as the fetch. A backend can
-      // hand back an object whose stream then fails, and a rejection there is
-      // the same kind of failure as a refused GET: one hit's snippet, never
-      // the whole answer. The sequential loop broke on this, which dropped
-      // every lower-ranked hit for a key the adapter happened to refuse.
-      const object = await store.get(path);
-      if (!object) return null;
-      const text = await object.text();
-      // A hit that turns out to be an encrypted note is dropped, exactly as a
-      // hit whose object has gone is. The index holds no body terms for one —
-      // it is synced with empty content — but a path or title term can still
-      // rank it, and the snippet cut here would be ciphertext. Dropping it
-      // here is what makes "search does not find encrypted notes" true of
-      // every path into this function rather than of the indexer alone.
-      if (isEncryptedNote(text)) return null;
-      return {
-        key: path,
-        title: noteTitle(path, text),
-        snippets: snippetLinesFor(text, matchedTerms),
-      };
-    } catch {
-      return null;
+  const read = await inWaves(
+    wanted,
+    SNIPPET_READ_CONCURRENCY,
+    async ({ path, matchedTerms, notePath, anchor }) => {
+      try {
+        // A channel-day sub-document reads its **containing note**, never a
+        // literal `store.get(path)` — `path` is `<notePath>#<anchor>`, which
+        // names no bucket object. `notePath` is what `isVisible` already ran
+        // on (`rankedVisibleTo`), so re-reading the same path here keeps the
+        // read and the visibility check pointed at the same file.
+        const readPath = typeof notePath === "string" ? notePath : path;
+        // The body read is inside the `try` as well as the fetch. A backend can
+        // hand back an object whose stream then fails, and a rejection there is
+        // the same kind of failure as a refused GET: one hit's snippet, never
+        // the whole answer. The sequential loop broke on this, which dropped
+        // every lower-ranked hit for a key the adapter happened to refuse.
+        const object = await store.get(readPath);
+        if (!object) return null;
+        const text = await object.text();
+        // A hit that turns out to be an encrypted note is dropped, exactly as a
+        // hit whose object has gone is. The index holds no body terms for one —
+        // it is synced with empty content — but a path or title term can still
+        // rank it, and the snippet cut here would be ciphertext. Dropping it
+        // here is what makes "search does not find encrypted notes" true of
+        // every path into this function rather than of the indexer alone —
+        // and, for a channel-day note, before any attempt to split it into
+        // messages: ciphertext holds no `### … {#msg-…}` heading anyway, but
+        // this is the same phase-1 rule checked the same way regardless.
+        if (isEncryptedNote(text)) return null;
+
+        if (typeof anchor !== "string") {
+          return { key: readPath, title: noteTitle(readPath, text), snippets: snippetLinesFor(text, matchedTerms) };
+        }
+
+        // The specific message, re-read from a fresh copy of the note — never
+        // from index data, the same rule an ordinary note's snippet already
+        // follows. `null` is a legitimate race (the day was regenerated
+        // between the index write and this read, and the anchor no longer
+        // exists) and is treated exactly like a hit whose note has gone.
+        const segment = messageSegmentFor(readPath, text, anchor);
+        if (!segment) return null;
+        return {
+          // The deep link: the containing note's path plus the anchor, so a
+          // caller can open exactly the message that matched
+          // (docs/decisions/communications.md, "Search must index messages").
+          key: `${readPath}#${anchor}`,
+          title: segment.title,
+          snippets: snippetLinesFor(segment.snippetText, matchedTerms),
+        };
+      } catch {
+        return null;
+      }
     }
-  });
+  );
   const hits = read.filter(Boolean);
   /*
     THE COUNT MUST NOT COUNT WHAT THE HITS DO NOT SHOW.
@@ -549,17 +578,37 @@ async function answerFromIndex(store, options) {
     implying.** Only the notes inside the page are read, so only the encrypted
     ones inside the page can be subtracted; an encrypted note ranked below the
     limit is still counted, because knowing it is encrypted would mean reading
-    every match — the full-bucket read this whole path exists to avoid. The
+    every match — the full-bucket read this whole path exists to avoid. So the
     count is exact for the common case and still high in the tail, which is the
     same direction `matchCountIsFloor` already documents for the opposite
     reason.
+
+    **`withheld` IS EVERY NULL FROM THE READ WAVE, NOT ONLY THE ENCRYPTED
+    ONES**, and a review had to point that out because the paragraph above
+    reads as though encryption were the only cause. The read answers `null`
+    for three things: an encrypted body, an object that is no longer in the
+    bucket, and any throw — a refused GET, a stream that dies mid-body. All
+    three subtract here, so the count can be **low** as well as high: a
+    transient backend refusal understates the total for that one answer. That
+    is the safe direction for disclosure and the honest one for a count, and it
+    is written down rather than left to be rediscovered. Where the refusal was
+    a whole shard, `matchCountIsFloor` is already true and a lowered floor is
+    still a floor.
   */
   const withheld = read.length - hits.length;
 
   return {
     indexed: true,
     hits,
-    matchCount: Math.max(hits.length, visible.length - withheld),
+    /*
+      `visible.length - withheld` and no floor under it. `Math.max(hits.length,
+      …)` stood here and a review proved it dead: `withheld` is
+      `read.length - hits.length` and `read.length <= visible.length` always, so
+      the left arm can never win. A defensive `max` that cannot fire reads as
+      though a case exists that does not, which is the same kind of false claim
+      as the count it was guarding.
+    */
+    matchCount: visible.length - withheld,
     // The floor is read off the *visible* list and never off `ranked`, and
     // `MAX_RESULTS` is imported rather than mirrored, because a scoring cap
     // retyped here is a rule stated twice with nothing running both.

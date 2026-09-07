@@ -45,9 +45,9 @@
  */
 
 import { buildTermFilter } from "./filter.js";
-import { addDoc, emptyIndex, removeDoc } from "./indexer.js";
+import { addDoc, emptyIndex, readComms, removeDocsForNote, serializeComms } from "./indexer.js";
+import { subDocumentsFor } from "./commsIndex.js";
 import {
-  NOTE_INDEX_CHAR_CAP,
   createSearchBudget,
   defaultIsIndexable,
   exceedsUtf8Bytes,
@@ -719,6 +719,14 @@ export function serializeShard(shard) {
       links: [...doc.links],
       len: { ...doc.len },
       rank: doc.rank,
+      // Absent for the common case (`notePath === path`, `anchor === null`)
+      // would also round-trip correctly via `readDocEntry`'s defaults, but
+      // writing them explicitly means a shard's own bytes say which of its
+      // docs are channel-day sub-documents without cross-referencing `docs`
+      // for a `#` that a real path could theoretically also contain.
+      notePath: doc.notePath ?? path,
+      anchor: doc.anchor ?? null,
+      comms: serializeComms(doc.comms),
     },
   ]);
   const indexByPath = new Map(docs.map(([path], position) => [path, position]));
@@ -749,6 +757,15 @@ function readDocEntry(entry) {
   if (!isPlainObject(doc.len)) return null;
   if (!FIELD_ORDER.every((field) => isFiniteNumber(doc.len[field]))) return null;
   if (!isFiniteNumber(doc.rank)) return null;
+  // `notePath`/`anchor`/`comms` are absent on every shard written before
+  // channel-day sub-documents existed — absent means "an ordinary note",
+  // exactly `addDoc`'s own defaults, so a working index is not rebuilt for no
+  // gain. Present-but-malformed refuses the whole shard, the same strictness
+  // every other field here gets.
+  if (doc.notePath !== undefined && typeof doc.notePath !== "string") return null;
+  if (doc.anchor !== undefined && doc.anchor !== null && typeof doc.anchor !== "string") return null;
+  const { ok: commsOk, comms } = readComms(doc.comms);
+  if (!commsOk) return null;
   return {
     path,
     doc: {
@@ -763,6 +780,9 @@ function readDocEntry(entry) {
         body: doc.len.body,
       },
       rank: doc.rank,
+      notePath: typeof doc.notePath === "string" ? doc.notePath : path,
+      anchor: typeof doc.anchor === "string" ? doc.anchor : null,
+      comms,
     },
   };
 }
@@ -1150,10 +1170,24 @@ function statsOfShard(shard) {
   return { docCount: shard.docs.size, lenTotals };
 }
 
-/** `docsByShard`'s entry for one shard: path → the version token it was indexed at. */
+/**
+ * `docsByShard`'s entry for one shard: note path → the version token it was
+ * indexed at.
+ *
+ * Keyed by **`doc.notePath`, never by the doc's own key** — the diff surface
+ * tracks real bucket notes, one entry per listed object, and a channel-day
+ * note contributes several docs sharing one key. Every sub-document of one
+ * note is written in the same fetch and carries the same `etag`, so any one
+ * of them names the version the whole note was indexed at; `Map.set` on a
+ * repeated key is idempotent for an identical value, so which one "wins" does
+ * not matter.
+ */
 function docVersionsOf(shard) {
   const versions = new Map();
-  for (const [path, doc] of shard.docs) versions.set(path, doc.etag);
+  for (const doc of shard.docs.values()) {
+    const notePath = typeof doc.notePath === "string" ? doc.notePath : null;
+    if (notePath !== null) versions.set(notePath, doc.etag);
+  }
   return versions;
 }
 
@@ -1582,19 +1616,27 @@ export async function syncShardedIndex(
     // the manifest: a shard that failed to parse claims docs it does not hold,
     // and re-fetching only the manifest-stale ones would rebuild it missing
     // every other doc — silently, until each was next edited.
+    //
+    // Compared against `existingVersions` (by **note** path) rather than
+    // `shard.docs.get(path)?.etag` (by doc key): a channel-day note's docs are
+    // keyed `path#anchor`, so `shard.docs.get(path)` for the note's own path
+    // finds nothing even when every one of its sub-documents is current.
+    const existingVersions = docVersionsOf(shard);
     const work = [...stale];
     for (const path of manifest.docsByShard[id].keys()) {
       if (queued.has(path)) continue;
       const listed = entries.get(path);
       if (!listed) continue;
-      const doc = shard.docs.get(path);
-      if (!doc || doc.etag !== listed.version) work.push([path, listed]);
+      if (existingVersions.get(path) !== listed.version) work.push([path, listed]);
     }
 
     let touched = false;
     for (const path of removals) {
-      if (!shard.docs.has(path)) continue;
-      removeDoc(shard, path);
+      // Whether this shard holds anything of this note, by the same
+      // note-path key `existingVersions` uses — never `shard.docs.has(path)`,
+      // which is never true for a channel-day note's own path.
+      if (!existingVersions.has(path)) continue;
+      removeDocsForNote(shard, path);
       removedPaths.add(path);
       touched = true;
     }
@@ -1623,9 +1665,12 @@ export async function syncShardedIndex(
               return null;
             }
             if (!object) return { path, gone: true };
+            // Uncapped: `subDocumentsFor` applies `NOTE_INDEX_CHAR_CAP`
+            // itself, independently per message for a channel-day note
+            // (CONTRACT.md § "Channel-day notes: one sub-document per
+            // message") and once, whole, for an ordinary note — so the cap
+            // must not have already cut the text before either path sees it.
             const full = await object.text();
-            const content =
-              full.length > NOTE_INDEX_CHAR_CAP ? full.slice(0, NOTE_INDEX_CHAR_CAP) : full;
             // Record the token the *next* listing will report, or the diff
             // never converges: where the listing carries a real etag that is
             // this read's etag, and where it does not, the object's real etag
@@ -1635,7 +1680,7 @@ export async function syncShardedIndex(
               listed.fromEtag && typeof object.etag === "string" && object.etag
                 ? object.etag
                 : listed.version;
-            return { path, uploaded: listed.uploaded, content, version };
+            return { path, uploaded: listed.uploaded, full, version };
           })(entry)
         );
       }
@@ -1646,21 +1691,32 @@ export async function syncShardedIndex(
         if (result.gone) {
           // Deleted between the listing and the read. Dropping it is right in a
           // way the removal pass above cannot be: we asked for it by name and
-          // it is not there.
-          if (shard.docs.has(result.path)) removeDoc(shard, result.path);
+          // it is not there. `removeDocsForNote` rather than `removeDoc`: a
+          // channel-day note's own path is never a doc key in this shard.
+          removeDocsForNote(shard, result.path);
           removedPaths.add(result.path);
           touched = true;
           continue;
         }
         touchedPaths.add(result.path);
-        addDoc(shard, result.path, {
-          etag: result.version,
-          uploaded: result.uploaded,
-          content: result.content,
-        });
-        // No `computeRanks`: the link graph is global and v2 never holds every
-        // shard at once. Neutral for every doc, as CONTRACT.md pins.
-        shard.docs.get(result.path).rank = NEUTRAL_RANK;
+        // Replace the note's sub-documents **exactly**: a message edited out
+        // of a regenerated day (or a note that was a channel-day note and no
+        // longer parses as one) must not leave a stale sub-document behind
+        // under an anchor the fresh set does not name.
+        removeDocsForNote(shard, result.path);
+        for (const sub of subDocumentsFor(result.path, result.full)) {
+          addDoc(shard, sub.key, {
+            etag: result.version,
+            uploaded: result.uploaded,
+            content: sub.content,
+            notePath: sub.notePath,
+            anchor: sub.anchor,
+            comms: sub.comms,
+          });
+          // No `computeRanks`: the link graph is global and v2 never holds
+          // every shard at once. Neutral for every doc, as CONTRACT.md pins.
+          shard.docs.get(sub.key).rank = NEUTRAL_RANK;
+        }
         touched = true;
       }
       if (wave.length < Math.min(BACKFILL_CONCURRENCY, work.length - start)) break;
