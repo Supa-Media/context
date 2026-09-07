@@ -232,6 +232,7 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
         endedAtMs: 0,
         durationMs: 0,
         segments: 0,
+        frames: 0,
         pending: 0,
         ...options.summary,
       };

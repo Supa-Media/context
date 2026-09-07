@@ -26,6 +26,7 @@
  *   the engine handed one session id for the life of the app                  2
  *   `queueWrites: false` ignored, so the console path queues twice            1
  *   `onSegment` fired from `#update` rather than once per segment             1
+ *   the frame count dropped, so an empty transcript has no second number      1
  *
  * Three more, run against `src/core/capture/permissions.ts`'s
  * `ensureCapturePermissions` rather than against this file — the owner's
@@ -252,6 +253,56 @@ export async function runControllerChecks(check) {
     check("the indicator is off once the meeting ends", ended.view?.capturing === false);
     check("recordedMs excludes the pause", ended.view?.recordedMs === 1_000);
     check("every view emitted while recording had the indicator on", views.filter((v) => v.state === "recording" && v.transcript.length > 0).every((v) => v.capturing));
+  }
+
+  // -- HOW MUCH AUDIO, SEPARATELY FROM HOW MUCH CAME BACK -------------------
+  //
+  // `RecorderSummary.frames` has been counted since the recorder was written
+  // and was read once, for `recordedMs`, then thrown away. The pair is the
+  // diagnosis and neither number alone is it: `frames: 0` is a microphone that
+  // produced nothing, `frames: 3, segments: 0` is audio the far end would not
+  // take. For a whole day nothing on the device could tell those apart, which
+  // is why finding the SEGMENT_MS/DRAIN_INTERVAL_MS race needed `fetch`
+  // patched by hand in the main process.
+  {
+    /*
+      A transcriber that takes every chunk and answers with nothing — which is
+      exactly what the gateway did to every desktop recording, and the state
+      that was indistinguishable from a dead microphone.
+    */
+    const silent = {
+      id: "cloud",
+      audioLeavesDevice: true,
+      label: "cloud (audio not stored)",
+      async start() {
+        return { push() {}, async finish() {} };
+      },
+    };
+    const { controller, recorder } = harness({ transcriber: silent });
+    await controller.begin({ source, title: "Design review", grantedEpisode: "e" });
+    check("a meeting starts having produced no audio", controller.view()?.frames === 0);
+
+    recorder.step(20_000, "mic");
+    recorder.step(20_000, "mic");
+    check(
+      "FRAMES ARE COUNTED WHILE THE MEETING RUNS, not only once it has ended",
+      controller.view()?.frames === 2,
+    );
+    check(
+      "...and are not the transcript, which is what makes the pair worth having",
+      (controller.view()?.transcript.length ?? -1) === 0,
+    );
+
+    const ended = await endQuietly(controller);
+    check("...and the recorder's own count is what the finished meeting reports", ended.view?.frames === 2);
+  }
+
+  // -- a typed meeting produced no audio, and says so ------------------------
+  {
+    const { controller } = harness();
+    await controller.begin({ source, title: "Typed", grantedEpisode: "e", channels: [] });
+    const ended = await endQuietly(controller);
+    check("a meeting that opened no microphone reports no frames", ended.view?.frames === 0);
   }
 
   // -- the session row goes out before anything references it ---------------

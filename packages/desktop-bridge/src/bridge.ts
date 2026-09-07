@@ -157,16 +157,40 @@ const REQUIRED_MEMBERS: Readonly<Record<number, readonly string[]>> = Object.fre
   */
   3: VERSION_1_MEMBERS,
   /*
-    Version 4 adds `imessage`, another sub-object, so this row is unchanged
-    again — the same reason version 2's and 3's rows are.
+    Version 4 adds no members at all: `CaptureStateUpdate.notice` and
+    `CaptureSummary.frames` are fields on payloads that already cross, and a
+    shell that does not send them is read as `null` and `0` by the normalisers
+    in `core/shell/bridge.ts`. The row exists because the *number* moved — the
+    ceiling records what a shell can be asked to say, and "this build cannot
+    tell you why it stopped transcribing" is a fact worth being able to read —
+    and it is version 1's list unchanged for the third time.
   */
   4: VERSION_1_MEMBERS,
+  /*
+    Version 5 adds `imessage`, another sub-object, so this row is unchanged
+    again — the same reason every earlier row is.
+  */
+  5: VERSION_1_MEMBERS,
 });
 
 /** The sub-objects, and the methods each must carry, per version. */
 const VERSION_1_SUB_MEMBERS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   connection: Object.freeze(["get", "connect", "disconnect", "onChange"]),
   outbox: Object.freeze(["status", "drain", "onChange"]),
+});
+
+const VERSION_3_SUB_MEMBERS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  ...VERSION_1_SUB_MEMBERS,
+  connection: Object.freeze([
+    "get",
+    "connect",
+    "disconnect",
+    "onChange",
+    "pendingApproval",
+    "onPendingApproval",
+    "resolveApproval",
+  ]),
+  meetings: Object.freeze(["write"]),
 });
 
 const REQUIRED_SUB_MEMBERS: Readonly<
@@ -189,36 +213,22 @@ const REQUIRED_SUB_MEMBERS: Readonly<
     `pendingApproval`, and is doing nothing wrong — the page simply never
     offers to mint the grant on it and that shell keeps showing the screen.
   */
-  3: Object.freeze({
-    ...VERSION_1_SUB_MEMBERS,
-    connection: Object.freeze([
-      "get",
-      "connect",
-      "disconnect",
-      "onChange",
-      "pendingApproval",
-      "onPendingApproval",
-      "resolveApproval",
-    ]),
-    meetings: Object.freeze(["write"]),
-  }),
+  3: VERSION_3_SUB_MEMBERS,
   /*
-    Version 4 adds `imessage`. Rows 1-3 are untouched, for the same reason
+    Version 4 adds two payload *fields* and no members, so this row is version
+    3's — written as a reference to the same frozen object rather than retyped,
+    which is `VERSION_1_MEMBERS`' reason one table down: two rows that really
+    are the same list must not be a place for them to drift apart one member at
+    a time.
+  */
+  4: VERSION_3_SUB_MEMBERS,
+  /*
+    Version 5 adds `imessage`. Rows 1-4 are untouched, for the same reason
     every earlier row is: a shell that shipped before this existed answers
     that earlier version and is checked against the list that was true then.
   */
-  4: Object.freeze({
-    ...VERSION_1_SUB_MEMBERS,
-    connection: Object.freeze([
-      "get",
-      "connect",
-      "disconnect",
-      "onChange",
-      "pendingApproval",
-      "onPendingApproval",
-      "resolveApproval",
-    ]),
-    meetings: Object.freeze(["write"]),
+  5: Object.freeze({
+    ...VERSION_3_SUB_MEMBERS,
     imessage: Object.freeze(["status", "setEnabled", "onChange"]),
   }),
 });

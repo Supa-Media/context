@@ -78,6 +78,8 @@ const { meetingKey } =
   require("../features/meetings/keys") as typeof import("../features/meetings/keys");
 const { MEETING_RECORD_VERSION, emptyAck } =
   require("../features/meetings/record") as typeof import("../features/meetings/record");
+const { FINALIZE_TIMEOUT_MS } =
+  require("../features/meetings/recovery") as typeof import("../features/meetings/recovery");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 /* -------------------------------------------------------------------------- */
@@ -397,6 +399,40 @@ describe("the live screen is a notepad with a recorder attached", () => {
     mounted.unmount();
   });
 
+  /**
+   * THE SENTENCE THAT SAYS THE TRANSCRIPT HAS STOPPED IS ON THE GLASS.
+   *
+   * The last link in the chain the desktop bridge's `notice` field opened. The
+   * shell raises `CAPTURE_NOTICES.refused` — "this meeting is not being
+   * transcribed" — `desktop.ts` reports it as a recorder error, the controller
+   * puts it on `captureError`, and *this* is where somebody actually reads it.
+   * A field nothing displayed would repeat the original defect one layer up:
+   * for a whole day the only place an empty transcript announced itself was the
+   * empty transcript.
+   *
+   * The chip outranks "Listening", which is the point — a meeting that is not
+   * being transcribed must not go on claiming that it is.
+   */
+  test("a notice from the recorder replaces the transcript chip", async () => {
+    const { recorder } = await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Reboot Camp" });
+    });
+    const mounted = mount(createElement(LiveMeetingScreen, { meetingId: id }));
+    expect(mounted.container.textContent).toContain("Listening");
+
+    const refused =
+      "This meeting is not being transcribed — the gateway would not accept the audio. Your notes and the meeting still land in your bucket.";
+    act(() => {
+      (recorder as ReturnType<typeof fakeRecorder>).fail({ recoverable: false, message: refused });
+    });
+
+    expect(mounted.container.textContent).toContain("not being transcribed");
+    expect(mounted.container.textContent).not.toContain("Listening");
+    mounted.unmount();
+  });
+
   test("End does not navigate — the same route becomes the note", async () => {
     await configure();
     let id = "";
@@ -602,6 +638,73 @@ describe("`saved` is said only when there is a path to print", () => {
     mounted.unmount();
   });
 
+  /*
+    A session that captured nothing is not "not saved yet" — nothing is coming.
+    `session.notePath === null` is true of both, and this is the check that
+    keeps the false promise ("sent as soon as your context answers") off a
+    meeting that will never be sent.
+  */
+  test("a session that captured nothing says so, and offers a way to try again", async () => {
+    await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Refused microphone" });
+      await meetings.end();
+    });
+
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(mounted.container.textContent).not.toContain("Saved to your bucket");
+    expect(mounted.container.textContent).not.toContain("Not in your bucket yet");
+    expect(mounted.container.textContent).toContain("Nothing was captured");
+    expect(mounted.container.textContent).toContain("Record again");
+    mounted.unmount();
+  });
+
+  /*
+    Nor is a `failed` session "not saved yet", and it is the sharper case of
+    the two: recovery's own `fail` is what puts a meeting there, and nothing
+    queues a finalize for a session that is not `finalizing`. So the screen
+    that told somebody it would be "sent as soon as your context answers" was
+    promising a send no code path was going to make.
+  */
+  test("a meeting recovery gave up on says it was not filed, and offers Retry", async () => {
+    const gateway = fakeGateway();
+    gateway.offlineFor(50);
+    await act(async () => {
+      meetings.reset();
+      await meetings.configure({
+        workspaceId: "ws-gave-up",
+        store: memoryStore(),
+        gateway,
+        recorder: fakeRecorder(),
+        device: { platform: "web" },
+        persistDebounceMs: 0,
+      });
+    });
+
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Stuck, then given up on" });
+      meetings.setNotes(id, "typed while the gateway was quiet");
+      await meetings.end();
+    });
+    await act(async () => {
+      // Retried once, then failed — the pure rule, driven with an explicit
+      // clock rather than a wait.
+      meetings.recoverStaleFinalizes(Date.now() + FINALIZE_TIMEOUT_MS);
+      meetings.recoverStaleFinalizes(Date.now() + FINALIZE_TIMEOUT_MS * 3);
+    });
+
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(mounted.container.textContent).not.toContain("Not in your bucket yet");
+    expect(mounted.container.textContent).not.toContain("Saved to your bucket");
+    expect(mounted.container.textContent).toContain("Not filed");
+    expect(mounted.container.textContent).toContain("Retry");
+    // And the words are still on the screen, which is what the Retry is for.
+    expect(mounted.container.textContent).toContain("typed while the gateway was quiet");
+    mounted.unmount();
+  });
+
   test("a folder the context would not file into is said on the screen, not swallowed", async () => {
     /*
       `IngestAck.folderRejected` and the sentence it is for. The gateway falls
@@ -626,6 +729,7 @@ describe("`saved` is said only when there is a path to print", () => {
           label: "2-areas/private",
         },
       });
+      meetings.setNotes(id, "camp notes");
       await meetings.end();
     });
 
@@ -668,6 +772,7 @@ describe("`saved` is said only when there is a path to print", () => {
           label: "1-projects/portal",
         },
       });
+      meetings.setNotes(id, "camp notes");
       await meetings.end();
     });
 

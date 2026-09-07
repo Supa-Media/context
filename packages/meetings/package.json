@@ -12,7 +12,9 @@
     "./paths": "./src/paths.js",
     "./detect": "./src/detect.js",
     "./recorder": "./src/recorder.js",
-    "./chunks": "./src/chunks.js"
+    "./chunks": "./src/chunks.js",
+    "./session": "./src/session.js",
+    "./recovery": "./src/recovery.js"
   },
   "scripts": {
     "test": "node test/test.mjs",

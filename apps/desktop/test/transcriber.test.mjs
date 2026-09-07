@@ -21,6 +21,9 @@
  *
  *   the in-flight bound removed (a backlog with no ceiling, no notice)         4
  *   a permanent refusal treated as recoverable                                 4
+ *   a `notYet` refusal believed on the first answer (the shipped defect)       5
+ *   the `notYet` deadline removed entirely (audio uploaded all meeting)        2
+ *   the deadline not reset by a success (one blip an hour in ends a meeting)   1
  *   segment ids taken from the answer instead of derived                       1
  *   the channel taken from the answer instead of stamped by the machine        1
  *   `base64` dropping the padding                                              2
@@ -228,6 +231,97 @@ export async function runTranscriberChecks(check) {
     check("...and is said exactly once", notices.length === 1);
     check("...as 'nothing more will be transcribed'", notices[0]?.recoverable === false);
     check("...in one of its own sentences, never the server's", notices[0]?.message === CAPTURE_NOTICES.refused);
+  }
+
+  // -- "I do not know that" is put on a clock, not believed at once ---------
+  //
+  // The session row and the audio are two different requests. Between the first
+  // chunk leaving and the row landing, the gateway honestly does not know this
+  // meeting — and believing that answer once threw away every remaining chunk,
+  // which is what made every desktop recording produce an empty transcript.
+  {
+    const notices = [];
+    let sends = 0;
+    let at = 1_000;
+    const stream = await gatewayTranscriber({
+      notYetGraceMs: 60_000,
+      now: () => at,
+      send: async () => {
+        sends += 1;
+        if (sends < 3) throw new TranscribeRefused("the gateway refused a chunk (404)", false, true);
+        return said("the row landed");
+      },
+    }).start({
+      sessionId: SESSION,
+      sampleRate: 16_000,
+      onSegment: () => {},
+      onNotice: (notice) => notices.push(notice),
+    });
+    for (let i = 0; i < 3; i += 1) {
+      stream.push(frame({ atMs: i * 20_000 }));
+      await stream.finish();
+      at += 20_000;
+    }
+    check("A 404 DOES NOT END THE MEETING", sends === 3);
+    check("...it is reported as one that might not happen again", notices.every((notice) => notice.recoverable));
+    check("...never as 'nothing more will be transcribed'", !notices.some((n) => n.message === CAPTURE_NOTICES.refused));
+  }
+
+  // -- and one unlucky 404 in a healthy meeting costs nothing at all --------
+  //
+  // The deadline measures an *unbroken* run, so a single blip an hour into a
+  // meeting starts a fresh clock rather than continuing one from the start.
+  {
+    let sends = 0;
+    let at = 0;
+    const stream = await gatewayTranscriber({
+      notYetGraceMs: 60_000,
+      now: () => at,
+      send: async () => {
+        sends += 1;
+        if (sends === 1 || sends === 5) throw new TranscribeRefused("(404)", false, true);
+        return said("still here");
+      },
+    }).start({ sessionId: SESSION, sampleRate: 16_000, onSegment: () => {} });
+    // Two hours of meeting, one 404 at the start and one in the middle.
+    for (let i = 0; i < 9; i += 1) {
+      stream.push(frame({ atMs: i * 20_000 }));
+      await stream.finish();
+      at += 600_000;
+    }
+    check("AN INTERMITTENT 404 NEVER ACCUMULATES TOWARD THE DEADLINE", sends === 9);
+  }
+
+  // -- but the deadline is real, because "never" is a real state ------------
+  {
+    const notices = [];
+    let sends = 0;
+    let at = 0;
+    const stream = await gatewayTranscriber({
+      notYetGraceMs: 60_000,
+      now: () => at,
+      send: async () => {
+        sends += 1;
+        throw new TranscribeRefused("the gateway refused a chunk (404)", false, true);
+      },
+    }).start({
+      sessionId: SESSION,
+      sampleRate: 16_000,
+      onSegment: () => {},
+      onNotice: (notice) => notices.push(notice),
+    });
+    for (let i = 0; i < 8; i += 1) {
+      stream.push(frame({ atMs: i * 20_000 }));
+      await stream.finish();
+      at += 20_000;
+    }
+    check(
+      "a meeting the gateway will never know stops the sending, rather than uploading audio all meeting",
+      sends === 4,
+    );
+    check("...after two full drain periods and not before", at >= 60_000);
+    check("...and says so once it has stopped", notices[notices.length - 1]?.message === CAPTURE_NOTICES.refused);
+    check("...as 'nothing more will be transcribed'", notices[notices.length - 1]?.recoverable === false);
   }
 
   // -- nothing is sent for nothing ------------------------------------------
