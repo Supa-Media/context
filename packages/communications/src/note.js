@@ -522,11 +522,28 @@ export function parseChannelDayNote(text) {
 /** `## Thread — ` in a rendered note, standing alone so both readers agree with the renderer. */
 const THREAD_HEADING_PREFIX = "## Thread — ";
 
-/** The line `renderMessage` puts before every attachment list. */
-const ATTACHMENTS_LABEL = "**Attachments** (not stored):";
+/**
+ * Attachment headings this reader understands.
+ *
+ * The renderer now labels the list once and marks only the individual rows it
+ * could not store. Keep the earlier blanket label readable because existing
+ * channel-day notes are canonical files in customer-owned buckets and are not
+ * rewritten merely because the renderer improved.
+ */
+const ATTACHMENTS_LABELS = new Set([
+  "**Attachments**:",
+  "**Attachments** (not stored):",
+]);
 
-/** One `- filename — type, N bytes` line, read back into its three fields. */
-const ATTACHMENT_LINE = /^-\s(.*)\s—\s(\S+),\s(.*)$/;
+/** One rendered attachment row, with either a wikilink or a plain filename. */
+const ATTACHMENT_LINE = /^-\s(.*)\s—\s(\S+),\s(.*?)(?:\s+\(not stored\))?$/;
+
+/** Drop only the renderer-owned wikilink shell; never return its storage path. */
+function attachmentFilename(rendered) {
+  if (!rendered.startsWith("[[") || !rendered.endsWith("]]")) return rendered;
+  const divider = rendered.indexOf("|");
+  return divider === -1 ? rendered : rendered.slice(divider + 1, -2);
+}
 
 /**
  * Read a channel-day note back **with the message bodies**, for a reader that
@@ -648,13 +665,19 @@ export function parseChannelDayMessages(text) {
       bodyLines.push(line);
       continue;
     }
-    if (line.trim() === ATTACHMENTS_LABEL) {
+    if (ATTACHMENTS_LABELS.has(line.trim())) {
       inAttachments = true;
       continue;
     }
     if (inAttachments) {
       const match = ATTACHMENT_LINE.exec(line);
-      if (match) current.attachments.push({ filename: match[1], contentType: match[2], size: match[3] });
+      if (match) {
+        current.attachments.push({
+          filename: attachmentFilename(match[1]),
+          contentType: match[2],
+          size: match[3],
+        });
+      }
       continue;
     }
   }
