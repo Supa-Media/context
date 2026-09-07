@@ -61,14 +61,24 @@ export function toneForKind(context: ConsoleContext): DotTone {
 /**
  * The contexts, in the order the strip draws them.
  *
- * **Current first, then most recently visited, and never alphabetical.** The
- * first pill answers "where am I" without anybody scrolling, which is the one
- * question a navigation surface on a phone has to answer for free; and the
- * order behind it is the order somebody is actually moving in, so the context
- * they are about to want is the next one along rather than wherever its name
- * falls in the alphabet. An alphabetical strip is stable and useless: it puts
- * `@acme` in front of the two contexts somebody has been alternating between
- * all morning, forever.
+ * **The context you are in is not among them.** It is the button at the head of
+ * the breadcrumb — see `NavBand` — so this row is the contexts you can switch
+ * *to*, and nothing on it is lit. That is the whole shape the owner asked for:
+ * "when I'm on a workspace, the button for that workspace should move to the
+ * breadcrumb… so I'm still able to get to the root". Two rows that each named
+ * the current context was the defect; drawing it in neither would have been
+ * worse, and was shipped once.
+ *
+ * **Most recently visited first, and never alphabetical.** The order is the
+ * order somebody is actually moving in, so the context they are about to want
+ * is the next one along rather than wherever its name falls in the alphabet. An
+ * alphabetical strip is stable and useless: it puts `@acme` in front of the two
+ * contexts somebody has been alternating between all morning, forever.
+ *
+ * (This used to read "current first, then most recently visited", on the
+ * argument that the first pill answers "where am I" for free. That question is
+ * answered better by the breadcrumb button, which also answers "how do I get
+ * back to the root of it" — which the lit pill never did.)
  *
  * A context this device has never recorded a visit to sorts **after** every one
  * it has, keeping the order the control plane sent among themselves — the same
@@ -92,7 +102,7 @@ export function stripOrder(
     if (!rank.has(entry.slug)) rank.set(entry.slug, index);
   });
 
-  const current = contexts.filter((context) => context.slug === currentSlug);
+  // The current context is drawn in the breadcrumb, not here. See the header.
   const rest = contexts.filter((context) => context.slug !== currentSlug);
   /*
     Two passes rather than one comparator with a sentinel rank. A sentinel —
@@ -107,7 +117,7 @@ export function stripOrder(
     .sort((a, b) => rank.get(a.slug)! - rank.get(b.slug)!);
   const unvisited = rest.filter((context) => !rank.has(context.slug));
 
-  return [...current, ...visited, ...unvisited];
+  return [...visited, ...unvisited];
 }
 
 /** The two verbs that live at the end of the strip. See `stripEntries`. */
@@ -121,10 +131,10 @@ export interface StripEnds {
 /**
  * Whether the strip is drawn at all.
  *
- * **A row of one is a control that cannot do anything**, so it is not drawn: a
- * single pill saying the name of the context you are looking at is a label
- * wearing a button's clothes, and it costs the 34pt band that the note could
- * have.
+ * **An empty row is a band of chrome that does nothing**, so it is not drawn.
+ * Now that the current context has moved to the breadcrumb, somebody with one
+ * brain and no workspaces has *nothing* to switch to — and their name is on the
+ * screen anyway, at the head of the path. The 34pt band goes back to the note.
  *
  * The count is of *things on the strip*, not of contexts, and that distinction
  * is load-bearing rather than pedantic. "New workspace" and "Claim your @name"
@@ -136,6 +146,11 @@ export interface StripEnds {
  * one context and something to reach still gets a strip, and somebody with one
  * context and nothing to reach — the landing page's picture of the console,
  * where every callback is absent — gets none.
+ *
+ * **The threshold moved from `> 1` to `> 0` with the current context.** It was
+ * one because the row always held the pill for where you are, which is a label
+ * rather than a control; there is no such pill any more, so every entry left is
+ * somewhere you can actually go.
  */
 export function stripEntries(
   contexts: readonly ConsoleContext[],
@@ -145,5 +160,5 @@ export function stripEntries(
 ): ConsoleContext[] | null {
   const ordered = stripOrder(contexts, currentSlug, recent);
   const total = ordered.length + (ends.claim ? 1 : 0) + (ends.create ? 1 : 0);
-  return total > 1 ? ordered : null;
+  return total > 0 ? ordered : null;
 }

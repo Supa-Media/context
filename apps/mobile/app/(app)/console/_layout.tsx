@@ -49,7 +49,7 @@ import { dirtyCount, isTabDirty } from "../../../features/console/files/tabs";
 import { isDirty } from "../../../features/console/files/editor";
 import { useUnsavedGuard } from "../../../features/console/files/useUnsavedGuard";
 import { atName } from "../../../features/console/format";
-import { ContextStrip } from "../../../features/console/ContextStrip";
+import { ContextStrip, CurrentContextPill } from "../../../features/console/ContextStrip";
 import { NavBandProvider } from "../../../features/console/NavBand";
 import { useContextHref, useContextPlaces } from "../../../features/console/useLastPlace";
 import { useMeetingFlow } from "../../../features/meetings/useMeetingFlow";
@@ -636,8 +636,35 @@ export default function ConsoleLayout() {
           the other does not have.
         */}
         <NavBandProvider
-          node={
-            phone ? (
+          nodes={{
+            /*
+              The context you are IN, at the head of the breadcrumb — the way up
+              to its root, and the long-press route to its settings. Absent
+              outside a context (the app-level panes), where there is no root to
+              open and nothing to name.
+            */
+            current:
+              phone && current !== null ? (
+                <CurrentContextPill
+                  context={current}
+                  /*
+                    The root, and never `contextHrefFrom`. That resolves to the
+                    place this device last had open in the context — which, for
+                    the context you are standing in, is where you already are.
+                    This is the press that takes somebody up from a top-level
+                    folder, so it is the root by construction.
+                  */
+                  onOpenRoot={() => router.replace(browseHref(current.slug))}
+                  onSelect={(next) => {
+                    if (!sameRoute(next, route)) router.replace(hrefFor(next));
+                  }}
+                  onLeaveContext={(id) => {
+                    void data.leaveContext?.(id);
+                    router.replace("/console");
+                  }}
+                />
+              ) : null,
+            contexts: phone ? (
               <ContextStrip
                 contexts={data.contexts}
                 currentSlug={current?.slug ?? null}
@@ -654,20 +681,11 @@ export default function ConsoleLayout() {
                   the slug is no longer reachable, or when the path does not
                   resolve.
 
-                  **The context you are already in is the exception, and it is
-                  the way up.** Its pill used to resolve to the place this
-                  device last had open there, which is where you are standing —
-                  the one press on the strip that did nothing you could see.
-                  The path line below it no longer carries a context segment
-                  (`Breadcrumb.pathOnly`, and `NavBand` for why), so this is
-                  what takes somebody from a top-level folder back to the root
-                  of their own context.
+                  Every pill here is a context you are **not** in — the current
+                  one is `CurrentContextPill` above — so there is no case where
+                  this resolves to where somebody already is.
                 */
-                onOpen={(slug) =>
-                  router.replace(
-                    slug === current?.slug ? browseHref(slug) : contextHrefFrom(slug),
-                  )
-                }
+                onOpen={(slug) => router.replace(contextHrefFrom(slug))}
                 onSelect={(next) => {
                   if (!sameRoute(next, route)) router.replace(hrefFor(next));
                 }}
@@ -680,8 +698,8 @@ export default function ConsoleLayout() {
                   data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE)
                 }
               />
-            ) : null
-          }
+            ) : null,
+          }}
         >
           <EditorRegion
             browse={browsing}

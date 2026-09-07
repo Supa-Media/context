@@ -277,6 +277,99 @@ export function ContextStrip({
 }
 
 /**
+ * The context you are in, at the head of the breadcrumb.
+ *
+ * ## Why it is here and not on the strip
+ *
+ * It was on the strip, lit and first, and the path line under it named the same
+ * context again — `@seyi` twice in consecutive rows on a 390pt screen. The fix
+ * shipped once as "drop the segment from the path", which removed the
+ * duplication and the **way up** with it: a top-level folder has no ancestors,
+ * so the path bar had nothing on it at all and there was no route back to the
+ * root of your own context. That is the defect this replaces, and the owner's
+ * own description of the shape is the specification:
+ *
+ * > when I'm on a workspace, the button for that workspace should essentially
+ * > move to the breadcrumb… that workspace button removes from the workspace
+ * > column, but is put in the breadcrumbs column. So I'm still able to get to
+ * > the root.
+ *
+ * So the strip is the contexts you can switch **to** (`stripOrder` drops the
+ * current one), and this is where you are, drawn as the same pill, at the head
+ * of the path it is the root of. One context, one place, and the press does
+ * something: it opens the context's root.
+ *
+ * ## The long-press menu came with it, and that is not a nicety
+ *
+ * Settings for a context is reached on a phone through this menu and nowhere
+ * else — `contextMenu.ts`'s Settings row, held by `routeReachability`. Moving
+ * the pill off the strip without its menu would have taken
+ * `/console/[slug]/settings` off the phone entirely, which is the class of
+ * regression the reachability registry exists for. Same menu, same rules about
+ * when Leave is offered, anchored to this row for the reason the strip anchors
+ * its own: a dropdown inside a horizontal scroller is clipped by it.
+ */
+export function CurrentContextPill({
+  context,
+  onOpenRoot,
+  onSelect,
+  onLeaveContext,
+}: {
+  /** The context being read. Never `null` here — the caller omits the pill. */
+  context: ConsoleContext;
+  /** Open this context at its root. The way up, and the reason for the press. */
+  onOpenRoot: () => void;
+  /** A destination chosen from the long-press menu. */
+  onSelect: (route: ConsoleRoute) => void;
+  onLeaveContext?: (contextId: string) => void;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  return (
+    <View style={styles.currentAnchor} testID="nav-current-context">
+      <Pill
+        label={atName(context.slug)}
+        /*
+          It says where you are AND what pressing it does, because those are two
+          facts and the pill's text carries one. "the context you are in" alone
+          was true on the strip, where the press went nowhere somebody could
+          see; here it opens the root and a screen reader has to be told that.
+        */
+        accessibilityLabel={`${atName(context.slug)}, the context you are in — open its root`}
+        current
+        leading={<Dot tone={toneForKind(context)} />}
+        onPress={onOpenRoot}
+        onLongPress={() => setMenuOpen(true)}
+        testID={`nav-context-${context.slug}`}
+      />
+      {menuOpen ? (
+        <ContextRowMenu
+          slug={context.slug}
+          // The role, not a position: every workspace is "shared" and some are
+          // yours, so a section-derived answer offers Leave on one you own and
+          // the press comes back `OWNER_CANNOT_LEAVE`. Same rule as the strip's.
+          canLeave={context.role !== "owner"}
+          onSelect={(target) => {
+            setMenuOpen(false);
+            onSelect(target);
+          }}
+          onLeave={
+            onLeaveContext
+              ? () => {
+                  setMenuOpen(false);
+                  onLeaveContext(context.id);
+                }
+              : undefined
+          }
+          onDismiss={() => setMenuOpen(false)}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+/**
  * One pill.
  *
  * `flexShrink: 0` is the rule rather than the styling: a flex child in a row
@@ -284,8 +377,15 @@ export function ContextStrip({
  * width instead of overflowing it — every name ellipsised, nothing scrolling,
  * and the more contexts somebody has the less legible all of them get. The
  * scroller is what absorbs the width.
+ *
+ * **Exported, because the breadcrumb draws one too.** The context you are in is
+ * the button at the head of the path (`CurrentContextPill` below), and it has to
+ * be the same object as the ones on the strip — same height, same radius, same
+ * dot, same target — or the two rows read as two unrelated controls. One pill in
+ * the app; a second implementation is how the strip and the breadcrumb come to
+ * disagree about what a context looks like.
  */
-function Pill({
+export function Pill({
   label,
   accessibilityLabel,
   current = false,
@@ -390,6 +490,17 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     justifyContent: "center",
     position: "relative",
   },
+  /**
+   * `CurrentContextPill`'s root, and `position: relative` is the whole of it.
+   *
+   * `ContextRowMenu` positions itself absolutely, so it needs a positioned
+   * ancestor or it escapes to the nearest one — which, in the navigation band,
+   * is the horizontal scroller the pill sits inside, and a dropdown inside that
+   * is clipped by it. `flexShrink: 0` for the pills' own reason: this sits in a
+   * scrolling row beside the path segments and must not compress when the path
+   * is long.
+   */
+  currentAnchor: { position: "relative", flexShrink: 0 },
   scroll: { flexGrow: 0 },
   /** Tighter than `space.x2`: the gap is the other half of "more of them fit". */
   row: {
