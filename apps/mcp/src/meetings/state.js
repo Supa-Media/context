@@ -104,6 +104,31 @@ export const LIMITS = Object.freeze({
   /** Records read to answer one recent-sessions listing. */
   listScan: 200,
   listLimit: 50,
+  /**
+   * The audio one transcription request may carry, as base64 characters.
+   *
+   * A twenty-second Opus chunk is around a hundred kilobytes; this is roughly a
+   * megabyte decoded, which is generous for one chunk and small enough that a
+   * body cannot exhaust the isolate. Counted in characters, before anything is
+   * decoded, because that is the check that can run without walking an
+   * unbounded string.
+   */
+  transcribeAudioChars: 1_400_000,
+  /** The whole body: the audio plus the small JSON around it. */
+  transcribeBodyChars: 1_404_096,
+  /** The longest single chunk. Five minutes is far past any recorder's clock. */
+  transcribeChunkMs: 300_000,
+  /**
+   * How much audio one meeting may buy transcription for.
+   *
+   * At one chunk every twenty seconds this is over twelve hours of continuous
+   * speech — past any meeting anybody has — and the point is that it bounds a
+   * client in a loop rather than somebody's day. It is the only real ceiling on
+   * inference this Worker can have: it holds no database, so the count lives in
+   * the session record in the customer's own bucket, under the same conditional
+   * write as everything else about a session.
+   */
+  transcribeChunksPerSession: 2_200,
 });
 
 /**
