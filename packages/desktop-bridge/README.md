@@ -34,6 +34,19 @@ process, where every request that carries it is made. `getDesktopBridge()`
 *refuses* a bridge carrying a credential-shaped member, so this is a check that
 runs on every page load rather than a sentence somebody read once.
 
+That refusal is a check on **names** — own and inherited keys of the bridge and
+of the sub-objects the contract declares — and its limit is stated here rather
+than discovered: a Proxy that hides the key from `ownKeys` and serves it from
+`get`, a member with an innocent name that returns a credential on its second
+call, and anything nested deeper than one level all get past it. None of those
+is a hole in the product, because **a hostile main process is not the threat
+model**: whoever can plant such a bridge already owns the window, the preload
+and the credential. The boundary that matters runs the other way and lives
+where the page cannot reach it — `shouldExposeBridge` in the shell and the main
+process re-checking the sender on every channel. What the refusal buys is that
+*our own* shell cannot grow a `getToken` and have it noticed in a review
+somebody skimmed. The three limits are pinned as checks in `test/bridge.test.mjs`.
+
 **`version` gates the shape; `capabilities()` gates the feature.** A web bundle
 published today lands on a shell somebody installed in March, and no version
 number could have predicted whether macOS hands *that* build a loopback tap — an

@@ -125,6 +125,23 @@ three words and a base URL; it calls `connection.connect()` and the browser
 opens; a token is never a value the page can hold. That is the same rule as
 non-negotiable #1 one layer in: decrypted only where the request is made.
 
+`getDesktopBridge()` turns that sentence into a check that runs on every page
+load: a bridge carrying a credential-shaped member is refused outright and the
+page behaves as a browser. **What that check is, stated so nobody mistakes it
+for something larger**: it reads *names* — own and inherited keys of the bridge
+and of the sub-objects the contract declares — so a Proxy that hides the key
+from `ownKeys` and serves it from `get`, an innocently named member that returns
+a credential on its second call, and anything nested more than one level deep
+all get past it. That is not a hole, because **a hostile main process is not the
+threat model**: whoever can plant such a bridge already owns the window, the
+preload and the token. The guards that face an attacker are the three below —
+`shouldExposeBridge`, the navigation refusal, and the per-channel sender check —
+and they run where the page cannot reach them. The name check exists so that
+*our own* shell cannot grow a `getToken` and have it noticed only in a review
+somebody skimmed. Its three limits are pinned as checks in
+`packages/desktop-bridge/test/bridge.test.mjs`, asserted as accepted, because a
+limit nobody wrote down is a limit somebody later mistakes for a guard.
+
 The two credentials coexist without either standing in for the other: the
 Convex session in the shell's `persist:console` partition is what makes the
 console *a console* — the file browser, the search page, the note editor all

@@ -40,6 +40,37 @@
  *    this bundle refuses to talk to, which turns that sentence into a check
  *    that runs on every load rather than a comment somebody reads once.
  *
+ * ## What the credential refusal is, and what it is not
+ *
+ * It is a check on **names**: every own and inherited key of the bridge and of
+ * the sub-objects this contract declares (`connection`, `outbox`), matched as
+ * case-insensitive substrings, whether the member is a data property, a getter,
+ * or non-enumerable. That is exactly enough for the thing it exists to catch —
+ * *our own shell growing a `getToken`* — and it catches it on the next page
+ * load in every browser running the bundle rather than in a review somebody
+ * skimmed.
+ *
+ * It is **not** a defence against a hostile shell, and nothing may be built on
+ * a reading of it as one. Three ways past it, all of them real and all of them
+ * pinned as checks in `bridge.test.mjs` rather than left as prose:
+ *
+ *  - a Proxy whose `ownKeys` hides the member while its `get` still serves it;
+ *  - a member with an innocent name that returns a credential — on the second
+ *    call, or once the page has done something worth stealing;
+ *  - a credential nested deeper than the one level walked here:
+ *    `connection.detail.token` is not seen.
+ *
+ * None of those is a hole in the product, because **a hostile main process is
+ * not in the threat model**: the process that could plant such a bridge is the
+ * process that already owns the window, the preload and the credential itself.
+ * The boundary that matters runs the other way and lives where the page cannot
+ * reach it — `shouldExposeBridge` in the shell, and the main process re-checking
+ * the sender on every channel. What this refusal buys is that the sentence in
+ * `docs/decisions/desktop.md` — *"There is no `getToken` here and there must not
+ * be"* — is enforced against the code this house writes, on every load, with the
+ * page failing closed to "this is a browser" rather than drawing a shell it has
+ * decided to distrust.
+ *
  * ## Which way compatibility runs
  *
  * The shell ships as a binary somebody has to install; the UI ships when

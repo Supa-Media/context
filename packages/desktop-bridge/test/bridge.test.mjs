@@ -25,13 +25,24 @@
  *   `getDesktopBridge` reading `globalThis` rather than the scope it was given 42
  *   the credential-shaped-member check dropped                                 11
  *   the required-member loop dropped                                           11
+ *   the `REQUIRED_MEMBERS[1]` row deleted, leaving `?? []` to validate nothing 11
+ *   the required list read as an allowlist rather than as a floor              12
+ *   one member deleted from the `REQUIRED_MEMBERS[1]` row (`onLevel`)           1
  *   the sub-object (`connection`/`outbox`) member loop dropped                  7
  *   `isSupportedBridgeVersion` accepting anything `>= MIN`                      2
  *   ...the same check made own-properties-only (a prototype `getToken` passes)  1
  *   the frozen check dropped                                                    1
  *   ...accepting a non-integer version                                          0
  *
- * **The last row is a zero and it stays written down.** While
+ * Two of those rows are about the same table read two ways. Deleting the v1 row
+ * leaves `REQUIRED_MEMBERS[version] ?? []` validating *nothing*, so every shape
+ * check passes and 11 go red; reading the same list as an allowlist rather than
+ * as a floor refuses a version-1 shell that grew a member after this bundle
+ * shipped, and takes nine credential refusals down with it — they stop being
+ * refused *as credentials* and start being refused as the wrong shape, which is
+ * the right answer for the wrong reason and would hide the rule that matters.
+ *
+ * **The zero row below stays written down.** While
  * `MIN_BRIDGE_VERSION === BRIDGE_VERSION` the accepted range is a single
  * integer, so `Number.isInteger` cannot change any answer: `1.5` is already
  * outside `>= 1 && <= 1`. The refusal is kept because the range widens the day
@@ -238,6 +249,83 @@ export function runBridgeChecks(check) {
     "an ordinary bridge is not tripped by the credential rule",
     refusalFor(frozenBridge()) === null,
   );
+
+  // -- ...and where that rule stops, written down as checks
+  //
+  // The refusal is a check on *names*, one level deep. It catches our own shell
+  // growing a `getToken`, which is what it is for. It does not catch a shell
+  // that is lying to the page, and it must never be read as though it did — a
+  // hostile main process already owns the window, the preload and the
+  // credential, so the boundary that matters is `shouldExposeBridge` and the
+  // per-channel sender check, in a process the page cannot reach.
+  //
+  // These three are asserted as ACCEPTED on purpose. They are the limit, and a
+  // limit nobody wrote down is a limit somebody will later mistake for a guard.
+  // If one of them ever starts refusing, that is a deliberate widening and this
+  // block is where it gets recorded.
+
+  check(
+    "LIMIT: a Proxy hiding the name from ownKeys is not caught — it is served on get",
+    (() => {
+      const hiding = new Proxy(Object.freeze(bridgeLike()), {
+        get: (target, key, receiver) =>
+          key === "token" ? "would-be-credential" : Reflect.get(target, key, receiver),
+      });
+      const bridge = getDesktopBridge({ desktop: hiding });
+      return bridge !== null && bridge.token === "would-be-credential";
+    })(),
+  );
+  check(
+    "LIMIT: a member with an innocent name is not read, so what it returns later is not seen",
+    (() => {
+      const innocent = frozenBridge({
+        connection: { ...bridgeLike().connection, notes: () => "would-be-credential" },
+      });
+      return refusalFor(innocent) === null;
+    })(),
+  );
+  check(
+    "LIMIT: nesting is walked one level, so connection.detail.token is not seen",
+    refusalFor(
+      frozenBridge({ connection: { ...bridgeLike().connection, detail: { token: "x" } } }),
+    ) === null,
+  );
+
+  // -- a shell may carry more than this bundle knows about
+  //
+  // The other half of "the UI is the half that has to be backward compatible":
+  // a version-1 shell built after this bundle shipped can carry members added
+  // later, and refusing it for having them would strand every shell the day a
+  // channel is added. The required list is a floor, never an allowlist — the
+  // one exception being the credential rule above, which is a ceiling.
+
+  check(
+    "a bridge carrying a member this bundle has never heard of is accepted",
+    refusalFor(frozenBridge({ onFutureThing: () => () => {} })) === null,
+  );
+  check(
+    "...and one carrying a whole sub-object it does not know",
+    refusalFor(frozenBridge({ transcriptStore: { list: () => [] } })) === null,
+  );
+  check(
+    "...and an unknown member is still reachable, rather than stripped",
+    typeof getDesktopBridge({ desktop: frozenBridge({ onFutureThing: () => () => {} }) })
+      ?.onFutureThing === "function",
+  );
+
+  // -- every version this bundle accepts is a version it can check
+  //
+  // `REQUIRED_MEMBERS` is keyed by version, and a version inside the accepted
+  // range with no row would validate nothing at all — every bridge answering it
+  // would pass with no members. Driven through the whole range rather than
+  // asserted about version 1, because the range is what widens when a v2 ships.
+
+  for (let version = MIN_BRIDGE_VERSION; version <= BRIDGE_VERSION; version += 1) {
+    check(
+      `a bare object claiming version ${version} is refused for its shape, not waved through`,
+      refusalFor(Object.freeze({ version })) === "surface-incomplete",
+    );
+  }
 
   // -- the scope is an argument, and it is honoured
 
