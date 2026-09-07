@@ -23,10 +23,13 @@ import { syntaxTree } from "@codemirror/language";
 import {
   decorationsFor,
   frontmatterRange,
+  hangingIndents,
+  listGlyphs,
   markdownLanguage,
   hiddenMarkRanges,
   selectionTouches,
   styleClassFor,
+  tableLines,
 } from "../features/console/files/livePreview";
 
 /**
@@ -331,6 +334,266 @@ describe("the decoration set is well-formed", () => {
     const state = stateFor(doc, 4);
     decorationsFor(state);
     expect(state.doc.toString()).toBe(doc);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * LISTS AND TABLES — the two constructs that were parsed and then drawn as
+ * their own punctuation.
+ *
+ * The reported symptom was "bullet points don't render properly" and "tables
+ * don't render properly", and neither was a parsing failure: the grammar has
+ * had `BulletList`, `Task` and `Table` all along. Nothing consumed them. So
+ * `- item` was a hyphen in the body font with no indent, and a table was a
+ * column of pipes drifting apart under proportional glyphs.
+ *
+ * ## Sabotage record
+ *
+ * Run as temporary local edits and reverted. Counts are failing tests in this
+ * file.
+ *
+ *   the deepest-item rule dropped, so a nested line takes its parent's indent  1
+ *   the reveal check dropped, so a bullet stays a bullet under the caret       1
+ *   the ordered-list guard dropped, so `1.` is redrawn as a bullet             1
+ *   the trailing space left out of the column count, so wrapped text lands     4
+ *     one character left of its own first letter
+ */
+describe("a list is drawn as a list", () => {
+  /** The hanging indent for each line, keyed by the line's own text. */
+  function indentsByLine(doc: string): Record<string, number> {
+    const state = stateFor(doc);
+    const out: Record<string, number> = {};
+    for (const indent of hangingIndents(state)) {
+      out[state.doc.lineAt(indent.from).text] = indent.columns;
+    }
+    return out;
+  }
+
+  test("a wrapped item clears its own marker", () => {
+    // `- ` is two columns, so the second line of the item starts two columns in
+    // rather than underneath the bullet.
+    expect(indentsByLine("- one")).toEqual({ "- one": 2 });
+  });
+
+  test("a wider marker indents further", () => {
+    // The whole reason this is measured rather than a constant: `10.` is four
+    // columns of marker and space, `- ` is two.
+    expect(indentsByLine("10. ten")).toEqual({ "10. ten": 4 });
+  });
+
+  test("a nested item takes its own indent, not its parent's", () => {
+    /*
+      The parent `ListItem` spans the child's lines too, so both want to indent
+      them. The deepest item is the last writer — if that rule goes, the nested
+      line is indented by 2 instead of 6 and a nested list reads as a flat one.
+    */
+    expect(indentsByLine("- one\n  - two")).toEqual({ "- one": 2, "  - two": 4 });
+  });
+
+  test("an item's continuation lines are indented with it", () => {
+    const doc = "- one\n  still one";
+    expect(indentsByLine(doc)).toEqual({ "- one": 2, "  still one": 2 });
+  });
+
+  test("a paragraph outside a list gets no indent at all", () => {
+    expect(hangingIndents(stateFor("just a paragraph"))).toEqual([]);
+  });
+
+  /**
+   * Every glyph drawn for `doc`, as `[what it replaced, what is drawn]`.
+   *
+   * `AWAY` is the cursor position every case that wants "the cursor is not in
+   * this list" uses. It has to be a real line outside the list rather than a
+   * large number, because `stateFor` clamps — and clamping to the end of a
+   * document that ends in a list item parks the caret on the last item, which
+   * reveals it and silently drops a glyph the test was asserting.
+   */
+  const ELSEWHERE = "\n\nA paragraph after the list.";
+  const AWAY = 1000;
+
+  function glyphs(doc: string, cursor?: number): [string, string][] {
+    const state = stateFor(doc, cursor);
+    const selection = state.selection.ranges.map((r) => ({ from: r.from, to: r.to }));
+    return listGlyphs(state, selection).map((glyph) => [
+      state.doc.sliceString(glyph.from, glyph.to),
+      glyph.glyph,
+    ]);
+  }
+
+  test("a bullet is drawn as a bullet", () => {
+    expect(glyphs(`- one\n- two${ELSEWHERE}`, AWAY)).toEqual([
+      ["-", "\u2022"],
+      ["-", "\u2022"],
+    ]);
+  });
+
+  test("`*` and `+` are bullets too", () => {
+    expect(glyphs(`* one\n+ two${ELSEWHERE}`, AWAY)).toEqual([
+      ["*", "\u2022"],
+      ["+", "\u2022"],
+    ]);
+  });
+
+  test("an ordered list keeps its numbers", () => {
+    /*
+      Deliberate: `1.` is already the thing a reader wants to see, and drawing
+      one in its place would mean this editor doing the counting — a document
+      model, which is the thing this whole file exists not to have.
+    */
+    expect(glyphs(`1. first\n2. second${ELSEWHERE}`, AWAY)).toEqual([]);
+  });
+
+  test("a checkbox is drawn as one, ticked or not", () => {
+    expect(glyphs(`- [ ] todo\n- [x] done${ELSEWHERE}`, AWAY)).toEqual([
+      ["-", "\u2022"],
+      ["[ ]", "\u2610"],
+      ["-", "\u2022"],
+      ["[x]", "\u2611"],
+    ]);
+  });
+
+  test("the markup comes back on the line the cursor is on", () => {
+    // Cursor on the first line: that line is source, the second is still drawn.
+    expect(glyphs("- [ ] todo\n- [x] done", 3)).toEqual([
+      ["-", "\u2022"],
+      ["[x]", "\u2611"],
+    ]);
+  });
+
+  test("and only on that line, not on the whole item", () => {
+    /*
+      The unit is the line rather than the `ListItem`, because an item can be a
+      paragraph long and typing at the end of it has no business changing what
+      its first line looks like. The caret is on the item's second line here,
+      and the bullet on its first stays drawn.
+    */
+    const doc = "- one\n  still one";
+    expect(glyphs(doc, doc.length)).toEqual([["-", "\u2022"]]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * NOTHING IS DECORATED INSIDE THE FRONTMATTER, AND A LIST IS THE CASE THAT
+ * MAKES THAT MORE THAN A TIDINESS RULE.
+ *
+ * `hiddenMarkRanges` and the style pass have both excluded the frontmatter
+ * since the block was first drawn as metadata rather than as the note's largest
+ * heading. The list and table passes are new and had to be told the same thing:
+ * a `tags:` block is a **YAML sequence**, the grammar reads it as a Markdown
+ * list, and the first version of this drew a bullet over somebody's metadata
+ * and indented it by two columns.
+ *
+ * ## Sabotage record
+ *
+ * Run as temporary local edits and reverted.
+ *
+ *   the frontmatter cutoff dropped from the list passes                 3
+ *   the cutoff computed but not passed on by `decorationsFor`           1
+ */
+describe("the frontmatter is metadata, not a list", () => {
+  const NOTE = [
+    "---",
+    "updated: 2026-09-07",
+    "tags:",
+    "  - editor",
+    "  - polish",
+    "---",
+    "",
+    "- a real list item",
+  ].join("\n");
+
+  /** Where the frontmatter ends, the way `decorationsFor` computes it. */
+  function frontEnd(doc: string): number {
+    return frontmatterRange(doc)?.to ?? 0;
+  }
+
+  test("a YAML sequence gets no bullet", () => {
+    const state = stateFor(NOTE);
+    const glyphs = listGlyphs(state, [{ from: 0, to: 0 }], frontEnd(NOTE));
+    // Exactly one: the real list item below the block, not the two YAML rows.
+    expect(glyphs).toHaveLength(1);
+    expect(state.doc.lineAt(glyphs[0].from).text).toBe("- a real list item");
+  });
+
+  test("and no hanging indent", () => {
+    const state = stateFor(NOTE);
+    const lines = hangingIndents(state, frontEnd(NOTE)).map(
+      (indent) => state.doc.lineAt(indent.from).text,
+    );
+    expect(lines).toEqual(["- a real list item"]);
+  });
+
+  test("and the real decoration set has nothing but the metadata line in there", () => {
+    /*
+      The three above call the passes directly, which leaves the wiring
+      untested: `decorationsFor` computes the cutoff once and hands it to all
+      three, and setting *that* to zero passed every assertion above. This is
+      the test that fails when it does.
+
+      Everything drawn inside the block must be the `cm-lp-frontmatter` line
+      decoration and nothing else — no widget standing in for a `-`, no
+      per-line indent.
+    */
+    const state = stateFor(NOTE);
+    const inside: string[] = [];
+    decorationsFor(state).between(0, frontEnd(NOTE), (_from, _to, value) => {
+      const spec = value.spec as { class?: string; widget?: unknown; attributes?: unknown };
+      inside.push(
+        spec.widget !== undefined
+          ? "widget"
+          : spec.attributes !== undefined
+            ? `styled:${spec.class ?? ""}`
+            : (spec.class ?? "other"),
+      );
+    });
+    expect([...new Set(inside)]).toEqual(["cm-lp-frontmatter"]);
+  });
+
+  test("without the cutoff the YAML would be decorated — the control", () => {
+    /*
+      The positive half. Passing 0 is what the code did before, and it proves
+      the assertions above are held by the cutoff rather than by the grammar
+      declining to parse the block.
+    */
+    const state = stateFor(NOTE);
+    expect(listGlyphs(state, [{ from: 0, to: 0 }], 0).length).toBeGreaterThan(1);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+describe("a table is drawn in the face its columns need", () => {
+  const TABLE = ["| a | b |", "| --- | --- |", "| 1 | 2 |"].join("\n");
+
+  /** The text of each line the table decoration is applied to. */
+  function tableText(doc: string): string[] {
+    const state = stateFor(doc);
+    return tableLines(state).map((from) => state.doc.lineAt(from).text);
+  }
+
+  test("every row of the table, and nothing else", () => {
+    const doc = `before\n\n${TABLE}\n\nafter`;
+    expect(tableText(doc)).toEqual(["| a | b |", "| --- | --- |", "| 1 | 2 |"]);
+  });
+
+  test("a document with no table has no table lines", () => {
+    expect(tableLines(stateFor("a paragraph with a | pipe in it"))).toEqual([]);
+  });
+
+  test("the delimiters are styled as the plumbing they are", () => {
+    // The class is what dims them; that they are *parsed* was never the problem.
+    expect(styleClassFor("TableDelimiter")).toBe("cm-lp-table-delim");
+  });
+
+  test("a table decorates without throwing, cursor inside it or not", () => {
+    const doc = `# Heading\n\n${TABLE}\n\n- [ ] and a task\n`;
+    expect(() => decorationsFor(stateFor(doc, 0))).not.toThrow();
+    expect(() => decorationsFor(stateFor(doc, doc.length))).not.toThrow();
+    expect(() => decorationsFor(stateFor(doc, [0, doc.length]))).not.toThrow();
   });
 });
 

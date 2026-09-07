@@ -16,6 +16,7 @@
     "build:production": "eas build --profile production"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6",
     "@codemirror/commands": "^6",
     "@codemirror/lang-markdown": "^6",
     "@codemirror/language": "^6",

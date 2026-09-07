@@ -45,6 +45,109 @@ function Shell({
   );
 }
 
+/**
+ * What `New note` and `New folder` say about where the thing is going, in one
+ * place because two surfaces now raise them: the explorer's own pair of
+ * buttons, and the chooser below that a phone's `+` opens.
+ */
+export function newNoteHint(folder: string): string {
+  return `It will be created in ${folder || "the root of your context"} as markdown.`;
+}
+export const NEW_FOLDER_HINT =
+  "A bucket has no empty folders, so this also writes a README.md inside it — visible in Obsidian and to every other tool that reads your bucket.";
+
+/**
+ * `+`, on a surface with room for exactly one of it.
+ *
+ * ## Why this exists
+ *
+ * The explorer's toolbar carries a New note button and a New folder button
+ * side by side. A phone has no explorer — the tree is gone at that density —
+ * so its bottom bar carries a single `+`, and that `+` meant *note*. Which
+ * left **no way to make a folder on a phone at all**: not in the bar, not in
+ * the folder view, not behind a long press. The owner found it by needing one.
+ *
+ * ## Why a chooser rather than a second button
+ *
+ * `BottomBar`'s own rule is that a fixed strip must not move items out from
+ * under a thumb, and it is already seven keys wide at 390pt. An eighth for the
+ * rarer of the two operations would cost every other key its width. So the one
+ * key asks, which is also the honest reading of `+`: it never said "note".
+ *
+ * The two rows are the whole dialog — picking one swaps this for the same
+ * `NamePrompt` the explorer raises, with the same sentence about where the
+ * thing is going, because a phone and a desktop disagreeing about that is how
+ * two dialogs with one name start to drift.
+ */
+export function CreatePrompt({
+  folder,
+  onCancel,
+  onCreateNote,
+  onCreateFolder,
+}: {
+  folder: string;
+  onCancel: () => void;
+  onCreateNote: (name: string) => void;
+  onCreateFolder: (name: string) => void;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [kind, setKind] = useState<"note" | "folder" | null>(null);
+
+  if (kind === "note") {
+    return (
+      <NamePrompt
+        title="New note"
+        description={newNoteHint(folder)}
+        confirmLabel="Create"
+        onCancel={onCancel}
+        onConfirm={onCreateNote}
+      />
+    );
+  }
+  if (kind === "folder") {
+    return (
+      <NamePrompt
+        title="New folder"
+        description={NEW_FOLDER_HINT}
+        confirmLabel="Create"
+        onCancel={onCancel}
+        onConfirm={onCreateFolder}
+      />
+    );
+  }
+
+  return (
+    <Shell title="Create" onClose={onCancel}>
+      <Text variant="paneSub">
+        {`In ${folder || "the root of your context"}.`}
+      </Text>
+      <View style={styles.choices}>
+        <PressRow
+          accessibilityLabel="New note"
+          onPress={() => setKind("note")}
+          style={styles.choiceRow}
+          hoverStyle={styles.listRowHover}
+        >
+          <Text variant="body">Note</Text>
+          <Text variant="paneSub">A markdown file you can write in.</Text>
+        </PressRow>
+        <PressRow
+          accessibilityLabel="New folder"
+          onPress={() => setKind("folder")}
+          style={styles.choiceRow}
+          hoverStyle={styles.listRowHover}
+        >
+          <Text variant="body">Folder</Text>
+          <Text variant="paneSub">A place to file notes. Starts with a README.md.</Text>
+        </PressRow>
+      </View>
+      <View style={styles.actions}>
+        <Button label="Cancel" onPress={onCancel} />
+      </View>
+    </Shell>
+  );
+}
+
 /** Ask for a name. Validated as you type, with the reason next to the field. */
 export function NamePrompt({
   title,
@@ -298,6 +401,27 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.well,
   },
   actions: { flexDirection: "row", gap: 10, marginTop: 4 },
+  /**
+   * The two rows of the create chooser.
+   *
+   * In the same well the destination picker's list sits in, so the thing being
+   * chosen from reads the same on both dialogs — but with no `maxHeight`,
+   * because there are exactly two rows and a scroller around two rows says
+   * there might be more.
+   */
+  choices: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.lg,
+    backgroundColor: colors.well,
+    overflow: "hidden",
+  },
+  /**
+   * A row of the chooser. Taller than the destination picker's rows because it
+   * carries two lines and is a thumb target rather than a list to scan — this
+   * dialog only exists on the density where the pointer does not.
+   */
+  choiceRow: { gap: 2, paddingVertical: 12, paddingHorizontal: 14 },
   list: {
     maxHeight: 220,
     borderWidth: 1,

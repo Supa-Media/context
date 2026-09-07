@@ -41,7 +41,7 @@
  */
 
 import { EditorState, Range, RangeSet, StateField } from "@codemirror/state";
-import { Decoration, DecorationSet, EditorView } from "@codemirror/view";
+import { Decoration, DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
@@ -285,6 +285,12 @@ export function styleClassFor(nodeName: string): string | null {
       return "cm-lp-quote";
     case "Link":
       return "cm-lp-link";
+    case "ListMark":
+      return "cm-lp-list-mark";
+    case "TableDelimiter":
+      return "cm-lp-table-delim";
+    case "HorizontalRule":
+      return "cm-lp-rule";
     default:
       return null;
   }
@@ -345,6 +351,275 @@ export function frontmatterRange(doc: string): { from: number; to: number } | nu
 
 const frontmatterLine = Decoration.line({ class: "cm-lp-frontmatter" });
 
+/* ---------------------------- lists and tables ---------------------------- */
+
+/**
+ * A line inside a list item, and how far its text sits from the margin.
+ *
+ * ## Why a list needed anything at all
+ *
+ * `- item` was drawn as the literal hyphen it is, in the body font, with no
+ * indent — so a nested list read as three hyphens in a column and a wrapped
+ * item's second line started back at the margin, underneath its own bullet.
+ * On a phone, where almost every list item wraps, that is the whole of "bullet
+ * points don't render properly": nothing about the text says which lines belong
+ * to which item.
+ *
+ * ## Why an indent per *line* rather than per item
+ *
+ * A nested item's lines are also its parent's lines — the parent `ListItem`
+ * spans the whole subtree — so the two would both want to indent them, by
+ * different amounts. Resolving that in the range set would mean relying on
+ * which of two line decorations at one position CodeMirror applies last.
+ * Deciding it here instead is one map keyed by line, written in tree order, so
+ * the deepest item is simply the last writer and the answer is a fact rather
+ * than an ordering.
+ *
+ * ## Why `ch`
+ *
+ * The marker is `-`, `*`, `+` or `12.`, and what the wrapped text has to clear
+ * is the marker plus the space after it, measured in characters. `ch` is the
+ * width of a `0` in the current font, which in a proportional face is a little
+ * wider than a hyphen and a space — so a wrapped line clears its bullet with a
+ * small margin rather than landing exactly on the first letter. Exact alignment
+ * would need the rendered width of that specific prefix, which is a measurement
+ * and not a decoration, and being a few pixels generous is the failure that
+ * still reads as a list.
+ */
+export interface HangingIndent {
+  /** The start of one line. */
+  readonly from: number;
+  /** Characters of indent and marker that line's text should clear. */
+  readonly columns: number;
+}
+
+/**
+ * The hanging indent for every line that is inside a list item.
+ *
+ * Pure over the state, and exported for its own test: the interesting cases are
+ * nesting, a wrapped item and a marker wider than one character, and all three
+ * are properties of a tree rather than of a rendered editor.
+ *
+ * `frontEnd` is where the YAML frontmatter ends, and nothing before it is
+ * touched — for the reason `hiddenMarkRanges` states at length. A `tags:` block
+ * is a YAML sequence, the grammar reads it as a Markdown list, and indenting
+ * somebody's metadata by two columns is the same class of mistake as drawing
+ * it as a heading. Defaults to zero so a caller with no frontmatter — every
+ * test that is not about this — says nothing.
+ */
+export function hangingIndents(state: EditorState, frontEnd = 0): HangingIndent[] {
+  const byLine = new Map<number, number>();
+  syntaxTree(state).iterate({
+    from: 0,
+    to: state.doc.length,
+    enter(node) {
+      if (node.from < frontEnd) return;
+      if (node.name !== "ListItem") return;
+      const mark = node.node.getChild("ListMark");
+      if (mark === null) return;
+      const first = state.doc.lineAt(mark.from);
+      // The marker's own columns, counted from the margin, plus the one space
+      // that separates it from the text. `12.` indents further than `-`, which
+      // is the whole reason this is measured rather than a constant.
+      const columns = mark.to - first.from + 1;
+      for (let line = first; ; ) {
+        // Written unconditionally: a deeper item is entered after its parent,
+        // so the last write for a line is the innermost item that owns it.
+        byLine.set(line.from, columns);
+        if (line.to >= node.to || line.to >= state.doc.length) break;
+        line = state.doc.lineAt(line.to + 1);
+      }
+    },
+  });
+  return [...byLine.entries()]
+    .map(([from, columns]) => ({ from, columns }))
+    .sort((a, b) => a.from - b.from);
+}
+
+/** A piece of list syntax drawn as the thing it means. */
+export interface ListGlyph {
+  readonly from: number;
+  readonly to: number;
+  /** What is drawn in its place. */
+  readonly glyph: string;
+  readonly kind: "bullet" | "task";
+  /** A task glyph, and whether its box is ticked. */
+  readonly checked?: boolean;
+}
+
+/**
+ * Bullets and checkboxes, drawn as a bullet and a checkbox.
+ *
+ * The same rule the rest of this file follows — **the markup comes back the
+ * moment the cursor is on its line** — and the unit is the line rather than the
+ * item, because an item can be a paragraph long and typing at the end of it has
+ * no business changing what the first line looks like.
+ *
+ * An ordered list's `1.` is deliberately left alone. It is already the number a
+ * reader wants to see, and replacing it with a drawn one would mean this editor
+ * renumbering a list, which is a document model doing the counting — the exact
+ * thing this file exists not to have.
+ *
+ * `frontEnd` excludes the frontmatter — see `hangingIndents`. A YAML sequence
+ * drawn with bullets would be the editor decorating text it has already decided
+ * to draw as plain metadata.
+ */
+export function listGlyphs(
+  state: EditorState,
+  selection: readonly TextRange[],
+  frontEnd = 0,
+): ListGlyph[] {
+  const glyphs: ListGlyph[] = [];
+  const revealed = (at: number): boolean => {
+    const line = state.doc.lineAt(at);
+    return selectionTouches({ from: line.from, to: line.to }, selection);
+  };
+
+  syntaxTree(state).iterate({
+    from: 0,
+    to: state.doc.length,
+    enter(node) {
+      if (node.from < frontEnd) return;
+      if (node.name === "ListMark") {
+        const parent = node.node.parent;
+        // `1.` is a number, not a marker to redraw. See above.
+        if (parent === null || parent.parent?.name !== "BulletList") return;
+        if (revealed(node.from)) return;
+        glyphs.push({ from: node.from, to: node.to, glyph: "•", kind: "bullet" });
+        return;
+      }
+      if (node.name !== "TaskMarker") return;
+      if (revealed(node.from)) return;
+      const checked = state.doc.sliceString(node.from, node.to).toLowerCase() !== "[ ]";
+      glyphs.push({
+        from: node.from,
+        to: node.to,
+        glyph: checked ? "☑" : "☐",
+        kind: "task",
+        checked,
+      });
+    },
+  });
+  return glyphs;
+}
+
+/**
+ * Every line a GFM table occupies.
+ *
+ * **This does not lay a table out, and saying so is the point.** The pipes stay
+ * exactly where the author typed them; what changes is that the lines are drawn
+ * in the mono face, so the columns of a table whose rows fit line up instead of
+ * drifting apart under a proportional font. That was the whole of "tables don't
+ * render properly" for a table that fits, and it is honest about the one that
+ * does not: a wide table still wraps, and it wraps as text rather than as a
+ * half-drawn grid.
+ *
+ * A real grid is a block widget replacing a range of lines, which is a much
+ * larger piece of work than decorating what is there and is recorded as the
+ * next step rather than claimed here.
+ *
+ * `frontEnd` excludes the frontmatter — see `hangingIndents`.
+ */
+export function tableLines(state: EditorState, frontEnd = 0): number[] {
+  const lines: number[] = [];
+  syntaxTree(state).iterate({
+    from: 0,
+    to: state.doc.length,
+    enter(node) {
+      if (node.from < frontEnd) return;
+      if (node.name !== "Table") return;
+      for (let line = state.doc.lineAt(node.from); ; ) {
+        lines.push(line.from);
+        if (line.to >= node.to || line.to >= state.doc.length) break;
+        line = state.doc.lineAt(line.to + 1);
+      }
+    },
+  });
+  return lines;
+}
+
+/**
+ * A glyph drawn in place of the characters that mean it.
+ *
+ * Fixed-width by class rather than by the glyph's own metrics: `[ ]` is three
+ * characters and `☐` is one, so a checkbox that took its natural width would
+ * pull the rest of the line two columns left of where the hanging indent above
+ * expects it, and a wrapped task would not line up with its own text.
+ */
+class GlyphWidget extends WidgetType {
+  constructor(
+    private readonly glyph: string,
+    private readonly className: string,
+  ) {
+    super();
+  }
+  eq(other: GlyphWidget): boolean {
+    return other.glyph === this.glyph && other.className === this.className;
+  }
+  toDOM(): HTMLElement {
+    const span = document.createElement("span");
+    span.className = this.className;
+    span.textContent = this.glyph;
+    return span;
+  }
+  /*
+    A checkbox is clicked, so the event has to reach the handler below rather
+    than being swallowed as "inside a widget". The bullet gets the same answer
+    because a click landing on it should still place the caret on that line.
+  */
+  ignoreEvent(): boolean {
+    return false;
+  }
+}
+
+/**
+ * Tick and untick a checkbox by clicking it.
+ *
+ * A drawn checkbox that does nothing when it is pressed is worse than the `[ ]`
+ * it replaced, because the `[ ]` never looked like a control. This edits the
+ * three characters in the buffer — there is no other state — so the file is
+ * exactly what somebody would have typed, and undo undoes it like any edit.
+ *
+ * Refused on a read-only note, for the reason `editorSetup`'s `runCommand`
+ * states: `changeFilter` would drop the change anyway, but a refused
+ * transaction still moves the selection and lands in the history.
+ */
+/** `node`, or its nearest ancestor of that name, or `null`. */
+function nodeAt(node: SyntaxNode | null, name: string): SyntaxNode | null {
+  for (let current = node; current !== null; current = current.parent) {
+    if (current.name === name) return current;
+  }
+  return null;
+}
+
+const taskToggle = EditorView.domEventHandlers({
+  mousedown(event, view) {
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || !target.classList.contains("cm-lp-task")) {
+      return false;
+    }
+    if (view.state.readOnly) return false;
+    /*
+      `posAtDOM` answers where the widget sits, which is where the marker it
+      replaced starts. Resolving one character in rather than at the boundary
+      is what lands inside the node instead of beside it.
+    */
+    const at = view.posAtDOM(target) + 1;
+    const marker = nodeAt(syntaxTree(view.state).resolveInner(at, 1), "TaskMarker");
+    if (marker === null) return false;
+    const ticked = view.state.doc.sliceString(marker.from, marker.to).toLowerCase() !== "[ ]";
+    view.dispatch({
+      changes: { from: marker.from, to: marker.to, insert: ticked ? "[ ]" : "[x]" },
+      userEvent: "input",
+    });
+    // Claimed, so the click does not also drop a caret in the middle of the
+    // three characters it just rewrote.
+    event.preventDefault();
+    return true;
+  },
+});
+
+
 /**
  * Build the full decoration set for a state.
  *
@@ -370,6 +645,13 @@ export function decorationsFor(state: EditorState): DecorationSet {
     a note's metadata is drawn as its largest heading.
   */
   const front = frontmatterRange(state.doc.toString());
+  /*
+    Passed to the three list/table passes below rather than recomputed by each
+    of them, which is not only tidiness: `frontmatterRange` reads the whole
+    document as a string, and this runs on every keystroke and every cursor
+    move. One read, four consumers.
+  */
+  const frontEnd = front === null ? 0 : front.to;
 
   const lines: Range<Decoration>[] = [];
   if (front !== null) {
@@ -381,6 +663,26 @@ export function decorationsFor(state: EditorState): DecorationSet {
       lines.push(frontmatterLine.range(line.from));
       if (line.to >= state.doc.length) break;
     }
+  }
+
+  /*
+    A list item's wrapped lines clear its own marker, and a table's lines are
+    drawn in the mono face. Both are line decorations, so both join the block
+    above rather than the mark pass below — see `hangingIndents` and
+    `tableLines`.
+  */
+  for (const indent of hangingIndents(state, frontEnd)) {
+    lines.push(
+      Decoration.line({
+        class: "cm-lp-li",
+        attributes: {
+          style: `padding-left:${indent.columns}ch;text-indent:-${indent.columns}ch`,
+        },
+      }).range(indent.from),
+    );
+  }
+  for (const from of tableLines(state, frontEnd)) {
+    lines.push(Decoration.line({ class: "cm-lp-table" }).range(from));
   }
 
   const styles: Range<Decoration>[] = [];
@@ -403,6 +705,23 @@ export function decorationsFor(state: EditorState): DecorationSet {
     hideMark.range(range.from, range.to),
   );
 
+  /*
+    Bullets and checkboxes are replacements rather than styles — the characters
+    that mean them are taken off the screen and a glyph is drawn instead — so
+    they belong with the hides, and they obey the same reveal rule. See
+    `listGlyphs`.
+  */
+  for (const glyph of listGlyphs(state, selection, frontEnd)) {
+    hides.push(
+      Decoration.replace({
+        widget: new GlyphWidget(
+          glyph.glyph,
+          glyph.kind === "bullet" ? "cm-lp-bullet" : "cm-lp-task",
+        ),
+      }).range(glyph.from, glyph.to),
+    );
+  }
+
   // `sort: true` because the two lists interleave: a heading's style starts
   // before its own `##` mark ends, so neither list alone is in document order
   // once they are concatenated.
@@ -419,7 +738,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
  * what makes `decorationsFor` a pure function worth testing.
  */
 export function livePreview() {
-  return StateField.define<DecorationSet>({
+  const decorations = StateField.define<DecorationSet>({
     create: (state) => decorationsFor(state),
     update(value, transaction) {
       if (!transaction.docChanged && !transaction.selection) return value;
@@ -427,6 +746,9 @@ export function livePreview() {
     },
     provide: (field) => EditorView.decorations.from(field),
   });
+  // The one place this extension is more than decorations: a drawn checkbox has
+  // to answer a press. See `taskToggle`.
+  return [decorations, taskToggle];
 }
 
 /**
@@ -483,4 +805,39 @@ export const livePreviewStyles = `
 }
 .cm-lp-quote { color: var(--lp-muted); font-style: italic; }
 .cm-lp-link { color: var(--lp-link); text-decoration: underline; }
+/*
+  A list item's indent is arithmetic rather than taste, and it is not here: the
+  padding and the negative text-indent are one number set per line by the
+  decoration, because it depends on how wide that item's own marker is, so the
+  first line starts at the margin with its marker and every wrapped line clears
+  it. See hangingIndents. What is here is only the marker's colour.
+*/
+.cm-lp-list-mark { color: var(--lp-muted); }
+/*
+  Both glyphs hold the width of the characters they replaced, so the hanging
+  indent above stays true on a wrapped line. A bullet stands in for one
+  character and a checkbox for three.
+*/
+.cm-lp-bullet {
+  display: inline-block;
+  width: 1ch;
+  color: var(--lp-muted);
+}
+.cm-lp-task {
+  display: inline-block;
+  width: 3ch;
+  cursor: pointer;
+  color: var(--lp-muted);
+}
+/*
+  A table is not laid out — the pipes are still the author's — but it is drawn
+  in the mono face, which is what makes the columns of a table that fits line
+  up. See tableLines.
+*/
+.cm-lp-table {
+  font-family: var(--lp-mono);
+  font-size: 0.86em;
+}
+.cm-lp-table-delim { color: var(--lp-muted); }
+.cm-lp-rule { color: var(--lp-muted); }
 `;

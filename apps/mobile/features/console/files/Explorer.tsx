@@ -11,7 +11,15 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useFrame } from "../../app/AppFrame";
 import { loadedFolders, type FileBrowser } from "./browser";
 import { loadedCounts } from "./contextFoot";
-import { Confirm, DeleteForever, MovePicker, NamePrompt } from "./Dialogs";
+import {
+  Confirm,
+  CreatePrompt,
+  DeleteForever,
+  MovePicker,
+  NamePrompt,
+  NEW_FOLDER_HINT,
+  newNoteHint,
+} from "./Dialogs";
 import { ShareDialog } from "./ShareDialog";
 import { consoleOrigin } from "./shareOrigin";
 import { sharesBreakingWarning } from "./shares";
@@ -633,6 +641,13 @@ interface MenuOpen {
 type MenuState = MenuOpen | null;
 
 export type Dialog =
+  /**
+   * "Something goes in this folder" — which of the two it is has not been asked
+   * yet. Raised by the phone's `+`, which is one key for both; see
+   * `CreatePrompt`. The explorer's own toolbar has room for a button each and
+   * raises the two below directly.
+   */
+  | { kind: "create"; folder: string }
   | { kind: "newNote"; folder: string }
   | { kind: "newFolder"; folder: string }
   | { kind: "rename"; path: string }
@@ -661,11 +676,26 @@ export function ExplorerDialogs({
   if (dialog === null) return null;
 
   switch (dialog.kind) {
+    case "create":
+      return (
+        <CreatePrompt
+          folder={dialog.folder}
+          onCancel={onClose}
+          onCreateNote={(name) => {
+            onClose();
+            files.createNote(dialog.folder, name);
+          }}
+          onCreateFolder={(name) => {
+            onClose();
+            files.createFolder(dialog.folder, name);
+          }}
+        />
+      );
     case "newNote":
       return (
         <NamePrompt
           title="New note"
-          description={`It will be created in ${dialog.folder || "the root of your context"} as markdown.`}
+          description={newNoteHint(dialog.folder)}
           confirmLabel="Create"
           onCancel={onClose}
           onConfirm={(name) => {
@@ -678,7 +708,7 @@ export function ExplorerDialogs({
       return (
         <NamePrompt
           title="New folder"
-          description="A bucket has no empty folders, so this also writes a README.md inside it — visible in Obsidian and to every other tool that reads your bucket."
+          description={NEW_FOLDER_HINT}
           confirmLabel="Create"
           onCancel={onClose}
           onConfirm={(name) => {
