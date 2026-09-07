@@ -84,7 +84,7 @@
  * one number as three independent guards.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import {
   getDesktopBridge,
   inspectDesktopBridge,
@@ -349,52 +349,79 @@ function contamination(value, path = "$", seen = new Set()) {
 
 export async function runConsoleBridgeChecks(check) {
   /*
-    THE CENSUS: every `ipcMain` registration in this app, and how many are gated.
+    THE CENSUS: every `ipcMain` in this app, and how many are gated.
     ---------------------------------------------------------------------------
 
     A guard checks the channels it is on. Nothing checked whether a NEW channel
-    had appeared beside them — and this app has grown its IPC surface three times
-    in a day. `#272` had a check that counted the handlers; it went when the code
-    it counted was superseded, and this is that property restored against the tree
-    as it now is rather than as it was.
+    had appeared beside them — and this app grew its IPC surface three times in
+    a day.
 
-    The numbers are derived from what is found, not carried as a floor: the split
-    is asserted, so adding a gated channel moves one side and adding an UNGATED
-    one moves the other and reddens. That is the difference between a census and
-    a number somebody has to remember to update.
+    THE FIRST VERSION OF THIS READ THREE FILES AND ONE SYNTAX, and claimed a new
+    ungated channel "appearing anywhere" would redden it. Measured, three forms
+    grew the surface at 784 PASS / 0 FAIL: a registration in `main/windows.ts`,
+    a file it did not read; `ipcMain` split across lines before `.on`; and
+    `const evilOn = ipcMain.on.bind(ipcMain)`. The last is the one that matters
+    — a scan that can be stepped around by aliasing is a lower bound wearing an
+    equals sign.
 
-    What it is honest about: fifteen of these are ungated, and they are safe
-    because every window whose preload can send them loads this app's own HTML —
-    not because their preload cannot send. `preload/index.ts` exposes twelve send
-    verbs, `record` and `connect` among them.
+    So this does not look for registrations. It accounts for **every mention of
+    the identifier**, in every `.ts` file under `src/main`, comments stripped,
+    and requires each to be a form it recognises: the import, a registration it
+    counts, or a `removeAllListeners` teardown. A `.bind`, an assignment, a line
+    break inside the member access, or `ipcMain` passed as an argument is an
+    unrecognised mention and reddens — without anybody having predicted its
+    shape.
+
+    What it is honest about: the fifteen `ipcMain` registrations are ungated,
+    and they are safe because every window whose preload can send them loads
+    this app's own HTML — not because their preload cannot send.
+    `preload/index.ts` exposes twelve send verbs, `record` and `connect` among
+    them.
   */
   {
-    const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
-    const count = (text, re) => (text.match(re) ?? []).length;
+    const mainDir = new URL("../src/main/", import.meta.url);
+    /* Comments only. A string containing `ipcMain` becomes an unrecognised
+       mention and reddens, which is the safe direction for a scan like this. */
+    const strip = (text) =>
+      text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
 
-    const commands = read("../src/main/index.ts");
-    const capture = read("../src/main/capture.ts");
-    const bridge = read("../src/main/consoleBridge.ts");
+    let registrations = 0;
+    const unrecognised = [];
+    for (const name of readdirSync(mainDir).filter((n) => n.endsWith(".ts"))) {
+      const text = strip(readFileSync(new URL(name, mainDir), "utf8"));
+      for (const match of text.matchAll(/\bipcMain\b/g)) {
+        const after = text.slice(match.index + "ipcMain".length, match.index + 40);
+        if (/^\s*[,}]/.test(after)) continue; // an import specifier
+        if (/^\.removeAllListeners\(/.test(after)) continue; // teardown
+        if (/^\.(?:on|once|handle)\(/.test(after)) {
+          registrations += 1;
+          continue;
+        }
+        unrecognised.push(`${name}: ipcMain${after.split("\n")[0]}`);
+      }
+    }
 
-    // `deps.ipc` in the bridge; `ipcMain` in the two older files.
-    const ungated =
-      count(commands, /ipcMain\.(?:on|once|handle)\(/g) + count(capture, /ipcMain\.(?:on|once|handle)\(/g);
-    // Registrations, not the interface declaration — anchored at the call site's
-    // own indentation so `handle(channel: string, …)` in the type is not counted.
-    const gatedAsync = count(bridge, /\n {2}handle\(BRIDGE_CHANNELS\./g);
-    const gatedSync = count(bridge, /\n {2}answerSync\(BRIDGE_CHANNELS\./g);
+    const bridge = strip(readFileSync(new URL("consoleBridge.ts", mainDir), "utf8"));
+    const bridgeCalls = (bridge.match(/deps\.ipc\.(?:on|once|handle)\(/g) ?? []).length;
+    const gatedAsync = (bridge.match(/\n {2}handle\(BRIDGE_CHANNELS\./g) ?? []).length;
+    const gatedSync = (bridge.match(/\n {2}answerSync\(BRIDGE_CHANNELS\./g) ?? []).length;
 
+    check("EVERY `ipcMain` UNDER src/main IS A FORM THIS CENSUS RECOGNISES", unrecognised.length === 0);
     check(
-      "every channel the console bridge answers is one the guard is on",
+      "THE UNGATED SURFACE HAS NOT GROWN — twelve commands and three capture channels",
+      registrations === 15,
+    );
+    check(
+      "the bridge reaches ipc through exactly its two guarded helpers, and nowhere else",
+      bridgeCalls === 2,
+    );
+    check(
+      "every channel the console bridge answers goes through one of them",
       gatedAsync === HANDLED.length && gatedSync === 2,
     );
     check(
-      "THE UNGATED SURFACE HAS NOT GROWN — twelve commands and three capture channels",
-      ungated === 15,
-    );
-    check(
       "...and the census adds up, so neither side can drift unnoticed",
-      ungated + gatedAsync + gatedSync === 28,
+      registrations + gatedAsync + gatedSync === 28,
     );
   }
 

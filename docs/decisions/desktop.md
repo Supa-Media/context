@@ -486,18 +486,31 @@ The tests, and they are in two files. `test/shell.test.mjs` drives
 no Electron in sight. `test/consoleBridge.test.mjs` drives the answering side
 against a fake `ipcMain`: a foreign `webContents`, a page we did not pin, a
 subframe, the hidden capture window, and a disposed frame. Sabotage, measured,
-totals pinned at 784 — dropping the identity arm reddens **4**, the top-frame
+totals pinned at 786 — dropping the identity arm reddens **4**, the top-frame
 arm **2**, the origin comparison **2**, and opening the guard entirely **6**.
 Each arm is a different set of checks, which is what proves they are not one
 check written three times.
 
 **A third check is a census of the whole IPC surface**, and it exists because
-the first two only ever look at the channels they are already on. It reads
-`main/index.ts`, `main/capture.ts` and `main/consoleBridge.ts` as text — the
-first two import Electron at the top level and the suite cannot load them — and
-asserts the split rather than a floor, so a **new ungated channel** appearing
-anywhere reddens it. Measured: inserting one `ipcMain.on` in `main/index.ts`
-reddens 2, and registering a bridge channel outside the guard reddens 7.
+the first two only ever look at the channels they are already on. It reads every
+`.ts` file under `src/main` as text — they import Electron at the top level and
+the suite cannot load them — and it does not look for registrations: it accounts
+for **every mention of the identifier `ipcMain`**, requiring each to be the
+import, a registration it counts, or a `removeAllListeners`. Anything else is an
+unrecognised mention and reddens.
+
+That shape is the second attempt. The first read three files and one syntax, and
+this paragraph claimed a new ungated channel "appearing anywhere" would redden
+it — measured false three ways, all at 784 PASS / 0 FAIL: a registration in
+`main/windows.ts`, which it did not read; `ipcMain` split across lines before
+`.on`; and `ipcMain.on.bind(ipcMain)`. **A scan that aliasing steps around is a
+lower bound wearing an equals sign**, which is the same defect as a documented
+guard nobody built, one level down.
+
+Measured against the version here, baseline 786: a plain new `ipcMain.on`
+reddens 2, one in `main/windows.ts` reddens 2, a line break inside the member
+access reddens 1, `.bind` reddens 1, and an ungated `deps.ipc.handle` inside
+`consoleBridge.ts` itself reddens 2.
 
 That check is the answer to how this section came to describe a layer nobody had
 built. A guard tells you about the code it is pointed at; nothing was pointed at

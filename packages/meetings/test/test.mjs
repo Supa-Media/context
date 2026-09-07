@@ -144,6 +144,13 @@ for (const [name, build] of [
     thing this repository keeps paying for, so the name is kept and the guard
     is made to match.
   */
+  /*
+    `"."` is in this list and proves nothing here — `finalize(".")` was already
+    `/meetings/sessions/finalize`, which satisfies `startsWith`. It is pinned
+    properly by the block below, which asserts what a dot segment actually
+    produces. Kept in the list so the two forms are read together, and named as
+    inert so nobody counts it as coverage.
+  */
   for (const id of ["a/../../../inbox#", "..", ".", "a/b", "%2e%2e", "....//"]) {
     const moved = new URL(build(id), "https://gateway.invalid").pathname;
     check(

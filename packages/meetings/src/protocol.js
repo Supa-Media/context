@@ -400,12 +400,20 @@ export function isMeetingId(value) {
  * traversal could not be spelled and one could. A dot segment is refused
  * outright, so the claim and the code agree.
  *
- * `DOT_SEGMENT` is refused rather than escaped because there is no useful
- * escaping of it: `%2E%2E` is a legal path segment that no gateway route
- * matches, so encoding it would turn a traversal into a silent 404 rather than
- * into a refusal. A caller that reaches here with `..` has a bug, and the empty
- * string it gets back produces a route no id will ever match — which is the
- * same answer, said where somebody can see it.
+ * `DOT_SEGMENT` is refused rather than escaped because **escaping it does not
+ * work**. WHATWG URL decodes the percent-form *before* it removes dot segments,
+ * so `/meetings/sessions/%2E%2E/finalize` resolves to `/meetings/finalize`
+ * exactly as `..` does — measured, and asserted by the test beside this one.
+ * An earlier draft of this paragraph said `%2E%2E` would survive as a segment
+ * no route matches, which would have been a silent 404; it is a traversal, and
+ * the test written in the same commit already said so. Refusing is the only
+ * answer that holds.
+ *
+ * A caller that reaches here with `..` has a bug, and the empty segment it gets
+ * back produces a path no id can ever match — `/meetings/sessions/` and
+ * `/meetings/sessions//finalize` are both inside the prefix and address
+ * nothing, which `matchMeetingRoute` answers 404 for like any other malformed
+ * id.
  *
  * Costs nothing on a real id: every character of `MEETING_ID_ALPHABET` and the
  * prefix's underscore are unreserved, so a well-formed id round-trips byte for
