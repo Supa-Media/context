@@ -27,8 +27,8 @@ import {
   type Extension,
 } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap, redo, undo } from "@codemirror/commands";
-import { livePreview, markdownLanguage } from "./livePreview";
+import { defaultKeymap, history, historyKeymap, indentWithTab, redo, undo } from "@codemirror/commands";
+import { codeHighlighting, livePreview, markdownLanguage } from "./livePreview";
 import { noteCompletion } from "./linkComplete";
 import { noteLinks, type NoteLinkRef } from "./noteLinks";
 import type { EditorCommand } from "./webview/protocol";
@@ -335,6 +335,7 @@ export function editorExtensions(options: {
   return [
     markdownLanguage(),
     livePreview(),
+    codeHighlighting(),
     /*
       Both halves of "a link to another note": drawing one as a link and
       following it, and offering the notes a `[[` could mean. One ref feeds
@@ -346,6 +347,15 @@ export function editorExtensions(options: {
     history(),
     EditorView.lineWrapping,
     placeholder(EDITOR_PLACEHOLDER),
+    /*
+      P1 in the sweep. CodeMirror's own default is `spellcheck="false"` on the
+      content DOM — right for a code editor and wrong here: this note was
+      reported dictated on a phone, and a notes editor with spellcheck off
+      leaves every misspelling silent until Save. Nobody asked for the
+      opposite (squiggles under a code span or an identifier), and that cost
+      is accepted rather than hidden.
+    */
+    EditorView.contentAttributes.of({ spellcheck: "true" }),
     editableCompartment.of(editability(editable)),
     ...(insetBottom === undefined ? [] : [coveredBottom(insetBottom)]),
     keymap.of([
@@ -371,6 +381,15 @@ export function editorExtensions(options: {
           return true;
         },
       },
+      /*
+        K1 in the sweep: with no indent/outdent binding at all, nesting a list
+        meant typing spaces by hand — CM6 deliberately keeps `indentWithTab`
+        out of `defaultKeymap`, so it has to be added. `readOnly` already
+        stops it: `indentMore`/`indentLess` are ordinary commands `runCommand`
+        was already trusting `state.readOnly` and `changeFilter` to gate, and
+        neither is special-cased for this pair.
+      */
+      indentWithTab,
       ...historyKeymap,
       ...defaultKeymap,
     ]),
