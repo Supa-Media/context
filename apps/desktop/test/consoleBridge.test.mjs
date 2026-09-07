@@ -473,55 +473,41 @@ export async function runConsoleBridgeChecks(check) {
     const srcDir = new URL("../src/", import.meta.url);
     const mainDir = new URL("../src/main/", import.meta.url);
     /*
-      WHAT THIS WALKS, AND THE CLAIM IT IS CAREFUL NOT TO MAKE.
+      WHAT THIS WALKS: this app's `src/`, and EVERY workspace package, found by
+      reading the directory rather than by being told.
 
       esbuild bundles `src/main/index.ts` with only `electron` external, so a
-      registration written in any workspace package this app depends on is a
-      registration in the main process. `main/connect.ts` imports
-      `@supa-media/context-hook/src/oauth.js`, which is how that stopped being
-      hypothetical.
+      registration in a workspace package is a registration in the main process
+      — `main/connect.ts` imports `@supa-media/context-hook/src/oauth.js`, which
+      is how that stopped being hypothetical.
 
-      An earlier shape of this said "THE WALK IS THE BUNDLE, NOT THE DIRECTORY"
-      and it was false twice over, which is why the sentence is gone rather than
-      repaired. **This is a directory list.** It is derived from the manifest so
-      that a workspace package cannot be added without this file either walking
-      it or refusing to run, but esbuild resolves by *import*, not by dependency
-      class, so the manifest is a near-neighbour of what the bundler reads and
-      not the same fact. `devDependencies` are read for that reason: a package
-      moved between the two blocks is still bundled, and used to fall silently
-      out of the walk.
+      **Three shapes of this tried to model the bundle and all three were wrong
+      in the same direction**, each one measured rather than argued: walking
+      `<pkg>/src` missed a live registration in `packages/hook/bin`, which this
+      app can deep-import; reading `dependencies` missed a package moved to
+      `devDependencies`; and reading `apps/desktop/package.json` at all missed
+      both a package reached *transitively* through another workspace package
+      and one still imported after being dropped from the manifest. The
+      manifest is a near-neighbour of what the bundler reads and never the same
+      fact: esbuild resolves by **import**, not by dependency class or by
+      distance.
 
-      An unmapped workspace dependency **throws**. That is the honest behaviour
-      for a hand-maintained map — it cannot walk a directory it was not told
-      about, so it stops rather than reporting a green census of a tree it did
-      not read.
-
-      Package roots, not `<pkg>/src`: `packages/hook` ships a `bin/` that this
-      app can deep-import, and a review put a live registration there and
-      watched this pass. `node_modules` and build output are skipped because
-      they are not sources.
+      So this stops modelling the bundle. It reads `packages/` and walks all of
+      it, which is **deliberately wider** than the main process — most of what
+      it covers is not in that bundle at all. Wider is the affordable mistake
+      here: the cost is a false red when somebody writes the identifier in a
+      package nothing imports, and the thing it buys is that no dependency
+      edge, in either direction, can move first-party code out of the census.
+      Nothing is hand-listed, so there is no list to go stale and nothing to
+      throw about.
 
       `desktop-bridge/src/contract.ts` mentions the identifier in prose, which
       is why the total below is 28 rather than 27.
     */
-    const manifest = JSON.parse(
-      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-    );
-    const workspaceDirs = {
-      "@supa-media/context-hook": "hook",
-      "@context/desktop-bridge": "desktop-bridge",
-      "@context/meetings": "meetings",
-    };
-    const bundled = Object.entries({
-      ...(manifest.dependencies ?? {}),
-      ...(manifest.devDependencies ?? {}),
-    })
-      .filter(([, range]) => typeof range === "string" && range.startsWith("workspace:"))
-      .map(([name]) => {
-        const dir = workspaceDirs[name];
-        if (dir === undefined) throw new Error(`unmapped workspace dependency: ${name}`);
-        return new URL(`../../../packages/${dir}/`, import.meta.url);
-      });
+    const packagesDir = new URL("../../../packages/", import.meta.url);
+    const bundled = readdirSync(packagesDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name !== "node_modules")
+      .map((entry) => new URL(`${entry.name}/`, packagesDir));
 
     /*
       Strings out first, then comments. A regex that strips comments before
@@ -586,17 +572,28 @@ export async function runConsoleBridgeChecks(check) {
       return { text: out, ended: mode };
     };
 
-    // `node_modules` and build output are not sources, and walking a package
-    // root without skipping them reads the whole store.
-    const SKIP = new Set(["node_modules", "dist", "build", ".git", "coverage"]);
-    const walk = (dir) =>
-      readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
-        entry.isDirectory()
-          ? SKIP.has(entry.name)
-            ? []
-            : walk(new URL(`${entry.name}/`, dir))
-          : [new URL(entry.name, dir)],
-      );
+    /*
+      `node_modules` at any depth, because walking a package root without it
+      reads the whole store. Generated output ONLY as a direct child of a
+      walked root, because that is where a package's own build lands.
+
+      The difference is not pedantry: a previous shape skipped `dist`, `build`
+      and `coverage` at every depth, and a review put a real registration in
+      `src/main/dist/` — a hand-written source directory that merely shares a
+      name with an output one — and watched it stay green while appearing in
+      the bundler's own input list. **A filter on a directory's NAME is not a
+      filter on whether it is generated**, so it is applied only where the
+      answer is structural.
+    */
+    const ALWAYS_SKIP = new Set(["node_modules", ".git"]);
+    const OUTPUT_AT_ROOT = new Set(["dist", "build", "coverage"]);
+    const walk = (dir, atRoot = true) =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        if (!entry.isDirectory()) return [new URL(entry.name, dir)];
+        if (ALWAYS_SKIP.has(entry.name)) return [];
+        if (atRoot && OUTPUT_AT_ROOT.has(entry.name)) return [];
+        return walk(new URL(`${entry.name}/`, dir), false);
+      });
 
     let registrations = 0;
     let handoffs = 0;
@@ -688,14 +685,19 @@ export async function runConsoleBridgeChecks(check) {
           import graph this suite does not have.
 
       Both need a real build step to close, and the list is written
-      open-endedly because every closed form of it has been wrong. What reviews
-      DID close, each by measuring the hole rather than arguing about it:
-      `handleOnce` and `addListener`, because the method name was a list of
-      three verbs; a registration in a workspace package the bundler compiles
-      in, including one outside that package's `src/`; a workspace dependency
-      that moved to `devDependencies` and fell silently out of the walk; and a
-      registration paid for by a balancing edit somewhere else, which is what
-      the map above is for and what a bare total could never catch.
+      open-endedly because every closed form of it has been wrong — four
+      rounds, and each round's new sentence was false in a way the round before
+      had just claimed to fix.
+
+      What reviews DID close, each by measuring the hole rather than arguing
+      about it: `handleOnce` and `addListener`, because the method name was a
+      list of three verbs; a registration in a workspace package, including one
+      outside that package's `src/`, one reached only transitively, and one in
+      a package the manifest had stopped naming — which is why the walk no
+      longer reads a manifest at all; a source directory named `dist`, which a
+      name-based skip could not tell from an output one; and a registration
+      paid for by a balancing edit somewhere else, which is what the map above
+      is for and what a bare total could never catch.
 
       So the claim is the smaller true one: **this guard is for the accident,
       not the adversary.** It catches a channel somebody adds without thinking
@@ -734,8 +736,11 @@ export async function runConsoleBridgeChecks(check) {
       So the census is a map, and the map is compared whole. Every file that
       mentions the identifier or calls through an `.ipc.` receiver is named
       here with its counts, by repository-relative path. A file added, removed,
-      renamed, or changed in either count is a diff against this literal — and a
-      balancing edit reddens twice rather than cancelling out.
+      renamed, or changed in either count is a diff against this literal, so a
+      balancing edit puts **both** of its halves in the drift list rather than
+      cancelling out. (One red check with two entries, not two red checks — the
+      failure line prints the first, and the totals beside it say which
+      direction the surface moved.)
     */
     const CENSUS = {
       "apps/desktop/src/core/shell/bridge.ts": "1 mention, 0 ipc calls",
@@ -786,8 +791,11 @@ export async function runConsoleBridgeChecks(check) {
       plus the bridge's own teardown calls, which are not registrations at all.
 
       So the claim is the one this can actually carry: every `.ipc.` member call
-      in the main bundle is inside `consoleBridge.ts`, where the gate is. One
-      written anywhere else moves the number, whichever verb it uses.
+      **in the walk** is inside `consoleBridge.ts`, where the gate is. One
+      written anywhere else moves the number, whichever verb it uses. "In the
+      walk" and not "in the main bundle" for the reason the check above is
+      named that way, and this sentence said the wrong one of those until a
+      review read the two together.
     */
     check(
       `EVERY .ipc. CALL IN THE WALK IS IN THE GUARDED BRIDGE — ${scoped} of 5`,

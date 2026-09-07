@@ -815,31 +815,39 @@ documented way to scope a channel to one window, idiomatic, spelling no
 `ipcMain`, and invisible here until it was asked for. What the walk covers, and
 the claim it is careful not to make:
 
-- **It is a directory list.** An earlier shape called it "the bundle, not the
-  directory" and that was false twice over, so the sentence is gone rather than
-  repaired. esbuild resolves by *import*; a manifest is a near-neighbour of that
-  and not the same fact.
-- **The list is derived from the manifest anyway**, so a workspace package
-  cannot be added without this walking it or **refusing to run** — an unmapped
-  dependency throws, because a hand-maintained map cannot walk a directory
-  nobody told it about and should not report a green census of a tree it did
-  not read. `devDependencies` are read too: a package moved between the two
-  blocks is still bundled, and used to fall silently out of the walk.
-- **Package roots, not `<pkg>/src`.** `packages/hook` ships a `bin/` this app
-  can deep-import, and a review put a live registration there and watched this
-  pass.
+- **It does not model the bundle, and three shapes of it that tried were each
+  wrong in the same direction.** Walking `<pkg>/src` missed a live registration
+  in `packages/hook/bin`, which this app can deep-import. Reading
+  `dependencies` missed a package moved to `devDependencies`. Reading
+  `apps/desktop/package.json` at all missed a package reached *transitively*
+  through another workspace package, and one still imported after being dropped
+  from the manifest. esbuild resolves by **import** — not by dependency class,
+  and not by distance — so a manifest is a near-neighbour of what it reads and
+  never the same fact.
+- **So it reads `packages/` and walks all of it**, which is deliberately wider
+  than the main process; most of what it covers is not in that bundle. Wider is
+  the affordable mistake: the cost is a false red for the identifier written in
+  a package nothing imports, and what it buys is that no dependency edge, in
+  either direction, can move first-party code out of the census. Nothing is
+  hand-listed, so there is no list to go stale.
 - **The method name is any member call**, not the three verbs somebody thought
   of, because `handleOnce` and `addListener` are on the same interface and
   passed green.
+- **Generated directories are skipped only as a direct child of a walked
+  root.** An earlier shape skipped `dist`, `build` and `coverage` at every
+  depth; a review put a real registration in `src/main/dist/` — a hand-written
+  source directory sharing a name with an output one — and watched it stay
+  green while appearing in the bundler's own input list. A filter on a
+  directory's *name* is not a filter on whether it is generated.
 
-The counts are asserted as a **map of file to counts, compared whole** — not as
-totals, and not by basename. A total says how many there are and nothing about
-where, so a new registration passes as long as something else shrinks by as
-much in the same commit. Both halves of that were measured: a registration in a
-second file *named* `consoleBridge.ts` with a teardown call aliased away, which
-defeated a locality check keyed on the basename; and a re-export shim paid for
-by deleting one prose mention. Against a map, a balancing edit reddens twice
-instead of cancelling.
+Alongside the two totals, the counts are asserted as a **map of file to counts,
+compared whole** — not by basename. A total says how many there are and nothing
+about where, so a new registration passes as long as something else shrinks by
+as much in the same commit. Both halves of that were measured: a registration
+in a second file *named* `consoleBridge.ts` with a teardown call aliased away,
+which defeated a locality check keyed on the basename; and a re-export shim
+paid for by deleting one prose mention. Against a map, both halves of a
+balancing edit land in the drift list instead of cancelling.
 
 **What it still does not see is written open-endedly, because every closed form
 of that list has been wrong.** A registration that never spells the identifier —
