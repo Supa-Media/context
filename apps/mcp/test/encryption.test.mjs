@@ -80,6 +80,7 @@ import {
   encryptNote,
   encryptedNoteKeyId,
   generateWorkspaceKey,
+  generatedNoteBytes,
   isEncryptedNote,
   parseEncryptedNote,
   renderEncryptedNote,
@@ -547,6 +548,51 @@ export async function runEncryptionChecks(check) {
     (await threw(() =>
       decryptNote(tamperedRecipientIv, { workspaceId: WORKSPACE_A, keys: { k1: keyA } }),
     )) instanceof NoteCryptoError,
+  );
+
+  // -- a generator does not get to change a note's form -------------------
+  //
+  // "Whether a write is encrypted is decided by the stored object at that path"
+  // is a rule about every writer, and the ones a person never drives are the
+  // ones it is easiest to forget: an inbox capture replayed under the same
+  // external id, a meeting note, a calendar refresh. Each replaces a note's
+  // *content* by design, and none of them is a reason to replace its *form*.
+
+  const generated = "---\nupdated: 2026-09-08\n---\n\n# regenerated\n";
+  const seal = (plaintext) =>
+    encryptNote(plaintext, { workspaceId: WORKSPACE_A, workspaceKey: keyA, keyId: "k1" });
+  const refuse = async () => null;
+
+  check(
+    "a generated note at an empty path is stored as it was generated",
+    (await value(() => generatedNoteBytes(generated, null, seal))) === generated,
+  );
+  check(
+    "...and so is one over an ordinary note",
+    (await value(() => generatedNoteBytes(generated, ordinary, seal))) === generated,
+  );
+
+  const regenerated = await value(() => generatedNoteBytes(generated, stored, seal));
+  check(
+    "a generated note over an ENCRYPTED one is encrypted, not written in the clear",
+    typeof regenerated === "string" &&
+      isEncryptedNote(regenerated) &&
+      !regenerated.includes("regenerated"),
+  );
+  check(
+    "...and it is the new content, so the update was not silently dropped either",
+    (await value(() =>
+      decryptNote(regenerated, { workspaceId: WORKSPACE_A, keys: { k1: keyA } }),
+    )) === generated,
+  );
+  check(
+    "a broken envelope is protected exactly as hard as a good one",
+    isEncryptedNote(markerNoBlock) &&
+      (await value(() => generatedNoteBytes(generated, markerNoBlock, seal))) !== generated,
+  );
+  check(
+    "and with no key, the answer is 'leave the note alone' rather than plaintext",
+    (await value(() => generatedNoteBytes(generated, stored, refuse))) === null,
   );
 
   // -- keys are keys -------------------------------------------------------

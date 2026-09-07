@@ -98,6 +98,7 @@
  */
 
 import { deleteStatements, projectNote, upsertStatements } from "./project.js";
+import { indexableText } from "../../encryption.js";
 import { D1Error } from "./client.js";
 import {
   DOCMAP_KEY,
@@ -366,7 +367,11 @@ export async function projectPass(
         if (gone.applied > 0) result.deleted += 1;
         return "done";
       }
-      const content = await object.text();
+      // The projection is a database Supa Media owns, that the customer cannot
+      // see, revoke or delete. An encrypted note reaches it as the empty string
+      // — no plaintext, and no ciphertext either, which would be a useless FTS
+      // row and still a copy of somebody's bytes somewhere they cannot reach.
+      const content = indexableText(await object.text());
       const statements = upsertStatements(
         path,
         projectNote(path, {

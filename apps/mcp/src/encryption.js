@@ -303,6 +303,74 @@ export function isEncryptedNote(text) {
 }
 
 /**
+ * What an indexer may copy out of a note.
+ *
+ * `""` for an encrypted note, its own text for every other. Both index paths —
+ * the R2 shard index inside the customer's own bucket, and the D1 projection in
+ * a database we own — call this instead of reading a body directly, so
+ * "no plaintext and no ciphertext of an encrypted note is ever indexed" is one
+ * function rather than two checks that can drift apart.
+ *
+ * **Empty rather than skipped**, and the reason is arithmetic rather than
+ * taste. A note the projection never writes a row for is a note
+ * `countProjected` never counts, so `notesPending` never reaches zero, so the
+ * control plane never marks the index `ready` — one encrypted note would turn
+ * fast search off for the whole context, permanently and invisibly. An empty
+ * row keeps the diff converging and the census honest while carrying nothing
+ * of the note but its path, which every other row in the same projection
+ * already carries and which `list_notes` will hand the same caller anyway.
+ *
+ * What it costs, and it is the cost `docs/decisions/encryption.md` names:
+ * **search does not find encrypted notes.** The opt-in that would change that
+ * is graded there and is deliberately not built.
+ *
+ * Checked on the marker rather than on a successful parse, so a *broken*
+ * envelope is excluded exactly as hard as a good one.
+ */
+export function indexableText(text) {
+  return isEncryptedNote(text) ? "" : text;
+}
+
+/**
+ * The bytes to store for a note this gateway *generated*, given whatever is
+ * already at that path.
+ *
+ * "Whether a write is encrypted is decided by the stored object at that path,
+ * never by the submitted content" is a rule about every writer, not only about
+ * the one a person drives. Several paths regenerate a note at a fixed key — an
+ * inbox capture replayed under the same external id, a meeting note, a calendar
+ * refresh — and each legitimately replaces the note's **content**. None of them
+ * is a reason to also replace its **form**: a note somebody deliberately
+ * encrypted must not quietly become plaintext because a scheduled job rewrote
+ * it.
+ *
+ * Three answers, and the third is why this returns a value rather than bytes:
+ *
+ *  - nothing there, or plaintext there — the text, unchanged;
+ *  - an envelope there, and a key — the text, encrypted;
+ *  - an envelope there and **no key** — `null`, meaning *leave the note alone*.
+ *    Writing plaintext over an envelope nobody in this request can open is the
+ *    one outcome worse than dropping the update, because the update can be made
+ *    again and the note's form cannot.
+ *
+ * `seal` is supplied by the caller rather than taken here, because sealing
+ * needs a workspace and a key and this module deliberately knows about neither.
+ * It answers `null` where the caller holds no key.
+ *
+ * Decided on the marker rather than on a successful parse, so a broken envelope
+ * is protected exactly as hard as a good one.
+ *
+ * @param {string} text the note as the generator produced it
+ * @param {string|null} storedText what is at the path now, or `null`
+ * @param {(plaintext: string) => Promise<string|null>} seal
+ * @returns {Promise<string|null>}
+ */
+export async function generatedNoteBytes(text, storedText, seal) {
+  if (typeof storedText !== "string" || !isEncryptedNote(storedText)) return text;
+  return await seal(text);
+}
+
+/**
  * The key generation an encrypted note names, without opening it.
  *
  * A re-wrap pass reads this to find what is still on the outgoing generation.
