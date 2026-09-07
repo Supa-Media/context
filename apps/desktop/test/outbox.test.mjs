@@ -36,9 +36,26 @@
  * them originally *crashed* this file rather than failing it — a deleted entry
  * makes every later `entries[0].body` a TypeError. The reads are optional-
  * chained now, so the checks that own each failure get to report it.
+ *
+ * `recoverStaleFinalize`'s own sabotage, against the owner's "stuck on
+ * Finalizing for two hours" bug report:
+ *
+ *   the `retry` branch removed (every stale sighting goes straight to fail)   4
+ *   the stale finalize entry not dropped after a `fail` is queued for it      1
+ *
+ * `selectionRank`'s own sabotage — a `session`/`finalize` head jumping a deep
+ * backlog rather than riding `nextDrain`'s plain `queuedAt` order, the fix for
+ * the residual `docs/decisions/desktop.md` measured at 74/75 queued entries.
+ * Counts are whole-suite, because `sessionOrder.test.mjs` carries the driven
+ * half of the same guard and both move together:
+ *
+ *   `nextDrain` sorting by `queuedAt` alone again (no priority)              10
+ *   the backoff arm of the readiness filter removed                          4
+ *   the parked arm of the readiness filter removed                           3
  */
 
 import { ERRORS } from "@context/meetings/protocol";
+import { FINALIZE_TIMEOUT_MS } from "@context/meetings/recovery";
 import {
   applyDrain,
   backoffMs,
@@ -51,6 +68,7 @@ import {
   pendingFor,
   queueWrite,
   reconcileDrain,
+  recoverStaleFinalize,
 } from "../src/core/sync/outbox.ts";
 import { isMeetingId, newMeetingId } from "@context/meetings";
 
@@ -179,6 +197,150 @@ export function runOutboxChecks(check) {
     check("a parked session does not block another session", next !== null && next.sessionId === other);
   }
 
+  // -- a session or finalize jumps the queue, at any depth --------------------
+  //
+  // The residual an adversarial review measured against the arithmetic fix
+  // alone (`drainUrgency("session") === "now"`): a pass carries at most 25
+  // entries, so a `session` write queued behind a backlog deeper than that
+  // still rode `nextDrain`'s plain `queuedAt` order and missed the pass it
+  // needed. `docs/decisions/desktop.md`'s table measured a transcript through
+  // 74 queued entries ahead of it and none at 75. This is the fix the reviewer
+  // named: the selection `nextDrain` makes, not the persisted order of the
+  // queue — nothing here is moved, only picked first.
+  {
+    let outbox = emptyOutbox();
+    for (let i = 0; i < 120; i += 1) {
+      outbox = queueWrite(outbox, {
+        sessionId: `mtg_backlog${i}`,
+        kind: "notes",
+        body: { notes: "an earlier, unrelated meeting" },
+        now: i,
+      });
+    }
+    // Queued strictly after all 120 lower-urgency heads above, so an ordering
+    // that fell back to `queuedAt` would put it dead last.
+    outbox = queueWrite(outbox, { sessionId, kind: "session", body: { id: sessionId }, now: 1000 });
+
+    check(
+      "A SESSION ROW JUMPS A QUEUE OF ANY DEPTH — not merely one deeper than the reviewer measured",
+      nextDrain(outbox, 1000)?.id === `${sessionId}:session`,
+    );
+
+    // The jump moves nothing: once it drains, the backlog resumes exactly
+    // where it left off.
+    outbox = applyDrain(outbox, `${sessionId}:session`, { ok: true }, 1000);
+    check(
+      "...and the backlog is untouched by the jump — the oldest entry is still next",
+      nextDrain(outbox, 1000)?.id === "mtg_backlog0:notes",
+    );
+  }
+
+  {
+    let outbox = emptyOutbox();
+    for (let i = 0; i < 120; i += 1) {
+      outbox = queueWrite(outbox, {
+        sessionId: `mtg_backlog2_${i}`,
+        kind: "segments",
+        body: { sessionId: `mtg_backlog2_${i}`, segments: [] },
+        now: i,
+      });
+    }
+    outbox = queueWrite(outbox, {
+      sessionId,
+      kind: "finalize",
+      body: { sessionId, endedAt: new Date(2000).toISOString() },
+      now: 2000,
+    });
+    check(
+      "A FINALIZE JUMPS THE QUEUE THE SAME WAY A SESSION ROW DOES — it is already awaited by its caller",
+      nextDrain(outbox, 2000)?.id === `${sessionId}:finalize`,
+    );
+  }
+
+  // The jump is a selection rule, never a reorder: a session's own writes
+  // still come out in contract order, even threaded through a hundred-entry
+  // backlog of *other* sessions that are free to interleave between them —
+  // only `session` and `finalize` outrank that backlog, so this session's own
+  // `segments` legitimately waits its turn behind older `notes` heads exactly
+  // as it would have before this change. What must not happen is this
+  // session's own three entries arriving out of their own relative order.
+  {
+    let outbox = emptyOutbox();
+    for (let i = 0; i < 100; i += 1) {
+      outbox = queueWrite(outbox, { sessionId: `mtg_other${i}`, kind: "notes", body: { notes: "x" }, now: i });
+    }
+    outbox = queueWrite(outbox, { sessionId, kind: "finalize", body: { sessionId }, now: 500 });
+    outbox = queueWrite(outbox, {
+      sessionId,
+      kind: "segments",
+      body: { sessionId, segments: [seg("s1", 0, "one")] },
+      now: 500,
+    });
+    outbox = queueWrite(outbox, { sessionId, kind: "session", body: { id: sessionId }, now: 500 });
+
+    const order = [];
+    let cursor = outbox;
+    for (let i = 0; i < 103; i += 1) {
+      const entry = nextDrain(cursor, 500);
+      if (entry === null) break;
+      if (entry.sessionId === sessionId) order.push(entry.kind);
+      cursor = applyDrain(cursor, entry.id, { ok: true }, 500);
+    }
+    check(
+      "JUMPING THE QUEUE DOES NOT REORDER A SESSION'S OWN WRITES — session, then segments, then finalize",
+      order.join(",") === "session,segments,finalize",
+    );
+    check(
+      "...and the session row still jumped ahead of every one of the hundred older backlog heads",
+      order[0] === "session",
+    );
+  }
+
+  // -- a permanently failing high-urgency entry does not starve the rest -----
+  //
+  // The jump must not become a new way to get stuck. A parked or backed-off
+  // head is excluded from `nextDrain`'s ready set the same way any other head
+  // is — the priority is over *what is ready*, never a reason to wait on
+  // something that is not.
+  {
+    let outbox = queueWrite(emptyOutbox(), {
+      sessionId,
+      kind: "notes",
+      body: { notes: "behind a permanently refused session" },
+      now: 0,
+    });
+    outbox = queueWrite(outbox, { sessionId: "mtg_stuck", kind: "session", body: { id: "mtg_stuck" }, now: 1 });
+    outbox = applyDrain(
+      outbox,
+      "mtg_stuck:session",
+      { ok: false, code: ERRORS.forbidden, message: "no", retryable: false },
+      1,
+    );
+    check(
+      "A PARKED HIGH-URGENCY ENTRY DOES NOT BLOCK A LOWER-URGENCY ONE FOREVER",
+      nextDrain(outbox, 1)?.id === `${sessionId}:notes`,
+    );
+  }
+  {
+    let outbox = queueWrite(emptyOutbox(), {
+      sessionId,
+      kind: "notes",
+      body: { notes: "behind a session that is retrying" },
+      now: 0,
+    });
+    outbox = queueWrite(outbox, { sessionId: "mtg_retrying", kind: "session", body: { id: "mtg_retrying" }, now: 1 });
+    outbox = applyDrain(
+      outbox,
+      "mtg_retrying:session",
+      { ok: false, code: ERRORS.unavailable, message: "down", retryable: true },
+      1,
+    );
+    check(
+      "A BACKED-OFF HIGH-URGENCY ENTRY DOES NOT BLOCK A LOWER-URGENCY ONE EITHER",
+      nextDrain(outbox, 1)?.id === `${sessionId}:notes`,
+    );
+  }
+
   // -- a drain does not freeze the queue --------------------------------------
 
   /**
@@ -283,6 +445,177 @@ export function runOutboxChecks(check) {
     check(
       "a meeting somebody deleted mid-drain stays deleted",
       next.entries.length === 0,
+    );
+  }
+
+  // -- a stuck finalize is not left stuck forever -----------------------------
+  //
+  // The pure rule (`checkFinalizeTimeout`, `packages/meetings/src/recovery.js`)
+  // is tested with its own fake clock in `packages/meetings/test/recovery.test.mjs`.
+  // What is checked here is the glue: that a stale `finalize` entry in *this*
+  // queue is retried once and then turned into a queued `fail`, never simply
+  // read again forever.
+  {
+    const endedAt = "2026-09-07T10:00:00.000Z";
+    const T0 = Date.parse(endedAt);
+    const finalizing = queueWrite(emptyOutbox(), {
+      sessionId,
+      kind: "finalize",
+      body: { sessionId, endedAt },
+      now: T0,
+    });
+
+    check(
+      "a finalize entry well within the bound is left alone",
+      recoverStaleFinalize(finalizing, T0 + 1_000).entries[0].retriedAt === undefined,
+    );
+
+    const retried = recoverStaleFinalize(finalizing, T0 + FINALIZE_TIMEOUT_MS);
+    check(
+      "at the bound, the entry is stamped retried and put back at the front of the queue",
+      retried.entries.length === 1 &&
+        retried.entries[0].retriedAt === T0 + FINALIZE_TIMEOUT_MS &&
+        retried.entries[0].state === "pending" &&
+        retried.entries[0].nextAttemptAt === T0 + FINALIZE_TIMEOUT_MS &&
+        retried.entries[0].attempts === 0,
+    );
+    check(
+      "...and it is still the one entry nextDrain offers",
+      nextDrain(retried, T0 + FINALIZE_TIMEOUT_MS)?.kind === "finalize",
+    );
+
+    check(
+      "asking again well inside the retry's own window changes nothing further",
+      recoverStaleFinalize(retried, T0 + FINALIZE_TIMEOUT_MS + 1_000).entries[0].retriedAt ===
+        T0 + FINALIZE_TIMEOUT_MS,
+    );
+
+    const failedAt = T0 + FINALIZE_TIMEOUT_MS * 2;
+    const failed = recoverStaleFinalize(retried, failedAt);
+    check(
+      "a full timeout window past the retry, the stale finalize is dropped",
+      !failed.entries.some((entry) => entry.kind === "finalize"),
+    );
+    const failEntry = failed.entries.find((entry) => entry.kind === "session");
+    check(
+      "...and a `session` write carrying a `fail` event is queued in its place",
+      failEntry !== undefined &&
+        Array.isArray(failEntry.body.events) &&
+        failEntry.body.events[0]?.type === "fail" &&
+        failEntry.body.events[0]?.at === new Date(failedAt).toISOString() &&
+        typeof failEntry.body.events[0]?.reason === "string",
+    );
+    check(
+      "...addressed to the same context the finalize was, so a shared workspace's meeting fails there too",
+      (() => {
+        const addressed = queueWrite(emptyOutbox(), {
+          sessionId,
+          kind: "finalize",
+          body: { sessionId, endedAt },
+          context: "acme",
+          now: T0,
+        });
+        const afterRetry = recoverStaleFinalize(addressed, T0 + FINALIZE_TIMEOUT_MS);
+        const afterFail = recoverStaleFinalize(afterRetry, T0 + FINALIZE_TIMEOUT_MS * 2);
+        return afterFail.entries.find((entry) => entry.kind === "session")?.context === "acme";
+      })(),
+    );
+    check(
+      "a session already failed is not asked to fail again on a later pass",
+      recoverStaleFinalize(failed, failedAt + FINALIZE_TIMEOUT_MS * 10).entries.length ===
+        failed.entries.length,
+    );
+
+    /*
+      "Retry once" has to survive the process, or a machine that crashes inside
+      the retry window grants a fresh retry on every launch and never reaches
+      the failure this exists to produce. `retriedAt` rides on the entry, and
+      the entry is JSON on disk, so this is the round trip `main/index.ts`
+      actually performs on launch — write, read back through `normalizeOutbox`,
+      recover.
+    */
+    check(
+      "the one retry survives a restart: it is on the entry, and the entry is on disk",
+      (() => {
+        const onDisk = normalizeOutbox(JSON.parse(JSON.stringify(retried)));
+        if (onDisk.entries[0]?.retriedAt !== T0 + FINALIZE_TIMEOUT_MS) return false;
+        const afterRelaunch = recoverStaleFinalize(onDisk, T0 + FINALIZE_TIMEOUT_MS * 2);
+        // Failed, not retried a second time — which is what a lost `retriedAt`
+        // would have produced, forever, one relaunch at a time.
+        return (
+          !afterRelaunch.entries.some((entry) => entry.kind === "finalize") &&
+          afterRelaunch.entries.some((entry) => entry.kind === "session")
+        );
+      })(),
+    );
+
+    check(
+      "a finalize parked on a refusal nobody looked at is recovered too, rather than parked forever",
+      (() => {
+        const parked = {
+          ...finalizing,
+          entries: finalizing.entries.map((entry) => ({
+            ...entry,
+            state: "parked",
+            parked: { code: ERRORS.invalid, message: "nobody has looked at this", noticedAt: T0 },
+          })),
+        };
+        const once = recoverStaleFinalize(parked, T0 + FINALIZE_TIMEOUT_MS);
+        const twice = recoverStaleFinalize(once, T0 + FINALIZE_TIMEOUT_MS * 2);
+        return (
+          once.entries[0]?.state === "pending" &&
+          !twice.entries.some((entry) => entry.kind === "finalize") &&
+          twice.entries.some((entry) => entry.kind === "session")
+        );
+      })(),
+    );
+
+    check(
+      "a finalize entry with no endedAt at all is left alone rather than failed for the wrong reason",
+      (() => {
+        const noEndedAt = queueWrite(emptyOutbox(), {
+          sessionId,
+          kind: "finalize",
+          body: { sessionId },
+          now: T0,
+        });
+        const after = recoverStaleFinalize(noEndedAt, T0 + FINALIZE_TIMEOUT_MS * 10);
+        return after.entries.length === 1 && after.entries[0].kind === "finalize";
+      })(),
+    );
+
+    check(
+      "new content on the finalize entry restarts its own timeout clock",
+      (() => {
+        const stale = queueWrite(emptyOutbox(), {
+          sessionId,
+          kind: "finalize",
+          body: { sessionId, endedAt },
+          now: T0,
+        });
+        const stamped = recoverStaleFinalize(stale, T0 + FINALIZE_TIMEOUT_MS);
+        const laterEndedAt = new Date(T0 + 60_000).toISOString();
+        const reQueued = queueWrite(stamped, {
+          sessionId,
+          kind: "finalize",
+          body: { sessionId, endedAt: laterEndedAt },
+          now: T0 + FINALIZE_TIMEOUT_MS + 2_000,
+        });
+        return (
+          reQueued.entries[0].retriedAt === undefined &&
+          recoverStaleFinalize(reQueued, T0 + FINALIZE_TIMEOUT_MS + 3_000).entries[0].retriedAt ===
+            undefined
+        );
+      })(),
+    );
+
+    check(
+      "a queue with no finalize entry at all is untouched",
+      (() => {
+        const onlySession = queueWrite(emptyOutbox(), { sessionId, kind: "session", body: { id: sessionId }, now: T0 });
+        return recoverStaleFinalize(onlySession, T0 + FINALIZE_TIMEOUT_MS * 10) === onlySession ||
+          recoverStaleFinalize(onlySession, T0 + FINALIZE_TIMEOUT_MS * 10).entries.length === 1;
+      })(),
     );
   }
 

@@ -613,6 +613,10 @@ describe("ending a meeting takes you to it", () => {
     let id = "";
     await act(async () => {
       id = await meetings.start({ title: "Reboot Camp" });
+      // Filler, so this session is not `hasNothingCaptured` — this test is
+      // about a note that has not *reached* the bucket, not about one with
+      // nothing in it to send.
+      meetings.setNotes(id, "camp notes");
       await meetings.end();
     });
 

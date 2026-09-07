@@ -81,9 +81,29 @@
 
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
-import { indexableText, isEncryptedNote, parseEncryptedNote } from "../src/encryption.js";
+import {
+  FENCE_LANGUAGE,
+  indexableText,
+  isEncryptedNote,
+  parseEncryptedNote,
+} from "../src/encryption.js";
 import { parseLinks } from "../src/links.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+/**
+ * The pinned passphrase-locked note, shared with `encryptionPassphrase.test.mjs`.
+ *
+ * One fixture, two suites: that file proves the bytes open with the right key,
+ * this one proves the gateway cannot open them and cannot destroy them either.
+ */
+const PASSPHRASE_VECTOR = JSON.parse(
+  readFileSync(
+    fileURLToPath(new URL("./encryptionPassphraseVector.fixtures.json", import.meta.url)),
+    "utf8",
+  ),
+);
 
 /** A bucket stub with the same shape `test.mjs`'s has, and no more. */
 function makeBucket() {
@@ -532,10 +552,17 @@ export async function runEncryptionGatewayChecks(check) {
      * `visible.js` drops an encrypted note when it reads the body for a
      * snippet, but `matchCount` is `visible.length` — taken before that drop.
      * The index holds the note with empty content, so no body term ranks it,
-     * but its PATH still can: MEASURED, a search for "moved" — a word that
-     * appears only in `1-projects/moved-secret.md` — answered
+     * but its PATH still can: MEASURED, a search for "moved" answered
      * "2 matching notes — the 1 best shown" with the encrypted note counted
      * and withheld.
+     *
+     * The word is NOT unique to `1-projects/moved-secret.md`, and an earlier
+     * version of this comment said it was — contradicted by the check twelve
+     * lines below, which asserts the plaintext hit and calls it correct. The
+     * move rewrote `1-projects/alpha.md`'s link to `[[1-projects/moved-secret]]`
+     * before that note was renamed, so the word is in a body this caller may
+     * read. Which is why the assertion is about the COUNT rather than about
+     * where the word occurs.
      *
      * Nothing leaks: `rankedVisibleTo` runs first, so only notes this caller
      * may see are ever counted, and the byte-identical promise
@@ -580,6 +607,44 @@ export async function runEncryptionGatewayChecks(check) {
     check(
       "an encrypted note reaches both indexes as the empty string",
       indexableText(ciphertextBefore) === "" && indexableText(SECRET_BODY) === SECRET_BODY,
+    );
+
+    /*
+     * AND THE INDEX THAT WAS ACTUALLY BUILT HOLDS NONE OF IT.
+     *
+     * The line above is a unit assertion about `indexableText`, and it was the
+     * whole of the evidence for "nothing of an encrypted note reaches the
+     * index". MEASURED: it was not true. `syncShardedIndex` — the pass every
+     * search and every scheduled sweep actually runs — read note bodies with a
+     * bare `object.text()`, so an envelope's own terms (`a256gcm`,
+     * `context-encrypted`, the callout's words, the base64url of `ct`) were
+     * tokenised into `.index/v2/shard-*.json`, an object that lives **in the
+     * customer's own bucket under the same credential as the note**. The
+     * `indexableText` call the decision file points at lived in `syncIndex`,
+     * which nothing has called since the v2 index landed.
+     *
+     * That is not a plaintext leak — the terms come from the ciphertext the
+     * bucket already holds — and it is exactly the shape `testing.md` calls a
+     * guard nobody has checked: the assertion above passes for an
+     * implementation that never calls the function it asserts about.
+     *
+     * So this asks the index itself, in both directions, because an assertion
+     * that only checks for absence passes just as well against an index that
+     * was never built.
+     */
+    const indexObjects = [...a.objects.keys()]
+      .filter((key) => key.startsWith(".index/"))
+      .map((key) => new TextDecoder().decode(a.objects.get(key).bytes))
+      .join("\n");
+    check(
+      "the index that was really built holds the plaintext notes it should",
+      indexObjects.length > 0 && indexObjects.includes("pointer"),
+    );
+    check(
+      "...and not one term of an encrypted note's envelope",
+      !/a256gcm/i.test(indexObjects) &&
+        !indexObjects.includes(FENCE_LANGUAGE) &&
+        !indexObjects.includes(parseEncryptedNote(ciphertextBefore).ct.slice(0, 24)),
     );
 
     /*
@@ -788,6 +853,141 @@ export async function runEncryptionGatewayChecks(check) {
         !audit.includes("Compensation review") &&
         !audit.includes("A256GCM") &&
         !audit.includes(KEY_A.slice(0, 16)),
+    );
+
+    /* -- (14) a passphrase-locked note, which this gateway is not a reader of */
+    //
+    // The Phase 2 mode, and the one this section exists to police: a note whose
+    // only recipient is a passphrase. Nothing here can open it, no tool takes a
+    // passphrase, and the failure that would be catastrophic is not "a client
+    // cannot read it" — it is a client *writing* to it, because the gateway
+    // would otherwise have sealed the replacement with the workspace key and
+    // reported success while destroying the only copy of the note.
+    //
+    // Every call below runs inside a log capture, and the checks run after it is
+    // released — a check that prints into its own evidence is a check nobody can
+    // read, and the first version of this section did exactly that.
+
+    const LOCKED = "1-projects/locked.md";
+    const lockedBytes = PASSPHRASE_VECTOR.document.replace(
+      PASSPHRASE_VECTOR.workspaceId,
+      "ws_enc_a",
+    );
+    await storeA.put(LOCKED, lockedBytes);
+    await storeA.put("1-projects/keyless.md", readA("1-projects/conflict.md") ?? lockedBytes);
+
+    const lockedBefore = readA(LOCKED);
+    const lockedLines = [];
+    const realLockedLog = console.log;
+    let locked;
+    console.log = (...args) => lockedLines.push(args.map(String).join(" "));
+    try {
+      locked = {
+        read: await call(OWNER_A, "read_note", { path: LOCKED }),
+        // The same refusal a note whose *key* did not arrive gets. Two reasons,
+        // one answer: a client cannot learn from a refusal whether a note is
+        // passphrase-locked or merely unreachable today, so Phase 2 adds no
+        // inference channel that Phase 1 did not already have.
+        keyless: await call(KEYLESS, "read_note", { path: "1-projects/keyless.md" }),
+        write: await call(OWNER_A, "write_note", {
+          path: LOCKED,
+          content: "# I am overwriting this\n",
+        }),
+        // The argument that does not exist. A client that has heard of the
+        // feature and guesses at an interface must not find one.
+        writeWithPassphrase: await call(OWNER_A, "write_note", {
+          path: LOCKED,
+          content: "# I am overwriting this\n",
+          passphrase: PASSPHRASE_VECTOR.passphrase,
+          password: PASSPHRASE_VECTOR.passphrase,
+        }),
+        readWithPassphrase: await call(OWNER_A, "read_note", {
+          path: LOCKED,
+          passphrase: PASSPHRASE_VECTOR.passphrase,
+        }),
+        decrypt: await call(OWNER_A, "set_encryption", {
+          path: LOCKED,
+          encrypted: false,
+          passphrase: PASSPHRASE_VECTOR.passphrase,
+        }),
+        search: await call(OWNER_A, "search_notes", { query: "pinned passphrase vector" }),
+        list: await call(OWNER_A, "list_notes", { prefix: "1-projects" }),
+        tools: await (async () => {
+          const res = await worker.fetch(
+            new Request("https://x/mcp", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${OWNER_A}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ jsonrpc: "2.0", id: 9001, method: "tools/list" }),
+            }),
+            env,
+            { waitUntil() {} },
+          );
+          return (await res.json()).result.tools;
+        })(),
+      };
+    } finally {
+      console.log = realLockedLog;
+    }
+    const lockedAfter = readA(LOCKED);
+
+    check(
+      "a client cannot read a passphrase-locked note, and is not handed its envelope",
+      textOf(locked.read).includes("encrypted") &&
+        !textOf(locked.read).includes("A256GCM") &&
+        !textOf(locked.read).includes("pinned passphrase vector"),
+    );
+    check(
+      "...and the refusal is the same shape as the one a missing key produces",
+      textOf(locked.read).replace(LOCKED, "\u00abpath\u00bb") ===
+        textOf(locked.keyless).replace("1-projects/keyless.md", "\u00abpath\u00bb"),
+    );
+    check(
+      "a write to a passphrase-locked note is refused",
+      textOf(locked.write).includes("encrypted") && !textOf(locked.write).includes("written:"),
+    );
+    check("...and the stored object is byte-for-byte what it was", lockedAfter === lockedBefore);
+    check(
+      "...and supplying a passphrase to the gateway changes nothing at all",
+      textOf(locked.writeWithPassphrase) === textOf(locked.write),
+    );
+    check("...on the read path either", textOf(locked.readWithPassphrase) === textOf(locked.read));
+    check(
+      "...and `set_encryption` cannot turn the lock off with one",
+      !textOf(locked.decrypt).includes("decrypted:"),
+    );
+    check(
+      "no tool this gateway advertises takes a passphrase, a password or a key",
+      locked.tools.every((tool) =>
+        Object.keys(tool.inputSchema?.properties ?? {}).every(
+          (name) => !/pass(phrase|word)|secret|kek|key$/i.test(name),
+        ),
+      ),
+    );
+    check(
+      "search does not quote a passphrase-locked note",
+      !textOf(locked.search).includes("Only the passphrase beside this"),
+    );
+    check(
+      "...and the note is still listed, because its existence was never the secret",
+      textOf(locked.list).includes("locked.md"),
+    );
+
+    const lockedLog = JSON.stringify(lockedLines);
+    check(
+      "nothing about a locked note reaches a log line but its path",
+      lockedLines.length > 0 &&
+        !lockedLog.includes(PASSPHRASE_VECTOR.passphrase) &&
+        !lockedLog.includes(PASSPHRASE_VECTOR.kek) &&
+        !lockedLog.includes("Only the passphrase beside this"),
+    );
+    const lockedAudit = [...a.objects.keys()]
+      .filter((key) => key.startsWith(".audit/"))
+      .map((key) => new TextDecoder().decode(a.objects.get(key).bytes))
+      .join("\n");
+    check(
+      "...and no audit row carries a passphrase, because no call ever had one to record",
+      !lockedAudit.includes(PASSPHRASE_VECTOR.passphrase) &&
+        !lockedAudit.includes(PASSPHRASE_VECTOR.kek),
     );
   } finally {
     restore();

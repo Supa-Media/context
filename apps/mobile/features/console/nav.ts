@@ -204,17 +204,68 @@ export function contextIdForSlug(
 }
 
 /**
+ * A trailing `#msg-<16 hex>` message anchor — restated from
+ * `ANCHOR_PREFIX`/`ANCHOR_HEX_LENGTH` in
+ * `packages/communications/src/protocol.js` rather than imported, the same
+ * way this file's neighbours restate `packages/meetings`' constants instead
+ * of importing the package at runtime.
+ *
+ * A search result over a channel-day note's message names its deep link as
+ * `<notePath>#<anchor>` (`apps/mcp/src/search/CONTRACT.md`, "Channel-day
+ * notes: one sub-document per message") — the same string a wikilink into
+ * one already uses. Splitting it here, once, is what keeps that suffix out
+ * of every reader that treats `?note=` as a literal bucket path.
+ */
+const MESSAGE_ANCHOR_SUFFIX = /#(msg-[0-9a-f]{16})$/;
+
+/**
+ * Split a validated note path from a trailing message anchor, or answer no
+ * anchor for anything else — a folder, an ordinary note, a malformed suffix.
+ */
+export function splitNoteAnchor(path: string): { path: string; anchor: string | null } {
+  const match = MESSAGE_ANCHOR_SUFFIX.exec(path);
+  if (!match) return { path, anchor: null };
+  return { path: path.slice(0, match.index), anchor: match[1] };
+}
+
+/**
  * The note a console URL is asking to open, or `null`.
  *
  * Read from the query rather than from `routeForPath`, which deliberately
  * describes *where* you are and not *what is selected* — a note is a selection
  * inside Browse, not a route of its own, and folding it into `ConsoleRoute`
  * would make every route comparison care about it.
+ *
+ * **The anchor is stripped here, not carried through.** This value feeds
+ * `useNoteAddress`'s two-way sync between `?note=` and the open selection,
+ * which compares it against `FileBrowser`'s own `selectedPath` — a real
+ * bucket path, never one with a `#anchor` tail — so a `note` that disagreed
+ * with `selected` by exactly that suffix would be the oscillation that
+ * hook's own module comment warns about, forever. A search result's anchor
+ * reaches the screen through `anchorFromQuery` instead, read once and acted
+ * on independently of that reconciliation.
  */
 export function noteFromQuery(value: string | string[] | undefined): string | null {
   const raw = Array.isArray(value) ? value[0] : value;
   if (typeof raw !== "string") return null;
-  return safeNotePath(raw);
+  const safe = safeNotePath(raw);
+  return safe === null ? null : splitNoteAnchor(safe).path;
+}
+
+/**
+ * The message anchor a console URL's `?note=` asked to scroll to, or `null`.
+ *
+ * The other half of `noteFromQuery`'s split, read from the same query value —
+ * deliberately a *second* function rather than a second return value on the
+ * first, so a caller that only wants the path (`useNoteAddress`'s whole
+ * reason for existing) is not handed an anchor it has no business acting on
+ * every time the URL is merely read.
+ */
+export function anchorFromQuery(value: string | string[] | undefined): string | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== "string") return null;
+  const safe = safeNotePath(raw);
+  return safe === null ? null : splitNoteAnchor(safe).anchor;
 }
 
 /**

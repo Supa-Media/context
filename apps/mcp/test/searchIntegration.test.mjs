@@ -85,8 +85,8 @@
  * 6. **The output filter neutered** (`rankedVisibleTo`'s predicate forced
  *    true). At base that failed **ten** checks across this file and the shared
  *    suite. At head, with `visibleIndex` in front of it, it failed **zero** —
- *    which is what a review caught, and it is row 127's shape exactly: *two
- *    guards that mask one another are one guard with a spare.* Narrowing the
+ *    which is what a review caught, and the shape of it is exactly *two
+ *    guards that mask one another are one guard with a spare*. Narrowing the
  *    corpus made the filter correct and untestable in the same commit. It is a
  *    separate function with its own checks in searchQuery.test.mjs now, driven
  *    with a list the view deliberately did not narrow; the same sabotage fails

@@ -72,6 +72,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Sharing: an unlisted link over an encrypted note is refused
 - Rotation: three different things, and they must not be confused
 - Revocation and export: the customer keeps a usable context, or this feature breaks the first non-negotiable
+- Encrypted notes are for humans; no AI client reads one
+- The KDF, per client
+- Bounds on a KDF descriptor, because a bucket is not a trusted input
 - What Phase 1 builds, and what it does not
 
 ## [The MCP gateway: protocol, transport, orientation](./gateway-protocol.md)
@@ -158,6 +161,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The Mac app is signed by a workflow nobody's branch can start, and builds honestly unsigned until then
 - What is deliberately not built
 - Consent is the customer's, and the product may never make recording invisible
+- A `finalizing` session has a deadline, because the gateway does not need one
+- A session that captured nothing is not filed
 
 ## [Communications](./communications.md)
 

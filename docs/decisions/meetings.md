@@ -1983,3 +1983,248 @@ permissions are additive and iOS's rendered config is unaffected) and
 (real capability, the one field that differs from iOS's session, the same
 `interruptionMode` mixing on both platforms, the same rotation and offset
 arithmetic run under the Android platform argument).
+
+### A `finalizing` session has a deadline, because the gateway does not need one
+
+`finalizing -> complete` is usually one request. `MEETING_TRANSITIONS` puts no
+bound on how long a session may sit in `finalizing` because most of the time it
+does not need one — but "most of the time" is exactly the assumption a crash
+between queuing `session` and queuing `finalize`, a lost response nobody ever
+retried, or a deterministic refusal nobody looked at breaks. The owner found
+this on their own machine: a meeting reading "Finalizing" for over two hours,
+with a badge that carried no information about which of those had happened,
+because `finalizing` meant the same word whether the gateway was a second from
+answering or had not heard from this device since the crash.
+
+The rule is `checkFinalizeTimeout` in `packages/meetings/src/recovery.js`, and
+it is three things rather than one: **retry once, then fail, and never fail on
+the first sighting.** A session past the bound the *first* time a client asks
+is told to retry — the segments and notes are already on whichever record holds
+them, so a retry costs one request, not the meeting. A session still
+`finalizing` a full bound-window *after* that retry was attempted is told to
+fail, which a client folds as an ordinary `fail` event — already legal from
+`finalizing` and already a client-sendable event, so no new wire shape was
+needed, only a client that had a reason to send it. The badge changes from an
+unqualified "Finalizing" to "Failed — `<reason>`" with a Retry a person
+presses, which `MEETING_TRANSITIONS.failed` already allows: `failed ->
+finalizing` lets a later retry — the person's own, or a queued finalize a
+client's recovery left in place — still finish the meeting normally if the
+underlying problem was transient.
+
+**Ten minutes, chosen directly rather than inherited.** Nothing in this
+codebase already states a "how long may a whole meeting take to finalize"
+budget — `SEGMENT_MS` bounds one rotation (twenty seconds) and the cloud
+transcription rate limit bounds one minute's requests, and neither answers this
+question. Ten minutes is comfortably longer than an enhancement pass over even
+a long transcript, and short enough that "stuck for two hours" is caught on the
+first check after the meeting actually finished rather than the fortieth.
+
+**The rule is pure, and every surface that can get stuck calls the same
+function rather than restating the arithmetic.** The gateway needs none of
+this — a client-sent `fail` on a `finalizing` session was already legal before
+this decision, and the gateway's own idempotency means a retried finalize
+after a recovered outage lands on the one note it already claimed. What needed
+building was a client that actually *asks* the question:
+
+- **The desktop app** (`apps/desktop/src/core/sync/outbox.ts`,
+  `recoverStaleFinalize`) asks it of every `finalize` entry in its outbox,
+  called from `drainOnce` before anything is sent — covering both "runs
+  periodically" (every drain tick) and "on app launch" (the outbox read back
+  from disk on `main/index.ts` startup is checked the moment it is read,
+  before the first periodic tick would otherwise get to it). A `fail` is
+  queued as a `session`-kind write, which drains ahead of the stale `finalize`
+  in `KIND_ORDER` — the gateway learns the session failed before anything else
+  about it is attempted — and the stale entry is then dropped, so a client
+  that has already said `fail` is not asked to say it again on every later
+  tick forever.
+- **The mobile app** (`apps/mobile/features/meetings/controller.ts`,
+  `recoverStaleFinalizes`) asks it of every record in `finalizing`, called from
+  `configure()` — the phone's nearest thing to a launch, reading the records
+  `loadMeetings` just restored from disk — and from the top of `sync()`, so a
+  session that goes stale while the app stays open is not left until somebody
+  happens to relaunch it.
+
+Both callers hold their own `retriedAt` bookkeeping (`OutboxEntry.retriedAt` on
+the desktop, `MeetingRecord.retriedAt` on the phone) rather than the pure
+function holding any state itself — it is a fact about a *previous call* to
+this function, not about the meeting, and a gateway record has no room for it:
+`endedAt` alone is enough for every caller to agree on how long a session has
+been finalizing.
+
+The checks are `checkFinalizeTimeout` in
+`packages/meetings/test/recovery.test.mjs` (below the bound is left alone; at
+the bound, exactly once, it is `retry`; a full window past that retry it is
+`fail`; it never asks to retry a second time), `recoverStaleFinalize` in
+`apps/desktop/test/outbox.test.mjs` (retried once, then a `fail` is queued
+ahead of the stale entry and the entry itself is dropped, addressed to the
+same context the finalize was, and a session already failed is not asked to
+fail again on a later pass), and `recoverStaleFinalizes` in
+`apps/mobile/__tests__/meetingsController.test.ts` (the same progression
+through `sync()` and through `configure()`, the human's typed words surviving
+the whole thing unchanged). **The test that fails if this is reversed:** delete
+the `retry` branch from either glue function and a session's first stale
+sighting is answered as already failed — a meeting whose gateway was one slow
+request from `complete` is told it failed for no reason at all.
+
+**Amended in review, before it merged: a failure nobody can undo is worse
+than a session that is still trying.** The paragraph above says the badge
+"changes to `Failed — <reason>` with a Retry a person presses", and the state
+table has allowed `failed -> finalizing` since a partial recording had to be
+writable out — but nothing in either client ever made that move.
+`pendingSteps` offers a `finalize` step only for a session in `finalizing`, and
+the desktop's recovery drops the stale entry outright, so the first version of
+this decision turned "stuck, and still trying every drain" into "failed, and
+never sent again": a phone with no signal for twenty minutes after a meeting
+kept the words somebody typed on the device permanently, behind a badge that
+named a failure and no control that did anything about it. That is a worse
+outcome than the bug being fixed, and it is why the retry is now code rather
+than a sentence: `MeetingsController.retryFinalize` folds the same `end` the
+contract already had (clearing `failureReason`, restamping `endedAt`, clearing
+`retriedAt` so a person's retry gets its own full window, and clearing
+`acked.finalized` — without which the button does nothing in the case it exists
+for, because a gateway that *accepted* a finalize and never came back with a
+path is the shape the owner actually reported, and that acknowledgement is what
+stops `pendingSteps` offering the step again), and
+`MeetingNoteScreen`'s `Landing` gains the `failed` branch that offers it —
+which also stops that screen telling a failed meeting it will be "sent as soon
+as your context answers", the same false promise the `empty` branch below
+exists to avoid. The checks are `nothing sends a failed meeting on its own,
+which is why the person's Retry has to exist`, `Retry takes it back to
+finalizing and the meeting lands in the bucket`, and `a meeting recovery gave
+up on says it was not filed, and offers Retry`.
+
+**And a client giving up races the gateway, which now ships a client that gives
+up on a schedule.** A queued `fail` is an ordinary `session` write, so it can
+land in the one window where the finalize has claimed a path and the note is
+not yet written. The note reaches the customer's bucket a moment later and the
+receipt's conditional write loses; folding `written` onto the `failed` record
+that replaced it is a move the table refuses, which used to answer 400 — a
+refusal the desktop outbox parks — and leave a real note in the bucket with
+nothing pointing at it. The rule is that **the bucket wins**: `reopenFailed` in
+`apps/mcp/src/meetings/ingest.js` takes the record back to `finalizing` through
+the same `end` the claim folds, puts the meeting's own `endedAt` back, and the
+receipt says `complete`. The check is `a client that gave up mid-finalize does
+not leave the note it raced orphaned`, and its two neighbours pin the note and
+the end time.
+
+### A session that captured nothing is not filed
+
+The owner's other bug report, found on the same machine the same day: four
+empty notes in the bucket, one per recording attempt where the microphone was
+never granted, each "0 min, typed session" with no transcript and no typed
+notes. The write path was faithfully filing nothing — `finalizing -> complete`
+had no floor under it, so a session with literally no content in it produced a
+note exactly the way a real one does, placeholders and all.
+
+`hasNothingCaptured` in `packages/meetings/src/session.js` is the one rule:
+`session.transcript.length === 0 && session.notes.trim() === ""`. Both halves,
+because either one alone is a real meeting — a transcript with no typed notes,
+or typed notes with no audio at all (`a meeting nobody recorded still
+finalizes`, above), are both meetings this product exists to capture. Only the
+conjunction is nothing.
+
+**A session that qualifies moves to a new terminal state, `empty`, rather than
+being refused, silently dropped, or read as `failed`.** Each of the
+alternatives was wrong for a different reason: refusing the finalize forges a
+retry loop against a client that did nothing wrong; dropping it silently is
+the exact "appears to work and does nothing" defect this repository keeps
+finding elsewhere; and `failed` already means something specific — a capture
+problem a retry might fix — which a session with nothing in it is not: there
+is nothing to retry, only a meeting to record again. `MEETING_TRANSITIONS`
+gained `finalizing -> empty`, terminal like `complete`, and `MeetingSession`
+gained `emptyReason`, on the same rule `failureReason` follows (null in every
+other state, set on the way in, and never rewritten).
+
+**The gateway decides, never the client alone, and the check is re-run rather
+than trusted.** `finalize -> empty` is a `GATEWAY_EVENT_TYPES` member, beside
+`written`, and for the same shape of reason: a client able to assert `empty`
+unchecked could make a real transcript disappear as easily as report an
+honestly empty one. Unlike `written`, though, there is no asymmetric knowledge
+here — a client holds the same transcript and the same notes the gateway does
+— so `applyEvent`'s `empty` case re-derives `hasNothingCaptured` from the
+session it is actually folded onto and refuses the event outright if the
+session has content, rather than trusting whoever sent it. That is what makes
+it safe for a client to fold *and* for the gateway to fold, from the same
+function, with the same guarantee either way.
+
+**The reason is the client's to give and the gateway's to accept or replace.**
+`FinalizeBody.emptyReason` is an optional hint — "microphone not granted" reads
+better on a badge than a sentence the gateway would otherwise invent — capped
+at `REASON_MAX` and never a trigger: a client naming a reason on a session that
+turns out to have content is simply not read, because `hasNothingCaptured`
+decided the outcome before the reason was ever looked at.
+
+**Where each surface stops it, and why it is not the same layer twice.** The
+gateway (`apps/mcp/src/meetings/ingest.js`, `finalizeSession`) is the one
+choke point for the desktop app's HTTP path and is authoritative regardless of
+what any client does or fails to do — a future client that never learns this
+rule still cannot write an empty note. The phone's Convex path
+(`apps/mobile/features/meetings/convexGateway.ts`) has no gateway process of
+its own to be authoritative *for* — this app composes the note directly, the
+way `docs/decisions/meetings.md`'s "A meeting is written the way a note is"
+section already describes — so `controller.end()` (`apps/mobile/features/
+meetings/controller.ts`) checks `hasNothingCaptured` locally, before `sync()`
+ever runs, and `convexGateway.finalize()` checks it again as a backstop in
+case that first check is ever bypassed. Neither is redundant: the controller's
+check is what stops the request from ever being made, and the gateway's is
+what stops the request from ever succeeding if it is.
+
+**Nothing about `.meetings/` records changes.** `finalizeSession`'s claim step
+is skipped entirely for an empty session — no path is ever reserved, so there
+is nothing for `releaseClaim` to give back — and the session record itself
+becomes the answer, the same way a completion receipt is for a written note.
+`upsertSession`, `appendSegments` and `replaceNotes` all treat `empty` as
+terminal, the same as `complete`: a stray segment or a note typed after the
+fact is refused rather than silently reopening a meeting that has already been
+decided to have nothing in it.
+
+**Nothing is written, and nothing is filed — but nothing is forgotten either.**
+No `0-inbox/meetings/*.md` is created. The session record persists (on the
+gateway path) or lives on the device (on the Convex path) with `state: empty`
+and `emptyReason` readable back, so the console shows "Nothing was captured:
+`<reason>`" and offers Record again — `apps/mobile/features/meetings/
+MeetingNoteScreen.tsx`'s `Landing` component, checked before the generic
+`notePath === null` branch so an empty session is never told "Not in your
+bucket yet, sent as soon as your context answers", which would be a promise
+this session can never keep.
+
+**Nothing is deleted, because there is nothing of a recording left to delete.**
+The question a review has to ask of a rule that files no note is whether it
+throws away a recording, and the answer is a property of the product rather
+than of this code: *audio is never persisted by us* — a chunk's file dies
+before the request carrying its contents (`The device is never waiting on the
+network`, above), no adapter writes audio to the bucket, and `empty` writes and
+deletes nothing at all: no note, no claim, and the session record itself stays
+readable with its reason. So the case that looks like data loss — a meeting
+whose audio was captured and whose transcription failed on every chunk, which
+is a defect this repository has had — is a meeting whose audio was already gone
+under every version of this rule. What `empty` costs it is the note that would
+have recorded that the meeting happened at all, and what it buys is that the
+person is told, in the app, instead of finding a blank file in their bucket.
+
+The one thing that must not survive that is a wrong sentence. A device's
+`emptyReason` is a guess about its own microphone, and on the path where **this
+gateway took the audio** it is a guess that is wrong in the direction somebody
+acts on — they go and check a permission for a recording that really happened.
+`transcribedChunks` is spent before a byte is forwarded, so the gateway knows,
+and its own sentence replaces the hint: `Audio was recorded, but none of it
+could be transcribed.` The check is `...but it is not told the microphone was
+the problem, because this gateway took the audio`.
+
+The checks are `hasNothingCaptured` and the `empty` event's own guard in
+`packages/meetings/test/session.test.mjs` (both halves required; a transcript
+alone or typed notes alone are real meetings; the event is refused on a
+session that captured something; the reason is capped, not rejected; replay is
+idempotent), the gateway's in `apps/mcp/test/meetings.test.mjs` (no note
+written, the reason round-trips through a `GET`, a re-finalize answers with
+the same reason, a stray segment or note after the fact is refused, and a
+client-named reason on a session that turns out to have content is not what
+decides the outcome), and the phone's in
+`apps/mobile/__tests__/meetingsController.test.ts` and
+`__tests__/meetingsScreens.test.ts` (the gateway is never asked at all, the
+device's own capture reason is used when there is one and a generic sentence
+when there is not, and the screen never claims "not saved yet" about a session
+that will never be saved). **The test that fails if this is reversed:** record
+a session with no transcript and no typed notes and finalize it — with the
+rule, `state` is `empty` and the bucket gains nothing; reversed, a fourth empty
+note lands beside the three the owner already found.

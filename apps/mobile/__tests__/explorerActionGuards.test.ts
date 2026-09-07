@@ -19,10 +19,10 @@ import { displayName } from "../features/console/files/paths";
  * **The `Explorer` guards that decide whether the console asks the server at
  * all.**
  *
- * Row 117 of the security register: every guard in this console expressed as a
- * pure module is held by a test, and every guard living inside a component or a
- * hook was held by nothing. `#102`, `#106` and `#112` took the ones that could
- * be moved out or driven through a mounted hook. `Explorer` is the last layer,
+ * Every guard in this console expressed as a pure module is held by a test,
+ * and every guard living inside a component or a hook was held by nothing.
+ * `#102`, `#106` and `#112` took the ones that could be moved out or driven
+ * through a mounted hook. `Explorer` is the last layer,
  * and it is the one that decides *when* to call `menu.ts`, `dnd.ts` and the
  * `FileBrowser` — decisions that only exist in the component.
  *
@@ -39,7 +39,8 @@ import { displayName } from "../features/console/files/paths";
  *
  * Twelve conditions are in scope. Eleven of them were sabotaged one at a time
  * against the mobile suite as it stood before this file — 1,590 checks — and
- * **every one went undetected**, so row 117's 0-for-N reading was right. (The
+ * **every one went undetected**, which is the reading that motivated this
+ * file: guards inside a component were caught by nothing at all. (The
  * twelfth is `canDrag`'s `loading`/`empty` arms, not sabotaged: a condition
  * argued to be unreachable produces no detection either way, so the run would
  * prove nothing. An earlier version of this paragraph said "each", which

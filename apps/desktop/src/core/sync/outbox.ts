@@ -32,15 +32,56 @@
  * it.** `meeting_invalid` and `meeting_forbidden` mean a person has to do
  * something — reconnect, re-grant, or send us a bug report. The transcript
  * stays queued either way.
+ *
+ * **A `finalize` entry that has been stuck too long is not left stuck.** A
+ * session in `finalizing` has no timeout at the gateway — most of the time it
+ * is one request away from `complete` — so a lost response, a crash between
+ * queuing `session` and `finalize`, or a deterministic refusal nobody has
+ * looked at yet all look identical from here: a `finalize` entry that never
+ * clears. `recoverStaleFinalize` is the glue around `checkFinalizeTimeout`
+ * (`@context/meetings/recovery`, the pure rule): a first stale sighting gets
+ * one forced retry, and a session still stuck a full timeout window after that
+ * gets a queued `fail` — never a silent "Finalizing" forever.
  */
 
-import { ERRORS } from "../contract.ts";
+import { FINALIZE_TIMEOUT_MS, checkFinalizeTimeout, ERRORS } from "../contract.ts";
 import type { TranscriptSegment } from "../contract.ts";
 
 export type OutboxKind = "session" | "segments" | "notes" | "finalize";
 
 /** Contract order. Index in this array is the drain order within a session. */
 const KIND_ORDER: readonly OutboxKind[] = ["session", "segments", "notes", "finalize"];
+
+/**
+ * Selection priority across sessions, within one call to `nextDrain` — lower
+ * drains first. Not the drain order *within* a session, which `KIND_ORDER`
+ * still owns untouched.
+ *
+ * `session` and `finalize` rank ahead of `segments` and `notes` for the same
+ * reason `drainUrgency` in `core/sync/drain.ts` answers `"now"` and `"await"`
+ * for them and `"timer"` for the rest: a session write races the first chunk
+ * of its own meeting's audio, and a finalize is already awaited by its caller.
+ * Both lose that race just as surely from behind a deep backlog of *other*
+ * sessions' `segments`/`notes` as from behind the thirty-second timer — an
+ * adversarial review measured a transcript through a 74-entry backlog and
+ * none at 75, because a pass carries at most 25 entries and `nextDrain` had no
+ * opinion beyond `queuedAt`. See `docs/decisions/desktop.md`, "Twenty is less
+ * than thirty, and every recording died of it".
+ *
+ * Ranked here rather than by importing `drainUrgency`, so that `outbox.ts` —
+ * the pure reducer `drain.ts` is built on top of — never imports the module
+ * built on top of it. `sessionOrder.test.mjs` pins the two against each other
+ * kind for kind, so they cannot drift apart.
+ *
+ * This changes *which* ready head `nextDrain` returns, never the queue's own
+ * order: nothing here reorders `outbox.entries`, and a lower-priority head
+ * that is not ready (parked, or still backing off) is excluded exactly as it
+ * always was — the priority is over what is ready, never a reason to wait on
+ * what is not.
+ */
+function selectionRank(kind: OutboxKind): 0 | 1 {
+  return kind === "session" || kind === "finalize" ? 0 : 1;
+}
 
 export type EntryState = "pending" | "parked";
 
@@ -79,6 +120,13 @@ export interface OutboxEntry {
   /** Set when parked; shown to the person who asks why a meeting is stuck. */
   parked?: { code: string; message: string; noticedAt: number };
   lastError?: string;
+  /**
+   * When `recoverStaleFinalize` last forced a retry of this entry, so a second
+   * stale sighting can tell "still within its one retry's own window" from
+   * "the retry did not help either" — see `checkFinalizeTimeout`'s own
+   * `retriedAt`. Only ever set on a `finalize` entry.
+   */
+  retriedAt?: number;
 }
 
 export interface Outbox {
@@ -243,7 +291,9 @@ export function queueWrite(outbox: Outbox, input: QueueInput): Outbox {
     updatedAt: input.now,
     ...(existing.state === "parked"
       ? {}
-      : { attempts: 0, nextAttemptAt: input.now, lastError: undefined }),
+      : // New content is a new attempt at finalizing, so the timeout clock
+        // (and whatever retry it already earned) restarts with it.
+        { attempts: 0, nextAttemptAt: input.now, lastError: undefined, retriedAt: undefined }),
   };
   return { ...outbox, entries: outbox.entries.map((entry) => (entry.id === id ? next : entry)) };
 }
@@ -251,9 +301,14 @@ export function queueWrite(outbox: Outbox, input: QueueInput): Outbox {
 /**
  * The next entry to send, or null.
  *
- * Head-of-session only, ordered by kind; among sessions, the one whose head has
- * waited longest. A parked head blocks its own session and nothing else — the
- * meeting that cannot be sent must not stop the next one from going out.
+ * Head-of-session only, ordered by kind within a session exactly as before;
+ * among sessions, a `session` or `finalize` head jumps ahead of every
+ * `segments`/`notes` head regardless of how long either has waited, and ties
+ * within a priority tier go to whichever head has waited longest. See
+ * `selectionRank`. A parked or backed-off head blocks its own session and
+ * nothing else — the meeting that cannot be sent must not stop the next one
+ * from going out, and a high-priority head that is not ready loses its place
+ * to a lower-priority one that is, rather than holding the slot open.
  */
 export function nextDrain(outbox: Outbox, now: number): OutboxEntry | null {
   const heads = new Map<string, OutboxEntry>();
@@ -265,7 +320,12 @@ export function nextDrain(outbox: Outbox, now: number): OutboxEntry | null {
   }
   const ready = [...heads.values()]
     .filter((entry) => entry.state === "pending" && entry.nextAttemptAt <= now)
-    .sort((a, b) => a.queuedAt - b.queuedAt || a.id.localeCompare(b.id));
+    .sort(
+      (a, b) =>
+        selectionRank(a.kind) - selectionRank(b.kind) ||
+        a.queuedAt - b.queuedAt ||
+        a.id.localeCompare(b.id),
+    );
   return ready[0] ?? null;
 }
 
@@ -410,4 +470,71 @@ export function pendingFor(outbox: Outbox, sessionId: string): OutboxEntry[] {
 /** A person deleted a meeting. The only path that discards queued content. */
 export function forgetSession(outbox: Outbox, sessionId: string): Outbox {
   return { ...outbox, entries: outbox.entries.filter((entry) => entry.sessionId !== sessionId) };
+}
+
+/**
+ * Act on every `finalize` entry that has been sitting too long, per
+ * `checkFinalizeTimeout` — the pure rule this function is glue around.
+ *
+ * Called on a drain tick and once on launch, both with the same function:
+ * "on app launch, any `finalizing` session older than the bound is handled
+ * the same way" is true for free when launch is just another tick with a
+ * queue that survived a restart on disk.
+ *
+ * **`retry`** forces the entry back to `pending` with its backoff cleared and
+ * stamps `retriedAt`, so the very next drain sends it again regardless of how
+ * much of its backoff window remains — a stuck entry does not get to wait out
+ * a minute of exponential backoff on top of the ten it has already lost.
+ *
+ * **`fail`** queues a `session` write carrying a `fail` event — `session`
+ * drains ahead of `finalize` in `KIND_ORDER`, so the gateway learns the
+ * session failed before anything else about it is attempted — and then drops
+ * the stale `finalize` entry. Left in place, that entry would ask this
+ * function to fail the same session again on every future tick forever: once
+ * a client has said `fail`, an entry proposing to retry the *original*
+ * finalize is superseded, not merely postponed. A person pressing Retry from
+ * here on queues a fresh finalize the ordinary way, through `end()`.
+ */
+export function recoverStaleFinalize(
+  outbox: Outbox,
+  now: number,
+  options: { timeoutMs?: number } = {},
+): Outbox {
+  let next = outbox;
+  for (const entry of outbox.entries) {
+    if (entry.kind !== "finalize") continue;
+    const endedAt = typeof entry.body["endedAt"] === "string" ? (entry.body["endedAt"] as string) : null;
+    const outcome = checkFinalizeTimeout(
+      { state: "finalizing", endedAt },
+      now,
+      { timeoutMs: options.timeoutMs, retriedAt: entry.retriedAt ?? null },
+    );
+
+    if (outcome.action === "none") continue;
+
+    if (outcome.action === "retry") {
+      next = {
+        ...next,
+        entries: next.entries.map((candidate) =>
+          candidate.id === entry.id
+            ? { ...candidate, retriedAt: now, state: "pending" as const, nextAttemptAt: now, attempts: 0 }
+            : candidate,
+        ),
+      };
+      continue;
+    }
+
+    next = queueWrite(next, {
+      sessionId: entry.sessionId,
+      kind: "session",
+      context: entry.context,
+      body: {
+        id: entry.sessionId,
+        events: [{ type: "fail", at: new Date(now).toISOString(), reason: outcome.reason }],
+      },
+      now,
+    });
+    next = { ...next, entries: next.entries.filter((candidate) => candidate.id !== entry.id) };
+  }
+  return next;
 }
