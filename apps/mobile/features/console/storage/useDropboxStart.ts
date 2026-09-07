@@ -2,7 +2,13 @@ import { useCallback, useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
-import { browserOrigin, dropboxRedirectUri, type DropboxStartState } from "./dropbox";
+import {
+  browserCompletionStore,
+  browserOrigin,
+  dropboxRedirectUri,
+  keepCompletionSecret,
+  type DropboxStartState,
+} from "./dropbox";
 import { describeThrownStorageError } from "./errors";
 import { leaveForDropbox } from "./leaveForDropbox";
 
@@ -42,7 +48,7 @@ export function useDropboxStart(
       setState({ kind: "starting" });
       void (async () => {
         try {
-          const { authorizeUrl } = await startConnect({
+          const { authorizeUrl, completionSecret } = await startConnect({
             workspaceId: workspaceId as Id<"workspaces">,
             redirectUri,
             // Omitted rather than sent as an empty string. `undefined` is what
@@ -54,6 +60,14 @@ export function useDropboxStart(
             // nothing. This is how first-run gets its remaining steps back.
             ...(options.resumeTo === undefined ? {} : { resumeTo: options.resumeTo }),
           });
+          /*
+            Kept before the navigation, because the navigation destroys this
+            page. It is the value that says this browser is the one that
+            started the flow — see `keepCompletionSecret` — and it is
+            deliberately not the `state`, which travels through Dropbox and is
+            therefore known to whoever built the URL.
+          */
+          keepCompletionSecret(completionSecret, browserCompletionStore());
           leaveForDropbox(authorizeUrl);
           // Left deliberately in `starting`. On web this line runs while the
           // browser is already navigating away; dropping back to `idle` would

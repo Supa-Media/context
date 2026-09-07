@@ -17,9 +17,11 @@ import { CONNECT_TIMEOUT_MS, type WatchedBinding } from "../../onboarding/verify
 import { EMPTY_QUERY_SPEC } from "../querySpec";
 import { describeThrownStorageError } from "./errors";
 import {
+  browserCompletionStore,
   firstParam,
   parseDropboxCallback,
   resolveDropboxCallbackView,
+  takeCompletionSecret,
   type DropboxAttempt,
   type DropboxCallbackView,
 } from "./dropbox";
@@ -104,7 +106,15 @@ export function DropboxCallbackScreen() {
     setAttempt({ kind: "running" });
     void (async () => {
       try {
-        const result = await complete({ state: callback.state, code: callback.code });
+        const result = await complete({
+          state: callback.state,
+          code: callback.code,
+          // The value this browser kept when it started the flow. Absent — a
+          // different browser, cleared storage, or a link somebody else built
+          // — and the control plane refuses with the same answer it gives an
+          // unknown state.
+          completionSecret: takeCompletionSecret(browserCompletionStore()),
+        });
         setAttempt({ kind: "queued", workspaceId: result.workspaceId, resumeTo: result.resumeTo });
       } catch (error) {
         setAttempt({ kind: "failed", failure: describeThrownStorageError(error, "dropbox") });

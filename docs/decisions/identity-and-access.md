@@ -120,6 +120,41 @@ Adding a scope means adding it to `SUPPORTED_SCOPES` in `session.js` — which
 about it separately. A client that follows discovery to a scope the
 authorization endpoint then rejects is a client that concludes the server lied.
 
+### A third-party OAuth callback carries a secret the browser kept, not just `state`
+
+`state` travels in the authorize URL and comes back in the callback, so
+**whoever built the URL knows it.** That is fine against an interceptor and
+useless against an initiator, and the initiator is the case that matters here:
+somebody can start a perfectly legitimate connect for a workspace they really
+do own, send the resulting authorize URL to another person, and have that
+person's account bound to *their* context. PKCE cannot see it — the verifier is
+genuinely the initiator's, so it matches — and neither can a redirect
+allow-list, because the attack uses the real redirect.
+
+RFC 6749 §10.12 asks for `state` to be **bound to the user-agent that started
+the flow**. A `state` that is only an unguessable server-side lookup key is not
+that. So `startDropboxConnect` mints a second value, returns it to the starting
+browser alone, and `completeDropboxConnect` requires it back:
+
+- it **never travels through the provider**, which is the whole property;
+- it is stored hashed, and compared after the attempt is deleted, so a wrong
+  one spends the attempt exactly as a failed exchange does and cannot be
+  retried against a `state` somebody holds;
+- a wrong secret, an unknown `state` and an expired attempt are **one answer**;
+- an attempt parked before this existed carries no hash and is refused rather
+  than trusted — bounded by the ten-minute TTL, and the safe direction.
+
+**It is deliberately not a session.** `#76` removed the session gate on this
+callback because the OAuth round trip can drop the session, and the sign-in
+wall that followed outlived Dropbox's single-use code on the first live
+connect. Browser storage binds the browser without asking who is signed in, so
+that fix stays intact. A browser that cannot keep the value cannot complete a
+connect, which is the honest outcome rather than a fallback.
+
+The same shape is owed to every third-party connect this repository grows —
+the Gmail flow was written from this one and inherits the gap until it is
+given the same treatment.
+
 ### A first-party signed shell may have its own grant approved by the session hosting it
 
 The owner, on the first end-to-end desktop capture (2026-09-07): *"I don't love

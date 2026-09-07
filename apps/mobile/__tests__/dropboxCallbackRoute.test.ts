@@ -165,7 +165,7 @@ describe("the Dropbox callback route", () => {
     reset();
     mockParams = { code: "c1", state: "s1" };
     const screen = await mount();
-    expect(mockActionCalls).toEqual([{ state: "s1", code: "c1" }]);
+    expect(mockActionCalls).toEqual([{ state: "s1", code: "c1", completionSecret: "" }]);
 
     await screen.rerender();
     await screen.rerender();
@@ -173,11 +173,23 @@ describe("the Dropbox callback route", () => {
     screen.unmount();
   });
 
-  test("it sends the code and state from the URL, and nothing else", async () => {
+  /**
+   * "Nothing else" is now three fields rather than two, and the third is the
+   * point of this assertion rather than an exception to it.
+   *
+   * `state` and `code` both arrive in the URL, so anyone who built that URL
+   * has them — including somebody who built it for their own workspace and
+   * sent it to another person to consent. `completionSecret` is the value that
+   * never travels through Dropbox: the control plane hands it to the browser
+   * that started the flow and requires it back. Here it is `""`, because this
+   * harness never started one, which is exactly what a browser following
+   * somebody else's link would send.
+   */
+  test("it sends the code and state from the URL, plus the secret this browser kept", async () => {
     reset();
     mockParams = { code: ["c1", "c2"], state: "s1", error: undefined as never };
     const screen = await mount();
-    expect(mockActionCalls).toEqual([{ state: "s1", code: "c1" }]);
+    expect(mockActionCalls).toEqual([{ state: "s1", code: "c1", completionSecret: "" }]);
     screen.unmount();
   });
 
@@ -196,7 +208,7 @@ describe("the Dropbox callback route", () => {
     mockAuth = { isLoading: true, isAuthenticated: false };
     mockParams = { code: "c1", state: "s1" };
     const screen = await mount();
-    expect(mockActionCalls).toEqual([{ state: "s1", code: "c1" }]);
+    expect(mockActionCalls).toEqual([{ state: "s1", code: "c1", completionSecret: "" }]);
     // And exactly once: auth settling later must not spend a second attempt.
     expect(mockRedirects).toEqual([]);
     screen.unmount();
@@ -207,7 +219,7 @@ describe("the Dropbox callback route", () => {
     mockAuth = { isLoading: false, isAuthenticated: false };
     mockParams = { code: "c1", state: "s1" };
     const screen = await mount();
-    expect(mockActionCalls).toEqual([{ state: "s1", code: "c1" }]);
+    expect(mockActionCalls).toEqual([{ state: "s1", code: "c1", completionSecret: "" }]);
     expect(mockRedirects).toEqual([]);
     screen.unmount();
   });

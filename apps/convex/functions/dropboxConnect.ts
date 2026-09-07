@@ -136,6 +136,7 @@ function refuseAttempt(): never {
 export const parkAttempt = internalMutation({
   args: {
     hashedState: v.string(),
+    hashedCompletion: v.string(),
     encryptedVerifier: v.string(),
     workspaceId: v.id("workspaces"),
     startedBy: v.id("users"),
@@ -156,6 +157,7 @@ export const parkAttempt = internalMutation({
 
     await ctx.db.insert("dropboxConnectAttempts", {
       hashedState: args.hashedState,
+      hashedCompletion: args.hashedCompletion,
       encryptedVerifier: args.encryptedVerifier,
       workspaceId: args.workspaceId,
       startedBy: args.startedBy,
@@ -207,8 +209,11 @@ export const startDropboxConnect = action({
      */
     resumeTo: v.optional(v.literal("onboarding")),
   },
-  returns: v.object({ authorizeUrl: v.string() }),
-  handler: async (ctx, args): Promise<{ authorizeUrl: string }> => {
+  returns: v.object({ authorizeUrl: v.string(), completionSecret: v.string() }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ authorizeUrl: string; completionSecret: string }> => {
     const userId = await requireActor(ctx);
     const isOwner: boolean = await ctx.runQuery(
       internal.functions.dropboxConnect.requireOwner,
@@ -237,6 +242,22 @@ export const startDropboxConnect = action({
     const clientId = requireAppKey();
     const { verifier, challenge } = await createPkcePair();
     const state = randomOpaqueToken(STATE_BYTES);
+    /*
+      The value that never leaves this browser.
+
+      `state` travels through Dropbox, so whoever built the authorize URL knows
+      it — including somebody who built it for their **own** workspace and then
+      sent it to another person to consent. PKCE does not see that case: the
+      attacker is the initiator, so the verifier really is theirs and matches.
+      RFC 6749 §10.12 is about binding the flow to the browser that started it,
+      and this is that binding: returned to the starter alone, stored by the
+      starter, required back at completion, and never sent to Dropbox.
+
+      A session would be the other way to bind it, and `#76` established that a
+      session gate on the callback burns Dropbox's single-use code on a slow
+      sign-in. This costs no session.
+    */
+    const completionSecret = randomOpaqueToken(STATE_BYTES);
 
     // The verifier is sealed with the workspace id as AAD, exactly as a
     // storage credential is, so a row lifted into another workspace's context
@@ -247,6 +268,7 @@ export const startDropboxConnect = action({
 
     await ctx.runMutation(internal.functions.dropboxConnect.parkAttempt, {
       hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(completionSecret),
       encryptedVerifier,
       workspaceId: args.workspaceId,
       startedBy: userId,
@@ -256,6 +278,7 @@ export const startDropboxConnect = action({
     });
 
     return {
+      completionSecret,
       authorizeUrl: dropboxAuthorizeUrl({
         clientId,
         redirectUri: args.redirectUri,
@@ -324,7 +347,7 @@ export const startDropboxConnect = action({
  * bucket path already does after `bindStorage`.
  */
 export const completeDropboxConnect = action({
-  args: { state: v.string(), code: v.string() },
+  args: { state: v.string(), code: v.string(), completionSecret: v.string() },
   returns: v.object({
     workspaceId: v.id("workspaces"),
     resumeTo: v.optional(v.literal("onboarding")),
@@ -338,7 +361,13 @@ export const completeDropboxConnect = action({
       resumeTo?: "onboarding";
     } | null = await ctx.runMutation(
       internal.functions.dropboxConnect.consumeAttemptAndExchange,
-      { hashedState: await hashToken(args.state), code: args.code },
+      {
+        hashedState: await hashToken(args.state),
+        code: args.code,
+        // Hashed here rather than compared here: the raw value never reaches a
+        // mutation argument, exactly as the state does not.
+        hashedCompletion: await hashToken(args.completionSecret),
+      },
     );
     if (consumed === null) refuseAttempt();
     return consumed;
@@ -353,7 +382,7 @@ export const completeDropboxConnect = action({
  * makes a replay of the same callback URL find nothing.
  */
 export const consumeAttemptAndExchange = internalMutation({
-  args: { hashedState: v.string(), code: v.string() },
+  args: { hashedState: v.string(), code: v.string(), hashedCompletion: v.string() },
   returns: v.union(
     v.null(),
     v.object({
@@ -374,6 +403,22 @@ export const consumeAttemptAndExchange = internalMutation({
     await ctx.db.delete(attempt._id);
 
     if (attempt.expiresAt < Date.now()) return null;
+
+    /*
+      The browser that started this is the one that may finish it.
+
+      Checked after the delete, so a wrong secret spends the attempt exactly as
+      a failed exchange does — otherwise this becomes an oracle somebody can
+      retry against a state they hold. Refused with the same `null` every other
+      failure here uses, so the callback cannot tell "wrong secret" from
+      "unknown state" from "expired".
+
+      An attempt parked before this shipped has no `hashedCompletion` and is
+      refused rather than trusted. That costs a connect started in the ten
+      minutes before a deploy one retry; trusting it instead would leave the
+      flow unbound for exactly as long.
+    */
+    if (attempt.hashedCompletion !== args.hashedCompletion) return null;
 
     await ctx.scheduler.runAfter(
       0,

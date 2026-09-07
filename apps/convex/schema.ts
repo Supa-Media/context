@@ -1268,6 +1268,22 @@ const schema = defineSchema({
   dropboxConnectAttempts: defineTable({
     /** SHA-256 of the state value. The raw value exists only in the URL. */
     hashedState: v.string(),
+    /**
+     * SHA-256 of a second value that **never travels through Dropbox**.
+     *
+     * `state` goes out in the authorize URL and comes back in the callback, so
+     * whoever built the URL knows it — including somebody who built it for
+     * their own workspace and sent it to another person. This is the value
+     * that separates those two: minted at start, returned to the starting
+     * browser alone, kept there, and required back at completion. It is what
+     * makes `state` browser-bound in the sense RFC 6749 §10.12 means, without
+     * a session — `#76` removed the session gate on the callback for a real
+     * reason and this must not reintroduce one.
+     *
+     * Optional only because attempts parked before it existed have none, and
+     * those are refused rather than trusted.
+     */
+    hashedCompletion: v.optional(v.string()),
     /** The PKCE verifier, sealed with the workspace id as AAD. */
     encryptedVerifier: v.string(),
     workspaceId: v.id("workspaces"),
