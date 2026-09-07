@@ -154,6 +154,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The Mac app is signed by a workflow nobody's branch can start, and builds honestly unsigned until then
 - What is deliberately not built
 - Consent is the customer's, and the product may never make recording invisible
+- A `finalizing` session has a deadline, because the gateway does not need one
+- A session that captured nothing is not filed
 
 ## [Communications](./communications.md)
 

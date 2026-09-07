@@ -602,6 +602,28 @@ describe("`saved` is said only when there is a path to print", () => {
     mounted.unmount();
   });
 
+  /*
+    A session that captured nothing is not "not saved yet" — nothing is coming.
+    `session.notePath === null` is true of both, and this is the check that
+    keeps the false promise ("sent as soon as your context answers") off a
+    meeting that will never be sent.
+  */
+  test("a session that captured nothing says so, and offers a way to try again", async () => {
+    await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Refused microphone" });
+      await meetings.end();
+    });
+
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(mounted.container.textContent).not.toContain("Saved to your bucket");
+    expect(mounted.container.textContent).not.toContain("Not in your bucket yet");
+    expect(mounted.container.textContent).toContain("Nothing was captured");
+    expect(mounted.container.textContent).toContain("Record again");
+    mounted.unmount();
+  });
+
   test("a folder the context would not file into is said on the screen, not swallowed", async () => {
     /*
       `IngestAck.folderRejected` and the sentence it is for. The gateway falls
@@ -626,6 +648,7 @@ describe("`saved` is said only when there is a path to print", () => {
           label: "2-areas/private",
         },
       });
+      meetings.setNotes(id, "camp notes");
       await meetings.end();
     });
 
@@ -668,6 +691,7 @@ describe("`saved` is said only when there is a path to print", () => {
           label: "1-projects/portal",
         },
       });
+      meetings.setNotes(id, "camp notes");
       await meetings.end();
     });
 

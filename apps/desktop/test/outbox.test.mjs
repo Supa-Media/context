@@ -36,9 +36,16 @@
  * them originally *crashed* this file rather than failing it — a deleted entry
  * makes every later `entries[0].body` a TypeError. The reads are optional-
  * chained now, so the checks that own each failure get to report it.
+ *
+ * `recoverStaleFinalize`'s own sabotage, against the owner's "stuck on
+ * Finalizing for two hours" bug report:
+ *
+ *   the `retry` branch removed (every stale sighting goes straight to fail)   4
+ *   the stale finalize entry not dropped after a `fail` is queued for it      1
  */
 
 import { ERRORS } from "@context/meetings/protocol";
+import { FINALIZE_TIMEOUT_MS } from "@context/meetings/recovery";
 import {
   applyDrain,
   backoffMs,
@@ -51,6 +58,7 @@ import {
   pendingFor,
   queueWrite,
   reconcileDrain,
+  recoverStaleFinalize,
 } from "../src/core/sync/outbox.ts";
 import { isMeetingId, newMeetingId } from "@context/meetings";
 
@@ -283,6 +291,133 @@ export function runOutboxChecks(check) {
     check(
       "a meeting somebody deleted mid-drain stays deleted",
       next.entries.length === 0,
+    );
+  }
+
+  // -- a stuck finalize is not left stuck forever -----------------------------
+  //
+  // The pure rule (`checkFinalizeTimeout`, `packages/meetings/src/recovery.js`)
+  // is tested with its own fake clock in `packages/meetings/test/recovery.test.mjs`.
+  // What is checked here is the glue: that a stale `finalize` entry in *this*
+  // queue is retried once and then turned into a queued `fail`, never simply
+  // read again forever.
+  {
+    const endedAt = "2026-09-07T10:00:00.000Z";
+    const T0 = Date.parse(endedAt);
+    const finalizing = queueWrite(emptyOutbox(), {
+      sessionId,
+      kind: "finalize",
+      body: { sessionId, endedAt },
+      now: T0,
+    });
+
+    check(
+      "a finalize entry well within the bound is left alone",
+      recoverStaleFinalize(finalizing, T0 + 1_000).entries[0].retriedAt === undefined,
+    );
+
+    const retried = recoverStaleFinalize(finalizing, T0 + FINALIZE_TIMEOUT_MS);
+    check(
+      "at the bound, the entry is stamped retried and put back at the front of the queue",
+      retried.entries.length === 1 &&
+        retried.entries[0].retriedAt === T0 + FINALIZE_TIMEOUT_MS &&
+        retried.entries[0].state === "pending" &&
+        retried.entries[0].nextAttemptAt === T0 + FINALIZE_TIMEOUT_MS &&
+        retried.entries[0].attempts === 0,
+    );
+    check(
+      "...and it is still the one entry nextDrain offers",
+      nextDrain(retried, T0 + FINALIZE_TIMEOUT_MS)?.kind === "finalize",
+    );
+
+    check(
+      "asking again well inside the retry's own window changes nothing further",
+      recoverStaleFinalize(retried, T0 + FINALIZE_TIMEOUT_MS + 1_000).entries[0].retriedAt ===
+        T0 + FINALIZE_TIMEOUT_MS,
+    );
+
+    const failedAt = T0 + FINALIZE_TIMEOUT_MS * 2;
+    const failed = recoverStaleFinalize(retried, failedAt);
+    check(
+      "a full timeout window past the retry, the stale finalize is dropped",
+      !failed.entries.some((entry) => entry.kind === "finalize"),
+    );
+    const failEntry = failed.entries.find((entry) => entry.kind === "session");
+    check(
+      "...and a `session` write carrying a `fail` event is queued in its place",
+      failEntry !== undefined &&
+        Array.isArray(failEntry.body.events) &&
+        failEntry.body.events[0]?.type === "fail" &&
+        failEntry.body.events[0]?.at === new Date(failedAt).toISOString() &&
+        typeof failEntry.body.events[0]?.reason === "string",
+    );
+    check(
+      "...addressed to the same context the finalize was, so a shared workspace's meeting fails there too",
+      (() => {
+        const addressed = queueWrite(emptyOutbox(), {
+          sessionId,
+          kind: "finalize",
+          body: { sessionId, endedAt },
+          context: "acme",
+          now: T0,
+        });
+        const afterRetry = recoverStaleFinalize(addressed, T0 + FINALIZE_TIMEOUT_MS);
+        const afterFail = recoverStaleFinalize(afterRetry, T0 + FINALIZE_TIMEOUT_MS * 2);
+        return afterFail.entries.find((entry) => entry.kind === "session")?.context === "acme";
+      })(),
+    );
+    check(
+      "a session already failed is not asked to fail again on a later pass",
+      recoverStaleFinalize(failed, failedAt + FINALIZE_TIMEOUT_MS * 10).entries.length ===
+        failed.entries.length,
+    );
+
+    check(
+      "a finalize entry with no endedAt at all is left alone rather than failed for the wrong reason",
+      (() => {
+        const noEndedAt = queueWrite(emptyOutbox(), {
+          sessionId,
+          kind: "finalize",
+          body: { sessionId },
+          now: T0,
+        });
+        const after = recoverStaleFinalize(noEndedAt, T0 + FINALIZE_TIMEOUT_MS * 10);
+        return after.entries.length === 1 && after.entries[0].kind === "finalize";
+      })(),
+    );
+
+    check(
+      "new content on the finalize entry restarts its own timeout clock",
+      (() => {
+        const stale = queueWrite(emptyOutbox(), {
+          sessionId,
+          kind: "finalize",
+          body: { sessionId, endedAt },
+          now: T0,
+        });
+        const stamped = recoverStaleFinalize(stale, T0 + FINALIZE_TIMEOUT_MS);
+        const laterEndedAt = new Date(T0 + 60_000).toISOString();
+        const reQueued = queueWrite(stamped, {
+          sessionId,
+          kind: "finalize",
+          body: { sessionId, endedAt: laterEndedAt },
+          now: T0 + FINALIZE_TIMEOUT_MS + 2_000,
+        });
+        return (
+          reQueued.entries[0].retriedAt === undefined &&
+          recoverStaleFinalize(reQueued, T0 + FINALIZE_TIMEOUT_MS + 3_000).entries[0].retriedAt ===
+            undefined
+        );
+      })(),
+    );
+
+    check(
+      "a queue with no finalize entry at all is untouched",
+      (() => {
+        const onlySession = queueWrite(emptyOutbox(), { sessionId, kind: "session", body: { id: sessionId }, now: T0 });
+        return recoverStaleFinalize(onlySession, T0 + FINALIZE_TIMEOUT_MS * 10) === onlySession ||
+          recoverStaleFinalize(onlySession, T0 + FINALIZE_TIMEOUT_MS * 10).entries.length === 1;
+      })(),
     );
   }
 

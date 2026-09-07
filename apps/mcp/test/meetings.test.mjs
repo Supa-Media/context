@@ -127,6 +127,12 @@
  *     drives `handleMeetings` directly: the two failure shapes that decide this
  *     were both unreachable from the worker-level fixtures, and a first draft
  *     of the fix that released on a `MeetingRefusal(503)` went green.
+ * 23. **`finalizeSession` stops checking `hasNothingCaptured`** (the fold into
+ *     `empty` deleted, so an empty session falls straight through to the note
+ *     write) — 11 checks failed. This is the owner's own bug report, closed at
+ *     the one place that can close it for every client: a session with no
+ *     transcript and no typed notes wrote a real, empty note to the bucket
+ *     again, once per fixture — "0 min, typed session" with nothing in it.
  */
 
 import worker from "../src/index.js";
@@ -1057,6 +1063,7 @@ export async function runMeetingChecks(check) {
       id: SESSION_TEAM,
       title: "Editor's meeting",
       startedAt: "2026-09-02T10:00:00.000Z",
+      notes: "the meeting itself",
       events: [{ type: "start", at: "2026-09-02T10:00:00.000Z" }],
     },
   });
@@ -1266,6 +1273,257 @@ export async function runMeetingChecks(check) {
     typedNote.includes("_No transcript was captured._")
   );
 
+  /*
+    12b. A SESSION THAT CAPTURED NOTHING IS NOT FILED.
+
+    The owner's own bug report: a refused microphone leaves four empty notes in
+    the bucket, one per attempt, each "0 min, typed session" with no transcript
+    and no typed notes either. `hasNothingCaptured` is the rule and this is the
+    gateway wiring around it — no note write, a session marked `empty` with a
+    reason, and idempotent the same way a written note is.
+
+    Fixture ids are not run through `idOf` here: every character in
+    `MEETING_ID_ALPHABET` is already claimed by a single-repeat id elsewhere in
+    this file (see the header on that helper), so these mix two characters
+    instead, which cannot collide with any of them.
+  */
+  const SESSION_EMPTY_MIC_DENIED = `mtg_${"z9".repeat(10)}`;
+  const SESSION_EMPTY_NO_REASON = `mtg_${"z8".repeat(10)}`;
+  const SESSION_EMPTY_THEN_SEGMENTS = `mtg_${"z7".repeat(10)}`;
+  const SESSION_EMPTY_WITH_FLAGS_ONLY = `mtg_${"z6".repeat(10)}`;
+  const inboxBeforeEmpty = keysIn(recorder, "0-inbox/meetings/").length;
+
+  await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: { id: SESSION_EMPTY_MIC_DENIED, title: "Recording that never started", startedAt: "2026-09-01T15:00:00.000Z" },
+  });
+  const micDenied = await meetingRequest(
+    env,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_EMPTY_MIC_DENIED}/finalize`,
+    { body: { emptyReason: "microphone not granted" } }
+  );
+  check(
+    "a session with no transcript and no typed notes finalizes as empty, not complete",
+    micDenied.status === 200 && micDenied.body?.state === "empty"
+  );
+  check("...with no note path", micDenied.body?.notePath === null);
+  check("...carrying the reason this device gave", micDenied.body?.emptyReason === "microphone not granted");
+  check(
+    "...and nothing is written to the bucket for it",
+    keysIn(recorder, "0-inbox/meetings/").length === inboxBeforeEmpty
+  );
+
+  const emptyAgain = await meetingRequest(
+    env,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_EMPTY_MIC_DENIED}/finalize`,
+    { body: {} }
+  );
+  check(
+    "re-finalizing an already-empty session answers with the same reason, idempotently",
+    emptyAgain.status === 200 &&
+      emptyAgain.body?.state === "empty" &&
+      emptyAgain.body?.emptyReason === "microphone not granted"
+  );
+  check(
+    "...and still writes nothing",
+    keysIn(recorder, "0-inbox/meetings/").length === inboxBeforeEmpty
+  );
+
+  const emptySessionRead = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_EMPTY_MIC_DENIED}`, {
+    method: "GET",
+  });
+  check(
+    "reading the session back shows the empty state and reason too",
+    emptySessionRead.body?.session?.state === "empty" &&
+      emptySessionRead.body?.session?.emptyReason === "microphone not granted"
+  );
+
+  await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: { id: SESSION_EMPTY_NO_REASON, title: "No reason given", startedAt: "2026-09-01T15:10:00.000Z" },
+  });
+  const noReason = await meetingRequest(
+    env,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_EMPTY_NO_REASON}/finalize`,
+    { body: {} }
+  );
+  check(
+    "a client that names no reason still gets one, rather than an empty string",
+    noReason.status === 200 &&
+      noReason.body?.state === "empty" &&
+      typeof noReason.body?.emptyReason === "string" &&
+      noReason.body.emptyReason.length > 0
+  );
+
+  await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: {
+      id: SESSION_EMPTY_THEN_SEGMENTS,
+      title: "Empty, then a stray write",
+      startedAt: "2026-09-01T15:20:00.000Z",
+    },
+  });
+  await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_EMPTY_THEN_SEGMENTS}/finalize`, {
+    body: {},
+  });
+  const staleSegments = await meetingRequest(
+    env,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_EMPTY_THEN_SEGMENTS}/segments`,
+    { body: { segments: [segment("late-1", 0, "arrived after the meeting was marked empty")] } }
+  );
+  check(
+    "a segment batch arriving after empty is refused rather than silently dropped",
+    staleSegments.status === 400 && staleSegments.body?.error === "meeting_invalid"
+  );
+  const staleNotes = await meetingRequest(
+    env,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_EMPTY_THEN_SEGMENTS}/notes`,
+    { body: { notes: "typed after the fact" } }
+  );
+  check(
+    "...and the same for notes typed after the fact",
+    staleNotes.status === 400 && staleNotes.body?.error === "meeting_invalid"
+  );
+  const restaleUpsert = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: { id: SESSION_EMPTY_THEN_SEGMENTS, title: "Renamed after empty" },
+  });
+  check(
+    "an upsert on an already-empty session is a no-op, not a re-open",
+    restaleUpsert.body?.state === "empty"
+  );
+
+  /*
+    A flag with no transcript and no typed notes is still nothing to file: the
+    press happened, but a note with one callout and nothing else is not what
+    this feature is for, and the rule is the same content check regardless of
+    what put a byte on the session.
+  */
+  await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: {
+      id: SESSION_EMPTY_WITH_FLAGS_ONLY,
+      title: "Only a flag, nothing else",
+      startedAt: "2026-09-01T15:30:00.000Z",
+      flags: [{ at: 500 }],
+    },
+  });
+  const flagOnly = await meetingRequest(
+    env,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_EMPTY_WITH_FLAGS_ONLY}/finalize`,
+    { body: {} }
+  );
+  check("a flag alone does not save a session from being empty", flagOnly.body?.state === "empty");
+
+  check(
+    "...and none of the above left a second note anywhere in the bucket",
+    keysIn(recorder, "0-inbox/meetings/").length === inboxBeforeEmpty
+  );
+
+  /*
+    12c. A CLIENT THAT GAVE UP ON A STUCK FINALIZE SAYS SO, THROUGH THE ROUTE
+    THAT ALREADY EXISTS FOR IT.
+
+    `checkFinalizeTimeout` (`packages/meetings/src/recovery.js`) is the pure
+    rule a client runs against its own queue; what this pins is that its
+    answer — a `fail` event — is one the *contract* already carries end to
+    end. No new route, no new wire shape: `fail` has been in
+    `CLIENT_EVENT_TYPES` since `failed -> finalizing` was added, and
+    `finalizing -> failed` was already legal. What was missing is a client
+    ever calling it for this reason, and this is the gateway's half of that
+    being true.
+  */
+  const SESSION_STUCK_FINALIZE = `mtg_${"z5".repeat(10)}`;
+  await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: {
+      id: SESSION_STUCK_FINALIZE,
+      title: "Stuck for two hours",
+      startedAt: "2026-09-01T16:00:00.000Z",
+      notes: "typed before the crash",
+    },
+  });
+  const stuckFinalize = await meetingRequest(
+    env,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_STUCK_FINALIZE}/finalize`,
+    { body: {} }
+  );
+  check(
+    "sanity: a session with real notes finalizes normally, and this is the one recovery gives up on",
+    stuckFinalize.status === 200 && stuckFinalize.body?.state === "complete"
+  );
+  // A second finalize on a complete session is the ordinary idempotent replay
+  // — nothing about recovery — so instead this drives what recovery actually
+  // sends: a `fail` event on the session route, as if a client's own queue had
+  // just decided this meeting was never coming back on its own.
+  const SESSION_RECOVERED_TO_FAILED = `mtg_${"z4".repeat(10)}`;
+  await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: {
+      id: SESSION_RECOVERED_TO_FAILED,
+      title: "The gateway never answered",
+      startedAt: "2026-09-01T16:10:00.000Z",
+      notes: "typed before the crash",
+      events: [{ type: "end", at: "2026-09-01T16:30:00.000Z" }],
+    },
+  });
+  const beforeFail = await meetingRequest(
+    env,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_RECOVERED_TO_FAILED}`,
+    { method: "GET" }
+  );
+  check(
+    "the session genuinely sits in finalizing before recovery acts on it",
+    beforeFail.body?.session?.state === "finalizing"
+  );
+  const recoveredFail = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: {
+      id: SESSION_RECOVERED_TO_FAILED,
+      events: [
+        {
+          type: "fail",
+          at: "2026-09-01T18:30:00.000Z",
+          reason: "finalize still had not completed 10 minutes after a retry",
+        },
+      ],
+    },
+  });
+  check(
+    "a client's own recovery can move a stuck finalize to failed",
+    recoveredFail.status === 200 && recoveredFail.body?.state === "failed"
+  );
+  const afterFail = await meetingRequest(
+    env,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_RECOVERED_TO_FAILED}`,
+    { method: "GET" }
+  );
+  check(
+    "...and the reason is readable back, which is what the badge shows",
+    afterFail.body?.session?.state === "failed" &&
+      afterFail.body?.session?.failureReason === "finalize still had not completed 10 minutes after a retry"
+  );
+  // `failed -> finalizing` is still legal, so a later retry — the person
+  // pressing Retry, or the queued `finalize` entry recovery left in place —
+  // can still finish this meeting normally.
+  const retryAfterFail = await meetingRequest(
+    env,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_RECOVERED_TO_FAILED}/finalize`,
+    { body: {} }
+  );
+  check(
+    "a meeting recovery failed can still be finished by a later retry",
+    retryAfterFail.status === 200 &&
+      retryAfterFail.body?.state === "complete" &&
+      typeof retryAfterFail.body?.notePath === "string"
+  );
+  check(
+    "...carrying the notes that were typed before any of this happened",
+    (recorder.get(retryAfterFail.body.notePath)?.body || "").includes("typed before the crash")
+  );
+
   /* ------------- 13. `meetings` is a route, and a name nobody gets --------- */
 
   /*
@@ -1401,6 +1659,7 @@ export async function runMeetingChecks(check) {
       id: SESSION_SHARED,
       title: "Team standup",
       startedAt: "2026-09-03T09:00:00.000Z",
+      notes: "the meeting itself",
       events: [{ type: "start", at: "2026-09-03T09:00:00.000Z" }],
     },
   });
@@ -1776,9 +2035,19 @@ export async function runMeetingChecks(check) {
     finalized.body?.folderRejected === undefined && notePath.startsWith("0-inbox/meetings/")
   );
 
+  // `notes` here is a placeholder these fixtures are not testing — they are
+  // testing folders, claims and idempotency — and it exists only so the
+  // sessions below are not `hasNothingCaptured`: without it every one of them
+  // finalizes as `empty` and none of the folder logic below it ever runs.
   const openFor = (id, title, startedAt) =>
     meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
-      body: { id, title, startedAt, events: [{ type: "start", at: startedAt }] },
+      body: {
+        id,
+        title,
+        startedAt,
+        notes: "typed while it was happening",
+        events: [{ type: "start", at: startedAt }],
+      },
     });
 
   await openFor(SESSION_FILED, "Filed by hand", "2026-09-06T10:00:00.000Z");
@@ -2103,6 +2372,7 @@ export async function runMeetingChecks(check) {
       id: SESSION_TEAM_FOLDER,
       title: "An editor files properly",
       startedAt: "2026-09-06T15:00:00.000Z",
+      notes: "the meeting itself",
       events: [{ type: "start", at: "2026-09-06T15:00:00.000Z" }],
     },
   });
@@ -2142,6 +2412,7 @@ export async function runMeetingChecks(check) {
       id: SESSION_TEAM_ALLOWED,
       title: "An editor files properly",
       startedAt: "2026-09-06T15:30:00.000Z",
+      notes: "the meeting itself",
       events: [{ type: "start", at: "2026-09-06T15:30:00.000Z" }],
     },
   });
@@ -2187,6 +2458,7 @@ export async function runMeetingChecks(check) {
       id: SESSION_WEDGED,
       title: "Aimed somewhere its tier cannot reach",
       startedAt: "2026-09-06T17:00:00.000Z",
+      notes: "the meeting itself",
       events: [{ type: "start", at: "2026-09-06T17:00:00.000Z" }],
     },
   });
@@ -2258,7 +2530,12 @@ export async function runMeetingChecks(check) {
         { publishNote: publish }
       );
 
-    await call("/meetings/sessions", { id, title: "Claimed once", startedAt: "2026-09-06T18:00:00.000Z" });
+    await call("/meetings/sessions", {
+      id,
+      title: "Claimed once",
+      startedAt: "2026-09-06T18:00:00.000Z",
+      notes: "the meeting itself",
+    });
     await call(`/meetings/sessions/${id}/finalize`, { folder: "2-areas/first" });
     refuse = false;
     const second = await (await call(`/meetings/sessions/${id}/finalize`, {})).json();
@@ -2556,6 +2833,7 @@ export async function runMeetingChecks(check) {
         id: SESSION_MOVED,
         title: "Filed, then moved",
         startedAt: "2026-09-05T09:00:00.000Z",
+        notes: "the meeting itself",
         events: [{ type: "start", at: "2026-09-05T09:00:00.000Z" }],
       },
     });
@@ -2625,6 +2903,7 @@ export async function runMeetingChecks(check) {
         id: SESSION_MOVED_PRIVATE,
         title: "Team meeting, moved somewhere private",
         startedAt: "2026-09-06T09:00:00.000Z",
+        notes: "the meeting itself",
         events: [{ type: "start", at: "2026-09-06T09:00:00.000Z" }],
       },
     });
@@ -2700,6 +2979,7 @@ export async function runMeetingChecks(check) {
         id: SESSION_TITLE_B,
         title: COLLIDING_TITLE,
         startedAt: "2026-09-05T10:00:00.000Z",
+        notes: "the meeting itself",
         events: [{ type: "start", at: "2026-09-05T10:00:00.000Z" }],
       },
     });
@@ -2718,6 +2998,7 @@ export async function runMeetingChecks(check) {
         id: SESSION_TITLE_A,
         title: COLLIDING_TITLE,
         startedAt: "2026-09-05T11:00:00.000Z",
+        notes: "the meeting itself",
         events: [{ type: "start", at: "2026-09-05T11:00:00.000Z" }],
       },
     });

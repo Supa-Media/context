@@ -13,6 +13,7 @@ import {
   parseMeetingKey,
 } from "../features/meetings/keys";
 import { isSynced } from "../features/meetings/record";
+import { FINALIZE_TIMEOUT_MS } from "../features/meetings/recovery";
 
 /**
  * A recording, from the press to the note — and everything that can happen to
@@ -42,6 +43,17 @@ import { isSynced } from "../features/meetings/record";
  *    `meetingsSession.test.ts`'s own mapping check. That is the pair worth
  *    having: the mapping is tested where it lives *and* through the one caller
  *    that uses it, so deleting either test still leaves the lie caught.
+ *  - **`end()`'s `hasNothingCaptured` check removed**: 3 — the owner's own bug
+ *    report, closed at the one place the phone can close it before a request
+ *    ever leaves the device: **"a session with no transcript and no typed
+ *    notes ends as empty, not a note"** and the two reason checks beside it.
+ *    Without it a refused microphone finalizes normally, against whichever
+ *    gateway this app holds, and writes an empty note.
+ *  - **`recoverStaleFinalizes`'s `retry` branch removed**: 2 — the other half
+ *    of the same bug report, "stuck on Finalizing for two hours": every stale
+ *    sighting skips straight to `retry`'s no-op and a fresh launch's first
+ *    sighting is read as already failed, which is the "never fail on the
+ *    first sighting" property `checkFinalizeTimeout` exists to hold.
  */
 
 const DEVICE = { platform: "ios" as const, name: "a phone" };
@@ -328,6 +340,201 @@ describe("ending a meeting", () => {
     // note, and only `notePath` says the second.
     expect(record.session.notePath).toBeNull();
     expect(record.acked.finalized).toBe(false);
+  });
+
+  /*
+    THE OWNER'S OWN BUG REPORT: four empty notes, one per failed recording
+    attempt, "0 min, typed session" with no transcript and no typed notes.
+    `end()` checks `hasNothingCaptured` before `sync()` ever runs, so there is
+    no request for the gateway to answer and no note for it to write.
+  */
+  test("a session with no transcript and no typed notes ends as empty, not a note", async () => {
+    const { controller, gateway } = await harness();
+    const id = await controller.start({ title: "Never really started" });
+    await controller.end();
+    await settle();
+
+    const record = controller.getSnapshot().records[0];
+    expect(record.session.state).toBe("empty");
+    expect(record.session.notePath).toBeNull();
+    // The session's own metadata still syncs — the gateway is told the meeting
+    // exists and is empty — but finalize itself is never asked, because
+    // `pendingSteps` does not queue one for a session that is no longer
+    // `finalizing`. There is no note for a gateway that was never asked to
+    // write one, on either writer this app holds.
+    expect(gateway.calls.some((call) => call.includes("finalize"))).toBe(false);
+    expect(gateway.held.get(id)?.state).toBe("empty");
+  });
+
+  test("the empty reason is the device's own capture problem, when there was one", async () => {
+    const recorder = fakeRecorder();
+    recorder.refuseStart("The microphone was not granted.");
+    const { controller } = await harness({ recorder });
+    await controller.start({ title: "Refused microphone" });
+    await controller.end();
+    await settle();
+
+    const record = controller.getSnapshot().records[0];
+    expect(record.session.state).toBe("empty");
+    expect(record.session.emptyReason).toBe("The microphone was not granted.");
+  });
+
+  test("...and a generic sentence when the device gave no reason at all", async () => {
+    const { controller } = await harness();
+    await controller.start({ title: "Nothing captured, nothing said" });
+    await controller.end();
+    await settle();
+
+    const record = controller.getSnapshot().records[0];
+    expect(record.session.state).toBe("empty");
+    expect(typeof record.session.emptyReason).toBe("string");
+    expect(record.session.emptyReason?.length).toBeGreaterThan(0);
+  });
+
+  test("typed notes with no audio at all are still a real meeting, not empty", async () => {
+    const { controller, gateway } = await harness();
+    const id = await controller.start({ title: "Typed only" });
+    controller.setNotes(id, "- they said yes");
+    await controller.end();
+    await settle();
+
+    const record = controller.getSnapshot().records[0];
+    expect(record.session.state).toBe("complete");
+    expect(record.session.notePath).toBe(`0-inbox/meetings/${id}.md`);
+    expect(gateway.held.get(id)?.notes).toBe("- they said yes");
+  });
+
+  test("a transcript with no typed notes is still a real meeting too", async () => {
+    const { controller, recorder, gateway } = await harness();
+    const id = await controller.start({ title: "Audio only" });
+    recorder.emit(fakeSegment("s1", 0, "hello"));
+    await controller.end();
+    await settle();
+
+    const record = controller.getSnapshot().records[0];
+    expect(record.session.state).toBe("complete");
+    expect(record.session.notePath).toBe(`0-inbox/meetings/${id}.md`);
+    expect(gateway.held.get(id)?.transcript?.some((s: { text: string }) => s.text === "hello")).toBe(true);
+  });
+});
+
+describe("a session stuck finalizing is not left stuck", () => {
+  /*
+    The other half of the owner's bug report: "a meeting stuck on Finalizing
+    for over two hours". `recoverStaleFinalizes` is the glue around
+    `checkFinalizeTimeout` (`@context/meetings/recovery`, the pure rule tested
+    on its own with a fake clock) — retried once, then failed, never read
+    again as "Finalizing" forever.
+  */
+  test("well within the bound, a stuck finalize is left alone", async () => {
+    const gateway = fakeGateway();
+    gateway.offlineFor(1000);
+    const { controller, clock } = await harness({ gateway });
+    const id = await controller.start({ title: "Just ended" });
+    controller.setNotes(id, "typed before the gateway went quiet");
+    await controller.end();
+    await settle();
+
+    clock.advance(FINALIZE_TIMEOUT_MS - 1_000);
+    controller.recoverStaleFinalizes(clock.now());
+
+    const record = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(record.session.state).toBe("finalizing");
+    expect(record.retriedAt).toBeUndefined();
+  });
+
+  test("at the bound, it is retried once — never failed on the first sighting", async () => {
+    const gateway = fakeGateway();
+    gateway.offlineFor(1000);
+    const { controller, clock } = await harness({ gateway });
+    const id = await controller.start({ title: "Stuck for two hours" });
+    controller.setNotes(id, "typed before the gateway went quiet");
+    await controller.end();
+    await settle();
+
+    clock.advance(FINALIZE_TIMEOUT_MS);
+    controller.recoverStaleFinalizes(clock.now());
+
+    const record = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(record.session.state).toBe("finalizing");
+    expect(record.retriedAt).toBe(clock.now());
+  });
+
+  test("a full timeout window past that retry, it is failed — not read as Finalizing forever", async () => {
+    const gateway = fakeGateway();
+    gateway.offlineFor(1000);
+    const { controller, clock } = await harness({ gateway });
+    const id = await controller.start({ title: "Stuck for two hours" });
+    controller.setNotes(id, "typed before the gateway went quiet");
+    await controller.end();
+    await settle();
+
+    clock.advance(FINALIZE_TIMEOUT_MS);
+    controller.recoverStaleFinalizes(clock.now());
+    clock.advance(FINALIZE_TIMEOUT_MS);
+    controller.recoverStaleFinalizes(clock.now());
+
+    const record = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(record.session.state).toBe("failed");
+    expect(typeof record.session.failureReason).toBe("string");
+    expect(record.session.failureReason?.length).toBeGreaterThan(0);
+    // The one thing this may never cost: the human's own words.
+    expect(record.session.notes).toBe("typed before the gateway went quiet");
+  });
+
+  test("sync() runs the same check on its own schedule, not only on relaunch", async () => {
+    const gateway = fakeGateway();
+    gateway.offlineFor(1000);
+    const { controller, clock } = await harness({ gateway });
+    const id = await controller.start({ title: "Stuck for two hours" });
+    controller.setNotes(id, "typed before the gateway went quiet");
+    await controller.end();
+    await settle();
+
+    // Two calls, with the clock moved between them: the first stamps
+    // `retriedAt`, and once a full window has passed since that stamp, a
+    // later `sync()` on the same schedule is what actually fails it —
+    // modelled as two direct calls rather than a real interval, for the same
+    // reason the rest of this file drives the controller by hand.
+    clock.advance(FINALIZE_TIMEOUT_MS);
+    await controller.sync();
+    clock.advance(FINALIZE_TIMEOUT_MS);
+    await controller.sync();
+
+    const record = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(record.session.state).toBe("failed");
+  });
+
+  test("on the phone's nearest thing to a launch, configure() reads a session already past the bound", async () => {
+    const store = memoryStore();
+    const gateway = fakeGateway();
+    gateway.offlineFor(1000);
+    const first = await harness({ store, gateway });
+    const id = await first.controller.start({ title: "Left running" });
+    first.controller.setNotes(id, "typed before the app was killed");
+    await first.controller.end();
+    await settle();
+
+    // A fresh controller against the same store, with a clock already past
+    // the bound — the phone relaunched into a queue a previous process left
+    // in `finalizing`.
+    const relaunched = new MeetingsController();
+    const laterNow = first.clock.now() + FINALIZE_TIMEOUT_MS;
+    await relaunched.configure({
+      workspaceId: "ws-1",
+      store,
+      gateway,
+      recorder: fakeRecorder(),
+      device: DEVICE,
+      now: () => laterNow,
+      persistDebounceMs: 0,
+    });
+
+    const record = relaunched.getSnapshot().records.find((r) => r.session.id === id)!;
+    // Retried, not failed outright: even on a fresh launch, the first
+    // sighting past the bound is one more chance before giving up.
+    expect(record.session.state).toBe("finalizing");
+    expect(record.retriedAt).toBe(laterNow);
   });
 });
 
