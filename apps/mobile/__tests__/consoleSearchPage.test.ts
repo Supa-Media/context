@@ -5,11 +5,15 @@ import {
   emptyMessage,
   folderOf,
   noteworthySources,
+  nudgeMessage,
+  nudgeRows,
+  ownsAnUnsearchableContext,
   pageState,
   scopeIds,
   scopeLabel,
   toggleScope,
   type BlendedAnswer,
+  type UnsearchableContext,
 } from "../features/console/search/results";
 import {
   SEARCH_PATH,
@@ -246,6 +250,83 @@ describe("the scope", () => {
     // construction because both intersect rather than trust.
     expect(scopeIds(["seyi", "somebody-elses-brain"], eligible)).toEqual(["w1"]);
     expect(scopeLabel(["somebody-elses-brain"], eligible)).toBe("All fast-search contexts");
+  });
+});
+
+describe("the nudge toward fast search", () => {
+  /** One not-eligible context, with the fields a test cares about set. */
+  function context(over: Partial<UnsearchableContext> = {}): UnsearchableContext {
+    return {
+      workspaceId: "w9",
+      slug: "quiet-context",
+      displayName: "Quiet Context",
+      owner: false,
+      state: "off",
+      ...over,
+    };
+  }
+
+  test("an owner reads what to press; a member reads who to ask", () => {
+    const owned = nudgeMessage(context({ owner: true, state: "off" }));
+    const shared = nudgeMessage(context({ owner: false, state: "off" }));
+    expect(owned).toContain("Fast search is off");
+    expect(owned).not.toContain("owner");
+    expect(shared).toContain("owner has not turned fast search on");
+  });
+
+  test("still indexing is never read as nothing there, for owner or member alike", () => {
+    // The rule `noteworthySources` already states for a source mid-search
+    // applies before a search is even asked: an index that has not caught up
+    // has not answered anything, and must never read as an answer.
+    const message = nudgeMessage(context({ owner: true, state: "preparing" }));
+    expect(message).toContain("still being indexed");
+    expect(message).not.toContain("Nothing");
+  });
+
+  test("a failed provision tells an owner to retry and a member who to wait on", () => {
+    const owned = nudgeMessage(context({ owner: true, state: "failed" }));
+    const shared = nudgeMessage(context({ owner: false, state: "failed" }));
+    expect(owned).toContain("could not be prepared");
+    expect(shared).toContain("Only its owner can try again");
+  });
+
+  test("unavailable names no setting, because there is no entitlement to reach", () => {
+    expect(nudgeMessage(context({ owner: true, state: "unavailable" }))).toContain(
+      "not available",
+    );
+  });
+
+  test("only an owner staring at off or failed gets a press — never a member, never mid-backfill", () => {
+    const settingsHref = (slug: string) => `/console/@${slug}/settings`;
+
+    const rows = nudgeRows(
+      [
+        context({ workspaceId: "w1", slug: "mine-off", owner: true, state: "off" }),
+        context({ workspaceId: "w2", slug: "mine-failed", owner: true, state: "failed" }),
+        context({ workspaceId: "w3", slug: "mine-preparing", owner: true, state: "preparing" }),
+        context({ workspaceId: "w4", slug: "theirs-off", owner: false, state: "off" }),
+        context({ workspaceId: "w5", slug: "mine-unavailable", owner: true, state: "unavailable" }),
+      ],
+      settingsHref,
+    );
+
+    const hrefFor = (slug: string) => rows.find((row) => row.slug === slug)?.href;
+    expect(hrefFor("mine-off")).toBe("/console/@mine-off/settings");
+    expect(hrefFor("mine-failed")).toBe("/console/@mine-failed/settings");
+    expect(hrefFor("mine-preparing")).toBeNull();
+    expect(hrefFor("theirs-off")).toBeNull();
+    expect(hrefFor("mine-unavailable")).toBeNull();
+    // The href is never a switch of its own — it is the settings pane the
+    // caller was handed, called with nothing but the slug.
+    expect(rows.map((row) => row.workspaceId)).toEqual(["w1", "w2", "w3", "w4", "w5"]);
+  });
+
+  test("an owned context anywhere in the list is what opens the nudge in the picker", () => {
+    expect(ownsAnUnsearchableContext([context({ owner: false })])).toBe(false);
+    expect(
+      ownsAnUnsearchableContext([context({ owner: false }), context({ owner: true })]),
+    ).toBe(true);
+    expect(ownsAnUnsearchableContext([])).toBe(false);
   });
 });
 

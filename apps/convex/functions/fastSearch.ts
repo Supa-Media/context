@@ -405,9 +405,50 @@ const searchableContextValidator = v.object({
 });
 
 /**
- * The contexts this person may run a blended search over.
+ * A context the caller belongs to that a blended search will **not** reach,
+ * and why — for the search page's nudge rather than for the fan-out, which
+ * only ever needs the eligible half.
  *
- * Two conditions, and both are live:
+ * `state` reuses `FastSearchState`, the settings screen's own vocabulary,
+ * rather than inventing a parallel one: "preparing" already means "opted in
+ * and not yet actually serving" (`provisioning` or `backfilling` — see
+ * `fastSearchState`), and the nudge says so in the same words the settings
+ * card does. Never `"on"` — a context in that state is eligible instead.
+ */
+export interface UnsearchableContext {
+  workspaceId: Id<"workspaces">;
+  slug: string;
+  displayName: string;
+  /** Whether this viewer may turn fast search on for it — an owner, and only an owner. */
+  owner: boolean;
+  state: Exclude<FastSearchState, "on">;
+}
+
+const unsearchableContextValidator = v.object({
+  workspaceId: v.id("workspaces"),
+  slug: v.string(),
+  displayName: v.string(),
+  owner: v.boolean(),
+  state: v.union(
+    v.literal("off"),
+    v.literal("preparing"),
+    v.literal("failed"),
+    v.literal("unavailable"),
+  ),
+});
+
+/** What `searchScopeFor` answers: the fan-out's scope, and what is missing from it. */
+export interface SearchScope {
+  eligible: SearchableContext[];
+  notEligible: UnsearchableContext[];
+}
+
+/**
+ * The contexts this person may run a blended search over, and — for the page
+ * that draws a nudge rather than an oracle — the contexts they belong to that
+ * it will not reach.
+ *
+ * Two conditions decide the first half, and both are live:
  *
  *  1. **A membership row exists right now.** Not "existed when the page
  *     loaded" — the search page re-asks this on every page of every query, so
@@ -431,54 +472,91 @@ const searchableContextValidator = v.object({
  * So the blended page searches the contexts that can answer from a database.
  * The cost is honest and has to be said on screen rather than hidden: a
  * context whose owner has not turned fast search on is **not searched and not
- * silently missing** — the page names the eligible set it searched, and a
- * person with no eligible contexts is told that rather than shown an empty
- * list. `docs/decisions/search.md` records the trade.
+ * silently missing** — the page names the eligible set it searched, names what
+ * it left out and why, and offers an owner the press that turns it on rather
+ * than sending them hunting for the setting. `docs/decisions/search.md` records
+ * the trade and the nudge.
  *
- * A context is named here only because the caller is in it, so this list is
- * not an oracle: it enumerates the caller's own memberships, which
- * `listMyWorkspaces` already returns in full.
+ * A context is named here only because the caller is in it, so neither list is
+ * an oracle: both enumerate the caller's own **live** memberships, which
+ * `listMyWorkspaces` already returns in full — a workspace somebody is not a
+ * member of cannot appear in either one, eligible or not.
  */
-async function searchableFor(
+async function searchScopeFor(
   ctx: QueryCtx,
   userId: Id<"users">,
-): Promise<SearchableContext[]> {
+): Promise<SearchScope> {
   const memberships = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .take(SEARCHABLE_CONTEXT_CAP);
 
-  const searchable: SearchableContext[] = [];
+  const eligible: SearchableContext[] = [];
+  const notEligible: UnsearchableContext[] = [];
   for (const membership of memberships) {
     const workspace = await ctx.db.get(membership.workspaceId);
     if (workspace === null) continue;
     const binding = await bindingFor(ctx, membership.workspaceId);
-    if (searchProjectionState(workspace, binding) !== "ready") continue;
-    searchable.push({
+    if (searchProjectionState(workspace, binding) === "ready") {
+      eligible.push({
+        workspaceId: workspace._id,
+        slug: workspace.slug,
+        displayName: workspace.displayName,
+        kind: workspace.kind,
+        role: membership.role,
+      });
+      continue;
+    }
+    const state = fastSearchState(workspace, binding);
+    notEligible.push({
       workspaceId: workspace._id,
       slug: workspace.slug,
       displayName: workspace.displayName,
-      kind: workspace.kind,
-      role: membership.role,
+      owner: membership.role === "owner",
+      // `fastSearchState` can answer "on" for a binding whose status is
+      // "ready" but has no recorded database id yet — a narrower window than
+      // `searchProjectionState` accepts, so that context lands here rather
+      // than above. "preparing" is the honest word for "opted in and not yet
+      // actually serving", which is exactly what that window is.
+      state: state === "on" ? "preparing" : state,
     });
   }
-  return searchable.sort((a, b) => a.slug.localeCompare(b.slug));
+
+  eligible.sort((a, b) => a.slug.localeCompare(b.slug));
+  notEligible.sort((a, b) => a.slug.localeCompare(b.slug));
+  return { eligible, notEligible };
+}
+
+/** The eligible half alone, for the fan-out — see `searchScopeFor`. */
+async function searchableFor(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+): Promise<SearchableContext[]> {
+  return (await searchScopeFor(ctx, userId)).eligible;
 }
 
 /**
- * The scope picker's list: every context this viewer can search.
+ * The scope picker's list, and the nudge beside it: every context this viewer
+ * can search, and every context they belong to that they cannot search here
+ * yet.
  *
  * Public, and readable by any member — it names contexts the caller belongs to
  * and nothing else. It carries no counts: how many notes a context holds is the
  * census `status` keeps owner-only, and a list of contexts with note totals
- * beside them would be that census in a different shape.
+ * beside them would be that census in a different shape. `owner` is a role
+ * read the caller already has everywhere else in this console (an owner sees
+ * their own role on every context they belong to); it says nothing about who
+ * else holds it.
  */
 export const searchableContexts = query({
   args: {},
-  returns: v.array(searchableContextValidator),
-  handler: async (ctx): Promise<SearchableContext[]> => {
+  returns: v.object({
+    eligible: v.array(searchableContextValidator),
+    notEligible: v.array(unsearchableContextValidator),
+  }),
+  handler: async (ctx): Promise<SearchScope> => {
     const userId = await requireUserId(ctx);
-    return await searchableFor(ctx, userId);
+    return await searchScopeFor(ctx, userId);
   },
 });
 

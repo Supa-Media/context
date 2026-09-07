@@ -569,11 +569,17 @@ describe("the blended search, across contexts", () => {
     // acceptable state and the guard is `!== "ready"` rather than `!== null`.
     expect(answer.eligibleCount).toBe(0);
     expect(answer.results).toEqual([]);
-    const offered = await asUser(f.t, f.alice).query(
+    const scope = await asUser(f.t, f.alice).query(
       api.functions.fastSearch.searchableContexts,
       {},
     );
-    expect(offered).toEqual([]);
+    expect(scope.eligible).toEqual([]);
+    // Not merely dropped from the eligible list: it is a context this owner
+    // could act on, and the nudge is what tells them so — see below for the
+    // wording per state, this asserts only the state and the ownership.
+    expect(scope.notEligible).toEqual([
+      expect.objectContaining({ slug: "alice-context", owner: true, state: "preparing" }),
+    ]);
   });
 
   test("an empty query asks nobody anything", async () => {
@@ -599,7 +605,7 @@ describe("the blended search, across contexts", () => {
   test("the scope picker offers exactly what the fan-out will search", async () => {
     const f = await twoTenants();
     await addMember(f.t, f.bobWs, f.alice, "member", f.bob);
-    const offered = await asUser(f.t, f.alice).query(
+    const scope = await asUser(f.t, f.alice).query(
       api.functions.fastSearch.searchableContexts,
       {},
     );
@@ -609,11 +615,65 @@ describe("the blended search, across contexts", () => {
     // A chip the fan-out would refuse is a control that does nothing, and a
     // context the fan-out searches without a chip is a scope nobody can turn
     // off. Both are the same equality.
-    expect(offered.map((row) => row.workspaceId).sort()).toEqual(
+    expect(scope.eligible.map((row) => row.workspaceId).sort()).toEqual(
       answer.sources.map((row) => row.workspaceId).sort(),
     );
     // And it names only contexts this caller belongs to.
-    expect(offered.map((row) => row.slug).sort()).toEqual(["alice-context", "bob-context"]);
+    expect(scope.eligible.map((row) => row.slug).sort()).toEqual([
+      "alice-context",
+      "bob-context",
+    ]);
+    // Both are ready, so there is nothing left to nudge about.
+    expect(scope.notEligible).toEqual([]);
+  });
+
+  test("the nudge names a context by ownership, and a member never sees a switch to press", async () => {
+    const f = await twoTenants();
+    // Bob turns his off; Alice, a plain member of it, cannot turn it back on.
+    await addMember(f.t, f.bobWs, f.alice, "member", f.bob);
+    await asUser(f.t, f.bob).mutation(api.functions.fastSearch.disable, {
+      workspaceId: f.bobWs,
+    });
+
+    const bobsView = await asUser(f.t, f.bob).query(
+      api.functions.fastSearch.searchableContexts,
+      {},
+    );
+    const alicesView = await asUser(f.t, f.alice).query(
+      api.functions.fastSearch.searchableContexts,
+      {},
+    );
+
+    expect(bobsView.notEligible).toEqual([
+      expect.objectContaining({ slug: "bob-context", owner: true, state: "off" }),
+    ]);
+    expect(alicesView.notEligible).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slug: "bob-context", owner: false, state: "off" }),
+      ]),
+    );
+    // Alice still searches her own context; only Bob's dropped out.
+    expect(alicesView.eligible.map((row) => row.slug)).toEqual(["alice-context"]);
+  });
+
+  test("a context this caller is not a member of never appears in the nudge either", async () => {
+    const f = await twoTenants();
+    // Bob's context is opted out — the shape a nudge would name if it leaked —
+    // and Alice has never been a member of it.
+    await asUser(f.t, f.bob).mutation(api.functions.fastSearch.disable, {
+      workspaceId: f.bobWs,
+    });
+
+    const scope = await asUser(f.t, f.alice).query(
+      api.functions.fastSearch.searchableContexts,
+      {},
+    );
+    // Same isolation bar as the search itself: a workspace the caller does not
+    // belong to must not be enumerable through the nudge any more than through
+    // `eligible` or the fan-out — see `searchScopeFor`'s header.
+    expect(scope.notEligible.some((row) => row.slug === "bob-context")).toBe(false);
+    expect(scope.eligible.some((row) => row.slug === "bob-context")).toBe(false);
+    expect(JSON.stringify(scope)).not.toContain(f.bobWs);
   });
 
   test("a context that cannot be reached costs itself, and the total says so", async () => {
