@@ -280,3 +280,112 @@ export function parseContactNote(text) {
   if (index === -1) return { notes: null };
   return { notes: source.slice(index + NOTES_HEADING.length + 1).trim() };
 }
+
+/** One `- kind: value` line under `## Identifiers`. */
+const IDENTIFIER_LINE = /^-\s([a-z-]+):\s(.*)$/;
+
+/** `### 2026-09` — one month heading under `## Activity`. */
+const MONTH_HEADING = /^###\s(\d{4}-\d{2})\s*$/;
+
+/** `- 2026-09-07 · email — [[path#anchor|label]]`, or without the `· channel`. */
+const ACTIVITY_LINE = /^-\s(\d{4}-\d{2}-\d{2})(?:\s·\s([a-z-]+))?\s—\s(.*)$/;
+
+/**
+ * One `[[path#anchor|label]]` or `[[path|label]]`, as `activityLink` writes it.
+ *
+ * The label is `.*`, greedy, rather than `[^\]]*` — deliberately, because a
+ * label is a stranger's subject run through `defangLinks` at write time, which
+ * *breaks up* a `]]` it contains with a zero-width space rather than removing
+ * it. So the label can still hold literal `]` characters, and only the
+ * genuine closing `]]` this package wrote is ever an unbroken pair; matching
+ * greedily to the last one in the line is what makes that safe to rely on
+ * rather than a coincidence of the fixture.
+ */
+const WIKILINK = /^\[\[([^|#\]]+)(?:#([^|\]]+))?\|(.*)\]\]$/;
+
+/**
+ * Read a contact page back in full — the half a person can read (name,
+ * organization, identifiers, disagreements) and the half this package
+ * regenerates (activity, grouped the way `renderContactNote` grouped it) —
+ * for a viewer rather than for the merge that only ever needed `## Notes`.
+ *
+ * Reuses `parseContactNote` for the notes half rather than a second reading
+ * of the same heading, so the two can never disagree about where a person's
+ * own writing starts.
+ *
+ * Every `label` here is exactly what `renderContactNote` wrote: a subject a
+ * stranger chose, passed through `defangOutsideFence` at write time and never
+ * un-escaped here — a viewer prints it as text and does not turn it back into
+ * link syntax, for the reason `note.js`'s header on `defangLinks` argues in
+ * full.
+ *
+ * @param {string} text
+ * @returns {{
+ *   name: string, organization: string,
+ *   identifiers: Array<{kind: string, value: string}>,
+ *   conflicts: string[],
+ *   activity: Array<{date: string, channel: string, path: string, anchor: string, label: string}>,
+ *   notes: string,
+ * }}
+ */
+export function parseContactView(text) {
+  const source = String(text ?? "");
+  const name = /^#\s+(.+)$/m.exec(source)?.[1]?.trim() ?? "";
+  const organization = /^\*\*Organization:\*\*\s(.+)$/m.exec(source)?.[1]?.trim() ?? "";
+
+  const identifiers = [];
+  const conflicts = [];
+  const activity = [];
+
+  const identifierStart = source.indexOf("\n## Identifiers");
+  const conflictStart = source.indexOf("\n## Disagreements");
+  const activityStart = source.indexOf(`\n${ACTIVITY_HEADING}`);
+  const notesStart = source.indexOf(`\n${NOTES_HEADING}`);
+
+  const sectionEnd = (start) => {
+    if (start === -1) return -1;
+    const candidates = [identifierStart, conflictStart, activityStart, notesStart, source.length]
+      .filter((value) => value > start);
+    return candidates.length ? Math.min(...candidates) : source.length;
+  };
+
+  if (identifierStart !== -1) {
+    const section = source.slice(identifierStart, sectionEnd(identifierStart));
+    for (const line of section.split("\n")) {
+      const match = IDENTIFIER_LINE.exec(line);
+      if (match) identifiers.push({ kind: match[1], value: match[2] });
+    }
+  }
+
+  if (conflictStart !== -1) {
+    const section = source.slice(conflictStart, sectionEnd(conflictStart));
+    for (const line of section.split("\n")) {
+      if (line.startsWith("- ")) conflicts.push(line.slice(2).trim());
+    }
+  }
+
+  if (activityStart !== -1) {
+    const section = source.slice(activityStart, sectionEnd(activityStart));
+    let month = "";
+    for (const line of section.split("\n")) {
+      const monthMatch = MONTH_HEADING.exec(line);
+      if (monthMatch) {
+        month = monthMatch[1];
+        continue;
+      }
+      const entryMatch = ACTIVITY_LINE.exec(line);
+      if (!entryMatch) continue;
+      const [, date, channel, rest] = entryMatch;
+      const link = WIKILINK.exec(rest.trim());
+      if (!link) continue;
+      const [, path, anchor, label] = link;
+      // The date on the line is authoritative; `month` is a display grouping
+      // `renderContactNote` derives from the same date and is not read back —
+      // a stray or missing heading must never change which day an entry is on.
+      void month;
+      activity.push({ date, channel: channel ?? "", path, anchor: anchor ?? "", label });
+    }
+  }
+
+  return { name, organization, identifiers, conflicts, activity, notes: parseContactNote(source).notes ?? "" };
+}

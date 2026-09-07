@@ -191,6 +191,16 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       */
       copyShareLink: async () => ({ ok: false, message: null }),
       setSharePreviewTitle: noop,
+      // The demo tree is built whole, synchronously, from literals — every
+      // folder's listing is already in `tree.listings` before anything reads
+      // it, unlike a real browser where a folder loads on expansion. So there
+      // is nothing to fetch: a demo consumer of `ensureListing` finds its
+      // answer already sitting in `listings`, the same as `linkPaths` above.
+      ensureListing: noop,
+      readRaw: async (path: string) => {
+        const text = tree.notes[path];
+        return text === undefined ? null : { text, etag: "demo" };
+      },
     }),
     [
       collapseAll,

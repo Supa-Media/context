@@ -310,7 +310,7 @@ describe("malformed input fails closed and never throws", () => {
     "seyi@exаmple.test", // Cyrillic а
     "seyі@example.test",
     "seyi@例え.テスト",
-    "seyi@example.test​",
+    "seyi@example.test\u200b",
     // Absurd lengths.
     `${"a".repeat(5000)}@example.test`,
     `seyi@${"a".repeat(300)}.test`,

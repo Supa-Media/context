@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { View } from "react-native";
 import { BrowsePane } from "./panes/BrowsePane";
 import { ContextStrip, CurrentContextPill } from "./ContextStrip";
@@ -31,10 +32,22 @@ import { useE2EFixtureConsoleData } from "./e2eFixtureData";
  * `useTabs` would mean reproducing `(app)/console/_layout.tsx`'s tab strip and
  * keyboard scope for no case that exercises them. If a future case needs the
  * toolbar, it belongs here rather than as a second fixture.
+ *
+ * ## `onOpenComms`, without a router
+ *
+ * The real route implements this by pushing `noteHref(slug, path, anchor)` —
+ * a genuine navigation, because a contact's activity link names an anchor
+ * `files.select` has no way to carry (see `BrowsePane`'s own comment on the
+ * prop). There is no `expo-router` here to push through, so this keeps the
+ * one thing that navigation actually *does* to the browser and the screen: it
+ * selects the path and remembers the anchor in local state, which
+ * `BrowsePane` reads back exactly as it would read `?anchor=` off a URL. A
+ * context switch clears it the same way a fresh URL would.
  */
 export function E2EFixtureScreen() {
   const data = useE2EFixtureConsoleData();
   const current = selectedContext(data);
+  const [anchor, setAnchor] = useState<string | null>(null);
 
   return (
     <View style={{ flex: 1 }}>
@@ -44,7 +57,10 @@ export function E2EFixtureScreen() {
             current === null ? null : (
               <CurrentContextPill
                 context={current}
-                onOpenRoot={() => data.files.deselect()}
+                onOpenRoot={() => {
+                  setAnchor(null);
+                  data.files.deselect();
+                }}
                 onSelect={() => {}}
               />
             ),
@@ -54,13 +70,24 @@ export function E2EFixtureScreen() {
               currentSlug={current?.slug ?? null}
               recent={[]}
               loading={data.loading}
-              onOpen={(slug) => data.selectContext(slug)}
+              onOpen={(slug) => {
+                setAnchor(null);
+                data.selectContext(slug);
+              }}
               onSelect={() => {}}
             />
           ),
         }}
       >
-        <BrowsePane data={data} onOpenSettings={() => {}} />
+        <BrowsePane
+          data={data}
+          onOpenSettings={() => {}}
+          anchor={anchor}
+          onOpenComms={(path, targetAnchor) => {
+            setAnchor(targetAnchor ?? null);
+            data.files.select(path);
+          }}
+        />
       </NavBandProvider>
     </View>
   );

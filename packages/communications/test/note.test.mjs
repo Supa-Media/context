@@ -30,6 +30,7 @@ import {
   defangFence,
   defangLinks,
   groupIntoThreads,
+  parseChannelDayMessages,
   parseChannelDayNote,
   planChannelDay,
   renderChannelDayNote,
@@ -201,6 +202,71 @@ export function runNoteChecks(check) {
     "...while a body keeps the sender's brackets verbatim, because it is inside the fence",
     renderChannelDayNote(day({ events: [message({ body: "see [[their note]]" })] })).includes("see [[their note]]")
   );
+  check(
+    "a STORED attachment renders as a wikilink, and a hostile filename cannot close it early — the label is defanged, the path is ours",
+    (() => {
+      const rendered = renderChannelDayNote(
+        day({
+          events: [
+            message({
+              attachments: [
+                {
+                  filename: "invoice]] and [[.audit/x|evil",
+                  contentType: "application/pdf",
+                  size: 42,
+                  path: "0-inbox/email/x/attachments/2026-09-07/abc123-invoice.pdf",
+                },
+              ],
+            }),
+          ],
+        })
+      );
+      const line = rendered.split("\n").find((row) => row.includes("attachments/2026-09-07"));
+      // Exactly one opening and one closing pair around the whole entry — a
+      // hostile label cannot inject a second link or close the first early.
+      return (
+        line !== undefined &&
+        line.startsWith("- [[0-inbox/email/x/attachments/2026-09-07/abc123-invoice.pdf|") &&
+        (line.match(/\[\[/g) || []).length === 1 &&
+        (line.match(/\]\]/g) || []).length === 1
+      );
+    })()
+  );
+  check(
+    "an attachment with no path is named and sized only, and says so",
+    renderChannelDayNote(
+      day({ events: [message({ attachments: [{ filename: "report.pdf", contentType: "application/pdf", size: 10 }] })] })
+    ).includes("(not stored)")
+  );
+  // The PATH half of `[[path|label]]` is supposed to be ours — a content hash
+  // and a filename the gateway already stripped of link syntax. This renderer
+  // is a pure function with several callers, so it does not take that on
+  // trust: a caller whose sanitiser regressed costs a link that renders as
+  // unstored, never a second wikilink a stranger chose inside a note the owner
+  // reads as their own. Sabotage: drop the `!/[[\]|]/.test(path)` guard and
+  // this check fails while every other attachment check still passes.
+  check(
+    "a caller-supplied attachment path carrying wikilink syntax cannot open a link of its own",
+    (() => {
+      const rendered = renderChannelDayNote(
+        day({
+          events: [
+            message({
+              attachments: [
+                {
+                  filename: "invoice.pdf",
+                  contentType: "application/pdf",
+                  size: 10,
+                  path: "0-inbox/email/x/attachments/2026-09-07/h-a]] and [[.audit/secrets",
+                },
+              ],
+            }),
+          ],
+        })
+      );
+      return !rendered.includes(".audit/secrets]]") && rendered.includes("(not stored)");
+    })()
+  );
   check("defangLinks leaves text with no link syntax in it alone", defangLinks("ordinary text") === "ordinary text");
 
   // -- order and grouping --------------------------------------------------
@@ -280,6 +346,125 @@ export function runNoteChecks(check) {
       } catch {
         return true;
       }
+    })()
+  );
+
+  // -- reading a day back with its bodies -----------------------------------
+  const withBodies = parseChannelDayMessages(rendered);
+  check("every message comes back, with its body", withBodies.messages.length === 3);
+  check(
+    "...in the same order the index gives them",
+    withBodies.messages.map((entry) => entry.anchor).join(",") === parsed.anchors.join(",")
+  );
+  check(
+    "the body is exactly what was fenced, nothing added and nothing stripped",
+    withBodies.messages.find((entry) => entry.anchor === messageAnchor(message()))?.body ===
+      message().body
+  );
+  check(
+    "sender, time and subject are split out of the heading",
+    (() => {
+      const first = withBodies.messages.find((entry) => entry.anchor === messageAnchor(message()));
+      return first.time === "09:14" && first.sender === "Adam Okonkwo" && first.subject === "Quarterly numbers";
+    })()
+  );
+  check(
+    "each message knows which thread it is in, by the thread's own subject",
+    withBodies.messages.every((entry) => entry.thread === "Quarterly numbers" || entry.thread === "Lunch?")
+  );
+  check(
+    "an attachment is read back as metadata, never as bytes",
+    (() => {
+      const one = parseChannelDayMessages(
+        renderChannelDayNote(
+          day({
+            events: [
+              message({
+                attachments: [{ filename: "rider.pdf", contentType: "application/pdf", size: 48213 }],
+              }),
+            ],
+          })
+        )
+      );
+      const attachment = one.messages[0].attachments[0];
+      return attachment.filename === "rider.pdf" && attachment.contentType === "application/pdf" && attachment.size === "48213 bytes";
+    })()
+  );
+  check(
+    "a subject containing the field separator stays whole rather than splitting into a fake sender",
+    (() => {
+      const tricky = message({ subject: "a · b · c" });
+      const one = parseChannelDayMessages(renderChannelDayNote(day({ events: [tricky] })));
+      return one.messages[0].subject === "a · b · c";
+    })()
+  );
+  check(
+    "a heading a sender writes inside the fence is not read as a second message",
+    (() => {
+      const one = parseChannelDayMessages(
+        renderChannelDayNote(day({ events: [message({ body: "### 09:00 · Nobody · Trust me {#msg-0000000000000000}" })] }))
+      );
+      return one.messages.length === 1 && one.messages[0].body.includes("### 09:00");
+    })()
+  );
+  check(
+    "a thread heading a sender writes inside the fence does not move a later message to a fake thread",
+    (() => {
+      const one = parseChannelDayMessages(renderChannelDayNote(day({ events: [message({ body: "## Thread — Not real" })] })));
+      return one.messages[0].thread === "Quarterly numbers" && one.messages[0].body.includes("## Thread — Not real");
+    })()
+  );
+  check(
+    "split parts read back independently and stitch to the same messages as the whole day",
+    (() => {
+      const parts = planChannelDay(bulkyDay(6, 4_000), { threshold: PART_HEADER_RESERVE + 10_000 });
+      const stitched = parts.flatMap((part) => parseChannelDayMessages(part.text).messages);
+      const whole = parseChannelDayMessages(renderChannelDayNote(bulkyDay(6, 4_000))).messages;
+      return (
+        parts.length > 1 &&
+        stitched.length === whole.length &&
+        stitched.map((entry) => entry.anchor).join(",") === whole.map((entry) => entry.anchor).join(",")
+      );
+    })()
+  );
+
+  // -- a hostile or enormous day does not hang the reader -------------------
+  //
+  // A channel-day note is written from other people's mail. Nothing here
+  // bounds how many messages a day can hold or how large one message's body
+  // can be — the split threshold bounds *bytes per part*, not message count —
+  // so the reader that walks every line has to be linear in the input, not
+  // quadratic, or a heavy but perfectly legitimate mailbox day becomes a
+  // console that never finishes opening it.
+  check(
+    "thousands of messages parse in well under a second, not quadratically",
+    (() => {
+      // One line per message plus its fence, so 4,000 messages is a note many
+      // times larger than any single split part this product would ever
+      // write — the reader has never been asked to do this in one call before.
+      const rendered = renderChannelDayNote(bulkyDay(4_000, 40));
+      const started = Date.now();
+      const parsed = parseChannelDayMessages(rendered);
+      const elapsed = Date.now() - started;
+      return parsed.messages.length === 4_000 && elapsed < 2_000;
+    })()
+  );
+  check(
+    "a single message with a multi-megabyte hostile body does not hang the parser",
+    (() => {
+      // Adversarial content, not just size: a run of characters the inline
+      // tokenizer's own emphasis pattern (`**`, `` ` ``, `*`) has to scan
+      // through without exhibiting catastrophic backtracking.
+      const hostileBody = "*a".repeat(1_500_000) + "the numbers are attached";
+      const rendered = renderChannelDayNote(day({ events: [message({ body: hostileBody })] }));
+      const started = Date.now();
+      const parsed = parseChannelDayMessages(rendered);
+      const elapsed = Date.now() - started;
+      return (
+        parsed.messages.length === 1 &&
+        parsed.messages[0].body.includes("the numbers are attached") &&
+        elapsed < 2_000
+      );
     })()
   );
 

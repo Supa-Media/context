@@ -13,6 +13,7 @@ import {
   ROTATED_ENVELOPE_COLUMNS,
   ROTATION_EXEMPT_ENVELOPE_COLUMNS,
 } from "../functions/storage";
+import { decryptSecret, encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import type { Id } from "../_generated/dataModel";
 import {
   type TestConvex,
@@ -735,6 +736,155 @@ describe("rotating the encryption key", () => {
         // Left exactly as it was. Generating a replacement here would be data
         // loss wearing the costume of a repair.
         expect(await dataKeyEnvelopeOf(t, workspaceId)).toContain("v1:");
+      },
+    );
+  });
+
+  /**
+   * THE EXACT MISS `encryptedDataKey` WAS, ARRIVING A SECOND TIME.
+   *
+   * `googleConnections` is its own table, so `listRekeyCandidates` above
+   * never sees a Google refresh or access token no matter how completely
+   * `ENVELOPE_FIELDS` is enumerated — that list is queried against
+   * `storageBindings` rows only. Column-name accounting
+   * (`ROTATED_ENVELOPE_COLUMNS`, checked by the guard below) cannot catch a
+   * table the walk itself never visits; only this test, actually running
+   * `rekeyStorageBindings` against a `googleConnections` row, can. The token
+   * stays top-level on the generalized row (never nested under `gmail`),
+   * which is what keeps this test — and the rotation code it proves — from
+   * needing to change shape if Calendar or Chat land on the same row.
+   */
+  test("a connected Google account's tokens are moved forward too", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    const originalKey = process.env.STORAGE_SECRET_ENCRYPTION_KEY!;
+    const context = { workspaceId: workspaceId as string };
+    const now = Date.now();
+    const refreshBefore = await encryptSecret("google-refresh-abc", requireKeyset(), context);
+    const accessBefore = await encryptSecret("google-access-xyz", requireKeyset(), context);
+    expect(refreshBefore.startsWith("v2:k1:")).toBe(true);
+
+    const connectionId = await t.run((ctx) =>
+      ctx.db.insert("googleConnections", {
+        workspaceId,
+        provider: "google" as const,
+        address: "person@example.invalid",
+        encryptedRefreshToken: refreshBefore,
+        encryptedAccessToken: accessBefore,
+        accessTokenExpiresAt: now + 3_600_000,
+        scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+        googleAccountId: "google-account-1",
+        products: ["gmail"] as const,
+        gmail: {
+          scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+          mailboxSlug: "person-at-example-invalid",
+          backfillDays: 90,
+          folders: ["inbox", "sent"] as const,
+          storeRawMime: false,
+          attachmentMode: "store" as const,
+          attachmentRetentionDays: 90,
+          quotaBytes: 5 * 1024 * 1024 * 1024,
+        },
+        health: "active" as const,
+        boundBy: owner,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: originalKey,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: "k1",
+      },
+      async () => {
+        const result = await t.action(internal.functions.storage.rekeyStorageBindings, {});
+        expect(result).toMatchObject({
+          googleConnectionsRekeyed: 2, // refresh AND access token
+          googleConnectionsSkipped: 0,
+          googleConnectionsUnreadable: 0,
+        });
+
+        const row = await t.run((ctx) => ctx.db.get(connectionId));
+        expect(row!.encryptedRefreshToken.startsWith("v2:k2:")).toBe(true);
+        expect(row!.encryptedAccessToken!.startsWith("v2:k2:")).toBe(true);
+        expect(row!.encryptedRefreshToken).not.toBe(refreshBefore);
+
+        // Idempotent, like every other half of this pass.
+        expect(
+          await t.action(internal.functions.storage.rekeyStorageBindings, {}),
+        ).toMatchObject({ googleConnectionsRekeyed: 0 });
+      },
+    );
+
+    // Still opens once the old key is gone from the environment entirely —
+    // the state a finished rotation leaves, and the property that matters.
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: undefined,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: undefined,
+      },
+      async () => {
+        const row = await t.run((ctx) => ctx.db.get(connectionId));
+        expect(await decryptSecret(row!.encryptedRefreshToken, requireKeyset(), context)).toBe(
+          "google-refresh-abc",
+        );
+      },
+    );
+  });
+
+  /**
+   * A disconnected connection's refresh token is the empty string
+   * (`disconnectGoogleConnection` clears it, never deletes the row), and
+   * empty is never a rekey candidate — there is nothing there to re-seal, and
+   * `envelopeKeyId("")` would only ever be `unreadable` noise on every future
+   * pass for a credential that is intentionally gone.
+   */
+  test("a disconnected connection's empty token is not a rekey candidate", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    const originalKey = process.env.STORAGE_SECRET_ENCRYPTION_KEY!;
+    const now = Date.now();
+    await t.run((ctx) =>
+      ctx.db.insert("googleConnections", {
+        workspaceId,
+        provider: "google" as const,
+        address: "gone@example.invalid",
+        encryptedRefreshToken: "",
+        scopes: [],
+        googleAccountId: "google-account-2",
+        products: ["gmail"] as const,
+        gmail: {
+          scopes: [],
+          mailboxSlug: "gone-at-example-invalid",
+          backfillDays: 90,
+          folders: ["inbox", "sent"] as const,
+          storeRawMime: false,
+          attachmentMode: "store" as const,
+          attachmentRetentionDays: 90,
+          quotaBytes: 5 * 1024 * 1024 * 1024,
+        },
+        health: "error" as const,
+        disconnectedAt: now,
+        boundBy: owner,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: originalKey,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: "k1",
+      },
+      async () => {
+        expect(
+          await t.action(internal.functions.storage.rekeyStorageBindings, {}),
+        ).toMatchObject({ googleConnectionsRekeyed: 0, googleConnectionsUnreadable: 0 });
       },
     );
   });

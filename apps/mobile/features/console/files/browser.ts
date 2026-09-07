@@ -433,6 +433,38 @@ export interface FileBrowser {
     share: { audience: NoteShare["audience"]; recipient: string },
     titleInPreview: boolean,
   ) => void;
+
+  /**
+   * Ensure a folder's listing is cached, without selecting it.
+   *
+   * `select` already loads a folder's listing as a side effect of opening it —
+   * this is that fetch on its own, for a view that needs several folders at
+   * once and none of them is "the selected one". The Inbox landing page reads
+   * every connected channel's folder this way: `0-inbox`, `0-inbox/email` (to
+   * find which mailboxes exist), and each channel folder in turn, none of
+   * which the person has navigated *into*.
+   *
+   * A no-op once `listings[path]` is populated — this is a cache to fill, not
+   * a subscription, so a caller that wants a fresh read after a write already
+   * has `select`/`refresh` for that. Fire-and-forget: the result shows up in
+   * `listings` on the next render, the same way every other listing does.
+   */
+  ensureListing: (path: string) => void;
+
+  /**
+   * Read one note's raw text and etag, without opening it in the editor.
+   *
+   * For a view that reads several notes that are not "the open note" — a
+   * channel-day's split parts, a contact page's linked days before they are
+   * opened. Goes through the same visibility as everything else: a path this
+   * scope cannot see answers `null`, byte-identically to a path that does not
+   * exist, exactly as `read_channel_day` and `read_note` already promise.
+   *
+   * Never touches `editor`, `opening` or any of `select`'s bookkeeping — this
+   * is a plain read, not a navigation, and does not compete with one for the
+   * generation counters that keep a superseded read from landing.
+   */
+  readRaw: (path: string) => Promise<{ text: string; etag: string } | null>;
 }
 
 /** Every folder currently loaded, for the move dialog's destination list. */
