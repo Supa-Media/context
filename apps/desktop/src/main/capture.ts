@@ -32,6 +32,13 @@
  *    most macOS versions, nothing at all from the loopback tap — which is the
  *    degrade path above, and the reason it exists rather than being an edge
  *    case somebody might hit.
+ *
+ *    What is **not** on that list, and was assumed to be: macOS's *Screen
+ *    Recording* grant. Measured on the signed installed build on macOS 26.4.1
+ *    with no `kTCCServiceScreenCapture` row for this app at all, the loopback
+ *    tap still delivered real system audio (peak 0.32 over 16 frames while
+ *    sound played). So the tap is not gated on that permission, which is why
+ *    `capture/permissions.ts` no longer refuses a meeting for the want of it.
  *  - **`NSMicrophoneUsageDescription` and `NSAudioCaptureUsageDescription`** in
  *    `Info.plist`, which is a packaging step, not a source file.
  *  - **Electron ≥ 31** for `audio: "loopback"`; earlier versions have no
@@ -45,6 +52,7 @@
 
 import { BrowserWindow, ipcMain } from "electron";
 import { join } from "node:path";
+import { answerDisplayMedia } from "../core/capture/displayMedia.ts";
 import type { AudioRecorder, RecorderOptions, RecorderSummary } from "../core/capture/recorder.ts";
 import type { CaptureChunk, CaptureLevel } from "../preload/capture.ts";
 
@@ -133,13 +141,45 @@ export class DesktopCaptureRecorder implements AudioRecorder {
     // tap attached. `getDisplayMedia` in that window cannot reach anything we
     // did not hand it here.
     window.webContents.session.setDisplayMediaRequestHandler(
-      (_request, callback) => {
-        // `video` is required by the API and immediately discarded in the
-        // renderer: no frame is ever read, encoded, or written. Audio is the
-        // only track this app keeps, and the permission macOS asks for is
-        // still called Screen Recording — which is why the rationale in
-        // `capture/permissions.ts` says so out loud rather than glossing it.
-        callback({ audio: "loopback" });
+      (request, callback) => {
+        /*
+          THE ANSWER MATCHES THE REQUEST, OR THE REQUEST IS REFUSED OUT LOUD.
+
+          What used to be here answered `{ audio: "loopback" }` unconditionally,
+          under a comment claiming `video` was "required by the API and
+          immediately discarded in the renderer". It was not: Chromium refuses a
+          request whose video half nothing answers, throws *"Video was
+          requested, but no video stream was provided"* straight back into this
+          callback, and — because the handler is called from an async context —
+          that became two `UnhandledPromiseRejectionWarning` lines on stderr
+          every single time somebody pressed Record. The renderer's own `catch`
+          then degraded the meeting to mic-only, so the app looked fine while
+          system audio had in fact never worked once.
+
+          `answerDisplayMedia` is the rule, in a file the suite can import.
+          The `try` is the other half: `callback` can throw synchronously from
+          inside Electron, and a throw here has to be a logged line rather than
+          a rejection nobody owns.
+        */
+        const answer = answerDisplayMedia({
+          videoRequested: request.videoRequested === true,
+          audioRequested: request.audioRequested === true,
+        });
+        try {
+          if (answer.kind === "refuse") {
+            console.error(`[capture] ${answer.reason}; the request is refused`);
+            // An empty answer is Electron's cancel. The renderer sees a
+            // rejected `getDisplayMedia` and degrades, which is the path it is
+            // already written for.
+            callback({});
+            return;
+          }
+          callback(answer.streams);
+        } catch (error) {
+          console.error(
+            `[capture] the display-media request could not be answered: ${(error as Error).message}`,
+          );
+        }
       },
       { useSystemPicker: false },
     );

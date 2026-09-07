@@ -7,8 +7,10 @@
  *    an unsigned development build, and it is the one the MVP is built on.
  *  - **system audio** through `getDisplayMedia`, which the main process answers
  *    with `audio: "loopback"` — Electron's binding for ScreenCaptureKit's
- *    system tap. The video track it is obliged to hand over is stopped
- *    immediately and never read: no frame is decoded, encoded, or written.
+ *    system tap. **No video is requested**, because none is wanted and none is
+ *    available: the shell has exactly one source and it is a sound. Any video
+ *    track that turned up anyway would still be stopped without a frame being
+ *    decoded, encoded or written, but on this Electron none does.
  *
  * ## Rotation, not timeslicing — the bug this file used to have
  *
@@ -88,9 +90,25 @@ async function openStream(name: "mic" | "system"): Promise<MediaStream> {
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     });
   }
-  // `video: true` is required by the API. The track is stopped below before a
-  // single frame is read.
-  const display = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
+  /*
+    Audio only, with `video: false` written out rather than left off.
+
+    Measured in this window, on the signed installed build (Chrome/130,
+    macOS 26.4.1), with the shell answering `{ audio: "loopback" }`:
+
+      { audio: true, video: false }  -> RESOLVED  audio=1 video=0
+      { audio: true }                -> REJECTED  AbortError
+      { audio: true, video: true }   -> REJECTED  AbortError
+
+    So the explicit `false` is load-bearing — omitting it is a *different*
+    shape and it fails — and `video: true`, which is what this line said until
+    now, had never once resolved on this machine. `core/capture/displayMedia.ts`
+    carries the table and the shell's half of the same rule.
+  */
+  const display = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: false });
+  // Nothing should arrive here any more. Kept because a track this app never
+  // reads must still be stopped rather than left live: "the indicator cannot
+  // outlive the capture" is not conditional on which shape a browser returns.
   for (const track of display.getVideoTracks()) {
     track.stop();
     display.removeTrack(track);
