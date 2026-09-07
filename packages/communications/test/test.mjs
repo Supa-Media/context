@@ -22,6 +22,7 @@ import { readFileSync } from "node:fs";
 
 import { runAnchorChecks } from "./anchors.test.mjs";
 import { runContactChecks } from "./contacts.test.mjs";
+import { runEstimateChecks } from "./estimate.test.mjs";
 import { runNoteChecks } from "./note.test.mjs";
 import { runPathChecks } from "./paths.test.mjs";
 
@@ -128,7 +129,7 @@ check(
     stripComments('const c = "http://x"; // y') === 'const c = "http://x"; '
 );
 
-const SOURCES = ["protocol.js", "paths.js", "anchors.js", "note.js", "contacts.js", "index.js"].map((name) =>
+const SOURCES = ["protocol.js", "paths.js", "anchors.js", "note.js", "contacts.js", "estimate.js", "index.js"].map((name) =>
   stripComments(readFileSync(new URL(`../src/${name}`, import.meta.url), "utf8"))
 );
 check(
@@ -167,6 +168,8 @@ for (const name of [
   "canAutoMerge",
   "suggestMerge",
   "activityLink",
+  "estimateMailboxBackfill",
+  "estimateBackfillWindows",
 ]) {
   check(`index re-exports ${name}`, index[name] !== undefined);
 }
@@ -180,6 +183,7 @@ runPathChecks(check);
 runAnchorChecks(check);
 runNoteChecks(check);
 runContactChecks(check);
+runEstimateChecks(check);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);

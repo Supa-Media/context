@@ -21,6 +21,12 @@ export {
 } from "./paths.js";
 export { fnv1a64, isMessageAnchor, messageAnchor, threadKey } from "./anchors.js";
 export {
+  AVERAGE_MESSAGE_BYTES_HIGH,
+  AVERAGE_MESSAGE_BYTES_LOW,
+  estimateBackfillWindows,
+  estimateMailboxBackfill,
+} from "./estimate.js";
+export {
   FENCE_MARKER,
   NO_SUBJECT,
   defangFence,
