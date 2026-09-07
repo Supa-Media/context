@@ -2415,6 +2415,20 @@ export async function runMeetingChecks(check) {
   const audioRecord = JSON.parse(recorder.get(audioKey)?.body ?? "{}");
   check("the chunk was charged against the meeting's own budget", audioRecord.transcribedChunks === 1);
 
+  /*
+    The counter has to survive the *other* writes to a session, and that is not
+    obvious: it is a field the shared core does not know about, riding on a
+    record every event fold rebuilds. If a fold dropped it, the budget would
+    silently reset on the next segment batch — a ceiling that resets is not a
+    ceiling, and nothing else in the suite would have noticed.
+  */
+  await meetingRequest(transcribing, TOKEN_OWNER, `/meetings/sessions/${SESSION_TRANSCRIBE}/segments`, {
+    body: { segments: [{ id: "seg-after-audio", startMs: 0, endMs: 1_000, text: "still here", channel: "mic" }] },
+  });
+  const afterFold = JSON.parse(recorder.get(audioKey)?.body ?? "{}");
+  check("THE BUDGET SURVIVES AN EVENT FOLD, so a ceiling cannot be reset by recording", afterFold.transcribedChunks === 1);
+  check("...and the fold still did its own job", (afterFold.transcript ?? []).length === 1);
+
   const before = transcribeCalls.length;
   const neighbourTranscribe = await meetingRequest(
     transcribing,

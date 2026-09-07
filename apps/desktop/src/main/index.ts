@@ -379,9 +379,18 @@ async function main(): Promise<void> {
    * The episode is minted here because there is no detector episode to answer:
    * a person pressing Record is consenting to the meeting in front of them, and
    * the gate's rules about *asking* do not apply to somebody who has asked us.
-   * The blocklist still does — it beats an explicit yes, by decision — so it is
-   * checked against whatever the detector can currently see before anything
-   * opens.
+   *
+   * **The blocklist is checked, and what it can see here is less than it can
+   * see on the detected path — which is worth stating rather than implying.**
+   * Blocked apps are stripped out of the signals *before* `detect()` sees them,
+   * by design, so a blocked app never becomes a source; the check below can
+   * therefore only refuse a source the detector is currently reporting. Press
+   * Record during a call in a blocked app and the recording starts, because
+   * nothing in this process can see that app without undoing the rule that it
+   * is never observed. That is the honest shape of the trade: the blocklist
+   * means "never record this app *for me*, automatically", and it cannot also
+   * mean "refuse an instruction I gave with the app in front of me" without
+   * watching the app it promised not to watch.
    */
   async function recordNow(): Promise<void> {
     if (controller.recording) return;

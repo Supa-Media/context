@@ -119,6 +119,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The cloud path knows _who_ is asking, opaquely, and the ceiling is the control plane's
 - The desktop is an OAuth client of the gateway, and it asks for the tier its meetings are filed at
 - A recorder that holds a grant transcribes at the gateway, and the meeting's own record is the ceiling
+- Pressing Record is the same yes, and the blocklist sees less of it
 - A microphone is never opened for a meeting nothing will transcribe
 - A chunk of audio is a whole file, and every recorder cuts on the same clock
 - A client-supplied id is bounded where it enters, not where it lands

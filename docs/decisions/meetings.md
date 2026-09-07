@@ -423,6 +423,32 @@ on a stateless Worker, and the checks that fail are
 `...COSTING ZERO INFERENCE`, and
 `a gateway with no transcription configured refuses, permanently`.
 
+### Pressing Record is the same yes, and the blocklist sees less of it
+
+Detection cannot see two people at a table: an in-person conversation is not a
+process, a window title or a calendar event. So the desktop offers *Record a
+meeting*, and it mints its own consent episode — pressing it is the same
+sentence the panel asks for, given first rather than in answer.
+
+One consequence is uncomfortable and is written here rather than left to be
+discovered. **The blocklist can only refuse what the detector is currently
+reporting.** Blocked apps are stripped out of the signals before `detect()` sees
+them — that is the stronger half of the promise, and it is why a blocked app
+never becomes a source, a tooltip, an evidence line or a log entry — so on the
+manual path there is nothing to match against. Press Record during a call in a
+blocked app and the recording starts.
+
+That is the trade rather than a gap to close later: the blocklist means *never
+record this app for me, automatically*, and it cannot also mean *refuse an
+instruction I gave with the app in front of me* without watching the app it
+promised not to watch. Closing it would require observing blocked apps, which is
+the one thing the setting exists to prevent.
+
+`captureEnabled` is the switch that does apply to both paths, and it had no way
+to become true — nothing in the app set it, so every route to a recording was
+closed on a fresh install. Connecting a machine turns it on, in the dialog where
+somebody says this machine records their meetings.
+
 ### A microphone is never opened for a meeting nothing will transcribe
 
 The desktop has two states in which it cannot produce a transcript: no grant on
