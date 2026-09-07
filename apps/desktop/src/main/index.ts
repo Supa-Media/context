@@ -1024,7 +1024,13 @@ async function main(): Promise<void> {
     if (!CONSOLE_UI) return;
     let url: string;
     try {
-      url = consoleUrl(process.env);
+      /*
+        `app.isPackaged`, and it is the whole of the fix for a signed build that
+        opened a blank window: the fallback used to be chosen by `NODE_ENV`,
+        which nothing in this repository or in macOS ever sets, so an installed
+        app pointed at `http://localhost:8081`. See `consoleUrl`'s own docblock.
+      */
+      url = consoleUrl(process.env, app.isPackaged);
     } catch (error) {
       console.error(`CONTEXT_DESKTOP_UI=console, but ${(error as Error).message}`);
       return;

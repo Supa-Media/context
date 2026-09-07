@@ -21,8 +21,18 @@
  *   `desktopUiMode` losing the `renderer` escape hatch                      2
  *   `desktopUiMode` reading the value raw rather than trimmed and lowered   1
  *   `desktopUiMode` passing a misspelt mode through                         1
+ *   `consoleUrl` choosing its fallback from `NODE_ENV` again                4
  *
- * Two of those are worth writing down rather than just counting.
+ * Three of those are worth writing down rather than just counting.
+ *
+ * **The `NODE_ENV` row is the one this file got wrong for months.** These
+ * checks used to be written as `consoleUrl({ NODE_ENV: "production" })`, which
+ * made them a proof about a variable nothing sets — so the suite was green for
+ * the production branch while every packaged build took the development one and
+ * opened a window on a dead `localhost` port. A unit check that supplies the
+ * input the wiring never supplies is not a check of the wiring; `--smoke`
+ * reports the address a real launch resolved, and this file now takes the same
+ * `packaged` flag the app does.
  *
  * **The subframe sabotage reports one, not two**, and the second subframe check
  * is the reason: a cross-origin iframe is still refused by the origin
@@ -134,8 +144,8 @@ export function runShellChecks(check) {
     // The three facts a default launch depends on, in one place: it hosts the
     // console, at an address it derived rather than one typed twice, and that
     // address is the origin — and the only origin — the bridge is exposed to.
-    const env = { NODE_ENV: "production" };
-    const url = desktopUiMode(env) === "console" ? consoleUrl(env) : null;
+    const env = {};
+    const url = desktopUiMode(env) === "console" ? consoleUrl(env, true) : null;
     const origin = url === null ? "" : consoleOrigin(url);
     check(
       "A DEFAULT LAUNCH OPENS THE CONSOLE, AND THE BRIDGE IS PINNED TO WHAT IT OPENED",
@@ -148,27 +158,47 @@ export function runShellChecks(check) {
 
   // --- what the shell is willing to load ------------------------------------
 
+  /*
+    THE INSTALLED APP IS THE CASE THAT WAS NEVER CHECKED.
+
+    These four used to be spelled `{ NODE_ENV: "production" }` and
+    `{ NODE_ENV: "development" }`, which made them a check of a variable
+    **nothing sets**: not `scripts/build.mjs`, not `electron-builder.yml`, not
+    `deploy-desktop.yml`, not Electron, and not the launchd environment an app
+    launched from the Dock inherits. So the suite proved the production branch
+    worked while every packaged build took the development one, pointed at
+    `http://localhost:8081`, and opened an empty window on the owner's Mac.
+
+    `packaged` is `app.isPackaged`, which is true of exactly the builds this got
+    wrong. The unit checks are necessary and are not sufficient — it is the
+    *wiring* that broke, and `test/launch.smoke.mjs` is what reads the address a
+    real launch resolved.
+  */
   check(
-    "with nothing set, a production launch loads the hosted console",
-    consoleUrl({ NODE_ENV: "production" }) === `${DEFAULT_CONSOLE_URL}`,
+    "A PACKAGED BUILD LOADS THE HOSTED CONSOLE, NOT A DEAD LOCALHOST",
+    consoleUrl({}, true) === `${DEFAULT_CONSOLE_URL}`,
   );
   check(
     "with nothing set, a development launch loads the dev server",
-    consoleUrl({ NODE_ENV: "development" }).startsWith(DEV_CONSOLE_URL),
+    consoleUrl({}, false).startsWith(DEV_CONSOLE_URL),
   );
   check(
-    "a self-hoster's https origin is honoured",
-    consoleUrl({ CONTEXT_DESKTOP_UI_URL: "https://context.example/console" }) ===
-      "https://context.example/console",
+    "A SELF-HOSTER'S OWN ORIGIN BEATS BOTH DEFAULTS",
+    consoleUrl({ CONTEXT_DESKTOP_UI_URL: "https://context.example/console" }, false) ===
+      "https://context.example/console" &&
+      consoleUrl({ CONTEXT_DESKTOP_UI_URL: "https://context.example/console" }, true) ===
+        "https://context.example/console",
   );
   check(
     "an empty variable is the same as an unset one",
-    consoleUrl({ CONTEXT_DESKTOP_UI_URL: "   ", NODE_ENV: "production" }) === DEFAULT_CONSOLE_URL,
+    consoleUrl({ CONTEXT_DESKTOP_UI_URL: "   " }, true) === DEFAULT_CONSOLE_URL,
   );
 
   check("http on loopback is allowed, because `expo start` is one", (() => {
     try {
-      return consoleUrl({ CONTEXT_DESKTOP_UI_URL: "http://127.0.0.1:8081" }).startsWith("http://127.0.0.1:8081");
+      return consoleUrl({ CONTEXT_DESKTOP_UI_URL: "http://127.0.0.1:8081" }, false).startsWith(
+        "http://127.0.0.1:8081",
+      );
     } catch {
       return false;
     }
@@ -176,7 +206,7 @@ export function runShellChecks(check) {
 
   function refuses(value) {
     try {
-      consoleUrl({ CONTEXT_DESKTOP_UI_URL: value, NODE_ENV: "production" });
+      consoleUrl({ CONTEXT_DESKTOP_UI_URL: value }, true);
       return false;
     } catch {
       return true;

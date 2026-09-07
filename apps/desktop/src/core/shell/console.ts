@@ -87,7 +87,6 @@ function isLoopback(url: URL): boolean {
 export interface ConsoleUrlEnv {
   /** The whole URL, so a self-hoster moves one value rather than three. */
   CONTEXT_DESKTOP_UI_URL?: string | undefined;
-  NODE_ENV?: string | undefined;
 }
 
 /**
@@ -103,10 +102,33 @@ export interface ConsoleUrlEnv {
  * Throws with a sentence a person can act on. The caller is `main/index.ts` at
  * launch, so a typo in the variable is a refusal at startup rather than a
  * window that quietly loaded somebody else's page.
+ *
+ * ## `packaged`, and why it is not `NODE_ENV`
+ *
+ * This used to read `env.NODE_ENV === "production"` to pick the fallback, and
+ * **nothing ever sets `NODE_ENV`** — not `scripts/build.mjs`, whose esbuild
+ * `define` carries only `__CONTEXT_DESKTOP_SIGNED__`; not
+ * `electron-builder.yml`; not `package.json`; not `deploy-desktop.yml`; not
+ * Electron; and least of all the launchd environment an app double-clicked from
+ * the Dock inherits. So every installed build resolved `http://localhost:8081`,
+ * where nothing on a person's Mac is listening, and opened an empty window. The
+ * launch crash above it hid that: the app never got far enough to open one.
+ *
+ * The docblock on `desktopUiMode` already carries the rule, and it was simply
+ * not applied to the default — *"a misspelt address is refused, because loading
+ * the wrong page is worse than loading none."* A fallback pointing at a dead
+ * loopback port is the milder version of exactly that, chosen silently.
+ *
+ * `app.isPackaged` is the fact that was wanted, and it is **passed in** rather
+ * than read here so this stays a pure function with no Electron in it —
+ * `core/shell/capabilities.ts` and `core/update/policy.ts` both take the same
+ * flag the same way, and both document it as *"false for `electron
+ * dist/main/index.cjs` in development."* `CONTEXT_DESKTOP_UI_URL` still beats
+ * both, because a self-hoster's own origin is the one answer neither can guess.
  */
-export function consoleUrl(env: ConsoleUrlEnv): string {
+export function consoleUrl(env: ConsoleUrlEnv, packaged: boolean): string {
   const configured = (env.CONTEXT_DESKTOP_UI_URL ?? "").trim();
-  const fallback = env.NODE_ENV === "production" ? DEFAULT_CONSOLE_URL : DEV_CONSOLE_URL;
+  const fallback = packaged ? DEFAULT_CONSOLE_URL : DEV_CONSOLE_URL;
   const candidate = configured === "" ? fallback : configured;
 
   let url: URL;
