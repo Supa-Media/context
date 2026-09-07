@@ -207,6 +207,20 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Runs first, and before install: it needs only bash and node, and a
+      # workflow whose shell does not parse is worth failing fast on. This
+      # file is the second host for the same two-host reasoning as the
+      # trigger and preflight checkers below — `email-worker.yml` runs it too.
+      #
+      # `--self-test` first: the script used to read `process.argv` nowhere at
+      # all, so `--self-test` did nothing and every call to it fell through to
+      # the ordinary scan, silently verifying none of the cases the header
+      # claims it catches. See the script's `resolveMode`.
+      - name: Workflow run blocks parse as shell
+        run: |
+          node scripts/check-workflow-shell.mjs --self-test
+          node scripts/check-workflow-shell.mjs
+
       # A workflow file that does not parse is not a failing check — GitHub
       # ignores the file entirely, so it produces no run, no error, and no
       # status at all. The pull request then goes green having never executed
@@ -269,6 +283,27 @@ jobs:
         run: |
           node scripts/check-workflow-cloudflare-preflight.mjs --self-test
           node scripts/check-workflow-cloudflare-preflight.mjs
+
+      # `wrangler secret put` before `wrangler deploy` collided with a stale
+      # plaintext var on every run of deploy-router.yml (#302) because the
+      # secret push acts on whatever version is currently live — see the
+      # script's header. email-worker.yml runs it too, same two-host
+      # reasoning as the checkers above.
+      - name: No deploy workflow pushes a secret before deploying
+        run: |
+          node scripts/check-workflow-secret-order.mjs --self-test
+          node scripts/check-workflow-secret-order.mjs
+
+      # The other half of #302: `infra/router/wrangler.jsonc` once committed
+      # `CONVEX_ORIGIN` as a plaintext var, which is what the ordering above
+      # collided with. This proves no Wrangler config — this gateway's
+      # included — carries a secret it also pushes via `wrangler secret put`
+      # as a `vars` entry. email-worker.yml runs it too, same two-host
+      # reasoning as the checkers above.
+      - name: No Wrangler config commits a pushed secret as a var
+        run: |
+          node scripts/check-wrangler-vars-not-secrets.mjs --self-test
+          node scripts/check-wrangler-vars-not-secrets.mjs
 
   no-nul-bytes:
     name: Source stays diffable
