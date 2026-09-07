@@ -45,6 +45,88 @@
 
 import type { TokenStore } from "./tokenStore.ts";
 
+/* ------------------------- what a meeting needs granted ------------------- *
+ *
+ * Two scopes, and the second is the one that would be dropped as a tidy-up.
+ * `context:write` because a meeting is not a capture, and **`context:private`
+ * because the tier is a property of the grant rather than of the write**:
+ * `visibilityTierForGrant` in the gateway reads a grant without it as `team`,
+ * and `publishMeetingNote` then files the note team-visible and writes that
+ * visibility into the customer's own `privacy.md`. A recorder on a team-tier
+ * grant does not record less — it records the same meetings and publishes them
+ * to everybody the owner ever shared a folder with.
+ *
+ * `main/connect.ts` asks for both (`DESKTOP_SCOPE`). What is here is the other
+ * half of that sentence: **asking is not getting.** The person approving
+ * chooses the tier, and a grant that came back without it must stop this
+ * machine writing meetings rather than have them written at the wider one.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Every spelling of the private tier this app will accept as "granted".
+ *
+ * The gateway issues the canonical `context:private` (`SUPPORTED_SCOPES` in
+ * `apps/mcp/src/session.js`), and the aliases are here for the same reason the
+ * console's `scopes.ts` carries them: different parts of this system arrived at
+ * different separators, and a client that reads only one spelling holds back a
+ * meeting that was in fact granted. A wildcard counts because a wildcard grant
+ * is by construction wider than this one.
+ */
+const PRIVATE_TIER_SPELLINGS: ReadonlySet<string> = new Set([
+  "context:private",
+  "context.private",
+  "private",
+  "*",
+  "context:*",
+  "context.*",
+  "all",
+]);
+
+const WRITE_SPELLINGS: ReadonlySet<string> = new Set([
+  "context:write",
+  "context.write",
+  "write",
+  "*",
+  "context:*",
+  "context.*",
+  "all",
+]);
+
+/**
+ * Whether this grant may file a meeting at the tier this machine records at.
+ *
+ * `false` for a grant that carries no private tier, **and for one that says
+ * nothing at all**. The empty string is not "probably what we asked for": RFC
+ * 6749 lets a token endpoint omit `scope` to mean "as requested", and reading
+ * it that way here would make the check answer with the client's own request
+ * instead of the server's answer — which is precisely the assertion this
+ * function exists to stop the app making. Our gateway always sends `scope`
+ * (`tokenResponse` in `apps/mcp/src/oauth.js`), so what this refuses is a
+ * server that left the question open, and it refuses it in the safe direction.
+ */
+export function grantCoversMeetings(scope: string | null | undefined): boolean {
+  if (typeof scope !== "string") return false;
+  const granted = new Set(scope.split(/[\s,]+/).filter((part) => part !== ""));
+  let write = false;
+  let tier = false;
+  for (const part of granted) {
+    if (WRITE_SPELLINGS.has(part)) write = true;
+    if (PRIVATE_TIER_SPELLINGS.has(part)) tier = true;
+  }
+  return write && tier;
+}
+
+/**
+ * What a person is told when this machine is connected at the narrower tier.
+ *
+ * Written for the card under "This machine", so it says what happened, what it
+ * would have cost to carry on, and the one action that fixes it. It names no
+ * scope string: "context:private" is not a sentence, and the person chose this
+ * on a screen that called it "Everything, including private notes".
+ */
+export const MEETING_TIER_REFUSAL =
+  "This machine was approved for team-visible notes only. Filing a meeting would make it readable by everyone you share with, so it is holding them instead. Disconnect and connect it again, choosing to include private notes.";
+
 /**
  * What one connected machine remembers.
  *

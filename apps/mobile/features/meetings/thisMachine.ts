@@ -35,7 +35,7 @@ export interface MachineDescription {
   tone: "ok" | "warn" | "neutral";
   /** What that means, in a sentence somebody can act on. */
   sentence: string;
-  /** The one control, or `null` while a browser window is already open. */
+  /** The one control, or `null` while an approval is already open. */
   action: MachineAction;
   /** The label on it. `null` when there is no control. */
   actionLabel: string | null;
@@ -65,8 +65,16 @@ export function describeMachine(connection: ConnectionView): MachineDescription 
     return {
       pill: "Connecting",
       tone: "neutral",
+      /*
+        This window, not a browser window. The shell sends the console window
+        itself to the approval page — the person is already signed in here, and
+        a second sign-in in a browser was the whole of what made connecting a
+        machine feel like a chore. `docs/decisions/desktop.md`, *The approval
+        happens in the app's own window*, is the argument; a tray-only launch
+        still opens a browser and still says so, in the shell's own dialog.
+      */
       sentence:
-        "A browser window is open so you can authorise this machine. It gets its own grant — nothing is copied from your other devices.",
+        "The approval page is open in this window. Approve once and this machine gets its own grant — nothing is copied from your other devices.",
       action: null,
       actionLabel: null,
       notice,

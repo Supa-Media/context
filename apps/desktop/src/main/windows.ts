@@ -33,7 +33,7 @@
 
 import { BrowserWindow, screen, shell } from "electron";
 import { join } from "node:path";
-import { isAllowedConsoleNavigation } from "../core/shell/mirror.ts";
+import { mayNavigateConsoleWindow } from "../core/shell/approval.ts";
 
 export interface WindowSet {
   panel: BrowserWindow;
@@ -126,10 +126,17 @@ export function createNotepad(rendererDir: string): BrowserWindow {
  * asks the main process for it, so the pin has one source and it is this
  * process.
  *
- * Two navigation guards, because a note is full of other people's links:
- * `will-navigate` cancels anything off-origin, and `setWindowOpenHandler` sends
- * it to the person's real browser instead of opening a second window that would
- * inherit this preload.
+ * Three navigation guards, because a note is full of other people's links:
+ * `will-navigate` cancels anything off-origin that the *page* started,
+ * `will-redirect` cancels the same thing when a **server** started it with a
+ * `Location:` header, and `setWindowOpenHandler` sends a link to the person's
+ * real browser instead of opening a second window that would inherit this
+ * preload. The first two ask one function, so the pin cannot be enforced
+ * against one kind of navigation and not the other. The one address that is
+ * neither the pin nor the mirror and is still allowed — the loopback callback
+ * of a connect that is in flight — arrives through `approvalCallback`, is
+ * `null` at every other moment, and is decided by `core/shell/approval.ts`
+ * rather than here.
  */
 function isWebUrl(value: string): boolean {
   try {
@@ -140,7 +147,24 @@ function isWebUrl(value: string): boolean {
   }
 }
 
-export function createConsoleWindow(url: string, rendererDir: string): BrowserWindow {
+export interface ConsoleWindowOptions {
+  /**
+   * The loopback callback this window may reach **right now**, or `null`.
+   *
+   * A getter, and never a value: the answer is `null` for the whole life of
+   * this app except the seconds between pressing Connect and the grant coming
+   * back, and a value read once at construction would be an allowance that
+   * outlives the connect it was opened for. `core/shell/approval.ts` is the
+   * whole of the rule; this is the wire it arrives on.
+   */
+  approvalCallback?: () => string | null;
+}
+
+export function createConsoleWindow(
+  url: string,
+  rendererDir: string,
+  options: ConsoleWindowOptions = {},
+): BrowserWindow {
   const origin = new URL(url).origin;
   const win = new BrowserWindow({
     width: 1_040,
@@ -200,8 +224,56 @@ export function createConsoleWindow(url: string, rendererDir: string): BrowserWi
     main process's `URL` reads `app://console/...` as an opaque origin, so the
     obvious comparison cancels every navigation *inside* the offline console.
   */
+  /*
+    One decision, and both events that can move this window are asked it.
+
+    `will-navigate` is what a *page* starts — a link, a form, `location.assign`.
+    `will-redirect` is what a **server** starts: the `Location:` on a 3xx part
+    way through a navigation that had already been allowed. Guarding only the
+    first was the hole this window shipped with, and it is not a theoretical
+    one now that the approval happens here: the flow deliberately walks the
+    window to an authorization server and back, so it spends seconds following
+    exactly the kind of chain `will-redirect` reports — and an open redirect at
+    either end, or a compromised authorize page answering `302 Location:
+    https://attacker.example/`, would land this pinned, preloaded window on a
+    foreign origin without `will-navigate` ever firing.
+
+    The rule is not loosened to accommodate that; it is the same rule applied
+    twice. The console-origin → loopback chain the approve screen performs is
+    allowed because `mayNavigateConsoleWindow` allows the loopback callback of a
+    connect in flight, and everything else — a foreign origin, another port,
+    another path, a `file:` URL — is cancelled at whichever of the two events
+    carried it. `test/approval.test.mjs` pins that both are registered on the
+    same function, because the failure mode here is one of them being added
+    later and quietly not asking.
+  */
+  const mayNavigate = (target: string): boolean => {
+    /*
+      The third target, and it is open for seconds rather than for the life of
+      the window: `http://127.0.0.1:<port>/…`, the loopback address the connect
+      currently in flight is listening on. The approve screen ends by
+      navigating there, so a window that refuses it is a window in which this
+      machine can never be approved — and an allowance that is not scoped to
+      one in-flight connect is a standing invitation for a page to walk to a
+      socket on this machine. `mayNavigateConsoleWindow` is both halves in one
+      decision, checked in `test/approval.test.mjs`.
+
+      A getter that throws is the same answer as no connect in flight, because
+      a guard is not the place to find out how a caller failed.
+    */
+    let callback: string | null = null;
+    try {
+      callback = options.approvalCallback?.() ?? null;
+    } catch {
+      callback = null;
+    }
+    return mayNavigateConsoleWindow(target, origin, callback);
+  };
   win.webContents.on("will-navigate", (event, target) => {
-    if (!isAllowedConsoleNavigation(target, origin)) event.preventDefault();
+    if (!mayNavigate(target)) event.preventDefault();
+  });
+  win.webContents.on("will-redirect", (event, target) => {
+    if (!mayNavigate(target)) event.preventDefault();
   });
   /*
     The console is never granted a media permission.

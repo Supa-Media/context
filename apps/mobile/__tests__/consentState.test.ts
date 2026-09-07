@@ -390,9 +390,70 @@ describe("resolveConsentView — narrowing what is granted", () => {
     });
     expect(view.scopeChoices.map((c) => c.scope)).toEqual(["context:read"]);
     expect(view.withheldScopes).toEqual([]);
-    // And asking for it does not select it: the person still chooses.
+    // And asking for it *selects* it, because every other requested scope
+    // arrives ticked and the tier was the one that did not. Silently dropping
+    // it approved a client for less than it asked for and told nobody — which
+    // for a recorder decided what its meetings were filed as. It is still a
+    // default: the control is drawn, the read line says "including the ones you
+    // marked private", and the next test moves it in one call.
+    expect(view.tier.selected).toBe("private");
+    expect(view.tier.isAChoice).toBe(true);
+    expect(view.grantedScopes).toEqual(["context:read", "context:private"]);
+  });
+
+  test("...and a default is not a grant: one tap on team takes it back off", () => {
+    const view = ready({
+      chosenContextId: "w1",
+      chosenTier: "team",
+      request: {
+        ...REQUEST,
+        scopes: ["context:read", "context:private"],
+        scope: "context:read context:private",
+      },
+    });
     expect(view.tier.selected).toBe("team");
     expect(view.grantedScopes).toEqual(["context:read"]);
+  });
+
+  /**
+   * The half of the rule that is not "follow the request", and the one that
+   * would be quietly lost by a refactor that read the ceiling instead: a
+   * request naming no tier still opens on `team`, for an owner, forever. That
+   * is `docs/decisions/identity-and-access.md`'s *The privacy tier is a scope
+   * on the grant* — the old behaviour was private with no way out, and a
+   * silent client must not get it back.
+   */
+  test("a request that names no tier still opens on team for an owner", () => {
+    const view = ready({ chosenContextId: "w1" });
+    expect(view.tier.selected).toBe("team");
+    expect(view.grantedScopes).not.toContain("context:private");
+  });
+
+  test("an editor is not handed the tier by a client that asks for it", () => {
+    // The clamp applies to the requested default exactly as it applies to a
+    // stale choice: what may be offered is the role's, always.
+    const view = ready({
+      chosenContextId: "w2",
+      request: {
+        ...REQUEST,
+        scopes: ["context:read", "context:private"],
+        scope: "context:read context:private",
+      },
+    });
+    expect(view.tier.selected).toBe("team");
+    expect(view.tier.isAChoice).toBe(false);
+    expect(view.grantedScopes).not.toContain("context:private");
+  });
+
+  test("a wildcard request opens on private, because its own sentence promises it", () => {
+    // The screen collapses a wildcard to one line reading "private ones
+    // included". Leaving the tier on team under that sentence is the screen
+    // lying, not the screen being careful.
+    const view = ready({
+      chosenContextId: "w1",
+      request: { ...REQUEST, scopes: ["*"], scope: "*" },
+    });
+    expect(view.tier.selected).toBe("private");
   });
 
   test("what is displayed is what is submitted, tick for tick", () => {

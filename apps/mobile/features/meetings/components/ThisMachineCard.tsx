@@ -32,9 +32,18 @@ import { describeMachine, machineTitle } from "../thisMachine";
  *
  * Any part of the credential. The bridge exposes `connect()`, `disconnect()`
  * and three words, and `getDesktopBridge` refuses a bridge that grew anything
- * credential-shaped. `connect()` opens a browser and returns nothing; the token
- * is minted, stored and spent in the main process, and never becomes a value
- * this page can hold.
+ * credential-shaped. `connect()` returns nothing; the token is minted, stored
+ * and spent in the main process, and never becomes a value this page can hold.
+ *
+ * **`connect()` now navigates this window**, which is worth saying here because
+ * it is the one call on this card whose effect is that the card goes away for a
+ * moment: the shell sends the console window to the control plane's own approve
+ * screen — where the person is already signed in, because it is this origin —
+ * and brings it back afterwards. Nothing about that is this component's to
+ * arrange and there is no new bridge member for it: it is the same `connect()`,
+ * and the shell decides where the approval is shown. A launch with no window
+ * still opens a browser. `docs/decisions/desktop.md` has the guard that makes
+ * the return trip one address rather than a hole in the origin pin.
  */
 export function ThisMachineCard() {
   const bridge = useDesktopBridge();

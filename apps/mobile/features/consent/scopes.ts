@@ -106,6 +106,46 @@ export function grantableTiers(role: string | null | undefined): GrantableTier[]
 }
 
 /**
+ * Which tier the screen arrives on, before the person touches the control.
+ *
+ * **`team`, unless the client asked for the tier by name.** Every other
+ * requested scope arrives ticked — `splitRequestedScopes` says why: the screen
+ * opens showing what the client asked for, and narrowing is something a person
+ * does rather than something they have to undo. The tier was the one requested
+ * thing that arrived silently un-granted, and that asymmetry was not a safety
+ * property, it was a place where the screen and the grant disagreed:
+ *
+ *  - A client that asks for `context:private` and is approved with the defaults
+ *    gets a grant without it, so it behaves differently ever after than the
+ *    screen implied, and nothing anywhere says why.
+ *  - For a **recorder** the tier is not about reading at all: the desktop
+ *    shell's grant decides what a meeting is *filed as*
+ *    (`publishMeetingNote`), so the silent narrowing published a person's
+ *    meeting notes to everybody they share a folder with — a privacy default
+ *    nobody chose, arrived at by approving what the screen showed.
+ *
+ * **What this does not do is default private for a client that did not ask.**
+ * A request that names no tier still opens on `team`, which is the whole of
+ * *The privacy tier is a scope on the grant* in
+ * `docs/decisions/identity-and-access.md`: the old behaviour was private with
+ * no way out, and a request that says nothing must not get it back. The
+ * gateway's own `DEFAULT_REQUESTED_SCOPE` is `context:read context:write` for
+ * exactly the same reason, so a silent client cannot reach this branch.
+ *
+ * A wildcard counts as asking, because the screen's wildcard sentence already
+ * promises "private ones included" — leaving the tier on `team` under that
+ * sentence is the screen lying rather than the screen being careful.
+ *
+ * The role still clamps: an editor asking for private is offered `team` alone
+ * and gets it, here as everywhere.
+ */
+export function defaultTierFor(
+  requested: string | readonly string[] | null | undefined,
+): GrantableTier {
+  return normalizeScopes(requested).some(isTierScope) ? "private" : "team";
+}
+
+/**
  * Whether this role could hand over the operation named by a scope.
  *
  * Mirrors `clampScopes` in `functions/lib/consentScopes.ts`: `member` is

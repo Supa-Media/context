@@ -49,9 +49,13 @@ import { emptyOutbox, queueWrite, reconcileDrain } from "../core/sync/outbox.ts"
 import type { Outbox } from "../core/sync/outbox.ts";
 import { drainOnce } from "../core/sync/drain.ts";
 import { memoryTokenStore } from "../core/sync/tokenStore.ts";
-import { GatewayConnection } from "../core/sync/connection.ts";
+import {
+  GatewayConnection,
+  MEETING_TIER_REFUSAL,
+  grantCoversMeetings,
+} from "../core/sync/connection.ts";
 import { keychainTokenStore } from "./tokenStore.ts";
-import { browserlessRefresher, connectMachine } from "./connect.ts";
+import { browserlessRefresher, connectMachine, openInSystemBrowser } from "./connect.ts";
 import { transcribeChunk } from "./transcribe.ts";
 import { trayPresentation } from "../core/tray/presentation.ts";
 import type { TrayState } from "../core/tray/presentation.ts";
@@ -72,6 +76,11 @@ import {
   unexpectedConsoleAddress,
 } from "../core/shell/console.ts";
 import { darwinMajorFrom, systemAudioCapability } from "../core/shell/capabilities.ts";
+import {
+  approvalTargetFor,
+  createApprovalRoute,
+  returnAfterApproval,
+} from "../core/shell/approval.ts";
 import { createConsoleBridge } from "./consoleBridge.ts";
 import type { ConsoleBridge } from "./consoleBridge.ts";
 import { createConsoleMirror, registerMirrorScheme } from "./consoleMirror.ts";
@@ -309,6 +318,17 @@ let consoleMirror: ConsoleMirror | null = null;
  * refused — which `--smoke-load` reads as "there was nothing to wait for".
  */
 let consoleLoadSettled: Promise<boolean> | null = null;
+
+/**
+ * The one navigation this window makes that is neither the console nor the
+ * mirror: the loopback address a connect in flight is listening on.
+ *
+ * Module-level and single, because there is one console window and
+ * `connectThisMachine` already refuses to run twice over. It is `null` except
+ * between pressing Connect and the grant coming back — `core/shell/approval.ts`
+ * is the argument, and `test/approval.test.mjs` is the check.
+ */
+const approval = createApprovalRoute();
 
 let connectError: string | null = null;
 
@@ -724,7 +744,21 @@ async function main(): Promise<void> {
         // app ask to be connected after every restart is owed the reason.
         encrypted: tokens.encrypted,
         connecting,
-        error: connectError,
+        /*
+          The last attempt's failure, or the standing one: a machine connected
+          at the narrower tier is a machine holding its meetings, and the reason
+          has to be readable *whenever* that is true rather than only in the
+          seconds after the connect that caused it. So it is derived from the
+          grant on every push rather than latched into `connectError` once —
+          a restart, a refresh, or a grant that predates the tier existing all
+          reach this line and all say the same thing. `connectError` still wins
+          when there is one: it is newer and more specific.
+        */
+        error:
+          connectError ??
+          (connection.state() === "connected" && !grantCoversMeetings(connection.scope())
+            ? MEETING_TIER_REFUSAL
+            : null),
       },
       pending: new Set(outbox.entries.map((entry) => entry.sessionId)).size,
       missingPermissions,
@@ -996,7 +1030,14 @@ async function main(): Promise<void> {
     const before = outbox;
     const report = await drainOnce(
       before,
-      { baseUrl, token: () => connection.token() },
+      {
+        baseUrl,
+        token: () => connection.token(),
+        // Not the scope this app asked for: the one the grant came back with.
+        // `postEntry` holds a meeting rather than let the gateway file it at a
+        // visibility the person did not choose. See `grantCoversMeetings`.
+        scope: () => connection.scope(),
+      },
       () => Date.now(),
     );
     outbox = reconcileDrain(before, report.outbox, outbox);
@@ -1329,7 +1370,9 @@ async function main(): Promise<void> {
       writeMeeting: writeMeetingFromConsole,
     });
 
-    consoleWindow = createConsoleWindow(url, RENDERER_DIR);
+    consoleWindow = createConsoleWindow(url, RENDERER_DIR, {
+      approvalCallback: () => approval.callback(),
+    });
     // Before the load can finish or fail: the mirror owns `did-fail-load`, and
     // a fallback wired after the first load is a fallback that misses it.
     consoleMirror.attach(consoleWindow);
@@ -1408,14 +1451,100 @@ async function main(): Promise<void> {
   ipcMain.on(COMMANDS.connect, () => void connectThisMachine());
   ipcMain.on(COMMANDS.disconnect, () => void disconnectThisMachine());
 
+  /** The console window, when this launch has a live one. `null` otherwise. */
+  function liveConsoleWindow(): BrowserWindow | null {
+    try {
+      if (consoleWindow === null || consoleWindow.isDestroyed()) return null;
+      return consoleWindow;
+    } catch {
+      // A window torn down between the two reads. No window is the honest
+      // answer, and it puts the approval back in the system browser.
+      return null;
+    }
+  }
+
+  /**
+   * Show the approve screen **in this app's own window**, and say whether it
+   * went.
+   *
+   * `false` is not a failure: it means this launch has no console window (the
+   * tray-only mode still exists), or the authorization server named an
+   * authorize URL this shell will not navigate its own window to, and the
+   * caller falls back to the system browser — which is what this app did until
+   * now and still does for everybody without a window.
+   *
+   * The whole of the rule is `core/shell/approval.ts`. What is here is the
+   * Electron half: read where the window is so it can be put back, open the
+   * allowance, navigate, and raise the window so the approve screen is in front
+   * of the person who just pressed Connect rather than behind their editor.
+   */
+  async function approveInConsoleWindow(href: string): Promise<boolean> {
+    const win = liveConsoleWindow();
+    if (win === null || consoleAddress === null) return false;
+    const target = approvalTargetFor(href);
+    if (target === null) return false;
+
+    let from = "";
+    try {
+      from = win.webContents.getURL();
+    } catch {
+      from = "";
+    }
+    const authorize = approval.begin(
+      target,
+      returnAfterApproval(from, consoleAddress, consoleOrigin(consoleAddress)),
+    );
+    try {
+      await win.loadURL(authorize);
+    } catch {
+      /*
+        A load this process replaced, or a network that went away mid-flight.
+        The listener is still open and the URL has already been logged, so this
+        is not the end of the flow — and `finally` puts the window back on the
+        console either way.
+      */
+    }
+    win.show();
+    win.focus();
+    return true;
+  }
+
+  /**
+   * Put the window back where it was, and close the loopback allowance with it.
+   *
+   * Both halves matter and they are one call because forgetting either is the
+   * defect: an allowance left open is a standing permission for a page to walk
+   * to a socket on this machine, and a window left on the loopback listener's
+   * "Connected" page is a person stranded on a page whose server has closed.
+   */
+  function endApproval(): void {
+    const back = approval.end();
+    if (back === null) return;
+    const win = liveConsoleWindow();
+    if (win === null) return;
+    void win.loadURL(back).catch(() => {
+      // Offline, most likely. `consoleMirror` owns the failed load and serves
+      // the mirrored console in its place.
+    });
+  }
+
   /**
    * Connect this machine to a context.
    *
    * The endpoint is the person's own: self-hosting is a supported path and
    * there is no hard-coded gateway anywhere in this app. Everything after it —
-   * discovery, registration, the browser, the exchange — is `packages/hook`'s
+   * discovery, registration, the approval, the exchange — is `packages/hook`'s
    * reviewed flow, and the record it produces goes straight to the keychain
    * without passing through a renderer.
+   *
+   * **The approval happens in this window when there is one.** The person is
+   * already signed in to the console here; sending them to a browser where they
+   * are not was two sign-ins and a tab to close for one grant. The consent
+   * dialog goes with it in that case — the approve screen the control plane
+   * renders *is* the consent, it names the same scopes at more length, and a
+   * modal in front of it was this app asking a question the next screen asks
+   * properly. Tray-only launches have no window to approve in, so they keep
+   * both the dialog and the browser.
    */
   async function connectThisMachine(): Promise<void> {
     if (connecting) return;
@@ -1423,21 +1552,27 @@ async function main(): Promise<void> {
     connectError = null;
     push();
     try {
-      const answer = await dialog.showMessageBox({
-        type: "question",
-        title: "Connect this machine",
-        message: `Connect this machine to ${settings.gatewayEndpoint}`,
-        detail:
-          "Your browser will open so you can approve this machine. It is registered as its own connection, so you can revoke this laptop on its own — and it asks only for what a meeting needs: to write notes, at your own privacy tier.",
-        buttons: ["Open my browser", "Cancel"],
-        defaultId: 0,
-        cancelId: 1,
-      });
-      if (answer.response !== 0) return;
+      if (liveConsoleWindow() === null || consoleAddress === null) {
+        const answer = await dialog.showMessageBox({
+          type: "question",
+          title: "Connect this machine",
+          message: `Connect this machine to ${settings.gatewayEndpoint}`,
+          detail:
+            "Your browser will open so you can approve this machine. It is registered as its own connection, so you can revoke this laptop on its own — and it asks only for what a meeting needs: to write notes, at your own privacy tier.",
+          buttons: ["Open my browser", "Cancel"],
+          defaultId: 0,
+          cancelId: 1,
+        });
+        if (answer.response !== 0) return;
+      }
 
       const record = await connectMachine({
         endpoint: settings.gatewayEndpoint,
         log: (message) => console.log(message),
+        openBrowser: async (href) => {
+          if (await approveInConsoleWindow(href)) return;
+          await openInSystemBrowser(href);
+        },
       });
       await connection.connect(record);
       /*
@@ -1458,12 +1593,24 @@ async function main(): Promise<void> {
         every time a grant expired would ask again for no reason.
       */
       await update({ gatewayBaseUrl: record.gatewayBaseUrl, captureEnabled: true });
+      /*
+        Here rather than only in `finally`, because everything below this line
+        takes time a person would spend looking at the loopback listener's
+        "Connected" page: the transcription question is a modal over it, and the
+        drain can run for as long as the queue is long. `endApproval` is
+        idempotent — the `finally` still runs it, and still matters, because
+        every path that does not reach this line has to close the allowance too.
+      */
+      endApproval();
       await askAboutTranscription();
       // Whatever the queue is holding has been waiting for exactly this.
       await drain();
     } catch (error) {
       connectError = error instanceof Error ? error.message : "the connection could not be completed";
     } finally {
+      // Before `push()`, so the console the window is being returned to draws
+      // the state this connect ended in rather than the one it started from.
+      endApproval();
       connecting = false;
       push();
     }
