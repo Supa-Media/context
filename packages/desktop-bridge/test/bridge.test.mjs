@@ -64,10 +64,11 @@ const refusalFor = (desktop) => inspectDesktopBridge({ desktop }).refusal;
 /**
  * A structurally complete bridge at the *current* version, from plain values.
  *
- * It carries `meetings` because `BRIDGE_VERSION` is 2 and row 2 of the required
- * table asks for it. `version1Bridge` below is the same object with `meetings`
- * removed and `version: 1` — the shell somebody installed before this shipped,
- * which this bundle still has to accept.
+ * It carries `meetings` and the machine-approval trio because `BRIDGE_VERSION`
+ * is 3 and row 3 of the required table asks for both. `version1Bridge` below is
+ * the same object with `meetings` removed and `version: 1`, and
+ * `version2Bridge` is it without the trio — the two shells somebody has in
+ * their Applications folder, both of which this bundle still has to accept.
  */
 function bridgeLike(overrides = {}) {
   const noop = () => () => {};
@@ -89,6 +90,9 @@ function bridgeLike(overrides = {}) {
       connect: () => {},
       disconnect: () => {},
       onChange: noop,
+      pendingApproval: async () => null,
+      onPendingApproval: noop,
+      resolveApproval: async () => {},
     },
     outbox: {
       status: async () => ({}),
@@ -108,6 +112,20 @@ const frozenBridge = (overrides = {}) => Object.freeze(bridgeLike(overrides));
 function version1Bridge(overrides = {}) {
   const { meetings: _dropped, ...rest } = bridgeLike(overrides);
   return Object.freeze({ ...rest, version: 1 });
+}
+
+/**
+ * The shell that shipped #312's in-window approve screen. Version 2, complete.
+ *
+ * It has `meetings` and no machine-approval members, which is exactly the
+ * estate: a Mac installed between version 2 and version 3 approves in its own
+ * window and is doing nothing wrong.
+ */
+function version2Bridge(overrides = {}) {
+  const bridge = bridgeLike(overrides);
+  const { pendingApproval: _a, onPendingApproval: _b, resolveApproval: _c, ...connection } =
+    bridge.connection;
+  return Object.freeze({ ...bridge, connection, version: 2 });
 }
 
 export function runBridgeChecks(check) {
@@ -214,7 +232,15 @@ export function runBridgeChecks(check) {
     "a missing connection object is incomplete",
     refusalFor(frozenBridge({ connection: undefined })) === "surface-incomplete",
   );
-  for (const member of ["get", "connect", "disconnect", "onChange"]) {
+  for (const member of [
+    "get",
+    "connect",
+    "disconnect",
+    "onChange",
+    "pendingApproval",
+    "onPendingApproval",
+    "resolveApproval",
+  ]) {
     const connection = bridgeLike().connection;
     delete connection[member];
     check(
@@ -371,6 +397,21 @@ export function runBridgeChecks(check) {
   check(
     "...and one whose `meetings` cannot write is refused too",
     refusalFor(frozenBridge({ meetings: { drain: () => {} } })) === "surface-incomplete",
+  );
+  check(
+    "A VERSION-2 SHELL IS STILL A BRIDGE, though this bundle is version 3",
+    getDesktopBridge({ desktop: version2Bridge() }) !== null &&
+      refusalFor(version2Bridge()) === null,
+  );
+  check(
+    "...which the page notices by asking for the member rather than the version",
+    getDesktopBridge({ desktop: version2Bridge() })?.connection.pendingApproval === undefined,
+  );
+  check(
+    "A VERSION-3 SHELL WITHOUT THE MACHINE-APPROVAL MEMBERS IS REFUSED — it promised them",
+    refusalFor(
+      Object.freeze({ ...version2Bridge(), version: 3 }),
+    ) === "surface-incomplete",
   );
   check(
     "a version between the floor and the ceiling is still not an integer version",

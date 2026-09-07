@@ -33,9 +33,11 @@ import {
   type DesktopCapabilities,
   type DesktopShell,
   type DetectionView,
+  type MachineApprovalResult,
   type MeetingWrite,
   type MeetingWriteAck,
   type OutboxStatus,
+  type PendingMachineApproval,
   type StartCaptureRequest,
   type TranscriptSegment,
   type TrayCommand,
@@ -51,6 +53,8 @@ export interface FakeDesktopBridge {
   lastStart: StartCaptureRequest | null;
   /** Every meeting write the page handed the shell, in order. */
   writes: MeetingWrite[];
+  /** Every answer the page gave about a parked machine approval, in order. */
+  approvals: MachineApprovalResult[];
   emitSegment(segment: TranscriptSegment): void;
   emitLevel(level: AudioLevel): void;
   emitCaptureState(update: CaptureStateUpdate): void;
@@ -58,6 +62,8 @@ export interface FakeDesktopBridge {
   emitOutbox(status: OutboxStatus): void;
   emitDetection(view: DetectionView): void;
   emitTrayCommand(command: TrayCommand): void;
+  /** Push a parked machine approval at the page, or `null` to say it is over. */
+  emitPendingApproval(pending: PendingMachineApproval | null): void;
   /** How many handlers are attached, so a test can prove teardown detached them. */
   listenerCount(): number;
 }
@@ -91,6 +97,20 @@ export interface FakeBridgeOptions {
    * to notice the member is missing rather than call it.
    */
   noMeetings?: boolean;
+  /**
+   * The parked approval this shell is holding. `null` — the default — is a
+   * shell with no connect in flight, which is every ordinary moment.
+   */
+  pendingApproval?: PendingMachineApproval | null;
+  /**
+   * Answer no machine-approval members at all — a **version-2** shell.
+   *
+   * `noMeetings`'s reason, one version along: somebody installed the shell that
+   * shipped #312's in-window approve screen, `MIN_BRIDGE_VERSION` still accepts
+   * it, and the page has to notice the members are missing rather than call
+   * them. An explicit `version` still wins, so the refusal can be staged too.
+   */
+  noMachineApproval?: boolean;
 }
 
 const DEFAULT_CONNECTION: ConnectionView = {
@@ -114,6 +134,9 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
 
   const calls: string[] = [];
   const writes: MeetingWrite[] = [];
+  const approvals: MachineApprovalResult[] = [];
+  const pendingApprovals = new Set<(pending: PendingMachineApproval | null) => void>();
+  let pending: PendingMachineApproval | null = options.pendingApproval ?? null;
   const capabilities: DesktopCapabilities = { ...NO_CAPABILITIES, ...options.capabilities };
   let connectionView = options.connection ?? DEFAULT_CONNECTION;
   let outboxStatus = options.outbox ?? DEFAULT_OUTBOX;
@@ -133,7 +156,9 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
       not the case a test asking for `noMeetings` is trying to stage. An
       explicit `version` still wins, so the refusal itself can be staged too.
     */
-    version: options.version ?? (options.noMeetings === true ? 1 : BRIDGE_VERSION),
+    version:
+      options.version ??
+      (options.noMeetings === true ? 1 : options.noMachineApproval === true ? 2 : BRIDGE_VERSION),
     shell:
       options.shell === undefined
         ? { app: "Context", version: "0.0.0-test", platform: "macos" as const }
@@ -204,6 +229,29 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
         calls.push("connection.disconnect");
       },
       onChange: (handler: (view: ConnectionView) => void) => subscribe(connections, handler),
+      /*
+        Absent entirely under `noMachineApproval`, rather than present and
+        answering nothing — `meetings`' rule, and for its reason: a version-2
+        shell does not have these members, and a fake that had them and refused
+        would let a page pass by catching an error it should never have been in
+        a position to throw.
+      */
+      ...(options.noMachineApproval === true
+        ? {}
+        : {
+            async pendingApproval(): Promise<PendingMachineApproval | null> {
+              calls.push("connection.pendingApproval");
+              return pending === null ? null : { ...pending };
+            },
+            onPendingApproval: (
+              handler: (value: PendingMachineApproval | null) => void,
+            ): Unsubscribe => subscribe(pendingApprovals, handler),
+            async resolveApproval(result: MachineApprovalResult): Promise<void> {
+              calls.push(`connection.resolveApproval:${result.approved}`);
+              approvals.push(result);
+              pending = null;
+            },
+          }),
     }),
 
     outbox: Object.freeze({
@@ -247,6 +295,7 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
     bridge,
     calls,
     writes,
+    approvals,
     get lastStart() {
       return lastStart;
     },
@@ -273,6 +322,10 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
     emitTrayCommand(command) {
       for (const handler of trayCommands) handler(command);
     },
+    emitPendingApproval(value) {
+      pending = value;
+      for (const handler of pendingApprovals) handler(value);
+    },
     listenerCount() {
       return (
         segments.size +
@@ -281,7 +334,8 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
         connections.size +
         outboxes.size +
         detections.size +
-        trayCommands.size
+        trayCommands.size +
+        pendingApprovals.size
       );
     },
   };

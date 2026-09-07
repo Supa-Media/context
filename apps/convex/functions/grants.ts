@@ -328,6 +328,16 @@ export const registerClient = internalMutation({
     responseTypes: v.optional(v.array(v.string())),
     scope: v.optional(v.string()),
     applicationType: v.optional(v.union(v.literal("native"), v.literal("web"))),
+    /**
+     * RFC 7591's `software_id`, stored as the client sent it.
+     *
+     * Client-asserted, like every other field in this metadata block, and the
+     * schema says so at length. It is not authority: the one function that
+     * reads it (`approveOwnMachineGrant`) uses it to *narrow* which clients a
+     * convenience applies to, and holds the loopback and scope conditions that
+     * actually bound it.
+     */
+    softwareId: v.optional(v.string()),
     registrantKey: v.optional(v.string()),
   },
   returns: v.id("oauthClients"),
@@ -346,6 +356,7 @@ export const registerClient = internalMutation({
       responseTypes: args.responseTypes,
       scope: args.scope,
       applicationType: args.applicationType,
+      softwareId: args.softwareId,
     };
 
     const existing = await ctx.db

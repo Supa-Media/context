@@ -66,10 +66,12 @@ import {
   type DesktopCapabilities,
   type DesktopShell,
   type DetectionView,
+  type MachineApprovalResult,
   type MeetingWrite,
   type MeetingWriteAck,
   type MeetingWriteKind,
   type OutboxStatus,
+  type PendingMachineApproval,
   type StartCaptureRequest,
   type TranscriptSegment,
   type TrayCommand,
@@ -131,6 +133,25 @@ export interface ConsoleBridgeDeps {
   connection: () => ConnectionView;
   connect: () => void;
   disconnect: () => void;
+  /**
+   * The parked authorization request this machine is waiting on, or `null`.
+   *
+   * The version-3 addition. A request id is not a credential — it is the
+   * address of a question the control plane is holding, answerable only by
+   * somebody signed in — and handing it to the page is what lets the person
+   * already signed in *in this window* answer it with no approve screen.
+   * `core/shell/autoGrant.ts` carries the argument.
+   */
+  pendingApproval: () => PendingMachineApproval | null;
+  /**
+   * What the page did about it.
+   *
+   * `approved: false` is the ordinary answer from a page that could not, and
+   * the shell answers it by putting the approve screen in this window — which
+   * is exactly what #312 shipped. A result naming a request this machine is not
+   * waiting on does nothing at all.
+   */
+  resolveApproval: (result: MachineApprovalResult) => void;
   outbox: () => OutboxStatus;
   drain: () => void;
   /**
@@ -148,6 +169,8 @@ export interface ConsoleBridge {
   /** Push the four subscribable views. Silent when there is no window. */
   push(view: ConsoleBridgeView): void;
   emitSegment(segment: TranscriptSegment): void;
+  /** Tell the page a machine approval opened, or that it is over (`null`). */
+  emitPendingApproval(pending: PendingMachineApproval | null): void;
   emitTrayCommand(command: TrayCommand): void;
   /** Unregister every channel. For a window that is going away for good. */
   dispose(): void;
@@ -295,6 +318,25 @@ function meetingWriteFrom(payload: unknown): MeetingWrite | null {
   };
 }
 
+/**
+ * What the page says it did about a parked approval, read against the contract.
+ *
+ * `null` for anything that is not two well-formed fields. The id is checked for
+ * *shape* rather than compared here: which request is in flight is the main
+ * process's own fact, and `ApprovalHandover.take` is where a stale or invented
+ * id becomes inert. This is the same split as everywhere else in this file —
+ * the renderer's payload is normalised at the boundary and authorised inside.
+ */
+function approvalResultFrom(payload: unknown): MachineApprovalResult | null {
+  const source = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
+    string,
+    unknown
+  >;
+  const requestId = typeof source.requestId === "string" ? source.requestId : "";
+  if (requestId === "" || requestId.length > 256) return null;
+  return { requestId, approved: source.approved === true };
+}
+
 function messageOf(error: unknown, fallback: string): string {
   return error instanceof Error && error.message !== "" ? error.message : fallback;
 }
@@ -421,6 +463,22 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     return null;
   });
 
+  handle(BRIDGE_CHANNELS.connectionPendingApproval, () => {
+    const pending = deps.pendingApproval();
+    // Rebuilt from the one field the contract declares, like every answer here:
+    // a main process that grew a second one does not start shipping it to a
+    // page served from the network.
+    return pending === null ? null : { requestId: pending.requestId };
+  });
+  handle(BRIDGE_CHANNELS.connectionResolveApproval, (payload) => {
+    const result = approvalResultFrom(payload);
+    // A malformed answer is dropped rather than refused: there is no sentence
+    // worth showing anybody, and the connect it was about is either already
+    // over or about to time out into the approve screen.
+    if (result !== null) deps.resolveApproval(result);
+    return null;
+  });
+
   handle(BRIDGE_CHANNELS.meetingsWrite, (payload) => {
     const write = meetingWriteFrom(payload);
     if (write === null) throw new Error(CONSOLE_BRIDGE_MESSAGES.unwritable);
@@ -460,6 +518,18 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     emitSegment(segment: TranscriptSegment): void {
       send(BRIDGE_CHANNELS.segment, segment);
     },
+    /*
+      Pushed rather than polled, and `null` is a value on this channel: it is
+      how the shell says the approval is over — approved, refused, timed out or
+      abandoned — so the card stops offering to mint one. Wrapped in an
+      envelope because the preload's `subscribe` reads a `null` payload as a
+      frame with nothing in it.
+    */
+    emitPendingApproval(pending: PendingMachineApproval | null): void {
+      send(BRIDGE_CHANNELS.pendingApprovalChange, {
+        pending: pending === null ? null : { requestId: pending.requestId },
+      });
+    },
     emitTrayCommand(command: TrayCommand): void {
       if (!TRAY_COMMANDS.includes(command)) return;
       send(BRIDGE_CHANNELS.trayCommand, command);
@@ -474,6 +544,8 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
         BRIDGE_CHANNELS.connectionGet,
         BRIDGE_CHANNELS.connectionConnect,
         BRIDGE_CHANNELS.connectionDisconnect,
+        BRIDGE_CHANNELS.connectionPendingApproval,
+        BRIDGE_CHANNELS.connectionResolveApproval,
         BRIDGE_CHANNELS.outboxStatus,
         BRIDGE_CHANNELS.outboxDrain,
         BRIDGE_CHANNELS.meetingsWrite,

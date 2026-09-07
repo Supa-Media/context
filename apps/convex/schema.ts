@@ -1108,6 +1108,25 @@ const schema = defineSchema({
     applicationType: v.optional(
       v.union(v.literal("native"), v.literal("web")),
     ),
+    /**
+     * RFC 7591's `software_id`: what the client says it *is*, as opposed to
+     * what it called itself this time.
+     *
+     * **Client-asserted, and nothing here pretends otherwise.** Registration is
+     * unauthenticated by construction, so anything that can register can claim
+     * any string. It is stored because one reader needs it —
+     * `approveOwnMachineGrant`, which mints the desktop shell's machine grant
+     * with no approve screen and refuses to do that for a client that did not
+     * declare itself the shell. That check is a *scope* on a convenience, never
+     * an authentication: what actually bounds the convenience is that the code
+     * can only be delivered to a loopback listener on the person's own machine
+     * and the grant is exactly the default scope. See
+     * `functions/lib/machineGrant.ts`.
+     *
+     * Optional: every client registered before this field existed has none, and
+     * absent is refused by the one reader, which is the safe direction.
+     */
+    softwareId: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_clientId", ["clientId"]),
 

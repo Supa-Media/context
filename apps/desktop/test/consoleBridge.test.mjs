@@ -273,6 +273,8 @@ const QUEUE = Object.freeze({ pending: 2, parked: 0, lastError: null });
 function mainBridge(overrides = {}) {
   const calls = [];
   const written = [];
+  /** Every answer the page gave about a parked machine approval. */
+  const answered = [];
   /** Every `startCapture` request as the reader built it. */
   const requested = [];
   const window = overrides.window ?? fakeWindow();
@@ -313,6 +315,14 @@ function mainBridge(overrides = {}) {
     },
     connect: () => void calls.push("connect"),
     disconnect: () => void calls.push("disconnect"),
+    pendingApproval: () => {
+      calls.push("pendingApproval");
+      return overrides.pending ?? null;
+    },
+    resolveApproval: (result) => {
+      calls.push("resolveApproval");
+      answered.push(result);
+    },
     outbox: () => {
       calls.push("outbox");
       return { ...QUEUE };
@@ -334,6 +344,7 @@ function mainBridge(overrides = {}) {
     window,
     calls,
     written,
+    answered,
     requested,
     movePin: (next) => {
       pinned = next;
@@ -351,6 +362,8 @@ const HANDLED = [
   BRIDGE_CHANNELS.connectionGet,
   BRIDGE_CHANNELS.connectionConnect,
   BRIDGE_CHANNELS.connectionDisconnect,
+  BRIDGE_CHANNELS.connectionPendingApproval,
+  BRIDGE_CHANNELS.connectionResolveApproval,
   BRIDGE_CHANNELS.outboxStatus,
   BRIDGE_CHANNELS.outboxDrain,
   BRIDGE_CHANNELS.meetingsWrite,
@@ -616,7 +629,7 @@ export async function runConsoleBridgeChecks(check) {
     );
     check(
       "...and the census adds up, so neither side can drift unnoticed",
-      registrations + gatedAsync + gatedSync === 28,
+      registrations + gatedAsync + gatedSync === 30,
     );
   }
 
@@ -1370,7 +1383,9 @@ export async function runConsoleBridgeChecks(check) {
       const payload =
         channel === BRIDGE_CHANNELS.meetingsWrite
           ? { ...WRITE }
-          : { sessionId: "mtg_abcdefghjkmnpqrstvwx", mic: true, systemAudio: true };
+          : channel === BRIDGE_CHANNELS.connectionResolveApproval
+            ? { requestId: "a-parked-request-id", approved: false }
+            : { sessionId: "mtg_abcdefghjkmnpqrstvwx", mic: true, systemAudio: true };
       answers.push(await ipc.handlers.get(channel)(sender(), payload));
     }
     check("the pinned console window is answered on every channel", answers.every((answer) => answer?.ok === true));

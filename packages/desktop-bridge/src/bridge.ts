@@ -151,6 +151,11 @@ const REQUIRED_MEMBERS: Readonly<Record<number, readonly string[]>> = Object.fre
     list, and a copy is a place for them to drift apart one member at a time.
   */
   2: VERSION_1_MEMBERS,
+  /*
+    Version 3 adds three members to `connection`, which is a sub-object, so
+    this row is version 1's list unchanged for the same reason version 2's is.
+  */
+  3: VERSION_1_MEMBERS,
 });
 
 /** The sub-objects, and the methods each must carry, per version. */
@@ -172,6 +177,26 @@ const REQUIRED_SUB_MEMBERS: Readonly<
     and the page would silently become a browser on every one of them.
   */
   2: Object.freeze({ ...VERSION_1_SUB_MEMBERS, meetings: Object.freeze(["write"]) }),
+  /*
+    Version 3's `connection` carries the machine-approval trio as well. Row 2
+    is untouched, for row 1's reason one version along: a shell that shipped
+    with #312's in-window approve screen answers `2`, has no
+    `pendingApproval`, and is doing nothing wrong — the page simply never
+    offers to mint the grant on it and that shell keeps showing the screen.
+  */
+  3: Object.freeze({
+    ...VERSION_1_SUB_MEMBERS,
+    connection: Object.freeze([
+      "get",
+      "connect",
+      "disconnect",
+      "onChange",
+      "pendingApproval",
+      "onPendingApproval",
+      "resolveApproval",
+    ]),
+    meetings: Object.freeze(["write"]),
+  }),
 });
 
 /**

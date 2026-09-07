@@ -60,9 +60,11 @@ import {
   type DesktopCapabilities,
   type DesktopShell,
   type DetectionView,
+  type MachineApprovalResult,
   type MeetingWrite,
   type MeetingWriteAck,
   type OutboxStatus,
+  type PendingMachineApproval,
   type StartCaptureRequest,
   type TranscriptSegment,
   type TrayCommand,
@@ -195,6 +197,18 @@ function connectionFrom(payload: unknown): ConnectionView {
     connecting: source.connecting === true,
     error: sentence(source.error),
   };
+}
+
+/**
+ * A parked approval, or `null` from a shell with nothing in flight.
+ *
+ * The id is read as a string and nothing else is read at all: this payload has
+ * exactly one field on the contract, and a shell that grew a second one does
+ * not get to start shipping it to a page served from the network.
+ */
+function pendingApprovalFrom(payload: unknown): PendingMachineApproval | null {
+  const requestId = text(record(payload).requestId);
+  return requestId === "" ? null : { requestId };
 }
 
 function outboxFrom(payload: unknown): OutboxStatus {
@@ -413,6 +427,43 @@ export function desktopBridge(ipc: PreloadIpc): DesktopBridge {
       disconnect: (): void => tell(ipc, BRIDGE_CHANNELS.connectionDisconnect),
       onChange: (handler: (view: ConnectionView) => void): Unsubscribe =>
         subscribe(ipc, BRIDGE_CHANNELS.connectionChange, connectionFrom, handler),
+
+      /*
+        The machine-approval trio. **Version 3.**
+
+        Nothing credential-shaped crosses here either, and the shape is what
+        holds that rather than the naming rule: what comes back is one opaque
+        request id — the address of a question the control plane is holding —
+        and what goes out is that id plus a boolean. The authorization code
+        never touches this bridge: it arrives at the loopback listener in the
+        main process, where the PKCE verifier that redeems it lives.
+      */
+      pendingApproval: (): Promise<PendingMachineApproval | null> =>
+        ask(ipc, BRIDGE_CHANNELS.connectionPendingApproval, undefined, pendingApprovalFrom),
+      onPendingApproval: (
+        handler: (pending: PendingMachineApproval | null) => void,
+      ): Unsubscribe =>
+        subscribe(
+          ipc,
+          BRIDGE_CHANNELS.pendingApprovalChange,
+          /*
+            `null` is a value on this channel rather than a dropped frame: it is
+            how the shell says the approval is over, and the card has to stop
+            offering to mint one. `subscribe` reads `null` as "nothing to
+            deliver", so the push is wrapped in an envelope and unwrapped here.
+          */
+          (payload) => ({ pending: pendingApprovalFrom(record(payload).pending) }),
+          (value) => handler(value.pending),
+        ),
+      resolveApproval: async (result: MachineApprovalResult): Promise<void> => {
+        // Rebuilt from the two fields the contract declares, like every other
+        // request: a page cannot smuggle a third one into the main process.
+        const asked: MachineApprovalResult = {
+          requestId: text((result as { requestId?: unknown })?.requestId),
+          approved: (result as { approved?: unknown })?.approved === true,
+        };
+        await ask(ipc, BRIDGE_CHANNELS.connectionResolveApproval, asked, () => null);
+      },
     }),
 
     outbox: Object.freeze({
