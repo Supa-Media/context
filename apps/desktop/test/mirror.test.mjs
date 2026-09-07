@@ -32,7 +32,7 @@
  *   `shouldMirror` dropping the origin comparison                             4
  *   `shouldMirror` dropping the `/api` refusal                                1
  *   `shouldMirror` dropping the credential-header refusal                     5
- *   `shouldMirror` dropping the `Cache-Control` refusal                       2
+ *   `shouldMirror` dropping the `Cache-Control: no-store` refusal             2
  *   `shouldMirror` dropping the `Vary` refusal                                2
  *   `respondToFailedLoad` ignoring the failed URL's origin                    1
  *   `respondToFailedLoad` answering `mirror` with no mirror                   1
@@ -55,6 +55,26 @@
  *   `MirrorStore` following a symlink (one blob, one manifest)                   2
  *   ...accepting a key that is a path rather than a hash                         1
  *   `originOf` reading every opaque origin as the mirror's                       4
+ *
+ * Found on the owner's Mac against the installed signed app, and fixed here:
+ *
+ *   `shouldMirror` refusing `Cache-Control: private` again                       2
+ *   `mirrorIsUsable` no longer checking the index's own content type             1
+ *   `MirrorStore.save` trusting the first response as the index, untyped         3
+ *   `MirrorStore.save` writing an index that never fit its own budget            2
+ *
+ * **The `private` row is the finding, stated as a test.** `context.lc/console`
+ * is served with `must-revalidate, private, max-age=0`; refusing `private`
+ * refused the document on every load, so the only thing ever mirrored was the
+ * cacheable JS bundle. `mirrorIsUsable`'s row is the second half of the same
+ * bug wearing a different face: with no check on the index's own content type,
+ * a manifest whose only entry was that bundle answered `mirrorIsUsable() ===
+ * true`, which is the poisoned mirror this app shipped. `MirrorStore.save`'s
+ * two rows are the fix that makes that row honest to check: the index is now
+ * *decided* to be the document (`input.files[0]`) rather than *discovered* to
+ * be whatever survived filtering first, so a snapshot with no real document,
+ * or one too large for its own budget, writes nothing at all rather than a
+ * manifest that lies about what it points to.
  *
  * The last of those is the wrong fix for the trap this file is mostly about,
  * and it is the one most worth a check: `"null"` is what Node says about
@@ -217,8 +237,21 @@ export async function runMirrorChecks(check) {
     refusal({ headers: { "cache-control": "no-store, max-age=0" } }) === MIRROR_REFUSALS.noStore,
   );
   check(
-    "...and `private` is the same answer",
-    refusal({ headers: { "cache-control": "private" } }) === MIRROR_REFUSALS.noStore,
+    "`no-store` is refused even alongside `private`",
+    refusal({ headers: { "cache-control": "private, no-store" } }) === MIRROR_REFUSALS.noStore,
+  );
+  check(
+    "PRIVATE IS PERMITTED — a single-user mirror on this machine's own disk is exactly what `Cache-Control: private` allows",
+    shouldMirror(candidate({ headers: { "cache-control": "private" } })).ok === true,
+  );
+  check(
+    "THE REAL `context.lc/console` HEADERS ARE MIRRORED, not refused — this is the header set that was refusing the console itself",
+    shouldMirror(
+      candidate({
+        url: `${LIVE}/console`,
+        headers: { "cache-control": "must-revalidate, private, max-age=0" },
+      }),
+    ).ok === true,
   );
   check(
     "A RESPONSE THAT VARIES BY WHO ASKED IS NOT MIRRORED",
@@ -432,6 +465,18 @@ export async function runMirrorChecks(check) {
     usable({ savedAtMs: NOW + MIRROR_LIMITS.futureSkewMs + 1 }) === false,
   );
   check("a manifest whose index is missing from its own entries is not shown", usable({ entries: {} }) === false);
+  check(
+    "A MANIFEST WHOSE INDEX IS NOT text/html IS NOT SHOWN — the poisoned mirror this bug wrote",
+    usable({
+      entries: {
+        ...manifest().entries,
+        [manifest().index]: {
+          ...manifest().entries[manifest().index],
+          contentType: "application/javascript",
+        },
+      },
+    }) === false,
+  );
   check("nothing at all is not a mirror", mirrorIsUsable(null, { appVersion: APP_VERSION, liveOrigin: LIVE, nowMs: NOW }) === false);
 
   // --- which file answers a request -----------------------------------------
@@ -541,6 +586,65 @@ export async function runMirrorChecks(check) {
     );
 
     /*
+      The end-to-end path `main/consoleMirror.ts`'s protocol handler takes: look
+      up the request against the manifest, read the bytes, and — for a
+      `text/html` entry only — inject the offline notice before serving it. No
+      Electron `Response` here, just the same three calls in the same order.
+    */
+    {
+      const docEntry = resolveMirrorRequest(loaded, `${MIRROR_ORIGIN}/`, { accept: "text/html" });
+      const docBytes = docEntry === null ? null : await store.read(docEntry.key);
+      const served =
+        docBytes === null
+          ? null
+          : docEntry.contentType.toLowerCase().startsWith("text/html")
+            ? withOfflineNotice(new TextDecoder().decode(docBytes), `${LIVE}/console`)
+            : new TextDecoder().decode(docBytes);
+      check(
+        "THE OFFLINE NOTICE IS INJECTED ON THE MIRRORED DOCUMENT, end to end from the saved bytes",
+        served !== null && served.includes(MIRROR_NOTICE.cached) && served.includes(OFFLINE_NOTICE_ID),
+      );
+
+      const jsEntry = resolveMirrorRequest(loaded, `${MIRROR_ORIGIN}/assets/app.js`);
+      const jsBytes = jsEntry === null ? null : await store.read(jsEntry.key);
+      check(
+        "...and never on a script, whatever the mirrored page happens to contain",
+        jsEntry?.contentType === "text/javascript" &&
+          jsBytes !== null &&
+          !new TextDecoder().decode(jsBytes).includes(OFFLINE_NOTICE_ID),
+      );
+    }
+
+    /*
+      A snapshot whose first file is not the console's own document — every
+      resource fetched, none of them the page — is not a mirror. `index ??= key`
+      used to make the *first stored key* the index with no check that it was a
+      document at all, and the live manifest this shipped with had exactly one
+      entry: a 3.5 MB JS bundle, served as `index type application/javascript`.
+      `mirrorIsUsable` then answered true and the offline window rendered raw
+      minified JavaScript in a `<pre>`.
+    */
+    check(
+      "A SNAPSHOT WITH NO DOCUMENT (JS ONLY) IS NOT A MIRROR — the index must be the console's own page",
+      (await store.save({
+        appVersion: APP_VERSION,
+        origin: LIVE,
+        savedAtMs: NOW,
+        files: [
+          { path: "/assets/entry.js", contentType: "application/javascript", body: encode("console.log(1)") },
+        ],
+      })) === null,
+    );
+    check(
+      "...and the previous mirror is left standing rather than replaced by a JS-only snapshot",
+      (await store.load({ appVersion: APP_VERSION, liveOrigin: LIVE, nowMs: NOW }))?.index === mirrorKey("/console"),
+    );
+    check(
+      "...and nothing was written to `pending/` — the refusal happens before a byte touches disk",
+      (await store.storedKeys()).length === 2,
+    );
+
+    /*
       A symlink in the blob directory is not something `save` writes, so it is
       something else's doing — and following one would make this protocol
       handler "serve me that file" for anything the app can open. Defence in
@@ -614,6 +718,26 @@ export async function runMirrorChecks(check) {
     check(
       "A NEW SNAPSHOT REPLACES THE OLD ONE WHOLE — no file from the previous one survives",
       replaced !== null && (await store.storedKeys()).length === 1,
+    );
+
+    check(
+      "A DOCUMENT TOO LARGE FOR THE MIRROR'S OWN BUDGET IS NO MIRROR AT ALL — its index would name a file that was never written",
+      (await store.save({
+        appVersion: APP_VERSION,
+        origin: LIVE,
+        savedAtMs: NOW,
+        files: [
+          {
+            path: "/console",
+            contentType: "text/html",
+            body: new Uint8Array(MIRROR_LIMITS.entryBytes + 1),
+          },
+        ],
+      })) === null,
+    );
+    check(
+      "...and the last good mirror survives that refusal too",
+      (await store.load({ appVersion: APP_VERSION, liveOrigin: LIVE, nowMs: NOW }))?.index === mirrorKey("/console"),
     );
 
     await store.clear();

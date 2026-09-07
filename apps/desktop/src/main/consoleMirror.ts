@@ -79,6 +79,21 @@ export interface ConsoleMirror {
   pinnedOrigin(): string;
   /** Wire the window's three events. Called once, with the window. */
   attach(win: BrowserWindow): void;
+  /**
+   * The manifest as this process currently holds it — from the disk it loaded
+   * at `attach`, or from the most recent successful `save`, whichever is
+   * newer. `--smoke-load` is the only caller: it is what lets a manual,
+   * networked run answer "did the mirror end up with a real document in it"
+   * without reading the filesystem itself.
+   */
+  currentManifest(): MirrorManifest | null;
+  /**
+   * Resolves once the snapshot attempt triggered by the most recent
+   * `did-finish-load` has settled — or immediately, if none has run yet.
+   * `--smoke-load` awaits this before reading {@link currentManifest} so it is
+   * not asking the question before `snapshot()`'s own `await`s have finished.
+   */
+  awaitSnapshot(): Promise<void>;
 }
 
 const HTML_HEADERS = { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" };
@@ -91,6 +106,7 @@ export function createConsoleMirror(deps: ConsoleMirrorDeps): ConsoleMirror {
   let servingUrl = deps.liveUrl;
   let snapshotting = false;
   let lastFailure = "";
+  let snapshotPromise: Promise<void> = Promise.resolve();
 
   const loadManifest = async (): Promise<void> => {
     manifest = await store.load({
@@ -252,6 +268,8 @@ export function createConsoleMirror(deps: ConsoleMirrorDeps): ConsoleMirror {
 
   return {
     pinnedOrigin: () => pinnedOriginFor(servingUrl, deps.liveOrigin),
+    currentManifest: () => manifest,
+    awaitSnapshot: () => snapshotPromise,
     attach(win: BrowserWindow): void {
       void loadManifest();
 
@@ -265,7 +283,7 @@ export function createConsoleMirror(deps: ConsoleMirrorDeps): ConsoleMirror {
       win.webContents.on("did-finish-load", () => {
         if (pinnedOriginFor(win.webContents.getURL(), deps.liveOrigin) !== deps.liveOrigin) return;
         lastFailure = "";
-        void snapshot(win);
+        snapshotPromise = snapshot(win);
       });
 
       win.webContents.on("did-fail-load", (_event, errorCode, errorDescription, failedUrl, isMainFrame) => {
