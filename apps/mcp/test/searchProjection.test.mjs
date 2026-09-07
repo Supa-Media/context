@@ -99,7 +99,8 @@ import {
   readSearchIndexBinding,
 } from "../src/search/d1/client.js";
 import { CURSOR_KEY, projectPass } from "../src/search/d1/backfill.js";
-import { searchProjection } from "../src/search/d1/serve.js";
+import { answerFromProjection, searchProjection } from "../src/search/d1/serve.js";
+import { MAX_RESULTS } from "../src/search/query.js";
 import { syncShardedIndex } from "../src/search/shards.js";
 import { storeForBinding } from "../src/store/factory.js";
 
@@ -1929,6 +1930,53 @@ async function runServeChecks(check) {
     check(
       "and two short pages do not add up to a full one",
       (await askWith(pageOf(1), "private")).truncated === false,
+    );
+
+    /*
+      HOW FAR DOWN THE RANKED LIST ONE ANSWER READS.
+
+      `answerFromProjection` sliced at a constant ten until the console grew a
+      dedicated search page, which pages through the blend and needs the second
+      twenty as well as the first. `pageDepth` is the shared clamp and its
+      ceiling is `MAX_RESULTS` — the rank `query.js` stops ranking at — so a
+      caller that asked for more would be handed a short list and would
+      reasonably read the shortfall as "there are no more matches".
+
+      Driven directly for the same reason the three checks above are: a fixture
+      with more than ten matching notes in it costs fifty times as much as a
+      stub and proves the same arithmetic. `isVisible` is `() => true` here
+      because this is about the slice; the filter above it has its own checks,
+      and the ORDER of the two — filter, then slice — is what the count checks
+      earlier in this section pin.
+    */
+    const atDepth = async (limit) =>
+      await answerFromProjection(
+        { query: async () => pageOf(60) },
+        { query: "quoll", tier: "team", isVisible: () => true, limit, chunkCap: 200 },
+      );
+    check(
+      "a caller that asks for nothing in particular still gets a palette's ten",
+      (await atDepth(undefined)).hits.length === 10,
+    );
+    check(
+      "a search page asking for a deeper page gets one",
+      (await atDepth(40)).hits.length === 40,
+    );
+    check(
+      "and nobody reads past the rank the ranker stops at",
+      (await atDepth(500)).hits.length === MAX_RESULTS,
+    );
+    check(
+      "a limit that is not a number is the default rather than an empty page",
+      (await atDepth("40")).hits.length === 10 && (await atDepth(0)).hits.length === 10,
+    );
+    check(
+      // The whole point of paging inside one merged list: the deeper slice is
+      // the same ranking read further down, not a re-query. So the first ten of
+      // a forty-deep read are byte-identical to a ten-deep read.
+      "a deeper page is the same list read further down",
+      JSON.stringify((await atDepth(40)).hits.slice(0, 10)) ===
+        JSON.stringify((await atDepth(10)).hits),
     );
 
     // -- 5. a refused database is not a failed search ----------------------

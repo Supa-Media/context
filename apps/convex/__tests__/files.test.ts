@@ -634,6 +634,37 @@ describe("a stranger cannot reach another workspace's files", () => {
       (workspaceId) => as.action(api.functions.files.resetPrivacy, { workspaceId }),
     ];
 
+    /**
+     * The endpoints whose refusal is an ANSWER rather than an error.
+     *
+     * `searchContexts` takes a *list* of workspace ids and searches the ones
+     * the caller may reach, so a workspace id it cannot use is dropped rather
+     * than refused — `resolveScope` argues that out at length, and the short
+     * version is that refusing would make the endpoint an oracle a hundred
+     * guesses wide per request.
+     *
+     * Dropping is only safe if it is **indistinguishable**, which is a stronger
+     * claim than "it does not throw" and needs its own assertion rather than a
+     * line in the table above. So these are called the same two ways — with
+     * another tenant's real id, and with an id that never existed — and the two
+     * answers must be byte-identical. An endpoint that returned, say, a source
+     * row for a real-but-forbidden context and none for a dangling one would
+     * pass a test that only checked for an absence of results.
+     *
+     * They are held in their own list rather than excused from the coverage
+     * check, because the check is what makes this file notice a new endpoint at
+     * all: `searchContext` had no isolation test for a whole release because
+     * nobody added a line, and an escape hatch spelled "skip these names" is
+     * how that happens again.
+     */
+    const dropping: Array<(workspaceId: Id<"workspaces">) => Promise<unknown>> = [
+      (workspaceId) =>
+        as.action(api.functions.files.searchContexts, {
+          query: "shared",
+          contexts: [workspaceId],
+        }),
+    ];
+
     // **The list above is checked against what Convex says is public, not
     // against what a regex can find in the source.**
     //
@@ -682,7 +713,7 @@ describe("a stranger cannot reach another workspace's files", () => {
     // about. A new module of file endpoints needs its own entry, and no check
     // here will say so.
     const covered = new Set(
-      calls.flatMap((call) =>
+      [...calls, ...dropping].flatMap((call) =>
         [...call.toString().matchAll(/api\.functions\.files\.(\w+)/g)].map((m) => m[1]),
       ),
     );
@@ -700,6 +731,20 @@ describe("a stranger cannot reach another workspace's files", () => {
       const nowhere = await captureError(() => call(dangling));
       expect(errorCode(theirs)).toBe("WORKSPACE_NOT_FOUND");
       expect(errorShape(theirs)).toBe(errorShape(nowhere));
+    }
+
+    for (const call of dropping) {
+      const theirs = await call(f.workspaceId);
+      const nowhere = await call(dangling);
+      // Byte-identical, and not merely both empty: the whole answer is
+      // compared, so a source row, a count or a cursor that appeared for a real
+      // context and not for an invented one would fail here.
+      expect(JSON.stringify(theirs)).toBe(JSON.stringify(nowhere));
+      // And nothing from the other tenant's bucket rode along. `shared` is a
+      // word in it; `SECRET_BODY_MARKER` is in its private half.
+      const rendered = JSON.stringify(theirs);
+      expect(rendered).not.toContain("1-projects/shared.md");
+      expect(rendered).not.toContain(SECRET_BODY_MARKER);
     }
   });
 
