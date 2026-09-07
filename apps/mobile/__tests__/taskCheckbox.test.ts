@@ -26,9 +26,11 @@
  *
  * Run as temporary local edits and reverted. Counts are failing tests here.
  *
- *   `closest` narrowed back to `classList.contains` on the target      3
+ *   `closest` narrowed back to `classList.contains` on the target      4
  *   the widget's `eq` ignoring `checked`, so the box keeps stale DOM   1
  *   the read-only guard dropped                                       1
+ *   the markers revealing under the caret again (the mobile bug)       9
+ *     — 4 here and 5 in livePreview.test.ts
  *
  * Two of those went undetected on the first pass and are worth recording
  * rather than quietly fixing. **The read-only guard** was invisible because
@@ -56,8 +58,14 @@ function mount(doc: string, editable = true, extra: Extension[] = []): EditorVie
   const view = new EditorView({
     state: EditorState.create({
       doc,
-      // Parked on the last line, which is prose: a caret on a task's own line
-      // reveals its markup and there would be no box to press.
+      /*
+        Parked on the last line, which is prose — and that used to be
+        load-bearing, which is precisely why this file did not catch the bug
+        the owner found. A caret on a task's own line revealed its markup and
+        left no box to press, so every test here quietly avoided the one
+        position a finger actually puts the caret in. `caretOn` below is the
+        test that stopped avoiding it.
+      */
       selection: { anchor: doc.length },
       extensions: [
         ...editorExtensions({
@@ -109,6 +117,49 @@ describe("the box is drawn, not written", () => {
     // No text content at all: whatever is on screen is CSS, so it cannot fall
     // back to a missing-glyph rectangle on a device without the font.
     expect(first.textContent).toBe("");
+  });
+});
+
+describe("the caret being on the line changes nothing", () => {
+  /**
+   * **The mobile bug, reproduced as a sequence rather than as a state.**
+   *
+   * A tap on a phone places the caret before the synthesized `mousedown`
+   * arrives. So the real order is: caret lands on the task's line, decorations
+   * recompute, *then* the press. While markers revealed under the caret, step
+   * two replaced the widget with the literal `- [x] ` and step three landed on
+   * an element that no longer existed — "impossible to click, it just goes back
+   * into text form". Desktop was unaffected only because there the handler's
+   * `preventDefault()` stops the caret landing at all, so the box survived its
+   * own press.
+   */
+  function caretOn(view: EditorView, line: number): void {
+    view.dispatch({ selection: { anchor: view.state.doc.line(line).from + 3 } });
+  }
+
+  test("the box is still drawn with the caret inside its own marker", () => {
+    const view = mount(NOTE);
+    caretOn(view, 1);
+    expect(boxes(view)).toHaveLength(2);
+  });
+
+  test("and it can still be pressed there — the mobile sequence", () => {
+    const view = mount(NOTE);
+    caretOn(view, 1);
+    press(boxes(view)[0]);
+    expect(view.state.doc.toString()).toBe(NOTE.replace("- [ ] still", "- [x] still"));
+  });
+
+  test("selecting the whole note does not undraw them", () => {
+    const view = mount(NOTE);
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+    expect(boxes(view)).toHaveLength(2);
+  });
+
+  test("the bullets stay drawn too", () => {
+    const view = mount(NOTE);
+    caretOn(view, 1);
+    expect(view.contentDOM.querySelectorAll(".cm-lp-bullet")).toHaveLength(2);
   });
 });
 

@@ -528,10 +528,36 @@ export function completedTasks(state: EditorState, frontEnd = 0): TextRange[] {
 /**
  * Bullets and checkboxes, drawn as a bullet and a checkbox.
  *
- * The same rule the rest of this file follows — **the markup comes back the
- * moment the cursor is on its line** — and the unit is the line rather than the
- * item, because an item can be a paragraph long and typing at the end of it has
- * no business changing what the first line looks like.
+ * ## The one construct in this file that does NOT reveal under the caret
+ *
+ * Everything else here hides its markup when the cursor is elsewhere and shows
+ * it the instant the cursor arrives, because you cannot edit syntax you cannot
+ * see. **A list marker is the exception, and on a touch screen the reveal rule
+ * was not a nicety being traded away — it made the checkbox unpressable.**
+ *
+ * A tap on a phone places the caret before the synthesized `mousedown` arrives.
+ * So the sequence was: finger lands, caret goes on that line, the line is now
+ * "revealed", the decoration is recomputed, the widget is replaced by the
+ * literal `- [x] ` — and then `mousedown` fires and finds nothing under it,
+ * because the element the press was aimed at no longer exists. The owner
+ * described it exactly: "it's impossible to click, it just goes back into text
+ * form", on mobile, with desktop fine. Desktop was fine for an unrelated
+ * reason: there the handler's own `preventDefault()` stops the caret landing,
+ * so the box survived its own press.
+ *
+ * Obsidian does not reveal these either, and the owner's description of it is
+ * the specification: "you are able to check the box in UI form, but still edit
+ * it as text if you hit the back button". Which is what a replaced range gives
+ * you for free — arrowing or backspacing into it edits the characters
+ * underneath. Nothing is hidden from editing; it is drawn as what it means and
+ * it stays drawn.
+ *
+ * The rest of the file is unchanged: `**bold**`, `## heading` and a link's
+ * plumbing still come back the moment the caret enters them. The difference is
+ * what the markup *is*. `**` is punctuation around text you are formatting, and
+ * hiding it permanently would be a block editor with extra steps. `- ` and
+ * `[x]` are a marker and a control — there is no formatted text inside them to
+ * edit, and drawing them is the entire feature.
  *
  * An ordered list's `1.` is deliberately left alone. It is already the number a
  * reader wants to see, and replacing it with a drawn one would mean this editor
@@ -542,17 +568,8 @@ export function completedTasks(state: EditorState, frontEnd = 0): TextRange[] {
  * drawn with bullets would be the editor decorating text it has already decided
  * to draw as plain metadata.
  */
-export function listGlyphs(
-  state: EditorState,
-  selection: readonly TextRange[],
-  frontEnd = 0,
-): ListGlyph[] {
+export function listGlyphs(state: EditorState, frontEnd = 0): ListGlyph[] {
   const glyphs: ListGlyph[] = [];
-  const revealed = (at: number): boolean => {
-    const line = state.doc.lineAt(at);
-    return selectionTouches({ from: line.from, to: line.to }, selection);
-  };
-
   syntaxTree(state).iterate({
     from: 0,
     to: state.doc.length,
@@ -562,12 +579,10 @@ export function listGlyphs(
         const parent = node.node.parent;
         // `1.` is a number, not a marker to redraw. See above.
         if (parent === null || parent.parent?.name !== "BulletList") return;
-        if (revealed(node.from)) return;
         glyphs.push({ kind: "bullet", from: node.from, to: node.to });
         return;
       }
       if (node.name !== "TaskMarker") return;
-      if (revealed(node.from)) return;
       glyphs.push({
         kind: "task",
         from: node.from,
@@ -861,7 +876,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
     they belong with the hides, and they obey the same reveal rule. See
     `listGlyphs`.
   */
-  for (const glyph of listGlyphs(state, selection, frontEnd)) {
+  for (const glyph of listGlyphs(state, frontEnd)) {
     hides.push(
       Decoration.replace({
         widget:
