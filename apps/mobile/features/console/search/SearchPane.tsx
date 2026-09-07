@@ -6,17 +6,47 @@ import { Text } from "../../design/components/Text";
 import { radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { PaneHead } from "../ConsoleShell";
-import { noteHref } from "../nav";
+import { noteHref, settingsHref } from "../nav";
 import {
   countLabel,
   emptyMessage,
   folderOf,
   noteworthySources,
+  nudgeRows,
+  ownsAnUnsearchableContext,
   scopeLabel,
   toggleScope,
   type BlendedResult,
+  type NudgeRow,
 } from "./results";
 import { useBlendedSearch } from "./useBlendedSearch";
+
+/**
+ * One row of the nudge: what to say, and — only where there is a press an
+ * owner can act on — a button that opens that context's settings.
+ *
+ * A row rather than a `PressRow`: most rows here have nothing to press
+ * (`href` is `null` for a member watching another owner's "off", and for a
+ * context that is merely `preparing`), and a row that is not a control must
+ * not look like one.
+ */
+function NudgeRowView({ row, onOpen }: { row: NudgeRow; onOpen: (href: string) => void }) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <View style={styles.nudgeRow} testID={`search-nudge-${row.slug}`}>
+      <Text variant="rowSub" style={styles.nudgeText}>
+        {row.message}
+      </Text>
+      {row.href === null ? null : (
+        <Button
+          label="Open settings"
+          onPress={() => onOpen(row.href as string)}
+          testID={`search-nudge-open-${row.slug}`}
+        />
+      )}
+    </View>
+  );
+}
 
 /**
  * The search page: one question, every context, one list.
@@ -70,8 +100,18 @@ export function SearchPane({
   const search = useBlendedSearch({ query, slugs });
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const { state, results, answer, eligible } = search;
+  const { state, results, answer, eligible, notEligible } = search;
   const notes = useMemo(() => noteworthySources(answer), [answer]);
+  /*
+    The nudge's rows, built once from the viewer's own not-eligible contexts.
+    Shown in two places — see the reviewer's note on #262: a person with no
+    eligible contexts at all reads this as the empty state, and an owner who
+    already has some eligible reads it in the scope picker, where "which of my
+    contexts could this page also search" is the question they just asked by
+    opening it.
+  */
+  const nudge = useMemo(() => nudgeRows(notEligible, settingsHref), [notEligible]);
+  const showNudgeInPicker = eligible.length === 0 || ownsAnUnsearchableContext(notEligible);
 
   const open = useCallback(
     (row: BlendedResult) => onOpen(noteHref(row.slug, row.path)),
@@ -129,29 +169,47 @@ export function SearchPane({
       </View>
 
       {pickerOpen ? (
-        <View style={styles.picker} testID="search-scope-picker">
-          {eligible.length === 0 ? (
-            <Text variant="rowSub">Nothing to choose from yet.</Text>
-          ) : (
-            eligible.map((context) => {
-              const on = slugs.length === 0 || slugs.includes(context.slug);
-              return (
-                <PressRow
-                  key={context.workspaceId}
-                  accessibilityLabel={`${on ? "Stop searching" : "Search"} @${context.slug}`}
-                  selected={on}
-                  onPress={() => onScope(toggleScope(slugs, context.slug))}
-                  radius={radii.sm}
-                  style={styles.chip}
-                  testID={`search-chip-${context.slug}`}
-                >
-                  <Text variant="tree" numberOfLines={1}>
-                    @{context.slug}
-                  </Text>
-                </PressRow>
-              );
-            })
-          )}
+        <View testID="search-scope-picker">
+          <View style={styles.picker}>
+            {eligible.length === 0 ? (
+              <Text variant="rowSub">Nothing to choose from yet.</Text>
+            ) : (
+              eligible.map((context) => {
+                const on = slugs.length === 0 || slugs.includes(context.slug);
+                return (
+                  <PressRow
+                    key={context.workspaceId}
+                    accessibilityLabel={`${on ? "Stop searching" : "Search"} @${context.slug}`}
+                    selected={on}
+                    onPress={() => onScope(toggleScope(slugs, context.slug))}
+                    radius={radii.sm}
+                    style={styles.chip}
+                    testID={`search-chip-${context.slug}`}
+                  >
+                    <Text variant="tree" numberOfLines={1}>
+                      @{context.slug}
+                    </Text>
+                  </PressRow>
+                );
+              })
+            )}
+          </View>
+
+          {/*
+            The nudge, inside the picker rather than beside the chips: opening
+            the scope is exactly the moment somebody is asking "what else could
+            this page search", and a context sitting off to one side of that
+            question is the honest answer to it. Shown whenever there is
+            nothing eligible at all, or the viewer owns a context that could be
+            turned on — see `showNudgeInPicker`.
+          */}
+          {showNudgeInPicker && nudge.length > 0 ? (
+            <View style={styles.nudgeList} testID="search-scope-nudge">
+              {nudge.map((row) => (
+                <NudgeRowView key={row.workspaceId} row={row} onOpen={onOpen} />
+              ))}
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -161,9 +219,23 @@ export function SearchPane({
         testID="search-results"
       >
         {results.length === 0 ? (
-          <Text variant="rowSub" style={styles.empty} testID="search-empty">
-            {emptyMessage(state, query)}
-          </Text>
+          <View style={styles.empty} testID="search-empty">
+            <Text variant="rowSub">{emptyMessage(state, query)}</Text>
+            {/*
+              "No context you can reach has fast search on" is the true
+              sentence and it used to be the whole answer. It named a setting
+              that exists and left finding it to the reader — the reviewer's
+              own words on #262. This is the setting, named per context, with
+              a press for whichever one the viewer can actually turn on.
+            */}
+            {state === "no-contexts" && nudge.length > 0 ? (
+              <View style={styles.nudgeList} testID="search-nudge">
+                {nudge.map((row) => (
+                  <NudgeRowView key={row.workspaceId} row={row} onOpen={onOpen} />
+                ))}
+              </View>
+            ) : null}
+          </View>
         ) : (
           results.map((row) => (
             <PressRow
@@ -254,7 +326,16 @@ const makeStyles = (colors: Colors) =>
     chip: { paddingHorizontal: space.x3, paddingVertical: space.x1 },
     scroll: { flex: 1 },
     scrollContent: { gap: space.x2, paddingBottom: space.x6 },
-    empty: { paddingVertical: space.x4 },
+    empty: { paddingVertical: space.x4, gap: space.x3 },
+    nudgeList: { gap: space.x2, marginTop: space.x3 },
+    nudgeRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: space.x3,
+      paddingVertical: space.x1,
+    },
+    nudgeText: { flexShrink: 1, color: colors.text2 },
     row: { gap: space.x1, paddingVertical: space.x2, paddingHorizontal: space.x2 },
     rowHead: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     rowTitle: { flexShrink: 1 },
