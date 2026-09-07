@@ -466,3 +466,171 @@ A miss is the slowest warm answer by construction — it reads a sample of shard
 for expansion vocabulary and then buys one listing — and that is the trade §
 "The one exception" states.
 
+# Channel-day notes: one sub-document per message
+
+Phase 2 of `docs/decisions/communications.md`, "Search must index messages,
+and today's index cannot". A channel-day note (`0-inbox/email/*/`,
+`0-inbox/google-chat/`, `0-inbox/imessage/`, per
+`packages/communications/src/paths.js`'s `isChannelDayNotePath`) bundles many
+messages into one file, and "What is indexed of a note" above takes the first
+`NOTE_INDEX_CHAR_CAP` characters of a note and nothing else — indexing a day's
+first two or three messages and silently dropping the rest, no matter how the
+day is capped or split. Splitting the *file* does not rescue it: each part
+still gets its own single `NOTE_INDEX_CHAR_CAP` window.
+
+**So a channel-day note contributes one sub-document per message anchor,
+`<notePath>#<anchor>`, instead of one document for the whole file.** The note
+is unchanged in the bucket — this is entirely a shape the index, a disposable
+derivative, is free to take. `src/search/commsIndex.js` owns the split:
+`subDocumentsFor(path, full)` is the one seam the sync loop calls, answering
+one sub-document (the note's own path, whole-file-capped, exactly as before)
+for anything that is not a channel-day note, and one sub-document per message
+for one that is. **A note that is not a channel-day note is indexed exactly as
+it is today** — nothing about this reaches a brain with no mailbox connected.
+
+## Placement, shape and the fields added to a doc entry
+
+- **A channel-day note's messages all live in the shard its own path hashes
+  to** (`shardOf(path, shardCount)`), never split across shards by anchor.
+  Shard *sizing* (`chooseShardCount`) is still a function of note count from
+  the listing, not sub-document count — a heavy mailbox can load a handful of
+  shards more than a note-count estimate predicts, which is the sizing
+  guardrail the decision names as unmeasured rather than a defect fixed here.
+- **Every doc entry — in both v1's `docs` map and v2's shard `docs` — carries
+  three new fields**, all optional so a stored index or shard written before
+  this feature parses exactly as before (absent means "an ordinary note",
+  `addDoc`'s own default):
+  - `notePath: string` — the containing note's own bucket path. Equal to the
+    doc's own key for an ordinary note; the part before the `#` for a
+    sub-document.
+  - `anchor: string|null` — the message anchor (`msg-<16 hex>`,
+    `packages/communications/src/anchors.js`), or `null` for an ordinary note.
+  - `comms: {channel, date, threadId, participants} | null` — filterable
+    metadata read back off the rendered note, or `null` for an ordinary note.
+    `channel` and `date` come from the note's own frontmatter. `threadId` is
+    the **rendered thread label** the note groups messages under
+    (`## Thread — <subject>`), not a hashed provider thread id: the bucket
+    never retains the raw id at all (`docs/decisions/communications.md`, "A
+    message anchor is a hash"), so re-reading the file back cannot recover
+    one, and this is the best-available "which thread" signal that re-read
+    can give. `participants` is the mailbox's own address plus the message's
+    sender label, both read off the rendered heading and frontmatter — never
+    re-derived from raw event data this module never sees.
+- **`notePath`/`anchor` are never parsed out of the doc's own key.** A doc's
+  key can itself contain a literal `#` in principle, so every consumer that
+  needs to tell a sub-document from its note reads the explicit field rather
+  than splitting the string.
+
+## `canSee` runs on the containing note, and never on a sub-document's key
+
+This is the load-bearing rule, restated at every call site it touches because
+getting it wrong is a privacy leak rather than a ranking mistake: **every
+`isVisible`/`canSee` call in the query path is passed `doc.notePath`, never
+the doc's own key.** A sub-document's key is `<notePath>#<anchor>`, which is
+not a path `canSee` was ever asked about — checking it directly would miss an
+*exact*-note override in `privacy.md` naming the note precisely (the override
+matches `notePath`, never `notePath#anchor`), which is the concrete way this
+goes wrong silently rather than loudly. `collectShardCandidates` in
+`shardQuery.js` applies this at the point a shard's docs become "visible for
+this caller at all"; `rankedVisibleTo` in `query.js` applies it again at the
+ranked-result boundary, `?? path` for a v1 result or an ordinary v2 one that
+never set `notePath`. Both stay independently correct rather than one relying
+on the other having already narrowed the corpus — the same "two guards, not
+one with a spare" reasoning § "A query reads a ready index" already gives for
+`visibleIndex`/`rankedVisibleTo`.
+
+A private channel-day note therefore yields **zero** sub-documents to a caller
+who may not read it, at both guards, and a folder rule or an exact-note
+override that would hide the note hides every message inside it identically —
+there is no way to make one message inside a note visible while the note
+itself is not, which is exactly the "no per-message share, no third
+visibility word" rule `docs/decisions/communications.md` states for this
+format.
+
+## Regeneration replaces exactly one note's sub-documents
+
+`removeDocsForNote(index, notePath)` (`indexer.js`) removes every doc whose
+`notePath` matches — one for an ordinary note, every surviving anchor for a
+channel-day one — and the sync loop in `shards.js` calls it immediately before
+re-indexing a note that came back stale, for **every** note, not only
+channel-day ones (a no-op for an ordinary note, which only ever has one doc
+under its own key anyway). That is what makes an edit that removes a message
+from a day's messages disappear from the index rather than survive under an
+anchor the fresh set no longer produces: `addDoc`'s own "replace this key"
+check only ever sees the keys the fresh render still has, so without this an
+old anchor's postings would live forever, unreachable by any real link. The
+diff surface (`docsByShard`, in `docVersionsOf`) is keyed by **note path, not
+by doc key**, for the same reason — a channel-day note's several sub-documents
+share one entry in the diff, since they were all fetched, and are all stale,
+together.
+
+## What a search result carries for a hit, and the deep link
+
+A sub-document's hit carries the containing note's path and the anchor
+together, as `<notePath>#<anchor>` in the same `key` field an ordinary note's
+path already occupies — the shape `packages/communications`' own wikilinks
+already use (`[[path#anchor]]`), so nothing downstream needs a new field to
+open one. The snippet is cut from **that message alone**, read fresh off a
+current copy of the note (`commsIndex.js`'s `messageSegmentFor`, never from
+index data — the existing rule for every note's snippet) — never from the
+whole file, and never from the capped text stored in the index. A hit whose
+anchor no longer exists in a freshly-read note (the day was regenerated
+between the index write and this read) is dropped exactly as a hit whose note
+has gone entirely is: an honest miss on one hit, never a fabricated snippet.
+
+## Encrypted notes teach the index nothing, and a file with no messages is still one document
+
+A channel-day note that is encrypted (`encryption.js`'s marker) has no
+`### … {#msg-…}` heading in its stored bytes at all — its body is frontmatter
+plus an opaque blob — so it produces **zero message sub-documents**, the same
+"the index learns nothing" property an ordinary encrypted note already has.
+And exactly as for an ordinary note, the belt-and-braces check at snippet time
+still applies: `answerFromIndex` in `visible.js` checks `isEncryptedNote` on
+the freshly-read note before attempting to extract a message segment from it
+at all, so even a hit that somehow ranked (by a path or title term) is dropped
+before a segment is ever cut from ciphertext. A day encrypted *after* it was
+indexed loses its sub-documents at the next pass, because the sync replaces a
+note's documents through `removeDocsForNote` before writing the fresh set.
+
+**`subDocumentsFor` never answers the empty list**, and that is a rule rather
+than a detail. A channel-day path holding no message headings — an encrypted
+day, a note somebody typed by hand at `0-inbox/imessage/2026-09-07.md`, a
+render this scanner cannot follow — falls back to the single whole-note
+document it contributed before this feature existed. Answering `[]` was
+measured in review and costs two things:
+
+- **The diff never converges.** `docsByShard` records a note's version by
+  `doc.notePath` (below), so a note with no documents has no version
+  recorded, is stale on every later listing, and is re-fetched and re-written
+  on every pass — measured as one note read plus a shard, manifest and docmap
+  write per pass, permanently, with `touched` naming that note every time and
+  `pending` reporting 0 throughout. A pass that moved something is also what
+  keeps the control plane's projection chain alive
+  (`docs/decisions/search.md`, "A chain that cannot terminate is worse than
+  no trigger at all"), so one such file bills a bucket listing per link.
+- **The note goes unsearchable**, which for a hand-written note at such a
+  path is a silent loss of a note that indexed fine the day before.
+
+## A message deep link is a key the read tools accept
+
+A hit's key is `<notePath>#<anchor>`, and that is the string an agent's next
+call arrives with: `search_notes` prints it, and the ChatGPT dialect's whole
+contract is `search` then `fetch(id)`. So `read_note` and `fetch` split a
+**trailing, well-formed** message anchor off before resolving
+(`splitMessageAnchor`), and read the containing note — the unit `canSee`
+decides and the unit a share link covers. The console does the same thing at
+its own edge in `noteFromQuery`. A `#` anywhere else is an ordinary character
+in an ordinary key and is left alone, so a note whose name really ends in one
+still resolves to itself. This closes the round trip rather than widening
+anything: the path that is read is the path visibility was decided on, which
+is the same path `rankedVisibleTo` filtered on.
+
+## What is deliberately not built here
+
+Filtering a query BY `comms.channel`/`date`/`threadId`/`participants` — they
+are carried on the doc entry as the decision asks, and stored through both
+serialization dialects, but nothing in `query.js`/`shardQuery.js` narrows a
+query by them yet. Wiring a filter argument through the scorer is a
+query-surface change with its own argument, not a free rider on the storage
+format landing here.
+

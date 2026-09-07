@@ -17,7 +17,8 @@
  * dropped rather than starting a recording of whatever is happening instead.
  */
 
-import { BrowserWindow, Menu, app, dialog, ipcMain, session } from "electron";
+import { BrowserWindow, Menu, Notification, app, dialog, ipcMain, session } from "electron";
+import type { MessageBoxOptions, MessageBoxReturnValue } from "electron";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { release } from "node:os";
@@ -40,6 +41,7 @@ import type { BeginResult, SessionView } from "../core/recording/controller.ts";
 import { fakeTranscriber } from "../core/capture/transcriber.ts";
 import { gatewayTranscriber } from "../core/capture/gatewayTranscriber.ts";
 import { PLAN_NOTICES, capturePlan } from "../core/capture/plan.ts";
+import type { PermissionKind } from "../core/capture/permissions.ts";
 import { fakeRecorder } from "../core/capture/recorder.ts";
 import type { AudioRecorder } from "../core/capture/recorder.ts";
 import { DesktopCaptureRecorder } from "./capture.ts";
@@ -57,6 +59,7 @@ import {
 import { keychainTokenStore } from "./tokenStore.ts";
 import { browserlessRefresher, connectMachine, openInSystemBrowser } from "./connect.ts";
 import { transcribeChunk } from "./transcribe.ts";
+import { ImessageSyncService } from "./imessage.ts";
 import { trayPresentation } from "../core/tray/presentation.ts";
 import type { TrayState } from "../core/tray/presentation.ts";
 import { AppTray } from "./tray.ts";
@@ -374,10 +377,28 @@ const CONSOLE_NOTICES = Object.freeze({
   notTaken: "Your context would not take this meeting from this machine.",
   blocked:
     "You asked this app never to record the app you are in, so it did not start. Change that in the menu bar if you meant to.",
-  permissions:
-    "macOS has not granted this app the microphone yet, so nothing was recorded. Open System Settings → Privacy & Security → Microphone, enable Context, and record again.",
   /*
-    Distinct from `permissions` on purpose: that one means macOS refused the
+    ONE SENTENCE PER PERMISSION, AND THE ONE THAT IS SAID NAMES ITSELF.
+
+    There used to be a single `permissions` sentence, and it named the
+    microphone — because the microphone is the usual answer, not because
+    anything had been read. `outcome.missing` has always known which permission
+    macOS actually refused, and the only renderer that ever printed the other
+    name was the panel (`renderer/panel.ts`, "Screen Recording"), which is
+    `null` on a default launch. So the console blamed the microphone whatever
+    happened, including for a permission the person had never been asked about.
+
+    `permissionNotice` picks from these by name. Both keys stay even though
+    `CAPTURE_NEEDS` no longer asks for Screen Recording: `PermissionKind` still
+    has two members, `missing` is still typed as a list of them, and a sentence
+    that exists is what makes putting the permission back a one-line change.
+  */
+  microphonePermission:
+    "macOS has not granted this app the microphone yet, so nothing was recorded. Open System Settings → Privacy & Security → Microphone, enable Context, and record again.",
+  screenRecordingPermission:
+    "macOS has not granted this app Screen Recording yet, so nothing was recorded. Open System Settings → Privacy & Security → Screen Recording, enable Context, and record again.",
+  /*
+    Distinct from the two above on purpose: those mean macOS refused the
     request; this one means macOS already granted it and the input still would
     not open. Found on real hardware — the microphone was granted mid-run, but
     the already-running process kept behaving on the answer it saw the first
@@ -396,6 +417,62 @@ const CONSOLE_NOTICES = Object.freeze({
   noConsole:
     "This machine could not open its window, so the menu bar is the whole app for now. Recording still works from here, and anything it records is queued until it can be sent.",
 });
+
+/**
+ * The sentence for a permission macOS actually refused, chosen by its name.
+ *
+ * Reads `outcome.missing` rather than assuming, which is the whole point: the
+ * app may say "permissions" only where a permission really was read as denied,
+ * and when it says it, it has to be able to say which. An empty list is not a
+ * permission problem at all and gets the generic sentence, because claiming one
+ * with nothing to name is the failure this function exists to stop.
+ */
+function permissionNotice(missing: readonly PermissionKind[]): string {
+  if (missing.includes("screen")) return CONSOLE_NOTICES.screenRecordingPermission;
+  if (missing.includes("microphone")) return CONSOLE_NOTICES.microphonePermission;
+  return CONSOLE_NOTICES.captureFailed;
+}
+
+/**
+ * What actually went wrong, on a line somebody can read.
+ *
+ * Nothing in `apps/desktop/src` logged a capture failure at all: the shell
+ * caught a `BeginResult` that was not ok, substituted a sentence from the
+ * closed set, and dropped the real text on the floor. That is why "system audio
+ * has never worked on this machine" was invisible for as long as it was — the
+ * only trace of it anywhere was two `UnhandledPromiseRejectionWarning` lines
+ * from Electron's internals, which name Chromium's problem rather than ours.
+ *
+ * The person still sees a closed-set sentence; this is the other half of the
+ * split, and it is the half that was missing. Same `[subsystem] …` shape as
+ * `main/consoleMirror.ts` and the updater.
+ */
+function logCaptureFailure(why: string, message: string | null): void {
+  console.error(`[capture] a meeting could not start (${why})${message === null ? "" : `: ${message}`}`);
+}
+
+/**
+ * Ask a question in a **window sheet**, and only fall back to an alert.
+ *
+ * `dialog.showMessageBox(options)` without a `browserWindow` is
+ * application-modal on macOS: `-[NSAlert runModal]` spins its own run loop and
+ * the main process stops — measured on the live app, 1374 of 1374 samples on
+ * `-[NSApplication runModalForWindow:]`. Nothing drains, nothing finalizes, no
+ * IPC is answered, for as long as the box is up. Passing the parent makes it
+ * document-modal instead: it hangs off the window's title bar and the process
+ * keeps running behind it.
+ *
+ * A question needs an answer, so unlike `explain()` this cannot degrade to a
+ * notification — a tray-only launch with no window still gets the alert. That
+ * is the one remaining blocking box in this file, it is on the connect path
+ * rather than the capture path, and it is waiting on a person either way.
+ */
+function askSomething(
+  parent: BrowserWindow | null,
+  options: MessageBoxOptions,
+): Promise<MessageBoxReturnValue> {
+  return parent === null ? dialog.showMessageBox(options) : dialog.showMessageBox(parent, options);
+}
 
 /**
  * The application menu, because this is an application.
@@ -511,12 +588,39 @@ async function main(): Promise<void> {
   const tokens = FAKE ? memoryTokenStore(null) : keychainTokenStore(app.getPath("userData"));
   const connection = new GatewayConnection({ store: tokens, refresh: browserlessRefresher() });
   await connection.load();
+  const imessage = new ImessageSyncService({
+    store,
+    connection,
+    settings: () => settings,
+    onChange: (status) => {
+      consoleBridge?.emitImessage(status);
+      push();
+    },
+  });
+  imessage.reconfigure();
   // `null` in console mode. Every use below is guarded rather than the flag
   // being read a second time — see `UI_MODE`.
   const panel = RENDERER_UI ? createPanel(RENDERER_DIR) : null;
   const notepad = RENDERER_UI ? createNotepad(RENDERER_DIR) : null;
 
-  const capture = FAKE ? null : new DesktopCaptureRecorder(RENDERER_DIR);
+  /*
+    The meter goes straight from the device to the page, and past everything.
+
+    Not through `push()` and not through the controller: the level moves ten
+    times a second on the recorder's own clock, and both of those are the
+    shell's *state*, which changes when somebody presses something. Routing it
+    through either would mean choosing between publishing the whole shell view
+    at 10Hz and publishing a level at whatever rate the shell happened to move
+    — and the second of those is a bar that does not move, which is the defect
+    this exists to fix.
+
+    `consoleBridge` is read at call time rather than captured, because it is
+    rebuilt whenever the console window is: a recorder holding the one that
+    existed when the app launched would push into a window that is gone.
+  */
+  const capture = FAKE
+    ? null
+    : new DesktopCaptureRecorder(RENDERER_DIR, (level) => consoleBridge?.emitLevel(level));
   const recorder: AudioRecorder = capture ?? fakeRecorder();
   const controller = new MeetingController({
     recorder,
@@ -658,19 +762,41 @@ async function main(): Promise<void> {
    *
    * Every sentence comes from `CONSOLE_NOTICES` or `PLAN_NOTICES`; none is
    * assembled here, for the reason those sets exist.
+   *
+   * ## AND IT MUST NOT STOP THE APP, BECAUSE OF WHEN IT IS CALLED
+   *
+   * `dialog.showMessageBox(options)` with no window is **application-modal** on
+   * macOS: `-[NSAlert runModal]` spins its own run loop and the main process
+   * stops dead — `sample` on the live app while one of these was up put 1374 of
+   * 1374 samples on `-[NSApplication runModalForWindow:]`. No drain, no
+   * finalize, no IPC, until somebody clicks OK. This function fires on exactly
+   * the capture-failed path, which is the worst possible moment to stop
+   * draining a queue that is holding somebody's meeting.
+   *
+   * So: the parent window is passed, which makes it a **window sheet** —
+   * document-modal, and the process keeps running behind it. Where there is no
+   * window to attach one to, an alert is not available at all and the sentence
+   * goes to a `Notification`, which never blocks. The tray-only launch is the
+   * whole reason that branch exists, and it is also the launch with the most to
+   * lose from a stopped main process: the menu bar is the entire app.
    */
   function explain(sentence: string): void {
     if (panel !== null) {
       showPanel();
       return;
     }
-    showConsoleWindow();
-    void dialog.showMessageBox({
-      type: "info",
-      title: "Context",
-      message: sentence,
-      buttons: ["OK"],
-    });
+    const parent = showConsoleWindow() ? liveConsoleWindow() : null;
+    if (parent !== null) {
+      void dialog.showMessageBox(parent, {
+        type: "info",
+        title: "Context",
+        message: sentence,
+        buttons: ["OK"],
+      });
+      return;
+    }
+    console.error(`[shell] ${sentence}`);
+    if (Notification.isSupported()) new Notification({ title: "Context", body: sentence }).show();
   }
 
   const tray = new AppTray({
@@ -704,6 +830,7 @@ async function main(): Promise<void> {
     connect: () => void connectThisMachine(),
     disconnect: () => void disconnectThisMachine(),
     toggleDetection: () => void update({ detectionEnabled: !settings.detectionEnabled }),
+    toggleImessage: () => void update({ imessageEnabled: !settings.imessageEnabled }),
     installUpdate: () => {
       // A stray click cannot install mid-meeting: `install()` re-checks
       // `controller.recording` itself, regardless of what this menu currently
@@ -829,6 +956,7 @@ async function main(): Promise<void> {
     tray.setMenuState({
       recording: controller.recording,
       detectionEnabled: settings.detectionEnabled,
+      imessageEnabled: settings.imessageEnabled,
       connected: state.connection.state === "connected",
       updateReady: updater.state === "ready",
     });
@@ -865,6 +993,7 @@ async function main(): Promise<void> {
   async function update(patch: Partial<DesktopSettings>): Promise<void> {
     settings = { ...settings, ...patch };
     await store.writeSettings(settings);
+    if ("imessageEnabled" in patch) imessage.reconfigure();
     push();
   }
 
@@ -953,13 +1082,39 @@ async function main(): Promise<void> {
       // Something explains, rather than the app silently doing nothing: the
       // panel where there is one, a message box where there is not.
       missingPermissions = [...(result.missing ?? [])];
-      explain(CONSOLE_NOTICES.permissions);
+      logCaptureFailure(`permissions: ${missingPermissions.join(", ") || "none named"}`, null);
+      /*
+        Branched rather than assembled, so both call sites stay literal reads of
+        the closed set — `trayOnly.test.mjs` matches on the shape of the call
+        for exactly this reason, and a sentence chosen by a helper *inside* the
+        parentheses would be excluded from that check rather than caught by it.
+
+        Which one is asked of `result.missing`, never assumed — the same
+        question `permissionNotice` asks for the console's throw, written out
+        here because the answer has to reach `explain` as a literal.
+      */
+      if (missingPermissions.includes("screen")) {
+        explain(CONSOLE_NOTICES.screenRecordingPermission);
+      } else {
+        explain(CONSOLE_NOTICES.microphonePermission);
+      }
     } else if (result.why === "stale-permission") {
       // Granted, per macOS — the input just would not open in this already-
       // running process. Sending this person to System Settings again would
       // point at a toggle that is already on.
       missingPermissions = [];
+      logCaptureFailure("stale-permission", result.message ?? null);
       explain(CONSOLE_NOTICES.staleMicrophoneGrant);
+    } else if (result.why === "transcriber") {
+      /*
+        The engine, not macOS. This branch did not exist, because this failure
+        arrived here wearing `why: "permissions"` — so a gateway that refused
+        was answered with "open System Settings and enable the microphone".
+        The real text goes to the log; the sentence stays the closed set's.
+      */
+      missingPermissions = [];
+      logCaptureFailure("transcriber", result.message ?? null);
+      explain(CONSOLE_NOTICES.captureFailed);
     }
     push();
     return result;
@@ -1244,9 +1399,27 @@ async function main(): Promise<void> {
     consent = answered(episode, "granted");
     const result = await beginMeeting(episode, true, request.sessionId, false);
     if (result === null || !result.ok) {
+      /*
+        THE REAL TEXT SURVIVES, EVEN THOUGH THE PAGE IS NOT SHOWN IT.
+
+        This threw away `failureReason` and substituted a canned sentence, and
+        nothing anywhere else logged it — so on a machine where every capture
+        was failing, the only evidence was the page saying "this meeting is
+        typed" and stderr carrying an Electron rejection about a video stream.
+        The closed-set rule is why the page still gets a fixed sentence rather
+        than the message; a log line is where the message belongs.
+
+        `beginMeeting` has already logged the branches it handles. This covers
+        the ones it cannot: a `null` result — no detection, so no meeting — and
+        `not-consented`/`already-recording`, which arrive here and nowhere else.
+      */
+      const why = result?.why ?? "no meeting to start";
+      if (why !== "permissions" && why !== "stale-permission" && why !== "transcriber") {
+        logCaptureFailure(why, null);
+      }
       throw new Error(
         result?.why === "permissions"
-          ? CONSOLE_NOTICES.permissions
+          ? permissionNotice(result.missing ?? [])
           : result?.why === "stale-permission"
             ? CONSOLE_NOTICES.staleMicrophoneGrant
             : CONSOLE_NOTICES.captureFailed,
@@ -1477,6 +1650,8 @@ async function main(): Promise<void> {
       outbox: outboxStatus,
       drain: () => void drain(),
       writeMeeting: writeMeetingFromConsole,
+      imessage: () => imessage.status(),
+      setImessageEnabled: (enabled) => void update({ imessageEnabled: enabled }),
     });
 
     consoleWindow = createConsoleWindow(url, RENDERER_DIR, {
@@ -1793,7 +1968,11 @@ async function main(): Promise<void> {
     push();
     try {
       if (liveConsoleWindow() === null || consoleAddress === null) {
-        const answer = await dialog.showMessageBox({
+        // A sheet on the window when there is one — see `explain()` for why a
+        // parentless `showMessageBox` stops the whole main process. Reached
+        // with a live window whenever `consoleAddress` is the half that is
+        // missing, which is the case this argument is for.
+        const answer = await askSomething(liveConsoleWindow(), {
           type: "question",
           title: "Connect this machine",
           message: `Connect this machine to ${settings.gatewayEndpoint}`,
@@ -1888,7 +2067,11 @@ async function main(): Promise<void> {
    */
   async function askAboutTranscription(): Promise<void> {
     if (settings.transcription === "cloud") return;
-    const answer = await dialog.showMessageBox({
+    // A sheet on the console window when there is one. This runs at the end of
+    // a connect, so the queue behind it may already be holding meetings — and
+    // an application-modal alert would stop the drain that is about to send
+    // them. See `explain()` for the measurement.
+    const answer = await askSomething(liveConsoleWindow(), {
       type: "question",
       title: "Transcribe meetings",
       message: "Transcribe meetings through your gateway?",
@@ -1925,6 +2108,7 @@ async function main(): Promise<void> {
   // behind.
   app.on("before-quit", (event) => {
     markQuitting();
+    imessage.stop();
     if (!controller.recording) return;
     event.preventDefault();
     void endMeeting().then(() => app.quit());

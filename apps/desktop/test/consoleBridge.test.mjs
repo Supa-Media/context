@@ -63,6 +63,17 @@
  *   the bridge capturing the pin once instead of reading it per call         3
  *   the sender check reading `app://console` as an opaque origin             1
  *   the sender check accepting an opaque origin while the mirror is pinned  1
+ *   `emitLevel` sending nothing, with the member itself left in place       4
+ *   `emitLevel` removed from the bridge altogether                          4
+ *   nothing in `main/index.ts` calling `emitLevel`                          1
+ *   `unit` not clamping, so a level past full scale reaches the page        1
+ *
+ * The two `emitLevel` rows are the reason the producer census exists, and the
+ * first is the sharper of the pair: a member that is *present*, typed, exported
+ * and reached by nothing is exactly the state `onLevel` was in for the whole
+ * life of this app, and no check that existed could see it. The third row is
+ * the same question one process out — an implemented producer the shell never
+ * calls — which is a separate arm and reddens alone.
  *
  * Four of these were measured before `#281` added three mirror checks and are
  * re-measured here on the head that carries them: the whole-guard row was 6,
@@ -282,6 +293,8 @@ function mainBridge(overrides = {}) {
   const answered = [];
   /** Every `startCapture` request as the reader built it. */
   const requested = [];
+  /** Every `setImessageEnabled` value the page asked for. */
+  const enabledCalls = [];
   const window = overrides.window ?? fakeWindow();
   const ipc = fakeIpcMain();
   // A getter, because the shell moves the pin to `app://console` when it falls
@@ -338,6 +351,14 @@ function mainBridge(overrides = {}) {
       written.push(write);
       return { sessionId: write.sessionId, queued: true, notePath: null, rejected: null };
     },
+    imessage: () => {
+      calls.push("imessage");
+      return overrides.imessage ?? { enabled: false, permission: "unknown", lastSyncedAt: null, lastError: null };
+    },
+    setImessageEnabled: (enabled) => {
+      calls.push(`setImessageEnabled:${enabled}`);
+      enabledCalls.push(enabled);
+    },
     ...overrides.deps,
   });
   // `movePin` is how a check stages the shell falling back to the offline
@@ -351,6 +372,7 @@ function mainBridge(overrides = {}) {
     written,
     answered,
     requested,
+    enabledCalls,
     movePin: (next) => {
       pinned = next;
     },
@@ -372,6 +394,8 @@ const HANDLED = [
   BRIDGE_CHANNELS.outboxStatus,
   BRIDGE_CHANNELS.outboxDrain,
   BRIDGE_CHANNELS.meetingsWrite,
+  BRIDGE_CHANNELS.imessageStatus,
+  BRIDGE_CHANNELS.imessageSetEnabled,
 ];
 
 /** A well-formed write, so a check can vary exactly one field of it. */
@@ -451,7 +475,7 @@ export async function runConsoleBridgeChecks(check) {
     `src/main`" is what the sentence says and a non-recursive `.ts`-only scan is
     not that.
 
-    What it is honest about: the fifteen `ipcMain` registrations are ungated,
+    What it is honest about: the sixteen `ipcMain` registrations are ungated,
     and they are safe because every window whose preload can send them loads
     this app's own HTML — not because their preload cannot send.
     `preload/index.ts` exposes twelve send verbs, `record` and `connect` among
@@ -834,7 +858,7 @@ export async function runConsoleBridgeChecks(check) {
     const CENSUS = {
       "apps/desktop/src/core/shell/bridge.ts": "1 mention, 0 ipc calls",
       "apps/desktop/src/core/shell/console.ts": "1 mention, 0 ipc calls",
-      "apps/desktop/src/main/capture.ts": "8 mentions, 0 ipc calls",
+      "apps/desktop/src/main/capture.ts": "11 mentions, 0 ipc calls",
       "apps/desktop/src/main/consoleBridge.ts": "3 mentions, 5 ipc calls",
       "apps/desktop/src/main/index.ts": "14 mentions, 0 ipc calls",
       "packages/desktop-bridge/src/contract.ts": "1 mention, 0 ipc calls",
@@ -862,7 +886,7 @@ export async function runConsoleBridgeChecks(check) {
       census[relative] =
         `${seen} mention${seen === 1 ? "" : "s"}, ${calls} ipc call${calls === 1 ? "" : "s"}`;
     }
-    // 28 and not 25: widening to `src/` picks up two mentions in prose, in
+    // 31 and not 28: widening to `src/` picks up two mentions in prose, in
     // `core/shell/bridge.ts` and `core/shell/console.ts`, and widening to the
     // bundled packages picks up a third in `desktop-bridge/src/contract.ts` —
     // all three comments about this very guard. That is exactly the false
@@ -878,8 +902,8 @@ export async function runConsoleBridgeChecks(check) {
     // earlier note here said they agree; it was asserted rather than measured,
     // which is the whole reason the check is named for the walk.
     check(
-      `EVERY MENTION OF ipcMain IN THE WALK IS ACCOUNTED FOR — ${mentions} of 28`,
-      mentions === 28,
+      `EVERY MENTION OF ipcMain IN THE WALK IS ACCOUNTED FOR — ${mentions} of 31`,
+      mentions === 31,
     );
     /*
       Named for what it counts, after a review found the old name false twice
@@ -916,9 +940,25 @@ export async function runConsoleBridgeChecks(check) {
       `EVERY \`ipcMain\` UNDER src/main IS A FORM THIS CENSUS RECOGNISES${unrecognised.length ? ` — ${unrecognised[0]}` : ""}`,
       unrecognised.length === 0,
     );
+    /*
+      SIXTEEN AND NOT FIFTEEN, MOVED ON PURPOSE.
+
+      The fourth capture channel is `context:capture-level`, and it is in the
+      same class as the three beside it: the hidden capture window's own,
+      registered by `main/capture.ts` for the life of one recording and torn
+      down with it. It is ungated for the reason those three are — reachable
+      only from a window this app `loadFile`s — and the census exists so that
+      moving this number is a sentence somebody wrote rather than a drift
+      nobody looked at.
+
+      What crosses it is two floats. A hostile sender on this channel can make
+      a bar the wrong height on a screen its owner is already looking at, and
+      nothing else: it opens no input, files no meeting, reaches no credential,
+      and `main/capture.ts` clamps both numbers into 0-1 before they travel.
+    */
     check(
-      "THE UNGATED SURFACE HAS NOT GROWN — twelve commands and three capture channels",
-      registrations === 15,
+      "THE UNGATED SURFACE HAS NOT GROWN — twelve commands and four capture channels",
+      registrations === 16,
     );
     check(
       "ipcMain is handed to exactly one thing, and that thing is the guarded bridge",
@@ -934,7 +974,7 @@ export async function runConsoleBridgeChecks(check) {
     );
     check(
       "...and the census adds up, so neither side can drift unnoticed",
-      registrations + gatedAsync + gatedSync === 30,
+      registrations + gatedAsync + gatedSync === 33,
     );
   }
 
@@ -2033,6 +2073,142 @@ export async function runConsoleBridgeChecks(check) {
     bridge.emitSegment({ id: "s", startMs: 0, endMs: 1, text: "hi", speaker: null, channel: "mic", confidence: null });
     bridge.emitTrayCommand("record");
     check("segments and tray commands reach it too", window.sent.some((e) => e.channel === BRIDGE_CHANNELS.segment) && window.sent.some((e) => e.channel === BRIDGE_CHANNELS.trayCommand));
+  }
+
+  /* --- EVERY CHANNEL THE CONTRACT DECLARES HAS A PRODUCER ----------------- */
+  //
+  // THE CHECK THAT WOULD HAVE CAUGHT THE LEVEL METER YEARS EARLIER.
+  //
+  // `onLevel` was on the contract, wired through the preload's normaliser,
+  // subscribed by the console and implemented in the package's fake — and
+  // **nothing in the main process had ever sent it.** Every check that existed
+  // looked at the channels it was already on, so a channel with a consumer and
+  // no producer was invisible to all of them. What the owner saw was a control
+  // that looks identical whether the microphone is live, denied, or nothing is
+  // running at all, on every build ever shipped.
+  //
+  // So the census here is not of guards but of *ends*: every name in
+  // `BRIDGE_CHANNELS` is either answered by a handler this file registered or
+  // actually sent by exercising every producer the bridge object exposes.
+  // Nothing is enumerated by hand except the arguments, and a producer this
+  // check does not know how to drive reddens on its own line rather than
+  // quietly not being driven — which is the shape of hole every earlier census
+  // in this file has had.
+  {
+    const { bridge, ipc, window } = mainBridge();
+    const PRODUCER_ARGS = {
+      push: [
+        {
+          captureState: { state: "recording", capturing: true, fault: null, notice: null },
+          connection: { ...CONNECTED },
+          outbox: { ...QUEUE },
+          detection: null,
+        },
+      ],
+      emitSegment: [
+        { id: "s", startMs: 0, endMs: 1, text: "hi", speaker: null, channel: "mic", confidence: null },
+      ],
+      emitLevel: [{ mic: 0.5, systemAudio: 0.25 }],
+      emitPendingApproval: [null],
+      emitTrayCommand: ["record"],
+      emitImessage: [{ enabled: true, permission: "granted", lastSyncedAt: 1, lastError: null }],
+    };
+    // `dispose` unregisters rather than produces, and is checked below.
+    const producers = Object.keys(bridge).filter((name) => name !== "dispose");
+    const undriveable = producers.filter((name) => PRODUCER_ARGS[name] === undefined);
+    for (const name of producers) {
+      try {
+        bridge[name](...(PRODUCER_ARGS[name] ?? []));
+      } catch {
+        // A producer that threw sent nothing, which the orphan list below is
+        // what reports. Swallowed so one broken member cannot take the census
+        // down with it and turn a clean red into a crash.
+      }
+    }
+    const answered = new Set([...ipc.handlers.keys(), ...ipc.listeners.keys()]);
+    const sent = new Set(window.sent.map((entry) => entry.channel));
+    const orphans = BRIDGE_CHANNEL_NAMES.filter(
+      (name) => !answered.has(name) && !sent.has(name),
+    );
+    check(
+      `EVERY CHANNEL IN BRIDGE_CHANNELS HAS A PRODUCER IN consoleBridge.ts${
+        orphans.length ? ` — ${orphans.join(", ")} is declared and nobody sends it` : ""
+      }`,
+      orphans.length === 0,
+    );
+    check(
+      `...and every producer on the bridge is one this census drives${
+        undriveable.length ? ` — ${undriveable.join(", ")}` : ""
+      }`,
+      undriveable.length === 0,
+    );
+
+    /*
+      AND THE SAME QUESTION ONE PROCESS OUT, which is where the defect actually
+      lived: `emitSegment` existing is not the same fact as the shell calling
+      it. A bridge whose members are all implemented and none of them reached
+      is the identical failure — a channel the page subscribes to that is never
+      going to carry anything — and the only thing that can answer it is the
+      file that owns the shell's wiring. Read as text because it imports
+      Electron at the top level and this suite cannot load it.
+    */
+    const wiring = readFileSync(new URL("../src/main/index.ts", import.meta.url), "utf8");
+    const uncalled = [...producers, "dispose"].filter(
+      (name) => !new RegExp(`consoleBridge\\??\\.${name}\\(`).test(wiring),
+    );
+    check(
+      `...AND THE SHELL ACTUALLY CALLS EACH ONE${
+        uncalled.length ? ` — nothing in main/index.ts reaches ${uncalled.join(", ")}` : ""
+      }`,
+      uncalled.length === 0,
+    );
+  }
+
+  /* --- and a level crosses the whole bridge, end to end ------------------- */
+  //
+  // Both halves joined: the main process's `emitLevel`, its window's `send`,
+  // the preload's `ipcRenderer` listener and `levelFrom`'s normaliser, with
+  // nothing faked in between. This is the check that fails if the producer
+  // built here is wired to a channel the page is not listening on — which is
+  // exactly the state the app was in, in the other direction, for its whole
+  // life.
+  {
+    const page = installed();
+    const relay = {
+      isDestroyed: () => false,
+      webContents: { id: 7, send: (channel, payload) => page.emit(channel, payload) },
+    };
+    const { bridge } = mainBridge({ window: relay });
+    const seen = [];
+    const off = page.bridge.onLevel((level) => seen.push(level));
+
+    bridge.emitLevel({ mic: 0.42, systemAudio: 0.17 });
+    check(
+      "A LEVEL THE RECORDER PRODUCES REACHES THE PAGE — the whole point, and it never did",
+      seen.length === 1 && seen[0].mic === 0.42 && seen[0].systemAudio === 0.17,
+    );
+
+    bridge.emitLevel({ mic: 9, systemAudio: -3 });
+    check(
+      "...as a fraction of full scale, whatever the recorder handed over",
+      seen[1]?.mic === 1 && seen[1]?.systemAudio === 0,
+    );
+
+    bridge.emitLevel({ mic: Number.NaN, systemAudio: "loud", accessToken: "sk-never" });
+    check(
+      "...with a reading that is not a number read as silence, not as a bar of unknown height",
+      seen[2]?.mic === 0 && seen[2]?.systemAudio === 0,
+    );
+    check(
+      "...and nothing the contract does not declare travelling with it",
+      seen.flatMap((level) => contamination(level)).length === 0 &&
+        seen.every((level) => Object.keys(level).join() === "mic,systemAudio"),
+    );
+
+    off();
+    const quiet = seen.length;
+    bridge.emitLevel({ mic: 1, systemAudio: 1 });
+    check("...and unsubscribing really detaches the meter", seen.length === quiet);
   }
 
   {

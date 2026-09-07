@@ -64,12 +64,16 @@ const refusalFor = (desktop) => inspectDesktopBridge({ desktop }).refusal;
 /**
  * A structurally complete bridge at the *current* version, from plain values.
  *
- * It carries `meetings` and the machine-approval trio because rows 3 and 4 of
- * the required table both ask for them — version 4 added two payload fields and
- * no members at all. `version1Bridge` below is
- * the same object with `meetings` removed and `version: 1`, and
- * `version2Bridge` is it without the trio — the two shells somebody has in
- * their Applications folder, both of which this bundle still has to accept.
+ * It carries `meetings`, the machine-approval trio, and `imessage` because
+ * `BRIDGE_VERSION` is 5 and row 5 of the required table asks for all three —
+ * rows 3 and 4 already asked for the first two, version 4 having added only
+ * two payload *fields* (`CaptureStateUpdate.notice`, `CaptureSummary.frames`)
+ * and no members at all. `version1Bridge` below is the same object with
+ * `meetings` removed and `version: 1`; `version2Bridge` is it without the
+ * machine-approval trio; `version4Bridge` is it without `imessage` (and is
+ * equally valid tagged `3`, since rows 3 and 4 are the identical list) — the
+ * shells somebody actually has in their Applications folder, every one of
+ * which this bundle still has to accept.
  */
 function bridgeLike(overrides = {}) {
   const noop = () => () => {};
@@ -103,6 +107,11 @@ function bridgeLike(overrides = {}) {
     meetings: {
       write: async () => ({ sessionId: "", queued: true, notePath: null, rejected: null }),
     },
+    imessage: {
+      status: async () => ({ enabled: false, permission: "unknown", lastSyncedAt: null, lastError: null }),
+      setEnabled: async () => {},
+      onChange: noop,
+    },
     ...overrides,
   };
 }
@@ -126,7 +135,21 @@ function version2Bridge(overrides = {}) {
   const bridge = bridgeLike(overrides);
   const { pendingApproval: _a, onPendingApproval: _b, resolveApproval: _c, ...connection } =
     bridge.connection;
-  return Object.freeze({ ...bridge, connection, version: 2 });
+  const { imessage: _d, ...rest } = bridge;
+  return Object.freeze({ ...rest, connection, version: 2 });
+}
+
+/**
+ * The shell that shipped before iMessage import existed. Version 4, complete.
+ *
+ * It has `meetings` and the machine-approval trio, and no `imessage` — every
+ * Mac connected before this feature shipped, doing nothing wrong. Equally
+ * valid tagged `version: 3`, since rows 3 and 4 of the required table are the
+ * identical list — version 4 added payload fields, not members.
+ */
+function version4Bridge(overrides = {}) {
+  const { imessage: _dropped, ...rest } = bridgeLike(overrides);
+  return Object.freeze({ ...rest, version: 4 });
 }
 
 export function runBridgeChecks(check) {
@@ -400,7 +423,7 @@ export function runBridgeChecks(check) {
     refusalFor(frozenBridge({ meetings: { drain: () => {} } })) === "surface-incomplete",
   );
   check(
-    "A VERSION-2 SHELL IS STILL A BRIDGE, though this bundle is version 4",
+    "A VERSION-2 SHELL IS STILL A BRIDGE, though this bundle is version 5",
     getDesktopBridge({ desktop: version2Bridge() }) !== null &&
       refusalFor(version2Bridge()) === null,
   );
@@ -416,11 +439,28 @@ export function runBridgeChecks(check) {
   );
   check(
     "A VERSION-3 SHELL IS STILL A BRIDGE — version 4 added fields, not members",
-    getDesktopBridge({ desktop: Object.freeze({ ...bridgeLike(), version: 3 }) }) !== null,
+    getDesktopBridge({ desktop: Object.freeze({ ...bridgeLike(), imessage: undefined, version: 3 }) }) !== null,
+  );
+  check(
+    "A VERSION-4 SHELL IS STILL A BRIDGE, though this bundle is version 5",
+    getDesktopBridge({ desktop: version4Bridge() }) !== null &&
+      refusalFor(version4Bridge()) === null,
+  );
+  check(
+    "...which the page notices by asking for imessage rather than the version",
+    getDesktopBridge({ desktop: version4Bridge() })?.imessage === undefined,
+  );
+  check(
+    "A VERSION-5 SHELL WITHOUT `imessage` IS REFUSED — it promised it",
+    refusalFor(Object.freeze({ ...bridgeLike(), imessage: undefined })) === "surface-incomplete",
+  );
+  check(
+    "...and one whose `imessage` cannot report status is refused too",
+    refusalFor(frozenBridge({ imessage: { setEnabled: async () => {} } })) === "surface-incomplete",
   );
   check(
     "...and this bundle's own version is accepted by its own table",
-    refusalFor(frozenBridge({})) === null && BRIDGE_VERSION === 4,
+    refusalFor(frozenBridge({})) === null && BRIDGE_VERSION === 5,
   );
   check(
     "a version between the floor and the ceiling is still not an integer version",

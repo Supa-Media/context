@@ -29,6 +29,7 @@
     "@codemirror/search": "^6",
     "@codemirror/state": "^6",
     "@codemirror/view": "^6",
+    "@context/communications": "workspace:*",
     "@context/convex": "workspace:*",
     "@context/desktop-bridge": "workspace:*",
     "@context/meetings": "workspace:*",

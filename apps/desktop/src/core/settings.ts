@@ -44,6 +44,13 @@ export interface DesktopSettings {
   askBeforeEveryMeeting: boolean;
   /** Apps that are never recorded, and never even reported as evidence. */
   blocklist: string[];
+  /**
+   * Import iMessage history into this context. Off by default, like
+   * `captureEnabled` — the same reasoning `core/imessage/permission.ts`
+   * argues for a permission macOS will not even show a dialog for: a fresh
+   * install reads nothing until somebody has seen the toggle and turned it on.
+   */
+  imessageEnabled: boolean;
   transcription: TranscriptionMode;
   /**
    * The MCP endpoint this machine connects to, e.g. `https://…/mcp`.
@@ -95,6 +102,7 @@ export const DEFAULT_SETTINGS: DesktopSettings = Object.freeze({
   captureEnabled: false,
   askBeforeEveryMeeting: true,
   blocklist: [],
+  imessageEnabled: false,
   /*
     On device, which is where audio stays until somebody says otherwise.
 
@@ -172,6 +180,7 @@ export function normalizeSettings(raw: unknown): DesktopSettings {
     // string, which is truthy — must not resolve to silent recording.
     askBeforeEveryMeeting: bool(source["askBeforeEveryMeeting"], true),
     blocklist,
+    imessageEnabled: bool(source["imessageEnabled"], DEFAULT_SETTINGS.imessageEnabled),
     transcription: source["transcription"] === "cloud" ? "cloud" : "on-device",
     // The same guard as the base URL: https, or a loopback address for a local
     // gateway. A settings file naming an `http://` endpoint would otherwise

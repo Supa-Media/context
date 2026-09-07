@@ -774,6 +774,242 @@ const schema = defineSchema({
   }).index("by_workspace", ["workspaceId"]),
 
   /**
+   * ONE CONNECTED GOOGLE ACCOUNT. See `docs/decisions/communications.md`.
+   *
+   * **Generalized from a Gmail-only `mailConnections` row (2026-09-07) to one
+   * Google account carrying one OAuth grant and any number of enabled
+   * `products`** — Gmail, and (built by sibling work on this same shape)
+   * Calendar and Chat. One consent, one refresh token, one place the account
+   * identity lives; each product gets its own nested settings-and-cursor
+   * object rather than its own table, because they share the grant, the
+   * owner, and the disconnect/revoke story, and only differ in what they sync
+   * and where their cursor lives.
+   *
+   * KEYED BY `workspaceId`, NEVER `userId` — same rule as `storageBindings`,
+   * for the same reason: the connection belongs to the context, not to
+   * whoever happened to click Connect. **Only a `kind: "personal"` workspace
+   * may hold one** (`identity-and-access.md`, "Mail lands in a personal
+   * context and nowhere else", which this generalizes to every product here)
+   * — enforced in `functions/googleConnect.ts`, not here, because a schema
+   * cannot see a sibling table's field.
+   *
+   * This is metadata about the connection, never product content. Gmail
+   * messages are rendered by `packages/communications` straight into the
+   * customer's own bucket at `0-inbox/email/<gmail.mailboxSlug>/`; nothing
+   * here ever holds a subject, a body, a sender, or a calendar event's text.
+   *
+   * `encryptedRefreshToken` is a `v2:` envelope from `functions/lib/crypto.ts`,
+   * bound to this row's `workspaceId` as AAD — identical scheme to
+   * `storageBindings.encryptedRefreshToken`, and it rides the same rotation
+   * pass (`listGoogleConnectionRekeyCandidates` / `applyGoogleConnectionRekey`
+   * in `functions/storage.ts`). **The token stays at the top level, never
+   * nested under a product**, because it is one grant covering every enabled
+   * product — nesting it would either duplicate one token three ways or make
+   * the rotation walk hunt through per-product objects for a column that is
+   * the same secret in each. The gateway is handed a short-lived access token
+   * to talk to Google and the refresh token never leaves the control plane —
+   * same reasoning as the Dropbox grant one table over.
+   */
+  googleConnections: defineTable({
+    workspaceId: v.id("workspaces"),
+    provider: v.literal("google"),
+    /** The address as the person knows it. Never a path segment; see `gmail.mailboxSlug`. */
+    address: v.string(),
+    encryptedRefreshToken: v.string(),
+    encryptedAccessToken: v.optional(v.string()),
+    accessTokenExpiresAt: v.optional(v.number()),
+    /**
+     * Every scope Google actually granted for this account, verbatim from the
+     * token response — never assumed from what was requested. A downgraded
+     * consent (the person unchecked something) is visible here rather than
+     * discovered as a 403 three months later. Per-product scope slices live
+     * on each product's own object below (`gmail.scopes`), computed from this
+     * same verbatim list — two views of one fact, never two facts.
+     */
+    scopes: v.array(v.string()),
+    /**
+     * Whose Google account this is. Not a secret — it is what lets the console
+     * show which account is connected and notice a reconnect landing on a
+     * *different* account, the same role `dropboxAccountId` plays.
+     */
+    googleAccountId: v.string(),
+    /**
+     * Which products this connection actually syncs. A product appearing here
+     * with no matching nested object below is a connection mid-setup, never a
+     * steady state a reader should trust — `functions/googleConnect.ts` writes
+     * both in the same mutation.
+     */
+    products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+    /**
+     * Gmail's own settings and cursor. Present iff `"gmail"` is in `products`.
+     * See `docs/decisions/communications.md` for what each field argues.
+     */
+    gmail: v.optional(
+      v.object({
+        /**
+         * The scopes relevant to Gmail specifically, sliced from the
+         * account's own `scopes` at connect time — recorded per product,
+         * verbatim, per the same rule the top-level field states.
+         */
+        scopes: v.array(v.string()),
+        /**
+         * `chooseMailboxSlug(address, taken)` from `packages/communications`,
+         * decided once at connect time and never recomputed — recomputing it
+         * against a different `taken` set would rename the folder a person's
+         * mail is already in.
+         */
+        mailboxSlug: v.string(),
+        /**
+         * How far back the first backfill reaches, in days. Per-connection and
+         * fixed at connect time: changing it later is a second backfill, not a
+         * setting flip, so this is what a reconnect or "sync more" reads to
+         * decide how far to widen.
+         */
+        backfillDays: v.number(),
+        /**
+         * Which Gmail system labels are synced. `spam` and `trash` are
+         * deliberately never valid values here — v1 excludes both
+         * unconditionally, argued in `docs/decisions/communications.md` — so
+         * the type itself is the enforcement, not a runtime check elsewhere.
+         */
+        folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
+        /** Off by default. See "Retention: raw MIME is off by default". */
+        storeRawMime: v.boolean(),
+        /**
+         * `"store"` is the working default per the owner's 2026-09-07
+         * decision — an attachment a message references should land
+         * somewhere referenceable in the bucket. `"metadata-only"` stays
+         * available as the quota-conscious opt-out. See
+         * `docs/decisions/communications.md`, "Attachments are fetched into
+         * the bucket, retained on a timer".
+         */
+        attachmentMode: v.union(v.literal("metadata-only"), v.literal("store")),
+        /**
+         * Days an attachment's bytes stay in the bucket after being written,
+         * or `"forever"` to never expire it. Per-connection, because the
+         * right answer for a receipts inbox and a newsletter inbox differ.
+         * Absent only for a row written before this field existed, and
+         * `sweepExpiredAttachments` treats absent the same as the documented
+         * 90-day default.
+         */
+        attachmentRetentionDays: v.optional(v.union(v.number(), v.literal("forever"))),
+        /**
+         * A hard ceiling on bytes this connection may write into the bucket
+         * — note text and stored attachment bytes both — independent of the
+         * customer's overall storage. Backfill and sync both refuse to write
+         * past it rather than silently exceeding what the estimator showed
+         * before the first fetch.
+         */
+        quotaBytes: v.number(),
+        /**
+         * Gmail's sync cursor (`historyId`), advanced after every page this
+         * connection has fully processed. Absent until the first backfill
+         * completes. A `404` from `history.list` means Gmail expired it —
+         * sync treats that as `gapDetected` and falls back to a full
+         * reconcile over `backfillDays`, per `docs/decisions/communications.md`.
+         */
+        historyId: v.optional(v.string()),
+        lastSyncedAt: v.optional(v.number()),
+      }),
+    ),
+    /**
+     * Calendar's own settings and cursor. Not implemented by this change —
+     * declared so the shape exists for the sibling work building it, per the
+     * same "declared here, built next" phasing `docs/decisions/search.md`
+     * already uses. `syncToken` is Calendar's own incremental-sync cursor
+     * (the `events.list` `nextSyncToken`), the Calendar analogue of Gmail's
+     * `historyId`.
+     */
+    calendar: v.optional(
+      v.object({
+        scopes: v.array(v.string()),
+        syncToken: v.optional(v.string()),
+        lastSyncedAt: v.optional(v.number()),
+      }),
+    ),
+    /**
+     * Chat's own settings and cursor. Not implemented by this change — see
+     * the `calendar` field's comment; the same reasoning applies. Both
+     * `chat.messages.readonly` and `chat.spaces.readonly` are restricted and
+     * sensitive scopes respectively (`docs/decisions/communications.md`), so
+     * the CASA assessment gating Gmail gates this too.
+     */
+    chat: v.optional(
+      v.object({
+        scopes: v.array(v.string()),
+        historyToken: v.optional(v.string()),
+        lastSyncedAt: v.optional(v.number()),
+      }),
+    ),
+    health: v.union(
+      v.literal("connecting"),
+      v.literal("backfilling"),
+      v.literal("active"),
+      v.literal("error"),
+      v.literal("reconnect_required"),
+    ),
+    lastError: v.optional(v.string()),
+    errorCode: v.optional(v.string()),
+    /**
+     * Set by disconnect. The row is kept — never deleted outright — so a
+     * disconnected connection's sync job can be told apart from one that
+     * simply has not synced yet, and so the notes it already wrote are
+     * traceable to a connection the console can still show as "disconnected"
+     * rather than an account that quietly stopped and left no explanation.
+     * The notes themselves are never touched by a disconnect.
+     */
+    disconnectedAt: v.optional(v.number()),
+    boundBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    /** One connection per address per context — the uniqueness `chooseMailboxSlug` assumes for Gmail. */
+    .index("by_workspace_address", ["workspaceId", "address"]),
+
+  /**
+   * ONE IN-FLIGHT GOOGLE OAUTH ATTEMPT. Same shape and the same reasoning as
+   * `dropboxConnectAttempts` — see that table's comment for the full argument;
+   * this restates only what differs.
+   *
+   * `backfillDays` and `folders` are Gmail's own connect-time choices and
+   * travel here rather than being asked for on the callback screen, because
+   * the callback may carry no session (see `dropboxConnect.ts`'s
+   * `completeDropboxConnect` for why that is a security argument and not a
+   * shortcut) — so the choice the person made *before* leaving for Google's
+   * consent screen has to survive the round trip somewhere that is not the
+   * browser. A future Calendar-or-Chat-only connect attempt carries no Gmail
+   * fields at all; they stay optional for exactly that reason.
+   */
+  googleConnectAttempts: defineTable({
+    hashedState: v.string(),
+    encryptedVerifier: v.string(),
+    workspaceId: v.id("workspaces"),
+    startedBy: v.id("users"),
+    redirectUri: v.string(),
+    products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+    backfillDays: v.optional(v.number()),
+    folders: v.optional(v.array(v.union(v.literal("inbox"), v.literal("sent")))),
+    /**
+     * The attachment choices made before leaving for Google's consent
+     * screen, carried the same way `backfillDays`/`folders` are — see this
+     * table's own comment. `attachmentRetentionDays` and
+     * `attachmentRetentionForever` split "forever" out of the number rather
+     * than union-typing the stored field, because Convex indexes and
+     * comparisons on a column are simplest when its type does not vary row
+     * to row; `googleConnect.ts` is the only reader and reassembles the
+     * `number | "forever"` shape on the way out.
+     */
+    attachmentMode: v.optional(v.union(v.literal("metadata-only"), v.literal("store"))),
+    attachmentRetentionDays: v.optional(v.number()),
+    attachmentRetentionForever: v.optional(v.boolean()),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_hashed_state", ["hashedState"])
+    .index("by_expiresAt", ["expiresAt"]),
+
+  /**
    * ONE IN-FLIGHT ATTEMPT TO CREATE A BUCKET IN SOMEBODY ELSE'S CLOUD ACCOUNT.
    *
    * A person who has a Cloudflare account but no bucket hands us one credential

@@ -77,8 +77,48 @@ export const KEY_MARKER_KEY = "context_encryption_key";
  */
 export const FENCE_LANGUAGE = "context-encrypted";
 
-/** The only recipient kind v1 writes. `passphrase` is Phase 2 — see the decision. */
+/** The recipient kind the gateway wraps for. One per workspace key generation. */
 export const RECIPIENT_WORKSPACE = "workspace";
+
+/**
+ * The recipient kind a passphrase opens.
+ *
+ * The key that unwraps it is derived **on the client**, from a passphrase this
+ * gateway never receives and could not use if it did. Everything in this module
+ * about a passphrase recipient therefore takes a key-encryption key as bytes
+ * that somebody else derived: there is no passphrase parameter anywhere in this
+ * file, and that absence is the security property.
+ */
+export const RECIPIENT_PASSPHRASE = "passphrase";
+
+/** The only KDF a v1 passphrase recipient may name. */
+export const KDF_ARGON2ID = "argon2id";
+
+/**
+ * Bounds on what a KDF descriptor read out of a bucket may ask a client to do.
+ *
+ * A passphrase recipient's parameters are attacker-controlled in exactly one
+ * scenario, and it is the scenario this whole feature is about: somebody who
+ * can write the customer's bucket. They cannot forge a wrap — they do not have
+ * the passphrase — but without these bounds they could write `m: 4194304` and
+ * make the console allocate four gigabytes, or `t: 1000000` and hang it, on
+ * every unlock attempt. A file in a bucket does not get to choose how much
+ * memory a device spends.
+ *
+ * The ceilings are deliberately far above anything shipped (see
+ * `docs/decisions/encryption.md`, "The KDF, per client") so that raising the
+ * parameters later is a parameter change and not a format change.
+ */
+export const KDF_LIMITS = Object.freeze({
+  /** KiB. 2 GiB, RFC 9106's own first recommended option. */
+  maxMemory: 2 * 1024 * 1024,
+  /** KiB. Argon2's own floor is 8 KiB per lane. */
+  minMemory: 8,
+  maxIterations: 16,
+  maxParallelism: 16,
+  minSaltBytes: 8,
+  maxSaltBytes: 64,
+});
 
 /** 96 bits, the GCM-recommended nonce size. */
 const IV_BYTE_LENGTH = 12;
@@ -480,8 +520,60 @@ function assertEnvelopeShape(envelope) {
     if (typeof recipient.iv !== "string" || typeof recipient.wrapped !== "string") {
       throw new NoteCryptoError("envelope has a malformed recipient");
     }
+    // A recipient kind this build does not know is left alone rather than
+    // refused: the array is the extension point, and an older gateway meeting a
+    // newer kind must still open the note through the recipient it does know.
+    // What it may not do is *use* one it cannot read, and nothing below looks
+    // for a kind by anything but an exact match.
+    if (recipient.kind === RECIPIENT_PASSPHRASE) assertKdfDescriptor(recipient.kdf);
   }
   return envelope;
+}
+
+/**
+ * The KDF a passphrase recipient names, checked before anything acts on it.
+ *
+ * Exported because the client that derives the key runs this same check on the
+ * same object: a descriptor read out of a bucket decides how much memory and
+ * how much time a device is about to spend, and the only safe place to bound
+ * that is before the first allocation. See `KDF_LIMITS`.
+ */
+export function assertKdfDescriptor(kdf) {
+  if (!kdf || typeof kdf !== "object" || Array.isArray(kdf)) {
+    throw new NoteCryptoError("a passphrase recipient must name its KDF");
+  }
+  if (kdf.id !== KDF_ARGON2ID) {
+    throw new NoteCryptoError(`unsupported passphrase KDF ${describeField(kdf.id)}`);
+  }
+  // Argon2's own version byte, 0x13. A different one is a different KDF with
+  // the same name, and guessing between them silently produces a wrong key.
+  if (kdf.v !== 0x13) {
+    throw new NoteCryptoError(`unsupported argon2 version ${describeField(kdf.v)}`);
+  }
+  const bounded = (value, min, max) =>
+    typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
+  if (!bounded(kdf.m, KDF_LIMITS.minMemory, KDF_LIMITS.maxMemory)) {
+    throw new NoteCryptoError(`passphrase KDF memory out of range: ${describeField(kdf.m)}`);
+  }
+  if (!bounded(kdf.t, 1, KDF_LIMITS.maxIterations)) {
+    throw new NoteCryptoError(`passphrase KDF iterations out of range: ${describeField(kdf.t)}`);
+  }
+  if (!bounded(kdf.p, 1, KDF_LIMITS.maxParallelism)) {
+    throw new NoteCryptoError(`passphrase KDF parallelism out of range: ${describeField(kdf.p)}`);
+  }
+  if (kdf.m < 8 * kdf.p) {
+    throw new NoteCryptoError("passphrase KDF memory is below argon2's own floor for its lanes");
+  }
+  if (typeof kdf.salt !== "string") {
+    throw new NoteCryptoError("a passphrase recipient must carry a salt");
+  }
+  const salt = fromBase64Url(kdf.salt);
+  if (salt.byteLength < KDF_LIMITS.minSaltBytes || salt.byteLength > KDF_LIMITS.maxSaltBytes) {
+    throw new NoteCryptoError(
+      `passphrase KDF salt must be ${KDF_LIMITS.minSaltBytes}..${KDF_LIMITS.maxSaltBytes} bytes`,
+    );
+  }
+  return kdf;
 }
 
 /* ------------------------------- encrypt --------------------------------- */
@@ -565,19 +657,119 @@ export async function encryptNote(plaintext, { workspaceId, workspaceKey, keyId 
 export async function decryptNote(stored, { workspaceId, keys }) {
   const envelope = parseEncryptedNote(stored);
   if (envelope === null) throw new NoteCryptoError("that note is not encrypted");
+  // Both halves live in one place each — `unwrapWithWorkspaceKey` decides which
+  // recipient opens this and what a failure says, `openContent` does the body —
+  // so the passphrase path below cannot drift away from this one on either.
+  return await openContent(envelope, await unwrapWithWorkspaceKey(envelope, { workspaceId, keys }));
+}
 
-  const expected = contentAad(workspaceId);
-  if (envelope.aad !== expected) {
-    // GCM would refuse this anyway. Saying it plainly is worth a line: an
-    // envelope from another context in this bucket is a restore or a copy gone
-    // wrong, and "authentication failed" would send somebody hunting for a key
-    // problem they do not have.
+function assertIv(bytes) {
+  if (bytes.byteLength !== IV_BYTE_LENGTH) {
+    throw new NoteCryptoError("envelope has a malformed IV");
+  }
+  return bytes;
+}
+
+/* ------------------------------ passphrase ------------------------------- */
+//
+// Phase 2, and a different product from the section above it.
+//
+// A `workspace` recipient makes a note unreadable to a storage provider and
+// readable to everything the customer has connected. A `passphrase` recipient
+// makes it unreadable to *us*: only somebody who knows the passphrase opens it,
+// the passphrase is nowhere, and a note carrying one carries **no workspace
+// recipient at all**. `docs/decisions/encryption.md`, "Encrypted notes are for
+// humans", is the decision and states what it costs — no AI client can read one.
+//
+// **The whole of this section runs on a client and none of it runs in the
+// gateway.** The boundary is drawn as a parameter type: every function here
+// takes a `kek` — 32 raw bytes, or the base64 of them — and not one takes a
+// passphrase, because turning a passphrase into a key is a KDF, a KDF is not in
+// this file, and it is not reachable from the Worker at all. Two checks hold
+// that: the gateway suite asserts no exported signature here takes a
+// passphrase, and it asserts that `src/index.js` never calls any of it.
+//
+// They live here anyway, rather than in the console, because this module is the
+// **normative decryptor** — the file a customer runs to read their own notes
+// without us. A spec that could open half the envelopes it defines would not be
+// one.
+
+/**
+ * Encrypt a note so that **only a passphrase opens it**.
+ *
+ * The whole envelope, produced in one call: a fresh note key, the body sealed
+ * under it, and exactly one recipient — the passphrase. There is no `workspace`
+ * recipient, deliberately and by definition, and that is what makes this the
+ * mode the product note asked for rather than encryption at rest wearing a
+ * password. Nothing we run can open the result. Neither can any AI client the
+ * customer has connected, which is the trade stated in
+ * `docs/decisions/encryption.md`, "Encrypted notes are for humans".
+ *
+ * It runs wherever the passphrase was typed — the console, or somebody's own
+ * decryptor — and it is in this module because this module is the spec. **The
+ * gateway does not call it, and `index.js` is asserted not to.**
+ *
+ * @param {string} plaintext the whole note, frontmatter included
+ * @param {{workspaceId: string, kek: Uint8Array|string, kdf: object, id?: string}} context
+ */
+export async function encryptNoteForPassphrase(plaintext, { workspaceId, kek, kdf, id = "p1" }) {
+  if (typeof plaintext !== "string") {
+    throw new NoteCryptoError("a note's plaintext must be a string");
+  }
+  const aad = contentAad(workspaceId);
+  const noteKeyBytes = crypto.getRandomValues(new Uint8Array(KEY_BYTE_LENGTH));
+  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTE_LENGTH));
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv, additionalData: new TextEncoder().encode(aad) },
+      await importAesKey(noteKeyBytes),
+      new TextEncoder().encode(plaintext),
+    ),
+  );
+  const recipient = await wrapNoteKeyForPassphrase(toBase64(noteKeyBytes), kek, {
+    workspaceId,
+    id,
+    kdf,
+  });
+  noteKeyBytes.fill(0);
+  return renderEncryptedNote({
+    v: ENVELOPE_VERSION,
+    alg: CONTENT_ALG,
+    iv: toBase64Url(iv),
+    ct: toBase64Url(ciphertext),
+    aad,
+    recipients: [recipient],
+  });
+}
+
+/** The recipients an encrypted note carries, or `[]` for an ordinary note. */
+export function recipientsOf(stored) {
+  const envelope = parseEncryptedNote(stored);
+  return envelope === null ? [] : envelope.recipients;
+}
+
+/** Does this note carry a recipient of `kind` (and, given one, that `id`)? */
+export function hasRecipient(stored, kind, id) {
+  return recipientsOf(stored).some(
+    (recipient) => recipient.kind === kind && (id === undefined || recipient.id === id),
+  );
+}
+
+/**
+ * The note key bytes, from whichever workspace recipient this deployment holds
+ * a key for.
+ *
+ * Two implementations of "which recipient opens this, and what does a failure
+ * look like" would be two places for the failure to stop being uniform, so
+ * `decryptNote` and everything below share this one.
+ */
+async function unwrapWithWorkspaceKey(envelope, { workspaceId, keys }) {
+  if (envelope.aad !== contentAad(workspaceId)) {
     throw new NoteCryptoError("this envelope is bound to a different context");
   }
   if (!keys || typeof keys !== "object") {
     throw new NoteCryptoError("no workspace data key available");
   }
-
   const recipient = envelope.recipients.find(
     (candidate) =>
       candidate.kind === RECIPIENT_WORKSPACE &&
@@ -585,11 +777,26 @@ export async function decryptNote(stored, { workspaceId, keys }) {
   );
   if (recipient === undefined) {
     throw new NoteCryptoError(
-      "no workspace data key in this deployment opens that note; the key generation it names is not configured",
+      envelope.recipients.some((candidate) => candidate.kind === RECIPIENT_WORKSPACE)
+        ? "no workspace data key in this deployment opens that note; the key generation it names is not configured"
+        : "that note is protected by a passphrase and carries no workspace recipient; nothing here can open it",
     );
   }
+  return await unwrapNoteKey(recipient, keyBytesFrom(keys[recipient.id]), workspaceId);
+}
 
-  const wrappingKey = await importAesKey(keyBytesFrom(keys[recipient.id]));
+/**
+ * A note key, unwrapped from one recipient with the key that recipient names.
+ *
+ * One failure for every reason it can fail — a wrong key, a wrong workspace, a
+ * tampered wrap, a passphrase that is not the passphrase. **That uniformity is
+ * the security property of this function**, and it is what makes a wrong
+ * passphrase indistinguishable from a corrupted envelope: distinguishing them
+ * hands an attacker an oracle that says "keep guessing, you have the right
+ * file", and hands a person who mistyped their passphrase no more than "that
+ * did not open it", which is all there is to tell them anyway.
+ */
+export async function unwrapNoteKey(recipient, kek, workspaceId) {
   let noteKeyBytes;
   try {
     noteKeyBytes = new Uint8Array(
@@ -599,21 +806,96 @@ export async function decryptNote(stored, { workspaceId, keys }) {
           iv: assertIv(fromBase64Url(recipient.iv)),
           additionalData: new TextEncoder().encode(wrapAad(workspaceId)),
         },
-        wrappingKey,
+        await importAesKey(kekBytesFrom(kek)),
         fromBase64Url(recipient.wrapped),
       ),
     );
   } catch (error) {
     if (error instanceof NoteCryptoError) throw error;
-    // Wrong key, wrong workspace, or a tampered wrap. Deliberately one answer:
-    // distinguishing them is an oracle over other people's keys.
     throw new NoteCryptoError("failed to unwrap the note key");
   }
   if (noteKeyBytes.byteLength !== KEY_BYTE_LENGTH) {
     throw new NoteCryptoError("failed to unwrap the note key");
   }
+  return noteKeyBytes;
+}
 
-  const noteKey = await importAesKey(noteKeyBytes);
+/**
+ * Wrap a note key for a passphrase-derived key.
+ *
+ * The KDF descriptor is written into the recipient rather than assumed, because
+ * a decryptor five years from now — ours, somebody else's, or a person with the
+ * spec and a weekend — has to derive the same key without knowing what this
+ * build's defaults were. Same reason `aad` is a literal in the envelope rather
+ * than a rule in prose.
+ *
+ * @param {string} noteKey base64 note key, as `noteKeyOf` returns it
+ * @param {Uint8Array|string} kek 32 bytes derived from the passphrase, client-side
+ * @param {{workspaceId: string, id?: string, kdf: object}} context
+ */
+export async function wrapNoteKeyForPassphrase(noteKey, kek, { workspaceId, id = "p1", kdf }) {
+  const recipientId = requireKeyId(id);
+  const descriptor = assertKdfDescriptor(kdf);
+  const noteKeyBytes = keyBytesFrom(noteKey);
+  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTE_LENGTH));
+  const wrapped = new Uint8Array(
+    await crypto.subtle.encrypt(
+      {
+        name: "AES-GCM",
+        iv,
+        additionalData: new TextEncoder().encode(wrapAad(workspaceId)),
+      },
+      await importAesKey(kekBytesFrom(kek)),
+      noteKeyBytes,
+    ),
+  );
+  return {
+    kind: RECIPIENT_PASSPHRASE,
+    id: recipientId,
+    alg: CONTENT_ALG,
+    iv: toBase64Url(iv),
+    wrapped: toBase64Url(wrapped),
+    // A fresh object rather than the caller's, carrying exactly the six fields
+    // the format defines. Copying the caller's would put whatever else it
+    // happened to hold into the envelope of every note it touched.
+    kdf: {
+      id: descriptor.id,
+      v: descriptor.v,
+      m: descriptor.m,
+      t: descriptor.t,
+      p: descriptor.p,
+      salt: descriptor.salt,
+    },
+  };
+}
+
+/**
+ * Open a note with a passphrase-derived key.
+ *
+ * The mirror of `decryptNote`, and deliberately a separate function rather than
+ * an argument to it: the workspace path runs in the gateway with a key from the
+ * control plane, and this one runs wherever somebody typed their passphrase.
+ * One function taking either would be one function that could be handed the
+ * wrong one.
+ */
+export async function decryptNoteWithPassphrase(stored, { workspaceId, kek, id }) {
+  const envelope = parseEncryptedNote(stored);
+  if (envelope === null) throw new NoteCryptoError("that note is not encrypted");
+  if (envelope.aad !== contentAad(workspaceId)) {
+    throw new NoteCryptoError("this envelope is bound to a different context");
+  }
+  const recipient = envelope.recipients.find(
+    (candidate) =>
+      candidate.kind === RECIPIENT_PASSPHRASE && (id === undefined || candidate.id === id),
+  );
+  if (recipient === undefined) {
+    throw new NoteCryptoError("that note has no passphrase recipient");
+  }
+  return await openContent(envelope, await unwrapNoteKey(recipient, kek, workspaceId));
+}
+
+/** The content half of a decrypt, once a note key is in hand. */
+async function openContent(envelope, noteKeyBytes) {
   let plaintext;
   try {
     plaintext = await crypto.subtle.decrypt(
@@ -622,7 +904,7 @@ export async function decryptNote(stored, { workspaceId, keys }) {
         iv: assertIv(fromBase64Url(envelope.iv)),
         additionalData: new TextEncoder().encode(envelope.aad),
       },
-      noteKey,
+      await importAesKey(noteKeyBytes),
       fromBase64Url(envelope.ct),
     );
   } catch (error) {
@@ -632,9 +914,62 @@ export async function decryptNote(stored, { workspaceId, keys }) {
   return new TextDecoder().decode(plaintext);
 }
 
-function assertIv(bytes) {
-  if (bytes.byteLength !== IV_BYTE_LENGTH) {
-    throw new NoteCryptoError("envelope has a malformed IV");
+/**
+ * The same note, with one recipient replaced by another of the same name.
+ *
+ * This is a passphrase change, and it is what the wrapped note key was bought
+ * for: the body is untouched, so changing a passphrase costs one small write
+ * per note and cannot half-finish into a note nobody can open.
+ */
+export function replacingRecipient(stored, recipient) {
+  const envelope = parseEncryptedNote(stored);
+  if (envelope === null) throw new NoteCryptoError("that note is not encrypted");
+  assertRecipientShape(recipient);
+  let replaced = false;
+  const recipients = envelope.recipients.map((existing) => {
+    if (existing.kind !== recipient.kind || existing.id !== recipient.id) return existing;
+    replaced = true;
+    return recipient;
+  });
+  if (!replaced) throw new NoteCryptoError("that note carries no such recipient");
+  return renderEncryptedNote({ ...envelope, recipients });
+}
+
+/**
+ * Structural validation of a recipient a *caller* supplied, rather than one
+ * read out of a bucket.
+ *
+ * The same checks `assertEnvelopeShape` makes on the way in, made again on the
+ * way out, because the three functions above are the only place a recipient
+ * enters an envelope from outside this module — and a client that can put an
+ * unparseable recipient into somebody's note has found a way to make that note
+ * permanently unreadable through a call named "add a passphrase".
+ */
+function assertRecipientShape(recipient) {
+  assertEnvelopeShape({
+    v: ENVELOPE_VERSION,
+    alg: CONTENT_ALG,
+    aad: "probe",
+    iv: "",
+    ct: "",
+    recipients: [recipient],
+  });
+  return recipient;
+}
+
+/**
+ * 32 bytes from a key-encryption key given as bytes or as base64.
+ *
+ * Bytes are the honest shape for something a KDF has just produced; base64 is
+ * the shape it arrives in when a test pins one. Both land as the same 32 bytes
+ * or neither does.
+ */
+function kekBytesFrom(kek) {
+  if (kek instanceof Uint8Array) {
+    if (kek.byteLength !== KEY_BYTE_LENGTH) {
+      throw new NoteCryptoError(`a key-encryption key must be ${KEY_BYTE_LENGTH} bytes`);
+    }
+    return kek;
   }
-  return bytes;
+  return keyBytesFrom(kek);
 }

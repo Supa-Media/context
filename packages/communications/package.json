@@ -11,7 +11,8 @@
     "./paths": "./src/paths.js",
     "./anchors": "./src/anchors.js",
     "./note": "./src/note.js",
-    "./contacts": "./src/contacts.js"
+    "./contacts": "./src/contacts.js",
+    "./estimate": "./src/estimate.js"
   },
   "scripts": {
     "test": "node test/test.mjs",

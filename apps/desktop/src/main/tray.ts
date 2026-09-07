@@ -45,6 +45,7 @@ export interface TrayActions {
   record: () => void;
   end: () => void;
   toggleDetection: () => void;
+  toggleImessage: () => void;
   connect: () => void;
   disconnect: () => void;
   /** "Restart to update" — refused by `DesktopUpdater.install()` mid-meeting. */
@@ -56,6 +57,8 @@ export interface TrayActions {
 export interface TrayMenuState {
   recording: boolean;
   detectionEnabled: boolean;
+  /** Follows `settings.imessageEnabled`, exactly as `detectionEnabled` follows its own setting. */
+  imessageEnabled: boolean;
   connected: boolean;
   /**
    * An update finished downloading and nothing is recording — `DesktopUpdater`
@@ -68,7 +71,13 @@ export interface TrayMenuState {
 export class AppTray {
   #tray: Tray;
   #actions: TrayActions;
-  #state: TrayMenuState = { recording: false, detectionEnabled: false, connected: false, updateReady: false };
+  #state: TrayMenuState = {
+    recording: false,
+    detectionEnabled: false,
+    imessageEnabled: false,
+    connected: false,
+    updateReady: false,
+  };
 
   constructor(actions: TrayActions) {
     this.#actions = actions;
@@ -91,7 +100,7 @@ export class AppTray {
    * meetings when it is not.
    */
   #menu(): Electron.Menu {
-    const { recording, detectionEnabled, connected, updateReady } = this.#state;
+    const { recording, detectionEnabled, imessageEnabled, connected, updateReady } = this.#state;
     return Menu.buildFromTemplate([
       ...(recording
         ? [{ label: "End & write up", click: () => this.#actions.end() }]
@@ -103,6 +112,12 @@ export class AppTray {
         type: "checkbox" as const,
         checked: detectionEnabled,
         click: () => this.#actions.toggleDetection(),
+      },
+      {
+        label: "Import iMessage",
+        type: "checkbox" as const,
+        checked: imessageEnabled,
+        click: () => this.#actions.toggleImessage(),
       },
       { type: "separator" as const },
       connected

@@ -72,6 +72,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Sharing: an unlisted link over an encrypted note is refused
 - Rotation: three different things, and they must not be confused
 - Revocation and export: the customer keeps a usable context, or this feature breaks the first non-negotiable
+- Encrypted notes are for humans; no AI client reads one
+- The KDF, per client
+- Bounds on a KDF descriptor, because a bucket is not a trusted input
 - What Phase 1 builds, and what it does not
 
 ## [The MCP gateway: protocol, transport, orientation](./gateway-protocol.md)
@@ -128,6 +131,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A reference follows the note it points at, and a link is something you follow
 - The console autosaves, and the prompt that is left is about a decision
 - The breadcrumb is the whole path, and its head is a real way up
+- The communications console reads through `FileBrowser`, not a new tool
+- A note's anchor is a query parameter, not a URL fragment
+- A message body is rendered, never linkified
 
 ## [Meetings](./meetings.md)
 
@@ -175,6 +181,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The Gmail restricted scope is Google's decision, so v1 runs on fixtures
 - The five open decisions, and who settles them
 - What is deliberately not built
+- iMessage reads `chat.db` in place, through the one binary every Mac already has
 
 ## [The desktop shell](./desktop.md)
 
@@ -193,8 +200,24 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Step 4 landed: the console is what a launch opens, and the panel is one variable away
 - The signing keychain belongs to the workflow, not to electron-builder
 - What step 3 did not do, and what has since been done about it
+- Bridge version 4 adds `imessage`, and it is a status object, never a query surface
 - One meeting is one credential, and on a Mac it is the machine's
 - The microphone is asked for just-in-time, and never a dialog that points at the wrong place
+- What is deliberately not built
+
+## [Updating the Mac without shipping a Mac](./desktop-updates.md)
+
+- The binary is a permission envelope, and a code signature does not seal what V8 evaluates later
+- The line the signature actually draws, and the seven things on the far side of it
+- A missing usage string kills the process, which is why over-declaring is nearly free and under-declaring is permanent
+- The one-way door: what goes into the next signed build
+- A main bundle is a manifest, a blob and a signature, and the shell decides about all three before it evaluates any of them
+- Signing the bundle is the design; the update channel is what is left over
+- A bad bundle can brick the app so thoroughly it cannot fetch its own fix
+- `electron-updater` stays, and the two version numbers do not merge
+- Which bundle a Mac is running has to be a fact, or a rollout is a guess
+- Three stages, and the middle one is the only one with a deadline
+- What would make this a bad idea, argued as if we were not going to do it
 - What is deliberately not built
 
 ## [Obsidian plugins](./obsidian-plugins.md)
