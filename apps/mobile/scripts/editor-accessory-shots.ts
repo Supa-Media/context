@@ -113,7 +113,7 @@ describe("editor-accessory shots", () => {
       "This is **formatted** prose, not a code face.",
       "",
       "- one",
-      "- two",
+      "- [[../3-resources/team]]",
     ].join("\n");
     const node = mount(
       createElement(LiveEditor, {
@@ -122,6 +122,14 @@ describe("editor-accessory shots", () => {
         onChange: () => {},
         onSave: () => {},
         accessibilityLabel: "Read-only demo",
+        // A read-only note is still a note somebody navigates *from* — R2 is
+        // one renderer for reading and editing, not one renderer that can
+        // also no longer follow a link. Wired the same way `NoteEditor`
+        // wires it in the real app, unconditionally on `editable`.
+        onOpenNote: () => {},
+        onPressNote: () => {},
+        notePath: "0-inbox/privacy.md",
+        notePaths: ["0-inbox/privacy.md", "3-resources/team.md"],
       }),
       900,
       260,
@@ -129,6 +137,9 @@ describe("editor-accessory shots", () => {
     // The old raw-source view drew `# `/`**` as text; Live Preview hides them.
     expect(node.textContent).not.toContain("**formatted**");
     expect(node.querySelector(".cm-lp-h1")).not.toBeNull();
+    // And the link is still the followable kind, not plain text — a read-only
+    // note is still a note somebody navigates from.
+    expect(node.querySelector(".cm-note-link")).not.toBeNull();
     write("readonly-pointer", 900, 260);
   });
 });

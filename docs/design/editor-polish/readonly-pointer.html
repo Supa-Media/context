@@ -274,6 +274,60 @@ input::-webkit-search-cancel-button,input::-webkit-search-decoration,input::-web
 .ͼ1 .cm-textfield {vertical-align: middle; color: inherit; font-size: 70%; border: 1px solid silver; padding: .2em .5em;}
 .ͼ2 .cm-textfield {background-color: white;}
 .ͼ3 .cm-textfield {border: 1px solid #555; background-color: inherit;}
+.ͼ1 .cm-tooltip.cm-tooltip-autocomplete > ul > li, .ͼ1 .cm-tooltip.cm-tooltip-autocomplete > ul > completion-section {padding: 1px 3px; line-height: 1.2;}
+.ͼ1 .cm-tooltip.cm-tooltip-autocomplete > ul > li {overflow-x: hidden; text-overflow: ellipsis; cursor: pointer;}
+.ͼ1 .cm-tooltip.cm-tooltip-autocomplete > ul > completion-section {display: list-item; border-bottom: 1px solid silver; padding-left: 0.5em; opacity: 0.7;}
+.ͼ1 .cm-tooltip.cm-tooltip-autocomplete > ul {font-family: monospace; white-space: nowrap; overflow: hidden auto; max-width: 700px; max-width: min(700px, 95vw); min-width: 250px; max-height: 10em; height: 100%; list-style: none; margin: 0; padding: 0;}
+.ͼ2 .cm-tooltip-autocomplete ul li[aria-selected] {background: #17c; color: white;}
+.ͼ2 .cm-tooltip-autocomplete-disabled ul li[aria-selected] {background: #777;}
+.ͼ3 .cm-tooltip-autocomplete ul li[aria-selected] {background: #347; color: white;}
+.ͼ3 .cm-tooltip-autocomplete-disabled ul li[aria-selected] {background: #444;}
+.ͼ1 .cm-completionListIncompleteTop:before, .ͼ1 .cm-completionListIncompleteBottom:after {content: "···"; opacity: 0.5; display: block; text-align: center; cursor: pointer;}
+.ͼ1 .cm-tooltip.cm-completionInfo {position: absolute; padding: 3px 9px; width: max-content; max-width: 400px; box-sizing: border-box; white-space: pre-line;}
+.ͼ1 .cm-completionInfo.cm-completionInfo-left {right: 100%;}
+.ͼ1 .cm-completionInfo.cm-completionInfo-right {left: 100%;}
+.ͼ1 .cm-completionInfo.cm-completionInfo-left-narrow {right: 30px;}
+.ͼ1 .cm-completionInfo.cm-completionInfo-right-narrow {left: 30px;}
+.ͼ2 .cm-snippetField {background-color: #00000022;}
+.ͼ3 .cm-snippetField {background-color: #ffffff22;}
+.ͼ1 .cm-snippetFieldPosition {vertical-align: text-top; width: 0; height: 1.15em; display: inline-block; margin: 0 -0.7px -.7em; border-left: 1.4px dotted #888;}
+.ͼ1 .cm-completionMatchedText {text-decoration: underline;}
+.ͼ1 .cm-completionDetail {margin-left: 0.5em; font-style: italic;}
+.ͼ1 .cm-completionIcon {font-size: 90%; width: .8em; display: inline-block; text-align: center; padding-right: .6em; opacity: 0.6; box-sizing: content-box;}
+.ͼ1 .cm-completionIcon-function:after, .ͼ1 .cm-completionIcon-method:after {content: 'ƒ';}
+.ͼ1 .cm-completionIcon-class:after {content: '○';}
+.ͼ1 .cm-completionIcon-interface:after {content: '◌';}
+.ͼ1 .cm-completionIcon-variable:after {content: '𝑥';}
+.ͼ1 .cm-completionIcon-constant:after {content: '𝐶';}
+.ͼ1 .cm-completionIcon-type:after {content: '𝑡';}
+.ͼ1 .cm-completionIcon-enum:after {content: '∪';}
+.ͼ1 .cm-completionIcon-property:after {content: '□';}
+.ͼ1 .cm-completionIcon-keyword:after {content: '🔑︎';}
+.ͼ1 .cm-completionIcon-namespace:after {content: '▢';}
+.ͼ1 .cm-completionIcon-text:after {content: 'abc'; font-size: 50%; vertical-align: middle;}
+.ͼ1 .cm-tooltip {z-index: 500; box-sizing: border-box;}
+.ͼ2 .cm-tooltip {border: 1px solid #bbb; background-color: #f5f5f5;}
+.ͼ2 .cm-tooltip-section:not(:first-child) {border-top: 1px solid #bbb;}
+.ͼ3 .cm-tooltip {background-color: #333338; color: white;}
+.ͼ1 .cm-tooltip-arrow:before, .ͼ1 .cm-tooltip-arrow:after {content: ''; position: absolute; width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent;}
+.ͼ1 .cm-tooltip-above .cm-tooltip-arrow:before {border-top: 7px solid #bbb;}
+.ͼ1 .cm-tooltip-above .cm-tooltip-arrow:after {border-top: 7px solid #f5f5f5; bottom: 1px;}
+.ͼ1 .cm-tooltip-above .cm-tooltip-arrow {bottom: -7px;}
+.ͼ1 .cm-tooltip-below .cm-tooltip-arrow:before {border-bottom: 7px solid #bbb;}
+.ͼ1 .cm-tooltip-below .cm-tooltip-arrow:after {border-bottom: 7px solid #f5f5f5; top: 1px;}
+.ͼ1 .cm-tooltip-below .cm-tooltip-arrow {top: -7px;}
+.ͼ1 .cm-tooltip-arrow {height: 7px; width: 14px; position: absolute; z-index: -1; overflow: hidden;}
+.ͼ3 .cm-tooltip .cm-tooltip-arrow:before {border-top-color: #333338; border-bottom-color: #333338;}
+.ͼ3 .cm-tooltip .cm-tooltip-arrow:after {border-top-color: transparent; border-bottom-color: transparent;}
+.ͼo .cm-tooltip.cm-tooltip-autocomplete {border: 1px solid var(--lp-code-bg); border-radius: 8px; background: var(--lp-bg); color: var(--lp-content); font: 13px/1.5 system-ui, sans-serif; box-shadow: 0 6px 20px rgba(0,0,0,0.18); overflow: hidden;}
+.ͼo .cm-tooltip.cm-tooltip-autocomplete > ul {font-family: inherit; max-height: 14em;}
+.ͼo .cm-tooltip.cm-tooltip-autocomplete > ul > li {padding: 5px 9px; display: flex; gap: 10px; align-items: baseline;}
+.ͼo .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {background: var(--lp-code-bg); color: var(--lp-content);}
+.ͼo .cm-completionDetail {margin-left: auto; font-style: normal; font-size: 0.85em; color: var(--lp-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%;}
+.ͼp .cm-note-link {color: var(--lp-link); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; -webkit-touch-callout: none;}
+.ͼp .cm-note-link-tooltip {display: flex; flex-direction: column; gap: 2px; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--lp-code-bg); background: var(--lp-bg); color: var(--lp-content); font: 12px/1.4 system-ui, sans-serif; max-width: 320px; box-shadow: 0 6px 20px rgba(0,0,0,0.18);}
+.ͼp .cm-note-link-name {font-weight: 500; word-break: break-all;}
+.ͼp .cm-note-link-hint {color: var(--lp-muted);}
 
 
 
@@ -498,4 +552,4 @@ input::-webkit-search-cancel-button,input::-webkit-search-decoration,input::-web
 .cm-lp-rule { color: var(--lp-muted); }
 
 </style>
-</head><body><div id="shot"><div class="cm-lp-root" aria-label="Read-only demo" style="flex: 1; min-height: 0; overflow: hidden;"><div class="cm-editor ͼ1 ͼ2 "><div class="cm-announced" aria-live="polite"></div><div tabindex="-1" class="cm-scroller"><div style="tab-size: 4;" spellcheck="false" autocorrect="off" autocapitalize="off" writingsuggestions="false" translate="no" contenteditable="false" class="cm-content cm-lineWrapping" role="textbox" aria-multiline="true" aria-readonly="true" aria-placeholder="Write in markdown…" data-language="markdown"><div class="cm-line"><span class="cm-lp-h1"># A note you may read</span></div><div class="cm-line"><br></div><div class="cm-line">This is <img class="cm-widgetBuffer" aria-hidden="true"><span></span><img class="cm-widgetBuffer" aria-hidden="true"><span class="cm-lp-strong">formatted</span><img class="cm-widgetBuffer" aria-hidden="true"><span></span><img class="cm-widgetBuffer" aria-hidden="true"> prose, not a code face.</div><div class="cm-line"><br></div><div class="cm-line cm-lp-li" style="padding-left: 2ch; text-indent: -2ch;"><img class="cm-widgetBuffer" aria-hidden="true"><span class="cm-lp-bullet">•</span><img class="cm-widgetBuffer" aria-hidden="true"> one</div><div class="cm-line cm-lp-li" style="padding-left: 2ch; text-indent: -2ch;"><img class="cm-widgetBuffer" aria-hidden="true"><span class="cm-lp-bullet">•</span><img class="cm-widgetBuffer" aria-hidden="true"> two</div></div></div></div></div></div></body></html>
+</head><body><div id="shot"><div class="cm-lp-root" aria-label="Read-only demo" style="flex: 1; min-height: 0; overflow: hidden;"><div class="cm-editor ͼ1 ͼ2 ͼp ͼo"><div class="cm-announced" aria-live="polite"></div><div tabindex="-1" class="cm-scroller"><div style="tab-size: 4;" spellcheck="false" autocorrect="off" autocapitalize="off" writingsuggestions="false" translate="no" contenteditable="false" class="cm-content cm-lineWrapping" role="textbox" aria-multiline="true" aria-readonly="true" aria-placeholder="Write in markdown…" data-language="markdown" aria-autocomplete="list"><div class="cm-line"><span class="cm-lp-h1"># A note you may read</span></div><div class="cm-line"><br></div><div class="cm-line">This is <img class="cm-widgetBuffer" aria-hidden="true"><span></span><img class="cm-widgetBuffer" aria-hidden="true"><span class="cm-lp-strong">formatted</span><img class="cm-widgetBuffer" aria-hidden="true"><span></span><img class="cm-widgetBuffer" aria-hidden="true"> prose, not a code face.</div><div class="cm-line"><br></div><div class="cm-line cm-lp-li" style="padding-left: 2ch; text-indent: -2ch;"><img class="cm-widgetBuffer" aria-hidden="true"><span class="cm-lp-bullet">•</span><img class="cm-widgetBuffer" aria-hidden="true"> one</div><div class="cm-line cm-lp-li" style="padding-left: 2ch; text-indent: -2ch;"><img class="cm-widgetBuffer" aria-hidden="true"><span class="cm-lp-bullet">•</span><img class="cm-widgetBuffer" aria-hidden="true"> <span class="cm-note-link">[<img class="cm-widgetBuffer" aria-hidden="true"><span></span><img class="cm-widgetBuffer" aria-hidden="true"><span class="cm-lp-link">../3-resources/team</span><img class="cm-widgetBuffer" aria-hidden="true"><span></span><img class="cm-widgetBuffer" aria-hidden="true">]</span></div></div></div></div></div></div></body></html>
