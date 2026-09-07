@@ -58,6 +58,7 @@ import { darkColors, lightColors } from "../features/design/tokens";
 const COMMANDS_THAT_WRITE: readonly EditorCommand[] = [
   { name: "wrap", before: "**", after: "**" },
   { name: "toggleLinePrefix", prefix: "# " },
+  { name: "insertLink" },
   { name: "undo" },
   { name: "redo" },
 ];
@@ -439,6 +440,45 @@ describe("the accessory bar's commands", () => {
     w.host.run({ name: "toggleLinePrefix", prefix });
     w.flush();
     expect(w.view.state.doc.toString()).toBe(NOTE);
+    w.destroy();
+  });
+
+  /**
+   * A2: `link` is the sixth verb in `EditorCommand`, and this is its own
+   * pass through the same real-bridge-real-EditorView harness the other five
+   * get — not the `NoteAccessory.tsx` mock, which only proves the key calls
+   * `controls.insertLink()`.
+   *
+   * Selected text is dropped rather than wrapped — `[[some text]]` names
+   * nothing — so this is the one accessory command in the file whose
+   * assertion is deliberately *not* "selection preserved" the way `wrap`'s is
+   * above.
+   */
+  test("link inserts [[]] at the caret and drops the selection, without dropping focus", () => {
+    const w = connect({ doc: NOTE, editable: true });
+    w.view.focus();
+    const at = NOTE.indexOf("Some **bold**");
+    w.view.dispatch({ selection: { anchor: at, head: at + "Some".length } });
+    const focusEventsBefore = w.focus.length;
+
+    w.host.run({ name: "insertLink" });
+    w.flush();
+
+    expect(w.view.state.doc.toString()).toBe(
+      `${NOTE.slice(0, at)}[[]]${NOTE.slice(at + "Some".length)}`,
+    );
+    // Between the brackets, not wrapping the four characters that were
+    // selected — those are gone rather than sitting inside `[[Some]]`.
+    expect(w.view.state.selection.main.anchor).toBe(at + 2);
+    expect(w.view.state.selection.main.head).toBe(at + 2);
+    expect(w.changes).toEqual([w.view.state.doc.toString()]);
+    // THE FAKE-KEYBOARD CHECK: running a bar command is a `postMessage` round
+    // trip on the one platform where the keyboard is a WebView's own
+    // `contentDOM` having focus. A command that cost that focus would drop
+    // the keyboard out from under whoever pressed the key — this bridge has
+    // no simulator to catch that on, so what is asserted is the one thing
+    // that would show it here: no further `onFocus` report crossed at all.
+    expect(w.focus.slice(focusEventsBefore)).toEqual([]);
     w.destroy();
   });
 
