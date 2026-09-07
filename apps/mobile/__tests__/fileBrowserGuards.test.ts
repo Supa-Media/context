@@ -13,9 +13,8 @@ import type { FolderListing, OpenNote } from "../features/console/files/types";
 /**
  * **The four `useFileBrowser` guards that nothing held.**
  *
- * Row 117 of the security register: in this console every guard expressed as a
- * pure module is caught by a test (13 of 13) and every guard living inside a
- * hook is not (0 of 8). `#102` and `#106` took the ones that could be moved
+ * In this console every guard expressed as a pure module is caught by a test
+ * (13 of 13) and every guard living inside a hook is not (0 of 8). `#102` and `#106` took the ones that could be moved
  * out. These four cannot be — they are decisions about *when to call the
  * server*, which only exist in the hook — so they get a mounted-hook harness
  * instead, the same one `saveTimeout.test.ts` and `fileErrorCallSites.test.ts`

@@ -493,18 +493,22 @@ export async function runConsoleBridgeChecks(check) {
       distance.
 
       So this stops modelling the bundle. It reads `packages/` and walks all of
-      it, which is **deliberately wider** than the main process — most of what
-      it covers is not in that bundle at all. Wider is the affordable mistake
-      here: the cost is a false red when somebody writes the identifier in a
-      package nothing imports, and the thing it buys is that no dependency
-      edge, in either direction, can move first-party code out of the census.
-      Nothing is hand-listed, so there is no list to go stale and nothing to
-      throw about.
+      it, which is **deliberately wider** than the main process: measured, the
+      walk visits 107 files and 61 of them are first-party inputs of the main
+      bundle, so a bit under half of what it covers is not in that bundle.
+      (An earlier version of this sentence said "most", which was a guess
+      standing where a measurement belonged, in the paragraph about not
+      guessing.) Wider is the affordable mistake here: the cost is a false red
+      when somebody writes the identifier in a package nothing imports, and
+      what it buys is that no dependency edge, in either direction, can move
+      first-party code out of the census. Nothing is hand-listed, so there is
+      no list to go stale and nothing to throw about.
 
       `desktop-bridge/src/contract.ts` mentions the identifier in prose, which
       is why the total below is 28 rather than 27.
     */
-    const packagesDir = new URL("../../../packages/", import.meta.url);
+    const repoRoot = new URL("../../../", import.meta.url);
+    const packagesDir = new URL("packages/", repoRoot);
     const bundled = readdirSync(packagesDir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && entry.name !== "node_modules")
       .map((entry) => new URL(`${entry.name}/`, packagesDir));
@@ -573,26 +577,32 @@ export async function runConsoleBridgeChecks(check) {
     };
 
     /*
-      `node_modules` at any depth, because walking a package root without it
-      reads the whole store. Generated output ONLY as a direct child of a
-      walked root, because that is where a package's own build lands.
+      `node_modules` and `.git` at any depth, because walking a package root
+      without them reads the whole store. **Nothing else**, and the two shapes
+      that tried to skip more are why.
 
-      The difference is not pedantry: a previous shape skipped `dist`, `build`
-      and `coverage` at every depth, and a review put a real registration in
-      `src/main/dist/` — a hand-written source directory that merely shares a
-      name with an output one — and watched it stay green while appearing in
-      the bundler's own input list. **A filter on a directory's NAME is not a
-      filter on whether it is generated**, so it is applied only where the
-      answer is structural.
+      The first skipped `dist`, `build` and `coverage` at every depth, and a
+      review put a real registration in `src/main/dist/` — a hand-written source
+      directory that merely shares a name with an output one — and watched it
+      stay green while appearing in the bundler's own input list. The second
+      narrowed that to a walked root's direct children, on the stated ground
+      that "that is where a package's own build lands". **Both halves of that
+      were false**: `scripts/build.mjs` writes to `apps/desktop/dist`, which is
+      outside the walked `src/`, and no package under `packages/` has a build
+      script at all. So it guarded nothing that exists while blinding twelve
+      committable directories — `build/` and `coverage/` are not gitignored.
+
+      A filter on a directory's NAME is not a filter on whether it is
+      generated, and the honest conclusion is not a better name filter but no
+      name filter. A genuine build output walked one day costs a false red,
+      which is the direction this census already chose everywhere else.
     */
     const ALWAYS_SKIP = new Set(["node_modules", ".git"]);
-    const OUTPUT_AT_ROOT = new Set(["dist", "build", "coverage"]);
-    const walk = (dir, atRoot = true) =>
+    const walk = (dir) =>
       readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
         if (!entry.isDirectory()) return [new URL(entry.name, dir)];
         if (ALWAYS_SKIP.has(entry.name)) return [];
-        if (atRoot && OUTPUT_AT_ROOT.has(entry.name)) return [];
-        return walk(new URL(`${entry.name}/`, dir), false);
+        return walk(new URL(`${entry.name}/`, dir));
       });
 
     let registrations = 0;
@@ -738,9 +748,10 @@ export async function runConsoleBridgeChecks(check) {
       here with its counts, by repository-relative path. A file added, removed,
       renamed, or changed in either count is a diff against this literal, so a
       balancing edit puts **both** of its halves in the drift list rather than
-      cancelling out. (One red check with two entries, not two red checks — the
-      failure line prints the first, and the totals beside it say which
-      direction the surface moved.)
+      cancelling out. (One red check with two entries, not two red checks, and
+      the failure line prints the first of them. The totals say nothing in that
+      case — measured, a balancing edit leaves both of them green, which is the
+      entire reason this map exists.)
     */
     const CENSUS = {
       "apps/desktop/src/core/shell/bridge.ts": "1 mention, 0 ipc calls",
@@ -753,7 +764,7 @@ export async function runConsoleBridgeChecks(check) {
     let mentions = 0;
     let scoped = 0;
     const census = {};
-    for (const file of [...walk(srcDir), ...bundled.flatMap(walk)]) {
+    for (const file of [...walk(srcDir), ...bundled.flatMap((dir) => walk(dir))]) {
       if (!/\.(?:[cm]?[jt]sx?)$/.test(file.pathname)) continue;
       const raw = readFileSync(file, "utf8");
       const seen = (raw.match(/\bipcMain\b/g) ?? []).length;
@@ -761,7 +772,15 @@ export async function runConsoleBridgeChecks(check) {
       mentions += seen;
       scoped += calls;
       if (seen === 0 && calls === 0) continue;
-      const relative = file.pathname.replace(/^.*?\/(apps|packages)\//, "$1/");
+      /*
+        Relative to the repository root, not to the first `apps/` or
+        `packages/` segment in the absolute path. The regex form read the
+        checkout: a clone at `/srv/apps/checkout` turned every key into
+        `apps/checkout/…` and drifted all six. A false red rather than a false
+        green, so it was never dangerous — but a guard that fails on somebody
+        else's directory layout is a guard they will delete.
+      */
+      const relative = file.pathname.slice(repoRoot.pathname.length);
       census[relative] =
         `${seen} mention${seen === 1 ? "" : "s"}, ${calls} ipc call${calls === 1 ? "" : "s"}`;
     }
@@ -774,9 +793,12 @@ export async function runConsoleBridgeChecks(check) {
     // different.
     //
     // "IN THE WALK" and not "IN THE MAIN BUNDLE", because the walk is a
-    // directory list and the bundle is what esbuild resolves. They agree on
-    // this tree and a check should not claim the stronger of two things it
-    // cannot tell apart.
+    // directory list and the bundle is what esbuild resolves. They do NOT
+    // agree even on this tree — 28 in the walk against 27 over the main
+    // bundle's own inputs, the difference being `core/shell/bridge.ts`, which
+    // esbuild puts in the console preload rather than the main bundle. An
+    // earlier note here said they agree; it was asserted rather than measured,
+    // which is the whole reason the check is named for the walk.
     check(
       `EVERY MENTION OF ipcMain IN THE WALK IS ACCOUNTED FOR — ${mentions} of 28`,
       mentions === 28,

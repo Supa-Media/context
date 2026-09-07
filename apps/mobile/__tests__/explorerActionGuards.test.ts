@@ -19,9 +19,8 @@ import { displayName } from "../features/console/files/paths";
  * **The `Explorer` guards that decide whether the console asks the server at
  * all.**
  *
- * Row 117 of the security register: every guard in this console expressed as a
- * pure module is held by a test, and every guard living inside a component or a
- * hook was held by nothing. `#102`, `#106` and `#112` took the ones that could
+ * Every guard in this console expressed as a pure module is held by a test,
+ * and every guard living inside a component or a hook was held by nothing. `#102`, `#106` and `#112` took the ones that could
  * be moved out or driven through a mounted hook. `Explorer` is the last layer,
  * and it is the one that decides *when* to call `menu.ts`, `dnd.ts` and the
  * `FileBrowser` — decisions that only exist in the component.

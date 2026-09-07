@@ -825,20 +825,27 @@ the claim it is careful not to make:
   and not by distance — so a manifest is a near-neighbour of what it reads and
   never the same fact.
 - **So it reads `packages/` and walks all of it**, which is deliberately wider
-  than the main process; most of what it covers is not in that bundle. Wider is
-  the affordable mistake: the cost is a false red for the identifier written in
-  a package nothing imports, and what it buys is that no dependency edge, in
-  either direction, can move first-party code out of the census. Nothing is
-  hand-listed, so there is no list to go stale.
+  than the main process: measured, the walk visits 107 files and 61 of them are
+  first-party inputs of the main bundle, so a bit under half of what it covers
+  is not in it. Wider is the affordable mistake: the cost is a false red for the
+  identifier written in a package nothing imports, and what it buys is that no
+  dependency edge, in either direction, can move first-party code out of the
+  census. Nothing is hand-listed, so there is no list to go stale.
 - **The method name is any member call**, not the three verbs somebody thought
   of, because `handleOnce` and `addListener` are on the same interface and
   passed green.
-- **Generated directories are skipped only as a direct child of a walked
-  root.** An earlier shape skipped `dist`, `build` and `coverage` at every
-  depth; a review put a real registration in `src/main/dist/` — a hand-written
-  source directory sharing a name with an output one — and watched it stay
-  green while appearing in the bundler's own input list. A filter on a
-  directory's *name* is not a filter on whether it is generated.
+- **Nothing is skipped by name except `node_modules` and `.git`.** Two shapes
+  tried to skip build output and both were wrong. The first skipped `dist`,
+  `build` and `coverage` at every depth, and a review put a real registration in
+  `src/main/dist/` — a hand-written source directory sharing a name with an
+  output one — and watched it stay green while appearing in the bundler's own
+  input list. The second narrowed that to a walked root's direct children, on
+  the ground that "that is where a package's own build lands"; measured, the
+  desktop build writes to `apps/desktop/dist`, outside the walked `src/`, and no
+  package under `packages/` has a build script at all — so it guarded nothing
+  and blinded twelve committable directories, since `build/` and `coverage/` are
+  not gitignored. **A filter on a directory's name is not a filter on whether it
+  is generated**, and the conclusion is no name filter rather than a better one.
 
 Alongside the two totals, the counts are asserted as a **map of file to counts,
 compared whole** — not by basename. A total says how many there are and nothing
