@@ -268,6 +268,7 @@ export { notesOnlyRecorder } from "./notesOnly";
 export { audioRecorder } from "./audio";
 export { fakeRecorder, fakeSegment, type FakeRecorder } from "./fake";
 export { SEGMENT_MS } from "./segments";
+export { useAudioLevel } from "./level";
 export {
   setTranscriptionClient,
   type ChunkTranscriber,

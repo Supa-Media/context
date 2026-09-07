@@ -10,6 +10,7 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { Waveform } from "./components/Waveform";
+import { LiveWaveform } from "./components/LiveWaveform";
 import { NotesPad } from "./components/NotesPad";
 import { meetings, recordElapsedMs } from "./controller";
 import { attendeeCount, clock, sourceLabel, timeOfDay } from "./format";
@@ -147,6 +148,15 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
 
   const { session } = record;
   const paused = session.state === "paused";
+  /*
+    Whether anything is actually listening, which is not the same as whether a
+    meeting is running. A notes-only session — a browser with no microphone, a
+    shell that reports no audio at all — has a clock and a notepad and nothing
+    on an input, and the meter has to say that rather than draw a live mark
+    over it. That claim is the one `TranscriptChip` below already refuses to
+    make in words; this is the same refusal in the shape it is read in.
+  */
+  const hearing = snapshot.capture.audio && session.state === "recording";
 
   return (
     <Screen style={styles.screen} chrome={{ bottom: keyboard }} testID="live-meeting">
@@ -227,7 +237,21 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
           </Pressable>
 
           <View style={styles.clockGroup}>
-            <Waveform tone={paused ? "muted" : "ok"} paused={paused} />
+            {/*
+              THE ONE METER, and the only thing on this screen that moves.
+
+              `hearing` is the screen's own two facts — this build can capture
+              at all, and an input is open right now — so a paused meeting and a
+              typed-notes-only one both draw the flat baseline rather than a
+              green mark over a microphone nobody opened. The subscription is
+              inside `LiveWaveform`, so a level ten times a second re-renders
+              that leaf and not this screen; `NotesPad` never hears about it.
+
+              The mark on the pause button beside it stays static on purpose:
+              it is a button's glyph, not a second meter, and two meters in one
+              66pt bar would be two answers to one question.
+            */}
+            <LiveWaveform live={hearing} testID="meeting-level" />
             <Text style={styles.clock} testID="meeting-clock">
               {clock(recordElapsedMs(record, now === 0 ? Date.now() : now))}
             </Text>
