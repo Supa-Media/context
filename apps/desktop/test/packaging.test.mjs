@@ -157,8 +157,20 @@ export function runPackagingChecks(check) {
   check("...and it builds the bundle first, because the dmg ships `dist/`", manifest.scripts.package.includes("scripts/build.mjs"));
   check("electron-builder is a devDependency, not something a build downloads", "electron-builder" in manifest.devDependencies);
   check("...as is the notarisation tool the hook requires", "@electron/notarize" in manifest.devDependencies);
+  /*
+    What ends up inside the asar, checked as a rule rather than as a list.
+
+    Pinning the exact set was the first version and it was wrong in the
+    direction that matters: it would have gone red on a workspace package the
+    app legitimately started using, which is a check that has to be edited to
+    stay true. What is worth holding is that this app ships **no third-party
+    runtime code** — every dependency is one of ours, in this repository, and
+    esbuild bundles it. A signed binary is the last place to grow a supply
+    chain nobody reviewed.
+  */
   check(
-    "the app still has no runtime dependency but the shared meetings core",
-    Object.keys(manifest.dependencies).join(",") === "@context/meetings",
+    "every runtime dependency is one of ours, in this repository",
+    Object.keys(manifest.dependencies).every((name) => name.startsWith("@context/") || name.startsWith("@context-lc/")),
   );
+  check("...and there is at least one, so that rule is checking something", Object.keys(manifest.dependencies).length > 0);
 }
