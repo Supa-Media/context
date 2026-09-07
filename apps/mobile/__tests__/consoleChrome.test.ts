@@ -490,11 +490,23 @@ describe("the panes that are not Browse carry the navigation too", () => {
       root.render(
         createElement(
           NavBandProvider as never,
-          // Any node at all: `NavBand` draws the band when the provider holds
-          // one, and what the contexts row contains is `ContextStrip`'s own
-          // question, tested in `contextStrip.test.ts`. Passing a real strip
-          // here would couple this to that component's props for nothing.
-          { node: createElement("div", null, "contexts") },
+          /*
+            Plain nodes: `NavBand` draws the band when the provider holds any,
+            and what the contexts row CONTAINS is `ContextStrip`'s own question,
+            asked in `contextStrip.test.ts`. Coupling this to that component's
+            props would buy nothing and break on a rename.
+
+            The shape here is `nodes: { contexts, current }`. It was `node` when
+            this was written, and #255 changed it — which these two checks
+            caught by failing, which is the whole point of mounting the real
+            component rather than a fixture that supplies it.
+          */
+          {
+            nodes: {
+              contexts: createElement("div", null, "contexts"),
+              current: createElement("div", null, "here"),
+            },
+          },
           createElement(
             EditorRegion as never,
             { browse: false, failure: null, tabs: null, onCloseTab: () => {}, phone },
