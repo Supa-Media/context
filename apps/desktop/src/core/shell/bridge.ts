@@ -33,7 +33,7 @@
  * ## Why a refusal is an answer rather than a throw
  *
  * A promise rejected inside `ipcMain.handle` reaches the renderer as
- * `Error: Error invoking remote method 'context:capture-start': …`, and the
+ * `Error: Error invoking remote method 'context:console-capture-start': …`, and the
  * page renders `error.message` at a person — `capture/desktop.ts` says so:
  * *"The message is the shell's own sentence when it gave one"*. So the main
  * process answers `{ ok: false, message }` with a sentence `capture/plan.ts`

@@ -159,16 +159,33 @@ export const CONSOLE_BRIDGE_MESSAGES = Object.freeze({
 export function isConsoleFrame(event: BridgeSenderEvent, webContentsId: number | null): boolean {
   if (webContentsId === null) return false;
 
-  const senderId = event.sender?.id;
-  if (typeof senderId !== "number" || senderId !== webContentsId) return false;
+  /*
+    Every read below is a *getter on a live Electron object*, and two of them
+    throw rather than answer once the thing behind them has gone away:
+    `event.senderFrame` raises "Render frame was disposed before WebFrameMain
+    could be accessed" for a frame that navigated or closed while the call was
+    in flight, and `event.sender.id` raises "Object has been destroyed" for a
+    webContents that is gone. Both are ordinary — a page reloaded mid-drain
+    produces the first — and neither may become a throw out of this guard: on
+    `handle` that is a rejection carrying Electron's own text, and on the two
+    synchronous channels it is a listener that never sets `returnValue`, which
+    leaves the preload's `sendSync` waiting. So the read is the guarded part and
+    the answer to any of it going wrong is the same as every other refusal here.
+  */
+  try {
+    const senderId = event.sender?.id;
+    if (typeof senderId !== "number" || senderId !== webContentsId) return false;
 
-  const frame = event.senderFrame;
-  if (frame === null || frame === undefined) return false;
-  // `parent === null` is Electron's own answer for "this is the top frame".
-  // Anything else — including an absent property — is refused rather than
-  // assumed, because absence here is exactly what a subframe would look like to
-  // a check written the other way round.
-  return frame.parent === null;
+    const frame = event.senderFrame;
+    if (frame === null || frame === undefined) return false;
+    // `parent === null` is Electron's own answer for "this is the top frame".
+    // Anything else — including an absent property — is refused rather than
+    // assumed, because absence here is exactly what a subframe would look like
+    // to a check written the other way round.
+    return frame.parent === null;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -184,6 +201,9 @@ export function isBridgeSender(
 
   let origin = "";
   try {
+    // Both halves of this are inside the `try` on purpose: reading `senderFrame`
+    // can throw for a frame that has gone away, exactly as in `isConsoleFrame`,
+    // and `new URL` throws for the `url` of a frame that never settled.
     origin = new URL(String(event.senderFrame?.url)).origin;
   } catch {
     return false;
@@ -253,9 +273,16 @@ function messageOf(error: unknown, fallback: string): string {
  */
 export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
   const windowId = (): number | null => {
-    const win = deps.window();
-    if (win === null || win.isDestroyed()) return null;
-    return win.webContents.id;
+    // `isDestroyed()` and `webContents` are both live Electron reads, and a
+    // window torn down between the two throws rather than answering. No window
+    // is the honest reading of that, and it refuses everything.
+    try {
+      const win = deps.window();
+      if (win === null || win.isDestroyed()) return null;
+      return win.webContents.id;
+    } catch {
+      return null;
+    }
   };
 
   const allowed = (event: BridgeSenderEvent): boolean =>
@@ -299,7 +326,20 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
    */
   function answerSync(channel: string, value: () => unknown): void {
     deps.ipc.on(channel, (event) => {
-      event.returnValue = isConsoleFrame(event, windowId()) ? value() : null;
+      /*
+        `returnValue` is set on every path, including the ones that went wrong.
+
+        A synchronous IPC listener that throws leaves `returnValue` unset, and
+        the renderer's `sendSync` is *blocking* while it waits: the preload runs
+        at document start, so the failure mode is a window that never paints
+        rather than a window with no bridge. `null` is what the preload already
+        reads as "no pin", and it fails closed there.
+      */
+      try {
+        event.returnValue = isConsoleFrame(event, windowId()) ? value() : null;
+      } catch {
+        event.returnValue = null;
+      }
     });
   }
 
@@ -345,9 +385,20 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
   });
 
   function send(channel: string, payload: unknown): void {
-    const win = deps.window();
-    if (win === null || win.isDestroyed()) return;
-    win.webContents.send(channel, payload);
+    /*
+      A window that went away between the check and the send throws, and one
+      push is four sends: without this, a window closed mid-`push` would take
+      the connection, queue and detection updates down with the capture one —
+      and the caller is `push()` in `main/index.ts`, which every state change in
+      the shell runs through.
+    */
+    try {
+      const win = deps.window();
+      if (win === null || win.isDestroyed()) return;
+      win.webContents.send(channel, payload);
+    } catch {
+      /* The window is gone. There is nobody to tell, and nothing to record. */
+    }
   }
 
   return {

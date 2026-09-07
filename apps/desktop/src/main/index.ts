@@ -673,6 +673,10 @@ async function main(): Promise<void> {
         systemAudioCapability({
           platform: process.platform,
           packaged: app.isPackaged,
+          // The same build-time literal the updater reads, and asked for the
+          // same reason: macOS gives a loopback tap to a signed, notarised app,
+          // and a locally packaged unsigned build is neither.
+          signed: __CONTEXT_DESKTOP_SIGNED__,
           darwinMajor: darwinMajorFrom(release()),
           probed: systemAudioAvailable,
         }),
