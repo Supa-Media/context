@@ -76,23 +76,27 @@ jobs:
     timeout-minutes: 45
     environment: production
     # `contents: write`, overriding the workflow's own `contents: read` above,
-    # because a `publish: true` dispatch hands electron-builder `GH_TOKEN` and
-    # asks it to create a GitHub Release. GitHub Actions has no conditional
-    # permission — a job declares one scope for every run it will ever have,
-    # not one per input — so the choice is between this override and a second
-    # job that duplicates the entire certificate-and-build sequence above it
-    # just to hold a narrower scope. That duplication is the worse trade: twice
-    # the signing surface, two keychains to leak instead of one, and a copy of
-    # ~180 lines that drifts the day only one of them is edited. What actually
-    # keeps this scope narrow is downstream of here rather than in this key:
-    # the token this run receives is minted for this run alone and expires with
-    # it, dispatching this workflow at all already requires write access to the
-    # repository, and the API call the elevated scope would allow is reached
-    # from exactly one place — the `--publish` flag on the Build step below —
-    # gated on `publish == 'true'` AND a signed AND notarised build. Every
-    # dispatch that leaves `publish` at its default touches nothing this scope
-    # adds. See docs/decisions/desktop.md, "The shell updates itself", for the
-    # test that fails if that gate is ever removed instead of the scope.
+    # because a `publish: true` dispatch hands `GH_TOKEN` to the "Publish the
+    # release" step and asks it to create a GitHub Release. GitHub Actions has
+    # no conditional permission — a job declares one scope for every run it
+    # will ever have, not one per input — so the choice is between this
+    # override and a second job that duplicates the entire
+    # certificate-and-build sequence above it just to hold a narrower scope.
+    # That duplication is the worse trade: twice the signing surface, two
+    # keychains to leak instead of one, and a copy of ~180 lines that drifts
+    # the day only one of them is edited. What actually keeps this scope
+    # narrow is downstream of here rather than in this key: the token this run
+    # receives is minted for this run alone and expires with it, dispatching
+    # this workflow at all already requires write access to the repository,
+    # and the API call the elevated scope would allow is reached from exactly
+    # one place — the "Publish the release" step, gated on `publish == 'true'`
+    # AND a signed AND notarised build AND the launch step's own outcome
+    # (`docs/decisions/desktop.md`, "A release is a build that started"). The
+    # Build step itself always passes `--publish never` now and never touches
+    # this scope at all. Every dispatch that leaves `publish` at its default
+    # touches nothing this scope adds. See docs/decisions/desktop.md, "The
+    # shell updates itself", for the test that fails if that gate is ever
+    # removed instead of the scope.
     permissions:
       contents: write
     steps:
@@ -400,6 +404,19 @@ jobs:
       # the way that file's header explains; the hook's own
       # "submitting … / done — notarised and stapled" lines, right after, are
       # the notarisation that actually happens.
+      #
+      # ## Why this always passes `--publish never`, even when `publish: true` was dispatched
+      #
+      # It used to branch on `steps.decide.outputs.publish` and pass `always`
+      # there — which published straight out of electron-builder's own GitHub
+      # provider, *inside this step*, before anything downstream had a chance
+      # to object. A crashing build reaching a GitHub Release is not a
+      # theoretical risk: `electron-updater` polls that release and would
+      # auto-install the crash onto every Mac already running this app. So
+      # publishing is no longer a flag on this command at all — it is a
+      # separate step, "Publish the release" below, gated on the launch step
+      # in between actually passing. This step's only job is to produce the
+      # bits; nothing it does can put them in front of an installed base.
       - name: Build
         working-directory: apps/desktop
         env:
@@ -411,33 +428,23 @@ jobs:
           # already decided this; this is that decision reaching the code that
           # arms `autoUpdater`.
           CONTEXT_DESKTOP_SIGNED: ${{ steps.certificate.outputs.signed }}
-          # Present on every run; only load-bearing when the line below passes
-          # `--publish always`. Unused, it is inert — electron-builder makes no
-          # network call for a `--publish never` build, signed or not.
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PUBLISH: ${{ steps.decide.outputs.publish }}
         run: |
           set -o pipefail
           pnpm run build
-          if [ "$PUBLISH" = "true" ]; then
-            publish_policy=always
-          else
-            publish_policy=never
-          fi
-          pnpm exec electron-builder --mac --config electron-builder.yml --publish "$publish_policy" 2>&1 \
+          pnpm exec electron-builder --mac --config electron-builder.yml --publish never 2>&1 \
             | bash build/redact-signing-log.sh
 
       - name: What was produced
         working-directory: apps/desktop
         env:
-          PUBLISHED: ${{ steps.decide.outputs.publish }}
+          WILL_PUBLISH: ${{ steps.decide.outputs.publish }}
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
           ls -la release/*.dmg
           ls -la release/*.zip release/latest-mac.yml 2>/dev/null || true
-          if [ "$PUBLISHED" = "true" ]; then
-            echo "Published v$VERSION to GitHub Releases — electron-builder's own log above named the assets it uploaded."
+          if [ "$WILL_PUBLISH" = "true" ]; then
+            echo "This dispatch asked to publish v$VERSION — that happens in the \"Publish the release\" step, and only if the launch check below passes."
           fi
 
       # `spctl --assess` on the `.dmg` itself always said "no usable
@@ -556,21 +563,20 @@ jobs:
       # the exit-code check below already covers it — the separate message is
       # for a human reading the log, not a second control path).
       #
-      # ## What this cannot check, same honesty as the step above it
+      # ## Why this gates publishing too, not just the artifact upload
       #
-      # `--publish always` runs *inside* `electron-builder --mac` in the Build
-      # step above — electron-builder's own GitHub provider uploads as part of
-      # building, not as a step this workflow could still refuse to reach. A
-      # `publish: true` dispatch of a build that fails this gate has therefore
-      # already been uploaded to a GitHub Release by the time this step runs,
-      # the same limitation `docs/decisions/desktop.md` now records: this step
-      # still fails the job — red CI, an `::error::` line, nobody merges or
-      # trusts that run — which is the same shape as the Gatekeeper check right
-      # above it, checking a dmg whose contents were, by construction, already
-      # written to disk. What this step unconditionally prevents is the
-      # artifact upload two steps down, on every dispatch, signed or not,
-      # publishing or not.
+      # The Build step above always passes `--publish never` now — nothing it
+      # does can reach a GitHub Release. Whether this dispatch publishes at
+      # all is decided by the "Publish the release" step below, and that step
+      # is gated on `steps.smoke.outcome == 'success'` (this step's own id).
+      # `electron-updater` polls the latest published release and would
+      # auto-install whatever is there onto every Mac already running this
+      # app, so a build that cannot start must never reach that release in
+      # the first place — not "fail the job after the fact," which is what
+      # gating only the artifact upload would still have left true of
+      # publishing.
       - name: Launch the app it just built
+        id: smoke
         working-directory: apps/desktop
         run: |
           set -uo pipefail
@@ -666,6 +672,65 @@ jobs:
           fi
 
           exit "$status"
+
+      # electron-builder's own GitHub provider used to do this, from inside
+      # the Build step, before the app it was publishing had ever been run.
+      # This step is what replaces that: it runs only after the launch step
+      # above has actually started the app, so a build that cannot open a
+      # window never reaches the release `electron-updater` polls.
+      #
+      # ## Why `gh release create`/`upload` and not a second electron-builder invocation
+      #
+      # Re-running `electron-builder --publish always` here would re-sign,
+      # re-notarise and re-package from scratch — a *different* set of bytes
+      # than the ones the launch step just tested, which defeats the entire
+      # point of testing them first. `gh release create` instead uploads the
+      # exact files already sitting in `release/` from the Build step above,
+      # untouched.
+      #
+      # ## What actually needs to be there
+      #
+      # Read from `node_modules/electron-updater`'s own `GitHubProvider.js`:
+      # `getLatestVersion()` fetches `<tag>/<channel>.yml` — `latest-mac.yml`
+      # on macOS (`getChannelFilePrefix()` returns `-mac` there) — parses the
+      # file list out of it, and resolves each entry's URL against the same
+      # release. So the updater needs exactly `latest-mac.yml` and the zip(s)
+      # it names, both under this tag; it never asks for the dmg at all. The
+      # dmg is uploaded anyway, for the same reason it always has been: it is
+      # what a person double-clicks their way through on a first install, and
+      # `electron-builder.yml`'s "Why the zip target is not cosmetic" already
+      # explains why both exist. Nothing here changes what gets uploaded, only
+      # who uploads it and when.
+      #
+      # ## Why this is gated the way it is
+      #
+      # `steps.decide.outputs.publish` is already "the dispatch asked for it,
+      # AND signed, AND notarised" (see "Decide whether to publish" above) —
+      # `steps.smoke.outcome == 'success'` adds the one condition that step
+      # cannot see. GitHub Actions already skips every later step once one
+      # fails, so a failed launch step alone would stop this from running —
+      # this condition is the explicit, testable version of that rather than
+      # a reliance on default behaviour surviving the next edit to this file.
+      #
+      # `gh release create` on a tag this repository already released fails
+      # outright rather than overwriting it — the same refusal
+      # "Refuse to publish a version already released" already gives earlier,
+      # now backstopped here too rather than trusted to have been the only
+      # check.
+      - name: Publish the release
+        if: steps.decide.outputs.publish == 'true' && steps.smoke.outcome == 'success'
+        working-directory: apps/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            release/*.dmg release/*.zip release/latest-mac.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --notes "Built and smoke-tested by deploy-desktop.yml — the app in this release opened a window before it was published."
+          echo "Published $TAG — electron-updater reads latest-mac.yml and the zip(s) it names; the dmg is for a first, manual install."
 
       - uses: actions/upload-artifact@v4
         with:

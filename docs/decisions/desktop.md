@@ -1085,27 +1085,48 @@ at all. Gating the launch on either would have left the common path — the one
 the original crash report actually came from — exactly as unguarded as it was
 before this decision.
 
-**It sits before the artifact upload, and after the point where a requested
-publish already happened — stated rather than hidden.** `electron-builder
---mac --config electron-builder.yml --publish always` runs *inside* the Build
-step; electron-builder's own GitHub provider uploads to the release as part of
-building, not as something a later workflow step can still refuse to reach. So
-a `publish: true` dispatch of a build that fails this gate has, by the time
-this step runs, already shipped a release — the same shape the Gatekeeper
-check directly above it already lives with, verifying a dmg whose bytes are,
-by construction, already on disk. What this step *does* unconditionally
-prevent is the artifact upload two steps below it (`actions/upload-artifact`),
-on every dispatch, and it still fails the job in red on a publish that already
-went out, which is what stops that release being trusted or merged around
-rather than what stops it existing. Closing the second half — never letting
-electron-builder publish before this gate runs — needs decoupling build from
-publish (build once with `--publish never`, gate, then publish the exact
-smoke-tested files with a separate `gh release create` rather than a second
-electron-builder invocation, which would re-sign and re-notarise a different
-set of bytes than the ones just tested). That is real surgery on a
-security-relevant path and is deliberately not bundled into this change;
-flagged here as the next step rather than done silently or claimed as already
-done.
+**It sits before the artifact upload, and before publishing too — build and
+publish are two steps now, not one.** The first version of this decision left
+a real gap and said so rather than hiding it: `electron-builder --mac
+--config electron-builder.yml --publish always` used to run *inside* the
+Build step, and electron-builder's own GitHub provider uploaded to the
+release as part of building — before this launch step, or anything else, had
+a chance to object. That was flagged here as follow-up rather than shipped as
+if it were already closed, and closing it turned out to matter immediately:
+`electron-updater` polls the *latest published release* and would auto-install
+whatever is there onto every Mac already running this app, so a crashing
+build reaching that release is not a "red CI, nobody trusts it" outcome — it
+is a real regression pushed to a live install base. **So the Build step now
+always passes `--publish never`, full stop**, and publishing is a separate
+step, *"Publish the release"*, gated on `steps.decide.outputs.publish ==
+'true'` (the pre-existing publish/signed/notarised decision) **AND
+`steps.smoke.outcome == 'success'`** — this launch step's own outcome, by its
+step id. Nothing that fails to start can reach the release any more, not just
+the CI artifact.
+
+**Publishing reuses the exact bits the launch step tested, rather than
+building a second time.** The obvious-looking fix — build once ungated, gate,
+then run `electron-builder --publish always` again to publish — was rejected:
+a second invocation re-signs, re-notarises and re-packages from scratch, which
+is a *different* set of bytes than the ones that were just launched and
+verified. That defeats the entire point of testing first. So the Publish step
+instead runs `gh release create "$TAG" release/*.dmg release/*.zip
+release/latest-mac.yml`, uploading the exact files the Build step already
+produced, with the workflow's own built-in `GH_TOKEN` — no new secret. `gh
+release create` on a tag this repository already released fails outright
+rather than overwriting it, which backstops the earlier "Refuse to publish a
+version already released" step rather than replacing it.
+
+**What actually has to be in that upload was read out of the dependency,
+not assumed.** `node_modules/electron-updater`'s own `GitHubProvider.js`
+shows `getLatestVersion()` fetching `<tag>/latest-mac.yml` (macOS's channel
+file — `getChannelFilePrefix()` returns `-mac` there) and `resolveFiles()`
+resolving each entry inside it against the same release; the updater never
+asks for the dmg at all. So the three files uploaded are exactly `latest-mac.yml`,
+the zip(s) it names, and the dmg — the last one for a person's first, manual
+install, not for the updater, which is unchanged from what electron-builder
+was already uploading before this decision, just uploaded by `gh` now instead
+of by electron-builder.
 
 **The x64 launch is attempted only where the runner can actually run it.**
 `macos-latest` has been an Apple Silicon image since macos-14, and an arm64
@@ -1130,13 +1151,22 @@ is the same reasoning `#285`'s own decision gives for that script existing at
 all: two copies of a regex are two chances for them to drift, and the exact
 way this repository's own redaction bug shipped once already.
 
-**The test that fails if this is reversed**: `packaging.test.mjs`'s
+**The tests that fail if this is reversed**: `packaging.test.mjs`'s
 `"IT PRECEDES THE ARTIFACT UPLOAD — nothing that fails this gate is ever
 kept"` reads the step order in `deploy-desktop.yml` and fails if the launch
-step is not strictly before `actions/upload-artifact@v4`; deleting the step
-outright takes twelve checks in that file red at once, and dropping any one of
-the three crash strings from its grep takes exactly one red — both counted by
-sabotaging the actual workflow file and restoring it, not guessed at.
+step is not strictly before `actions/upload-artifact@v4`; deleting the launch
+step outright takes twelve checks in that file red at once, and dropping any
+one of the three crash strings from its grep takes exactly one red. For the
+publish split: `"THE BUILD STEP ALWAYS PASSES --publish never"` goes red alone
+if `--publish always` is put back on the Build step's electron-builder
+invocation; `"a step publishes the release, separately from Build"` and its
+seven neighbours (eight in total) go red together if the Publish step is
+deleted outright; `"IT COMES AFTER THE LAUNCH STEP, NOT BEFORE"` goes red
+alone if the Publish step is moved ahead of the launch step; and `"IT IS GATED
+ON THE LAUNCH STEP'S OWN OUTCOME"` goes red alone if
+`steps.smoke.outcome == 'success'` is dropped from the Publish step's `if:`.
+Every count above was produced by sabotaging the actual workflow file and
+restoring it, not guessed at.
 
 ### What is deliberately not built
 

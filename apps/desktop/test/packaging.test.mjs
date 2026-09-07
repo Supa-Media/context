@@ -38,6 +38,10 @@
  *   the launch-the-built-app step removed outright                             12
  *   that step moved to after the artifact upload                               1
  *   `Dynamic require` dropped from the launch step's crash-string grep         1
+ *   the Build step given `--publish always` back                              1
+ *   the publish-the-release step removed outright                             8
+ *   that step moved to before the launch/smoke step                           1
+ *   the smoke-outcome gate dropped from the publish step's `if:`              1
  *
  * The first one was measured at **0** before these checks were asked of the
  * plist\'s keys rather than of its text: that file\'s header discusses every
@@ -539,13 +543,25 @@ export async function runPackagingChecks(check) {
     "the version comes from apps/desktop/package.json, never bumped by this workflow itself",
     /require\('\.\/package\.json'\)\.version/.test(WORKFLOW) && !/npm version|package\.json['"],?\s*JSON\.stringify/.test(WORKFLOW),
   );
+  /*
+    This used to be "the build step decides --publish from the same decision"
+    — electron-builder's own GitHub provider published straight out of the
+    Build step, before anything had run the app it was publishing. A crashing
+    build reaching a release is not theoretical: `electron-updater` polls the
+    latest published release and would auto-install it onto every Mac already
+    running this app. So Build always builds, never publishes, and a separate
+    step below is the only place `--publish` (in spirit — it is `gh release
+    create` now, not electron-builder's flag) can ever run, gated on the
+    launch step actually having passed. See "A release is a build that
+    started" in docs/decisions/desktop.md.
+  */
   check(
-    "the build step decides --publish from the same decision, not a second copy of the condition",
-    buildStep !== undefined && /--publish "\$publish_policy"/.test(buildStep) && /PUBLISH: \$\{\{ steps\.decide\.outputs\.publish \}\}/.test(buildStep),
+    "THE BUILD STEP ALWAYS PASSES --publish never — publishing is not a flag on this command any more",
+    buildStep !== undefined && /--publish never/.test(buildStep) && !/--publish always/.test(buildStep) && !/publish_policy/.test(buildStep),
   );
   check(
-    "GH_TOKEN is the workflow's own built-in token — no new secret was added for this",
-    buildStep !== undefined && /GH_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/.test(buildStep),
+    "...and it no longer carries GH_TOKEN or a PUBLISH decision at all — it cannot reach a release, full stop",
+    buildStep !== undefined && !/GH_TOKEN/.test(buildStep) && !/PUBLISH/.test(buildStep),
   );
   /*
     electron-builder's own `MacPackager.doSign()` logs `identityName=Developer
@@ -797,6 +813,54 @@ export async function runPackagingChecks(check) {
   check(
     "the captured log is shown only as its last 40 lines, through the same shared redaction script the Build step uses",
     launchStep !== undefined && /tail -n 40/.test(launchStep) && /redact-signing-log\.sh/.test(launchStep),
+  );
+
+  // -- publishing happens only after the app has been shown to start --------
+  /*
+    Read `node_modules/electron-updater`'s own `GitHubProvider.js`, to answer
+    a question this repository cannot otherwise check without a Mac and a real
+    release: `getLatestVersion()` fetches `<tag>/latest-mac.yml` (macOS's
+    channel file — `getChannelFilePrefix()` returns `-mac` there), and
+    `resolveFiles()` resolves each entry inside it against the same release.
+    So the updater needs exactly that file and the zip(s) it names; the dmg is
+    never one of them — confirmed by reading the provider rather than assumed,
+    because getting this wrong either way is a build that ships without an
+    update path or a release that leaves out the file a person needs to
+    actually install it.
+  */
+  const publishStep = steps.find((step) => /gh release create/.test(step));
+
+  check("a step publishes the release, separately from Build", publishStep !== undefined);
+  check(
+    "IT COMES AFTER THE LAUNCH STEP, NOT BEFORE — publishing follows proof the app starts",
+    publishStep !== undefined && launchStep !== undefined && steps.indexOf(launchStep) < steps.indexOf(publishStep),
+  );
+  check(
+    "IT IS GATED ON THE LAUNCH STEP'S OWN OUTCOME, not just on the earlier publish/signed/notarised decision",
+    publishStep !== undefined && /steps\.smoke\.outcome\s*==\s*'success'/.test(publishStep),
+  );
+  check(
+    "...and it is still gated on that earlier decision too — a smoke pass alone does not imply publish was requested, signed, or notarised",
+    publishStep !== undefined && /steps\.decide\.outputs\.publish\s*==\s*'true'/.test(publishStep),
+  );
+  check(
+    "it uploads exactly what electron-updater's GitHub provider reads — latest-mac.yml and the zip(s) — plus the dmg for a first install",
+    publishStep !== undefined &&
+      /release\/\*\.dmg/.test(publishStep) &&
+      /release\/\*\.zip/.test(publishStep) &&
+      /release\/latest-mac\.yml/.test(publishStep),
+  );
+  check(
+    "it uses the workflow's own built-in token — no new secret was added for this",
+    publishStep !== undefined && /GH_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/.test(publishStep),
+  );
+  check(
+    "it publishes the same tag the early refusal already checked, not a second copy of that logic",
+    publishStep !== undefined && /TAG: v\$\{\{ steps\.version\.outputs\.value \}\}/.test(publishStep) && /"\$TAG"/.test(publishStep),
+  );
+  check(
+    "no second electron-builder invocation runs here — it would re-sign and re-notarise different bytes than the ones just launched",
+    publishStep !== undefined && !/electron-builder/.test(publishStep),
   );
 
   // -- the hook when Apple says no -------------------------------------------
