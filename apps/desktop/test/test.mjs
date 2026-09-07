@@ -19,11 +19,19 @@ import { runConsentChecks } from "./consent.test.mjs";
 import { runDetectionLoopChecks } from "./detectionLoop.test.mjs";
 import { runOutboxChecks } from "./outbox.test.mjs";
 import { runGatewayChecks } from "./gateway.test.mjs";
+import { runConnectionChecks } from "./connection.test.mjs";
+import { runConnectChecks } from "./connect.test.mjs";
+import { runTokenStoreChecks } from "./tokenStore.test.mjs";
+import { runCaptureWindowChecks } from "./captureWindow.test.mjs";
+import { runTranscriberChecks } from "./transcriber.test.mjs";
+import { runPlanChecks } from "./plan.test.mjs";
+import { runTranscribeRequestChecks } from "./transcribeRequest.test.mjs";
 import { runControllerChecks } from "./controller.test.mjs";
 import { runTrayChecks } from "./tray.test.mjs";
 import { runPlatformChecks } from "./platform.test.mjs";
 import { runContractChecks } from "./contract.test.mjs";
 import { runShellChecks } from "./shell.test.mjs";
+import { runPackagingChecks } from "./packaging.test.mjs";
 
 let failures = 0;
 let skipped = 0;
@@ -52,11 +60,19 @@ runConsentChecks(check);
 await runDetectionLoopChecks(check);
 runOutboxChecks(check);
 await runGatewayChecks(check);
+await runConnectionChecks(check);
+await runConnectChecks(check);
+await runTokenStoreChecks(check);
+await runCaptureWindowChecks(check);
+await runTranscriberChecks(check);
+runPlanChecks(check);
+await runTranscribeRequestChecks(check);
 await runControllerChecks(check);
 runTrayChecks(check);
 runPlatformChecks(check);
 runShellChecks(check);
 await runContractChecks(check, skip);
+await runPackagingChecks(check);
 
 console.log(
   failures

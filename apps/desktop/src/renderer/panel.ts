@@ -94,9 +94,89 @@ function actions(state: UiState): HTMLElement {
     const decline = element("button", "ghost", "Not now");
     decline.addEventListener("click", () => window.context.decline(episode));
     row.append(accept, decline);
+    return row;
   }
 
+  /*
+    Record, when nothing was detected.
+
+    The first thing anybody does with a recorder is press record, and detection
+    cannot see an in-person conversation at all — two people at a table are not
+    a process, a window title or a calendar event this app can read. Pressing
+    this is the same consent the panel asks for above, given first.
+  */
+  const record = element("button", "cta");
+  record.append(element("span", "rec"), element("span", "", "Record a meeting"));
+  record.addEventListener("click", () => window.context.record());
+  row.append(record);
+
   return row;
+}
+
+/**
+ * The line about this machine's connection, when there is something to say.
+ *
+ * Nothing is drawn while a connected machine is behaving, which is the ordinary
+ * case. The two states worth a person's attention are "there is no grant here,
+ * so meetings are typed and queued" and "the grant this machine had is gone" —
+ * and both come with the button that fixes them.
+ */
+function connection(state: UiState): HTMLElement | null {
+  const { connection: link } = state;
+  if (link.state === "connected" && !link.error) {
+    if (!state.settings.captureEnabled) {
+      // The master switch is off and the button above will do nothing. Saying
+      // so is the whole point: a press that silently does nothing is how a
+      // person concludes the app is broken.
+      const off = element("section");
+      off.append(
+        element(
+          "p",
+          "notice",
+          "Recording is switched off for this machine, so nothing will open your microphone. Connect it again to turn it back on.",
+        ),
+      );
+      return off;
+    }
+    if (link.encrypted) return null;
+    const warning = element("section");
+    warning.append(
+      element(
+        "p",
+        "notice",
+        "This machine has no encrypted storage, so the connection is held for this session only and you will be asked to connect again after a restart. Nothing is written to disk.",
+      ),
+    );
+    return warning;
+  }
+
+  const section = element("section");
+  section.append(
+    element(
+      "p",
+      "notice",
+      link.state === "revoked"
+        ? "This machine's connection was revoked, so meetings are waiting rather than saving. Connect it again to send them."
+        : "This machine is not connected to a context yet. Meetings are typed and wait here until it is.",
+    ),
+  );
+  const row = element("div", "actions");
+  const connect = element("button", "cta");
+  connect.append(element("span", "", link.connecting ? "Waiting for your browser…" : "Connect this machine"));
+  connect.addEventListener("click", () => window.context.connect());
+  row.append(connect);
+  section.append(row);
+  if (link.error) section.append(element("p", "notice", link.error));
+  return section;
+}
+
+/** What this meeting is not doing, in the one sentence the main process owns. */
+function notice(state: UiState): HTMLElement | null {
+  const message = state.session?.notice;
+  if (!message) return null;
+  const section = element("section");
+  section.append(element("p", "notice", message));
+  return section;
 }
 
 function evidence(state: UiState): HTMLElement | null {
@@ -167,10 +247,9 @@ function render(state: UiState): void {
   if (!root) return;
   root.replaceChildren();
   root.append(header(state));
-  const noticed = evidence(state);
-  if (noticed) root.append(noticed);
-  const missing = permissions(state);
-  if (missing) root.append(missing);
+  for (const section of [notice(state), evidence(state), permissions(state), connection(state)]) {
+    if (section) root.append(section);
+  }
   root.append(settings(state));
 }
 

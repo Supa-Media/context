@@ -41,31 +41,73 @@ const ICONS = {
 export interface TrayActions {
   togglePanel: (bounds: Electron.Rectangle) => void;
   openNotepad: () => void;
+  /** "Record a meeting" — the yes, given about a meeting nothing detected. */
+  record: () => void;
   end: () => void;
   toggleDetection: () => void;
+  connect: () => void;
+  disconnect: () => void;
   quit: () => void;
+}
+
+/** What the menu needs to know about the app, beyond what the icon draws. */
+export interface TrayMenuState {
+  recording: boolean;
+  detectionEnabled: boolean;
+  connected: boolean;
 }
 
 export class AppTray {
   #tray: Tray;
   #actions: TrayActions;
+  #state: TrayMenuState = { recording: false, detectionEnabled: false, connected: false };
 
   constructor(actions: TrayActions) {
     this.#actions = actions;
     this.#tray = new Tray(ICONS.idle());
     this.#tray.on("click", (_event, bounds) => this.#actions.togglePanel(bounds));
-    this.#tray.on("right-click", () => this.#tray.popUpContextMenu(this.#menu(false)));
+    this.#tray.on("right-click", () => this.#tray.popUpContextMenu(this.#menu()));
   }
 
-  #menu(recording: boolean): Electron.Menu {
+  /**
+   * The menu, built fresh every time it opens.
+   *
+   * Built rather than kept, because every item in it is conditional: Record is
+   * not offered during a recording, End is not offered outside one, and a
+   * machine with no grant is asked to connect rather than offered a Disconnect
+   * that would do nothing. A stale menu here is somebody pressing Record on a
+   * meeting that is already being recorded.
+   *
+   * The checkbox once read `checked: true` unconditionally, which is the same
+   * class of bug one line further on: a menu that says the app is watching for
+   * meetings when it is not.
+   */
+  #menu(): Electron.Menu {
+    const { recording, detectionEnabled, connected } = this.#state;
     return Menu.buildFromTemplate([
+      ...(recording
+        ? [{ label: "End & write up", click: () => this.#actions.end() }]
+        : [{ label: "Record a meeting", click: () => this.#actions.record() }]),
       { label: recording ? "Open notepad" : "Open the last meeting", click: () => this.#actions.openNotepad() },
-      ...(recording ? [{ label: "End & write up", click: () => this.#actions.end() }] : []),
       { type: "separator" as const },
-      { label: "Watch for meetings", type: "checkbox" as const, checked: true, click: () => this.#actions.toggleDetection() },
+      {
+        label: "Watch for meetings",
+        type: "checkbox" as const,
+        checked: detectionEnabled,
+        click: () => this.#actions.toggleDetection(),
+      },
+      { type: "separator" as const },
+      connected
+        ? { label: "Disconnect this machine…", click: () => this.#actions.disconnect() }
+        : { label: "Connect this machine…", click: () => this.#actions.connect() },
       { type: "separator" as const },
       { label: "Quit Context", click: () => this.#actions.quit() },
     ]);
+  }
+
+  /** What the menu offers next time it opens. Pushed on every state change. */
+  setMenuState(state: TrayMenuState): void {
+    this.#state = state;
   }
 
   /** Draw whatever the pure function said, and nothing else. */

@@ -22,10 +22,10 @@ at all ([meetings](./meetings.md), *Nothing joins the call*), and none of them
 is a screen.
 
 This file was written while `#264` (desktop capture) and `#265` (desktop
-packaging) were open and unmerged. Every file it names is named as it exists on
-those branches, because that is the tree this design lands on; where a decision
-argues against something one of them just built, it says so rather than
-pretending the code is already gone.
+packaging) were open and unmerged, and both have since merged to `main`. Every
+file it names is named as it exists on those branches, and stayed accurate
+across the merge; where a decision argues against something one of them just
+built, it says so rather than pretending the code is already gone.
 
 ---
 

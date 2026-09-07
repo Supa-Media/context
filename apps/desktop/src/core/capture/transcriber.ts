@@ -25,9 +25,38 @@ export interface TranscriptionStream {
 }
 
 export interface TranscriberOptions {
+  /**
+   * The meeting these words belong to.
+   *
+   * Passed per session rather than held by the engine, because one `Transcriber`
+   * outlives many meetings — the controller is constructed once at launch — and
+   * an engine that closed over an id minted at launch would give every meeting
+   * of the day the same segment ids. The protocol merges by segment id, so that
+   * is not a cosmetic collision: the second meeting's words would replace the
+   * first's.
+   */
+  sessionId: string;
   sampleRate: number;
   /** Emitted as the engine produces them; ids must be stable across retries. */
   onSegment: (segment: TranscriptSegment) => void;
+  /**
+   * Something worth saying out loud happened, and capture continues.
+   *
+   * A dropped chunk, a refusal from the far end, a transcriber that has given
+   * up for the rest of this meeting. It is never an exception, because a
+   * transcription failure must not stop a recording — the human's notes and the
+   * note itself are unaffected — and it is never silent, because a meeting that
+   * transcribed nothing while looking fine is the failure this whole feature
+   * exists to avoid.
+   */
+  onNotice?: (notice: TranscriptionNotice) => void;
+}
+
+/** What `onNotice` may say, and the whole of it. See `CAPTURE_NOTICES`. */
+export interface TranscriptionNotice {
+  /** False means nothing more will be transcribed in this meeting. */
+  recoverable: boolean;
+  message: string;
 }
 
 export interface Transcriber {
@@ -59,10 +88,7 @@ export function segmentId(sessionId: string, index: number): string {
  * `--dev`. It is not a stub in the sense of "unimplemented": it fully satisfies
  * the interface, which is what makes it useful for driving the notepad.
  */
-export function fakeTranscriber(
-  sessionId: string,
-  phrases: readonly string[] = ["...", "..."],
-): Transcriber {
+export function fakeTranscriber(phrases: readonly string[] = ["...", "..."]): Transcriber {
   return {
     id: "fake",
     audioLeavesDevice: false,
@@ -74,7 +100,7 @@ export function fakeTranscriber(
         push(frame) {
           const text = phrases[index % phrases.length] ?? "...";
           options.onSegment({
-            id: segmentId(sessionId, index),
+            id: segmentId(options.sessionId, index),
             startMs: lastMs,
             endMs: frame.atMs,
             text,
@@ -97,10 +123,15 @@ export function fakeTranscriber(
  *
  * `on-device` needs a speech model shipped with the app (macOS 26's
  * `SpeechAnalyzer`, or a bundled Whisper build) reached through a native
- * addon — a build-system decision, not a code one. `cloud` needs a streaming
- * endpoint on the gateway that this repository does not have yet, and it must
- * be reached with the workspace's own grant so that audio is transient and
- * attributable. Both are listed in `README.md` under "what is stubbed".
+ * addon — a build-system decision, not a code one, and still not built.
+ *
+ * `cloud` is built: `gatewayTranscriber.ts` posts each chunk to
+ * `ROUTES.transcribe` with this machine's own grant, which is what makes the
+ * audio transient and attributable. This constructor stays for the state the
+ * app is genuinely in when a person has not connected it to a context —
+ * `capturePlan` answers "notes only" there rather than opening a microphone
+ * nothing will listen to, so nothing should reach this — and for on-device,
+ * which has no implementation at all.
  *
  * It throws rather than silently transcribing nothing: a meeting recorded with
  * no transcriber is a meeting somebody thinks they have and does not.
