@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `npx @context-lc/hook <command>`.
+ * `npx @supa-media/context-hook <command>`.
  *
  * A thin shell: parse, dispatch, and turn a thrown error into one line a person
  * can act on. Everything with a decision in it lives in `src/commands.js`, so
@@ -14,11 +14,11 @@ const DEFAULT_ENDPOINT = "https://mcp.context.lc/mcp";
 
 const USAGE = `Save what an AI coding session learned into your Context.
 
-  npx @context-lc/hook install      sign in, then add the hooks to your client
-  npx @context-lc/hook status       show whether this machine is signed in
-  npx @context-lc/hook uninstall    remove the hook and forget the credential
-  npx @context-lc/hook capture      run by the hook itself; reads stdin
-  npx @context-lc/hook session-start run by the hook itself; reads stdin
+  npx @supa-media/context-hook install      sign in, then add the hooks to your client
+  npx @supa-media/context-hook status       show whether this machine is signed in
+  npx @supa-media/context-hook uninstall    remove the hook and forget the credential
+  npx @supa-media/context-hook capture      run by the hook itself; reads stdin
+  npx @supa-media/context-hook session-start run by the hook itself; reads stdin
 
 Options
   --endpoint <url>   your MCP endpoint (default ${DEFAULT_ENDPOINT})
