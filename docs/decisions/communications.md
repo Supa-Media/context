@@ -593,6 +593,131 @@ somebody's money and somebody's mail, not engineering choices.
    overwriting a preferred name because a directory somebody else administers
    changed is the failure that makes people stop trusting the page.
 
+### The Gmail connection: control plane, sync algorithm, and what phase 1 actually wires up
+
+Built 2026-09-07, behind `MAIL_CONNECT_ENABLED` (unset means disabled, on every
+deployment including this project's own, until Google's verification lands —
+see the section above). The pieces:
+
+**`mailConnections`, keyed by `workspaceId`, never `userId`** — same rule as
+`storageBindings`, same reason. `functions/mailConnect.ts` mirrors
+`dropboxConnect.ts`'s PKCE-attempt-then-scheduled-exchange shape exactly,
+including the security argument for why the callback needs no session: the
+workspace and the actor come from the parked attempt, never from the caller,
+so an interceptor of the callback URL can complete or burn the victim's own
+connect and nothing else. Only a `kind: "personal"` workspace's owner may
+start one — checked in one query, `requirePersonalOwner`, so a shared context
+can never be told apart from "not the owner" by which error code comes back.
+
+**The rotation walk gained a fourth table**, and the miss it closes is written
+down because it already happened once: `workspaceDataKeys.encryptedDataKey`
+was invisible to `rekeyStorageBindings` for exactly the reason a Gmail token
+would have been if this were skipped — a credential in a table the pass never
+queries is not accounted for by getting its column name onto
+`ROTATED_ENVELOPE_COLUMNS`, because that list proves a *name* is spoken for,
+not that a *table* is visited. `listMailConnectionRekeyCandidates` /
+`applyMailConnectionRekey` are their own query and mutation, wired into
+`rekeyStorageBindings` the same way `workspaceDataKeys` is, and
+`storage.test.ts` runs the same end-to-end rotation proof — write under key
+1, rotate, re-seal, drop key 1 from the environment entirely, still opens —
+that the binding and the data-key halves already had. A disconnected
+connection's empty-string refresh token is deliberately never a rekey
+candidate: there is nothing there to re-seal, and counting it would only ever
+be `unreadable` noise on every future rotation for a credential that is
+intentionally gone.
+
+**The backfill window is a closed set — 90 days, 1 year, or all mail** —
+`36_500` days is the "all mail" sentinel, chosen so the field stays a plain
+number rather than growing a second representation for "no bound", and
+bounded generously enough that a corrupted value cannot mean "forever"
+literally. The owner's defaults from the scoping note — 90 days, Inbox and
+Sent, Spam and Trash excluded, raw MIME off, attachments metadata-only — are
+live as the defaults now, not merely recommended: `MAIL_FOLDERS` is a
+two-value union at the type level, so a caller cannot ask for Spam or Trash
+even by trying, and `buildDayQuery` in `apps/mcp/src/communications/gmailSync.js`
+writes `-in:spam -in:trash` into every query regardless, so the exclusion is
+asserted twice rather than left as something the folder list merely does not
+mention. **These are still pending the owner's explicit confirmation** — see
+the `SEYI:` list left in `1-projects/context-lc-personal-communications-inbox/overview.md`
+in Context.LC — and reversing any of them is a one-line change in
+`mailConnect.ts`'s `ALLOWED_BACKFILL_DAYS` / `MAIL_FOLDERS`, not a schema
+migration.
+
+**The estimator is `min(messageCount, windowDays)`**, in
+`packages/communications/src/estimate.js`. The only two numbers a connect
+screen can have before fetching a single message are a count (Gmail's
+`messages.list` `resultSizeEstimate` for a date-bounded query) and the window
+length in days, and a channel-day note needs at least one message — so the
+tightest true bound on "how many notes" without walking per-message dates is
+the smaller of the two. It is reported as a bound, not dressed up as a point
+estimate: a mailbox that gets one message a day for 90 days and one that gets
+90 messages on a single day produce the same count and the same honest
+answer, "at most 90." The byte range multiplies the count by the 15–40KB
+per-message range this file already measured for the split threshold — a
+range, because the true answer depends on how heavy this particular
+mailbox's mail is, which nothing knows before fetching it.
+
+**The sync algorithm regenerates one calendar day at a time, always from a
+live, complete query for that day — never from a page.** A channel-day note
+is `planChannelDay`'s pure function of a day's *complete* event list, and
+Gmail's `messages.list` pages are not day-aligned; grouping by page and
+writing whatever a page happens to hold would sometimes assemble a day from a
+partial set, which is silently correct until the day it is not. So
+`apps/mcp/src/communications/gmailSync.js`'s unit of work is `syncDayFromGmail`:
+list every message Gmail has for that date (scoped to the connection's
+folders, Spam and Trash always excluded), fetch each in full, render, write.
+Backfill calls it once per day in the window; incremental sync calls
+`history.list` only to learn *which* days changed and then calls it for
+those days — in both cases the day itself is always rebuilt from Gmail's
+current state, which is what makes rerunning any page **idempotent by
+construction** rather than by deduplication logic that has to be kept
+correct separately.
+
+A gap — `history.list` answering 404 because `startHistoryId` expired — comes
+back as a typed `gapDetected: true` rather than a thrown error, and the
+documented recovery is calling `runBackfill` over the connection's window
+again: since a day is always rebuilt from live state, redoing the whole
+window is a correct reconcile, not merely a plausible-looking one. Deletions
+are not reconciled: a message Gmail later deletes stays in the day it was
+captured on, because v1 is a read-only mirror of what arrived and "a record
+of what was received, not a statement by the owner" — named here as future
+work rather than an oversight.
+
+**`updated` in a synced day's frontmatter is the latest message's own
+`sentAt`, not wall-clock time.** `renderChannelDayNote`'s own default
+(`new Date().toISOString()`) is right for a note a person is editing right
+now, and wrong for a value a scheduled job recomputes against the same
+underlying mail: a wall-clock default would make every rerun of an untouched
+day write a new timestamp forever, which is churn wearing the costume of
+sync activity and defeats the entire point of writing conditionally on an
+etag. Keying it to the newest event's timestamp instead is stable across any
+number of reruns of the same mail and advances exactly when a new message
+lands — the property `test/gmailSync.test.mjs`'s "re-running the same day
+changes no bytes" check exists to hold.
+
+**Quota is enforced per write, not per pass.** `syncOneDay` checks the
+remaining budget before every part it is about to write and stops the moment
+the next one would exceed it, so a quota that runs out mid-backfill leaves
+whatever was written intact rather than discarding a partially-written day —
+the day it stopped on is picked up again once the connection's usage has room,
+by the next scheduled pass.
+
+**What phase 1 does NOT wire up, named so it reads as scope rather than a
+gap**: `apps/mcp/src/communications/gmailSync.js` takes its Gmail socket, its
+access token and its `ContextStore` as parameters and is tested end to end
+against a fixture Gmail server and an in-memory store — but nothing yet calls
+it from a live Worker, and nothing yet mints that access token over the
+network. `functions/mailConnect.ts`'s `mintGmailAccessToken` is a real,
+tested internal action, reachable today only from a test; a live sync needs
+the same two things `/gateway/ingest/binding` already is for the email worker
+— an internet-facing route on the control plane the gateway can call with its
+own secret, and a scheduled trigger on the gateway side to call it — and
+building both is exactly the shape `docs/decisions/search.md` already uses
+for its own phase boundary ("decided here and built in phase 2"). Until then
+the control plane can connect a mailbox and the gateway can render one
+correctly; nothing yet makes the second happen automatically for a real
+person.
+
 ### What is deliberately not built
 
 Named so that a future reader knows these were considered rather than missed:
