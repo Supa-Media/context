@@ -11,25 +11,13 @@
  *
  * ## What has to be said, and why each line is here
  *
- * Somebody about to press this button is about to make a decision they cannot
- * take back, on the strength of what this screen tells them. Four things are
- * true and all four are load-bearing:
+ * Somebody about to press this button is making an irreversible decision. The
+ * two short lines below preserve the essential loss and safety claims.
  *
- * 1. **Lose the passphrase and the note is gone.** Not "contact support", not
- *    "reset it" — gone, by design, because the alternative is us holding a way
- *    in. This is the sentence the whole feature is bought with.
- * 2. **The title, the folder and the timestamps stay visible.** The path is
- *    still a path in a bucket; encrypting the filename would mean namespacing
- *    keys, which the second non-negotiable forbids outright. Somebody who
- *    thinks they are hiding *that* a note exists has to be told otherwise
- *    before they rely on it.
- * 3. **No AI client can read it, and neither can search.** The owner asked for
- *    exactly this; it is still a loss, and the screen that takes the decision
- *    is where it belongs rather than in a support article afterwards.
- * 4. **Sharing the note does not share the passphrase.** A `team` note that is
- *    locked is visible to the people it is shared with as a locked note. They
- *    open it if — and only if — they were given the passphrase some other way,
- *    which the owner does by hand, out of band, deliberately.
+ * 1. Losing the passphrase permanently loses access; Context.LC cannot recover
+ *    or reset it.
+ * 2. A strong, unique passphrase and trusted device reduce risk; the estimate
+ *    is only a rough offline crack-time guide.
  *
  * ## What may not be said
  *
@@ -43,7 +31,7 @@
 export const ACKNOWLEDGEMENT_TITLE = "Lock this note with a passphrase";
 
 /**
- * The four statements, in the order somebody needs them.
+ * The two statements, in the order somebody needs them.
  *
  * An array rather than a paragraph because the screen renders them as a list
  * somebody reads, and because a test can then assert that a specific one is

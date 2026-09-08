@@ -15,7 +15,7 @@
  * visible to a reconciler; here it is because the question is "what does a
  * person actually read".
  *
- * Four things:
+ * Two copy claims plus the interaction safeguards:
  *
  * 1. **Every consequence is on the screen before the field is.** Loss is
  *    permanent, the title and folder stay visible, no assistant can read it,
@@ -124,7 +124,7 @@ describe("the screen that locks a note", () => {
     const screen = render({ path: "1-projects/a.md", onLock: noop, onClose: noop });
     const text = screen.html().replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
-    // The four claims, spelled out here rather than looped over
+    // The two claims, spelled out here rather than looped over
     // `ACKNOWLEDGEMENT_POINTS` — a loop over the list is a loop over the thing
     // under test, and it passes just as happily for an empty list. Measured:
     // deleting the permanence sentence failed nothing until these lines
