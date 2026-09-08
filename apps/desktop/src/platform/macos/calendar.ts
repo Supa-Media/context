@@ -40,10 +40,23 @@
  * `core/detection/collectors.ts` only marks a collector `degraded` when it
  * *throws* — so a write-only Calendars grant, which makes every calendar
  * refuse to enumerate while Automation itself stays granted (the two-door
- * split above), read as a quiet hour with no meetings. Confirmed on a real
- * Mac's own TCC store, not reasoned from the plist: Apple Events to Calendar
- * granted, Calendars data at the write-only tier, and the app reported no
- * meetings rather than reporting that it could not see any.
+ * split above), *would* read as a quiet hour with no meetings, if it happens
+ * at all.
+ *
+ * **That last clause used to read as settled fact, and it was retracted the
+ * same night it was written.** The write-only tier being granted is measured,
+ * real, and unchanged; that it makes `c.events.whose(...)` fail was an
+ * inference from that permission value, never an observed refusal, and a
+ * later measurement against the running collector found no refusal at all on
+ * the same write-only machine. This drives Calendar.app over Apple Events
+ * rather than reading through EventKit directly, so it may be Calendar.app
+ * itself — not this app — that is reading the data, under whatever access
+ * Calendar.app holds; whether the write-only tier gates this design at all is
+ * now **unknown**, not confirmed either way. See
+ * `docs/decisions/desktop-updates.md`, "The one-way door", for the full
+ * retraction. The fix below is correct regardless of which way that turns
+ * out, since it is written against the shape a refusal produces rather than
+ * against a theory of when one happens.
  *
  * The script now counts calendars and refusals rather than only calendars and
  * events. `parseCalendarEvents` throws when every calendar that exists
@@ -53,7 +66,12 @@
  * least one calendar enumerated successfully, or there were no calendars to
  * ask in the first place. That second case is not evidence of a refusal; it
  * is evidence of nothing, which is the collector's honest answer when there is
- * nothing to correlate it against.
+ * nothing to correlate it against. On that non-throwing path, `collectCalendarEvents`
+ * now also carries the raw `calendarCount` and `refusedCount` on to
+ * `CollectedSignals` and `DetectionUpdate` (see `parseCalendarCounts` below) —
+ * counts only, never surfaced to a person — because those two numbers are
+ * what would actually settle the retraction above: whether `refusedCount` is
+ * ever nonzero on a write-only machine, over enough real polls to see it.
  *
  * It is also, separately, slow — enumerating a busy calendar can take
  * seconds, which is why it runs behind the shared timeout and is the collector
@@ -66,6 +84,7 @@
 import { DETECTOR_THRESHOLDS } from "../../core/contract.ts";
 import type { Attendee, CalendarEvent } from "../../core/contract.ts";
 import { PermissionRefusedError } from "../../core/detection/collectors.ts";
+import type { CollectedCalendar } from "../../core/detection/collectors.ts";
 import { osascript } from "../exec.ts";
 import { redactUrl } from "./windows.ts";
 
@@ -178,7 +197,47 @@ export function parseCalendarEvents(stdout: string): CalendarEvent[] {
   return events;
 }
 
-export async function collectCalendarEvents(now: Date): Promise<CalendarEvent[]> {
+/**
+ * How many calendars this poll saw and how many of those refused to
+ * enumerate, read straight from the script's own tally rather than from this
+ * function guessing at JXA's failure shape. Read separately from
+ * `parseCalendarEvents`, the same way `windows.ts`'s `parseTabUrlRefusals` is
+ * read separately from `parseWindows`: so a poll's events keep their
+ * well-tested, unchanged shape, and this stays what it is — two counts, never
+ * a calendar name or an event title, and never something that can throw.
+ * Anything that is not the shape the script produces reads as `0` and `0`
+ * rather than a second thing that can fail, since `parseCalendarEvents` above
+ * is already what decides whether this poll's output is usable at all.
+ */
+export function parseCalendarCounts(stdout: string): { calendarCount: number; refusedCount: number } {
+  try {
+    const raw: unknown = JSON.parse(stdout);
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+      return { calendarCount: 0, refusedCount: 0 };
+    }
+    const payload = raw as Record<string, unknown>;
+    const calendarCount = typeof payload["calendarCount"] === "number" ? payload["calendarCount"] : 0;
+    const refusedCount = typeof payload["refusedCount"] === "number" ? payload["refusedCount"] : 0;
+    return { calendarCount, refusedCount };
+  } catch {
+    return { calendarCount: 0, refusedCount: 0 };
+  }
+}
+
+/**
+ * `calendarCount` and `refusedCount` are read from the same `stdout` before
+ * `parseCalendarEvents` runs, not after — a total refusal makes
+ * `parseCalendarEvents` throw, and this collector must still hand the counts
+ * that produced that throw on to whoever is diagnosing it. On a total
+ * refusal, `collectSignals` catches the throw and both counts fall back to
+ * `0`; that case is already visible through `degraded`/`degradedReasons`, so
+ * nothing is lost. On every other poll — the case this file's own retraction
+ * turns on — the real counts reach `CollectedSignals` and `DetectionUpdate`.
+ */
+export async function collectCalendarEvents(now: Date): Promise<CollectedCalendar> {
   const { from, to } = calendarWindow(now);
-  return parseCalendarEvents(await osascript(calendarScript(from, to), { timeoutMs: 4_500 }));
+  const stdout = await osascript(calendarScript(from, to), { timeoutMs: 4_500 });
+  const { calendarCount, refusedCount } = parseCalendarCounts(stdout);
+  const events = parseCalendarEvents(stdout);
+  return { events, calendarCount, refusedCount };
 }

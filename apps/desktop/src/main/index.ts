@@ -719,6 +719,17 @@ async function main(): Promise<void> {
     enabled: () => settings.detectionEnabled,
     onUpdate: (update) => {
       lastUpdate = update;
+      // Counts only, never a calendar name or an event title, and only when
+      // there is something to diagnose — a poll where nothing refused says
+      // nothing here rather than filling the log with a line every five
+      // seconds forever. See `core/detection/collectors.ts`'s
+      // `CollectedCalendar` and `docs/decisions/desktop-updates.md`, "The
+      // one-way door", for why this exists: an empty calendar result reads
+      // identically whether the collector found nothing or was refused, and
+      // this is what tells the two apart from outside the app.
+      if (update.calendarRefusedCount > 0) {
+        console.log(`[calendar] calendars=${update.calendarCount} refused=${update.calendarRefusedCount}`);
+      }
       void onDetection(update);
     },
   });

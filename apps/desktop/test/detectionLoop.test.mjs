@@ -35,6 +35,9 @@
  *   `loop.ts` drops `tabUrlRefusals` from the `degradedNotice` call         1
  *   `loop.ts` drops `degradedReasons` from the `degradedNotice` call         1
  *   `degradedNotice`'s tab-URL-refusal sentence removed entirely            5
+ *   `collectSignals` hard-codes the calendar's counts to 0 and 0             4
+ *   `loop.ts` drops `calendarCount`/`calendarRefusedCount` from the update   2
+ *   `collectSignals` marks `calendar` degraded on any refusal, not total    2
  *
  * The first of those five is the reason `attempt()` exists: without it, a
  * machine where the person never granted Accessibility throws on every poll,
@@ -68,6 +71,25 @@
  * names the escape, and the overlapping-poll check races the second tick
  * against a resolved promise so a missing guard fails instead of hanging. A
  * sabotage is only worth the care taken that it *failed* rather than crashed.
+ *
+ * **The last three guard the calendar's `calendarCount`/`calendarRefusedCount`
+ * pair — the two counts that make "did the collector succeed and find
+ * nothing, or was some of it refused?" answerable from outside the app,
+ * added to settle a retracted claim rather than to confirm it (see
+ * `docs/decisions/desktop-updates.md`, "The one-way door").** Hard-coding
+ * `collectSignals`'s own result to `0`/`0` fails both the direct read and the
+ * loop's forwarded copy — four lines, not two, because the same wrong answer
+ * is asserted at both layers on purpose, the same reason `tabUrlRefusals` is.
+ * Dropping the two fields from `loop.ts`'s own `DetectionUpdate` literal
+ * fails only the loop's two checks and, separately, fails `tsc`: this is the
+ * one guard here with a type-level backstop, since `DetectionUpdate` names
+ * both fields as required. The third sabotage is not a missing field but a
+ * wrong policy — marking `calendar` degraded (and therefore folding it into
+ * `degradedNotice`) whenever `refusedCount` is merely nonzero, not only on a
+ * total refusal. That is the mistake this feature exists to avoid: these two
+ * numbers are diagnosis, not the panel, and a partial refusal reaching a
+ * person as "cannot see your calendar" would be exactly as wrong as the
+ * already-guarded case of a timeout naming System Settings.
  */
 
 import { DETECTOR_THRESHOLDS } from "@context/meetings/protocol";
@@ -269,6 +291,76 @@ export async function runDetectionLoopChecks(check) {
     check(
       "the running loop's own update carries the calendar's permission-refusal reason, not just its name",
       (permissionRefusedLoop.updates[0].degradedNotice ?? "").includes("System Settings"),
+    );
+  }
+
+  // -- calendar calendars-seen / refused counts -----------------------------
+  //
+  // The question an empty result cannot answer on its own: did the collector
+  // succeed and find nothing, or was some or all of it refused? These two
+  // counts are what settles that from outside the app, without ever naming a
+  // calendar or an event — see `docs/decisions/desktop-updates.md`, "The
+  // one-way door", for why this was left unknown rather than confirmed.
+  {
+    const clean = await collectSignals(
+      fixedCollectors({ processes: ["zoom.us"], calendarCount: 2, calendarRefusedCount: 0 }),
+      new Date(0),
+    );
+    check("a clean poll's calendar counts reach collectSignals' result", clean.calendarCount === 2 && clean.calendarRefusedCount === 0);
+    check("a clean poll is not degraded", !clean.degraded.includes("calendar"));
+
+    // The case this file exists for: some calendars answered, at least one
+    // refused, and the collector does not throw — the shape a genuine
+    // partial refusal produces (see `parseCalendarEvents`). This must still
+    // reach the result as a real, nonzero count, not be silently rounded into
+    // the "no refusals" case above.
+    const partial = await collectSignals(
+      fixedCollectors({ processes: ["zoom.us"], calendarCount: 3, calendarRefusedCount: 1 }),
+      new Date(0),
+    );
+    check(
+      "a partial calendar refusal's counts reach collectSignals' result",
+      partial.calendarCount === 3 && partial.calendarRefusedCount === 1,
+    );
+    check("a partial calendar refusal does not mark the calendar degraded", !partial.degraded.includes("calendar"));
+
+    // A total refusal throws before any count is returned; `collectSignals`
+    // falls back to zero and zero for both. This is not a loss: a total
+    // refusal is already visible through `degraded`/`degradedReasons`, and
+    // the counts exist for exactly the case that is not visible any other
+    // way.
+    const totalRefusal = await collectSignals(
+      {
+        ...fixedCollectors({ processes: ["zoom.us"] }),
+        calendarEvents: async () => {
+          throw new PermissionRefusedError("calendar access refused: every calendar failed to enumerate its events");
+        },
+      },
+      new Date(0),
+    );
+    check(
+      "a total calendar refusal falls back to zero and zero rather than a stale count",
+      totalRefusal.calendarCount === 0 && totalRefusal.calendarRefusedCount === 0,
+    );
+    check("...and is still visible through degraded, so nothing about it is lost", totalRefusal.degraded.includes("calendar"));
+
+    // The wiring, not just `collectSignals` in isolation: `tick()` is what a
+    // real poll calls, and it is the one place these two counts would be
+    // silently dropped on the way to `DetectionUpdate` if `loop.ts` forgot to
+    // forward them — the exact shape of gap this file already found once for
+    // `tabUrlRefusals` and `degradedReasons`.
+    const { loop, updates } = loopOver([false], {
+      collectors: fixedCollectors({ calendarCount: 2, calendarRefusedCount: 1 }),
+    });
+    await run(loop, 1);
+    check("the running loop's own update carries the calendar count", updates[0].calendarCount === 2);
+    check("...and the refused count", updates[0].calendarRefusedCount === 1);
+
+    // These counts are diagnosis, not the panel: a partial refusal must never
+    // make its way into the one sentence a person actually reads.
+    check(
+      "a partial calendar refusal earns no notice on its own — it is not shown to a person",
+      updates[0].degradedNotice === null,
     );
   }
 
