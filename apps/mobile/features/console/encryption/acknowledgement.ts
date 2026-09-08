@@ -57,6 +57,9 @@ export const ACKNOWLEDGEMENT_POINTS: readonly string[] = [
   "No assistant you have connected can read it any more, and it will not " +
     "appear in search results, because opening it needs the passphrase and " +
     "they do not have it.",
+  "This only protects you on a device and browser you trust. A compromised " +
+    "browser, extension, keylogger, screenshot tool or laptop can still " +
+    "capture what you type.",
   "If this note is shared with your team, they will see it as a locked note. " +
     "Sharing a note does not share its passphrase — you would have to give " +
     "them that yourself.",
@@ -71,7 +74,9 @@ export const ACKNOWLEDGEMENT_PHRASE = "I understand";
 /** Under the passphrase field. Length is what compensates for a KDF in JavaScript. */
 export const PASSPHRASE_HINT =
   "Use several words you will remember and nobody could guess. Length is what " +
-  "protects this note; twelve characters is the minimum and more is better.";
+  "protects this note; twelve characters is the minimum and more is better. " +
+  "The strength meter shows a rough offline crack-time estimate, not an exact " +
+  "one, and common or patterned phrases may be much faster to crack.";
 
 /** Shown where the runtime cannot open locked notes, in place of the form. */
 export const UNSUPPORTED_TITLE = "Locked notes open on a computer";
