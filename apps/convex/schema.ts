@@ -986,16 +986,34 @@ const schema = defineSchema({
       }),
     ),
     /**
-     * Chat's own settings and cursor. Not implemented by this change — see
-     * the `calendar` field's comment; the same reasoning applies. Both
-     * `chat.messages.readonly` and `chat.spaces.readonly` are restricted and
-     * sensitive scopes respectively (`docs/decisions/communications.md`), so
-     * the CASA assessment gating Gmail gates this too.
+     * Chat's own settings and cursor. Both `chat.messages.readonly` and
+     * `chat.spaces.readonly` are restricted and sensitive scopes respectively
+     * (`docs/decisions/communications.md`), so the CASA assessment gating
+     * Gmail gates this too.
+     *
+     * Shaped differently from the `historyToken` placeholder this field
+     * started as, because Chat's own sync module
+     * (`apps/mcp/src/communications/googleChat/sync.js`) predates this table
+     * and already settled the real shape: Chat pages `spaces.messages.list`
+     * by `create_time` **per space**, so one account-wide cursor cannot
+     * represent it — `cursors` is a map, keyed by the space's resource name,
+     * and one space's failure never stalls another's. `spaceSettings` is a
+     * console-facing per-space include/exclude/pause choice, absent for a
+     * space that has never been touched (which reads as `"included"` —
+     * `docs/decisions/communications.md`, "Default private", the same
+     * "absent means the default" rule). `nonceSeed` is not a credential —
+     * leaking it only weakens this connection's fence nonce
+     * (`packages/communications/src/note.js`, "the nonce is why the fence is
+     * worth anything"), never Google account access — so it is generated once
+     * at connect time and stored in the clear rather than sealed, and
+     * survives a reconnect for the same reason `gmail.mailboxSlug` does.
      */
     chat: v.optional(
       v.object({
         scopes: v.array(v.string()),
-        historyToken: v.optional(v.string()),
+        spaceSettings: v.optional(v.record(v.string(), v.union(v.literal("excluded"), v.literal("paused")))),
+        cursors: v.optional(v.record(v.string(), v.string())),
+        nonceSeed: v.string(),
         lastSyncedAt: v.optional(v.number()),
       }),
     ),

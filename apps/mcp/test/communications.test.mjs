@@ -151,7 +151,7 @@ async function callTool(env, token, name, args = {}) {
 }
 
 /** A day, rendered by the package that owns the format rather than by hand. */
-function seedDay(bucket, { account, address, date, subjects, channel = "email" }) {
+function seedDay(bucket, { account, address, date, subjects, channel = "email", space }) {
   const events = subjects.map((subject, index) => ({
     channel,
     account,
@@ -161,6 +161,7 @@ function seedDay(bucket, { account, address, date, subjects, channel = "email" }
     subject,
     from: { name: `Sender ${index}`, address: `sender${index}@example.net` },
     body: `BODY-MARKER-${subject.replace(/\W+/g, "-")}`,
+    ...(space ? { space } : {}),
   }));
   const text = renderChannelDayNote({
     channel,
@@ -239,6 +240,19 @@ export async function runCommunicationsChecks(check) {
       date: "2026-09-06",
       subjects: ["On my way"],
     });
+    // Google Chat: also a no-account channel, but one level deeper — space,
+    // then thread, then message — so this end-to-end pass through the real
+    // gateway tools (not packages/communications' own tests) is what proves
+    // `read_channel_day` surfaces that grouping rather than only the
+    // renderer producing it correctly in isolation.
+    const googleChatDay = seedDay(bucket, {
+      account: "",
+      address: "",
+      channel: "google-chat",
+      date: "2026-09-06",
+      subjects: ["Standup notes"],
+      space: { key: "spaces/AAAA1111", displayName: "Engineering Team", type: "group_chat" },
+    });
     // Two notes in the same folder that are NOT days: the forwarded captures
     // this project deliberately left where they are, and a meeting.
     bucket.seed("0-inbox/email/9f2c1d7a4b6e8035ac91d2f4.md", "# A forwarded capture");
@@ -289,6 +303,32 @@ export async function runCommunicationsChecks(check) {
       );
     }
 
+    /*
+      A calendar day is its own kind, never `channel-day` — it lives at
+      `0-inbox/calendar/<date>.md` with no channel or account segment at all,
+      the layout `docs/decisions/communications.md`'s "A calendar lands beside
+      the mail, not inside it" settles. The two recognisers must never both
+      claim the same path.
+    */
+    for (const [key, expected, why] of [
+      ["0-inbox/calendar/2026-09-07.md", "calendar-day", "a calendar day"],
+      ["0-inbox/calendar/Work_Box/2026-09-07.md", null, "a folder somebody made by hand under calendar/"],
+      ["0-inbox/calendar/2026-02-30.md", null, "a day that does not exist"],
+      ["0-inbox/email/name-at-example-com/2026-09-07.md", "channel-day", "a mailbox day, still its own kind"],
+    ]) {
+      check(`classifyCaptureKind answers ${why} as ${expected}`, classifyCaptureKind(key) === expected);
+    }
+    check(
+      "a calendar day and a channel day never both claim the same path — the two recognisers are disjoint",
+      !recogniseInGateway("0-inbox/calendar/2026-09-07.md") && classifyCaptureKind("0-inbox/calendar/2026-09-07.md") !== "channel-day"
+    );
+    // Sabotage, measured: deleted the `isCalendarDayNotePath` branch from
+    // `classifyCaptureKind` — 1 check failed ("classifyCaptureKind answers a
+    // calendar day as calendar-day"), and only one, because a calendar day
+    // falling through to `null` still does not misclassify as `channel-day`
+    // or anything else — it just stops collapsing, which is the failure this
+    // suite exists to catch on its own, separately, in orientation.test.mjs.
+
     /* ----------------------------- the listing ---------------------------- */
 
     const ownerList = await callTool(env, OWNER_TOKEN, "list_channel_days", { limit: 25 });
@@ -321,6 +361,24 @@ export async function runCommunicationsChecks(check) {
         privateDay
       )
     );
+    check("a Google Chat day is listed alongside every other channel", ownerList.includes(googleChatDay));
+    check(
+      "...and a channel filter narrows to it specifically",
+      (await callTool(env, OWNER_TOKEN, "list_channel_days", { channel: "google-chat" })).includes(googleChatDay) &&
+        !(await callTool(env, OWNER_TOKEN, "list_channel_days", { channel: "google-chat" })).includes(chatDay)
+    );
+    check(
+      "read_channel_day on a Chat day surfaces the space heading through the real gateway path, not only the renderer's own tests",
+      (await callTool(env, OWNER_TOKEN, "read_channel_day", { path: googleChatDay, messages: true })).includes(
+        "Space — Engineering Team"
+      )
+    );
+    check(
+      "a Google Chat day is private by default, the same as any other unnamed folder",
+      !(await callTool(env, TEAM_TOKEN, "list_channel_days", { channel: "google-chat" })).includes(googleChatDay) &&
+        (await callTool(env, TEAM_TOKEN, "read_channel_day", { path: googleChatDay })) ===
+          (await callTool(env, TEAM_TOKEN, "read_channel_day", { path: "0-inbox/google-chat/1999-01-01.md" }))
+    );
     check(
       "a channel nobody has is a caller error, not a silent empty answer",
       (await callTool(env, OWNER_TOKEN, "list_channel_days", { channel: "carrier-pigeon" })).includes(
@@ -328,8 +386,14 @@ export async function runCommunicationsChecks(check) {
       )
     );
     check(
+      // Refused by the advertised schema now, before the tool runs: the
+      // definition says `minimum: 1, maximum: 25`, and `src/toolArguments.js`
+      // enforces what the definition claims rather than leaving it to the
+      // handler to re-derive.
       "an out-of-range limit is refused",
-      (await callTool(env, OWNER_TOKEN, "list_channel_days", { limit: 99 })).includes("limit must be")
+      (await callTool(env, OWNER_TOKEN, "list_channel_days", { limit: 99 })).includes(
+        'argument "limit" must be at most 25'
+      )
     );
 
     /* ------------------------------- privacy ------------------------------ */
