@@ -25,7 +25,16 @@ function validateInfoPlistXml(xml) {
 }
 
 function validateIpa(path) {
-  const binary = execFileSync("unzip", ["-p", path, "Payload/*.app/Info.plist"]);
+  let entries;
+  try {
+    execFileSync("unzip", ["-t", path], { stdio: "ignore" });
+    entries = execFileSync("unzip", ["-Z1", path], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+  } catch {
+    throw new Error("IPA is not a valid ZIP archive");
+  }
+  const plistEntries = entries.filter((entry) => /^Payload\/[^/]+\.app\/Info\.plist$/.test(entry));
+  if (plistEntries.length !== 1) throw new Error("IPA must contain exactly one Payload app Info.plist");
+  const binary = execFileSync("unzip", ["-p", path, plistEntries[0]]);
   const xml = execFileSync("plutil", ["-convert", "xml1", "-o", "-", "-"], {
     input: binary,
     encoding: "utf8",

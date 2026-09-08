@@ -277,8 +277,11 @@ jobs:
         run: |
           eas build --platform ios --profile ${{ inputs.profile }} --non-interactive --json > /tmp/context-build.json
           BUILD_ID=$(node ../../scripts/eas-build-artifact.cjs id /tmp/context-build.json)
-          eas build:download --build-id "$BUILD_ID" --json --non-interactive > /tmp/context-download.json
-          IPA_PATH=$(node ../../scripts/eas-build-artifact.cjs download-path /tmp/context-download.json)
+          # eas build:download treats the app archive as a tar.gz and fails on
+          # the IPA ZIP. Download the applicationArchiveUrl from this exact
+          # build JSON, without printing the signed URL or using a latest build.
+          IPA_PATH=/tmp/context-${BUILD_ID}.ipa
+          node ../../scripts/eas-build-artifact.cjs download /tmp/context-build.json "$IPA_PATH" | grep -Fxq "$BUILD_ID"
           node ../../scripts/validate-ios-ipa.cjs "$IPA_PATH"
           echo "$BUILD_ID" > /tmp/context-build-id
 
