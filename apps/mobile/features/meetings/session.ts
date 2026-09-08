@@ -253,11 +253,29 @@ export function applyMeetingEvent(
       };
     }
 
+    /*
+      Transcript folds into a meeting that can still be written out, and into
+      nothing else.
+
+      Unlike `start`, `pause` and `end` above, these two consulted no state at
+      all — so a `complete` projection accepted words, `pendingSteps` offered
+      them forever as unsent transcript, and the gateway answered 400 because
+      the session it named was already a note. That is exactly what happened to
+      eight of the owner's meetings in one evening: a leaked recorder
+      subscription (`listenToRecorder`) handed each finished meeting the *next*
+      meeting's words, and nothing between the handler and the request said no.
+
+      The leak is fixed at its source; this is the second answer, in the one
+      place every path to a transcript passes through. `acceptsTranscript`
+      mirrors `appendSegments` at the gateway deliberately — the two agree on
+      which states a transcript may still reach, so a client cannot queue a
+      write its own gateway will refuse.
+    */
     case "segment":
-      return withSegments(projection, [event.segment]);
+      return acceptsTranscript(session.state) ? withSegments(projection, [event.segment]) : projection;
 
     case "segments":
-      return withSegments(projection, event.segments);
+      return acceptsTranscript(session.state) ? withSegments(projection, event.segments) : projection;
 
     case "notes":
       // Wholesale replacement, and never touched by anything else in this file:
@@ -394,6 +412,25 @@ function closed(projection: MeetingProjection, at: string): number {
   if (projection.runningSince === null) return projection.session.recordedMs;
   const open = Date.parse(at) - Date.parse(projection.runningSince);
   return projection.session.recordedMs + Math.max(0, open);
+}
+
+/**
+ * MAY THIS SESSION STILL RECEIVE TRANSCRIPT?
+ *
+ * The mirror of `appendSegments` in `apps/mcp/src/meetings/ingest.js`, which
+ * takes a batch on `idle` and `paused` — the state machine is the client's
+ * business and transcription lags the audio — and refuses one on `complete` and
+ * `empty`, because those meetings are a note (or a decision not to write one)
+ * and nothing is left that would ever write the words out.
+ *
+ * Refusing here as well is not duplication. It is the difference between a
+ * queue that holds a write forever and a device that never made it: on a client
+ * a folded segment becomes an unsent step in `pendingSteps`, and a step whose
+ * only possible answer is `meeting_invalid` parks the meeting rather than
+ * sending it.
+ */
+export function acceptsTranscript(state: MeetingState): boolean {
+  return state !== "complete" && state !== "empty";
 }
 
 /**

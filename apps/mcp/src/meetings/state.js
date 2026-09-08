@@ -64,7 +64,13 @@
  * `isMeetingNotePath` finds them, so there is no second index to drift.
  */
 
-import { CLIENT_EVENT_TYPES, ERRORS, REASON_MAX, isMeetingId } from "../../../../packages/meetings/src/protocol.js";
+import {
+  CLIENT_EVENT_TYPES,
+  ERRORS,
+  REASON_MAX,
+  foreignSegmentSessions,
+  isMeetingId,
+} from "../../../../packages/meetings/src/protocol.js";
 import { applyEvent, applyLog, createSession } from "../../../../packages/meetings/src/session.js";
 import { normalizeSegment } from "../../../../packages/meetings/src/transcript.js";
 
@@ -271,6 +277,13 @@ export function foldLog(session, events) {
   for (const event of events) {
     assertEventWithinLimits(event);
     if (!CLIENT_EVENTS.has(event.type)) throw invalid(`a client may not send a ${event.type} event`);
+    /*
+      The replay path carries transcript too — `{type: "segments"}` in a
+      client's own log — so the address check belongs here as well as in
+      `appendSegments`. A guard on one of two doors is not a guard.
+    */
+    if (event.type === "segments") assertSegmentsAddressed(session.id, event.segments);
+    if (event.type === "segment") assertSegmentsAddressed(session.id, [event.segment]);
   }
   try {
     return applyLog(session, events);
@@ -334,6 +347,57 @@ export function assertSegmentsWithinLimits(segments) {
       if (segment.text.length > LIMITS.segmentTextChars) throw invalid("a transcript segment is too long");
     }
   }
+}
+
+/**
+ * REFUSE A BATCH THAT CARRIES ANOTHER MEETING'S WORDS.
+ *
+ * A segment id minted by a recorder names, in its own first token, the meeting
+ * that produced it (`segmentSessionId`). When that disagrees with the session
+ * the batch is being written to, one of two things is true and both are the
+ * same refusal: a client routed a batch to the wrong meeting, or somebody is
+ * asking this gateway to append words to a meeting they were not spoken in.
+ *
+ * **This is the one refusal in this file that protects a note rather than a
+ * bucket.** The desktop's console controller subscribed a fresh `onSegment`
+ * handler per meeting and detached none, so every finished meeting of an
+ * evening carried a `segments` write full of a *later* meeting's words. Eight
+ * of eight. They were refused only because `appendSegments` happened to find
+ * those sessions `complete`; a meeting whose finalize had not drained yet — a
+ * laptop on a plane, a gateway that was down for a minute — would have taken
+ * them, and the note in the customer's bucket would have held a conversation
+ * that happened in a different room. Nothing downstream could have told: by the
+ * time it is a turn under `## Transcript` there is no id left to check.
+ *
+ * So the check is here, at the door, on the one fact that survives a wrong
+ * envelope.
+ *
+ * **What it deliberately does not refuse.** A segment id that names no meeting
+ * at all — the phone's recorders key their chunks on `String(Date.now())` — is
+ * unaddressed rather than misaddressed, and passes. A guard on somebody's
+ * transcript may only fail in the direction of accepting what it cannot prove
+ * wrong; the alternative is a recorder whose words this gateway silently stops
+ * taking the day it changes how it mints ids.
+ *
+ * **The whole batch is refused, not the offending rows.** `countUnusable`'s
+ * "store forty-nine of fifty" is right for a row the merge cannot read, and
+ * wrong here: a batch with somebody else's words in it was addressed by
+ * something that does not know whose words it is holding, and the rest of it is
+ * not more trustworthy than the part that gave it away.
+ *
+ * **The refusal is about the caller's own request and nothing else**, the rule
+ * `toolArguments.js` states for the tool layer. Both ids in the message came
+ * from the body that was just sent, so it discloses nothing about what exists
+ * — this runs before the session is read — and it never carries a word of the
+ * text it is refusing.
+ */
+export function assertSegmentsAddressed(id, segments) {
+  const foreign = foreignSegmentSessions(id, segments);
+  if (foreign.length === 0) return;
+  throw invalid(
+    `these segments were minted for another meeting (${foreign.join(", ")}); ` +
+      "send each meeting's transcript to its own session"
+  );
 }
 
 /** How many rows of a batch the merge could not use: no id, no text, a bad clock. */

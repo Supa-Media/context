@@ -396,6 +396,72 @@ export function isMeetingId(value) {
   return typeof value === "string" && MEETING_ID_RE.test(value);
 }
 
+/**
+ * THE MEETING A SEGMENT ID NAMES, OR `null` WHEN IT NAMES NONE.
+ *
+ * Every id a recorder mints is `<sessionKey>-<...>`, and on the two clients
+ * that record against a gateway the session key **is the meeting id**:
+ * `segmentId(sessionId, index)` in the desktop's transcriber, and
+ * `chunkIdFor(`${sessionId}-${channel}`, index)` fed through `segmentIdFor` on
+ * the cloud path. So the id carries, in its own first token, the answer to
+ * "whose words are these" — independently of whatever envelope is wrapped
+ * around the batch.
+ *
+ * That independence is the whole point. A batch is addressed by the session id
+ * on the *request*, and an envelope can be wrong: the mobile controller
+ * subscribed a fresh `onSegment` listener per meeting and never detached the
+ * previous one, so every segment of meeting N was also folded into the records
+ * of meetings 1..N-1 — eight of eight of one evening's meetings, each holding
+ * words from the meetings that came after it. Nothing could tell, because the
+ * only statement of whose words they were had been overwritten by the envelope.
+ * The id is the statement that survives, so it is the one to check against.
+ *
+ * **`null` is not a failure.** The phone's own recorders key their chunks on
+ * `String(Date.now())` (`capture/audio.ts`), so their segment ids name no
+ * meeting at all — and an id from a client this contract has never met names
+ * none either. Those are unaddressed, never misaddressed: a check built on this
+ * refuses what is provably somebody else's and waves through what it cannot
+ * know, which is the only direction a guard on a transcript may fail in.
+ *
+ * @param {unknown} segmentId
+ * @returns {string|null}
+ */
+export function segmentSessionId(segmentId) {
+  if (typeof segmentId !== "string") return null;
+  const dash = segmentId.indexOf("-");
+  const head = dash === -1 ? segmentId : segmentId.slice(0, dash);
+  return isMeetingId(head) ? head : null;
+}
+
+/**
+ * The meetings named by segments in this batch that are **not** `sessionId`.
+ *
+ * Distinct, in first-seen order, and capped: this is turned into a log line and
+ * a refusal, and a hostile or broken client must not be able to make either
+ * unbounded. An empty array means every segment either names this session or
+ * names none, which is what "addressed correctly" means here.
+ *
+ * @param {unknown} sessionId
+ * @param {unknown} segments
+ * @param {{max?: number}} [options]
+ * @returns {string[]}
+ */
+export function foreignSegmentSessions(sessionId, segments, options = {}) {
+  const max = options.max ?? FOREIGN_SESSIONS_NAMED;
+  if (!Array.isArray(segments)) return [];
+  const seen = [];
+  for (const segment of segments) {
+    const named = segmentSessionId(segment && typeof segment === "object" ? segment.id : null);
+    if (named === null || named === sessionId) continue;
+    if (!seen.includes(named)) seen.push(named);
+    if (seen.length >= max) break;
+  }
+  return seen;
+}
+
+/** How many distinct foreign meetings one refusal or log line will name. */
+export const FOREIGN_SESSIONS_NAMED = 4;
+
 // --- the wire --------------------------------------------------------------
 
 /**

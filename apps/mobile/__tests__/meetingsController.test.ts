@@ -418,6 +418,155 @@ describe("ending a meeting", () => {
   });
 });
 
+describe("words belong to the meeting that produced them", () => {
+  /*
+    THE DEFECT, AND IT PUT ONE MEETING'S TRANSCRIPT IN ANOTHER MEETING'S WRITE.
+
+    `listenToRecorder` subscribes a handler closing over the meeting id, and
+    nothing detached the previous meeting's. After two meetings the recorder had
+    two subscribers; after seven it had seven, and every segment of the meeting
+    being recorded now was folded into the record of every meeting recorded
+    before it in this process.
+
+    Measured on the owner's Mac across one evening: eight finished meetings,
+    eight `segments` writes each carrying words from *later* meetings, all
+    refused 400 because the sessions they named were already complete at the
+    gateway. The refusal is the only reason those words did not reach a note —
+    a meeting whose finalize had not drained yet would have taken them.
+
+    Both halves are checked, because either alone is green with the bug in
+    place: the old meeting must not gain the new words, and the new meeting must
+    still get them.
+  */
+  test("a second meeting's words do not land on the first meeting's record", async () => {
+    const { controller, recorder } = await harness();
+
+    const first = await controller.start({ title: "One" });
+    recorder.emit(fakeSegment(`${first}-mic-0-s000`, 0, "said in the first meeting"));
+    await controller.end();
+    await settle();
+
+    const second = await controller.start({ title: "Two" });
+    recorder.emit(fakeSegment(`${second}-mic-0-s000`, 0, "said in the second meeting"));
+    await settle();
+
+    const one = controller.getSnapshot().records.find((r) => r.session.id === first)!;
+    const two = controller.getSnapshot().records.find((r) => r.session.id === second)!;
+    expect(one.session.transcript.map((s) => s.id)).toEqual([`${first}-mic-0-s000`]);
+    expect(two.session.transcript.map((s) => s.id)).toEqual([`${second}-mic-0-s000`]);
+  });
+
+  test("a stale recorder subscription is detached, not merely out-voted", async () => {
+    /*
+      Asserted on the recorder rather than on the records, so the check is about
+      the subscription itself. A fix that filtered misaddressed segments while
+      leaving the handler attached would pass the test above and still leak one
+      closure per meeting for the life of the process.
+    */
+    const { controller, recorder } = await harness();
+    await controller.start({ title: "One" });
+    await controller.end();
+    await settle();
+    await controller.start({ title: "Two" });
+    await settle();
+
+    // One handler for the meeting that is live, and no handler for the one that
+    // finished. Two here is the defect exactly: the previous meeting's closure,
+    // still attached, still folding.
+    expect(recorder.segmentSubscribers).toBe(1);
+
+    const id = controller.getSnapshot().live!.session.id;
+    recorder.emit(fakeSegment(`${id}-mic-0-s000`, 0, "one delivery"));
+    expect(controller.getSnapshot().live!.session.transcript).toHaveLength(1);
+  });
+
+  test("the error subscription is detached with the segment one", async () => {
+    /*
+      It leaked identically and was worth fixing for a different reason: an
+      error handler per meeting sets `captureError` once per meeting ever
+      started, so a single refused microphone was written to the snapshot five
+      times on the fifth meeting of a session. Harmless today only because they
+      all write the same string.
+    */
+    const { controller, recorder } = await harness();
+    await controller.start({ title: "One" });
+    await controller.end();
+    await settle();
+    await controller.start({ title: "Two" });
+    await settle();
+
+    expect(recorder.errorSubscribers).toBe(1);
+  });
+
+  test("a finished meeting's projection refuses transcript outright", async () => {
+    /*
+      The second answer, independent of who is sending. `applyMeetingEvent`'s
+      `segment` case consulted no state at all, unlike `start`/`pause`/`end`
+      beside it — so a `complete` session folded words that `pendingSteps` then
+      offered forever as unsent, against a gateway that answers 400 for a
+      session that is already a note. Driven through `apply` directly, because
+      the whole point is that it holds whatever routed the event.
+    */
+    const { controller } = await harness();
+    const id = await controller.start({ title: "Finished" });
+    controller.setNotes(id, "typed");
+    await controller.end();
+    await settle();
+
+    const done = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(done.session.state).toBe("complete");
+
+    controller.apply(id, { type: "segment", segment: fakeSegment(`${id}-mic-9-s000`, 0, "too late") });
+    await settle();
+
+    const after = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(after.session.transcript).toHaveLength(0);
+    // No `segments` step, which is the one that would be posted to a session
+    // the gateway has already turned into a note and would answer 400 for.
+    expect(pendingSteps(after).filter((step) => step.kind === "segments")).toHaveLength(0);
+  });
+
+  test("a segment minted for another meeting is refused rather than folded", async () => {
+    /*
+      The guard, independent of the fix above: `apply` is handed a segment whose
+      id names a different meeting, exactly as the leaked handler used to hand
+      it one, and the record does not take it. This is what makes a future
+      version of the same mistake visible instead of a silently contaminated
+      note — `foreignSegmentSessions` in the contract is the shared rule and the
+      gateway refuses the same shape at its own door.
+    */
+    const { controller } = await harness();
+    const mine = await controller.start({ title: "Mine" });
+    const somebodyElses = "mtg_00000000000000000000";
+
+    controller.apply(mine, {
+      type: "segment",
+      segment: fakeSegment(`${somebodyElses}-mic-0-s000`, 0, "spoken in another room"),
+    });
+    await settle();
+
+    expect(controller.getSnapshot().live!.session.transcript).toHaveLength(0);
+  });
+
+  test("a segment id that names no meeting is still taken", async () => {
+    /*
+      The phone's own recorders key their chunks on `String(Date.now())`, so
+      their ids name no meeting at all. Unaddressed is not misaddressed: a guard
+      on somebody's transcript may only fail in the direction of accepting what
+      it cannot prove wrong, or it silently stops taking words the day a
+      recorder changes how it mints ids.
+    */
+    const { controller } = await harness();
+    await controller.start({ title: "From a phone" });
+    const id = controller.getSnapshot().live!.session.id;
+
+    controller.apply(id, { type: "segment", segment: fakeSegment("1757280000000-0-s000", 0, "hello") });
+    await settle();
+
+    expect(controller.getSnapshot().live!.session.transcript).toHaveLength(1);
+  });
+});
+
 describe("a session stuck finalizing is not left stuck", () => {
   /*
     The other half of the owner's bug report: "a meeting stuck on Finalizing
