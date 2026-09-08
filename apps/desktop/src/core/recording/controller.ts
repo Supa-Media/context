@@ -241,6 +241,19 @@ export class MeetingController {
   /** See `SessionView.frames`. Live, so it is readable during the meeting. */
   #frames = 0;
   #startedAtMs = 0;
+  /**
+   * Audio actually captured so far, excluding pauses and the time since a
+   * capture died. See `elapsedMs`'s own header for why this exists at all.
+   */
+  #accumulatedMs = 0;
+  /**
+   * When the interval currently open began, or `null` while nothing is open —
+   * paused, failed, or never audio in the first place. `elapsedMs` adds
+   * `now - #runningSince` to `#accumulatedMs` only while this is non-`null`,
+   * which is what makes "the capture died" and "the clock stops" the same
+   * event rather than two things that have to be kept in step by hand.
+   */
+  #runningSince: number | null = null;
   /** See `BeginInput.queueWrites`. True for every meeting this shell starts. */
   #queues = true;
 
@@ -323,6 +336,11 @@ export class MeetingController {
     this.#startedAtMs = startedAt.getTime();
     this.#segments = 0;
     this.#frames = 0;
+    this.#accumulatedMs = 0;
+    // Set once the recorder actually opens, below — not here, and not
+    // unconditionally for a typed meeting, which has no capture to die and
+    // keeps the plain wall-clock answer `elapsedMs` already gave it.
+    this.#runningSince = null;
 
     this.#view = {
       id,
@@ -395,7 +413,20 @@ export class MeetingController {
             this.#update({ frames: this.#frames });
             this.#stream?.push(frame);
           },
+          /*
+            THE INPUT CLOSED ON ITS OWN.
+
+            `fail()` is where "the capture died" and "the meeting is failed,
+            with what it captured kept" already live — see its own header —
+            so this is a hand-off rather than a second implementation of it.
+            Fire-and-forget: the recorder's own callback contract says this
+            must not throw, and there is nothing above it here to await.
+          */
+          onDied: (message) => {
+            void this.fail(message);
+          },
         });
+        this.#runningSince = startedAt.getTime();
       } catch (error) {
         const message = describe(error);
         this.#update({ state: "failed", failureReason: message, capturing: false });
@@ -481,6 +512,7 @@ export class MeetingController {
   }
 
   async pause(): Promise<void> {
+    this.#closeRunningInterval();
     this.#moveTo("paused");
     await this.#deps.recorder.pause();
     this.#update({});
@@ -489,7 +521,20 @@ export class MeetingController {
   async resume(): Promise<void> {
     this.#moveTo("recording");
     await this.#deps.recorder.resume();
+    this.#runningSince = this.#deps.now().getTime();
     this.#update({});
+  }
+
+  /**
+   * Bank whatever interval is currently open into `#accumulatedMs` and stop
+   * counting it, so `elapsedMs` freezes at exactly what was captured the
+   * instant this is called — never before a pause, a failure or an end, and
+   * never in a typed meeting, which never opens one.
+   */
+  #closeRunningInterval(): void {
+    if (this.#runningSince === null) return;
+    this.#accumulatedMs += Math.max(0, this.#deps.now().getTime() - this.#runningSince);
+    this.#runningSince = null;
   }
 
   /** The human's own Markdown. Never rewritten by anything downstream. */
@@ -514,6 +559,7 @@ export class MeetingController {
   async end(): Promise<SessionView | null> {
     const view = this.#view;
     if (!view) return null;
+    this.#closeRunningInterval();
     this.#moveTo("finalizing");
 
     // A typed meeting never started either, and asking a recorder that was
@@ -571,10 +617,44 @@ export class MeetingController {
     this.#update({ notice: message });
   }
 
-  /** Something broke. The session is kept so its transcript is not lost. */
-  fail(reason: string): void {
-    if (!this.#view) return;
-    this.#update({ state: "failed", failureReason: reason, capturing: false });
+  /**
+   * Something broke — the capture died on its own, most often, wired from
+   * `RecorderOptions.onDied` above. The session is kept, with everything it
+   * captured before this moment: no audio already recorded is discarded, and
+   * nothing here writes a note or decides the meeting is over. `failed ->
+   * finalizing` is legal in `MEETING_TRANSITIONS` for exactly this reason —
+   * a person's own Retry, through `end()`, reaches a real finalize with
+   * whatever this session actually has.
+   *
+   * A no-op outside a state that may legally become `failed` — checked
+   * without throwing, since this can arrive from a recorder's own callback
+   * with nothing above it to catch a rejection, and a capture that dies a
+   * moment after a person already pressed End is not a bug to crash over.
+   *
+   * Releases the device for real, the same way `end()` does, rather than
+   * only updating `capturing` to match what the recorder already reports:
+   * a `fail()` called for a reason that has nothing to do with the recorder
+   * (the transcriber refused something mid-meeting, say) must still close the
+   * microphone rather than leave a session marked `failed` with an input still
+   * open behind it.
+   */
+  async fail(reason: string): Promise<void> {
+    const view = this.#view;
+    if (!view || !MEETING_TRANSITIONS[view.state].includes("failed")) return;
+    this.#closeRunningInterval();
+
+    const summary = view.audio ? await this.#deps.recorder.stop() : { recordedMs: this.#accumulatedMs, frames: this.#frames };
+    await this.#stream?.finish();
+    this.#stream = null;
+    this.#frames = summary.frames;
+
+    this.#update({
+      state: "failed",
+      failureReason: reason,
+      recordedMs: summary.recordedMs,
+      frames: summary.frames,
+      capturing: false,
+    });
   }
 
   /** Forget the finished meeting so the app can detect the next one. */
@@ -582,10 +662,29 @@ export class MeetingController {
     this.#view = null;
   }
 
-  /** Elapsed wall-clock, for the tray's timer. */
+  /**
+   * For the tray's timer — and, since this app's own zombie-recording defect,
+   * no longer wall clock since `startedAt` unconditionally.
+   *
+   * A typed meeting (`view.audio === false`) has no capture that can die, so
+   * wall clock since the meeting began is the honest answer and always was —
+   * there is nothing here for a person to be lied to about. An audio meeting
+   * is different: `#accumulatedMs` plus the interval currently open
+   * (`#runningSince`, `null` while paused, failed, or not yet started) is
+   * exactly what was captured, and it **stops moving the instant capture
+   * stops** — a pause, a `fail()` from a died recorder, an `end()` — rather
+   * than counting forward from a timestamp regardless of whether anything is
+   * still being recorded. That is the whole of the fix: this method used to
+   * answer the same question the recording bar's counter still asks
+   * regardless of whether audio is flowing, which is the one thing
+   * `docs/decisions/meetings.md` says an indicator may never do.
+   */
   elapsedMs(): number {
-    if (!this.#view) return 0;
-    return Math.max(0, this.#deps.now().getTime() - this.#startedAtMs);
+    const view = this.#view;
+    if (!view) return 0;
+    if (!view.audio) return Math.max(0, this.#deps.now().getTime() - this.#startedAtMs);
+    const openMs = this.#runningSince !== null ? Math.max(0, this.#deps.now().getTime() - this.#runningSince) : 0;
+    return this.#accumulatedMs + openMs;
   }
 }
 
