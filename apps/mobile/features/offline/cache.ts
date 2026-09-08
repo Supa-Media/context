@@ -1,4 +1,5 @@
 import {
+  CACHE_SCOPES,
   isStaleVersion,
   keyFor,
   keysForWorkspace,
@@ -133,6 +134,33 @@ export async function getNote(
   path: string,
 ): Promise<Cached<OpenNote> | null> {
   return firstReadable(store, (at) => scopedKeyFor("note", at, workspaceId, path), scope);
+}
+
+/**
+ * Drop the cached copy of one note, **at every clearance**.
+ *
+ * `putNote` files a copy under the clearance that read it, so one path can
+ * hold two records — one taken at `private`, one at `team` — and a caller that
+ * removed only "the one this session would read" would leave the other where
+ * it is. `getNote` widens (`readableAt`), so the copy left behind is not
+ * unreachable either: an owner reads the `team` one on a miss.
+ *
+ * That asymmetry is tolerable for eviction, where a leftover copy costs a
+ * stale read. It is not tolerable for the one caller that has: a note that
+ * has just become ciphertext, where the cached copy is the *plaintext* that
+ * lock was supposed to be the last of. So this takes both, and takes them by
+ * key rather than by scanning, because a scan would need `parseKey` to agree
+ * with `scopedKeyFor` about a path — and the two disagreeing is a leak that
+ * looks like a passing test.
+ */
+export async function clearNote(
+  store: KeyValueStore,
+  workspaceId: string,
+  path: string,
+): Promise<void> {
+  for (const at of CACHE_SCOPES) {
+    await store.remove(scopedKeyFor("note", at, workspaceId, path));
+  }
 }
 
 /* ------------------------------ listings -------------------------------- */

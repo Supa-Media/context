@@ -151,6 +151,10 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       // A picture of the console, with no bucket behind it: there is never
       // anything pending, so the honest answer is "nothing was written".
       flushAutosave: () => false,
+      // No bucket and no offline layer either, so there is never a local
+      // draft, a queued write or a cached body to drop — the demo's own
+      // `select` note above says the same about a draft to guard.
+      discardLocalCopies: noop,
       useTheirs: noop,
       keepMine: noop,
       // No bucket, so no second writer and never a conflict to resolve.

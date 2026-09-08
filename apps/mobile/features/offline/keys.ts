@@ -127,6 +127,16 @@ const SCOPED: Record<ScopedKind, true> = { note: true, listing: true };
 const UNSCOPED: Record<UnscopedKind, true> = { draft: true, outbox: true };
 const SCOPES: Record<CacheScope, true> = { private: true, team: true };
 
+/**
+ * Every clearance a copy can be filed under.
+ *
+ * Derived from `SCOPES` rather than written out again, for the reason the
+ * records above exist at all: a caller that has to visit *all* of them — the
+ * one that clears a note's plaintext copies when it becomes ciphertext — must
+ * not be able to miss one that a later `CacheScope` adds.
+ */
+export const CACHE_SCOPES: readonly CacheScope[] = Object.keys(SCOPES) as CacheScope[];
+
 const SCOPED_KINDS: ReadonlySet<string> = new Set(Object.keys(SCOPED));
 const UNSCOPED_KINDS: ReadonlySet<string> = new Set(Object.keys(UNSCOPED));
 const KNOWN_SCOPES: ReadonlySet<string> = new Set(Object.keys(SCOPES));

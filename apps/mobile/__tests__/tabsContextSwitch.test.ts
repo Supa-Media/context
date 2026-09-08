@@ -93,6 +93,7 @@ function browser(
     setDraft: noop,
     save: noop,
     flushAutosave: () => false,
+    discardLocalCopies: noop,
     useTheirs: noop,
     keepMine: noop,
     conflict: null,

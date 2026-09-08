@@ -322,6 +322,7 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     setDraft: noop,
     save: noop,
     flushAutosave: () => false,
+    discardLocalCopies: record("discardLocalCopies"),
     useTheirs: noop,
     keepMine: noop,
     conflict: null,

@@ -815,11 +815,43 @@ export function useFileBrowser(options: {
           return;
         }
 
-        const restored = restoreFor({
-          note,
-          pending: offline.pendingFor(path),
-          draft: await offline.savedDraft(path),
-        });
+        /*
+          An encrypted note can never legitimately carry a draft or a queued
+          write — `useNoteEncryption.ts`'s own header states that editing an
+          unlocked note has no autosave and no offline queue, on purpose, and
+          `__tests__/encryptionDraftQueueGuard.test.ts` holds that on the
+          source of every file that could reach one. So whatever is found
+          here for an encrypted note's path *predates* it becoming encrypted:
+          a lock made on this device with nothing yet discarding it (see
+          `discardLocalCopies`, and `BrowsePane`'s own caller of it), a lock
+          made on another device or tab that shares this one's local storage,
+          or a queued write that raced the lock and can now only ever come
+          back refused (`fileOps.ts`'s "a note this request cannot open is a
+          note this request cannot write").
+
+          None of that is restorable, and `restoreFor` has no way to know to
+          refuse it: it compares text and etags, a stale plaintext draft never
+          equals the ciphertext envelope now on the bucket, and the lock
+          always moves the etag — so an unguarded call would restore that
+          plaintext into the editor as an "unsaved changes" conflict, on a
+          note the console is about to tell this same person is locked. So an
+          encrypted note skips the call entirely rather than trusting it to
+          decline, and — because a skipped restore does not imply an absent
+          one — whatever local copy exists for it is discarded right here,
+          the first time any device notices the note is encrypted, instead of
+          being left to resurface the same way on every future open.
+        */
+        const restored = note.encrypted
+          ? undefined
+          : restoreFor({
+              note,
+              pending: offline.pendingFor(path),
+              draft: await offline.savedDraft(path),
+            });
+        if (note.encrypted === true) {
+          offline.dropQueued(path);
+          offline.forgetDraft(path);
+        }
         // The one that matters most: a superseded read must not put its note
         // in an editor that has moved on to another context, another note, or
         // no note at all — see the module comment at the top of this file.
@@ -1312,6 +1344,46 @@ export function useFileBrowser(options: {
     (path?: string) => autosave.flush(path),
     [autosave],
   );
+
+  /**
+   * Drop every local copy of a path's plaintext — see `browser.ts`'s own
+   * comment for who calls this and why. The same pair `discard` and
+   * `useTheirs` already make for the *open* editor's path, generalised to an
+   * arbitrary one: a lock's caller has just finished writing an envelope over
+   * `path` and does not need — and must not have to force — that note back
+   * open first to clear what predates it.
+   *
+   * Cancelling autosave is deliberately not this function's job: it takes a
+   * path rather than reading `editorRef`, and an armed timer belongs to
+   * whichever path the editor is *currently* holding, which may not be this
+   * one. `performSave`'s own `if (autosave.pending() === path) autosave.cancel()`
+   * is the guard for the note actually on screen; a lock success re-opens the
+   * note it just wrote (`BrowsePane`'s `files.select`), and that reopen is
+   * itself what clears `dirty`/`status`, so nothing here has to. `select`
+   * flushes a pending timer rather than dropping it, so what that reopen can
+   * still issue is the same *conditional* write `performSave` always makes,
+   * against the etag the draft was typed on — which the lock has moved, so the
+   * bucket refuses it and the envelope stands.
+   *
+   * What it does drop, beyond its old name: the cached body. See the block
+   * inside, and `browser.ts` for the whole argument.
+   */
+  const discardLocalCopies = useCallback((path: string) => {
+    offlineRef.current.dropQueued(path);
+    offlineRef.current.forgetDraft(path);
+    /*
+      And the cached body, which is the copy nothing else here would take.
+
+      `sweep`'s bounds reach it in thirty days and `forgetWorkspace` reaches it
+      when the context is left; neither is "now", and now is what a lock
+      promised. The reopen that follows a lock does overwrite it — but only if
+      it lands, and a read that fails between the two falls back to exactly
+      this record and serves the pre-lock plaintext into an ordinary editor,
+      because a copy taken before the lock carries `encrypted: false` and so
+      never reaches `openNote`'s guard below.
+    */
+    offlineRef.current.forgetNote(path);
+  }, []);
 
   /**
    * The person answered the conflict: this text, over the version they saw.
@@ -2219,6 +2291,7 @@ export function useFileBrowser(options: {
       setDraft,
       save,
       flushAutosave,
+      discardLocalCopies,
       useTheirs,
       keepMine,
       conflict,
@@ -2289,6 +2362,7 @@ export function useFileBrowser(options: {
       createNote,
       destroy,
       discard,
+      discardLocalCopies,
       dismissNotice,
       dismissToast,
       duplicate,

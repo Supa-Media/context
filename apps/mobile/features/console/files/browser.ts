@@ -207,6 +207,55 @@ export interface FileBrowser {
    * path in this console and nothing here can force one.
    */
   flushAutosave: (path?: string) => boolean;
+  /**
+   * Drop every local copy of `path`'s plaintext: its draft, any write still
+   * waiting in the offline queue, and the cached body last read from the
+   * bucket. Writes nothing to the bucket.
+   *
+   * **All three, and the third is the one a name like `discardDraft` would
+   * have hidden.** A draft and a queued write are the person's own typing;
+   * the *cached body* is a copy of what the bucket answered — and for the
+   * caller this exists for, all three hold the same plaintext. Leaving the
+   * cache behind and trusting the reopen that follows a lock to overwrite it
+   * (`rememberNote`) is a fix that holds only while that reopen lands: a read
+   * that loses the connection between the lock and the reopen serves the
+   * pre-lock plaintext back out of `localStorage` — into an ordinary editor,
+   * because a cached copy taken before the lock says `encrypted: false` and so
+   * walks past `openNote`'s own guard — and leaves it there across reloads.
+   * Measured, not reasoned about: `encryptionLockDiscardsDraft.test.ts`
+   * enumerates the store after a lock whose reopen fails.
+   *
+   * **The one caller today is the moment a note becomes encrypted** — a
+   * first lock, or a re-lock after `removeNoteEncryption` put it back — where
+   * a passphrase-protected note's whole promise is that nothing this codebase
+   * runs can read it. A plaintext typed before the lock and never saved would
+   * otherwise sit in `features/offline`'s durable store, at a path that is
+   * now ciphertext, forever: `docs/decisions/encryption.md`'s "Encrypted
+   * notes are for humans; no AI client reads one" is a claim about the
+   * bucket, and a leftover draft on the device is the same plaintext sitting
+   * just outside it.
+   *
+   * Exposed here rather than folded into `useNoteEncryption.ts`'s own
+   * `protect`, on purpose: that module's header states the rule its caller
+   * depends on — it never imports `features/offline`, so an unlocked note's
+   * plaintext can never reach the durable draft queue *through* it.
+   * `__tests__/encryptionDraftQueueGuard.test.ts` holds that boundary on the
+   * source. Calling `forgetDraft`/`dropQueued` from inside the encryption
+   * module would be a second, narrower door into the same store; this keeps
+   * the one door in the file that already owns it (`useFileBrowser.ts`), and
+   * the caller that just finished a lock — `BrowsePane`, outside
+   * `features/console/encryption/` entirely — reaches through it instead.
+   *
+   * Takes an explicit path rather than reading `editor.path`: the note this
+   * clears is the one the lock just finished with, and a caller must never
+   * have to open it first to close the door behind it.
+   *
+   * What dropping the cached body costs, stated rather than hidden: the note
+   * is not readable offline until something reads it again. That is one round
+   * trip on a note that has just become unreadable without a passphrase
+   * anyway, and the reopen every caller already makes pays it immediately.
+   */
+  discardLocalCopies: (path: string) => void;
   /** Take the version that is on the server, discarding this draft. Writes nothing. */
   useTheirs: () => void;
   /** Keep this draft and save it over theirs, on the etag that is now current. */

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   clearDraft,
+  clearNote,
   getDraft,
   getListing,
   getNote,
@@ -119,6 +120,21 @@ export interface OfflineNotes {
   rememberListing: (listing: FolderListing) => void;
   cachedNote: (path: string) => Promise<Cached<OpenNote> | null>;
   cachedListing: (path: string) => Promise<Cached<FolderListing> | null>;
+  /**
+   * Drop the cached copy of one note.
+   *
+   * The only *removal* on the copy side of this interface, and it exists for
+   * the one case where a cached body is not a disposable derivative but a
+   * plaintext this device has been asked to stop holding: a note that has just
+   * become ciphertext. Every other reduction of the cache is `sweep`'s bounds
+   * or `forgetWorkspace`, both of which act on a whole store rather than on a
+   * note somebody named.
+   *
+   * Unlike `cachedNote`, this is **not** gated on the session's clearance: it
+   * clears every clearance's copy (`clearNote`), because the copy this has to
+   * take may have been filed under one this session cannot even read.
+   */
+  forgetNote: (path: string) => void;
 
   /** The unsaved, un-queued draft for a note, if there is one. */
   savedDraft: (path: string) => Promise<Draft | null>;
@@ -414,6 +430,21 @@ export function useOfflineNotes(options: {
         copies === null ? null : getNote(store, copies.scope, copies.workspaceId, path),
       cachedListing: async (path) =>
         copies === null ? null : getListing(store, copies.scope, copies.workspaceId, path),
+
+      /*
+        Not gated on `copies`, which is what every other line on the copy side
+        of this object is. `copies` is `null` while the clearance is unknown,
+        and a *read* must stop there — filing or serving a copy under a
+        clearance nobody has established is the leak `keys.ts` argues about at
+        length. A **removal** fails the other way round: refusing to clear
+        because the tier has not landed yet would leave the plaintext exactly
+        where the caller asked for it to stop being, in the one window where
+        nobody can prove it is safe. So this needs only the workspace.
+      */
+      forgetNote: (path) => {
+        if (workspaceId === null) return;
+        void clearNote(store, workspace, path).catch(() => {});
+      },
 
       savedDraft: async (path) => (workspaceId === null ? null : getDraft(store, workspace, path)),
       rememberDraft: (draft) => {
