@@ -21,7 +21,8 @@
  *     `additionalProperties: false` — at the root and, for `move_notes`, one
  *     level down inside `items`.
  *   - property types `string`, `boolean`, `integer`, `array`, `object`.
- *   - `enum` on strings, `minimum`/`maximum` on integers, `items` on arrays.
+ *   - `enum` on strings, `minimum`/`maximum` on integers, and `items`,
+ *     `minItems` and `maxItems` on arrays.
  *
  * A keyword a schema uses and this file does not know is a silent hole, so
  * `unsupportedKeywords` names them and the census test fails the build rather
@@ -68,6 +69,8 @@ const KNOWN_KEYWORDS = new Set([
   "enum",
   "minimum",
   "maximum",
+  "minItems",
+  "maxItems",
   "description",
   "title",
   "default",
@@ -183,6 +186,25 @@ function checkValue(schema, value, path, budget) {
   }
   if (typeof schema.maximum === "number" && typeof value === "number" && value > schema.maximum) {
     return `argument ${describeName(path)} must be at most ${schema.maximum}`;
+  }
+
+  if (Array.isArray(value)) {
+    /*
+      Length before contents, deliberately. `move_notes` advertises
+      `maxItems: 100` and its handler carries the same bound in
+      `BATCH_MOVE_CAP`; enforcing the advertised one here means a batch of a
+      million elements is refused after reading one integer rather than after
+      a million type checks. The handler keeps its own bound — it is the
+      business rule, and this is what the schema said.
+    */
+    if (typeof schema.minItems === "number" && value.length < schema.minItems) {
+      return `argument ${describeName(path)} must have at least ${schema.minItems} item${
+        schema.minItems === 1 ? "" : "s"
+      }`;
+    }
+    if (typeof schema.maxItems === "number" && value.length > schema.maxItems) {
+      return `argument ${describeName(path)} must have at most ${schema.maxItems} items`;
+    }
   }
 
   if (schema.type === "array" && schema.items && Array.isArray(value)) {

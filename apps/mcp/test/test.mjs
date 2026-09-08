@@ -20,6 +20,7 @@ import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
 import { runPluginChecks } from "./plugins.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
+import { runToolArgumentChecks } from "./toolArguments.test.mjs";
 import { runLinkChecks } from "./links.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
@@ -4026,6 +4027,11 @@ await runLinkChecks(check);
 
 await runTenancyChecks(check);
 await runCrossContextChecks(check);
+// The arguments of a tool call, against the schema `tools/list` advertised for
+// it. Its own control plane and S3 backend, so — like the tenancy suite — it
+// swaps globalThis.fetch and restores it, and must not run while anything
+// above still owns that global.
+await runToolArgumentChecks(check);
 await runUsageReportingChecks(check);
 await runSearchD1Checks(check);
 // The copy itself: notes reaching the database fast search provisions. Its own
