@@ -15,12 +15,25 @@
  * vacuously green, and a cascade that silently stopped touching a table would
  * sail through it.
  *
+ * A third property, added alongside the Google connection cascade: deleting
+ * workspace A must never touch workspace B's rows, in any of the tables this
+ * file sweeps, when both live in the *same* database — a separate
+ * `setupTest()` per workspace would prove nothing here, since two databases
+ * cannot collide by construction. See "tenant isolation" below.
+ *
  * ## Sabotage record
  *
  * Run as temporary local edits and reverted. Counts are failing vitest tests
- * in this file.
+ * (in this file unless noted).
  *
  *   the `workspaceKeyRotations` sweep removed from the cascade             1
+ *   the `CONNECT_ATTEMPT_TABLES` loop deleted from the cascade             1
+ *   the Google connection sweep deleted from the cascade                   2
+ *   `workspaceId` filter dropped from the connect-attempt sweep            1
+ *   `encryptedVerifier` typo'd in `connectAttemptTables`'s predicate       3
+ *     (1 here + 2 in `connectAttempts.test.ts` — the derivation returns an
+ *     empty set, so both its own self-tests and this file's cascade test
+ *     fail together)
  *
  * The encryption tables are the one place this file asserts an *asymmetry*
  * rather than an emptiness — the rotation rows go, the key generations stay.
@@ -41,6 +54,7 @@ import {
   createUser,
   createWorkspace,
   errorCode,
+  seedGoogleConnection,
   seedGrant,
   seedStorageBinding,
   setupTest,
@@ -100,6 +114,7 @@ describe("deleteAccount", () => {
     const { t, owner, workspaceId } = await onboardedAccount("atlas");
     await seedAuthRows(t, owner);
     await seedGrant(t, workspaceId, owner, "client-claude", "fake-hash-1");
+    await seedGoogleConnection(t, { workspaceId, boundBy: owner });
 
     // Rows the cascade must reach that the fixture does not create on its own.
     // Inserted directly — each is a shape the product writes through its own
@@ -129,6 +144,19 @@ describe("deleteAccount", () => {
         workspaceId,
         startedBy: owner,
         redirectUri: "https://console.example/callback",
+        expiresAt: Date.now() + 600_000,
+        createdAt: Date.now(),
+      });
+      // The named gap this file exists to close: a parked Google connect,
+      // same shape as the Dropbox one above, previously left out of the
+      // cascade entirely.
+      await ctx.db.insert("googleConnectAttempts", {
+        hashedState: "fake-hashed-google-state-not-real",
+        encryptedVerifier: "v2:current:FAKE:GOOGLE-VERIFIER",
+        workspaceId,
+        startedBy: owner,
+        redirectUri: "https://console.example/mail/gmail/callback",
+        products: ["gmail"],
         expiresAt: Date.now() + 600_000,
         createdAt: Date.now(),
       });
@@ -182,6 +210,8 @@ describe("deleteAccount", () => {
     await t.run(async (ctx) => {
       expect(await ctx.db.get(workspaceId)).not.toBeNull();
       expect(await ctx.db.query("storageBindings").collect()).toHaveLength(1);
+      expect(await ctx.db.query("googleConnections").collect()).toHaveLength(1);
+      expect(await ctx.db.query("googleConnectAttempts").collect()).toHaveLength(1);
       expect(await ctx.db.query("workspaceMembers").collect()).toHaveLength(1);
       expect(await ctx.db.query("ingestionSettings").collect()).toHaveLength(1);
       expect(await ctx.db.query("names").collect()).toHaveLength(1);
@@ -214,6 +244,8 @@ describe("deleteAccount", () => {
       expect(await ctx.db.query("workspaceInvitations").collect()).toHaveLength(0);
       expect(await ctx.db.query("auditEvents").collect()).toHaveLength(0);
       expect(await ctx.db.query("dropboxConnectAttempts").collect()).toHaveLength(0);
+      expect(await ctx.db.query("googleConnectAttempts").collect()).toHaveLength(0);
+      expect(await ctx.db.query("googleConnections").collect()).toHaveLength(0);
       expect(await ctx.db.query("ingestionTickets").collect()).toHaveLength(0);
       expect(await ctx.db.query("cloudflareProvisioning").collect()).toHaveLength(0);
       expect(await ctx.db.query("oauthGrants").collect()).toHaveLength(0);
@@ -299,6 +331,54 @@ describe("deleteAccount", () => {
     expect(JSON.stringify(revokes[0].args)).toContain("v2:current:FAKE:ENVELOPE");
   });
 
+  test("deleting a Google-backed account schedules a revoke per live connection, and none for a disconnected one", async () => {
+    const { t, owner, workspaceId } = await onboardedAccount();
+
+    // Two live connections (a workspace can have several addresses) and one
+    // already disconnected — `disconnectGoogleConnection` leaves the row with
+    // an empty `encryptedRefreshToken` rather than deleting it, and the
+    // cascade must not schedule a revoke for a token that is already gone.
+    await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      address: "one@example.invalid",
+      refreshToken: "refresh-token-one",
+    });
+    await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      address: "two@example.invalid",
+      refreshToken: "refresh-token-two",
+    });
+    await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      address: "three@example.invalid",
+      disconnected: true,
+    });
+
+    await asUser(t, owner).mutation(api.functions.account.deleteAccount, {});
+
+    // Every row is gone, disconnected one included — a stale row pointed at a
+    // deleted workspace is not a place to leave anything.
+    expect(await t.run((ctx) => ctx.db.query("googleConnections").collect())).toHaveLength(0);
+
+    // Exactly two revokes scheduled — one per live connection — each carrying
+    // the sealed refresh token it can no longer read off a deleted row.
+    const scheduled = await t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    const revokes = scheduled.filter((job) => job.name.includes("revokeGoogleGrant"));
+    expect(revokes).toHaveLength(2);
+    const revokedEnvelopes = revokes.map((job) => JSON.stringify(job.args));
+    // Both live tokens are represented, sealed (never the plaintext).
+    expect(revokedEnvelopes.some((args) => args.includes(workspaceId))).toBe(true);
+    for (const args of revokedEnvelopes) {
+      expect(args).not.toContain("refresh-token-one");
+      expect(args).not.toContain("refresh-token-two");
+    }
+  });
+
   test("a member's deletion removes only their own membership, never the workspace", async () => {
     const { t, owner, workspaceId } = await onboardedAccount();
     const member = await createUser(t, "member@example.invalid");
@@ -353,6 +433,115 @@ describe("deleteAccount", () => {
       t.mutation(api.functions.account.deleteAccount, {}),
     );
     expect(errorCode(error)).toBe("NOT_AUTHENTICATED");
+  });
+
+  /**
+   * Tenant isolation, proved in the one shape that actually proves it: two
+   * workspaces, ONE `setupTest()`, ONE database. `docs/decisions/testing.md`
+   * names the exact failure this guards: "the separate-database mistake has
+   * produced [guards] tonight that passed for the wrong reason" — a second
+   * `setupTest()` per workspace cannot collide by construction, so a cascade
+   * that forgot its `workspaceId` filter entirely would still pass a test
+   * shaped that way. Here both workspaces' rows sit in the same tables the
+   * cascade queries, so a dropped filter has somewhere real to leak into.
+   */
+  test("deleting workspace A's owner never touches workspace B's rows, in the same database", async () => {
+    const { t, owner: ownerA, workspaceId: workspaceA } = await onboardedAccount("workspace-a");
+    const ownerB = await createUser(t, "owner-b@example.invalid");
+    const workspaceB = await createWorkspace(t, ownerB, "workspace-b");
+    await seedStorageBinding(t, { workspaceId: workspaceB, boundBy: ownerB });
+    await seedGoogleConnection(t, { workspaceId: workspaceB, boundBy: ownerB });
+    await seedGrant(t, workspaceB, ownerB, "client-claude", "fake-hash-b");
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("dropboxConnectAttempts", {
+        hashedState: "fake-hashed-state-b",
+        encryptedVerifier: "v2:current:FAKE:VERIFIER-B",
+        workspaceId: workspaceB,
+        startedBy: ownerB,
+        redirectUri: "https://console.example/callback",
+        expiresAt: Date.now() + 600_000,
+        createdAt: Date.now(),
+      });
+      await ctx.db.insert("googleConnectAttempts", {
+        hashedState: "fake-hashed-google-state-b",
+        encryptedVerifier: "v2:current:FAKE:GOOGLE-VERIFIER-B",
+        workspaceId: workspaceB,
+        startedBy: ownerB,
+        redirectUri: "https://console.example/mail/gmail/callback",
+        products: ["gmail"],
+        expiresAt: Date.now() + 600_000,
+        createdAt: Date.now(),
+      });
+      await ctx.db.insert("auditEvents", {
+        workspaceId: workspaceB,
+        actorUserId: ownerB,
+        action: "storage.bound",
+        paths: [],
+        at: Date.now(),
+      });
+    });
+
+    await asUser(t, ownerA).mutation(api.functions.account.deleteAccount, {});
+
+    await t.run(async (ctx) => {
+      // A is gone.
+      expect(await ctx.db.get(workspaceA)).toBeNull();
+      expect(await ctx.db.get(ownerA)).toBeNull();
+
+      // B — same tables, same database, different workspace — stands
+      // untouched, row for row.
+      expect(await ctx.db.get(workspaceB)).not.toBeNull();
+      expect(await ctx.db.get(ownerB)).not.toBeNull();
+      expect(
+        await ctx.db
+          .query("storageBindings")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceB))
+          .collect(),
+      ).toHaveLength(1);
+      expect(
+        await ctx.db
+          .query("googleConnections")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceB))
+          .collect(),
+      ).toHaveLength(1);
+      expect(
+        await ctx.db
+          .query("dropboxConnectAttempts")
+          .filter((q) => q.eq(q.field("workspaceId"), workspaceB))
+          .collect(),
+      ).toHaveLength(1);
+      expect(
+        await ctx.db
+          .query("googleConnectAttempts")
+          .filter((q) => q.eq(q.field("workspaceId"), workspaceB))
+          .collect(),
+      ).toHaveLength(1);
+      expect(
+        await ctx.db
+          .query("oauthGrants")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceB))
+          .collect(),
+      ).toHaveLength(1);
+      expect(
+        await ctx.db
+          .query("auditEvents")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceB))
+          .collect(),
+      ).toHaveLength(1);
+      expect(
+        await ctx.db
+          .query("workspaceMembers")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceB))
+          .collect(),
+      ).toHaveLength(1);
+
+      // Nothing scheduled for B's still-live Google connection — only A's
+      // deletion ran, and A's cascade must not reach B's credential.
+      const scheduled = await ctx.db.system.query("_scheduled_functions").collect();
+      const revokes = scheduled.filter((job) => job.name.includes("revokeGoogleGrant"));
+      expect(revokes).toHaveLength(0);
+    });
   });
 });
 

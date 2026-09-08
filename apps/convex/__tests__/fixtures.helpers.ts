@@ -263,6 +263,59 @@ export async function seedStorageBinding(
 }
 
 /**
+ * A Google connection in a chosen state, inserted directly rather than
+ * through the real connect flow — same reasoning as `seedStorageBinding`
+ * just above: what several tests need is "a workspace with a live Google
+ * grant", not a second exercise of `startGmailConnect`'s own suite.
+ *
+ * The refresh token is sealed with the real `encryptSecret`, bound to this
+ * workspace, so a test asserting on the envelope (or on what a scheduled
+ * revoke carries) is exercising the real shape.
+ */
+export async function seedGoogleConnection(
+  t: TestConvex,
+  options: {
+    workspaceId: Id<"workspaces">;
+    boundBy: Id<"users">;
+    address?: string;
+    googleAccountId?: string;
+    refreshToken?: string;
+    disconnected?: boolean;
+  },
+): Promise<Id<"googleConnections">> {
+  const refreshToken = options.refreshToken ?? "example-google-refresh-token-not-real";
+  const encryptedRefreshToken = options.disconnected
+    ? ""
+    : await encryptSecret(refreshToken, requireKeyset(), { workspaceId: options.workspaceId });
+  const now = Date.now();
+  return await t.run((ctx) =>
+    ctx.db.insert("googleConnections", {
+      workspaceId: options.workspaceId,
+      provider: "google",
+      address: options.address ?? "person@example.invalid",
+      encryptedRefreshToken,
+      scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+      googleAccountId: options.googleAccountId ?? "example-google-account-id",
+      products: ["gmail"],
+      gmail: {
+        scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+        mailboxSlug: "person-at-example-invalid",
+        backfillDays: 30,
+        folders: ["inbox"],
+        storeRawMime: false,
+        attachmentMode: "metadata-only",
+        quotaBytes: 1_000_000_000,
+      },
+      health: options.disconnected ? "error" : "active",
+      disconnectedAt: options.disconnected ? now : undefined,
+      boundBy: options.boundBy,
+      createdAt: now,
+      updatedAt: now,
+    }),
+  );
+}
+
+/**
  * Obviously fake halves of the platform's own D1 credential.
  *
  * Not a customer's anything — `appSecrets` holds Context.LC's own integration

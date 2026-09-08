@@ -195,6 +195,64 @@ read. That is not hypothetical — this change caused it, and for one commit the
 discriminator in all three Google flows was unguarded while its tests still
 passed.
 
+### The same derived-subjects shape closes a teardown gap, not just a binding gap
+
+The pull request that added `googleConnectAttempts` (and the binding above)
+named a second miss and left it out of scope: `deleteAccount`'s workspace
+cascade swept `dropboxConnectAttempts` but not `googleConnectAttempts`, so a
+parked Google connect — verifier and completion binding both — outlived a
+deleted workspace until its own ten-minute expiry. Small window, real
+half-credential, and exactly the shape the binding guard above already named:
+"a fifth provider arrives as a failing diff" only if the guard's subjects are
+*discovered*, not hand-listed, because a hand list is precisely what let the
+second provider slip through the first time.
+
+So `functions/lib/connectAttempts.ts` reads the same signal
+`connectBinding.test.ts` reads — a table's own schema validator — but asks a
+different question of it: not "does this table declare `hashedCompletion`
+beside `hashedState`" but "does this table declare both `workspaceId` and
+`encryptedVerifier`", which is what makes a row a parked half-credential
+*somebody's workspace* can outlive. `deleteWorkspaceCascade` sweeps whatever
+that derivation finds in one loop, so `dropboxConnectAttempts` and
+`googleConnectAttempts` are not two call sites to keep in sync — they are one
+answer to one question, and a third provider's attempts table answers it
+without anyone adding a line for it.
+
+**The Google connection itself (`googleConnections`) needed the same audit,
+by hand rather than by derivation.** Unlike an attempt, a live connection is
+not a transient row with a matching schema shape shared by every provider —
+it is `storageBindings`' direct sibling, sealing a standing refresh token
+against a workspace with no expiry of its own. It was not part of the eleven
+tables the cascade already swept, and the fix mirrors `storageBindings`'
+Dropbox handling exactly: schedule the revoke, envelope in the scheduler args,
+then delete the row — one workspace can hold several (one per connected
+address), so every still-live one gets its own scheduled revoke rather than
+one call for the workspace.
+
+**What a full audit of the cascade found and left alone, deliberately.**
+`workspaceDataKeys` stays for the reason `docs/decisions/encryption.md`
+already gives — it opens the customer's own notes, and deleting it is an open
+product decision, not a sweep to add. `searchIndexes` stays for a different
+reason: a row there names a real, billed Cloudflare D1 database, and
+`fastSearch.ts`'s own release path reads that row *by workspaceId* to delete
+the remote database before removing it — deleting the row from the cascade
+first would stand up nothing to read and strand the database with no
+reference left anywhere, which is a worse outcome than the row surviving.
+Fixing that needs the same schedule-then-release shape, not a delete in a
+loop, and is tracked rather than folded into this pass. `oauthAuthorizations`
+has no `workspaceId` index, so an authorization a co-owner approved for a
+workspace somebody else just deleted is reached by neither sweep — bounded
+the same way `dropboxConnectAttempts` always was before this change, by a
+ten-minute expiry and an hourly sweep, and left open for the same reason:
+closing it needs a schema change, not a sweep addition. `usageDaily` and
+`usageActiveDaily` hold no credential and no customer content by construction
+(`docs/decisions/storage-and-credentials.md`, "Usage is counted, never
+logged"), so a stale `workspaceId` in a count is not a capability anyone can
+use — deleting them would only falsify a day that genuinely happened. All of
+this is spelled out where an operator reading the cascade will actually find
+it: the enumerated list in `deleteWorkspaceCascade`'s own doc comment in
+`apps/convex/functions/account.ts`.
+
 ### A first-party signed shell may have its own grant approved by the session hosting it
 
 The owner, on the first end-to-end desktop capture (2026-09-07): *"I don't love

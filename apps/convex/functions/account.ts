@@ -13,26 +13,31 @@
  * owner once I am gone?
  *
  *  - **I am the only owner** → the context dies with me. Everything hanging
- *    off the workspace goes: the storage binding (the customer's bucket is
- *    untouched — we only forget the credential), connect attempts, ingestion
- *    policy and tickets, invitations, grants, the audit trail, every
- *    membership, the slug's row in `names`, and the workspace row itself.
- *    Freeing the slug is the point, not a nicety: the shared namespace has no
- *    other release path, and a deleted account must not squat a name forever —
- *    the person may well re-onboard under it.
+ *    off the workspace goes: the storage binding, the Google connection (the
+ *    customer's bucket and their Google account are both untouched — we only
+ *    forget our copy of each credential), every in-flight connect attempt for
+ *    every provider, ingestion policy and tickets, invitations, grants, the
+ *    audit trail, every membership, the slug's row in `names`, and the
+ *    workspace row itself. Freeing the slug is the point, not a nicety: the
+ *    shared namespace has no other release path, and a deleted account must
+ *    not squat a name forever — the person may well re-onboard under it.
  *  - **Somebody else also owns it, or I am not an owner at all** → the context
  *    is not mine to take down. Only my own membership row goes.
+ *
+ * See `deleteWorkspaceCascade` below for the complete, enumerated list of what
+ * a workspace owns, what this sweeps, and what it deliberately leaves behind.
  *
  * ## The rule this file must not break
  *
  * This is a public mutation and it must never touch `decryptSecret` — see
- * `__tests__/structure.test.ts`. A Dropbox binding's grant still has to be
- * revoked at Dropbox (otherwise our copy of the credential is forgotten while
- * the authorization lives on in the person's account), and that is done the
- * way `disconnectStorage` does it: the revocation is *scheduled*, envelope in
- * the args because the row is deleted in this transaction, and scheduling is
- * not calling — the scheduler discards the job's result, so no credential can
- * flow back here.
+ * `__tests__/structure.test.ts`. A Dropbox binding's grant, and a Google
+ * connection's, still has to be revoked at the provider (otherwise our copy of
+ * the credential is forgotten while the authorization lives on in the
+ * person's account), and that is done the way `disconnectStorage` does it for
+ * Dropbox and `disconnectGoogleConnection` does it for Google: the revocation
+ * is *scheduled*, envelope in the args because the row is deleted in this
+ * transaction, and scheduling is not calling — the scheduler discards the
+ * job's result, so no credential can flow back here.
  *
  * Deletion is idempotent-safe within the call: absent optional rows are simply
  * skipped, never a throw. A half-set-up account (no binding, no name, no
@@ -43,7 +48,26 @@ import { v } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
 import { internal } from "../_generated/api";
 import { mutation, type MutationCtx } from "../_generated/server";
-import type { Id } from "../_generated/dataModel";
+import type { Id, TableNames } from "../_generated/dataModel";
+import { CONNECT_ATTEMPT_TABLES } from "./lib/connectAttempts";
+
+/**
+ * The minimal shape `deleteWorkspaceCascade` needs from a query over a table
+ * discovered generically at runtime: filter by a field, then collect. Typed
+ * loosely on purpose — Convex's real query builder is typed per concrete
+ * table, which a name computed from `CONNECT_ATTEMPT_TABLES` cannot supply at
+ * compile time — but every table that reaches this type has already been
+ * proven, by `connectAttemptTables`, to have both a `workspaceId` field and
+ * the `_id` every Convex document carries.
+ */
+type GenericConnectAttemptQuery = {
+  filter: (
+    predicate: (q: {
+      eq: (a: unknown, b: unknown) => unknown;
+      field: (name: "workspaceId") => unknown;
+    }) => unknown,
+  ) => { collect: () => Promise<Array<{ _id: Id<TableNames> }>> };
+};
 
 /**
  * `workspaceInvitations` deliberately has no plain `by_workspace` index (the
@@ -216,6 +240,64 @@ export const deleteAccount = mutation({
  * exemption — a preamble helper "cannot hide a call to the decrypt path".
  * Down here the scheduler reference sits inside `deleteAccount`'s analyzed
  * block, where the analyzer can see it is a schedule edge, not a call edge.
+ *
+ * ## Everything a workspace owns, enumerated
+ *
+ * A prior review of the pull request that added `googleConnectAttempts`
+ * counted eleven tables swept here and found a twelfth, `googleConnectAttempts`
+ * itself, named and left out of scope. This is the complete list as of the
+ * Google connection and its product state (Gmail/Calendar/Chat) landing
+ * alongside it, and what happens to each:
+ *
+ *  - **`storageBindings`** — swept below. Dropbox's grant is revoked first.
+ *  - **`googleConnections`** — swept below, the same way. One workspace can
+ *    have several (one per connected address); each still-live one has its
+ *    grant revoked before its row goes.
+ *  - **Every parked connect attempt, every provider** — swept below via
+ *    `CONNECT_ATTEMPT_TABLES` (`functions/lib/connectAttempts.ts`), which is
+ *    how `dropboxConnectAttempts` and `googleConnectAttempts` are both
+ *    covered by one loop instead of one hand-maintained call per provider.
+ *  - **`ingestionSettings`**, **`ingestionTickets`**, **`cloudflareProvisioning`**,
+ *    **`workspaceKeyRotations`**, **`workspaceInvitations`** (every status),
+ *    **`oauthGrants`**, **`noteShares`** (every status), **`auditEvents`**,
+ *    **`workspaceMembers`**, **`names`** — swept below, each with its own
+ *    comment on why.
+ *  - **`workspaceDataKeys`** — deliberately KEPT. See the comment beside its
+ *    sweep further down: it holds the material that opens the customer's
+ *    notes in their own bucket, and deleting it on a metadata teardown is an
+ *    open product decision, not an oversight. `docs/decisions/encryption.md`,
+ *    "What a teardown deletes, and what it keeps".
+ *  - **`searchIndexes`** — deliberately NOT swept here, and for a different
+ *    reason than the key above: a row with a `databaseId` names a real,
+ *    billed Cloudflare D1 database, and deleting the row is not the same as
+ *    releasing it — `functions/fastSearch.ts`'s `disable` mutation reaches it
+ *    only by leaving the row as `releasing` and scheduling
+ *    `fastSearchProvision.releaseIndex`, which reads the row *by workspaceId*
+ *    to do the delete and then removes it itself. Deleting the row here first
+ *    would hand that action nothing to read and strand the database with no
+ *    reference left to it anywhere. Fixing this needs the same
+ *    schedule-then-release path, not a `ctx.db.delete` in a loop — tracked
+ *    as a known gap rather than folded into this pass.
+ *  - **`oauthAuthorizations`** — swept for the *deleting user's own* approvals
+ *    by `deleteAccount` above (by `userId`, not `workspaceId`, since the table
+ *    has no workspace index). An authorization approved by a co-owner or
+ *    editor for a workspace that is *this* deletion's target, not yet
+ *    consumed, is not reached by either sweep — the same class of gap this
+ *    file exists to close, bounded the same way `dropboxConnectAttempts`
+ *    always was before this change: the row expires within ten minutes and
+ *    the hourly sweep in `crons.ts` removes it regardless. Left open rather
+ *    than fixed here because reaching it needs an index this table does not
+ *    have (`by_workspace`), which is a schema change, not a sweep addition.
+ *  - **`usageDaily`**, **`usageActiveDaily`** — deliberately NOT swept. These
+ *    hold no credential and no customer content — a day, a metric name from a
+ *    closed vocabulary, and a count (`docs/decisions/storage-and-credentials.md`,
+ *    "Usage is counted, never logged") — and reading `workspaceId` off an old
+ *    row does not let anyone act as that workspace. Deleting them would also
+ *    falsify our own historical totals for a day that genuinely happened.
+ *  - **`rateLimits`**, **`oauthClients`**, **`renderAssets`**,
+ *    **`renderAssetChunks`**, **`adminAuditEvents`**, **`appSecrets`** — not
+ *    workspace-owned at all: keyed by an arbitrary string, by client, or
+ *    platform-scoped, so a workspace teardown has nothing to key a sweep on.
  */
 async function deleteWorkspaceCascade(
   ctx: MutationCtx,
@@ -246,16 +328,56 @@ async function deleteWorkspaceCascade(
     await ctx.db.delete(binding._id);
   }
 
-  // In-flight Dropbox connects. No workspace index exists — the table is keyed
-  // by state for the callback — but rows live minutes (`expiresAt` is short by
-  // design), so the unindexed walk is over a table that is small by
-  // construction, and a parked verifier must not outlive its workspace.
-  const connectAttempts = await ctx.db
-    .query("dropboxConnectAttempts")
-    .filter((q) => q.eq(q.field("workspaceId"), workspaceId))
+  // Every Google connection this workspace made — `by_workspace` rather than
+  // `.unique()` because one workspace can have several addresses connected
+  // (`googleConnections.by_workspace_address`). Same care as the storage
+  // binding above: schedule the revoke first, envelope in the args, because
+  // the row is deleted next. A connection already disconnected carries an
+  // empty `encryptedRefreshToken` (`disconnectGoogleConnection`) — nothing to
+  // revoke, so nothing is scheduled for it, mirroring
+  // `revokeGoogleGrant`'s own no-op on an empty token.
+  const googleConnections = await ctx.db
+    .query("googleConnections")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
-  for (const attempt of connectAttempts) {
-    await ctx.db.delete(attempt._id);
+  for (const connection of googleConnections) {
+    if (connection.encryptedRefreshToken.length > 0) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.googleConnect.revokeGoogleGrant,
+        {
+          workspaceId,
+          encryptedRefreshToken: connection.encryptedRefreshToken,
+        },
+      );
+    }
+    await ctx.db.delete(connection._id);
+  }
+
+  // Every in-flight connect attempt, for every provider that has one. No
+  // workspace index exists on these tables — each is keyed by state for its
+  // callback — but rows live minutes (`expiresAt` is short by design), so the
+  // unindexed walk is over tables that are small by construction, and a
+  // parked verifier must not outlive its workspace.
+  //
+  // `CONNECT_ATTEMPT_TABLES` is derived from the schema itself
+  // (`functions/lib/connectAttempts.ts`), not hand-listed — see that module
+  // for why: `googleConnectAttempts` was reviewed and named as missing from
+  // this exact loop when it was Dropbox-only, and a third provider built the
+  // same way must not repeat it. The cast below is the price of that: Convex
+  // types `db.query` per concrete table, and a table name discovered
+  // generically here does not narrow to one at compile time. What is not
+  // generic is which fields are read — `connectAttemptTables` only ever
+  // returns a table it has already proven has both `workspaceId` and
+  // `encryptedVerifier`.
+  for (const tableName of CONNECT_ATTEMPT_TABLES) {
+    const query = ctx.db.query(tableName) as GenericConnectAttemptQuery;
+    const attempts = await query
+      .filter((q) => q.eq(q.field("workspaceId"), workspaceId))
+      .collect();
+    for (const attempt of attempts) {
+      await ctx.db.delete(attempt._id);
+    }
   }
 
   // The ingestion policy. `unique()` would also work — one row per personal
