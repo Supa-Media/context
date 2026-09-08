@@ -597,7 +597,10 @@ async function main(): Promise<void> {
       push();
     },
   });
-  imessage.reconfigure();
+  // SCRATCH VERIFICATION FOR PR #341, NOT A REAL FIX: `imessage.reconfigure()`
+  // moved past `push()`'s dependencies (`controller`, `tray`, `updater`) so
+  // this throwaway branch's CI run demonstrates desktop-launch-smoke going
+  // green once the dead zone is closed. The real fix is #340.
   // `null` in console mode. Every use below is guarded rather than the flag
   // being read a second time — see `UI_MODE`.
   const panel = RENDERER_UI ? createPanel(RENDERER_DIR) : null;
@@ -2098,6 +2101,7 @@ async function main(): Promise<void> {
   }
 
   openConsoleWindowIfAsked();
+  imessage.reconfigure();
   loop.start();
   updater.start();
   setInterval(() => void drain(), DRAIN_INTERVAL_MS);
