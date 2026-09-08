@@ -27,12 +27,45 @@ export interface SignalCollectors {
   /** Running application or bundle names. */
   processes(): Promise<string[]>;
   /** Open windows, with browser tab URLs where the browser will say. */
-  windows(): Promise<WindowSignal[]>;
+  windows(): Promise<CollectedWindows>;
   /** True when some other application holds an input device. */
   microphoneInUse(): Promise<boolean>;
   /** Events overlapping `now`, widened by the contract's lead and trail. */
   calendarEvents(now: Date): Promise<CalendarEvent[]>;
 }
+
+/**
+ * What the window collector found, plus a count of what it could not fully
+ * read. `tabUrlRefusals` is not a failure of this collector — the window
+ * titles are still in `windows` — so it never makes `windows` join
+ * `CollectedSignals.degraded`; see `platform/macos/windows.ts` for where it
+ * is counted and `evidence.ts` for the sentence it earns.
+ */
+export interface CollectedWindows {
+  windows: WindowSignal[];
+  tabUrlRefusals: number;
+}
+
+/**
+ * A collector throws this, rather than a bare `Error`, precisely when it can
+ * tell that a *permission* was refused — as opposed to a timeout, a malformed
+ * result, or the target application hanging. `attempt()` below checks its
+ * identity, never its message, to choose which sentence `degradedNotice`
+ * shows for a degraded calendar: a permission refusal names the setting to
+ * change, and anything else says only that the read failed this time. Nothing
+ * about the classification carries the message text any further than this
+ * file — the reason `attempt()`'s own comment already gives.
+ */
+export class PermissionRefusedError extends Error {}
+
+/**
+ * Why a collector is degraded, for the one sentence that depends on knowing —
+ * `degradedNotice`'s calendar case. Everything not explicitly thrown as a
+ * `PermissionRefusedError` reads as `"unknown"`: a timeout and a malformed
+ * result get the same honest, non-diagnosing sentence, because guessing
+ * between them is not a diagnosis this app can actually make.
+ */
+export type DegradedReason = "permission-refused" | "unknown";
 
 export interface CollectedSignals {
   signals: DetectionSignals;
@@ -43,21 +76,33 @@ export interface CollectedSignals {
    * answer.
    */
   degraded: string[];
+  /** Why each name in `degraded` failed. See `DegradedReason`. */
+  degradedReasons: Record<string, DegradedReason>;
+  /**
+   * Browsers whose tab URL could not be read this poll, even though the
+   * window collector overall succeeded — a blind spot the app can now count
+   * rather than one indistinguishable from "nothing to see there".
+   */
+  tabUrlRefusals: number;
 }
 
 async function attempt<T>(
   name: string,
   fallback: T,
   degraded: string[],
+  reasons: Record<string, DegradedReason>,
   run: () => Promise<T>,
 ): Promise<T> {
   try {
     return await run();
-  } catch {
+  } catch (error) {
     // The error itself is deliberately not carried out of here: a window
     // collector's failure message can contain a window title, and a failure
-    // path is exactly where nobody remembers to redact.
+    // path is exactly where nobody remembers to redact. `PermissionRefusedError`
+    // carries no such text into this classification — it is checked by type,
+    // never read for its message.
     degraded.push(name);
+    reasons[name] = error instanceof PermissionRefusedError ? "permission-refused" : "unknown";
     return fallback;
   }
 }
@@ -75,16 +120,26 @@ export async function collectSignals(
   now: Date,
 ): Promise<CollectedSignals> {
   const degraded: string[] = [];
-  const [processes, windows, microphoneInUse, calendarEvents] = await Promise.all([
-    attempt("processes", [] as string[], degraded, () => collectors.processes()),
-    attempt("windows", [] as WindowSignal[], degraded, () => collectors.windows()),
-    attempt("microphone", false, degraded, () => collectors.microphoneInUse()),
-    attempt("calendar", [] as CalendarEvent[], degraded, () => collectors.calendarEvents(now)),
+  const degradedReasons: Record<string, DegradedReason> = {};
+  const emptyWindows: CollectedWindows = { windows: [], tabUrlRefusals: 0 };
+  const [processes, windowsResult, microphoneInUse, calendarEvents] = await Promise.all([
+    attempt("processes", [] as string[], degraded, degradedReasons, () => collectors.processes()),
+    attempt("windows", emptyWindows, degraded, degradedReasons, () => collectors.windows()),
+    attempt("microphone", false, degraded, degradedReasons, () => collectors.microphoneInUse()),
+    attempt("calendar", [] as CalendarEvent[], degraded, degradedReasons, () => collectors.calendarEvents(now)),
   ]);
 
   return {
-    signals: { now: now.toISOString(), processes, windows, microphoneInUse, calendarEvents },
+    signals: {
+      now: now.toISOString(),
+      processes,
+      windows: windowsResult.windows,
+      microphoneInUse,
+      calendarEvents,
+    },
     degraded: degraded.sort(),
+    degradedReasons,
+    tabUrlRefusals: windowsResult.tabUrlRefusals,
   };
 }
 
@@ -97,11 +152,15 @@ export async function collectSignals(
  * a meeting, and a fake that only the tests can reach is a fake that rots.
  * ------------------------------------------------------------------------- */
 
+/** A fake's signals, plus the one field `DetectionSignals` itself has no room
+ * for: how many browsers this poll's window read refused a tab URL. */
+type FakeSignals = Partial<DetectionSignals> & { tabUrlRefusals?: number };
+
 /** Collectors that answer the same thing forever. */
-export function fixedCollectors(partial: Partial<DetectionSignals> = {}): SignalCollectors {
+export function fixedCollectors(partial: FakeSignals = {}): SignalCollectors {
   return {
     processes: async () => partial.processes ?? [],
-    windows: async () => partial.windows ?? [],
+    windows: async () => ({ windows: partial.windows ?? [], tabUrlRefusals: partial.tabUrlRefusals ?? 0 }),
     microphoneInUse: async () => partial.microphoneInUse ?? false,
     calendarEvents: async () => partial.calendarEvents ?? [],
   };
@@ -112,9 +171,9 @@ export function fixedCollectors(partial: Partial<DetectionSignals> = {}): Signal
  * once the script runs out. This is how a flicker is written down: three polls
  * of Zoom, one poll of nothing, three more of Zoom.
  */
-export function scriptedCollectors(script: readonly Partial<DetectionSignals>[]): SignalCollectors {
+export function scriptedCollectors(script: readonly FakeSignals[]): SignalCollectors {
   let index = 0;
-  const frame = (): Partial<DetectionSignals> => {
+  const frame = (): FakeSignals => {
     const current = script[Math.min(index, script.length - 1)] ?? {};
     index += 1;
     return current;
@@ -122,9 +181,9 @@ export function scriptedCollectors(script: readonly Partial<DetectionSignals>[])
   // One `frame()` per poll, not per question: the four collectors are called
   // together by `collectSignals`, and advancing four times a poll would make
   // every script silently four times too short.
-  let pending: Partial<DetectionSignals> | null = null;
+  let pending: FakeSignals | null = null;
   let served = 0;
-  const current = (): Partial<DetectionSignals> => {
+  const current = (): FakeSignals => {
     if (pending === null || served >= 4) {
       pending = frame();
       served = 0;
@@ -134,7 +193,13 @@ export function scriptedCollectors(script: readonly Partial<DetectionSignals>[])
   };
   return {
     processes: async () => current().processes ?? [],
-    windows: async () => current().windows ?? [],
+    windows: async () => {
+      // One `current()` call, not two: it advances the script on every call,
+      // and `windows` needing two fields out of the same frame must not cost
+      // this collector two turns for the other three's one.
+      const value = current();
+      return { windows: value.windows ?? [], tabUrlRefusals: value.tabUrlRefusals ?? 0 };
+    },
     microphoneInUse: async () => current().microphoneInUse ?? false,
     calendarEvents: async () => current().calendarEvents ?? [],
   };

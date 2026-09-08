@@ -26,19 +26,48 @@
  *   `transition` computed from `state.active` alone, without `previous`     4
  *   the `inFlight` guard removed, with two overlapping ticks                1
  *   a collector failure allowed to propagate out of `collectSignals`        5
- *   the calendar's actionable System-Settings sentence removed              3
+ *   the calendar's actionable System-Settings sentence removed always       3
+ *   ...and removed entirely, with no reason check to relax                  5
+ *   `attempt()` classifies every throw as "unknown", not just untyped ones  2
+ *   `calendar.ts` throws a bare `Error` instead of `PermissionRefusedError` 1
+ *   `parseWindows`'s refusal comparison loosened to "at least one"         1
+ *   `parseTabUrlRefusals` hard-coded to return 0                            3
+ *   `loop.ts` drops `tabUrlRefusals` from the `degradedNotice` call         1
+ *   `loop.ts` drops `degradedReasons` from the `degradedNotice` call         1
+ *   `degradedNotice`'s tab-URL-refusal sentence removed entirely            5
  *
- * The last one is the reason `attempt()` exists: without it, a machine where
- * the person never granted Accessibility throws on every poll, `tick` rejects,
- * and the app silently stops watching for meetings entirely.
+ * The first of those five is the reason `attempt()` exists: without it, a
+ * machine where the person never granted Accessibility throws on every poll,
+ * `tick` rejects, and the app silently stops watching for meetings entirely.
  *
- * Both of the last two are also a note about *this file* rather than about the
- * source. Each of them, on the first attempt, threw out of a bare `await` and
- * killed the rest of the suite — zero FAIL lines, which reads like coverage if
- * you count failures. The collector check now catches and names the escape,
- * and the overlapping-poll check races the second tick against a resolved
- * promise so a missing guard fails instead of hanging. A sabotage is only
- * worth the care taken that it *failed* rather than crashed.
+ * The next six guard the precision fix on top of it: `attempt()` used to mark
+ * the calendar degraded on *any* throw, and `degradedNotice` used to append
+ * the write-only guidance whenever it was, so a timeout told the person to go
+ * change a permission that was already fine. Two rows are the same mistake
+ * measured two ways — always showing the guidance regardless of reason (3,
+ * the historical count) versus deleting the reason check *and* the guidance
+ * together (5, since more now depends on it) — and the type check on
+ * `calendar.ts`'s own throw exists because "it throws" was already covered
+ * and "it throws the *right kind*" was not: a bare `Error` there passed every
+ * existing check and failed only once this one was added.
+ *
+ * The last five guard the browser tab-URL count and the reason it travels
+ * beside: the window-title refusal comparison (a different guard, sharing the
+ * same shape as the calendar's), the count itself hard-coded away, the wiring
+ * that carries the count from `collectSignals` through `tick()` into the
+ * update a person actually sees, the same wiring for `degradedReasons` — found
+ * in review rather than shipped with the fix: a `loop.ts` that forwards
+ * `tabUrlRefusals` but drops `degradedReasons` passes every check above it,
+ * since none of them calls `tick()` with a real permission refusal — and the
+ * sentence that turns a nonzero count into something they read.
+ *
+ * Both of the two originals are also a note about *this file* rather than
+ * about the source. Each of them, on the first attempt, threw out of a bare
+ * `await` and killed the rest of the suite — zero FAIL lines, which reads
+ * like coverage if you count failures. The collector check now catches and
+ * names the escape, and the overlapping-poll check races the second tick
+ * against a resolved promise so a missing guard fails instead of hanging. A
+ * sabotage is only worth the care taken that it *failed* rather than crashed.
  */
 
 import { DETECTOR_THRESHOLDS } from "@context/meetings/protocol";
@@ -50,6 +79,7 @@ import {
   collectSignals,
   failingCollectors,
   fixedCollectors,
+  PermissionRefusedError,
   scriptedCollectors,
 } from "../src/core/detection/collectors.ts";
 import { degradedNotice, evidenceLines } from "../src/core/detection/evidence.ts";
@@ -98,10 +128,31 @@ export async function runDetectionLoopChecks(check) {
   check("the degraded notice names the calendar", (degradedNotice(broken?.degraded ?? []) ?? "").includes("your calendar"));
   check("nothing degraded means no notice", degradedNotice([]) === null);
 
+  // `failingCollectors()` throws a bare `Error` for every collector — a
+  // timeout or a malformed result, never a permission refusal — so it must
+  // classify as "unknown" and get none of the calendar's actionable guidance.
+  // This is the exact bug closed here: `attempt()` used to mark the calendar
+  // degraded on *any* throw and `degradedNotice` used to append the
+  // write-only guidance regardless, so a transient failure told the person to
+  // go change a permission that was already fine.
+  check("an unclassified calendar failure reads as unknown, not a permission refusal", broken?.degradedReasons.calendar === "unknown");
+  const transientCalendarNotice = degradedNotice(broken?.degraded ?? [], broken?.degradedReasons ?? {}) ?? "";
+  check("a transient calendar failure names the calendar", transientCalendarNotice.includes("your calendar"));
+  check(
+    "A TRANSIENT CALENDAR FAILURE GETS NO SYSTEM SETTINGS GUIDANCE — it is not a permission refusal",
+    !transientCalendarNotice.includes("System Settings"),
+  );
+  check(
+    "a reason-less call is the same honest default — no guidance without a classification",
+    !(degradedNotice(["calendar"]) ?? "").includes("System Settings"),
+  );
+
   // A refused Calendars grant is not just "we cannot see it" — the notice has
   // to say what the person can do, and that a fresh ask from this app cannot
-  // fix a permission already sitting at write-only.
-  const calendarNotice = degradedNotice(["calendar"]) ?? "";
+  // fix a permission already sitting at write-only. This is the *other* half
+  // of the same fix: a genuine `PermissionRefusedError` must still earn the
+  // detailed sentence, so the guard is a gate on the reason, not a deletion.
+  const calendarNotice = degradedNotice(["calendar"], { calendar: "permission-refused" }) ?? "";
   check("the calendar notice names System Settings", calendarNotice.includes("System Settings"));
   check("the calendar notice names Full Access", calendarNotice.includes("Full Access"));
   check(
@@ -110,8 +161,116 @@ export async function runDetectionLoopChecks(check) {
   );
   check(
     "a collector with no calendar problem gets no System Settings guidance",
-    !(degradedNotice(["windows"]) ?? "").includes("System Settings"),
+    !(degradedNotice(["windows"], { calendar: "permission-refused" }) ?? "").includes("System Settings"),
   );
+
+  // The classification comes from the error's *type*, checked all the way
+  // through `collectSignals` — not from a string this test invents.
+  {
+    const permissionRefusedCollectors = {
+      ...fixedCollectors({}),
+      calendarEvents: async () => {
+        throw new PermissionRefusedError("calendar access refused: every calendar failed to enumerate its events");
+      },
+    };
+    const permissionRefused = await collectSignals(permissionRefusedCollectors, new Date(0));
+    check(
+      "collectSignals classifies a real PermissionRefusedError as a permission refusal",
+      permissionRefused.degradedReasons.calendar === "permission-refused",
+    );
+    const notice = degradedNotice(permissionRefused.degraded, permissionRefused.degradedReasons) ?? "";
+    check("...and the end-to-end notice names System Settings for it", notice.includes("System Settings"));
+
+    const timeoutCollectors = {
+      ...fixedCollectors({}),
+      calendarEvents: async () => {
+        throw new Error("osascript failed");
+      },
+    };
+    const timedOut = await collectSignals(timeoutCollectors, new Date(0));
+    check(
+      "collectSignals classifies a bare Error (a timeout, here) as unknown",
+      timedOut.degradedReasons.calendar === "unknown",
+    );
+    const timeoutNotice = degradedNotice(timedOut.degraded, timedOut.degradedReasons) ?? "";
+    check(
+      "...and the end-to-end notice for a timeout says nothing about System Settings",
+      !timeoutNotice.includes("System Settings"),
+    );
+  }
+
+  // -- browser tab URL refusals ---------------------------------------------
+  //
+  // A browser refusing one poll's tab URL does not degrade the window
+  // collector — its titles, including that browser's, are still evidence —
+  // so this must be visible with `degraded` staying empty, never by marking
+  // `windows` degraded over evidence that was not actually lost.
+  {
+    check("no tab URL refusals means no notice on their own", degradedNotice([], {}, 0) === null);
+    const oneRefusalNotice = degradedNotice([], {}, 1) ?? "";
+    check("one tab URL refusal is visible", oneRefusalNotice.length > 0);
+    check("...without pretending anything is degraded", !oneRefusalNotice.toLowerCase().includes("cannot see"));
+    check(
+      "two tab URL refusals are counted as two",
+      (degradedNotice([], {}, 2) ?? "").includes("2 open browsers"),
+    );
+    check(
+      "a tab URL refusal notice composes with a genuine degraded notice",
+      (degradedNotice(["calendar"], { calendar: "permission-refused" }, 1) ?? "").includes("System Settings") &&
+        (degradedNotice(["calendar"], { calendar: "permission-refused" }, 1) ?? "").includes("open tab"),
+    );
+
+    const withTabRefusal = await collectSignals(
+      fixedCollectors({ processes: ["zoom.us"], tabUrlRefusals: 1 }),
+      new Date(0),
+    );
+    check("a tab URL refusal does not mark the window collector degraded", !withTabRefusal.degraded.includes("windows"));
+    check("...and the count still reaches collectSignals' result", withTabRefusal.tabUrlRefusals === 1);
+    const tabRefusalNotice = degradedNotice(
+      withTabRefusal.degraded,
+      withTabRefusal.degradedReasons,
+      withTabRefusal.tabUrlRefusals,
+    );
+    check("...so the person still learns about it", (tabRefusalNotice ?? "").length > 0);
+
+    // The wiring, not just the two functions in isolation: `tick()` is what a
+    // real poll calls, and it is the one place `collected.tabUrlRefusals`
+    // actually reaches `degradedNotice`. A test that only calls
+    // `collectSignals` and `degradedNotice` separately, as above, would not
+    // notice `loop.ts` forgetting to pass the count through — measured: it
+    // did not, until this check was added.
+    const { loop, updates } = loopOver([false], {
+      collectors: fixedCollectors({ tabUrlRefusals: 1 }),
+    });
+    await run(loop, 1);
+    check(
+      "the running loop's own update carries the tab URL refusal notice",
+      (updates[0].degradedNotice ?? "").length > 0,
+    );
+    check("...and reports no collector as degraded for it", updates[0].degraded.length === 0);
+
+    // The same wiring gap, for `degradedReasons` rather than `tabUrlRefusals`:
+    // a real `PermissionRefusedError` from the calendar collector, driven
+    // through the actual loop rather than through `collectSignals` and
+    // `degradedNotice` called separately. A `loop.ts` that forwards
+    // `tabUrlRefusals` but passes `{}` (or nothing) for `degradedReasons`
+    // would still pass the check above — measured: it did, until this one was
+    // added — because that check's fixture has no calendar failure in it at
+    // all.
+    const permissionRefusedLoop = loopOver([false], {
+      collectors: {
+        ...fixedCollectors({ processes: ["zoom.us"] }),
+        calendarEvents: async () => {
+          throw new PermissionRefusedError("calendar access refused: every calendar failed to enumerate its events");
+        },
+      },
+    });
+    await run(permissionRefusedLoop.loop, 1);
+    check(
+      "the running loop's own update carries the calendar's permission-refusal reason, not just its name",
+      (permissionRefusedLoop.updates[0].degradedNotice ?? "").includes("System Settings"),
+    );
+  }
 
   // -- the edges -----------------------------------------------------------
   {
