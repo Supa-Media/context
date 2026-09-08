@@ -399,13 +399,14 @@ export function isMeetingId(value) {
 /**
  * THE MEETING A SEGMENT ID NAMES, OR `null` WHEN IT NAMES NONE.
  *
- * Every id a recorder mints is `<sessionKey>-<...>`, and on the two clients
- * that record against a gateway the session key **is the meeting id**:
- * `segmentId(sessionId, index)` in the desktop's transcriber, and
+ * Every id a recorder mints is `<sessionKey>-<...>`, and on every client that
+ * records against a gateway the session key **is the meeting id**:
+ * `segmentId(sessionId, index)` in the desktop's transcriber,
  * `chunkIdFor(`${sessionId}-${channel}`, index)` fed through `segmentIdFor` on
- * the cloud path. So the id carries, in its own first token, the answer to
- * "whose words are these" — independently of whatever envelope is wrapped
- * around the batch.
+ * the cloud path, and `chunkIdFor(sessionId, index)` in the phone's two
+ * recorders (`capture/audio.ts`, `capture/audio.web.ts`). So the id carries, in
+ * its own first token, the answer to "whose words are these" — independently
+ * of whatever envelope is wrapped around the batch.
  *
  * That independence is the whole point. A batch is addressed by the session id
  * on the *request*, and an envelope can be wrong: the mobile controller
@@ -416,10 +417,23 @@ export function isMeetingId(value) {
  * only statement of whose words they were had been overwritten by the envelope.
  * The id is the statement that survives, so it is the one to check against.
  *
- * **`null` is not a failure.** The phone's own recorders key their chunks on
- * `String(Date.now())` (`capture/audio.ts`), so their segment ids name no
- * meeting at all — and an id from a client this contract has never met names
- * none either. Those are unaddressed, never misaddressed: a check built on this
+ * **The phone used to be the exception, and that was the asymmetry an
+ * adversarial review of this file named.** Its two recorders keyed every chunk
+ * on `String(Date.now())`, so their segment ids named no meeting at all — which
+ * made this function correctly answer `null` for every one of them, and made
+ * `foreignSegmentSessions` (below) and the mobile controller's own identity
+ * check (`apply`, in `controller.ts`) permanently unable to tell a phone
+ * segment's real meeting from a foreign one. That guard was therefore *inert*
+ * on the phone rather than merely unnecessary — the same class of gap the
+ * desktop's leaked subscription exploited, just never triggered because
+ * nothing minted a foreign phone id to notice. Both phone recorders now mint
+ * from the meeting's own id like every other client, so this function and the
+ * guards built on it are live on every capturing recorder in the contract.
+ *
+ * **`null` remains the right answer for a client this contract has never
+ * met.** A recorder outside this repository, or one from a build old enough to
+ * predate this function, mints ids this contract cannot parse as naming
+ * anything — unaddressed rather than misaddressed, and a check built on this
  * refuses what is provably somebody else's and waves through what it cannot
  * know, which is the only direction a guard on a transcript may fail in.
  *

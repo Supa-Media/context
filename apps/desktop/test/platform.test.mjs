@@ -18,11 +18,14 @@
  *   `readingToSignal` answering `false` when no audio engines are visible     1
  *   `parseCalendarEvents`'s total-refusal throw removed                       1
  *   `parseWindows`'s total-refusal throw removed                              1
+ *   `parseWindows`'s refusal comparison loosened to "at least one"            1
+ *   `calendar.ts`'s total-refusal throw downgraded to a bare `Error`          1
+ *   `parseTabUrlRefusals` hard-coded to return 0                              3
  *
  * The first number is high because the redaction is asserted in three places —
  * the window parser, the calendar parser, and "no passcode reaches the
  * signals" — which is the right amount for the one thing in this folder that
- * would leak a meeting passcode into a log. The last two guard the defect this
+ * would leak a meeting passcode into a log. The next two guard the defect this
  * app actually shipped: a write-only Calendars grant (Apple Events to
  * Calendar allowed, the data refused) read as a quiet hour rather than a
  * refusal, because the per-item `catch` swallowed the refusal into the same
@@ -30,12 +33,37 @@
  * refusals and throw only on a *total* refusal, which is why each sabotage is
  * one line — removing the whole check, not narrowing a condition — and one
  * FAILURE, on the fixture built for exactly that shape.
+ *
+ * **The fifth guards a gap the first four left open.** `items.length === 0 &&
+ * titleRefusals === titleAttempts` had one fixture with a non-empty `windows`
+ * array asserting a *partial* refusal is not a total one — and a non-empty
+ * array already fails the `items.length === 0` half, so the fixture never
+ * actually exercised the equality. Loosening it to "at least one refusal"
+ * left the whole suite green. The line below it (`windows: [], titleAttempts:
+ * 3, titleRefusals: 1`) is the fixture that keeps `items.length === 0` true
+ * and makes the refusal comparison the thing under test.
+ *
+ * **The sixth is the type check on `calendar.ts`'s own throw, not the shape
+ * check above it.** `parseCalendarEvents` throwing *something* on a total
+ * refusal was already covered; nothing asserted it threw a
+ * `PermissionRefusedError` specifically, which is the only thing
+ * `degradedNotice` actually reads to decide whether to name System Settings.
+ * A bare `Error` here passes the older "it throws" check and fails only the
+ * `instanceof` one added beside it.
+ *
+ * **The seventh is three, not one, because the count is asserted in three
+ * places for the same reason the redaction is:** a standalone read of the
+ * counter, a read alongside real window evidence (so silencing the counter
+ * cannot be confused with discarding the evidence it was measured beside),
+ * and the two-refusal case, which a `return 0` fails identically to the
+ * one-refusal case.
  */
 
 import { parseProcessList } from "../src/platform/macos/processes.ts";
-import { parseWindows, redactUrl } from "../src/platform/macos/windows.ts";
+import { parseTabUrlRefusals, parseWindows, redactUrl } from "../src/platform/macos/windows.ts";
 import { parseEngineState, readingToSignal } from "../src/platform/macos/microphone.ts";
 import { calendarWindow, parseCalendarEvents } from "../src/platform/macos/calendar.ts";
+import { PermissionRefusedError } from "../src/core/detection/collectors.ts";
 import { DETECTOR_THRESHOLDS } from "@context/meetings/protocol";
 
 export function runPlatformChecks(check) {
@@ -127,6 +155,56 @@ export function runPlatformChecks(check) {
       "a partial title refusal that still found something is not treated as a total refusal",
       partialWindows.length === 1 && partialWindows[0].app === "zoom.us",
     );
+
+    // The case the fixture above cannot exercise: a partial title refusal
+    // where nothing was collected at all. `items.length === 0` is what makes
+    // this a *different* case from the one above — the guard is
+    // `items.length === 0 && titleRefusals === titleAttempts`, and the fixture
+    // above already fails the first half with a non-empty `windows` array, so
+    // it would pass unchanged even if the second half were loosened from
+    // equality to "at least one refusal". This fixture keeps `windows` empty
+    // so the refusal comparison is the thing actually being tested.
+    let partialRefusalNoWindowsThrew = false;
+    let partialRefusalNoWindows = null;
+    try {
+      partialRefusalNoWindows = parseWindows(
+        JSON.stringify({ windows: [], titleAttempts: 3, titleRefusals: 1 }),
+      );
+    } catch {
+      partialRefusalNoWindowsThrew = true;
+    }
+    check(
+      "a partial title refusal with nothing collected is a quiet moment, not a refusal",
+      !partialRefusalNoWindowsThrew && partialRefusalNoWindows.length === 0,
+    );
+
+    // Tab URL refusals: counted, not thrown, and never mistaken for the
+    // window-title Accessibility refusal above.
+    check(
+      "a poll with no browsers reads as zero tab URL refusals",
+      parseTabUrlRefusals(JSON.stringify({ windows: [], titleAttempts: 1, titleRefusals: 0, tabUrlRefusals: 0 })) === 0,
+    );
+    check(
+      "one browser refusing its tab URL is counted",
+      parseTabUrlRefusals(JSON.stringify({ windows: [], titleAttempts: 1, titleRefusals: 0, tabUrlRefusals: 1 })) === 1,
+    );
+    check(
+      "two browsers refusing is counted as two, not clamped to one",
+      parseTabUrlRefusals(JSON.stringify({ windows: [], titleAttempts: 2, titleRefusals: 0, tabUrlRefusals: 2 })) === 2,
+    );
+    check("malformed input reads as zero refusals rather than throwing", parseTabUrlRefusals("not json") === 0);
+    check(
+      "the count found alongside real window evidence is not discarded",
+      (() => {
+        const stdout = JSON.stringify({
+          windows: [{ app: "zoom.us", title: "Weekly sync", focused: true }],
+          titleAttempts: 2,
+          titleRefusals: 0,
+          tabUrlRefusals: 1,
+        });
+        return parseWindows(stdout).length === 1 && parseTabUrlRefusals(stdout) === 1;
+      })(),
+    );
   }
 
   // -- the microphone --------------------------------------------------------
@@ -203,14 +281,24 @@ export function runPlatformChecks(check) {
     // refuses to enumerate its events, and the script still exits cleanly with
     // an empty array. This must throw, not read as "no meetings".
     let refusalThrew = false;
+    let refusalError = null;
     try {
       parseCalendarEvents(JSON.stringify({ events: [], calendarCount: 2, refusedCount: 2 }));
-    } catch {
+    } catch (error) {
       refusalThrew = true;
+      refusalError = error;
     }
     check(
       "every calendar refusing to enumerate throws rather than reading as no meetings",
       refusalThrew,
+    );
+    // The *type* of the throw is what `degradedNotice` actually depends on —
+    // a bare `Error` here would still make the check above pass while
+    // silently losing the classification `attempt()` and `degradedNotice`
+    // need to tell a real permission refusal from a timeout.
+    check(
+      "A TOTAL CALENDAR REFUSAL THROWS A PermissionRefusedError, not a bare Error",
+      refusalError instanceof PermissionRefusedError,
     );
 
     // No calendars at all is not a refusal — there is nothing to correlate

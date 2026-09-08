@@ -1,6 +1,7 @@
 import { describe, expect, test } from "@jest/globals";
-import { PROTOCOL_VERSION } from "../features/meetings/protocol";
+import { MEETING_TRANSITIONS, PROTOCOL_VERSION } from "../features/meetings/protocol";
 import {
+  acceptsTranscript,
   applyMeetingEvent,
   can,
   elapsedMs,
@@ -10,7 +11,7 @@ import {
   transcriptionFor,
 } from "../features/meetings/session";
 import { fakeSegment } from "../features/meetings/capture/fake";
-import type { MeetingEvent, MeetingProjection } from "../features/meetings";
+import type { MeetingEvent, MeetingProjection, MeetingState } from "../features/meetings";
 
 /**
  * The fold from a meeting's event log onto the session the screens render.
@@ -285,6 +286,28 @@ describe("the reducer refuses rather than guessing", () => {
     });
     refuses(empty, { type: "start", at: at(3) });
     refuses(empty, { type: "written", notePath: "0-inbox/a.md" });
+  });
+
+  /**
+   * `acceptsTranscript` used to be `state !== "complete" && state !== "empty"`
+   * — a denylist naming the table's two terminal states by hand rather than
+   * asking the table which states those are. It happened to agree with
+   * `MEETING_TRANSITIONS` because `complete` and `empty` are, today, exactly
+   * the states with no successors — but nothing tied the two together, so a
+   * third terminal state added to the table (the argument
+   * `docs/decisions/meetings.md` already makes for why the table only grows
+   * this way) would silently start accepting transcript into a meeting nothing
+   * can ever write out again, in two places, forever.
+   *
+   * Driven over every state the table names, not the two that are terminal
+   * today: a state wrongly answered by either direction fails here immediately,
+   * which is the property a hand-picked pair of examples cannot give.
+   */
+  test("acceptsTranscript answers exactly the states MEETING_TRANSITIONS calls terminal", () => {
+    for (const state of Object.keys(MEETING_TRANSITIONS) as MeetingState[]) {
+      const isTerminal = MEETING_TRANSITIONS[state].length === 0;
+      expect(acceptsTranscript(state)).toBe(!isTerminal);
+    }
   });
 
   test("resuming something already recording changes nothing about it", () => {

@@ -170,12 +170,20 @@ export interface CaptureOptions {
   /**
    * The meeting this capture belongs to.
    *
-   * Four of the five recorders ignore it, because a device that emits segments
-   * into a callback needs no name for what it is doing. The desktop shell is
-   * not one of those: it queues writes in another process that outlives this
-   * page, and those are keyed by session — so a capture started under a name
-   * the app did not choose would be a second meeting in somebody's bucket. It
-   * is the app's `newMeetingId`, minted once by the controller.
+   * Every recorder that captures audio mints its chunk ids from this —
+   * `${sessionId}-${index}`, the same deterministic shape `desktop.ts` has
+   * always required of the shell — so a segment's own id names the meeting it
+   * belongs to, independently of whatever envelope carries it to a session.
+   * That is what the gateway's `assertSegmentsAddressed` and this controller's
+   * own `apply` (`foreignSegmentSessions`) check against: an id that named no
+   * meeting was a guard those checks could not tell from a foreign one, which
+   * is how a leaked recorder subscription once folded one meeting's words into
+   * another's without either guard noticing.
+   *
+   * `notesOnlyRecorder` and `fakeRecorder` still ignore it — one records
+   * nothing, and the other emits only the segments a test hands it — but
+   * nothing that actually mints a chunk id may. It is the app's
+   * `newMeetingId`, minted once by the controller.
    */
   sessionId: string;
   /** Record the machine's own audio too, wherever this build can. */

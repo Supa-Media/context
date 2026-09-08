@@ -16,6 +16,7 @@
  */
 
 import type { DetectionResult } from "../contract.ts";
+import type { DegradedReason } from "./collectors.ts";
 
 /** Separators a reason might reasonably use, in one place. */
 const SPLIT = /\s*[;\n·]\s*|\s+•\s+/;
@@ -42,39 +43,73 @@ export function summaryLine(result: Pick<DetectionResult, "reason">): string {
  * read" is a different statement from "no calendar events", and the second one
  * is the one a person would wrongly infer from a short evidence list.
  *
- * **The calendar case gets its own sentence, naming what to do about it.**
- * The demonstrated failure on a real Mac was a write-only Calendars grant —
- * Apple Events to Calendar allowed, the data itself refused — which
- * `calendarScript` now reports as a refusal rather than an empty diary (see
- * `platform/macos/calendar.ts`). A person reading "Cannot see your calendar"
- * with no next step has no way to tell whether that is fixable, so the second
- * sentence names the exact place to fix it and the one thing this document has
- * to say honestly: **shipping the fuller permission request is not
- * retroactive** — a grant already sitting at write-only stays there until the
- * person re-grants it themselves; nothing this app does reaches into System
- * Settings on their behalf.
+ * **The calendar case gets its own sentence, naming what to do about it — but
+ * only when the failure is actually a permission refusal.** The demonstrated
+ * failure on a real Mac was a write-only Calendars grant — Apple Events to
+ * Calendar allowed, the data itself refused — which `calendarScript` reports
+ * as a `PermissionRefusedError` rather than an empty diary (see
+ * `platform/macos/calendar.ts`). `attempt()` in `collectors.ts` also marks the
+ * calendar degraded on a timeout, a malformed result, or Calendar.app simply
+ * hanging — none of which is a permission problem — so `reasons` is what
+ * tells the two apart. Sending somebody to System Settings for a grant that is
+ * already correct is the same mistake as the notice that once blamed the
+ * microphone for a fault that was never the microphone's: confidently naming
+ * a cause the app never established. A transient failure gets the plain
+ * sentence above and nothing more; it says the calendar could not be read
+ * this time, which is exactly what happened and all that is known.
+ *
+ * When it *is* a permission refusal, the second sentence names the exact
+ * place to fix it and the one thing this document has to say honestly:
+ * **shipping the fuller permission request is not retroactive** — a grant
+ * already sitting at write-only stays there until the person re-grants it
+ * themselves; nothing this app does reaches into System Settings on their
+ * behalf.
+ *
+ * **`tabUrlRefusals` is a different kind of gap and gets its own sentence,
+ * appended whether or not any collector is degraded.** A browser refusing one
+ * poll's tab URL does not degrade the window collector at all — its window
+ * titles, including that browser's, are still in the evidence — so it cannot
+ * be reached through `degraded`. Left uncounted, it would be exactly the
+ * defect this file already closed once for the calendar: a refusal
+ * indistinguishable from "nothing to see there". Naming a browser is
+ * deliberately avoided — the count is what a person can act on (there is a
+ * blind spot) without this app narrating which of their apps has one.
  */
-export function degradedNotice(degraded: readonly string[]): string | null {
-  if (degraded.length === 0) return null;
+export function degradedNotice(
+  degraded: readonly string[],
+  reasons: Readonly<Record<string, DegradedReason>> = {},
+  tabUrlRefusals = 0,
+): string | null {
   const names: Record<string, string> = {
     processes: "running apps",
     windows: "window titles",
     microphone: "microphone use",
     calendar: "your calendar",
   };
-  const listed = degraded.map((name) => names[name] ?? name);
-  const joined =
-    listed.length === 1
-      ? listed[0]
-      : `${listed.slice(0, -1).join(", ")} and ${listed[listed.length - 1]}`;
-  const notice = `Cannot see ${joined} — detection is working with less than usual.`;
-  if (!degraded.includes("calendar")) return notice;
-  return (
-    `${notice} Calendar access is often granted for adding events only, which ` +
-    `looks identical to a fully working grant in System Settings but hides ` +
-    `every event from this app. Open System Settings > Privacy & Security > ` +
-    `Calendars and switch Context to Full Access — re-granting it yourself is ` +
-    `required either way, since a fuller request from this app cannot upgrade ` +
-    `a permission you already gave.`
-  );
+  let notice: string | null = null;
+  if (degraded.length > 0) {
+    const listed = degraded.map((name) => names[name] ?? name);
+    const joined =
+      listed.length === 1
+        ? listed[0]
+        : `${listed.slice(0, -1).join(", ")} and ${listed[listed.length - 1]}`;
+    notice = `Cannot see ${joined} — detection is working with less than usual.`;
+    if (degraded.includes("calendar") && reasons["calendar"] === "permission-refused") {
+      notice +=
+        ` Calendar access is often granted for adding events only, which ` +
+        `looks identical to a fully working grant in System Settings but hides ` +
+        `every event from this app. Open System Settings > Privacy & Security > ` +
+        `Calendars and switch Context to Full Access — re-granting it yourself is ` +
+        `required either way, since a fuller request from this app cannot upgrade ` +
+        `a permission you already gave.`;
+    }
+  }
+  if (tabUrlRefusals > 0) {
+    const tabSentence =
+      tabUrlRefusals === 1
+        ? `A browser did not share one open tab's address, so a meeting open only in that tab may go unrecognized.`
+        : `${tabUrlRefusals} open browsers did not share a tab's address, so a meeting open only in one of those tabs may go unrecognized.`;
+    notice = notice ? `${notice} ${tabSentence}` : tabSentence;
+  }
+  return notice;
 }
