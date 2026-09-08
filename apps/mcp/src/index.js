@@ -4253,6 +4253,125 @@ async function toolExportEncryptionKeys(store, scope) {
 const ROTATION_BATCH_CAP = 200;
 
 /**
+ * Where a rotation walk's own progress is tracked. Plumbing: never listed,
+ * never a note, never containing key material — only generation ids and note
+ * paths already visible in every affected note's own frontmatter.
+ *
+ * **This is bookkeeping about the walk, not a second copy of the truth.** A
+ * note's own frontmatter is still the only thing that says which generation
+ * it is on; this file only says where the walk last looked, so a lost,
+ * corrupted, or concurrently-overwritten copy costs a wider re-scan next
+ * call, never a wrong answer. See `loadRotationProgress`.
+ *
+ * Lives in the customer's own bucket rather than the control plane, matching
+ * `EXPORT_RATE_LIMIT_PATH` elsewhere in this file: the control plane holds
+ * the one fact that has to be authoritative across every Worker isolate —
+ * whether a rotation may be *started* (`workspaceKeyRotations`) — and the
+ * walk's own progress over the customer's content lives beside that content,
+ * on the same "one source of truth" the bucket already is for "which notes
+ * exist".
+ */
+const ROTATION_PROGRESS_PATH = ".context/rotation-progress.json";
+
+/**
+ * Read the walk's own resume point, or a fresh one if there is none, it does
+ * not parse, or it names a different generation pair than the one being
+ * walked right now — which is exactly right for a rotation that just started
+ * on top of a previous one's leftover file, and costs nothing extra to check.
+ *
+ * @returns {Promise<{cursor: string, confirmedThrough: number, stuckKeys: string[], etag: string|undefined}>}
+ *   `cursor` — every note key at or below this one, in the bucket's own sort
+ *   order, has been examined at least once as of `confirmedThrough`.
+ *   `confirmedThrough` — a moment in time, captured at the END of the call
+ *   that produced this file, *after* that call's own writes finished. A note
+ *   whose `uploaded` time is at or before this cannot be something that call
+ *   missed — including a note that very call itself just rewrapped, since its
+ *   write completed strictly before this timestamp was taken. Only a write
+ *   that lands *after* it can be something no call has accounted for yet,
+ *   whatever key it lands at (see `toolRotateEncryptionKeys` for why this,
+ *   and not the pass's own start time, is what makes the walk converge
+ *   instead of finding its own rewrites "suspicious" forever).
+ *   `stuckKeys` — notes still on the outgoing generation that a previous call
+ *   could not move (a conflicting write, or an envelope this pass cannot
+ *   open), tracked separately from `cursor` so one bad note never blocks the
+ *   walk from moving past it.
+ */
+async function loadRotationProgress(store, fromGeneration, toGeneration) {
+  const fresh = () => ({ cursor: "", confirmedThrough: 0, stuckKeys: [], etag: undefined });
+  const existing = await store.get(ROTATION_PROGRESS_PATH);
+  if (!existing) return fresh();
+  let parsed;
+  try {
+    parsed = JSON.parse(await existing.text());
+  } catch {
+    return fresh(); // corrupt file: treated as absent, never as a reason to refuse
+  }
+  if (
+    !parsed ||
+    parsed.fromGeneration !== fromGeneration ||
+    parsed.toGeneration !== toGeneration ||
+    typeof parsed.cursor !== "string" ||
+    typeof parsed.confirmedThrough !== "number" ||
+    !Array.isArray(parsed.stuckKeys)
+  ) {
+    return fresh(); // a different rotation's leftover file, or one this build cannot read
+  }
+  return {
+    cursor: parsed.cursor,
+    confirmedThrough: parsed.confirmedThrough,
+    stuckKeys: parsed.stuckKeys.filter((k) => typeof k === "string"),
+    etag: existing.etag,
+  };
+}
+
+/**
+ * Persist the walk's resume point after a call that did not finish the
+ * rotation. Best-effort, like `checkAndConsumeExportRateLimit`'s counter: this
+ * file is never the source of truth for whether a note is on the outgoing
+ * generation — a note's own frontmatter always is — only for where to resume
+ * *looking*. A lost conditional-write race (two overlapping calls against the
+ * same rotation) costs a wider re-scan on the next call, never a wrong
+ * completion: every note this call actually rewrapped was written directly,
+ * unconditionally on its own etag, whether or not this file's write lands.
+ */
+async function saveRotationProgress(store, { fromGeneration, toGeneration, cursor, confirmedThrough, stuckKeys, etag }) {
+  const body = JSON.stringify({ fromGeneration, toGeneration, cursor, confirmedThrough, stuckKeys });
+  await store.put(ROTATION_PROGRESS_PATH, body, etag ? { onlyIf: { etagMatches: etag } } : undefined);
+}
+
+/**
+ * Try to move one note off `fromGeneration`.
+ *
+ * @returns {Promise<"rewrapped"|"clean"|"stuck">} `"rewrapped"` — moved to the
+ *   target generation this call. `"clean"` — nothing to do: deleted since it
+ *   was listed, not encrypted, or already off `fromGeneration` (on the target
+ *   generation, on some other still-retired one, or a passphrase-only note
+ *   with no workspace recipient to move at all). `"stuck"` — still on
+ *   `fromGeneration` and this call could not move it: a conflicting
+ *   concurrent write, or an envelope this pass cannot open. Left exactly as
+ *   it is either way — the one outcome worse than leaving a note behind is
+ *   guessing at its content — for a later call to retry.
+ */
+async function rewrapOneNote(store, key, { fromGeneration, toGeneration, keys, newKeyMaterial, workspaceId }) {
+  const object = await store.get(key);
+  if (!object) return "clean";
+  const text = await object.text();
+  if (!isEncryptedNote(text) || encryptedNoteKeyId(text) !== fromGeneration) return "clean";
+  let rewrappedText;
+  try {
+    rewrappedText = await rewrapWorkspaceRecipient(text, { workspaceId, keys, newGeneration: toGeneration, newKeyMaterial });
+  } catch (error) {
+    if (error instanceof NoteCryptoError) return "stuck";
+    throw error;
+  }
+  // Conditional on the etag this pass read: a note edited concurrently (its
+  // plaintext changed, or `set_encryption` turned it off) is left for the
+  // next call rather than overwritten.
+  const put = await store.put(key, rewrappedText, { onlyIf: { etagMatches: object.etag } });
+  return put ? "rewrapped" : "stuck";
+}
+
+/**
  * Rotate this context's workspace data key.
  *
  * Owner-only through the same masked gate `export_encryption_keys` uses. What
@@ -4261,22 +4380,47 @@ const ROTATION_BATCH_CAP = 200;
  * already under way, this call simply continues it — see
  * `startWorkspaceKeyRotation` in the control plane for why a second caller
  * never mints a second generation), and every note still on the outgoing
- * generation has its **`workspace` recipient** re-wrapped toward the new one.
- * No note body is ever decrypted or re-encrypted here.
+ * generation has its **`workspace` recipient** re-wrapped toward it. No note
+ * body is ever decrypted or re-encrypted here.
  *
- * **There is no persisted cursor.** Every call walks the whole bucket, in the
- * store's own listing order, and skips a note the instant it finds it already
- * on the target generation — which is what makes the walk idempotent and
- * resumable with no state of its own: calling this tool again after a partial
- * pass, a crash, or a conflicting concurrent write finds exactly the notes
- * still left and nothing else. The cost this trades away is efficiency on a
- * very large bucket, where a completed pass still has to re-list and
- * re-inspect every already-migrated note on its way to finding none are
- * left — the same "optimistic about `FOLDER_MOVE_CAP`" trade
- * `storage-and-credentials.md` already names for bulk moves, made again here
- * for the same reason: a persisted cursor is a second piece of state that can
- * itself go stale, and the bucket is already the one source of truth this
- * gateway trusts for "which notes exist".
+ * **The walk's progress is persisted**, in the customer's own bucket
+ * (`ROTATION_PROGRESS_PATH`), as a `cursor`: every note at or below it, in the
+ * bucket's own sort order, has been examined at least once during the current
+ * pass. A call resumes from the cursor rather than re-listing and re-reading
+ * everything before it — which is what bounds *every* call, including the one
+ * that finishes the rotation, to about `ROTATION_BATCH_CAP` object reads
+ * instead of one read per note in the bucket. See the measured table in
+ * `docs/decisions/encryption.md`.
+ *
+ * **A note created or moved behind the cursor is not skipped.** `listAllKeys`
+ * already returns each object's `uploaded` timestamp at no extra cost — it is
+ * part of every storage backend's listing response — so a note whose key
+ * sorts at or before the cursor, but whose `uploaded` time is after
+ * `confirmedThrough`, is re-examined anyway: it was either moved into that
+ * position, or newly created there, sometime after the last call finished,
+ * and the cursor sweeping past that key position earlier proves nothing about
+ * content that arrived there afterward. This costs one extra read per note
+ * actually touched between calls — not per note in the bucket. `confirmedThrough`
+ * is captured fresh at the *end* of every call, after that call's own writes
+ * are done — not at the start of a pass — which is what makes this converge:
+ * a boundary taken before this call wrote anything would make the call's own
+ * rewrites (which change a note's `uploaded` time to *now*) look freshly
+ * arrived to the very next call, and the walk would never finish confirming
+ * clean.
+ *
+ * **A note this pass cannot move — a conflicting write, or one it cannot
+ * open — does not block the cursor from advancing past it.** It is tracked
+ * separately, in `stuckKeys`, and retried every call independent of cursor
+ * position. Without that, a single such note would pin the cursor at its own
+ * position forever, and every call after it would re-walk everything past
+ * that point from scratch — the same unbounded cost this design exists to
+ * remove, just moved one note earlier.
+ *
+ * The walk reports complete, and asks the control plane to retire the
+ * outgoing generation, only once a full pass finds the cursor has reached the
+ * end of the bucket's listing, nothing is left behind it, and `stuckKeys` is
+ * empty — never on a partial pass, and never while a single note it could not
+ * open still exists.
  */
 async function toolRotateEncryptionKeys(store, scope) {
   if (!store.encryptionKey) {
@@ -4308,61 +4452,78 @@ async function toolRotateEncryptionKeys(store, scope) {
   }
 
   const allKeys = await listAllKeys(store, "");
+  const noteKeys = allKeys
+    .filter(({ key }) => key.endsWith(".md") && !isPlumbing(key))
+    .map(({ key, uploaded }) => ({ key, uploadedMs: new Date(uploaded).getTime() }))
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+
+  const progress = await loadRotationProgress(store, fromGeneration, toGeneration);
+  const rewrapContext = { fromGeneration, toGeneration, keys: encryptionKey.keys, newKeyMaterial, workspaceId };
+
   let rewrapped = 0;
-  let stillPending = 0;
-  for (const { key } of allKeys) {
-    if (!key.endsWith(".md") || isPlumbing(key)) continue;
-    const object = await store.get(key);
-    if (!object) continue;
-    const text = await object.text();
-    if (!isEncryptedNote(text) || encryptedNoteKeyId(text) !== fromGeneration) continue;
+  const stillStuck = [];
 
+  // Retry known-stuck notes first, unconditionally — a small, separately
+  // tracked set (see the function doc) so one of them never blocks the
+  // cursor loops below from making progress on everything after it.
+  for (const key of progress.stuckKeys) {
     if (rewrapped >= ROTATION_BATCH_CAP) {
-      /*
-        This note is genuinely still on the outgoing generation, and this call
-        has spent its batch. STOP HERE rather than reading the rest of the
-        bucket to count them.
-
-        One pending note is the whole of what the caller needs to know: the
-        walk is not done, call again. Counting the exact remainder costs one
-        object read per note on a bucket whose size is the reason the cap
-        exists — measured at 601 reads per call over a 600-note bucket, of
-        which 400 bought nothing but a number in a sentence that already says
-        "at least". The report stays true because it was always a floor.
-      */
-      stillPending += 1;
-      break;
+      stillStuck.push(key);
+      continue;
     }
-    let rewrappedText;
-    try {
-      rewrappedText = await rewrapWorkspaceRecipient(text, {
-        workspaceId,
-        keys: encryptionKey.keys,
-        newGeneration: toGeneration,
-        newKeyMaterial,
-      });
-    } catch (error) {
-      if (error instanceof NoteCryptoError) {
-        // A note this pass cannot open under any live generation, or one
-        // whose envelope is malformed. Left exactly as it is — the one
-        // outcome worse than leaving it behind is guessing at its content —
-        // and counted as still pending so the walk never silently reports
-        // done while it exists.
-        stillPending += 1;
-        continue;
-      }
-      throw error;
-    }
-    // Conditional on the etag this pass read: a note edited concurrently
-    // (its plaintext changed, or `set_encryption` turned it off) is left for
-    // the next pass rather than overwritten.
-    const put = await store.put(key, rewrappedText, { onlyIf: { etagMatches: object.etag } });
-    if (put) rewrapped += 1;
-    else stillPending += 1;
+    const result = await rewrapOneNote(store, key, rewrapContext);
+    if (result === "rewrapped") rewrapped += 1;
+    else if (result === "stuck") stillStuck.push(key);
+    // "clean" is dropped: e.g. `set_encryption` turned encryption off for it
+    // since the last call left it stuck.
   }
 
-  if (stillPending === 0) {
+  // The cursor's own frontier: notes not yet examined (`key > cursor`), plus
+  // notes at or before the cursor that were touched — moved in, or written
+  // to — since `confirmedThrough` (see the function doc for why that, and not
+  // when this pass began, is the boundary that makes this converge).
+  let cursor = progress.cursor;
+  let aheadDone = true;
+  for (const { key } of noteKeys) {
+    if (key <= cursor) continue;
+    if (rewrapped >= ROTATION_BATCH_CAP) {
+      aheadDone = false;
+      break;
+    }
+    const result = await rewrapOneNote(store, key, rewrapContext);
+    if (result === "rewrapped") rewrapped += 1;
+    else if (result === "stuck") stillStuck.push(key);
+    cursor = key; // advance past every examined key regardless of outcome —
+    // a "stuck" one is retried through `stuckKeys`, never by revisiting this
+    // position.
+  }
+
+  let behindDone = true;
+  for (const { key, uploadedMs } of noteKeys) {
+    if (key > progress.cursor || uploadedMs <= progress.confirmedThrough) continue;
+    if (rewrapped >= ROTATION_BATCH_CAP) {
+      behindDone = false;
+      break;
+    }
+    const result = await rewrapOneNote(store, key, rewrapContext);
+    if (result === "rewrapped") rewrapped += 1;
+    else if (result === "stuck") stillStuck.push(key);
+    // Cursor is not moved here: every one of these keys is already at or
+    // below it.
+  }
+
+  const passComplete = aheadDone && behindDone && stillStuck.length === 0;
+
+  if (passComplete) {
     const completed = await store.rotateEncryptionKeys({ complete: toGeneration });
+    try {
+      await store.delete(ROTATION_PROGRESS_PATH);
+    } catch {
+      // Best-effort cleanup. A leftover file naming this now-finished
+      // generation pair is harmless — the next rotation names a different
+      // pair, and `loadRotationProgress` starts fresh the moment it does not
+      // match.
+    }
     await recordChange(store, "rotate_encryption_keys", scope, [], {
       from_generation: fromGeneration,
       to_generation: toGeneration,
@@ -4381,6 +4542,19 @@ async function toolRotateEncryptionKeys(store, scope) {
     );
   }
 
+  // Captured now, after every write this call made has already landed — see
+  // `loadRotationProgress`'s doc for why this moment, not when the pass or
+  // this call began, is what the next call must compare `uploaded` against.
+  const confirmedThrough = Date.now();
+  await saveRotationProgress(store, {
+    fromGeneration,
+    toGeneration,
+    cursor,
+    confirmedThrough,
+    stuckKeys: stillStuck,
+    etag: progress.etag,
+  });
+  const stillPending = stillStuck.length + (aheadDone && behindDone ? 0 : 1);
   await recordChange(store, "rotate_encryption_keys", scope, [], {
     from_generation: fromGeneration,
     to_generation: toGeneration,
