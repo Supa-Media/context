@@ -50,19 +50,8 @@ export const ACKNOWLEDGEMENT_TITLE = "Lock this note with a passphrase";
  * present rather than grepping prose.
  */
 export const ACKNOWLEDGEMENT_POINTS: readonly string[] = [
-  "If you lose this passphrase, this note is gone. It is not stored anywhere, " +
-    "we cannot recover it, and there is no reset — that is the point of it.",
-  "The note's title, its folder and when it changed stay visible. What is " +
-    "hidden is what is inside it.",
-  "No assistant you have connected can read it any more, and it will not " +
-    "appear in search results, because opening it needs the passphrase and " +
-    "they do not have it.",
-  "This only protects you on a device and browser you trust. A compromised " +
-    "browser, extension, keylogger, screenshot tool or laptop can still " +
-    "capture what you type.",
-  "If this note is shared with your team, they will see it as a locked note. " +
-    "Sharing a note does not share its passphrase — you would have to give " +
-    "them that yourself.",
+  "Lose the passphrase and you permanently lose access; Context.LC cannot recover or reset it.",
+  "Use a strong, unique passphrase on a trusted device. The crack-time number is only a rough offline estimate.",
 ];
 
 /** What the confirm button says. A verb, and the object it acts on. */
@@ -73,10 +62,8 @@ export const ACKNOWLEDGEMENT_PHRASE = "I understand";
 
 /** Under the passphrase field. Length is what compensates for a KDF in JavaScript. */
 export const PASSPHRASE_HINT =
-  "Use several words you will remember and nobody could guess. Length is what " +
-  "protects this note; twelve characters is the minimum and more is better. " +
-  "The strength meter shows a rough offline crack-time estimate, not an exact " +
-  "one, and common or patterned phrases may be much faster to crack.";
+  "Use several words you will remember; twelve characters is the minimum. " +
+  "Common or patterned phrases may be much faster to crack.";
 
 /** Shown where the runtime cannot open locked notes, in place of the form. */
 export const UNSUPPORTED_TITLE = "Locked notes open on a computer";

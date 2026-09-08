@@ -119,7 +119,7 @@ function render(props: Parameters<typeof LockNoteDialog>[0]): {
 const noop = () => {};
 
 describe("the screen that locks a note", () => {
-  it("says every consequence out loud", () => {
+  it("shows only the concise irreversible-lock warning", () => {
     mockSupportOverride = { supported: true };
     const screen = render({ path: "1-projects/a.md", onLock: noop, onClose: noop });
     const text = screen.html().replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
@@ -129,15 +129,10 @@ describe("the screen that locks a note", () => {
     // under test, and it passes just as happily for an empty list. Measured:
     // deleting the permanence sentence failed nothing until these lines
     // existed.
-    expect(text).toMatch(/this note is gone/i);
-    expect(text).toMatch(/not stored anywhere/i);
-    expect(text).toMatch(/there is no reset/i);
-    expect(text).toMatch(/title, its folder/i);
-    expect(text).toMatch(/no assistant/i);
-    expect(text).toMatch(/not appear in search/i);
-    expect(text).toMatch(/device and browser you trust/i);
-    expect(text).toMatch(/keylogger/i);
-    expect(text).toMatch(/does not share its passphrase/i);
+    expect(text).toContain(ACKNOWLEDGEMENT_POINTS[0]);
+    expect(text).toContain(ACKNOWLEDGEMENT_POINTS[1]);
+    expect(ACKNOWLEDGEMENT_POINTS).toHaveLength(2);
+    expect(text).not.toMatch(/keylogger|screenshot|search results|share.*passphrase/i);
 
     // And whatever else the list holds is on the screen too, so a fifth point
     // added later cannot be added to the constant alone.
