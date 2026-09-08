@@ -191,8 +191,46 @@ later.
 
 | Key | Why | Cost |
 | --- | --- | --- |
-| `com.apple.security.automation.apple-events` | **Three of the four meeting collectors are dead without it.** `src/platform/macos/windows.ts` drives `System Events` over JXA for window titles and browser tab URLs; `src/platform/macos/calendar.ts` drives `Calendar.app` over JXA for events. Both go through `osascript` in `src/platform/exec.ts`. Under the hardened runtime, sending an Apple Event without this entitlement fails outright. Only `processes()` and `microphoneInUse()` work in the shipped build. | None. It gates *asking*; the per-target consent dialog still happens per app, per person. |
+| `com.apple.security.automation.apple-events` | **Three of the four meeting collectors are dead without it, in principle.** `src/platform/macos/windows.ts` drives `System Events` over JXA for window titles and browser tab URLs; `src/platform/macos/calendar.ts` drives `Calendar.app` over JXA for events. Both go through `osascript` in `src/platform/exec.ts`. **The next paragraph corrects the sentence that used to sit here.** | None. It gates *asking*; the per-target consent dialog still happens per app, per person. |
 | `com.apple.security.device.camera` | Deliberately **not** added. See below. | — |
+
+**The sentence this row used to carry was wrong, and a Mac is what found
+that.** It said: *"Under the hardened runtime, sending an Apple Event without
+this entitlement fails outright. Only `processes()` and `microphoneInUse()`
+work in the shipped build."* Read against the actually-shipped, signed,
+notarised bundle identifier this app ships as, on the owner's Mac: **three
+Apple Events rows already show as granted** — Automation entries for the
+targets `windows.ts` and `calendar.ts` drive — despite `git log --follow` on
+both `build/entitlements.mac.plist` and this file's own history showing the
+entitlement has never once been present in a commit that reached this tree.
+That is two facts that cannot both be true of the same build, and the honest
+resolution is that **one of them is not about the same build**: either the
+grants are stale, kept across a reinstall that shares the same code-signing
+identity — the finding below, "a same-identity reinstall preserves grants,"
+is exactly the mechanism that would let an *older* test build's grants survive
+into a *newer* one that never asked for them again — or they were made by an
+unsigned development run (`electron .`), which carries none of the hardened
+runtime's restrictions at all and sends Apple Events the classic way, gated
+by nothing but the per-target consent dialog every pre-hardened-runtime Mac
+app has always shown. Both are consistent with the evidence; neither is
+confirmed. What the general claim about hardened Apple Events is not wrong
+about, and what a citable, independent source backs up in the strongest terms
+available without a Mac to test on: **a hardened, non-sandboxed app that
+lacks this entitlement gets no dialog at all when it sends an Apple Event —
+the call silently fails, full stop** (Jeff Johnson, "Hardened Runtime and
+Sandboxing," lapcatsoftware.com — *"apps with the hardened runtime are not
+allowed to send Apple Events to other apps... this will silently fail with no
+permission dialog," and with the entitlement, "the first Apple Event sent
+will trigger a permission dialog"*). So a *signed, hardened, freshly-granted*
+run of today's tree, with no entitlement, should show **no** Automation
+prompt and no granted row at all — which is precisely why the three granted
+rows found are evidence of something this session could not reproduce or
+explain from the code alone, rather than evidence the general rule is false.
+**What needs a Mac:** `codesign -d --entitlements - /Applications/Context.app`
+on the exact installed bundle the TCC rows were read against, compared against
+`build/entitlements.mac.plist` in this tree at the commit that built it — if
+they disagree, the installed app is not what this tree currently produces, and
+the three rows explain themselves.
 
 `allow-jit`, `allow-unsigned-executable-memory`, `disable-library-validation`
 and `device.audio-input` stay exactly as they are; the entitlements plist
@@ -202,13 +240,60 @@ already argues each one and that argument is unchanged.
 
 | Key | Why | Present? |
 | --- | --- | --- |
-| `NSAppleEventsUsageDescription` | The sentence macOS shows when the app first asks to drive Chrome, Safari or Calendar. Without it, the Apple Event path crashes rather than prompts. Pairs with the entitlement above; **neither works alone.** | Missing |
-| `NSCalendarsFullAccessUsageDescription` | macOS 14 split Calendars into write-only and full access, and the detector reads events. On macOS 14+ the old key alone gets write-only, which is the wrong grant, silently. | Missing |
+| `NSAppleEventsUsageDescription` | The sentence macOS shows when the app first asks to drive Chrome, Safari or Calendar. **Corrected**: the row used to say this crashes the Apple Event path rather than prompting when the key is missing, which is not the sentence's actual failure mode — see the entitlement row above for the citation and what it does say — but the key is worth having regardless, since without it any prompt macOS does show carries no explanation of why an app called Context wants to control Calendar. | **Present** — added in the pull request that corrected this row |
+| `NSCalendarsFullAccessUsageDescription` | macOS 14 split Calendars into write-only and full access, and the detector reads events, never writes any. **Measured, not merely reasoned**: read on the owner's Mac, on the shipped bundle identifier, the Calendar row sat at the write-only value this key's absence predicts — while the entry in Privacy & Security still reads as a granted toggle to a person glancing at it, because macOS shows one checkbox for the category regardless of which tier was granted. The app's own collector could not tell the difference either: `calendarScript`'s per-calendar `try { ... } catch (e) { continue }` (`src/platform/macos/calendar.ts`) treats "this calendar refused to enumerate" exactly like "this calendar has no events right now," so a write-only grant and a quiet hour both surface as an empty array — see this file's `packages/meetings/src/detect.js` sibling docs on `collectSignals`, and the note below on what this pull request could and could not close about that. | **Present** — added in the pull request that corrected this row |
 | `NSLocalNetworkUsageDescription` | `src/main/connect.ts` binds a loopback listener for the OAuth redirect. Loopback is not local network today, but Apple has tightened this boundary twice and a shell that cannot complete a sign-in is a shell that cannot record. Pure insurance, and insurance is what this list is. | Missing |
 | `NSRemindersUsageDescription` | Speculative but cheap: "notice the meeting, capture it, file the follow-ups" is one step from a product that already writes notes into somebody's bucket. Declaring it costs a string; needing it in eighteen months costs a release and a wait. | Missing |
 | `NSContactsUsageDescription` | The same argument, with a stronger pull: `docs/decisions/communications.md` already builds contact pages, one per person, and the address book is the obvious enrichment for an attendee list the calendar gives us as bare emails. | Missing |
 | `NSDesktopFolderUsageDescription`, `NSDocumentsFolderUsageDescription`, `NSDownloadsFolderUsageDescription` | The bucket is the storage and nothing here opens a file the person chose — *today*. An "attach the deck to the meeting note" or "watch a folder" feature is one of the most predictable next asks, and each of these is a crash rather than a refusal on the day it is called. | Missing |
 | `NSMicrophoneUsageDescription`, `NSAudioCaptureUsageDescription`, `NSCalendarsUsageDescription` | Unchanged. `electron-builder.yml`'s header is right that these are the product and not boilerplate. | Present |
+
+**What shipping the two keys above does and does not do, said plainly rather
+than left to be assumed.** It stops a *future* grant of Calendars from landing
+at write-only — a person connecting this Mac for the first time after this
+ships, or a person who never granted Calendars at all yet, is asked with a
+request that names full access and, if they say yes, receives it. **It is not
+retroactive.** Apple's own UI does not silently upgrade an existing write-only
+grant when an app's Info.plist changes underneath it; a person who already
+granted the old, narrower request keeps exactly what they granted; and
+per `docs/decisions/desktop.md`'s own finding on TCC and re-signing, **a
+same-identity signed reinstall preserves whatever grant is already
+recorded** — so shipping this key changes nothing for somebody already at
+write-only until they open System Settings and re-grant Calendars themselves,
+or revoke and re-grant it. That sentence belongs in release notes for this
+build, not only here.
+
+**What this pull request could verify and what it could not, named rather
+than blurred together.** Verified, from Apple's own current documentation:
+`.writeOnly` is a real `EKAuthorizationStatus` case and it means exactly what
+the row above says — write access with no read (Apple Developer
+Documentation, `EKAuthorizationStatus.writeOnly`; createwithswift.com's
+EventKit walkthrough, quoting the same distinction: *"write-only access...
+prevents reading calendar events"* versus full access, which "grants read and
+write access"). Verified, from a real-world report of the same shape: an app
+declaring only the legacy `NSCalendarsUsageDescription` on iOS 17/macOS 14+
+is granted the write-only tier rather than full access
+(nc-software.com's account of exactly this regression: *"Apple made a change
+in iOS 17 that downgraded permissions... became ADD ONLY"*). **Not verified,
+because it needs a Mac**: whether `calendarScript`'s silent per-calendar
+`catch` actually swallows a write-only refusal into an empty array rather than
+an exception `collectSignals` would catch and report as `degraded` — this
+repository has no way to construct a `write-only`-authorized `Calendar`
+JXA target to test against, and no EventKit call anywhere in this codebase to
+ask `authorizationStatus(for:)` directly instead of inferring it from
+behaviour. The acceptance step for the Mac session that picks this up: grant
+full Calendars access, confirm `collectCalendarEvents` returns real events;
+then, in System Settings, set Calendars back to write-only for this app and
+watch whether the same call returns `[]` silently or throws. If it throws,
+nothing further is needed — `collectSignals`'s existing `degraded` path
+already turns that into an honest "the app cannot see your calendar" rather
+than a false "you have no meetings," per this file's own header. If it
+returns `[]` silently, `calendarScript` needs a positive check — enumerable
+calendars with zero readable events is ambiguous, but zero *enumerable*
+calendars at all, when the person is known to have at least one from a
+different signal, is not — and that fix is not in this pull request, because
+writing it without being able to watch it run against the real authorization
+tier would be guessing at JXA's exact failure shape rather than fixing it.
 
 **One thing the measurement turned up that nobody wrote:**
 `NSCameraUsageDescription` is in the shipped Info.plist and is declared nowhere

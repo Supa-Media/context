@@ -254,6 +254,61 @@ export function subDocumentsFor(path, full) {
 }
 
 /**
+ * How much of the index one listed note can take up, in the one unit the
+ * sizing and the placement in `shards.js` both count.
+ *
+ * The unit is **indexed characters**, calibrated so that
+ * `NOTES_PER_SHARD * NOTE_INDEX_CHAR_CAP` of it is what a shard was already
+ * built to hold. That is not a new number — it is exactly the volume the note
+ * rule (`ceil(noteCount / 300)`) has always implied — and keeping it means an
+ * ordinary vault's shard count cannot move: an ordinary note contributes
+ * `min(size, NOTE_INDEX_CHAR_CAP)`, so summing this over ordinary notes can
+ * never exceed what counting them already gave.
+ *
+ * **A bundled note is the whole point, and it is counted by its bytes.** A
+ * channel-day note contributes one document per message, each with its own
+ * cap, so its contribution is a function of the file rather than of one
+ * per-note window — which is precisely what `chooseShardCount` could not see
+ * when it counted notes, and why a mailbox landed entirely in one shard.
+ *
+ * The `1.25` is measured rather than chosen: a shard of channel-day
+ * sub-documents serializes to ~3.1 bytes per byte of rendered note, against
+ * ~2.4 bytes per indexed character for ordinary notes at the same fill, so a
+ * raw mail byte costs about a quarter more index than an ordinary indexed
+ * character. Both corpora then land at ~1.5MB for a full shard against the
+ * 2MB `SHARD_PARSE_BYTE_CAP` — the headroom the note rule already had.
+ * `apps/mcp/test/bench/shardSizing.mjs` re-measures it.
+ *
+ * A size the listing did not report (a backend that omits it) answers the
+ * per-note cap, which is exactly the assumption counting notes made — so an
+ * unknown degrades to today's rule rather than to "this note is free".
+ *
+ * @param {string} path
+ * @param {number} [size] the note's size in bytes, as the listing reported it
+ * @returns {number}
+ */
+export function indexVolumeOf(path, size) {
+  const bytes = Number.isFinite(size) && size > 0 ? size : NOTE_INDEX_CHAR_CAP;
+  if (!isChannelDayNotePath(path)) return Math.min(bytes, NOTE_INDEX_CHAR_CAP);
+  return Math.ceil(bytes * BUNDLED_VOLUME_FACTOR);
+}
+
+/** See `indexVolumeOf`: measured, not chosen. */
+export const BUNDLED_VOLUME_FACTOR = 1.25;
+
+/**
+ * Whether this note's documents are a set rather than one — the notes the
+ * placement rule in `shards.js` may move off the shard their path hashes to.
+ *
+ * Asked of the **path**, so it is decidable from a listing, before anything
+ * has been read: the whole difficulty the sizing had was that the number of
+ * documents behind a path is not knowable without fetching it.
+ */
+export function isBundledIndexPath(path) {
+  return isChannelDayNotePath(path);
+}
+
+/**
  * One message's segment, read back out of a fresh copy of its note's text —
  * for the snippet a search result shows, which must be cut from a live read
  * and never from index data (`visible.js`'s existing rule for every note).

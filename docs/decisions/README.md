@@ -102,6 +102,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Corpus statistics are per tenant, which is why it is a database each
 - The gateway copies the notes, and a search is what starts it
 - …and the control plane runs the same pass for a person who is not there
+- …and a search reads it, which for a year it did not
+- The descriptor is a sibling of the binding, and the gateway reads it there
+- …and the console asks the same projection, through the same answer
+- One round trip, and why it cannot be zero
+- A blended search over several contexts fuses ranks, and the control plane is where it happens
+- A note is the unit of the index, except when it is bundled mail
+- The index is sized by the volume it has to hold, and an oversized part sheds rather than taking the rest with it
 
 ## [The mobile app and the console](./app-and-console.md)
 

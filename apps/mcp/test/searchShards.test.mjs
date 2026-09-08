@@ -71,7 +71,7 @@
  */
 
 import { R2Store } from "../src/store/r2.js";
-import { createSearchBudget } from "../src/search/maintain.js";
+import { NOTE_INDEX_CHAR_CAP, createSearchBudget } from "../src/search/maintain.js";
 import {
   DOCMAP_KEY,
   LEGACY_V1_KEY,
@@ -374,6 +374,40 @@ export async function runSearchShardsChecks(check) {
       chooseShardCount(-5) === 1
   );
 
+  /*
+    ...and the volume term, which is the whole of the mailbox fix. The two
+    terms take the max, and the calibration is what makes that safe: an
+    ordinary note is worth at most `NOTE_INDEX_CHAR_CAP` and a shard is aimed
+    at `300 * NOTE_INDEX_CHAR_CAP`, so over ordinary notes the volume term can
+    never win and no existing index moves. A bundled note is worth its bytes,
+    which is how one listed object can now ask for more than one shard.
+  */
+  const PER_SHARD = 300 * NOTE_INDEX_CHAR_CAP;
+  check(
+    "an ordinary vault is never sized up by its volume: the note term always wins",
+    [1, 7, 42, 300, 301, 5000].every(
+      (n) => chooseShardCount(n, n * NOTE_INDEX_CHAR_CAP) === chooseShardCount(n)
+    )
+  );
+  check(
+    "volume alone buys shards, which counting two notes never could",
+    chooseShardCount(2, PER_SHARD) === 1 &&
+      chooseShardCount(2, PER_SHARD + 1) === 2 &&
+      chooseShardCount(2, 8 * PER_SHARD) === 8
+  );
+  check(
+    "...clamped at MAX_SHARD_COUNT and floored at one, exactly like the note term",
+    chooseShardCount(2, 1e12) === 64 &&
+      chooseShardCount(0, 0) === 1 &&
+      chooseShardCount(1, Number.NaN) === 1 &&
+      chooseShardCount(1, -7) === 1
+  );
+  check(
+    "a volume-per-shard of nothing falls back to the pinned one rather than dividing by zero",
+    chooseShardCount(1, PER_SHARD * 4, 0) === 4 &&
+      chooseShardCount(1, PER_SHARD * 4, Number.NaN) === 4
+  );
+
   check(
     "shardKey is the zero-padded decimal name the contract pins",
     shardKey(0) === ".index/v2/shard-000.json" &&
@@ -419,10 +453,43 @@ export async function runSearchShardsChecks(check) {
         round.freshness.truncated === true
     );
     check(
-      "a docmap for a different shard count is refused, never applied to this index",
+      "a docmap for MORE shards than the manifest is refused, never applied to this index",
       parseDocmap(serializeDocmap(manifest), 2) === null &&
         parseDocmap(serializeDocmap(manifest), 3) !== null
     );
+    {
+      /*
+        ...and one for FEWER is padded rather than refused, because the count
+        can now grow and the two objects are written in separate steps: the
+        manifest first, the docmap only if an op is left for it. Refusing a
+        docmap one shard behind would re-index the whole bucket to learn what
+        it already knew — and rebuild shards from empty while it did, so an
+        index that was answering goes dark. Growth moves nothing, so every
+        claim in the shorter docmap is still true and the shards it does not
+        name are the new empty ones.
+      */
+      const grown = parseDocmap(serializeDocmap(manifest), 5);
+      check(
+        "a docmap for FEWER shards is padded with empty ones, since growth moves no doc",
+        grown !== null &&
+          grown.length === 5 &&
+          grown[0].get("__proto__") === "e1" &&
+          grown[3].size === 0 &&
+          grown[4].size === 0
+      );
+      check(
+        "...and a shardCount that is not a positive integer is still refused",
+        parseDocmap(JSON.stringify({ version: 3, shardCount: 0, docsByShard: [] }), 3) === null &&
+          parseDocmap(
+            JSON.stringify({ version: 3, shardCount: 1.5, docsByShard: [[]] }),
+            3
+          ) === null &&
+          parseDocmap(
+            JSON.stringify({ version: 3, shardCount: "1", docsByShard: [[]] }),
+            3
+          ) === null
+      );
+    }
     check(
       "and a note path of \"__proto__\" is a Map key, never a property name",
       round.docsByShard[0].get("__proto__") === "e1" &&
@@ -551,6 +618,61 @@ export async function runSearchShardsChecks(check) {
       parseShard(JSON.stringify({ version: 2, docs: [["p", { etag: "e", uploaded: null, title: "t", links: [], len: { title: 0, headings: 0, tags: 0 }, rank: 0 }]], terms: [] })) === null &&
       parseShard(undefined) === null
   );
+
+  {
+    /*
+      The two fields shedding added, in both directions.
+
+      A manifest written before shedding existed carries no `shed` in its
+      stats and a shard written then carries no `shed` on its docs, and both
+      must read back as "nothing is shed" rather than being refused —
+      refusing would rebuild every working index on the day this deploys. In
+      the other direction an older gateway reads the new objects: it validates
+      only the fields it knows, so the extra keys ride along. What is NOT
+      tolerated is a present-but-malformed value, which would parse as
+      `undefined` and be reported as zero — the one direction this number must
+      not be wrong in.
+    */
+    const statsOf = (extra) => [{ docCount: 1, lenTotals: { title: 1, headings: 0, tags: 0, body: 1 }, ...extra }];
+    const manifestWith = (extra) =>
+      JSON.stringify({ version: 3, shardCount: 1, generatedAt: null, stats: statsOf(extra) });
+    check(
+      "a manifest with no shed count reads as none, one with a count reads it, a malformed one is refused",
+      parseManifest(manifestWith({}))?.stats[0].shed === 0 &&
+        parseManifest(manifestWith({ shed: 3 }))?.stats[0].shed === 3 &&
+        parseManifest(manifestWith({ shed: "3" })) === null &&
+        parseManifest(manifestWith({ shed: -1 })) === null
+    );
+
+    const shedDoc = (extra) => [
+      "0-inbox/email/name-at-example-com/2026-09-07.md#msg-0123456789abcdef",
+      {
+        etag: "e",
+        uploaded: null,
+        title: "Subject",
+        links: [],
+        len: { title: 1, headings: 0, tags: 0, body: 1 },
+        rank: 1,
+        notePath: "0-inbox/email/name-at-example-com/2026-09-07.md",
+        anchor: "msg-0123456789abcdef",
+        ...extra,
+      },
+    ];
+    const shardWith = (extra) =>
+      JSON.stringify({ version: 3, generatedAt: null, docs: [shedDoc(extra)], terms: [] });
+    const key = "0-inbox/email/name-at-example-com/2026-09-07.md#msg-0123456789abcdef";
+    check(
+      "a doc with no shed flag reads as whole, one flagged reads as shed, a malformed flag refuses the shard",
+      parseShard(shardWith({}))?.docs.get(key)?.shed === false &&
+        parseShard(shardWith({ shed: true }))?.docs.get(key)?.shed === true &&
+        parseShard(shardWith({ shed: "yes" })) === null
+    );
+    check(
+      "...and the flag round-trips, while an unshed doc does not carry the key at all",
+      JSON.parse(serializeShard(parseShard(shardWith({ shed: true })))).docs[0][1].shed === true &&
+        JSON.parse(serializeShard(parseShard(shardWith({})))).docs[0][1].shed === undefined
+    );
+  }
 
   {
     // The interned dialect's own refusals: each key must be an integer index
@@ -785,27 +907,49 @@ export async function runSearchShardsChecks(check) {
       budget: createSearchBudget(60),
       shardByteCap,
     });
+    // Which shard each note ended up in is read off the pass rather than
+    // assumed: `shardByteCap` scales the sizing as well as the write (a small
+    // shard really does hold fewer notes), so the index grows past the two
+    // shards seeded above and the ids are a function of the final count. What
+    // is on trial is the *containment* — one shard refused, its neighbour
+    // written — and that is what these assert.
+    const idOf = (path) => {
+      for (const [id, shard] of refused.shards) if (shard.docs.has(path)) return id;
+      return -1;
+    };
+    const bigId = idOf(bigPath);
+    const smallId = idOf(smallPath);
     check(
-      "a shard whose serialized form crosses the cap is not written, while its neighbour still is",
-      shardByteCap < bigBytes &&
-        capped.objects.has(shardKey(0)) === false &&
-        capped.objects.has(shardKey(1)) === true &&
-        storedManifest(capped)?.docsByShard[0].size === 0 &&
-        storedManifest(capped)?.docsByShard[1].size === 1
+      "the two notes are in different shards, so containment is what is being measured",
+      bigId !== -1 && smallId !== -1 && bigId !== smallId
     );
     check(
-      "its docs count as pending, because the query side reads shards from the bucket",
-      refused.pending === 1 && refused.shards.get(0)?.docs.has(bigPath) === true
+      "a shard whose serialized form crosses the cap sheds the note that did it, and is written",
+      shardByteCap < bigBytes &&
+        capped.objects.has(shardKey(bigId)) === true &&
+        capped.objects.has(shardKey(smallId)) === true &&
+        bytesOf(capped.objects.get(shardKey(bigId)).body) <= shardByteCap
+    );
+    check(
+      "...naming that note rather than reporting work still outstanding",
+      refused.shed.length === 1 &&
+        refused.shed[0] === bigPath &&
+        refused.oversizedShards === 0 &&
+        refused.pending === 0
+    );
+    check(
+      "...and the note stays recorded at its version, so the diff converges rather than re-fetching it",
+      storedManifest(capped)?.docsByShard[bigId].get(bigPath) === capped.etagOf(bigPath) &&
+        storedManifest(capped)?.stats[bigId].shed === 1 &&
+        storedManifest(capped)?.docsByShard[smallId].size === 1
     );
     const again = await syncShardedIndex(cappedStore, {
       budget: createSearchBudget(60),
       shardByteCap,
     });
     check(
-      "and a second pass under the same cap plateaus rather than cycling through a rebuild",
-      again.pending === 1 &&
-        capped.objects.has(shardKey(0)) === false &&
-        capped.objects.has(shardKey(1)) === true
+      "and a second pass under the same cap has nothing to do rather than shedding it again",
+      again.pending === 0 && again.shed.length === 0 && again.touched.length === 0
     );
   }
 

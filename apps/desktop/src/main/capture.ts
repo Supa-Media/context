@@ -98,6 +98,15 @@ export class DesktopCaptureRecorder implements AudioRecorder {
    * Defaulted, so a caller that does not want one costs nothing.
    */
   #onLevel: (level: CaptureLevel) => void;
+  /** What `start()` was handed. Read once, on the way out — see `#died`. */
+  #onDied: ((message: string) => void) | null = null;
+  /**
+   * True from the first line of `stop()`/`#abandon()` that destroys this
+   * window, so the crash and close listeners below can tell "we did this" from
+   * "the input closed on its own" — both fire `render-process-gone`/`closed`
+   * either way, and only the second is a death to report.
+   */
+  #endingOnPurpose = false;
 
   constructor(rendererDir: string, onLevel: (level: CaptureLevel) => void = () => {}) {
     this.#rendererDir = rendererDir;
@@ -245,10 +254,76 @@ export class DesktopCaptureRecorder implements AudioRecorder {
     this.#startedAt = Date.now();
     this.#recordedMs = 0;
     this.#frames = 0;
+    this.#endingOnPurpose = false;
+    this.#onDied = options.onDied;
+
+    /*
+      THE WINDOW CAN DIE WITHOUT ANYBODY TELLING THIS CLASS.
+
+      A renderer crash or the window being torn down by anything other than
+      this class's own `stop()`/`#abandon()` used to leave `#capturing` at
+      `true` forever: the getter kept answering `true`, `MeetingController`
+      kept believing frames could still arrive, and the elapsed clock — wall
+      clock since the meeting started, nothing more — kept climbing with no
+      microphone open behind it. Both listeners are guarded by
+      `#endingOnPurpose`, because `stop()` and `#abandon()` destroy this same
+      window as their own last step, which fires both events too, and that is
+      not a death to report — it is this class ending its own capture.
+
+      Not independently unit-tested: driving a real `BrowserWindow` needs a
+      real Electron process, which is what `MeetingController`'s own suite
+      exercises through `fakeRecorder().kill()` instead — the shape of the
+      failure this class hands upward, without needing this window at all. The
+      wiring itself is covered by the launch smoke test starting for real and
+      by manual reasoning from Electron's own documented events, alongside the
+      other platform facts in this file's header that cannot be asserted from
+      plain Node.
+    */
+    window.webContents.on("render-process-gone", (_event, details) => {
+      this.#died(window, `the capture window's renderer stopped (${details.reason})`);
+    });
+    window.on("closed", () => {
+      this.#died(window, "the capture window closed unexpectedly");
+    });
+  }
+
+  /**
+   * The input closed on its own. See `RecorderOptions.onDied`.
+   *
+   * `window` is destroyed here rather than assumed already gone: a renderer
+   * crash (`render-process-gone`) does not itself close the `BrowserWindow`,
+   * it leaves a window pointed at a dead process — a live, invisible window
+   * with nothing behind it. That destroy fires this same window's `closed`
+   * listener a second time, which is why `!this.#capturing` above is checked
+   * first rather than only `#endingOnPurpose`: by then this method has
+   * already run once and there is nothing left to report.
+   *
+   * `this.#window !== window` is the third guard, for a delayed event rather
+   * than a repeated one: a stale `render-process-gone`/`closed` delivered for
+   * a window this class already tore down, arriving after a *new* `start()`
+   * has moved `this.#window` on to a different, live session. Without it, a
+   * late event from a dead window would fail the session that replaced it —
+   * a wrong meeting reported dead is not better than a right one reported
+   * late.
+   */
+  #died(window: BrowserWindow, message: string): void {
+    if (this.#endingOnPurpose || !this.#capturing || this.#window !== window) return;
+    if (!this.#paused) this.#recordedMs += Date.now() - this.#startedAt;
+    this.#capturing = false;
+    this.#paused = false;
+    this.#window = null;
+    ipcMain.removeAllListeners(CAPTURE_CHUNK);
+    ipcMain.removeAllListeners(CAPTURE_LEVEL);
+    this.#onLevel({ ...SILENT });
+    if (!window.isDestroyed()) window.destroy();
+    const onDied = this.#onDied;
+    this.#onDied = null;
+    onDied?.(message);
   }
 
   /** A start that threw must leave no window and no live track behind. */
   async #abandon(window: BrowserWindow): Promise<void> {
+    this.#endingOnPurpose = true;
     ipcMain.removeAllListeners(CAPTURE_CHUNK);
     ipcMain.removeAllListeners(CAPTURE_LEVEL);
     // A start that failed never opened anything, and the meter says so rather
@@ -272,6 +347,7 @@ export class DesktopCaptureRecorder implements AudioRecorder {
   }
 
   async stop(): Promise<RecorderSummary> {
+    this.#endingOnPurpose = true;
     if (!this.#capturing) {
       // Safe to call twice, and the second call still says the input is shut:
       // this is the path a console that reloaded mid-teardown lands on.
@@ -281,6 +357,7 @@ export class DesktopCaptureRecorder implements AudioRecorder {
     if (!this.#paused) this.#recordedMs += Date.now() - this.#startedAt;
     this.#capturing = false;
     this.#paused = false;
+    this.#onDied = null;
     this.#window?.webContents.send(CAPTURE_STOP);
     /*
       The window is given a moment to hand over its last chunk before it is
