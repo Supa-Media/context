@@ -55,6 +55,7 @@ export const FRONTMATTER_KEYS = Object.freeze([
   "device",
   "attendees",
   "status",
+  "event",
 ]);
 
 /**
@@ -443,6 +444,15 @@ export function renderMeetingNote(session, options = {}) {
     device: yamlScalar(deviceLabel(session.device)),
     attendees: yamlFlowList((session.attendees ?? []).map((attendee) => attendee.name)),
     status: yamlScalar(session.state ?? "idle"),
+    // Last, and optional: the calendar event this meeting was matched to, as
+    // an ordinary `[[path#anchor]]` wikilink, or empty when there is none —
+    // written the same way `ended` is, so "no match yet" and "never written
+    // before this key existed" read as the same sentence to a client that
+    // does not know about calendar matching at all. Set once, by
+    // `docs/decisions/communications.md`'s "The link lives in a frontmatter
+    // key, not a new section" — never by this renderer, which only ever
+    // carries forward whatever `session.event` already says.
+    event: yamlScalar(session.event ?? ""),
   };
   const frontmatter = FRONTMATTER_KEYS.map((key) => `${key}: ${values[key]}`);
 

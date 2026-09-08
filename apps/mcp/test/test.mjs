@@ -6,6 +6,8 @@ import { runCommunicationsChecks } from "./communications.test.mjs";
 import { messageAnchor } from "../../../packages/communications/src/anchors.js";
 import { renderChannelDayNote } from "../../../packages/communications/src/note.js";
 import { runCommsSearchIndexChecks } from "./commsSearchIndex.test.mjs";
+import { runCalendarGoogleChecks } from "./calendarGoogle.test.mjs";
+import { runCalendarSyncChecks } from "./calendarSync.test.mjs";
 import { runOrientationChecks } from "./orientation.test.mjs";
 import { runSearchFilterChecks } from "./searchFilter.test.mjs";
 import { runSearchIndexerChecks } from "./searchIndexer.test.mjs";
@@ -25,6 +27,7 @@ import { runLinkChecks } from "./links.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
 import { runGmailSyncChecks } from "./gmailSync.test.mjs";
+import { runGoogleChatChecks } from "./googleChat.test.mjs";
 import { runSearchD1Checks } from "./searchD1.test.mjs";
 import { runSearchProjectionChecks } from "./searchProjection.test.mjs";
 import { runCredentialShapeChecks } from "./credentialShape.test.mjs";
@@ -3919,6 +3922,16 @@ await runOrientationChecks(check);
 await runCommunicationsChecks(check);
 await runCommsSearchIndexChecks(check);
 
+// The calendar sync: the Google-shaped adapter (calendarGoogle.test.mjs) and
+// the orchestrator against a fake, stateful Calendar API server
+// (calendarSync.test.mjs, fakeCalendarServer.mjs) — syncToken paging, the 410
+// fallback, the bounded horizon, per-day regeneration, disconnect as a real
+// no-op, and two workspaces' connections never touching each other's store.
+// Neither file shares state with anything else in this suite: each stands up
+// its own fake server and store per check block.
+await runCalendarGoogleChecks(check);
+await runCalendarSyncChecks(check);
+
 // The search index. The two format halves are pure functions over their own
 // fixtures and touch no store or control plane, so they run anywhere; the
 // integration checks stand up their own instrumented bucket, like orientation,
@@ -4057,6 +4070,11 @@ await runMeetingChecks(check);
 // gap detection and full reconcile, and the quota bound. No network and no
 // dependency: `gmailSync.js` takes its socket and its store as parameters.
 await runGmailSyncChecks(check);
+
+// Google Chat sync: no shared globals, no worker fetch — pure functions plus
+// a fixture Chat API over an injected fetchImpl, so it runs anywhere in this
+// order without the swap-and-restore discipline the block above needs.
+await runGoogleChatChecks(check);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);
