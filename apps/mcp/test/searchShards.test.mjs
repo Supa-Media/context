@@ -453,10 +453,43 @@ export async function runSearchShardsChecks(check) {
         round.freshness.truncated === true
     );
     check(
-      "a docmap for a different shard count is refused, never applied to this index",
+      "a docmap for MORE shards than the manifest is refused, never applied to this index",
       parseDocmap(serializeDocmap(manifest), 2) === null &&
         parseDocmap(serializeDocmap(manifest), 3) !== null
     );
+    {
+      /*
+        ...and one for FEWER is padded rather than refused, because the count
+        can now grow and the two objects are written in separate steps: the
+        manifest first, the docmap only if an op is left for it. Refusing a
+        docmap one shard behind would re-index the whole bucket to learn what
+        it already knew — and rebuild shards from empty while it did, so an
+        index that was answering goes dark. Growth moves nothing, so every
+        claim in the shorter docmap is still true and the shards it does not
+        name are the new empty ones.
+      */
+      const grown = parseDocmap(serializeDocmap(manifest), 5);
+      check(
+        "a docmap for FEWER shards is padded with empty ones, since growth moves no doc",
+        grown !== null &&
+          grown.length === 5 &&
+          grown[0].get("__proto__") === "e1" &&
+          grown[3].size === 0 &&
+          grown[4].size === 0
+      );
+      check(
+        "...and a shardCount that is not a positive integer is still refused",
+        parseDocmap(JSON.stringify({ version: 3, shardCount: 0, docsByShard: [] }), 3) === null &&
+          parseDocmap(
+            JSON.stringify({ version: 3, shardCount: 1.5, docsByShard: [[]] }),
+            3
+          ) === null &&
+          parseDocmap(
+            JSON.stringify({ version: 3, shardCount: "1", docsByShard: [[]] }),
+            3
+          ) === null
+      );
+    }
     check(
       "and a note path of \"__proto__\" is a Map key, never a property name",
       round.docsByShard[0].get("__proto__") === "e1" &&

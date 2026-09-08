@@ -726,12 +726,30 @@ export function serializeDocmap(manifest) {
 
 /**
  * `docsByShard` out of a stored docmap, or `null` for anything that does not
- * fully validate — including a docmap for a different shard count, which is a
- * docmap for a different index.
+ * fully validate.
  *
  * A `null` here is not a failure: the sync proceeds with an empty diff, which
  * makes every listed note look stale and re-indexes the bucket. Slow, correct,
  * and self-healing, which is the direction every unknown in this file falls.
+ *
+ * **A docmap written under FEWER shards than the manifest now has is accepted
+ * and padded, and that is load-bearing rather than lenient.** Since the shard
+ * count can grow (`growManifest`), the two objects can legitimately disagree:
+ * the manifest is written first and the docmap only if an op is left for it,
+ * so a grown index whose docmap write was skipped stores a docmap for the
+ * count it had a moment ago. Refusing it would re-index the entire bucket on
+ * the next pass — rebuilding shards from empty, so an index that was answering
+ * goes dark for as many passes as the backfill needs — to learn something it
+ * already knew.
+ *
+ * And padding is exactly right rather than merely cheap: the count only ever
+ * grows, and growth **moves nothing**, so every claim in the shorter docmap is
+ * still true of the shard it names, and the shards it does not name are the
+ * new ones, which hold nothing. An empty map is what "holds nothing" is.
+ *
+ * A docmap for MORE shards than the manifest is still refused. That is a
+ * manifest that shrank or a rolled-back deployment, and there the claims
+ * really are about a different index.
  *
  * @param {string} text
  * @param {number} shardCount
@@ -750,8 +768,12 @@ export function parseDocmap(text, shardCount, byteCap = MANIFEST_PARSE_BYTE_CAP)
   }
   if (!isPlainObject(parsed)) return null;
   if (parsed.version !== 3) return null;
-  if (parsed.shardCount !== shardCount) return null;
-  return readDocsByShard(parsed.docsByShard, shardCount);
+  if (!Number.isInteger(parsed.shardCount) || parsed.shardCount < 1) return null;
+  if (parsed.shardCount > shardCount) return null;
+  const docsByShard = readDocsByShard(parsed.docsByShard, parsed.shardCount);
+  if (!docsByShard) return null;
+  while (docsByShard.length < shardCount) docsByShard.push(new Map());
+  return docsByShard;
 }
 
 /** `docsByShard` as `Map`s, or `null`. Shared by both stored dialects. */

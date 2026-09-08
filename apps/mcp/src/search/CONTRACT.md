@@ -213,7 +213,15 @@ peak memory is one shard.
   an array of `shardCount` arrays of `[path, version]` pairs (the same
   listing-derived token v1 stores). Serialized as arrays of pairs throughout —
   the v1 prototype-pollution rule. It carries the shard count so a docmap
-  cannot be applied to an index that has since been re-sharded.
+  cannot be applied to an index that has since been re-sharded — with one
+  asymmetry that arrived with growth: a docmap for **fewer** shards than the
+  manifest is **padded** with empty maps rather than refused, because the
+  manifest is written first and the docmap only after it, so a pass that grew
+  the count can leave the pair one step apart. Growth moves no doc, so every
+  claim in the shorter docmap is still true of the shard it names and the ones
+  it does not name are the new, empty ones. A docmap for **more** shards is
+  still refused: that is a shrunk manifest or a rolled-back deployment, and
+  there the claims really are about a different index.
 
   **This was inside the manifest, and moving it is why a query got fast.** One
   `[path, version]` pair per note in the bucket is ~900KB at eight thousand

@@ -1554,6 +1554,66 @@ async function runShardSizingChecks(check) {
   const mailAfterGrowth = await search(grown, "lastword13marker");
   check("...and the mail now answering too", mailAfterGrowth.indexed === true && mailAfterGrowth.hits.length === 1);
 
+  /* -- 5b. growth's own failure mode: a docmap left one count behind ----- */
+
+  /*
+    The manifest is written first and the docmap only if an op is left for it,
+    so a pass that grows the index can store a manifest saying N+k shards over
+    a docmap still saying N. That could not happen before growth existed — the
+    count never moved — and refusing the mismatch (which is what `parseDocmap`
+    did) is not a slow-and-correct fallback here: it empties the diff, so every
+    note looks stale, every shard is rebuilt from empty, and an index that was
+    answering goes dark for as many passes as the backfill needs.
+
+    Driven by putting the old docmap back under the grown manifest, which is
+    exactly the state a skipped write leaves. What is asserted is that the next
+    pass has nothing to do — not merely that it survives.
+  */
+  const behind = createBucket();
+  for (const note of plainNotes(20)) behind.seed(note.path, note.text);
+  await converge(behind, 2000, { shardByteCap: cap });
+  const docmapAtOneShard = behind.objects.get(".index/v2/docmap.json").body;
+  for (const note of days) behind.seed(note.path, note.text);
+  const behindAfter = await converge(behind, 2000, { shardByteCap: cap });
+  behind.objects.set(".index/v2/docmap.json", { body: docmapAtOneShard, etag: "stale", uploaded: new Date() });
+  const nextPass = await syncShardedIndex(behind, {
+    budget: createSearchBudget(2000),
+    shardByteCap: cap,
+  });
+  const plainPaths = new Set(plainNotes(20).map((note) => note.path));
+  check(
+    "a docmap left behind by a growth pass does not re-index the notes it still accounts for",
+    behindAfter.manifest.shardCount > 1 &&
+      nextPass.touched.every((path) => !plainPaths.has(path)) &&
+      nextPass.pending === 0
+  );
+  /*
+    And the notes it does NOT account for are re-placed, which must land them
+    back where they already are. Placement is a pure function of the claimed
+    set, the listing and the shard count, and all three are what they were on
+    the pass that placed them — so it reproduces itself. If it did not, a note
+    would exist in two shards at once: the one the stored object still holds it
+    in, and the one this pass wrote it to.
+  */
+  const homes = new Map();
+  let doubled = 0;
+  for (let id = 0; id < nextPass.manifest.shardCount; id += 1) {
+    for (const path of nextPass.manifest.docsByShard[id].keys()) {
+      if (homes.has(path)) doubled += 1;
+      homes.set(path, id);
+    }
+  }
+  check("...and no note ends up claimed by two shards at once", doubled === 0);
+  const survivedTheGap = await search(behind, "ordinary-note-word");
+  const mailSurvived = await search(behind, "lastword13marker");
+  check(
+    "...with both halves of the context answering exactly, never twice",
+    survivedTheGap.indexed === true &&
+      survivedTheGap.matchCount === 20 &&
+      mailSurvived.indexed === true &&
+      mailSurvived.hits.length === 1
+  );
+
   /* -- 6. shedding: a day too big for any shard ------------------------- */
 
   const tight = createBucket();

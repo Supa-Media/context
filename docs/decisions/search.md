@@ -1124,6 +1124,18 @@ Three parts, and each answers something the one before it cannot:
   to fifty without re-fetching a note and without its search going dark. Down
   is still "delete the manifest", for the reason it always was — down is the
   direction that re-routes docs already placed.
+- **Growth made the manifest and the docmap able to disagree, which they never
+  could before**, and self-review found it rather than a test. The manifest is
+  written first and the docmap only if an op is left for it, so a pass that
+  grew the count can store a manifest naming N+k shards over a docmap naming N.
+  `parseDocmap` refused that mismatch — correct while the count was fixed, and
+  badly wrong once it moves: refusing empties the diff, so every note looks
+  stale, every shard is rebuilt from empty, and an index that was answering
+  goes dark for as many passes as the backfill needs. A **shorter** docmap is
+  now padded with empty maps instead, which is exactly right rather than merely
+  cheap — growth moves nothing, so its claims are all still true and the shards
+  it does not name are the new ones, which hold nothing. A **longer** one is
+  still refused; that is a shrunk manifest or a rolled-back deployment.
 - **A bundled note is placed by load, not by hash.** Sizing spreads a corpus
   evenly *on average*; hashing places it with the variance of a hash, and a
   channel-day note is indivisible, so three heavy days landing in one shard is
