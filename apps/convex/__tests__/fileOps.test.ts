@@ -4708,6 +4708,86 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
     expect(refused.code).toBe("NOTE_ENCRYPTED");
     expect(store.snapshot()["1-projects/broken.md"]).toBe(broken);
   });
+
+  /**
+   * A WELL-FORMED ENVELOPE, NAMING EXACTLY THE RIGHT RECIPIENTS, WITH
+   * PLAINTEXT SMUGGLED IN AROUND IT.
+   *
+   * `sameRecipientSet` alone would wave every one of these through — the
+   * fenced block itself is untouched, valid, and names `p1` and nobody else.
+   * This is the caller `envelopeSkeleton` exists for: someone who already
+   * holds editor access to this path (a person, or an MCP client authorized
+   * for this workspace) but was never given the passphrase, hand-typing a
+   * submission the console itself would never produce. That is exactly the
+   * "no AI client reads it" boundary this feature is for — an editor without
+   * the passphrase is not supposed to be able to put a single readable byte
+   * of this note's content into the bucket while it still answers as encrypted.
+   */
+  test("plaintext smuggled after the fenced block is refused, even though the envelope itself is well-formed", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    const smuggled = `${before}\nA co-editor without the passphrase put this here.\n`;
+    const refused = await capture(() =>
+      writeFile(store, {
+        path: "1-projects/locked.md",
+        text: smuggled,
+        expectedEtag: read.etag,
+        scope: "private",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("NOTE_ENCRYPTED");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(before);
+  });
+
+  test("plaintext smuggled between the frontmatter and the fence is refused", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    const smuggled = before.replace(
+      "> [!NOTE] This note is encrypted.",
+      "> [!NOTE] This note is encrypted.\nA co-editor without the passphrase put this here.",
+    );
+    const refused = await capture(() =>
+      writeFile(store, {
+        path: "1-projects/locked.md",
+        text: smuggled,
+        expectedEtag: read.etag,
+        scope: "private",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("NOTE_ENCRYPTED");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(before);
+  });
+
+  test("an extra frontmatter key alongside the marker is refused", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    const smuggled = before.replace(
+      "context_encryption: v1",
+      'context_encryption: v1\nsecret: "a co-editor without the passphrase put this here"',
+    );
+    const refused = await capture(() =>
+      writeFile(store, {
+        path: "1-projects/locked.md",
+        text: smuggled,
+        expectedEtag: read.etag,
+        scope: "private",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("NOTE_ENCRYPTED");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(before);
+  });
 });
 
 describe("removeNoteEncryption: the one door that writes plaintext over an encrypted note", () => {

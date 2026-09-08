@@ -162,33 +162,79 @@ export function sameRecipientSet(
 }
 
 /**
+ * Every byte of an envelope document except its JSON blob.
+ *
+ * `parseEnvelopeRecipients` only ever looks *inside* the fenced block, on
+ * purpose — it is answering "what does this envelope claim", not "is this
+ * document nothing but an envelope". Left there, `canReplaceEncryptedNote`
+ * would accept a submission that wraps a perfectly well-formed envelope,
+ * naming exactly the right recipients, around **extra plaintext smuggled in
+ * before the frontmatter's close, between it and the fence, or after the
+ * fence's own close** — a shape no legitimate client ever produces (`envelope.ts`
+ * on the client and `renderEncryptedNote` on the gateway are one deterministic
+ * template each, byte-identical to each other), but nothing stops a caller
+ * that already holds editor access to this path from typing it by hand. That
+ * caller is exactly who this feature exists to keep out: an editor without the
+ * passphrase, human or an MCP client wired to this workspace, is precisely the
+ * "couple of other humans" this note was not shared with.
+ *
+ * Returns `null` for anything that does not even have the frontmatter-and-fence
+ * shape `parseEnvelopeRecipients` already requires — a caller that checked that
+ * first will never see it — and otherwise the document with its JSON blob (the
+ * one thing a legitimate re-encryption is allowed to change) excised. Two
+ * envelopes that differ **only** in their ciphertext produce an identical
+ * skeleton; anything smuggled anywhere else does not.
+ */
+function envelopeSkeleton(text: string): string | null {
+  const body = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  if (!body.startsWith("---")) return null;
+  const frontEnd = body.indexOf("\n---", 3);
+  if (frontEnd < 0) return null;
+  const afterFront = frontEnd + "\n---".length;
+  const fenceStart = body.indexOf(FENCE, afterFront);
+  if (fenceStart < 0) return null;
+  const jsonStart = body.indexOf("\n", fenceStart);
+  if (jsonStart < 0) return null;
+  const jsonEnd = body.indexOf("\n```", jsonStart);
+  if (jsonEnd < 0) return null;
+  return body.slice(0, jsonStart) + body.slice(jsonEnd);
+}
+
+/**
  * May `nextText` replace `storedText` at a path the control plane already
  * knows is encrypted?
  *
  * This is the whole of the widened door `fileOps.writeFile` opens, and it is
  * deliberately narrow: **`true` only when `nextText` is itself a well-formed
- * envelope naming exactly the recipients `storedText` already names.** Every
- * other case — plaintext, a malformed replacement, a different recipient
- * added or removed, an id or a kind swapped — answers `false`.
+ * envelope naming exactly the recipients `storedText` already names, and
+ * differing from it nowhere except the ciphertext.** Every other case —
+ * plaintext, a malformed replacement, a different recipient added or removed,
+ * an id or a kind swapped, or a well-formed envelope with anything extra
+ * smuggled in around it — answers `false`.
  *
  * That is what lets an already-unlocked console re-encrypt a note under a
  * fresh IV (an edit), rewrap the same note key under a new passphrase-derived
  * one (a passphrase change) and nothing else through this door: the gateway's
  * own rule, "whether a write is encrypted is decided by the stored object",
  * taken one step further for the note this runtime can never open — a note
- * this request cannot open is a note this request cannot write, and a note
- * whose recipients this request cannot even *see change* is the same rule
- * applied to a runtime with no key to open anything with.
+ * this request cannot open is a note this request cannot write, a note whose
+ * recipients this request cannot even *see change* is the same rule applied to
+ * a runtime with no key to open anything with, and a note whose every byte
+ * outside the ciphertext this request cannot even *see move* closes the one
+ * gap that check alone would still leave — see `envelopeSkeleton`.
  *
  * Deliberately does **not** check that `storedText` still parses — a stored
  * envelope this control plane can no longer make sense of is refused here too,
- * because `parseEnvelopeRecipients` answers `null` for it and `null` never
- * matches anything.
+ * because `parseEnvelopeRecipients` and `envelopeSkeleton` both answer `null`
+ * for it, and `null` never matches anything.
  */
 export function canReplaceEncryptedNote(storedText: string, nextText: string): boolean {
   const nextRecipients = parseEnvelopeRecipients(nextText);
   if (nextRecipients === null) return false;
   const storedRecipients = parseEnvelopeRecipients(storedText);
   if (storedRecipients === null) return false;
-  return sameRecipientSet(storedRecipients, nextRecipients);
+  if (!sameRecipientSet(storedRecipients, nextRecipients)) return false;
+  const nextSkeleton = envelopeSkeleton(nextText);
+  if (nextSkeleton === null) return false;
+  return nextSkeleton === envelopeSkeleton(storedText);
 }
