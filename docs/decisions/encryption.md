@@ -623,7 +623,8 @@ which is which is a decision.**
   this table.** `ROTATION_PROGRESS_PATH` (`.context/rotation-progress.json`,
   `apps/mcp/src/index.js`) holds a `cursor` — every note key at or below it, in
   the bucket's own sort order, has been examined during the current pass — a
-  `confirmedThrough` timestamp, and a small `stuckKeys` list. It lives beside
+  `confirmedThrough` timestamp, a small `stuckKeys` list, the `wrote` keys the
+  last call itself moved, and an authentication tag over all of it. It lives beside
   the notes it describes rather than in `workspaceKeyRotations`, for the same
   reason `EXPORT_RATE_LIMIT_PATH` does: the control plane holds the one fact
   that has to be authoritative everywhere — whether a rotation may be
@@ -653,14 +654,75 @@ which is which is a decision.**
   before the cursor, but whose `uploaded` time is after `confirmedThrough`, is
   re-examined anyway: it arrived at that position after the cursor had already
   swept past it, and the sweep proves nothing about content that arrives
-  later. `confirmedThrough` is captured **at the end of each call**, after that
-  call's own writes land — not at the start of the pass — which is the detail
-  that makes this converge rather than loop forever: a boundary taken before a
-  call's writes would make the call's own rewrites (which change a note's
-  `uploaded` time to *now*) look freshly arrived to the very next call. This
-  costs one extra read per note actually touched between two calls, never per
-  note in the bucket, and it is proven with a note moved to an early key
-  mid-walk in `apps/mcp/test/encryptionRotation.test.mjs`, not only argued.
+  later.
+
+  **`confirmedThrough` is captured before a call's own listing, and this is
+  the part adversarial review had to correct.** The first version of this
+  change took it at the *end* of the call, after that call's writes landed, so
+  that a call would never re-read its own output. That boundary is later than
+  the listing the call worked from, and everything in between falls into a
+  gap: a note moved behind the cursor *while a call was running* was invisible
+  to that call (its listing predated the move) and looked older than the
+  boundary to the next one. Measured on the branch that proposed it — a
+  `move_note` into an earlier folder during a call left the note on the
+  outgoing generation, and the walk retired the generation anyway. Taking the
+  boundary before the listing closes it, and the re-reading it was meant to
+  avoid is paid for separately, below.
+
+  **Two smaller corrections in the same place, both measured.** The comparison
+  is made at **whole-second resolution with a strict `<`**, because S3's
+  `ListObjectsV2` and Dropbox's `server_modified` report whole seconds: a
+  millisecond boundary against a truncated timestamp lost a note moved behind
+  the cursor in four of eight runs on a second-granularity store stub. And the
+  progress file carries `wrote`, the keys the last call itself re-wrapped,
+  which the catch-up sweep skips — without it, a boundary taken before the
+  writes puts every note the walk just moved back in front of the next call,
+  and a caller looping the tool faster than the backend's timestamp resolution
+  never converges (measured at 600 notes: calls four through twelve each
+  re-read 252 objects, re-wrapped nothing, and the walk never reported
+  complete). What `wrote` gives up, stated: a write somebody else lands on
+  that exact key between our own write and the next call is not re-examined by
+  this rotation. Through the gateway that write is already on the target
+  generation — a rotation retires the outgoing generation the moment it
+  *starts*, so `sealNoteContent` seals under the new one from then on — so the
+  only shape left is a direct-to-bucket restore of pre-rotation ciphertext,
+  which is the first of the three cases "The grace period is a policy, not a
+  sweep" already exists for.
+
+  All three are proven in `apps/mcp/test/encryptionRotationCursor.test.mjs`
+  with a note moved behind the cursor mid-call, a second-granularity backend,
+  and a sabotage row each, rather than argued.
+
+  **The per-call budget counts object reads, not notes re-wrapped.** Counting
+  what a call *moves* lets it read whatever it passes over for free, and a
+  bucket whose notes are mostly not encrypted — a brain with encryption on for
+  one folder, which is the ordinary shape, not a corner case — is exactly that
+  bucket. Measured on the first version of this change: 4,002 reads in a
+  single call over a 4,000-note bucket with 200 encrypted notes, and 10,002
+  over a 10,000-note one. That is the same ceiling this whole section exists
+  to remove, relocated from the last call to the first. A read is what a
+  Worker's subrequest budget spends, so a read is what the cap counts:
+  `ROTATION_BATCH_CAP` for the forward sweep, the same again plus a little for
+  the behind-the-cursor catch-up (it has to be able to get through its
+  predecessor's whole batch, or a finished walk never gets to say so), and
+  `ROTATION_RETRY_READ_CAP` for the known-stuck retry so a large stuck set can
+  never starve the sweep that actually advances the cursor.
+
+  **The progress file is authenticated, because it is the one bucket object
+  that can make a rotation lie.** A `cursor` sorting after every key, in a
+  file that otherwise parses and names the live generation pair, made the walk
+  report "complete" having read no note at all — every note still wrapped
+  under the outgoing generation, and that generation retired. The paragraph
+  below then tells an operator it is safe to delete a retired generation's row
+  once nothing names it, and that is the step at which those notes stop
+  opening for good. "A leaked bucket credential" is the row this file's own
+  threat table calls the one that matters, and a persisted cursor was the
+  first thing it could write that the remediation reads back. So the file
+  carries an HMAC-SHA-256 tag, derived in one step from the *target*
+  generation's key material (which the gateway holds in-process and a bucket
+  credential alone does not), and a file whose tag does not verify is treated
+  exactly as a missing one: the walk starts fresh and re-reads, which is
+  slower and always correct.
 
   **A note this pass cannot move does not block the cursor from advancing past
   it.** A conflicting write or an unopenable envelope goes into `stuckKeys`
@@ -693,6 +755,30 @@ which is which is a decision.**
   | 4,000 | **after** | 20 | **4,040** | **202** |
   | 10,000 | before | 50 | 255,099 | 10,001 |
   | 10,000 | **after** | 50 | **10,100** | **202** |
+  | 20,000 | **after** | 100 | **20,200** | **202** |
+
+  Re-measured independently in adversarial review at every size above plus
+  20,000, and separately on the shape the first version of this change missed
+  entirely — a bucket where only a fraction of the notes are encrypted:
+
+  | notes | encrypted | version | reads in the largest call |
+  | ---: | ---: | --- | ---: |
+  | 4,000 | 200 | before the cursor | 4,001 |
+  | 4,000 | 200 | first cursor version | 4,002 |
+  | 4,000 | 200 | **after review** | **202** |
+  | 10,000 | 200 | before the cursor | 10,001 |
+  | 10,000 | 200 | first cursor version | 10,002 |
+  | 10,000 | 200 | **after review** | **202** |
+  | 20,000 | 200 | **after review** | **202** |
+
+  Both tables are measured with calls spaced further apart than the backend's
+  own listing resolution, which is what a caller does. **A caller that loops
+  the tool as fast as it will answer pays extra calls, not extra reads per
+  call**: several calls can land inside one second of a listing timestamp, the
+  catch-up sweep stops being able to rule those batches out, and the walk
+  spends bounded calls (452 reads, the worst case above) confirming rather
+  than moving. Measured at 4,000 notes driven with no pause at all: 118 calls
+  instead of 20, every one of them still bounded, still completing.
 
   Total reads used to grow as `notes x calls / 2`; after, they grow as
   `notes + calls x (batch cap + a small constant)` — linear in the bucket
@@ -732,7 +818,22 @@ which is which is a decision.**
   can still lose a race between two truly concurrent calls against the same
   rotation — harmless (the next call re-derives a superset of the work, never
   a false "done"), but not free: a workspace whose owner mashes the tool from
-  two clients at once pays some redundant reads, not correctness.
+  two clients at once pays some redundant reads, not correctness. **A lost
+  race must not be a lost cursor, though**, and that is a consequence of
+  counting reads rather than re-wraps: a call that cannot persist its position
+  re-reads the same first batch next time, and a bucket larger than the cap
+  would never finish. So the conditional write is politeness rather than
+  safety — `cursor` means "every key at or below this has been examined",
+  which is true of whichever overlapping call wrote it — and a lost race is
+  retried once unconditionally.
+
+  And one the margin cannot close: `uploaded` is the storage backend's clock,
+  and `confirmedThrough` is the Worker's. A backend running more than a second
+  behind can under-report an arrival into the swept range, and that note stays
+  on the outgoing generation — readable, under a generation this codebase
+  never deletes, and moved by the next rotation. Closing it properly needs a
+  per-key record of when the walk last examined each note, which is more state
+  to keep consistent than the case is worth.
 
   One more edge, named rather than found later: a note could in principle
   move to an earlier key in the exact instant between the last confirming
@@ -786,9 +887,24 @@ sabotage-tested by disabling the persisted cursor; a note moved to a key the
 cursor already swept past is still picked up, sabotage-tested by disabling
 the `uploaded`-timestamp catch-up; and a single note the walk cannot move
 does not stop the cursor from advancing past it, sabotage-tested by letting
-one such note halt the whole sweep — the last of which fails five separate
-checks at once, because nearly everything else this section claims depends on
-that one line (all in `apps/mcp/test/encryptionRotation.test.mjs`).
+one such note halt the whole sweep — the last two of which fail several
+separate checks at once, because nearly everything else this section claims
+depends on those two lines (all in `apps/mcp/test/encryptionRotation.test.mjs`;
+re-measured in review at 5 and 2 failures respectively, on the file as it
+stands, because a sabotage count is only true of the file it was taken on).
+
+And four the adversarial review of that change added, in
+`apps/mcp/test/encryptionRotationCursor.test.mjs`, each one measured failing
+on the version that was proposed: a note moved behind the cursor **while a
+call is running** is still re-wrapped (sabotage: take the boundary at the end
+of the call — 2 failures); the same holds on a backend whose listing carries
+only whole seconds (sabotage: compare raw milliseconds — 1); a progress file
+this gateway did not sign cannot make the walk report complete without reading
+a note (sabotage: skip the tag check — 2); and one call over a bucket whose
+notes are mostly *not* encrypted still reads about the batch cap rather than
+the bucket (sabotage: count re-wraps instead of reads — 1). A fifth guards the
+fix for the first: the walk recognising its own previous output, without which
+a fast caller never converges (sabotage: stop carrying `wrote` — 1).
 
 And one more, which belongs to the *other* rotation in this file's list of
 three: `STORAGE_SECRET_ENCRYPTION_KEY`'s pass must move **every** generation

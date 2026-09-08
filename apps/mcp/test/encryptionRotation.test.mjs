@@ -76,7 +76,7 @@ import worker from "../src/index.js";
 import { isEncryptedNote, parseEncryptedNote } from "../src/encryption.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 
-function makeBucket() {
+export function makeBucket() {
   const objects = new Map();
   let etagCounter = 0;
   const encoder = new TextEncoder();
@@ -126,7 +126,7 @@ function makeBucket() {
   };
 }
 
-const PRIVACY = [
+export const PRIVACY = [
   "---",
   "role: privacy-manifest",
   "version: 1",
@@ -147,12 +147,12 @@ const PRIVACY = [
   "",
 ].join("\n");
 
-const KEY_1 = "MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=";
+export const KEY_1 = "MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=";
 
 /** ROTATION_BATCH_CAP in `src/index.js`. Kept in sync by the assertion below. */
-const ROTATION_BATCH_CAP = 200;
+export const ROTATION_BATCH_CAP = 200;
 
-function noteBody(i) {
+export function noteBody(i) {
   return `---\nupdated: 2026-09-07\n---\n\n# note ${i}\n\nbody of note number ${i}.\n`;
 }
 
@@ -526,6 +526,6 @@ export async function runEncryptionRotationChecks(check) {
 }
 
 /** Mirrors `isPlumbing` in `src/index.js` closely enough for this file's own bucket census. */
-function isPlumbingPath(key) {
+export function isPlumbingPath(key) {
   return key.split("/").some((segment) => segment.startsWith("."));
 }
