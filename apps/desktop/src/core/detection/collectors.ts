@@ -197,8 +197,8 @@ export function scriptedCollectors(script: readonly FakeSignals[]): SignalCollec
       // One `current()` call, not two: it advances the script on every call,
       // and `windows` needing two fields out of the same frame must not cost
       // this collector two turns for the other three's one.
-      const frame = current();
-      return { windows: frame.windows ?? [], tabUrlRefusals: frame.tabUrlRefusals ?? 0 };
+      const value = current();
+      return { windows: value.windows ?? [], tabUrlRefusals: value.tabUrlRefusals ?? 0 };
     },
     microphoneInUse: async () => current().microphoneInUse ?? false,
     calendarEvents: async () => current().calendarEvents ?? [],

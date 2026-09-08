@@ -98,7 +98,6 @@ export const WINDOW_SCRIPT = `
   const procs = se.processes.whose({ backgroundOnly: false })();
   let titleAttempts = 0;
   let titleRefusals = 0;
-  let tabUrlAttempts = 0;
   let tabUrlRefusals = 0;
   for (const proc of procs) {
     let app;
@@ -113,7 +112,6 @@ export const WINDOW_SCRIPT = `
       out.push({ app, title: String(title), focused: frontmost });
     }
     if (browsers.indexOf(app) !== -1) {
-      tabUrlAttempts += 1;
       try {
         const browser = Application(app);
         const windows = browser.windows();
@@ -128,7 +126,7 @@ export const WINDOW_SCRIPT = `
       } catch (e) { tabUrlRefusals += 1; }
     }
   }
-  JSON.stringify({ windows: out, titleAttempts, titleRefusals, tabUrlAttempts, tabUrlRefusals });
+  JSON.stringify({ windows: out, titleAttempts, titleRefusals, tabUrlRefusals });
 `;
 
 /**

@@ -182,19 +182,15 @@ export function runPlatformChecks(check) {
     // window-title Accessibility refusal above.
     check(
       "a poll with no browsers reads as zero tab URL refusals",
-      parseTabUrlRefusals(JSON.stringify({ windows: [], titleAttempts: 1, titleRefusals: 0, tabUrlAttempts: 0, tabUrlRefusals: 0 })) === 0,
+      parseTabUrlRefusals(JSON.stringify({ windows: [], titleAttempts: 1, titleRefusals: 0, tabUrlRefusals: 0 })) === 0,
     );
     check(
       "one browser refusing its tab URL is counted",
-      parseTabUrlRefusals(
-        JSON.stringify({ windows: [], titleAttempts: 1, titleRefusals: 0, tabUrlAttempts: 1, tabUrlRefusals: 1 }),
-      ) === 1,
+      parseTabUrlRefusals(JSON.stringify({ windows: [], titleAttempts: 1, titleRefusals: 0, tabUrlRefusals: 1 })) === 1,
     );
     check(
       "two browsers refusing is counted as two, not clamped to one",
-      parseTabUrlRefusals(
-        JSON.stringify({ windows: [], titleAttempts: 2, titleRefusals: 0, tabUrlAttempts: 2, tabUrlRefusals: 2 }),
-      ) === 2,
+      parseTabUrlRefusals(JSON.stringify({ windows: [], titleAttempts: 2, titleRefusals: 0, tabUrlRefusals: 2 })) === 2,
     );
     check("malformed input reads as zero refusals rather than throwing", parseTabUrlRefusals("not json") === 0);
     check(
@@ -204,7 +200,6 @@ export function runPlatformChecks(check) {
           windows: [{ app: "zoom.us", title: "Weekly sync", focused: true }],
           titleAttempts: 2,
           titleRefusals: 0,
-          tabUrlAttempts: 1,
           tabUrlRefusals: 1,
         });
         return parseWindows(stdout).length === 1 && parseTabUrlRefusals(stdout) === 1;
