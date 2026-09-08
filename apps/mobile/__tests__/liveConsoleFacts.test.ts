@@ -258,7 +258,16 @@ describe("invented values are structurally out of reach of the live console", ()
    * live hook because it was sitting there exported.
    */
   const CONSOLE = join(__dirname, "..", "features", "console");
-  const DEMO_PATH = ["placeholderData.ts", "useDemoConsoleData.ts", "files/useDemoFileBrowser.ts"];
+  const DEMO_PATH = [
+    "placeholderData.ts",
+    "useDemoConsoleData.ts",
+    "files/useDemoFileBrowser.ts",
+    // The one note `apps/mobile/e2e/webkit` writes to for real — see its own
+    // header. Reachable only from `e2eFixtureData.ts`, itself reachable only
+    // behind `app/e2e-fixture.tsx`'s `EXPO_PUBLIC_E2E_FIXTURE` gate, never
+    // from the live console.
+    "e2eEncryptionFixture.ts",
+  ];
 
   function sourceFiles(dir: string): string[] {
     return readdirSync(dir).flatMap((name) => {

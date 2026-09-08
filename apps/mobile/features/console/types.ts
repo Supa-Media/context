@@ -1,4 +1,5 @@
 import type { ConsoleFailure } from "./failure";
+import type { NoteWriter } from "./encryption/passphraseOps";
 import type { FileBrowser } from "./files/browser";
 import type { ViewerIdentity } from "./identity";
 import type { IngestionState } from "./ingestion/settings";
@@ -311,6 +312,19 @@ export interface ConsoleData {
    * value the shell can draw. `null` in the demo, which cannot fail.
    */
   failure: ConsoleFailure | null;
+  /**
+   * Where a passphrase-encrypted write actually lands, when it is not the
+   * real console's `writeNote`/`removeNoteEncryption` Convex actions.
+   *
+   * Absent everywhere real: the live console and the plain landing-page demo
+   * (whose `files.canShare` is false anyway, so the control that would use
+   * this is unreachable). The one caller is `apps/mobile/e2e/webkit`'s
+   * fixture (`app/e2e-fixture.tsx`), which needs the passphrase machinery's
+   * writes to actually persist — in memory and in `localStorage`, so they
+   * survive a real page reload — without a Convex backend behind them. See
+   * `e2eEncryptionFixture.ts`.
+   */
+  encryptionWriters?: { write: NoteWriter; removeEncryption: NoteWriter };
 }
 
 /** The selected context, or `null` when there is none yet. */

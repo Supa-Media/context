@@ -29,7 +29,7 @@
  * request that is certain to fail, never about permission.
  */
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
@@ -56,6 +56,7 @@ export function ShareDialog({
   onRevoke,
   onSetPreviewTitle,
   onClose,
+  advanced,
 }: {
   path: string;
   /** Every share on this context, or `undefined` while the query is in flight. */
@@ -63,6 +64,17 @@ export function ShareDialog({
   /** Where this console is served from. See `shareUrl`. */
   origin: string;
   onShare: (recipient: string) => void;
+  /**
+   * A section drawn under everything else here, behind its own "ADVANCED"
+   * label — today, whatever `EncryptionAdvancedSection` in
+   * `features/console/encryption/` has to say about this note. This dialog
+   * stays agnostic about what it is: sharing decides who may read a note
+   * through the gateway, and encryption decides what the bytes are while
+   * nobody is asking — `docs/decisions/encryption.md`'s opening argument for
+   * why the two never collapse into one control. Absent where the caller has
+   * nothing to add, rather than an empty labelled section.
+   */
+  advanced?: ReactNode;
   /**
    * Put a link on the clipboard. Answers whether it landed.
    *
@@ -269,6 +281,13 @@ export function ShareDialog({
               onRevoke={onRevoke}
               onSetPreviewTitle={onSetPreviewTitle}
             />
+
+            {advanced !== undefined ? (
+              <View style={styles.section}>
+                <Text variant="eyebrow">ADVANCED</Text>
+                {advanced}
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.actions}>

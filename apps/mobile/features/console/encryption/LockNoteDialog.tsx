@@ -14,6 +14,7 @@ import {
 } from "./acknowledgement";
 import { kdfSupport } from "./kdf";
 import { MINIMUM_PASSPHRASE_LENGTH } from "./passphraseOps";
+import { passphraseStrength } from "./strength";
 
 /**
  * The screen that takes a decision nobody can take back.
@@ -63,6 +64,11 @@ export function LockNoteDialog({
 
   const tooShort = passphrase.length > 0 && passphrase.length < MINIMUM_PASSPHRASE_LENGTH;
   const mismatched = again.length > 0 && again !== passphrase;
+  // Feedback, not a gate: `ready` below never reads this. A passphrase that
+  // clears `MINIMUM_PASSPHRASE_LENGTH` may be locked in regardless of what
+  // this bar says — the floor is the one hard requirement, and everything
+  // above it is a nudge rather than a second requirement bolted onto it.
+  const strength = passphrase.length === 0 ? null : passphraseStrength(passphrase);
   const ready =
     !busy &&
     passphrase.length >= MINIMUM_PASSPHRASE_LENGTH &&
@@ -115,6 +121,15 @@ export function LockNoteDialog({
               <Text variant="hint" style={styles.point}>
                 {PASSPHRASE_HINT}
               </Text>
+              {strength !== null && !tooShort ? (
+                <Text
+                  variant="hint"
+                  style={strength.strength === "weak" ? styles.problem : styles.point}
+                  testID="lock-note-strength"
+                >
+                  {strength.label}
+                </Text>
+              ) : null}
               <TextInput
                 style={styles.input}
                 value={again}

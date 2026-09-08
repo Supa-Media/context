@@ -148,6 +148,10 @@ const MEMBER_VISIBLE_DETAIL_ACTIONS: ReadonlySet<string> = new Set([
   // `{ conflictCheck }` and `{ recoverable }`. No count, no identity.
   "file.create",
   "file.write",
+  // `{ conflictCheck }`, same as `file.write` — `removeNoteEncryption` is a
+  // plaintext write like any other from an audit trail's point of view; the
+  // note's own body never rides on this row either way.
+  "file.decrypt",
   "file.delete",
   "folder.create",
   // `{ template, folderCount }`, where `folderCount === paths.length` exactly,
