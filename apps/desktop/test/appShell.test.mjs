@@ -63,6 +63,9 @@
  *   `explain`'s windowless fallback made a blocking alert                   2
  *   `askSomething` never passing the parent window                          1
  *   the connect question asked with `dialog.showMessageBox` directly        2
+ *   `imessage.reconfigure()` back where #329 had it                         2
+ *   `push()` hoisted above `const tray`                                     1
+ *   `loop.start()` hoisted above `const tray`                               1
  *
  * **The guard row is the one worth reading twice.** `smokeLoadFailure`'s call
  * has to live *inside* `if (SMOKE_LOAD)`, because plain `--smoke` is what the
@@ -562,5 +565,64 @@ export function runAppShellChecks(check) {
       source.includes("const controller = new MeetingController") &&
       source.indexOf("imessage.reconfigure()") >
         source.indexOf("const controller = new MeetingController"),
+  );
+
+  /*
+    ...and the same defect one name over, because the check above is one line.
+
+    The class is not `imessage.reconfigure()`. It is: a callback registered
+    inside `main()` reaches `push()`, and something drives it before the things
+    `push()` reads exist. `push()` dereferences `tray`, `controller`, `updater`,
+    `panel` and `notepad`, and `const tray = new AppTray(` is the last of those
+    to be declared — so nothing in `main()` above that line may drive a service
+    whose callbacks call `push()`, and nothing may call `push()` or `update()`
+    there either. `update()` counts twice over: it calls `push()` itself and it
+    calls `imessage.reconfigure()` when the patch carries `imessageEnabled`,
+    which is the original defect reached through a name the check above cannot
+    see.
+
+    Today the region holds five statements — two settings reads, a queue
+    recovery, its write-back, and `connection.load()` — and none of them can
+    reach `push()`. A sixth that can goes red here rather than at release time.
+
+    Positional, like the check above, and for the same reason: whether a given
+    early drive is fatal *today* depends on whether it reaches `push()` before
+    the next `await` hands control back. Sabotaged one at a time, from the top
+    of this suite:
+
+      `imessage.reconfigure()` back where #329 had it   both checks red; app exits 1
+      `push()` hoisted above `const tray`               this check only;  app exits 1
+      `loop.start()` hoisted above `const tray`         this check only;  app still exits 0
+
+    The third is the point of writing it positionally. It is latent rather than
+    fatal — detection is off by default and the first collect is asynchronous,
+    so `onUpdate` lands after `main()` has run on past `const tray` — and a
+    guard that only reddened on the fatal ones would be a guard that waits for
+    somebody to turn detection on.
+
+    What it does not cover, said out loud rather than left to be assumed: it
+    reads statements at `main()`'s own indentation, so a drive nested inside
+    another expression, one reached through a freshly named helper, or one made
+    on a handle copied to a second variable all get past it. It is a wider net
+    than a single line, not a proof.
+  */
+  const mainStart = source.indexOf("async function main(): Promise<void> {");
+  const lastPushDependency = source.indexOf("const tray = new AppTray(");
+  const beforePushCanRun =
+    mainStart === -1 || lastPushDependency === -1 || lastPushDependency < mainStart
+      ? null
+      : source.slice(mainStart, lastPushDependency);
+  const drivenTooEarly =
+    beforePushCanRun === null
+      ? []
+      : [
+          ...(beforePushCanRun.match(
+            /^ {2}(?:void |await )?(?:imessage|controller|updater|loop|tray)\.[A-Za-z]/gm,
+          ) ?? []),
+          ...(beforePushCanRun.match(/^ {2}(?:void |await )?(?:push|update)\(/gm) ?? []),
+        ];
+  check(
+    "NOTHING DRIVES A PUSH-REACHING SERVICE ABOVE `tray` — the same launch crash, one name over",
+    beforePushCanRun !== null && drivenTooEarly.length === 0,
   );
 }
