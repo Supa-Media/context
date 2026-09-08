@@ -272,13 +272,69 @@ export async function runPackagingChecks(check) {
   );
 
   // -- the sentences macOS shows before anybody agrees to anything ----------
+  //
+  // The declaration, `key + ":"`, and not the comment about it — this file's
+  // own header already argues that distinction for the microphone string
+  // below; the two keys this defect added are held to the same rule rather
+  // than the looser substring check the original three had, which a header
+  // comment naming a renamed key in prose would still have passed.
   for (const key of [
     "NSMicrophoneUsageDescription",
     "NSAudioCaptureUsageDescription",
     "NSCalendarsUsageDescription",
+    "NSCalendarsFullAccessUsageDescription",
+    "NSAppleEventsUsageDescription",
   ]) {
-    check(`${key} is declared, or macOS kills the process instead of asking`, BUILDER.includes(key));
+    check(`${key} is declared, or macOS kills the process instead of asking`, BUILDER.includes(`${key}:`));
   }
+
+  /*
+    EVERY PERMISSION A COLLECTOR OR THE RECORDER ACTUALLY ASKS FOR HAS ITS
+    PLIST STRING — named against the source file that asks, not against a
+    list somebody remembers to keep in step by hand.
+
+    Found the hard way: `NSAppleEventsUsageDescription` and
+    `NSCalendarsFullAccessUsageDescription` were both absent while
+    `core/detection/collectors.ts`' own header already said "browser tab URLs
+    need Automation, and the calendar needs Calendars" — the plist and the
+    code disagreed about what this app needs, and nothing here would have
+    caught it, because the check above only knew the three keys it was
+    written to know about. Read on the owner's own Mac, on the shipped
+    bundle identifier: three Apple Events rows already granted despite the
+    missing string, and the Calendar row sitting at the write-only value
+    macOS 14+ hands out to an app that only declares the legacy key — see
+    `docs/decisions/desktop-updates.md`, "The one-way door", for both
+    findings and what they do and do not explain.
+
+    This table is therefore read against the actual collector source, not
+    hand-typed twice: `windows()` and `calendarEvents()` are the two
+    `SignalCollectors` members `platform/macos/windows.ts` and
+    `platform/macos/calendar.ts` implement over `osascript`/JXA (Apple
+    Events), and `calendar.ts` additionally reads calendar *data*, which is
+    the second, separate TCC category `NSCalendarsFullAccessUsageDescription`
+    gates. A collector added later that also shells out to another
+    application and is never added here is exactly the gap this guard cannot
+    see — which is why it reads the collector interface's own member names
+    rather than a list somebody typed from memory.
+  */
+  const WINDOWS_SOURCE = readFileSync(join(ROOT, "src/platform/macos/windows.ts"), "utf8");
+  const CALENDAR_SOURCE = readFileSync(join(ROOT, "src/platform/macos/calendar.ts"), "utf8");
+  check(
+    "windows() drives another application over Apple Events, as documented",
+    /osascript/.test(WINDOWS_SOURCE),
+  );
+  check(
+    "calendarEvents() drives Calendar.app over Apple Events, as documented",
+    /osascript/.test(CALENDAR_SOURCE),
+  );
+  check(
+    "BOTH COLLECTORS THAT SEND APPLE EVENTS ARE COVERED BY ONE USAGE STRING",
+    BUILDER.includes("NSAppleEventsUsageDescription:"),
+  );
+  check(
+    "THE CALENDAR COLLECTOR'S OWN DATA READ IS COVERED BY THE FULL-ACCESS STRING, not only the legacy one",
+    BUILDER.includes("NSCalendarsFullAccessUsageDescription:"),
+  );
   /*
     The *declaration*, not the comment about it. `BUILDER.split(key)[1]` read
     the header's own prose — this file explains both keys before it sets them —
