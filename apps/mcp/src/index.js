@@ -76,6 +76,7 @@ import {
   writesAnywhere,
 } from "./session.js";
 import { enforceOrigin, isTransportPath } from "./origin.js";
+import { validateArguments } from "./toolArguments.js";
 import {
   handleMeetings,
   isMeetingPath,
@@ -1744,6 +1745,75 @@ const PRIVATE_TIER_ONLY_TOOLS = new Set([
 ]);
 
 /**
+ * The subset of those whose *existence* is masked, not merely refused.
+ *
+ * `list_plugins` and `set_encryption` answer a lower tier with a plain
+ * "permission denied": what they do is not itself sensitive. A workspace's key
+ * material is, so `callTool` answers these two with the byte-identical
+ * `unknown tool: …` an invented name gets.
+ *
+ * It is a named set rather than two inline `scope !== "private"` lines because
+ * argument validation has to consult the same list. A masked tool must not be
+ * validated: telling a team-tier caller that `export_encryption_keys` does not
+ * take an argument named `x`, when the same caller sending no arguments is
+ * told the tool does not exist, is an existence oracle built out of the guard
+ * that was supposed to close one. Two readers, one list, no drift.
+ */
+const EXISTENCE_MASKED_TOOLS = new Set(["export_encryption_keys", "rotate_encryption_keys"]);
+
+/** Is this tool's existence hidden from a caller at this visibility tier? */
+function toolExistenceMasked(name, scope) {
+  return EXISTENCE_MASKED_TOOLS.has(name) && scope !== "private";
+}
+
+/**
+ * Names still dispatched that `tools/list` no longer advertises.
+ *
+ * `archive_chat` is what `save_context` shipped as, and a client holding a
+ * cached tool list still calls it. It is a live dispatch path, so it needs a
+ * schema like every other one — the alias resolves to the schema of the tool
+ * it became, which is exactly what such a client is sending arguments for.
+ * A dispatch case with neither a definition nor an entry here fails the
+ * census test rather than quietly skipping validation.
+ */
+const TOOL_NAME_ALIASES = new Map([["archive_chat", "save_context"]]);
+
+/**
+ * The advertised `inputSchema` for a tool name, alias resolved.
+ *
+ * Built once per isolate. `toolDefinitions()` rebuilds twenty-nine objects
+ * from constants on every call and is already called twice per tool call; a
+ * third rebuild to answer "what did we advertise for this name" would be pure
+ * waste on the hot path. Nothing mutates the result, and every input to it is
+ * a module constant, so there is nothing to invalidate.
+ */
+let advertisedSchemas = null;
+function advertisedSchemaFor(name) {
+  if (!advertisedSchemas) {
+    advertisedSchemas = new Map(toolDefinitions().map((tool) => [tool.name, tool.inputSchema]));
+  }
+  return advertisedSchemas.get(TOOL_NAME_ALIASES.get(name) ?? name) ?? null;
+}
+
+/**
+ * The refusal for a tool call whose arguments are not what we advertised, or
+ * `null` if the call may proceed.
+ *
+ * Two ways this deliberately says nothing. A name with no advertised schema —
+ * an invented one, a typo — is passed through untouched so `callTool` answers
+ * it with `unknown tool: …`; validating it first would let a caller tell a
+ * misspelled tool from a real one by the shape of the complaint. And a tool
+ * masked from this tier is passed through for the same reason, one step
+ * stronger: see `EXISTENCE_MASKED_TOOLS`.
+ */
+function toolArgumentRefusal(name, args, scope) {
+  if (toolExistenceMasked(name, scope)) return null;
+  const schema = advertisedSchemaFor(name);
+  if (!schema) return null;
+  return validateArguments(schema, args);
+}
+
+/**
  * The tools this connection may see.
  *
  * A read-only grant is not shown tools it cannot use. Advertising them and then
@@ -1870,6 +1940,30 @@ async function callToolForSession(params, store, session) {
             "Reconnect the client with write access from the Context dashboard."
     );
   }
+  /*
+    The arguments have to match the schema this gateway advertised for this
+    tool, and this is the one place that is checked.
+
+    Ordering, which is the whole of the security argument here:
+
+      - After routing, because the addressing argument is `context`'s alone to
+        interpret and it is refused above on its own terms — a `context` of
+        `123` is "no access to that context", not a type complaint, and
+        `crossContext.test.mjs` pins that. By the time we get here `context` is
+        absent or a usable string, so validating the *supplied* object (the one
+        that still has it) checks it like any other advertised property.
+      - After the scope gate, so a read-only connection is told it holds a
+        read-only grant rather than being handed the argument shape of a tool
+        its own `tools/list` does not show it.
+      - Before `callTool`, which is the point: no handler, no privacy manifest
+        read, no storage round trip happens for a call whose arguments we never
+        said we would take. That is also why an argument naming another
+        workspace is refused identically whether that workspace exists or not
+        — nothing is looked up to answer it.
+  */
+  const badArguments = toolArgumentRefusal(params?.name, supplied, target.scope);
+  if (badArguments) return toolError(badArguments);
+
   const result = await callTool(params?.name, args, targetStore, target.scope);
   // Counted after the call, against the context the call was *routed to* —
   // `target`, never `session`. A cross-context call is activity in the brain it
@@ -2620,10 +2714,10 @@ async function callTool(name, args, store, scope) {
     // a narrower thing to advertise, so this refuses as though the tool were
     // never registered at all.
     case "export_encryption_keys":
-      if (scope !== "private") return toolError(`unknown tool: ${name}`);
+      if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
       return toolExportEncryptionKeys(store, scope);
     case "rotate_encryption_keys":
-      if (scope !== "private") return toolError(`unknown tool: ${name}`);
+      if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
       return toolRotateEncryptionKeys(store, scope);
     case "set_folder_visibility":
       return toolSetFolderVisibility(store, scope, args);
