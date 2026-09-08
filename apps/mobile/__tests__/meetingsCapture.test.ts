@@ -648,6 +648,59 @@ describe("rotation", () => {
     expect(recorder.state).toBe("idle");
   });
 
+  /**
+   * ONE DEVICE, ONE MEETING, AND THE SECOND ONE IS TOLD SO.
+   *
+   * `start()` returning silently while already recording is right for the
+   * same meeting twice and was wrong for a different one: the recorder went
+   * on minting the first meeting's chunk ids, so before those ids named a
+   * meeting the second session quietly took the first one's words, and now
+   * that they do `controller.apply` refuses every one of them and the second
+   * meeting records nothing while saying nothing. The console's Record key is
+   * drawn whether or not a meeting is live, so this is a press somebody can
+   * actually make. See `ALREADY_RECORDING`.
+   */
+  test("a second meeting is refused rather than recorded under the first one's name", async () => {
+    const { recorder, transcriber } = harness({ sessionId: TEST_MEETING_ID });
+    await recorder.start();
+    await advance(SEGMENT_MS);
+    const opened = mockDevices.length;
+
+    await expect(
+      recorder.start({ sessionId: OTHER_MEETING_ID, systemAudio: false }),
+    ).rejects.toThrow(/already recording another meeting/i);
+    // Refused before the device: nothing was opened, and the first meeting's
+    // capture is untouched rather than stolen or stopped.
+    expect(mockDevices).toHaveLength(opened);
+    expect(recorder.state).toBe("recording");
+
+    await advance(SEGMENT_MS);
+    expect(transcriber.chunks.length).toBeGreaterThan(1);
+    expect(
+      transcriber.chunks.every((chunk) => segmentSessionId(chunk.chunkId) === TEST_MEETING_ID),
+    ).toBe(true);
+    await recorder.stop();
+  });
+
+  /** A double press on the same meeting is still one start, as it always was. */
+  test("...and starting the meeting that is already running is still a no-op", async () => {
+    const { recorder, transcriber } = harness({ sessionId: TEST_MEETING_ID });
+    await recorder.start();
+    await advance(SEGMENT_MS);
+    const opened = mockDevices.length;
+
+    await recorder.start();
+    expect(mockDevices).toHaveLength(opened);
+    expect(recorder.state).toBe("recording");
+    await advance(SEGMENT_MS);
+    // The chunk sequence carried on rather than restarting at zero.
+    expect(transcriber.chunks.map((chunk) => chunk.chunkId)).toEqual([
+      chunkIdFor(TEST_MEETING_ID, 0),
+      chunkIdFor(TEST_MEETING_ID, 1),
+    ]);
+    await recorder.stop();
+  });
+
   test("the mime type says what the file actually is", async () => {
     const { recorder, transcriber } = harness();
     await recorder.start();

@@ -486,6 +486,47 @@ describe("rotation", () => {
     expect(instances).toEqual([]);
     expect(recorder.state).toBe("idle");
   });
+
+  /**
+   * ONE STREAM, ONE MEETING. `audio.ts`'s sibling test carries the argument:
+   * a second `start()` for a different meeting used to return silently and
+   * leave this recorder minting the first meeting's chunk ids, which was
+   * contamination before those ids named a meeting and is a silently empty
+   * second transcript now that they do. The console's Record key is drawn
+   * whether or not a meeting is live, so it is a real press.
+   */
+  test("a second meeting is refused rather than recorded under the first one's name", async () => {
+    const { recorder, transcriber } = harness({ sessionId: TEST_MEETING_ID });
+    await recorder.start();
+    await advance(SEGMENT_MS);
+    const opened = instances.length;
+
+    await expect(
+      recorder.start({ sessionId: OTHER_MEETING_ID, systemAudio: false }),
+    ).rejects.toThrow(/already recording another meeting/i);
+    expect(instances).toHaveLength(opened);
+    expect(recorder.state).toBe("recording");
+
+    await advance(SEGMENT_MS);
+    expect(transcriber.chunks.length).toBeGreaterThan(1);
+    expect(
+      transcriber.chunks.every((chunk) => segmentSessionId(chunk.chunkId) === TEST_MEETING_ID),
+    ).toBe(true);
+    await recorder.stop();
+  });
+
+  /** A double press on the same meeting is still one start, as it always was. */
+  test("...and starting the meeting that is already running is still a no-op", async () => {
+    const { recorder } = harness({ sessionId: TEST_MEETING_ID });
+    await recorder.start();
+    await advance(SEGMENT_MS);
+    const opened = instances.length;
+
+    await recorder.start();
+    expect(instances).toHaveLength(opened);
+    expect(recorder.state).toBe("recording");
+    await recorder.stop();
+  });
 });
 
 describe("the container", () => {
