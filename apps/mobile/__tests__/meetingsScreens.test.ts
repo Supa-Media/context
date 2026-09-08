@@ -170,6 +170,27 @@ describe("the list says what it knows and no more", () => {
     mounted.unmount();
   });
 
+  test("an audio-incapable build explains typed-notes-only before start", async () => {
+    await configure({
+      recorder: notesOnlyRecorder(
+        "ios",
+        "This app build cannot keep a meeting recording alive when the screen locks. Update Context to continue recording; typed notes are still available.",
+      ),
+    });
+    const mounted = mount(createElement(MeetingsListScreen));
+    expect(has(mounted.container, "meetings-capture-warning")).toBe(true);
+    expect(mounted.container.textContent).toContain("Update Context");
+    expect(mounted.container.textContent).toContain("typed notes are still available");
+    expect(mounted.container.textContent).toContain("Start typed notes");
+    expect(mounted.container.querySelector('[data-testid="meetings-record"][aria-label="Start typed notes"]')).not.toBeNull();
+    const notesControl = mounted.container.querySelector('[data-testid="meetings-record"]') as HTMLElement;
+    expect(getComputedStyle(notesControl).width).toBe("66px");
+    expect(getComputedStyle(notesControl).height).toBe("66px");
+    expect(notesControl.textContent).toContain("T");
+    expect(notesControl.textContent).not.toContain("Record");
+    mounted.unmount();
+  });
+
   test("`Coming up` is absent rather than empty when nothing supplies a calendar", async () => {
     // There is no calendar integration. A visible-but-empty section would be a
     // claim that the app can see somebody's diary.
