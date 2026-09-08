@@ -2187,11 +2187,24 @@ The refusal lives in `infra/transcribe-worker/src/transcribe.ts`, which is the
 gateway, the phone and the browser through the control plane. Two rules, in
 order of how much they assume:
 
-1. **`duration_after_vad` at zero.** The engine's own VAD saying it kept no
-   audio. No threshold of ours appears in that sentence, which is why it is
-   first. Absent — the fallback model reports nothing of the kind — it has no
-   opinion, and a *positive* value is not read as proof of speech either: VAD
-   keeping audio is not VAD hearing a voice in it.
+1. **`duration_after_vad` at zero, on a chunk the engine said had a duration.**
+   The engine's own VAD saying it kept no audio. No threshold of ours appears
+   in that sentence, which is why it is first. Absent — the fallback model
+   reports nothing of the kind — it has no opinion, and a *positive* value is
+   not read as proof of speech either: VAD keeping audio is not VAD hearing a
+   voice in it.
+
+   It is a **conjunction** because this rule's two errors are not symmetric. A
+   missed refusal costs one chunk, and rule 2 still applies to it. A *false*
+   one — an engine build reporting `duration_after_vad: 0` over audio it never
+   ran VAD on — would empty every chunk of every meeting on the deployment,
+   with a 200, a bound binding and a green `/health`, which is the shape
+   `isReadableAnswer` exists to stop. So it fires only when the engine reported
+   a chunk of real audio **and** said its VAD kept none of it; anything short
+   of that is an answer the Worker has no reading of, and it says so by not
+   firing. What survives is loud rather than silent: a deployment where this
+   did misfire would tell every recorder, every twenty seconds, that no speech
+   was heard.
 2. **`no_speech_prob > 0.6` AND `avg_logprob < -1.0`.** Whisper's own reference
    defaults, cited rather than chosen. **The conjunction is the whole of its
    safety**: a confidently decoded segment survives however unsure the silence
