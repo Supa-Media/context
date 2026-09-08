@@ -648,14 +648,42 @@ which is which is a decision.**
   size of the bucket rather than with the size of the batch, which is the wrong
   quantity to hand a Worker invocation with a subrequest budget — and on an
   S3-backed store, where every read is a subrequest, it is the difference
-  between a rotation that finishes and one that cannot. The honest residue: a
-  *resumed* call still reads past everything already done to reach what is
-  left, so a full rotation costs on the order of `notes x calls / 2` reads.
-  That is affordable for the hundreds-to-low-thousands of notes a context
-  holds and is not affordable at a hundred thousand. A persisted cursor is the
-  answer at that size; it is not the size anything here is, and
-  `apps/mcp/test/encryptionRotation.test.mjs` now fails if one call's reads
-  start scaling with the bucket again.
+  between a rotation that finishes and one that cannot.
+
+  **The residue is a ceiling, not an overhead, and it is on the call that
+  finishes.** The batch cap bounds the *first* call. It cannot bound the
+  *last* one: before the walk may say "complete" it has to prove nothing is
+  left, and with no cursor the only proof available is reading every note in
+  the bucket again. So the completing call always costs one read per note in
+  the bucket, whatever the batch cap is. Measured end to end, driving the tool
+  to completion at a batch cap of 200:
+
+  | notes | calls | total reads | reads in the largest call |
+  | ---: | ---: | ---: | ---: |
+  | 200 | 1 | 201 | 201 |
+  | 600 | 3 | 1,205 | 601 |
+  | 1,000 | 5 | 3,009 | 1,001 |
+  | 2,000 | 10 | 11,019 | 2,001 |
+  | 4,000 | 20 | 42,039 | 4,001 |
+
+  Total reads grow as `notes x calls / 2`. The last column is the one that
+  decides whether a rotation can happen at all: a 4,000-note context ends its
+  rotation with a single invocation issuing 4,001 reads, and above whatever
+  the deployment's real subrequest budget is, that call cannot run. What that
+  looks like is not a slow rotation — it is a walk that re-wraps every note
+  and then never reports itself complete, leaving `workspaceKeyRotations`
+  `in_progress` forever and the *next* rotation unable to start. Nothing is
+  lost when this happens (every note opens under both generations throughout),
+  but the operation does not finish.
+
+  **So: honest at the size a personal brain is, and a persisted cursor before
+  this is offered to a context of several thousand notes.** Hundreds to about
+  a thousand is fine. Four thousand — a size this gateway's own literal scan
+  already budgets for (`apps/mcp/src/index.js`, "a 4,000-note" walk) — is not.
+  `apps/mcp/test/encryptionRotation.test.mjs` fails if one call's reads start
+  scaling with the bucket again, and separately pins the completing call's
+  cost at the size of the bucket, so the ceiling is a measured number in the
+  suite rather than an estimate here.
 
 **The grace period is a policy, not a sweep.** A retired generation is kept —
 not deleted, not archived elsewhere, simply left as a row with `retiredAt` set
@@ -702,6 +730,48 @@ exactly the ones the grace period above exists to protect. `workspaceDataKeys`
 held one row per workspace until this shipped, so nothing had ever asked;
 `storage.test.ts` asks now, with a rotated workspace, both rows, and the old
 envelope key gone from the environment.
+
+### What a teardown deletes, and what it keeps — OPEN
+
+`deleteWorkspaceCascade` in `apps/convex/functions/account.ts` is the largest
+destructive operation this product has, and its own header states the promise
+it keeps: "the customer's bucket is never touched: what is deleted here is our
+metadata about it, **credential included**". Two encryption tables part company
+there, and only one of them parts company on purpose:
+
+- **`workspaceKeyRotations` is swept.** It is a workspace id, two generation
+  labels and two timestamps — a fact about a workspace that is ceasing to
+  exist, with no key material in it. Added to the cascade in adversarial
+  review, because a new table nobody swept is how the next teardown census
+  goes stale.
+- **`workspaceDataKeys` is not**, and that is the open question. Every
+  generation survives the deletion of the workspace it belongs to.
+
+Both readings are defensible and neither has been decided:
+
+*Keep it* is what the grace period above says everywhere else. The customer's
+encrypted notes are still in the customer's own bucket — the cascade
+deliberately does not touch a byte of them — and a sweep here would make every
+one of them permanently unopenable, silently, for anybody who deleted their
+account without exporting first. That is the same "a purge looks exactly like
+a fix" argument that keeps a retired generation forever.
+
+*Delete it* is what the cascade's own sentence promises. A workspace data key
+is a credential by every definition this repository uses (`schema.ts` calls the
+material radioactive; `structure.test.ts` guards it as one), and after a
+teardown there is no longer any *product* path to it — no binding, no
+workspace, no gateway route — so keeping the row buys the former customer
+nothing while leaving Supa Media holding the one key that turns their bucket
+back into plaintext. "We deleted your account" and "we kept the key to your
+notes" are hard to say in the same paragraph.
+
+**What decides it is a console flow, not a line in a sweep.** The two readings
+converge the moment deletion makes an owner export first: export, confirm,
+then delete both the workspace and its generations. Until that flow exists,
+this codebase keeps the rows, and
+`apps/convex/__tests__/account.test.ts` asserts *both* halves — the rotation
+rows gone, the two generations still there — so whichever way this is settled,
+it is settled by somebody changing a test that says why.
 
 ---
 
@@ -1183,14 +1253,30 @@ own caller on purpose, because this is the one case in the whole system where
 that is the point rather than a bug.
 
 **Does not build:** the console button that calls `exportEncryptionKeys` —
-the action is built, owner-gated, rate-limited and audited, but
-`SettingsPane.tsx` does not yet call it; a persisted rotation-walk cursor (see
-"the whole of what makes 'refused while a walk is in progress' true" above for
-why the walk is idempotent without one, at the cost of a large bucket's
-completed pass re-scanning what it already finished); and any operator tool
-to purge a retired generation, which is deliberately a manual, documented
+the action is built, owner-gated, rate-limited and audited, but nothing in
+`apps/mobile` references it, so **the console cannot export a key at all**; a
+persisted rotation-walk cursor (see "the whole of what makes 'refused while a
+walk is in progress' true" above for why the walk is idempotent without one,
+and the measured table for the ceiling that costs); and any operator tool to
+purge a retired generation, which is deliberately a manual, documented
 decision rather than code, at least until an owner using this in anger asks
 for one.
+
+**So what can somebody actually reach on the day this merges?** The two MCP
+tools, on an owner-tier personal connection, from any client they have
+connected — that is the whole of it, and it is enough for the non-negotiable:
+an owner can ask their assistant to export their keys and get the bundle back
+in the response. The console is not a second door yet, it is no door.
+
+**And the decryptor is reachable by `git clone`, not by `npx`, until somebody
+dispatches `publish-decryptor.yml`.** The package's README used to open with
+three `npx @supa-media/context-encryption-decryptor` lines against a name that
+has never been published; it now says so and gives the clone-and-run form
+first, and the workflow that would make the `npx` form true exists and is
+`workflow_dispatch` only, for the same reason `publish-hook.yml` is. Handing a
+tarball to a public registry stays a decision somebody takes. What is not
+acceptable is a promise with a broken link in it, which is what the README
+was.
 
 **The one question only the owner can answer** is the first of the product
 note's own open decisions, restated with what has since been learned: **is a

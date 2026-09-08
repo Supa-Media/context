@@ -14,6 +14,26 @@ independently of the gateway's own encryption module
 (`apps/mcp/src/encryption.js`) rather than importing it, so that a bug shared
 by both would be caught by `test/decrypt.test.mjs` rather than hidden by it.
 
+## Getting it
+
+> **Not on npm yet.** The `npx` lines below are what this package is *for*,
+> and they will 404 until somebody dispatches
+> `.github/workflows/publish-decryptor.yml` — publishing is a deliberate act
+> here, never a side effect of a merge. Until then, and always as a fallback
+> for anyone who would rather not fetch a tarball from a registry to read
+> their own notes:
+>
+> ```sh
+> git clone https://github.com/Supa-Media/context.git
+> node context/packages/encryption-decryptor/bin/decrypt.js keys.json ./my-bucket
+> ```
+>
+> That is the whole install. There is nothing to build and nothing to
+> install: zero dependencies, plain Node.js Web Crypto, and the two files
+> under `bin/` and `src/` are the entire program. Copy them somewhere and
+> keep them beside your exported key file if you like — this package is meant
+> to still work on a machine with no network at all.
+
 ## Usage
 
 ```sh

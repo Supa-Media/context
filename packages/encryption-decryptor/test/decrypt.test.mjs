@@ -39,6 +39,14 @@
  *   `isEncryptedNote` returning `false` unconditionally, again             17
  *   `decryptNote`'s wrap AAD built from an unrelated constant               5
  *
+ * Added in a second adversarial review, re-measured on the same denominator:
+ *
+ *   the same import moved one directory down, into `src/lib/`, where the
+ *   one-level-deep scanner could not see it                                 1
+ *
+ * The two re-measured rows above were re-run again here and came back 17 and
+ * 5 unchanged.
+ *
  * The two re-measurements are the original two rows, and the first one is a
  * finding about this file. It reported **7**, not 12, until the passphrase
  * block below stopped calling `parseEncryptedNote` twice: with the predicate
@@ -263,30 +271,73 @@ check(
 // "zero dependencies, runs from a folder and a Node" promise the README makes
 // to somebody who has already revoked our credential.
 {
-  const shippedDirs = ["../src", "../bin"];
   const offenders = [];
-  for (const dir of shippedDirs) {
-    const dirPath = fileURLToPath(new URL(dir, import.meta.url));
-    for (const entry of readdirSync(dirPath)) {
-      if (!entry.endsWith(".js")) continue;
-      const source = readFileSync(join(dirPath, entry), "utf8");
+  const scannedFiles = [];
+  // RECURSIVE, and the recursion is the point rather than tidiness: the first
+  // version of this scanner read the two directories one level deep, so
+  // `src/lib/format.js` — a perfectly ordinary refactor — would have carried
+  // an import of the gateway's module past it unseen. A guard that a `mkdir`
+  // defeats is not a guard.
+  function scan(dirPath, label) {
+    for (const entry of readdirSync(dirPath, { withFileTypes: true })) {
+      const childPath = join(dirPath, entry.name);
+      const childLabel = `${label}/${entry.name}`;
+      if (entry.isDirectory()) {
+        scan(childPath, childLabel);
+        continue;
+      }
+      if (!entry.name.endsWith(".js") && !entry.name.endsWith(".mjs")) continue;
+      scannedFiles.push(childLabel);
+      const source = readFileSync(childPath, "utf8");
       for (const match of source.matchAll(/^\s*(?:import|export)[^;]*?from\s+["']([^"']+)["']/gm)) {
         const specifier = match[1];
         const isBuiltin = specifier.startsWith("node:");
         const isInsidePackage =
           (specifier.startsWith("./") || specifier.startsWith("../")) &&
           !specifier.includes("../../");
-        if (!isBuiltin && !isInsidePackage) offenders.push(`${dir}/${entry} -> ${specifier}`);
+        if (!isBuiltin && !isInsidePackage) offenders.push(`${childLabel} -> ${specifier}`);
       }
       for (const match of source.matchAll(/\bimport\(\s*["']([^"']+)["']/g)) {
-        offenders.push(`${dir}/${entry} -> dynamic import ${match[1]}`);
+        offenders.push(`${childLabel} -> dynamic import ${match[1]}`);
+      }
+      // `require` is not how this package loads anything (it is
+      // `"type": "module"`), which is exactly why a stray one would slip past
+      // a scanner that only knew about `import`.
+      for (const match of source.matchAll(/\brequire\(\s*["']([^"']+)["']/g)) {
+        offenders.push(`${childLabel} -> require ${match[1]}`);
       }
     }
+  }
+  for (const dir of ["../src", "../bin"]) {
+    scan(fileURLToPath(new URL(dir, import.meta.url)), dir);
   }
   check(
     "nothing this package ships imports the gateway's module, or anything off npm",
     offenders.length === 0,
   );
+  // The scan covers what `package.json` actually ships, not two names this
+  // file happens to know. A `files` entry added later — a `lib/`, a
+  // `vendor/` — is a directory nothing above would have looked in.
+  {
+    const manifest = JSON.parse(
+      readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"),
+    );
+    const shippedCode = manifest.files.filter((entry) => entry !== "README.md");
+    check(
+      "...and the directories it scans are the directories the package ships",
+      shippedCode.length === 2 && shippedCode.includes("src") && shippedCode.includes("bin"),
+    );
+    check(
+      "...having actually read some files, so an empty walk cannot pass as a clean one",
+      scannedFiles.length >= 2,
+    );
+    check(
+      "...and this package declares no dependencies of any kind",
+      manifest.dependencies === undefined &&
+        manifest.peerDependencies === undefined &&
+        manifest.optionalDependencies === undefined,
+    );
+  }
   // And the scanner is not vacuous: it finds the one deliberate import in
   // THIS file, which is the gateway module used to produce ciphertext.
   const ownSource = readFileSync(fileURLToPath(import.meta.url), "utf8");
