@@ -50,6 +50,19 @@ import { describe, expect, it } from "@jest/globals";
 import { createElement } from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+
+// React 19's concurrent act path is intentional here.
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+let mockSupportOverride: { supported: true } | { supported: false; reason: string } = {
+  supported: true,
+};
+
+jest.mock("../features/console/encryption/kdf", () => {
+  const actual = jest.requireActual("../features/console/encryption/kdf") as object;
+  return { ...actual, kdfSupport: () => mockSupportOverride };
+});
+
 import { LockNoteDialog } from "../features/console/encryption/LockNoteDialog";
 import {
   ACKNOWLEDGEMENT_CONFIRM,
@@ -57,17 +70,6 @@ import {
   ACKNOWLEDGEMENT_POINTS,
   FORBIDDEN_CLAIMS,
 } from "../features/console/encryption/acknowledgement";
-
-// The dialog asks the runtime whether it can derive a key at all, and jsdom has
-// no Web Crypto unless one is put there. Both answers are exercised below, so
-// the switch is a fixture rather than an assumption.
-function withSubtle(present: boolean): void {
-  const existing = (globalThis as { crypto?: Crypto }).crypto;
-  Object.defineProperty(globalThis, "crypto", {
-    configurable: true,
-    value: present ? { ...existing, subtle: {} } : { ...existing, subtle: undefined },
-  });
-}
 
 function render(props: Parameters<typeof LockNoteDialog>[0]): {
   html: () => string;
@@ -118,7 +120,7 @@ const noop = () => {};
 
 describe("the screen that locks a note", () => {
   it("says every consequence out loud", () => {
-    withSubtle(true);
+    mockSupportOverride = { supported: true };
     const screen = render({ path: "1-projects/a.md", onLock: noop, onClose: noop });
     const text = screen.html().replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
@@ -133,6 +135,8 @@ describe("the screen that locks a note", () => {
     expect(text).toMatch(/title, its folder/i);
     expect(text).toMatch(/no assistant/i);
     expect(text).toMatch(/not appear in search/i);
+    expect(text).toMatch(/device and browser you trust/i);
+    expect(text).toMatch(/keylogger/i);
     expect(text).toMatch(/does not share its passphrase/i);
 
     // And whatever else the list holds is on the screen too, so a fifth point
@@ -144,7 +148,7 @@ describe("the screen that locks a note", () => {
   });
 
   it("promises no recovery, in any of the forms that would be a lie", () => {
-    withSubtle(true);
+    mockSupportOverride = { supported: true };
     const screen = render({ path: "1-projects/a.md", onLock: noop, onClose: noop });
     const text = screen.html().toLowerCase();
     for (const claim of FORBIDDEN_CLAIMS) {
@@ -153,7 +157,7 @@ describe("the screen that locks a note", () => {
   });
 
   it("does not arm until the passphrase is entered twice and the words are typed", () => {
-    withSubtle(true);
+    mockSupportOverride = { supported: true };
     const screen = render({ path: "a.md", onLock: noop, onClose: noop });
     expect(screen.confirmDisabled()).toBe(true);
 
@@ -171,15 +175,28 @@ describe("the screen that locks a note", () => {
   });
 
   it("refuses a passphrase short enough to be guessed, in words", () => {
-    withSubtle(true);
+    mockSupportOverride = { supported: true };
     const screen = render({ path: "a.md", onLock: noop, onClose: noop });
     screen.type("Passphrase", "short");
     expect(screen.html()).toContain("At least 12 characters");
     expect(screen.confirmDisabled()).toBe(true);
   });
 
+  it("shows a rough crack-time estimate once the floor is met", () => {
+    mockSupportOverride = { supported: true };
+    const screen = render({ path: "a.md", onLock: noop, onClose: noop });
+    screen.type("Passphrase", "correct horse battery staple");
+    const text = screen.html();
+    expect(text).toContain("Rough offline crack time");
+    expect(text).toContain("Argon2id guesses/sec");
+    expect(text).toContain("common or patterned phrases");
+  });
+
   it("offers no form at all where the runtime cannot open a locked note", () => {
-    withSubtle(false);
+    mockSupportOverride = {
+      supported: false,
+      reason: "Locked notes can only be opened in the browser or the desktop app.",
+    };
     const screen = render({ path: "a.md", onLock: noop, onClose: noop });
     const text = screen.html();
     expect(text).toContain("browser or the desktop app");

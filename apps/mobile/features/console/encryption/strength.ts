@@ -27,6 +27,9 @@ import { MINIMUM_PASSPHRASE_LENGTH } from "./passphraseOps";
 
 export type PassphraseStrength = "tooShort" | "weak" | "fair" | "strong";
 
+const ASSUMED_OFFLINE_GUESSES_PER_SECOND = 100_000;
+const SECONDS_PER_YEAR = 60 * 60 * 24 * 365.25;
+
 /**
  * The one hard floor, imported rather than restated — `passphraseOps.ts`
  * refuses to lock a note below it, and a second copy of the number here would
@@ -63,6 +66,109 @@ function distinctRun(passphrase: string): number {
   return new Set(collapsed).size;
 }
 
+function longestRunLength(passphrase: string): number {
+  let longest = 0;
+  let current = 0;
+  let last: string | null = null;
+  for (const char of passphrase) {
+    if (char === last) {
+      current += 1;
+    } else {
+      current = 1;
+      last = char;
+    }
+    if (current > longest) longest = current;
+  }
+  return longest;
+}
+
+function smallestRepeatedUnitLength(passphrase: string): number | null {
+  const chars = Array.from(passphrase);
+  if (chars.length < 6) return null;
+  for (let size = 1; size <= Math.floor(chars.length / 2); size += 1) {
+    if (chars.length % size !== 0) continue;
+    const chunk = chars.slice(0, size).join("");
+    if (chunk.repeat(chars.length / size) === passphrase) return size;
+  }
+  return null;
+}
+
+function isWordLike(token: string): boolean {
+  return /^[\p{L}\p{M}]+(?:['’-][\p{L}\p{M}]+)*$/u.test(token);
+}
+
+function entropyBits(passphrase: string): number {
+  const normalized = passphrase.normalize("NFC");
+  const chars = Array.from(normalized);
+  if (chars.length === 0) return 0;
+
+  const classCount = classes(normalized);
+  const bitsPerCharByClass = [3.2, 4.4, 5.4, 5.9] as const;
+  const charBits = chars.length * bitsPerCharByClass[Math.max(0, Math.min(classCount - 1, 3))];
+
+  const words = normalized.trim().split(/\s+/).filter(Boolean);
+  const wordLike = words.length >= 2 && words.every(isWordLike);
+  let wordBits = 0;
+  if (wordLike) {
+    const uniqueWords = new Set(words.map((word) => word.toLocaleLowerCase())).size;
+    wordBits = words.length * 9.25;
+    if (uniqueWords < words.length) {
+      wordBits -= (words.length - uniqueWords) * 4;
+    }
+    if (words.every((word) => word === word.toLocaleLowerCase())) {
+      wordBits -= 4;
+    }
+    if (words.some((word) => word.length <= 3)) {
+      wordBits -= 2;
+    }
+  }
+
+  let bits = wordLike ? Math.min(charBits, wordBits) : charBits;
+
+  const run = longestRunLength(normalized);
+  if (run >= 3) {
+    bits -= (run - 2) * 1.75;
+  }
+
+  const repeatedUnit = smallestRepeatedUnitLength(normalized);
+  if (repeatedUnit !== null) {
+    const repetitions = chars.length / repeatedUnit;
+    if (repetitions >= 3) {
+      bits = Math.min(bits, repeatedUnit * 3 + Math.log2(repetitions) + 4);
+    }
+  }
+
+  if (distinctRun(normalized) <= 3) {
+    bits = Math.min(bits, 12);
+  }
+
+  return Math.max(0, bits);
+}
+
+function formatYears(years: number): string {
+  if (!Number.isFinite(years)) return "a very long time";
+  if (years <= 0) return "0 years";
+  if (years < 0.01) return `${years.toPrecision(2)} years`;
+  if (years < 1) return `${years.toFixed(3)} years`;
+  if (years < 10) return `${years.toFixed(1)} years`;
+  if (years < 1_000) return `${Math.round(years).toLocaleString()} years`;
+  if (years < 1_000_000) return `${Math.round(years).toLocaleString()} years`;
+
+  const exponent = Math.floor(Math.log10(years));
+  const mantissa = years / 10 ** exponent;
+  return `${mantissa.toFixed(1)}e${exponent} years`;
+}
+
+function crackTimeLabel(passphrase: string): string {
+  const bits = entropyBits(passphrase);
+  const years =
+    2 ** bits / ASSUMED_OFFLINE_GUESSES_PER_SECOND / SECONDS_PER_YEAR;
+  return `Rough offline crack time: about ${formatYears(years)} at an assumed ` +
+    `${ASSUMED_OFFLINE_GUESSES_PER_SECOND.toLocaleString()} Argon2id guesses/sec. ` +
+    `This is an order-of-magnitude estimate, and common or patterned phrases may ` +
+    `be much faster.`;
+}
+
 /**
  * A coarse strength band for a passphrase, and the sentence to show beside it.
  *
@@ -92,15 +198,30 @@ export function passphraseStrength(passphrase: string): {
   // it must not read as weaker than a shorter password stuffed with symbols.
   const long = passphrase.length >= 24;
   const veryLong = passphrase.length >= 32;
+  const crackTime = crackTimeLabel(passphrase);
 
   if (distinct <= 3) {
-    return { strength: "weak", label: "Weak — this repeats itself too much to protect the note." };
+    return {
+      strength: "weak",
+      label:
+        "Weak — this repeats itself too much to protect the note. " +
+        crackTime,
+    };
   }
   if (veryLong || (long && variety >= 2) || (passphrase.length >= 20 && variety >= 3)) {
-    return { strength: "strong", label: "Strong. This is a good passphrase for this note." };
+    return {
+      strength: "strong",
+      label: "Strong. This is a good passphrase for this note. " + crackTime,
+    };
   }
   if (long || variety >= 2) {
-    return { strength: "fair", label: "Fair. Longer, or a few more kinds of character, would help." };
+    return {
+      strength: "fair",
+      label: "Fair. Longer, or a few more kinds of character, would help. " + crackTime,
+    };
   }
-  return { strength: "weak", label: "Weak. A few more words would protect this note a lot more." };
+  return {
+    strength: "weak",
+    label: "Weak. A few more words would protect this note a lot more. " + crackTime,
+  };
 }

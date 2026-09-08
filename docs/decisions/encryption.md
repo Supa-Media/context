@@ -124,6 +124,10 @@ So the words are fixed here and are a decision, not copy:
 - The second list becomes available exactly when the passphrase recipient ships
   and the note carries **only** a passphrase recipient — not before, and per
   note, not per product.
+- The console shows a rough offline crack-time estimate beside the passphrase
+  field, using an explicit Argon2id guess-rate assumption, and warns that
+  common or patterned phrases may be much faster. It is an order-of-magnitude
+  guide, not a promise.
 
 **That has now happened, for one of the two modes.** A note locked with a
 passphrase carries no workspace recipient, so for *that note* every sentence in
