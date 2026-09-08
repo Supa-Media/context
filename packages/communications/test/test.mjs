@@ -22,6 +22,7 @@ import { readFileSync } from "node:fs";
 
 import { runAnchorChecks } from "./anchors.test.mjs";
 import { runChatChecks } from "./chat.test.mjs";
+import { runCalendarChecks } from "./calendar.test.mjs";
 import { runContactChecks } from "./contacts.test.mjs";
 import { runEstimateChecks } from "./estimate.test.mjs";
 import { runNoteChecks } from "./note.test.mjs";
@@ -245,6 +246,11 @@ runNoteChecks(check);
 runChatChecks(check);
 runContactChecks(check);
 runEstimateChecks(check);
+// Calendar carries its own contract, public-surface and purity checks — see
+// `runCalendarChecks` in `calendar.test.mjs` — rather than duplicating them
+// into the assertions above, which are about `protocol.js`'s channel-day
+// contract specifically.
+runCalendarChecks(check);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);
