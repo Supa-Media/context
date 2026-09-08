@@ -334,7 +334,33 @@ const SCHEDULE_CALL = /\.scheduler\.run(?:After|At)\(\s*[^,]*,\s*([^,)\s]*)/g;
  * `S3Store` and hands it to `lib/fileOps.ts`, which has no access to the
  * credential at all. **Do not add one without that property.**
  */
-const CREDENTIAL_BARRIERS = new Set(["functions.files.runFileOperation"]);
+/**
+ * The second member. Read the paragraph above before adding a third.
+ *
+ * `functions.encryptionKeys.exportWorkspaceDataKeys` decrypts every generation
+ * of a workspace's data key and returns the plaintext material — the console's
+ * `exportEncryptionKeys` and the gateway's `export_encryption_keys` are both
+ * `docs/decisions/encryption.md`'s "Revocation and export": the customer must
+ * be able to get the key itself, not only decrypt with it through us, or the
+ * first non-negotiable is false the moment they revoke our credential. That is
+ * a *deliberate* disclosure this codebase has never needed before — every
+ * other barrier and every other decrypt-capable function returns something
+ * *derived* from a credential (file content, a signed request); this is the
+ * first that hands back the credential itself, on purpose, to its owner.
+ *
+ * What makes it small enough to be a barrier and not a hole: it performs no
+ * authorization of its own. `authorizeEncryptionExport` — a *different*,
+ * non-barrier internal mutation — checks the owner role, spends the rate
+ * limit, and writes the audit row, all three in one transaction, before the
+ * console's public `exportEncryptionKeys` action ever calls this one. A
+ * barrier that also decided who may call it would be two things to get right
+ * instead of one; this one does exactly the thing `runFileOperation` does —
+ * open a credential and hand back the single value its caller asked for.
+ */
+const CREDENTIAL_BARRIERS = new Set([
+  "functions.files.runFileOperation",
+  "functions.encryptionKeys.exportWorkspaceDataKeys",
+]);
 
 /**
  * Every `encrypted*` column in the schema, lowercased — read from the schema
@@ -395,15 +421,56 @@ const PLAINTEXT_CREDENTIAL_FIELDS = [
   // appears as a schema column, because at rest it is one `appSecrets` row's
   // `encryptedValue` and the bare token exists only in flight.
   "apitoken",
-  // THE WORKSPACE DATA KEY, which `/gateway/binding` now returns beside the
-  // bucket key as `encryptionKey.dataKey`. It opens every encrypted note in one
-  // context, which puts it in the same class as `secretaccesskey` rather than a
-  // lesser one. At rest it is `workspaceDataKeys.encryptedDataKey` — a column
-  // the derivation above already finds — and the bare `dataKey` exists only in
-  // flight, so it is named here for the same reason `accesstoken` is: the
-  // schema-derived list can only know the shapes that sit still.
+  // THE WORKSPACE DATA KEY, which `/gateway/binding` returns beside the bucket
+  // key. It opens every encrypted note in one context, which puts it in the
+  // same class as `secretaccesskey` rather than a lesser one. At rest it is
+  // `workspaceDataKeys.encryptedDataKey` — a column the derivation above
+  // already finds — and the opened material exists only in flight, so it is
+  // named here for the same reason `accesstoken` is: the schema-derived list
+  // can only know the shapes that sit still.
+  //
+  // TWO NAMES, AND THE SECOND ONE IS THE POINT. The field was `dataKey` until
+  // workspace-key rotation made a context's keys a set rather than one value;
+  // it is now `encryptionKey.keys` on that route and `material` per entry in a
+  // key export. `datakey` stays listed anyway — nothing declares it today, and
+  // a list that drops a credential name the moment the last user of it is
+  // renamed is a list that goes quiet exactly when somebody reintroduces the
+  // old shape. `material` joins it, because the rename is otherwise the whole
+  // of what moved this credential out from under the guard, and "a credential
+  // check that grepped export names, defeated by a rename in a new file" is
+  // the first entry in `docs/decisions/testing.md`'s list of guards that were
+  // weaker than they looked.
+  //
+  // The two functions that may declare `material` are enumerated in
+  // `DELIBERATE_KEY_DISCLOSURES` below. A third fails this suite, loudly,
+  // which is the conversation that enumeration exists to force.
   "datakey",
+  "material",
 ];
+
+/**
+ * THE FUNCTIONS ALLOWED TO HAND BACK KEY MATERIAL, BY NAME.
+ *
+ * `docs/decisions/encryption.md`'s "Revocation and export": the first
+ * non-negotiable is only true if a customer can get the key itself, so exactly
+ * two functions in this control plane are permitted to return one —
+ * `exportWorkspaceDataKeys`, the barrier that opens every generation, and
+ * `exportEncryptionKeys`, the console action that spends the rate limit and
+ * writes the audit row before calling it.
+ *
+ * Everything else in the credential-field guards applies to them as it always
+ * did; this exempts them from the ONE field name that describes the disclosure
+ * they exist to make. It is an allowlist and not a widening: a third function
+ * declaring a `material` field fails, and so does either of these two growing
+ * a `secretaccesskey`, an `apitoken` or an `encrypteddatakey`.
+ */
+const DELIBERATE_KEY_DISCLOSURES = new Set([
+  "functions.encryptionKeys.exportWorkspaceDataKeys",
+  "functions.encryptionKeys.exportEncryptionKeys",
+]);
+
+/** The one field those two are exempt from, and nothing else. */
+const DISCLOSED_KEY_FIELD = "material";
 
 const PUBLIC_FORBIDDEN_FIELDS = [
   ...new Set([...PLAINTEXT_CREDENTIAL_FIELDS, ...SCHEMA_ENCRYPTED_FIELDS]),
@@ -917,6 +984,12 @@ describe("no public function can reach a storage secret", () => {
       // already enumerated as an internet-facing path to a credential, and this
       // does not add a second one.
       "functions.encryptionKeys.openWorkspaceDataKey",
+      // THE SAME KEY, DELIBERATELY DISCLOSED. Decrypts every generation of a
+      // workspace's data key and hands the plaintext material back — the
+      // second and, for now, only other member of `CREDENTIAL_BARRIERS`. Read
+      // that comment before touching this one; it is here, and not merely a
+      // barrier, because "decrypt-capable" is exactly what it is.
+      "functions.encryptionKeys.exportWorkspaceDataKeys",
       // The ingest analogue. Spends a single-use ticket the control plane
       // minted, reads the workspace off THAT ticket's row, and opens its
       // credential for the Email Worker. internalAction; the only thing that
@@ -1139,6 +1212,50 @@ describe("no public function can reach a storage secret", () => {
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encrypteddatakey");
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("datakey");
     expect(BARRIER_FORBIDDEN_FIELDS).toContain("datakey");
+    // And the name the same key travels under since rotation made it a set.
+    // Without this entry the guard says nothing at all about a workspace data
+    // key in flight, because nothing is called `dataKey` any more.
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain("material");
+    expect(BARRIER_FORBIDDEN_FIELDS).toContain("material");
+  });
+
+  /**
+   * The exemption is an allowlist, so it needs its own guard: an entry that
+   * names a function which does not exist exempts nothing and looks like it
+   * exempts something, and a typo would be indistinguishable from a decision.
+   */
+  test("every deliberate key disclosure names a function that exists, and there are exactly two", () => {
+    const live = new Set<string>();
+    for (const [globKey, module] of Object.entries(LIVE_MODULES)) {
+      for (const name of Object.keys(module ?? {})) {
+        live.add(`${referencePath(globKey)}.${name}`);
+      }
+    }
+    expect(DELIBERATE_KEY_DISCLOSURES.size).toBe(2);
+    for (const node of DELIBERATE_KEY_DISCLOSURES) {
+      expect(live.has(node), `${node} is exempted but does not exist`).toBe(true);
+    }
+    // The barrier among them is a barrier, and the other is not.
+    expect(CREDENTIAL_BARRIERS.has("functions.encryptionKeys.exportWorkspaceDataKeys")).toBe(
+      true,
+    );
+    expect(CREDENTIAL_BARRIERS.has("functions.encryptionKeys.exportEncryptionKeys")).toBe(false);
+  });
+
+  /**
+   * THE GUARD'S OWN SELF-TEST, because a check that only ever runs against
+   * source that passes it has not been shown to catch anything. A synthetic
+   * public function declaring the disclosed field under a name that is NOT
+   * exempted must be caught.
+   */
+  test("a third function returning key material would be caught", () => {
+    const returns = JSON.stringify({
+      type: "object",
+      value: { keys: { type: "array", value: { material: { type: "string" } } } },
+    }).toLowerCase();
+    const node = "functions.somethingNew.helpfulExport";
+    expect(DELIBERATE_KEY_DISCLOSURES.has(node)).toBe(false);
+    expect(returns.includes(`"${DISCLOSED_KEY_FIELD}"`)).toBe(true);
   });
 
   test("no public function declares a credential field in its return validator", () => {
@@ -1158,8 +1275,10 @@ describe("no public function can reach a storage secret", () => {
           .exportReturns;
         if (typeof exportReturns !== "function") continue;
 
+        const node = `${referencePath(globKey)}.${name}`;
         const returns = exportReturns.call(value).toLowerCase();
         for (const field of forbidden) {
+          if (field === DISCLOSED_KEY_FIELD && DELIBERATE_KEY_DISCLOSURES.has(node)) continue;
           expect(
             returns.includes(`"${field}"`),
             `${globKey}#${name} is public and returns a "${field}" field`,
@@ -1597,6 +1716,7 @@ describe("the credential barrier is a pin, not an amnesty", () => {
         );
         const returns = exportReturns!.call(value).toLowerCase();
         for (const field of forbidden) {
+          if (field === DISCLOSED_KEY_FIELD && DELIBERATE_KEY_DISCLOSURES.has(node)) continue;
           expect(returns.includes(`"${field}"`), `${node} returns a "${field}" field`).toBe(
             false,
           );

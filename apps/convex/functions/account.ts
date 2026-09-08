@@ -292,6 +292,34 @@ async function deleteWorkspaceCascade(
     await ctx.db.delete(row._id);
   }
 
+  /*
+    ANY WORKSPACE-KEY ROTATION ROW, IN EITHER STATUS.
+
+    Pure bookkeeping — a workspace id, two generation labels, two timestamps,
+    and no key material of any kind. Its only job is the "at most one rotation
+    in progress" boolean (`schema.ts`, `workspaceKeyRotations`), which is a
+    fact about a workspace that is ceasing to exist.
+
+    NOT the `workspaceDataKeys` rows beside it, and that asymmetry is the
+    point rather than an omission. Those rows hold the sealed material that
+    opens this customer's encrypted notes, and those notes are in the
+    customer's own bucket, which this cascade's own header promises never to
+    touch. Deleting them here would reach through the metadata we are entitled
+    to delete and destroy content we are not — silently, for anybody who never
+    exported. Keeping them has its own cost, named in
+    `docs/decisions/encryption.md` under "What a teardown deletes, and what it
+    keeps", and it is a decision for the owner of this product rather than a
+    line an agent adds to a sweep. `__tests__/account.test.ts` asserts both
+    halves so neither can drift by accident.
+  */
+  const rotationRows = await ctx.db
+    .query("workspaceKeyRotations")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of rotationRows) {
+    await ctx.db.delete(row._id);
+  }
+
   // Invitations, in every status — a teardown is the one read the
   // status-narrowed index shape has to serve in full.
   for (const status of INVITATION_STATUSES) {
