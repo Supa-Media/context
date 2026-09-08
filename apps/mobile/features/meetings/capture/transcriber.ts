@@ -61,9 +61,29 @@ export type TranscribeChunkArgs = {
  * either way — which is what makes an on-device implementation a second object
  * here rather than a second recorder.
  */
+/**
+ * What comes back for one chunk: the words, and how many were refused.
+ *
+ * `refusedSegments` is how many segments the transcription worker dropped
+ * because the engine's own evidence said they were not speech. It exists
+ * because of a measurement: ninety seconds of a quiet room on a Mac produced
+ * 166 words and filed them into the bucket. The worker refuses them now, which
+ * means an empty answer has two causes needing two different sentences on a
+ * phone — a quiet room, and a transcriber that is not working — and this is the
+ * only field that tells them apart.
+ *
+ * Nothing here decides anything. The engine's fields live in the worker and the
+ * judgement is made there, once, for every recorder.
+ */
+export interface ChunkTranscription {
+  segments: TranscriptSegment[];
+  /** Zero from a control plane or worker too old to say. Never a claim of silence. */
+  refusedSegments: number;
+}
+
 export interface ChunkTranscriber {
   readonly transcribesAt: TranscribesAt;
-  transcribe(input: TranscribeChunkArgs): Promise<TranscriptSegment[]>;
+  transcribe(input: TranscribeChunkArgs): Promise<ChunkTranscription>;
 }
 
 /**
@@ -86,7 +106,7 @@ export interface ChunkTranscriber {
 export const TRANSCRIBE_CHUNK = makeFunctionReference<
   "action",
   TranscribeChunkArgs,
-  { segments: TranscriptSegment[] }
+  { segments: TranscriptSegment[]; refusedSegments?: number }
 >("functions/meetings/transcribe:transcribeChunk");
 
 /**
@@ -102,7 +122,7 @@ export interface ActionRunner {
   action(
     reference: typeof TRANSCRIBE_CHUNK,
     args: TranscribeChunkArgs,
-  ): Promise<{ segments: TranscriptSegment[] }>;
+  ): Promise<{ segments: TranscriptSegment[]; refusedSegments?: number }>;
 }
 
 /**
@@ -116,10 +136,29 @@ export function cloudTranscriber(client: ActionRunner): ChunkTranscriber {
   return {
     transcribesAt: "cloud",
     async transcribe(input) {
-      const { segments } = await client.action(TRANSCRIBE_CHUNK, input);
-      return (segments ?? []).map(intoSegment);
+      const answer = await client.action(TRANSCRIBE_CHUNK, input);
+      return {
+        segments: (answer?.segments ?? []).map(intoSegment),
+        refusedSegments: readRefused(answer?.refusedSegments),
+      };
     },
   };
+}
+
+/**
+ * A refusal count, or none.
+ *
+ * Optional in the action's type because this app is bundled from a checkout
+ * that may be a deploy behind the backend — the same reason `TRANSCRIBE_CHUNK`
+ * is named by path rather than reached through the generated `api`. Absent is
+ * zero, and everything unreadable is zero too: a control plane too old to say,
+ * a value that is not a number, a negative. None of those is evidence that a
+ * room was quiet, and reading them as such would tell somebody no speech was
+ * heard during a meeting they are talking in.
+ */
+function readRefused(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return 0;
+  return Math.floor(value);
 }
 
 /**
@@ -135,6 +174,16 @@ export interface FakeTranscriber extends ChunkTranscriber {
   readonly chunks: TranscribeChunkArgs[];
   /** What the next `transcribe` answers with. Defaults to nothing. */
   answerWith(segments: TranscriptSegment[]): void;
+  /**
+   * ...and how many segments the engine refused as not-speech, if any.
+   *
+   * Separate from `answerWith` so the ordinary case stays one argument: a test
+   * about *when* an answer arrives should not have to say anything about
+   * silence, and a fake that quietly reported refusals would make the phone's
+   * "no speech was heard" chip fire all over a suite that is about something
+   * else.
+   */
+  refusedNextTime(count: number): void;
   /** Make the next `transcribe` reject. */
   refuse(message: string): void;
 }
@@ -145,12 +194,16 @@ export function fakeTranscriber(
   const chunks: TranscribeChunkArgs[] = [];
   let answer: TranscriptSegment[] = [];
   let refusal: string | null = null;
+  let refusedSegments = 0;
 
   return {
     transcribesAt,
     chunks,
     answerWith(segments) {
       answer = segments;
+    },
+    refusedNextTime(count) {
+      refusedSegments = count;
     },
     refuse(message) {
       refusal = message;
@@ -162,7 +215,9 @@ export function fakeTranscriber(
         refusal = null;
         throw new Error(message);
       }
-      return answer.map(intoSegment);
+      const refused = refusedSegments;
+      refusedSegments = 0;
+      return { segments: answer.map(intoSegment), refusedSegments: refused };
     },
   };
 }

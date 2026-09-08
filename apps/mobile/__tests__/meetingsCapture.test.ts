@@ -716,6 +716,87 @@ describe("segments", () => {
     expect(segments[0].text).toBe("We should ship it.");
     await recorder.stop();
   });
+
+  /**
+   * A CHUNK NOBODY SPOKE IN SAYS SO, RATHER THAN LOOKING LIKE A BROKEN ENGINE.
+   *
+   * Ninety seconds of a quiet room on a Mac produced 166 words and filed them
+   * into the bucket, so the transcription worker now refuses the segments the
+   * engine's own evidence says are not speech. That is right, and it makes a
+   * quiet chunk come back with nothing in it — which on the glass is exactly
+   * what a transcriber that has stopped working looks like. Both are a chip
+   * that never appears.
+   *
+   * So the recorder says which. The discrimination is what is checked here, in
+   * all three directions, because each wrong answer is a different lie:
+   *
+   *   empty AND refused     -> the chip, and capture continues
+   *   empty and NOT refused -> nothing, because "the engine said nothing" is
+   *                            not evidence that nobody spoke, and a control
+   *                            plane one deploy behind sends no count at all
+   *   words AND refused     -> nothing, because a meeting with pauses refuses
+   *                            the odd segment continuously and a chip per
+   *                            pause teaches somebody to ignore the chip that
+   *                            matters
+   *
+   * SABOTAGE, each one edit to `capture/audio.ts`:
+   *   the `segments.length === 0` half of the condition dropped     1 FAIL
+   *   the `refusedSegments > 0` half dropped                        3 FAIL
+   *   the report removed entirely                                   1 FAIL
+   *   `NO_SPEECH` left out of `CAPTURE_MESSAGES`                    1 FAIL
+   *
+   * The second row is three because dropping that half reports a quiet chip on
+   * every chunk a meeting produces no words for, which several other checks in
+   * this file already assert is silent — the guard is load-bearing well beyond
+   * the case it was written for.
+   */
+  test("a chunk the engine heard no speech in is said out loud", async () => {
+    const { recorder, transcriber, segments, errors } = harness();
+    transcriber.refusedNextTime(2);
+    await recorder.start();
+    await advance(SEGMENT_MS);
+
+    expect(segments).toHaveLength(0);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].recoverable).toBe(true);
+    expect(errors[0].message).toMatch(/no speech was heard/i);
+    // The closed set is the guard against an upstream string reaching the
+    // glass, and a new sentence that is not in it is a hole in that guard.
+    expect(CAPTURE_MESSAGES).toContain(errors[0].message);
+    await recorder.stop();
+  });
+
+  test("an empty answer with nothing refused says nothing at all", async () => {
+    const { recorder, segments, errors } = harness();
+    await recorder.start();
+    await advance(SEGMENT_MS);
+
+    expect(segments).toHaveLength(0);
+    expect(errors).toHaveLength(0);
+    await recorder.stop();
+  });
+
+  test("a chunk with words in it says nothing, however many pauses were refused", async () => {
+    const { recorder, transcriber, segments, errors } = harness();
+    transcriber.answerWith([
+      {
+        id: "seg-1",
+        startMs: 0,
+        endMs: 1_800,
+        text: "We did talk.",
+        speaker: null,
+        channel: "mic",
+        confidence: null,
+      },
+    ]);
+    transcriber.refusedNextTime(4);
+    await recorder.start();
+    await advance(SEGMENT_MS);
+
+    expect(segments).toHaveLength(1);
+    expect(errors).toHaveLength(0);
+    await recorder.stop();
+  });
 });
 
 describe("things taking the microphone away", () => {
