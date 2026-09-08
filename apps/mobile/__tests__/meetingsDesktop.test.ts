@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { fakeDesktopBridge, type FakeDesktopBridge } from "@context/desktop-bridge/fake";
+import type { StartCaptureRequest } from "@context/desktop-bridge";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -62,7 +63,9 @@ import { fakeDesktopBridge, type FakeDesktopBridge } from "@context/desktop-brid
  *   `resolveRecorder` ignoring the bridge, so a shell gets the browser path   9
  *   `capabilitiesFrom` skipped, so a shell answering rubbish is believed      2
  *   detection reading `window.desktop` instead of `getDesktopBridge()`        1
- *   `desktopRecorder` not detaching on stop                                   1
+ *   `desktopRecorder` not detaching on stop                                   4
+ *   `attach()` not detaching the previous subscriptions first                 1
+ *   only the segment subscription released, not the capture-state one         4
  *   `startCapture` sending what the build can do rather than what was asked   1
  *   the mic-only report dropped when the shell grants less than was asked     1
  *   `resume` allowed after a stop                                             1
@@ -423,6 +426,178 @@ describe("inside the shell, the shell records", () => {
       confidence: null,
     });
     expect(heard).toEqual([]);
+  });
+
+  /**
+   * THREE MEETINGS IN ONE RUN, AND EVERY SEGMENT CROSSES THE BRIDGE ONCE.
+   *
+   * The comment this file's subject sits under — `capture/desktop.ts`,
+   * `attach()` — states the hazard in its own words: *"a recorder is created
+   * per configuration and `stop()` must genuinely detach, or a second meeting
+   * is fed by two subscriptions and every segment is emitted twice."* Until
+   * this test the only check on it ran **one** meeting, which is the one
+   * length at which a per-meeting leak is invisible.
+   *
+   * So the shape here is deliberate and is the one that was asked for after a
+   * hardware measurement of the same failure at the layer above (#353): three
+   * meetings, and a ratio of deliveries to unique ids of exactly one at each.
+   * Two meetings would not do it — a fix that halved a leak would pass — and
+   * counting deliveries is not enough on its own either, so the subscription
+   * count is asserted back at its baseline between meetings. A leak that
+   * accumulates is a leak whether or not this run happened to observe a
+   * duplicate.
+   *
+   * What it proves about the shipped code, stated plainly because it matters
+   * for the report this came from: **the recorder-to-bridge detachment is
+   * correct and always was.** The duplicate deliveries measured on the owner's
+   * Mac were the controller-to-recorder leak fixed in #353, on a signed build
+   * whose commit predates that merge. This is the guard that was missing, not
+   * the fix that was.
+   */
+  test("THREE MEETINGS IN ONE RUN, AND EACH SEGMENT IS DELIVERED EXACTLY ONCE", async () => {
+    const shell = fakeDesktopBridge({ capabilities: { mic: true } });
+    installShell(shell);
+    // One recorder for the whole run, which is what a real app has: it is made
+    // per configuration and `retainedRecorder` deliberately keeps it across
+    // re-configures, so its subscriptions are what accumulate.
+    const recorder = await resolveRecorder("web");
+    const delivered: string[] = [];
+    recorder.onSegment((segment) => delivered.push(segment.id));
+
+    // Nothing is attached before a meeting, and that is the baseline every
+    // meeting has to come back to.
+    const idle = shell.listenerCount();
+    expect(idle).toBe(0);
+
+    for (const index of [1, 2, 3]) {
+      const sessionId = `mtg_run_${index}`;
+      await recorder.start({ sessionId, systemAudio: false });
+      const attached = shell.listenerCount();
+
+      delivered.length = 0;
+      for (const n of [0, 1, 2]) {
+        shell.emitSegment({
+          id: `${sessionId}-mic-c00000-s${n}`,
+          startMs: n * 1_000,
+          endMs: (n + 1) * 1_000,
+          text: `meeting ${index}, segment ${n}`,
+          speaker: null,
+          channel: "mic",
+          confidence: null,
+        });
+      }
+
+      // The ratio the hardware measurement reported as equal to the meeting
+      // index. One, at every index, is the whole property.
+      expect({ meeting: index, deliveries: delivered.length }).toEqual({
+        meeting: index,
+        deliveries: 3,
+      });
+      expect(new Set(delivered).size).toBe(3);
+
+      await recorder.stop();
+      // The stricter half: a run that leaks one subscription per meeting would
+      // pass a delivery count that happened not to duplicate, and would fail
+      // this. `attached` is read rather than typed, so adding a subscription to
+      // `attach()` does not silently loosen the check.
+      expect({ meeting: index, betweenMeetings: shell.listenerCount() }).toEqual({
+        meeting: index,
+        betweenMeetings: idle,
+      });
+      expect(attached).toBeGreaterThan(idle);
+    }
+  });
+
+  /**
+   * TWO STARTS THAT OVERLAP ATTACH ONCE, WHICH IS WHAT `attach()` OPENS WITH.
+   *
+   * `attach()` begins `detach?.()`, and nothing checked it. Three meetings that
+   * each end properly do not: `stop()` has already released the subscriptions
+   * by the time the next `attach()` runs, so that line is dead on every path
+   * this suite drove — deleting it failed nothing.
+   *
+   * It is not dead on the path it was written for. `start()` returns early only
+   * once `state === "recording"`, and the state does not move until the awaited
+   * `startCapture` comes back — so two starts that overlap (a double press of
+   * Record, a screen that mounts twice while the shell is answering) both reach
+   * `attach()`, and the second one's `detach?.()` is the only thing between one
+   * subscription and two for the rest of the app's run.
+   *
+   * Staged with a shell that holds `startCapture` open, because that is the
+   * window the race lives in and there is no other way into it.
+   */
+  test("TWO OVERLAPPING STARTS LEAVE ONE SUBSCRIPTION, NOT TWO", async () => {
+    const shell = fakeDesktopBridge({ capabilities: { mic: true } });
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    /*
+      The fake shell with one method slowed down. Rebuilt and re-frozen rather
+      than mutated, because `getDesktopBridge` refuses a bridge that is not
+      frozen — so a wrapper that forgot to freeze would silently be tested as a
+      browser, and the test would pass having exercised nothing.
+    */
+    const slow = Object.freeze({
+      ...shell.bridge,
+      startCapture: async (request: StartCaptureRequest) => {
+        await held;
+        return shell.bridge.startCapture(request);
+      },
+    });
+    (globalThis as Record<string, unknown>).desktop = slow;
+
+    const recorder = await resolveRecorder("web");
+    const delivered: string[] = [];
+    recorder.onSegment((segment) => delivered.push(segment.id));
+
+    const first = recorder.start({ sessionId: "mtg_race", systemAudio: false });
+    const second = recorder.start({ sessionId: "mtg_race", systemAudio: false });
+    release();
+    await Promise.all([first, second]);
+
+    shell.emitSegment({
+      id: "mtg_race-mic-c00000-s0",
+      startMs: 0,
+      endMs: 1_000,
+      text: "said once",
+      speaker: null,
+      channel: "mic",
+      confidence: null,
+    });
+    expect(delivered).toEqual(["mtg_race-mic-c00000-s0"]);
+
+    await recorder.stop();
+    // And the whole of it comes off, so the race costs nothing after the fact
+    // either — a leaked pair here would outlive every later meeting.
+    expect(shell.listenerCount()).toBe(0);
+  });
+
+  /**
+   * The other consumer of the same channel, checked rather than assumed.
+   *
+   * The duplicates were called benign downstream because the meeting
+   * projection keys a map on the segment id — but that argument is about one
+   * consumer, and the bridge's subscriptions are shared machinery. The level
+   * meter subscribes to the same shell, and a recorder that leaked would leak
+   * *its* subscription too if the two were ever taken together. They are not:
+   * `capture/level.ts` attaches on its own effect and detaches in the effect's
+   * cleanup, and it is on `onLevel` rather than `onSegment`. What this checks
+   * is the property that makes that safe — a recorder's whole subscription set
+   * is released by `stop()`, so nothing it took outlives a meeting.
+   */
+  test("a recorder releases every subscription it took, not only the segment one", async () => {
+    const shell = fakeDesktopBridge({ capabilities: { mic: true } });
+    installShell(shell);
+    const recorder = await resolveRecorder("web");
+
+    await recorder.start({ sessionId: "mtg_desktop", systemAudio: false });
+    // More than one: `attach()` takes the capture-state stream as well, and a
+    // detach that released only the segments would leave the notice handler of
+    // every past meeting attached to the shell for the life of the app.
+    expect(shell.listenerCount()).toBeGreaterThan(1);
+    await recorder.stop();
+    expect(shell.listenerCount()).toBe(0);
   });
 
   /**

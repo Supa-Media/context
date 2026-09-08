@@ -213,6 +213,26 @@ const TIMED_ANSWER = {
   transcription_info: { duration: 1.5 },
 };
 
+/**
+ * The evidence a chunk carries when the engine said nothing about speech.
+ *
+ * Zeros and `null`s, and the difference between them is the point: the counts
+ * say how many segments were looked at, and every *reading* is `null` because
+ * the engine stated none. A build that filled these in with `0` would be
+ * reporting a confident measurement of silence that nobody made.
+ */
+const SAID_NOTHING = {
+  segments: 0,
+  statedNoSpeech: 0,
+  statedLogprob: 0,
+  keptNoSpeechMax: null,
+  keptLogprobMin: null,
+  refusedNoSpeechMin: null,
+  refusedLogprobMax: null,
+  duration: null,
+  durationAfterVad: null,
+};
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -800,6 +820,24 @@ describe("transcribing a chunk", () => {
       // `refused: 0` beside a full transcript and `refused: 3` beside an empty
       // one are what let a caller tell a quiet room from a broken engine.
       refused: 0,
+      /*
+        And the evidence behind that answer, on the wire where the recorder can
+        read it. This engine stated an `avg_logprob` and no `no_speech_prob`,
+        and the summary says exactly that — one segment looked at, one logprob
+        stated, none of the other — rather than reporting a `no_speech_prob` of
+        zero, which is a number nobody produced.
+      */
+      evidence: {
+        segments: 1,
+        statedNoSpeech: 0,
+        statedLogprob: 1,
+        keptNoSpeechMax: null,
+        keptLogprobMin: -0.2,
+        refusedNoSpeechMin: null,
+        refusedLogprobMax: null,
+        duration: 1.5,
+        durationAfterVad: null,
+      },
     });
   });
 
@@ -811,6 +849,7 @@ describe("transcribing a chunk", () => {
     );
     expect(await response.json()).toEqual({
       text: "hello there",
+      evidence: SAID_NOTHING,
       segments: [{ startMs: 0, endMs: 12_000, text: "hello there", confidence: null }],
       refused: 0,
     });

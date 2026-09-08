@@ -225,4 +225,75 @@ export async function runTranscribeRequestChecks(check) {
     const answer = await transcribeChunk(connection(), request, impl);
     check("...and a fractional one is a whole number of segments", answer.refusedSegments === 2);
   }
+
+  /*
+    -- AND THE NUMBERS THAT COUNT WAS MADE ON --------------------------------
+
+    Read key by key, into a shape this process declares, because the body is
+    from the network and the destination is a log line. The direction of every
+    doubt is the same as `refusedSegments`': anything that is not a finite
+    number is `null` — "the engine did not say" — never `0`, which would read
+    as a measurement of silence that nobody made.
+
+    SABOTAGE, each one edit to `main/transcribe.ts`:
+      `speechEvidence` dropped from the answer                   2 FAIL
+      `body.speechEvidence` forwarded whole                      1 FAIL
+      an unreadable reading defaulted to 0                       1 FAIL
+  */
+  {
+    const impl = fakeFetch([
+      {
+        status: 200,
+        body: {
+          segments: [],
+          refusedSegments: 2,
+          speechEvidence: {
+            segments: 3,
+            statedNoSpeech: 3,
+            statedLogprob: 3,
+            keptNoSpeechMax: 0.58,
+            keptLogprobMin: -0.99,
+            refusedNoSpeechMin: 0.94,
+            refusedLogprobMax: -1.6,
+            duration: 20,
+            durationAfterVad: null,
+            // A key this app does not declare, and the one place a word could
+            // ride in. It must not survive the read.
+            transcript: "words the gateway was not asked to carry",
+          },
+        },
+      },
+    ]);
+    const answer = await transcribeChunk(connection(), request, impl);
+    check(
+      "the engine's own evidence comes back for the recorder to log",
+      answer.speechEvidence.keptNoSpeechMax === 0.58 && answer.speechEvidence.segments === 3,
+    );
+    check(
+      "...with what the engine did not state left null rather than filled in",
+      answer.speechEvidence.durationAfterVad === null,
+    );
+    check(
+      "...AND NOTHING THIS APP DID NOT ASK FOR, WHICH IS WHERE TEXT WOULD RIDE",
+      !("transcript" in answer.speechEvidence) &&
+        Object.values(answer.speechEvidence).every(
+          (value) => value === null || typeof value === "number",
+        ),
+    );
+  }
+  {
+    const impl = fakeFetch([{ status: 200, body: { segments: [], refusedSegments: 1 } }]);
+    const answer = await transcribeChunk(connection(), request, impl);
+    check(
+      "a gateway too old to state any evidence answers null, not a row of zeros",
+      answer.speechEvidence === null,
+    );
+  }
+  {
+    const impl = fakeFetch([
+      { status: 200, body: { segments: [], refusedSegments: 1, speechEvidence: "0.9" } },
+    ]);
+    const answer = await transcribeChunk(connection(), request, impl);
+    check("...and so does one that answered with something else entirely", answer.speechEvidence === null);
+  }
 }

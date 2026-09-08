@@ -184,6 +184,70 @@ export async function transcribeChunk(request, store, session, id, transcribe) {
       was refused" — the honest answer from a deployment where nothing is.
     */
     refusedSegments: refusedCount(raw),
+    /*
+      AND THE NUMBERS THAT DECISION WAS MADE ON, CARRIED THE SAME WAY.
+
+      `refusedSegments` says how many segments were thrown away; this says what
+      the engine stated about them, and about the ones that survived. It exists
+      because the refusal reduced invented speech on the owner's Mac without
+      stopping it, and the next question — is the threshold wrong or is the
+      signal wrong — turns entirely on numbers that were read in the
+      transcription service and dropped there. They were not readable anywhere
+      a recorder can reach, and this gateway's own logs are in an account the
+      person diagnosing a recording does not have.
+
+      Carried untouched, for `refusedSegments`' reason one field up: this
+      gateway holds a base64 string it must not decode and a list of sentences
+      it cannot tell apart, so it is in no position to judge, summarise or
+      threshold any of this. It reads the shape and passes it on.
+
+      `null` when the service did not say — a deployment one version behind,
+      an on-device engine, a proxy that rewrote the body. Never an object of
+      zeros, which would read as a measurement nobody made.
+    */
+    speechEvidence: speechEvidence(raw),
+  };
+}
+
+/**
+ * The engine's evidence summary out of whatever the service answered with.
+ *
+ * Every field is read by name and by type, and anything else is `null`: this
+ * is a payload from another service arriving on its way to a client, and
+ * forwarding whatever shape turned up would be this gateway republishing an
+ * object it has not read. Numbers or `null`, nothing else — in particular
+ * nothing that could carry text.
+ *
+ * @param {unknown} raw
+ * @returns {null | Record<string, number | null>}
+ */
+function speechEvidence(raw) {
+  const value =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? /** @type {Record<string, unknown>} */ (raw).evidence
+      : null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const stated = /** @type {Record<string, unknown>} */ (value);
+  /** A number the service stated, or `null`. A default here would be a lie. */
+  const number = (key) => {
+    const one = stated[key];
+    return typeof one === "number" && Number.isFinite(one) ? one : null;
+  };
+  /** A count: a whole number at least zero, or `null` when it said nothing. */
+  const count = (key) => {
+    const one = number(key);
+    return one === null || one < 0 ? null : Math.floor(one);
+  };
+  return {
+    segments: count("segments"),
+    statedNoSpeech: count("statedNoSpeech"),
+    statedLogprob: count("statedLogprob"),
+    keptNoSpeechMax: number("keptNoSpeechMax"),
+    keptLogprobMin: number("keptLogprobMin"),
+    refusedNoSpeechMin: number("refusedNoSpeechMin"),
+    refusedLogprobMax: number("refusedLogprobMax"),
+    duration: number("duration"),
+    durationAfterVad: number("durationAfterVad"),
   };
 }
 

@@ -29,6 +29,25 @@ function audioOf(bytes: number): string {
   return Buffer.from(new Uint8Array(bytes)).toString("base64");
 }
 
+/**
+ * The evidence summary for an engine that said nothing about speech at all.
+ *
+ * Every count zero and every reading `null`, which is the shape that has to
+ * survive: a model reporting neither field must produce "it did not say"
+ * rather than a row of zeros that reads as a confident measurement of silence.
+ */
+const SAID_NOTHING = {
+  segments: 0,
+  statedNoSpeech: 0,
+  statedLogprob: 0,
+  keptNoSpeechMax: null,
+  keptLogprobMin: null,
+  refusedNoSpeechMin: null,
+  refusedLogprobMax: null,
+  duration: null,
+  durationAfterVad: null,
+};
+
 describe("measuring the audio without decoding it", () => {
   it("computes the decoded length arithmetically, padding included", () => {
     // The bytes are never materialised in this Worker — the Workers AI binding
@@ -385,16 +404,19 @@ describe("turning an engine answer into segments", () => {
       text: "",
       segments: [{ startMs: 0, endMs: 1000, text: "", confidence: null }],
       refused: 0,
+      evidence: SAID_NOTHING,
     });
     expect(toTranscription({ segments: [] }, 1000)).toEqual({
       text: "",
       segments: [{ startMs: 0, endMs: 1000, text: "", confidence: null }],
       refused: 0,
+      evidence: SAID_NOTHING,
     });
     expect(toTranscription({ words: [] }, 1000)).toEqual({
       text: "",
       segments: [{ startMs: 0, endMs: 1000, text: "", confidence: null }],
       refused: 0,
+      evidence: SAID_NOTHING,
     });
   });
 });
@@ -709,5 +731,141 @@ describe("recognising an unknown-model error", () => {
     }
     expect(isUnknownModelError("not an error")).toBe(false);
     expect(isUnknownModelError(null)).toBe(false);
+  });
+});
+
+/**
+ * THE EVIDENCE THE REFUSAL ACTS ON, CARRIED WHERE SOMEBODY CAN READ IT.
+ *
+ * The rule above cut invented words about threefold on the owner's Mac and did
+ * not stop them, and the next question — is the threshold wrong, or is the
+ * signal wrong — could not be answered by anybody, because the three numbers it
+ * turns on were read, used for control flow, and dropped. The transcript's own
+ * `confidence` is no help and never will be: this model does not emit that
+ * field, so every segment in the customer's bucket carries `null`.
+ *
+ * SABOTAGE, whole worker suite run, reverted. Counts are failing tests.
+ *
+ *   `evidence` dropped from the answer entirely                             9
+ *   a `null` reading filled in with `0`                                     6
+ *   the kept and refused populations swapped                                3
+ *   `statedNoSpeech` counted over kept segments rather than all of them     2
+ *   `duration_after_vad` reported only when the rule would act on it        1
+ *
+ * The middle one is the one to keep honest: `0` is a legal `no_speech_prob`
+ * and a legal `avg_logprob` is negative, so a build that defaulted these would
+ * publish a measurement nobody made, in the direction that looks like proof of
+ * silence.
+ */
+describe("reporting the evidence the refusal acted on", () => {
+  const invented = {
+    start: 0,
+    end: 3.4,
+    text: " Thank you.",
+    avg_logprob: -1.6,
+    no_speech_prob: 0.94,
+  };
+  const spoken = {
+    start: 3.4,
+    end: 6.1,
+    text: " Shall we start?",
+    avg_logprob: -0.18,
+    no_speech_prob: 0.02,
+  };
+
+  it("bounds the survivors and the refused separately, on both axes", () => {
+    const nearMiss = { ...spoken, start: 6.1, end: 8, no_speech_prob: 0.58, avg_logprob: -0.99 };
+    const result = toTranscription(
+      { text: "x", segments: [invented, spoken, nearMiss] },
+      20_000,
+    )!;
+    expect(result.evidence).toEqual({
+      segments: 3,
+      statedNoSpeech: 3,
+      statedLogprob: 3,
+      // The nearest a survivor came to each half of the rule. This pair sitting
+      // just under `NO_SPEECH_PROB` and just over `LOGPROB_FLOOR` is the
+      // reading that says a threshold is worth moving.
+      keptNoSpeechMax: 0.58,
+      keptLogprobMin: -0.99,
+      // ...and how far past it the refused one was.
+      refusedNoSpeechMin: 0.94,
+      refusedLogprobMax: -1.6,
+      duration: null,
+      durationAfterVad: null,
+    });
+  });
+
+  it("says the engine did not state a field rather than substituting a value", () => {
+    // The failure this exists to make impossible: a `no_speech_prob` of `0`
+    // reads as "the engine was certain somebody was talking", and an engine
+    // that said nothing at all must never produce that sentence.
+    const result = toTranscription({ text: "x", segments: [{ start: 0, end: 1, text: "x" }] }, 1000)!;
+    expect(result.evidence.statedNoSpeech).toBe(0);
+    expect(result.evidence.statedLogprob).toBe(0);
+    expect(result.evidence.keptNoSpeechMax).toBeNull();
+    expect(result.evidence.keptLogprobMin).toBeNull();
+  });
+
+  it("counts what the engine stated across every segment, kept or refused", () => {
+    const half = { start: 0, end: 1, text: "x", no_speech_prob: 0.94 };
+    const result = toTranscription({ text: "x", segments: [invented, half] }, 1000)!;
+    // Two segments stated `no_speech_prob`; only one of them stated a logprob,
+    // and that asymmetry is what says the answer is missing half a rule rather
+    // than that the rule did not fire.
+    expect(result.evidence.segments).toBe(2);
+    expect(result.evidence.statedNoSpeech).toBe(2);
+    expect(result.evidence.statedLogprob).toBe(1);
+    // `half` cannot be refused — `isNoSpeech` needs both — so it survives, and
+    // its `no_speech_prob` is what the kept maximum reports.
+    expect(result.evidence.keptNoSpeechMax).toBe(0.94);
+    expect(result.evidence.keptLogprobMin).toBeNull();
+  });
+
+  it("reports the VAD pair as stated, including a value the rule will not act on", () => {
+    /*
+      `vadHeardNothing` declines to fire on a negative `duration_after_vad`
+      because a length of audio cannot be negative — and that is exactly the
+      answer somebody diagnosing needs to see rather than have filtered out.
+      The rule's caution and the evidence's honesty are different jobs.
+    */
+    const result = toTranscription(
+      {
+        text: "x",
+        segments: [spoken],
+        transcription_info: { duration: 20, duration_after_vad: -1 },
+      },
+      20_000,
+    )!;
+    expect(result.segments).toHaveLength(1);
+    expect(result.evidence.duration).toBe(20);
+    expect(result.evidence.durationAfterVad).toBe(-1);
+  });
+
+  it("reports the whole chunk as refused when the VAD rule fires", () => {
+    const result = toTranscription(
+      {
+        text: " Thank you.",
+        segments: [invented],
+        transcription_info: { duration: 20, duration_after_vad: 0 },
+      },
+      20_000,
+    )!;
+    expect(result.segments).toEqual([]);
+    expect(result.evidence.segments).toBe(1);
+    // Nothing survived, so there is no survivor to bound — and the refused
+    // population is the whole answer.
+    expect(result.evidence.keptNoSpeechMax).toBeNull();
+    expect(result.evidence.refusedNoSpeechMin).toBe(0.94);
+    expect(result.evidence.durationAfterVad).toBe(0);
+  });
+
+  it("carries no text, no timings and no ids", () => {
+    // The evidence is a summary precisely so that it cannot be joined back to
+    // what was said. Every value on it is a count or a reading.
+    const result = toTranscription({ text: "x", segments: [invented, spoken] }, 20_000)!;
+    for (const value of Object.values(result.evidence)) {
+      expect(value === null || typeof value === "number").toBe(true);
+    }
   });
 });
