@@ -5,12 +5,29 @@ import {
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
 } from "expo-audio";
+import { nativeApplicationVersion } from "expo-application";
 import type { AudioMode, AudioRecorder, RecordingStatus } from "expo-audio";
 import { Directory, File, Paths } from "expo-file-system";
 import type { TranscriptSegment } from "../protocol";
 import type { CaptureOptions, MeetingRecorder, RecorderError, RecorderState } from "./index";
 import { MAX_INFLIGHT_CHUNKS, SEGMENT_MS, chunkIdFor } from "./segments";
 import { resolveTranscriber } from "./transcriber";
+import { notesOnlyRecorder } from "./notesOnly";
+
+/** First native app version containing the iOS audio background mode. */
+export const IOS_BACKGROUND_RECORDING_VERSION = "1.0.1";
+
+/** Native build metadata cannot be supplied or changed by an OTA update. */
+export function supportsIosBackgroundRecording(appVersion: string | null): boolean {
+  const parts = (appVersion ?? "").split(".");
+  if (parts.length < 1 || parts.length > 3 || parts.some((part) => !/^\d+$/.test(part))) return false;
+  const [major = 0, minor = 0, patch = 0] = parts.map(Number);
+  const [floorMajor, floorMinor, floorPatch] = IOS_BACKGROUND_RECORDING_VERSION.split(".").map(Number);
+  return Number.isSafeInteger(major) &&
+    (major > floorMajor ||
+      (major === floorMajor &&
+        (minor > floorMinor || (minor === floorMinor && patch >= floorPatch))));
+}
 
 /**
  * Capture on a phone: `expo-audio` in, `TranscriptSegment`s out.
@@ -43,17 +60,14 @@ import { resolveTranscriber } from "./transcriber";
  * shipped, so `NSMicrophoneUsageDescription` is in the installed app and asking
  * for the microphone does not terminate it. `UIBackgroundModes: ["audio"]` is
  * new in `app.config.js`, and it governs exactly one thing: whether capture
- * survives the app leaving the foreground. An OTA update therefore turns on a
- * recorder that works while somebody is looking at it, on binaries built before
- * that key existed — which is the case this feature is for.
+ * survives the app leaving the foreground. The first binary containing it is
+ * app version 1.0.1; an OTA update cannot add that native capability to 1.0.0.
  *
- * **So background capability is a runtime check, never a version number.**
- * `configureAudioSession` asks for the background-capable session and falls
- * back to a foreground-only one if this binary's audio session refuses it.
- * Comparing `Constants.expoConfig` against a version would be the wrong test
- * twice over: that manifest describes the *bundle*, which is the half that
- * updated, and the question is about the *binary*, which is the half that did
- * not.
+ * **So background capability is a native build check, never an OTA config
+ * value.** `nativeApplicationVersion` identifies the installed binary. Versions
+ * before 1.0.1 refuse audio capture with actionable copy; they must not silently record a
+ * meeting that will stop when the phone locks. `configureAudioSession` asks for
+ * the background-capable session and fails closed if setup is rejected.
  *
  * ────────────────────────────────────────────────────────────────────────────
  * 3. THE AUDIO SESSION, which is where the meeting-specific work is.
@@ -163,13 +177,12 @@ import { resolveTranscriber } from "./transcriber";
  * for it), creates its own notification channel the first time a recording
  * starts, and calls `startForeground` with the `microphone` service type
  * itself. So `audioRecorder("android")` now answers a *real* `expoAudioRecorder`
- * the same as iOS, with one difference threaded through: `allowsBackgroundRecording:
- * true` in the `AudioMode` handed to `setAudioModeAsync`, which is what tells
+ * the same as iOS: `allowsBackgroundRecording: true` in the `AudioMode` handed
+ * to `setAudioModeAsync` tells
  * that native module to actually start the service (`AudioRecorder.kt`'s
  * `useForegroundService` field, set from `AudioMode.allowsBackgroundRecording`
- * — see `AudioModule.kt`). iOS's own `MEETING_AUDIO_MODE` is untouched: that
- * field is Android's own switch, not a shared one, and mixing it into the
- * object iOS reads would be a behaviour change nobody asked for.
+ * — see `AudioModule.kt`). iOS uses the same runtime switch to keep its
+ * recorder alive through screen lock.
  *
  * **`interruptionMode: "mixWithOthers"` already does the right thing on
  * Android too, unchanged.** The worry going in was that "mixing" needed its
@@ -229,13 +242,6 @@ export const MEETING_AUDIO_MODE: Partial<AudioMode> = Object.freeze({
   playsInSilentMode: true,
   shouldPlayInBackground: true,
   interruptionMode: "mixWithOthers",
-});
-
-/** The same session, minus the part an older binary has no entitlement for. */
-export const FOREGROUND_AUDIO_MODE: Partial<AudioMode> = Object.freeze({
-  ...MEETING_AUDIO_MODE,
-  shouldPlayInBackground: false,
-  allowsBackgroundRecording: false,
 });
 
 /**
@@ -362,6 +368,12 @@ sweepLeftovers();
  * reached, not a real answer for a browser.
  */
 export function audioRecorder(platform: "ios" | "android" | "web"): MeetingRecorder {
+  if (platform === "ios" && !supportsIosBackgroundRecording(nativeApplicationVersion)) {
+    return notesOnlyRecorder(
+      "ios",
+      "This app build cannot keep a meeting recording alive when the screen locks. Update Context to continue recording; typed notes are still available.",
+    );
+  }
   return expoAudioRecorder(platform === "android" ? "android" : "ios");
 }
 
@@ -900,18 +912,9 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
 }
 
 /**
- * Ask for the session a meeting needs, and settle for less if this binary
- * cannot give it.
- *
- * The fallback is the runtime capability check point 2 is about: a build made
- * before `UIBackgroundModes: ["audio"]` existed has no entitlement for a
- * background-capable session, and the honest response is a foreground-only
- * recorder rather than a version comparison — the manifest that carries a
- * version is the half that updated over the air, and the binary is the half
- * that did not. That is an iOS-only history — there has never been a shipped
- * Android binary for an install to be older than — but the same fallback
- * shape costs nothing to keep for Android too, if `setAudioModeAsync` ever
- * throws there for a reason of its own.
+ * Ask for the session a meeting needs, and fail closed if this binary cannot
+ * give it. A setup error is surfaced to the caller as an actionable refusal;
+ * silently continuing without background capability would lose audio on lock.
  *
  * Both native platforms use the same background-capable session. The runtime
  * switch is required on iOS as well as Android; the app config's native
@@ -923,7 +926,9 @@ async function configureAudioSession(platform: "ios" | "android"): Promise<void>
   try {
     await setAudioModeAsync(mode);
   } catch {
-    await setAudioModeAsync(FOREGROUND_AUDIO_MODE);
+    throw new Error(
+      "Background audio could not be enabled on this build. Update Context before recording a meeting.",
+    );
   }
 }
 

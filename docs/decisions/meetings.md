@@ -127,6 +127,17 @@ session interruption, and remain outside this fix. The checks are `the iOS
 audio mode requests allowsBackgroundRecording`, `Android keeps its equivalent
 runtime switch`, and `the native config carries one audio background mode`.
 
+Rollout is two-stage: the OTA ships the fail-closed runtime request on the
+existing `runtimeVersion: "1.0.0"`, while the next native build bumps
+`CFBundleShortVersionString` to `1.0.1` and carries the plist mode. Older
+1.0.0 installs refuse audio capture with an actionable update message rather
+than silently offering recording that will stop on lock. EAS remote build
+numbers may vary and are intentionally not part of this capability boundary.
+Acceptance on a real iPhone is to start a meeting, lock the screen for several
+minutes, unlock it, and verify the transcript continues without a gap; also
+verify setup failure and an old build show the update explanation. Force-quit
+and OS termination remain excluded.
+
 ### Transcription is cloud on the paid tier and on-device on the free tier, and that seam is disclosed, not glossed
 
 This is the one place where "we never hold your data" needs a footnote, and the

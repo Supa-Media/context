@@ -46,7 +46,7 @@ module.exports = ({ config }) => {
     ...config,
     name: "Context",
     slug: "context",
-    version: "1.0.0",
+    version: "1.0.1",
     scheme: "context",
     orientation: "portrait",
     icon: "./assets/icon.png",
@@ -98,10 +98,9 @@ module.exports = ({ config }) => {
          * entitlement-shaped capability and the plugins own no key for it.
          *
          * It only reaches a device in a **new binary**, so nothing in the JS may
-         * assume it. `capture/audio.ts` asks for the background-capable audio
-         * session and falls back to a foreground-only one when this binary has no
-         * entitlement for it — a runtime capability check, never a version
-         * comparison against a manifest that ships over the air.
+         * assume it. `capture/audio.ts` checks the immutable native app version
+         * and fails closed on the 1.0.0 binary; the runtimeVersion stays 1.0.0
+         * so that safety update can reach existing installs.
          */
         UIBackgroundModes: ["audio"],
       },

@@ -147,6 +147,11 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
     controller.getSnapshot,
   );
   const blocked = snapshot.status === "ready" ? null : NOT_READY_REFUSAL;
+  const captureNotice =
+    snapshot.status === "ready" && !snapshot.capture.audio
+      ? snapshot.capture.unavailableReason ??
+        "Audio capture is unavailable, so this meeting will be typed notes only."
+      : null;
 
   /**
    * Whether the machine's own audio is on offer, and whether it is on.
@@ -281,6 +286,7 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
           router.push(MEETINGS_ROUTE);
         },
         blocked,
+        captureNotice,
         /*
           Offered only where something would answer it. `null` draws the
           mic-only sentence instead — the honest absence rather than a control
