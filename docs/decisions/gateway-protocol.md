@@ -244,6 +244,31 @@ dispatched from, and that the validator runs before it. The keyword check
 earned itself immediately: `move_notes` advertised `minItems` and `maxItems`,
 which nothing enforced, and they are implemented rather than deleted.
 
+**Closedness is asserted at every object node, not only at the root, and every
+`case` label has to be a literal.** Adversarial review of the census found the
+same class of hole one level in from where it was looking. This validator
+enforces exactly what a schema says and nothing more, so an object node *below*
+the root that forgets `additionalProperties: false` accepts anything at that
+position, and a property that says `type: "object"` without saying which
+properties is never walked into at all — in both cases silently, with
+`tools/list` still reading as though it were closed. `move_notes` already has
+such a node one level down and a second array-of-objects tool is the obvious
+next one, so the census walks the whole schema and names the offending node
+(`move_notes.moves[]`) rather than checking only the outermost object. The
+second half is the one hole the change that added the census named and left
+open: the parser reads `case "some_name":` off the source, so a label that is a
+variable dispatches a tool the census never sees while every other check passes.
+Requiring every label in that switch to be a lowercase string literal costs one
+check and closes it, rather than resting on nobody having done it yet.
+
+**Both eras are asked the same question.** Every behavioural check above rides
+the legacy transport, and "authority is decided once, never per protocol era"
+in this file is the reason that is not enough: the two eras are different
+functions with different framing, and a control proven on one path is a control
+an attacker reaches by adding a header. The modern path gets the unknown
+argument, the valid call and the existence mask, and pointing its `tools/call`
+at `callTool` directly fails five checks rather than none.
+
 Two deliberate consequences, neither of them a widening of a schema to make an
 existing call pass:
 
@@ -257,4 +282,13 @@ existing call pass:
 
 The cost is 1 microsecond for a typical `write_note`, measured over 20,000
 iterations in the suite, against a `fetch` to object storage on the other side
-of the same function.
+of the same function. The ceiling is the number worth watching rather than that
+one: the largest call the tool list permits — a 100-move `move_notes` batch with
+every optional property on every element, a little over 400 nodes — measures
+around 50 microseconds, because the walk builds each node's address
+(`moves[37].destination`) as it goes whether or not a message is ever produced.
+Fifty microseconds is still nothing beside the storage round trip, and it is the
+figure a future schema moves: an array with a larger `maxItems`, or an element
+schema with more properties, changes the ceiling and leaves the typical-write
+figure exactly where it was. Both are asserted in the suite. Neither is measured
+under `workerd`.

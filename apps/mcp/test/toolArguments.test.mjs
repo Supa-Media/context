@@ -55,11 +55,35 @@
  * 7. **The census's dispatch-table parser is pointed at a function that does
  *    not exist** — 1 check failed, the parser's own self-test, which is the
  *    only thing standing between a census and a regex that matches nothing.
+ *
+ * Re-measured by an adversarial review, which reproduced all seven counts
+ * exactly and confirmed that sabotage 5 at `Infinity` now fails 2 checks
+ * rather than throwing a RangeError. Five more, for the checks that review
+ * added:
+ *
+ * 8. **A `case` is added to the dispatch table for a tool nothing advertises**
+ *    — 1 check failed, "every tool in the dispatch table has an advertised
+ *    inputSchema".
+ * 9. **A second dispatch site is added**, the modern era calling `callTool`
+ *    directly — 5 checks failed: "exactly one place a tool is dispatched
+ *    from", the new modern-era argument check, and three pre-existing
+ *    cross-era ones in `crossContext.test.mjs`.
+ * 10. **A `case` label is made a constant rather than a literal** — 1 check
+ *    failed, and it names the identifier. Without it the census silently stops
+ *    counting that tool, which is the hole the change adding this file named.
+ * 11. **`additionalProperties: false` is removed from `move_notes`' element
+ *    schema** — 2 checks failed, and only one of them is behavioural: the
+ *    census names the node (`move_notes.moves[]`), which is what a *new*
+ *    array-of-objects tool with the same mistake would get, having no
+ *    behavioural test of its own.
+ * 12. **`hasOwnProperty.call` becomes a bare `key in properties`** — 2 checks
+ *    failed, including `__proto__` sent as bytes over the wire.
  */
 
 import { readFile } from "node:fs/promises";
 
 import worker from "../src/index.js";
+import { META_PROTOCOL_VERSION, MODERN_PROTOCOLS } from "../src/protocol.js";
 import {
   describeName,
   unsupportedKeywords,
@@ -131,6 +155,83 @@ async function rpc(env, tokenValue, method, params) {
 async function callTool(env, tokenValue, name, args) {
   const params = args === undefined ? { name } : { name, arguments: args };
   return (await rpc(env, tokenValue, "tools/call", params))?.result;
+}
+
+/**
+ * The same call on the modern transport, which is a different function.
+ *
+ * `docs/decisions/gateway-protocol.md`, "authority is decided once, never per
+ * protocol era": both eras reach `callToolForSession`, and the reason that
+ * matters is that a control implemented on one path only is a control an
+ * attacker reaches by adding a header. Every check above rides the legacy
+ * path — no `MCP-Protocol-Version`, so `handleLegacyMcp` answers it — so the
+ * modern one needs asking too, and it is not a copy-paste of the legacy body:
+ * it requires the version in a header *and* in `params._meta`, plus the
+ * method and the tool name in headers of their own (`modernHeaderMismatch`).
+ */
+async function callToolModern(env, tokenValue, name, args) {
+  const { ctx, settle } = createWorkerCtx();
+  const response = await worker.fetch(
+    new Request("https://mcp.context.test/mcp", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${tokenValue}`,
+        "Content-Type": "application/json",
+        "MCP-Protocol-Version": MODERN_PROTOCOLS[0],
+        "Mcp-Method": "tools/call",
+        "Mcp-Name": name,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name,
+          ...(args === undefined ? {} : { arguments: args }),
+          _meta: { [META_PROTOCOL_VERSION]: MODERN_PROTOCOLS[0] },
+        },
+      }),
+    }),
+    env,
+    ctx
+  );
+  const text = await response.text();
+  await settle();
+  try {
+    return JSON.parse(text)?.result;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One tool call sent as raw bytes, for the shapes `JSON.stringify` cannot make.
+ *
+ * A JavaScript object literal cannot hold two properties of the same name, and
+ * `JSON.stringify` turns a number too large for a double into `null` and a
+ * lone surrogate into a replacement character. Those are exactly the shapes a
+ * hostile client sends, so they have to be written as text.
+ */
+async function callToolRaw(env, tokenValue, name, argumentsJson) {
+  const { ctx, settle } = createWorkerCtx();
+  const response = await worker.fetch(
+    new Request("https://mcp.context.test/mcp", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${tokenValue}`, "Content-Type": "application/json" },
+      body:
+        `{"jsonrpc":"2.0","id":1,"method":"tools/call",` +
+        `"params":{"name":"${name}","arguments":${argumentsJson}}}`,
+    }),
+    env,
+    ctx
+  );
+  const text = await response.text();
+  await settle();
+  try {
+    return JSON.parse(text)?.result;
+  } catch {
+    return null;
+  }
 }
 
 const textOf = (result) => result?.content?.[0]?.text || "";
@@ -504,6 +605,26 @@ export async function runToolArgumentChecks(check) {
       !dispatched.includes("no_such_tool_anywhere")
   );
 
+  /*
+    Every case in that switch is a literal name, which is what makes reading
+    them off the source a census rather than a sample.
+
+    This is the one hole the change that added this file named and left open:
+    the parser above matches `case "some_name":`, so a case whose label is a
+    variable or a template string dispatches a tool the census never sees, and
+    every check below would pass while saying nothing about it. Nothing in the
+    tree does that today, and the cheapest way to keep it that way is to
+    require every label in the block to be a lowercase string literal rather
+    than to hope. A `case name:` fails here, in the same run that would
+    otherwise have silently stopped counting it.
+  */
+  const caseLabels = [...dispatchBody.matchAll(/^\s*case ([^\n]*):$/gm)].map((m) => m[1].trim());
+  const computedCases = caseLabels.filter((label) => !/^"[a-z_]+"$/.test(label));
+  check(
+    `every case in the dispatch table is a literal name the census can read (${computedCases.join(", ")})`,
+    caseLabels.length === dispatched.length && computedCases.length === 0
+  );
+
   const aliasBlock = SOURCE.slice(
     SOURCE.indexOf("const TOOL_NAME_ALIASES"),
     SOURCE.indexOf("const TOOL_NAME_ALIASES") + 400
@@ -593,6 +714,67 @@ export async function runToolArgumentChecks(check) {
     check(
       "no advertised schema uses a keyword the validator would silently ignore",
       unsupported.length === 0
+    );
+
+    /*
+      Closedness is checked at every object node, not only at the root.
+
+      The root check above is the one that would have caught the finding this
+      file exists for, and it is not the whole of the property: this validator
+      enforces exactly what a schema says and nothing more, so an object node
+      *below* the root that forgets `additionalProperties: false`, or that says
+      `type: "object"` and never says which properties, accepts anything at all
+      at that position — silently, and with `tools/list` still reading as
+      though it were closed. `move_notes` already has such a node one level
+      down; a second array-of-objects tool is the obvious next one, and the
+      root check would say nothing about it. The two checks under this comment
+      pin that the hole is real, so that nobody deletes the walk as belt and
+      braces.
+    */
+    const openNodes = [];
+    const barePropertyNodes = [];
+    function walkNodes(schema, where) {
+      if (!schema || typeof schema !== "object" || Array.isArray(schema)) return;
+      if (schema.type === "object") {
+        if (schema.additionalProperties !== false) openNodes.push(where);
+        if (!schema.properties) barePropertyNodes.push(where);
+      }
+      for (const [key, child] of Object.entries(schema.properties || {})) {
+        walkNodes(child, `${where}.${key}`);
+      }
+      if (schema.items) walkNodes(schema.items, `${where}[]`);
+    }
+    for (const tool of advertised) walkNodes(tool.inputSchema, tool.name);
+    check(
+      `every object node in every advertised schema is closed, not only the root (${openNodes.join(", ")})`,
+      openNodes.length === 0
+    );
+    check(
+      `...and says which properties it takes, so there is something to close over (${barePropertyNodes.join(", ")})`,
+      barePropertyNodes.length === 0
+    );
+    check(
+      "an object node that forgot `additionalProperties: false` really would take anything",
+      validateArguments(
+        {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            moves: {
+              type: "array",
+              items: { type: "object", properties: { source: { type: "string" } } },
+            },
+          },
+        },
+        { moves: [{ source: "a.md", workspaceId: "ws_x" }] }
+      ) === null
+    );
+    check(
+      "...and one that never said which properties it takes is not walked into at all",
+      validateArguments(
+        { type: "object", additionalProperties: false, properties: { opts: { type: "object" } } },
+        { opts: { workspaceId: "ws_x" } }
+      ) === null
     );
 
     /* ------------ and the validator is on the one path to a tool ---------- */
@@ -794,6 +976,127 @@ export async function runToolArgumentChecks(check) {
       "an invented tool name is not validated into existence either",
       textOf(await callTool(env, TOKEN_OWNER, "no_such_tool_at_all", { path: 7 })) ===
         "unknown tool: no_such_tool_at_all"
+    );
+
+    /* -------------- and all of that on the other protocol era -------------- */
+
+    /*
+      Every check above rode the legacy transport. `docs/decisions/gateway-protocol.md`
+      says why that is not enough on its own: a control implemented on one
+      era's path is a control an attacker reaches by adding a header, and the
+      two eras are different functions with different framing. They share
+      `callToolForSession`, so this is a check that they still do.
+    */
+    check(
+      "the modern transport refuses an unknown argument the same way",
+      textOf(
+        await callToolModern(env, TOKEN_OWNER, "read_note", {
+          path: "1-projects/probe.md",
+          workspaceId: WORKSPACE_OTHER,
+        })
+      ) === 'unknown argument "workspaceId"; permitted here: path, context'
+    );
+    check(
+      "...and still serves the same call without it, so the era is really reached",
+      textOf(
+        await callToolModern(env, TOKEN_OWNER, "read_note", { path: "1-projects/probe.md" })
+      ).includes("MINE-MARKER")
+    );
+    check(
+      "...and masks the two encryption tools there identically to an invented name",
+      textOf(
+        await callToolModern(env, TOKEN_TEAM, "export_encryption_keys", { workspaceId: "ws_x" })
+      ) === "unknown tool: export_encryption_keys" &&
+        textOf(
+          await callToolModern(env, TOKEN_TEAM, "no_such_tool_at_all", { workspaceId: "ws_x" })
+        ) === "unknown tool: no_such_tool_at_all"
+    );
+
+    /* ------- the shapes a JavaScript object literal cannot express --------- */
+
+    /*
+      `__proto__` is the one property name that is a hazard rather than merely
+      an unknown one: a client sends it, `JSON.parse` makes it an ordinary own
+      property, and code that reaches for a schema's declared properties with a
+      bare `in` or a plain lookup finds `Object.prototype`'s instead. The
+      validator uses `Object.prototype.hasOwnProperty.call` for exactly that
+      reason, and this is the check that says so from outside — sent as bytes,
+      because a literal `{ __proto__: … }` in this file would set a prototype
+      rather than a property and would test nothing.
+    */
+    const overTheWire = await callToolRaw(
+      env,
+      TOKEN_OWNER,
+      "read_note",
+      '{"path":"1-projects/probe.md","__proto__":{"pollutedByAToolCall":true}}'
+    );
+    check(
+      "__proto__ arriving over the wire is an unknown argument, not a prototype",
+      textOf(overTheWire) === 'unknown argument "__proto__"; permitted here: path, context'
+    );
+    check(
+      "...and nothing in this isolate was polluted by asking",
+      // eslint-disable-next-line no-prototype-builtins
+      {}.pollutedByAToolCall === undefined && Object.prototype.pollutedByAToolCall === undefined
+    );
+    check(
+      "a number no double can hold is not an integer",
+      textOf(await callToolRaw(env, TOKEN_OWNER, "list_meetings", '{"limit":1e400}')) ===
+        'argument "limit" must be an integer, not number'
+    );
+    check(
+      "...and one that is merely enormous is refused by the advertised maximum",
+      textOf(
+        await callToolRaw(env, TOKEN_OWNER, "list_meetings", '{"limit":9007199254740993}')
+      ) === "argument \"limit\" must be at most 25"
+    );
+    check(
+      "a lone surrogate in a property name is escaped rather than passed through",
+      textOf(await callToolRaw(env, TOKEN_OWNER, "read_note", '{"path\\ud800":"a.md"}')) ===
+        'unknown argument "path\\ud800"; permitted here: path, context'
+    );
+    check(
+      "a repeated property is validated as the value that actually reaches the handler",
+      textOf(
+        await callToolRaw(
+          env,
+          TOKEN_OWNER,
+          "read_note",
+          '{"path":"1-projects/probe.md","path":{"$ne":null}}'
+        )
+      ) === 'argument "path" must be a string, not object'
+    );
+
+    /* --------- the most expensive call the gateway will actually take ------ */
+
+    /*
+      The cost figure above is a typical write. This is the ceiling: the
+      largest batch `move_notes` advertises, with every optional property on
+      every element, which is the only call in the tool list that spends more
+      than a handful of nodes. It is the number to compare a future schema
+      against — an array whose `maxItems` is larger, or an element schema with
+      more properties, moves this and not the typical-write figure.
+    */
+    const WORST_CASE_ITERATIONS = 2000;
+    const worstCase = {
+      moves: Array.from({ length: 100 }, (_, n) => ({
+        source: `1-projects/${n}.md`,
+        destination: `1-projects/${n}-moved.md`,
+        expected_source_etag: `etag-${n}`,
+      })),
+      dry_run: true,
+      context: "@shared",
+    };
+    const worstSchema = schemas.get("move_notes");
+    check("the worst case is a legal call, not a refused one", validateArguments(worstSchema, worstCase) === null);
+    const worstStart = Date.now();
+    for (let i = 0; i < WORST_CASE_ITERATIONS; i += 1) validateArguments(worstSchema, worstCase);
+    const worstUs = ((Date.now() - worstStart) * 1000) / WORST_CASE_ITERATIONS;
+    check(
+      `the largest call the tool list permits costs under 500 microseconds (${worstUs.toFixed(
+        1
+      )}us over ${WORST_CASE_ITERATIONS})`,
+      worstUs < 500
     );
 
     /* ------------------- the alias is dispatched and checked --------------- */
