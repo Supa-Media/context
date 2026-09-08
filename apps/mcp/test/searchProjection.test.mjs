@@ -1698,6 +1698,39 @@ async function runServeChecks(check) {
       "and without reading the index in front of the caller either",
       fast.answerIndexReads === 0,
     );
+
+    /*
+     * -- and `reducedRecall: false` here is a claim, not a default ---------
+     *
+     * `searchVisibleNotes` hardcodes it on this branch and argues it from the
+     * projection's shape: `projectPass` reads each note's own object and
+     * writes a chunk row per message, so there is no shard byte cap for a
+     * mailbox to cross and nothing reaching D1 is ever reduced. The argument
+     * is sound and it was worth nothing untested — measured, claiming the
+     * opposite here reddened no check in this suite while the console's own
+     * twin of it in `consoleSearch.test.ts` was pinned. So: mark the R2
+     * manifest shed, which is exactly what makes the R2 path warn, and
+     * confirm an answer served out of the database still does not.
+     */
+    const manifestObject = bucket.get(".index/v2/manifest.json");
+    const shedManifest = JSON.parse(manifestObject.body);
+    shedManifest.stats[0] = {
+      ...shedManifest.stats[0],
+      shed: 1,
+      shedPaths: ["1-projects/roster.md"],
+    };
+    bucket.set(".index/v2/manifest.json", {
+      ...manifestObject,
+      body: JSON.stringify(shedManifest),
+    });
+    const overShed = await search("numbat");
+    check(
+      "the fast path never claims reduced recall, even over a manifest marked shed",
+      !overShed.text.includes("more messages than the search index can keep in full"),
+    );
+    // Put it back: the checks below measure this fixture's index, and a
+    // manifest this one edited is not the one they were written against.
+    bucket.set(".index/v2/manifest.json", manifestObject);
     check(
       "the manifest is still read, behind that same response",
       fast.deferredIndexReads > 0,
