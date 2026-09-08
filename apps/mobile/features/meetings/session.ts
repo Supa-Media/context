@@ -428,9 +428,20 @@ function closed(projection: MeetingProjection, at: string): number {
  * a folded segment becomes an unsent step in `pendingSteps`, and a step whose
  * only possible answer is `meeting_invalid` parks the meeting rather than
  * sending it.
+ *
+ * **Derived from `MEETING_TRANSITIONS`, not restated as `complete` and
+ * `empty` by name.** Those two are terminal — `MEETING_TRANSITIONS[state]` is
+ * `[]` — and "terminal" is exactly the property that makes a state one nothing
+ * will ever write out: there is no move left that reaches `finalizing`, so
+ * words folded in now can never leave this session either. A denylist naming
+ * the two states current terminal happens to be would keep agreeing with the
+ * table right up until a third terminal state joined it — `docs/decisions/
+ * meetings.md` already argues the table only grows that way — and then would
+ * silently start accepting transcript into a meeting nothing could ever write
+ * out, in this file and in `ingest.js`'s own mirror of it, on the same day.
  */
 export function acceptsTranscript(state: MeetingState): boolean {
-  return state !== "complete" && state !== "empty";
+  return MEETING_TRANSITIONS[state].length > 0;
 }
 
 /**
