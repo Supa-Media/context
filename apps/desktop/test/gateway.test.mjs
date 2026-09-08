@@ -180,7 +180,15 @@ export async function runGatewayChecks(check) {
     const impl = fakeFetch([{ status: 403, body: { error: ERRORS.forbidden, message: "this grant cannot write" } }]);
     const result = await postEntry(config(impl), entry("segments"));
     check("a forbidden grant is not retried", result.ok === false && result.retryable === false);
-    check("the gateway's own message is kept", result.message === "this grant cannot write");
+    /*
+      The gateway's sentence, with the status still in front of it. It used to
+      be the sentence alone, which cost nothing here and cost everything one
+      field over: this gateway sends `error_description`, not `message`, so on
+      every real refusal there was no sentence at all and `gateway answered
+      400` was the whole of what anybody saw. Keeping both means a reply that
+      explained itself and a reply that did not are still tellable apart.
+    */
+    check("the gateway's own message is kept", result.message === "403: this grant cannot write");
   }
   {
     const impl = fakeFetch([{ status: 503, body: { error: ERRORS.unavailable, message: "storage is down" } }]);
@@ -382,6 +390,69 @@ export async function runGatewayChecks(check) {
     check(
       "a machine with no grant at all is still told it is not connected yet",
       result.ok === false && /not connected/.test(result.message),
+    );
+  }
+
+  // -- a refusal arrives with the reason the gateway gave for it -------------
+  //
+  // For the whole life of this app it did not. `postEntry` read a `message`
+  // field, `apps/mcp/src/meetings/ingest.js` answers `{error,
+  // error_description}`, and so every refusal anybody has ever seen — in the
+  // console, in the tray, in the queue file — read `gateway answered 400` and
+  // nothing else. Eight parked meetings were diagnosed by reading a JSON file
+  // off somebody's disk because of it.
+  {
+    const impl = fakeFetch([
+      {
+        status: 400,
+        body: {
+          error: "meeting_invalid",
+          error_description: "these segments were minted for another meeting",
+        },
+      },
+    ]);
+    const result = await postEntry(config(impl, TOKEN), entry("segments"));
+    check(
+      "A REFUSAL CARRIES THE GATEWAY'S OWN SENTENCE, NOT JUST ITS STATUS",
+      result.ok === false && /minted for another meeting/.test(result.message),
+    );
+    check("...with the status still in it, so a proxy's reply is still tellable apart",
+      /400/.test(result.message));
+    check("...and the contract's code, which is what decides the retry", result.code === "meeting_invalid");
+    check("...and the status as a number, for a log line", result.status === 400);
+  }
+  {
+    // A proxy, a captive portal, a load balancer: no code, no description.
+    // The old sentence is exactly right for these and is what remains.
+    const impl = fakeFetch([{ status: 502, body: {} }]);
+    const result = await postEntry(config(impl, TOKEN), entry("segments"));
+    check(
+      "a refusal with nothing to say still says what the status was",
+      result.ok === false && result.message === "gateway answered 502",
+    );
+  }
+  {
+    // `drainOnce` reports them, because the queue entry is the wrong place for
+    // anybody but the person to find one: an entry that is later accepted takes
+    // its own explanation with it.
+    const impl = fakeFetch([
+      { status: 400, body: { error: "meeting_invalid", error_description: "no" } },
+    ]);
+    const queued = queueWrite(emptyOutbox(), { sessionId, kind: "segments", body: { segments: [] }, now: 0 });
+    const report = await drainOnce(queued, config(impl, TOKEN), () => 0);
+    check(
+      "a drain reports what was refused, so something can log it",
+      report.refusals.length === 1 &&
+        report.refusals[0].kind === "segments" &&
+        report.refusals[0].status === 400 &&
+        report.refusals[0].code === "meeting_invalid" &&
+        report.refusals[0].parked === true,
+    );
+    check(
+      "...and never any content, only the session it was about",
+      report.refusals[0].sessionId === sessionId &&
+        Object.keys(report.refusals[0]).sort().join(",") ===
+          "code,kind,message,parked,sessionId,status",
     );
   }
 

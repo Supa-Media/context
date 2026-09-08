@@ -66,6 +66,8 @@ import {
   nextDrain,
   normalizeOutbox,
   pendingFor,
+  dropMisaddressed,
+  misaddressedSegments,
   queueWrite,
   reconcileDrain,
   recoverStaleFinalize,
@@ -139,6 +141,153 @@ export function runOutboxChecks(check) {
     check(
       "merging is idempotent",
       mergeSegments(segments, segments).length === 2,
+    );
+  }
+
+  // -- one meeting's words never ride in another meeting's write -------------
+  //
+  // The queue was innocent and is the choke point anyway. Every desktop enqueue
+  // goes through `queueWrite` — the tray's controller and the console's
+  // `writeMeetingFromConsole` — so the rule lives here rather than in two
+  // callers, one of which a third caller will not copy. What it stops is the
+  // defect that parked eight of the owner's meetings: a leaked recorder
+  // subscription in the console app handed a finished meeting the *next*
+  // meeting's transcript, correctly stamped with the id of the meeting it came
+  // from and addressed to a meeting it did not.
+  {
+    const other = "mtg_zyxwvtsrqpnmkjhgfedc";
+    let outbox = emptyOutbox();
+    outbox = queueWrite(outbox, {
+      sessionId,
+      kind: "segments",
+      body: { segments: [seg(`${other}-mic-0-s000`, 0, "spoken in another meeting")] },
+      now: 1,
+    });
+    check(
+      "a batch minted for another meeting is not queued under this one",
+      outbox.entries[0]?.body.segments.length === 0,
+    );
+    check(
+      "and the two meetings are named, so something can say what happened",
+      misaddressedSegments(sessionId, { segments: [seg(`${other}-mic-0-s000`, 0, "x")] }).join() === other,
+    );
+
+    outbox = queueWrite(outbox, {
+      sessionId,
+      kind: "segments",
+      body: {
+        segments: [
+          seg(`${sessionId}-mic-0-s000`, 0, "mine"),
+          seg(`${other}-mic-1-s000`, 1000, "not mine"),
+        ],
+      },
+      now: 2,
+    });
+    const kept = outbox.entries[0]?.body.segments ?? [];
+    check(
+      "a mixed batch keeps this meeting's rows and drops the rest",
+      kept.length === 1 && kept[0].id === `${sessionId}-mic-0-s000`,
+    );
+
+    /*
+      The phone's recorders key their chunks on `String(Date.now())`, so their
+      ids name no meeting. Unaddressed is not misaddressed, and dropping those
+      would be this queue quietly losing a whole client's transcripts.
+    */
+    outbox = queueWrite(outbox, {
+      sessionId,
+      kind: "segments",
+      body: { segments: [seg("1757280000000-0-s000", 2000, "from a phone")] },
+      now: 3,
+    });
+    check(
+      "a segment id that names no meeting is still queued",
+      (outbox.entries[0]?.body.segments ?? []).length === 2,
+    );
+    check(
+      "and a batch that names nobody else reports nothing",
+      misaddressedSegments(sessionId, { segments: [seg("1757280000000-0-s000", 0, "x")] }).length === 0,
+    );
+  }
+
+  // -- and a queue written by an older build is cleaned once, on the way in ---
+  //
+  // The eight entries that were actually on the owner's machine: parked, each
+  // holding a later meeting's transcript. Parking is terminal in this app, so
+  // they get no further enqueue for `queueWrite` to clean them up on — without
+  // this pass they would hold another meeting's words for the life of the
+  // machine, and the meetings they hang off would keep reporting a refusal
+  // about words that are missing from nothing.
+  {
+    const other = "mtg_zyxwvtsrqpnmkjhgfedc";
+    const stale = {
+      version: 1,
+      entries: [
+        {
+          id: `${sessionId}:segments`,
+          sessionId,
+          kind: "segments",
+          body: { segments: [seg(`${other}-mic-0-s000`, 0, "another meeting")] },
+          queuedAt: 0,
+          updatedAt: 0,
+          attempts: 1,
+          state: "parked",
+          parked: { code: ERRORS.invalid, message: "gateway answered 400", noticedAt: 0 },
+          nextAttemptAt: 0,
+        },
+        {
+          id: "mtg_bbbbbbbbbbbbbbbbbbbb:segments",
+          sessionId: "mtg_bbbbbbbbbbbbbbbbbbbb",
+          kind: "segments",
+          body: {
+            segments: [
+              seg("mtg_bbbbbbbbbbbbbbbbbbbb-mic-0-s000", 0, "mine"),
+              seg(`${other}-mic-1-s000`, 1000, "not mine"),
+            ],
+          },
+          queuedAt: 0,
+          updatedAt: 0,
+          attempts: 1,
+          state: "parked",
+          nextAttemptAt: 0,
+        },
+        {
+          id: `${sessionId}:finalize`,
+          sessionId,
+          kind: "finalize",
+          body: { endedAt: new Date().toISOString() },
+          queuedAt: 0,
+          updatedAt: 0,
+          attempts: 0,
+          state: "pending",
+          nextAttemptAt: 0,
+        },
+      ],
+    };
+
+    const purged = dropMisaddressed(stale);
+    check("every misaddressed row is counted", purged.dropped === 2);
+    check(
+      "an entry holding nothing of its own meeting is dropped whole",
+      !purged.outbox.entries.some((entry) => entry.id === `${sessionId}:segments`),
+    );
+    const mixed = purged.outbox.entries.find((entry) => entry.id === "mtg_bbbbbbbbbbbbbbbbbbbb:segments");
+    check(
+      "an entry with some of its own rows keeps exactly those",
+      mixed.body.segments.length === 1 && mixed.body.segments[0].id.startsWith("mtg_bbbbbbbbbbbbbbbbbbbb"),
+    );
+    check(
+      "...and stays parked, because removing content does not make a refusal acceptable",
+      mixed.state === "parked" && mixed.attempts === 1,
+    );
+    check(
+      "nothing that is not a segments entry is touched",
+      purged.outbox.entries.some((entry) => entry.kind === "finalize"),
+    );
+    check(
+      "a queue with nothing misaddressed in it is left alone",
+      dropMisaddressed(purged.outbox).dropped === 0 &&
+        dropMisaddressed(purged.outbox).outbox.entries.length === purged.outbox.entries.length,
     );
   }
 

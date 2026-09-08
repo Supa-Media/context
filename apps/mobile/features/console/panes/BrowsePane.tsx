@@ -10,6 +10,8 @@ import { NavBand } from "../NavBand";
 import { Breadcrumb } from "../files/Breadcrumb";
 import { ConflictResolver } from "../files/ConflictResolver";
 import { contextFootLine } from "../files/contextFoot";
+import { EncryptionAdvancedSection } from "../encryption/EncryptionAdvancedSection";
+import { useNoteEncryption } from "../encryption/useNoteEncryption";
 import { FolderView } from "../files/FolderView";
 import { NoteEditor } from "../files/NoteEditor";
 import { ShareDialog } from "../files/ShareDialog";
@@ -156,6 +158,33 @@ export function BrowsePane({
    * beyond a draft recipient.
    */
   const [sharing, setSharing] = useState<string | null>(null);
+
+  /**
+   * The passphrase machinery for this context, and nowhere else.
+   *
+   * One instance per context rather than one per open note: the unlock
+   * session (`session.ts`) is deliberately a property of "the room you are
+   * in", not of any one file — locking is total, and a note unlocked five
+   * minutes ago in a tab that has since moved elsewhere still counts against
+   * the idle timeout. `workspaceId` is `null` while the context is settling
+   * (`!settled`, above) or has no bucket at all, and every operation this
+   * hook exposes refuses cleanly rather than acting against the wrong
+   * context's actions.
+   */
+  const noteEncryption = useNoteEncryption(
+    settled ? (current?.id ?? null) : null,
+    undefined,
+    data.encryptionWriters,
+  );
+
+  /**
+   * The one error the "Password-encrypt content" dialog shows, if the write
+   * that locks the note failed. Held here rather than inside
+   * `EncryptionAdvancedSection` because the operation it reports on
+   * (`noteEncryption.protect`) is called from here, against `files.editor`.
+   */
+  const [lockBusy, setLockBusy] = useState(false);
+  const [lockError, setLockError] = useState<string | undefined>(undefined);
 
   /*
     The note runs to the edges of the glass on a phone, and the padding that
@@ -616,6 +645,22 @@ export function BrowsePane({
         // to every note in a folder nobody had expanded — which on a phone,
         // where no file tree is drawn at all, was close to every note.
         notePaths={files.linkPaths}
+        /*
+          Absent wherever there is no context to run the passphrase machinery
+          against — `noteEncryption` refuses cleanly with no workspace, but a
+          console with no router or no context at all (the landing page's
+          demo) has nowhere for a write to land anyway, and `undefined` here
+          is what falls a passphrase note back to the plain envelope treatment
+          every other encrypted note gets.
+        */
+        encryption={
+          !settled || current?.id === undefined
+            ? undefined
+            : {
+                controller: noteEncryption,
+                onWritten: () => files.select(selected.path),
+              }
+        }
       />
     );
 
@@ -791,6 +836,47 @@ export function BrowsePane({
             files.setSharePreviewTitle(sharing, share, on)
           }
           onClose={() => setSharing(null)}
+          /*
+            Only when the editor is actually holding this note — the same
+            guard the breadcrumb's title uses, for the same reason: the
+            plaintext this locks is `files.editor.draft`, and a draft
+            belonging to a different path is a different note's content.
+          */
+          advanced={
+            files.editor.path !== sharing ? undefined : (
+              <EncryptionAdvancedSection
+                path={sharing}
+                encrypted={files.editor.encrypted}
+                busy={lockBusy}
+                error={lockError}
+                onLock={(passphrase) => {
+                  setLockBusy(true);
+                  setLockError(undefined);
+                  noteEncryption
+                    .protect({
+                      path: sharing,
+                      plaintext: files.editor.draft,
+                      etag: files.editor.etag,
+                      passphrase,
+                    })
+                    .then(() => {
+                      // Reopen so `files.editor.encrypted` catches up — the
+                      // note this session just locked is unlocked in it
+                      // already (`useNoteEncryption.protect` leaves it so),
+                      // but the ordinary editor state still shows the
+                      // plaintext it had a moment ago until it re-reads.
+                      files.select(sharing);
+                    })
+                    .catch((caught: unknown) => {
+                      setLockError(
+                        caught instanceof Error ? caught.message : "That did not work.",
+                      );
+                    })
+                    .finally(() => setLockBusy(false));
+                }}
+              />
+            )
+          }
         />
       ) : null}
 

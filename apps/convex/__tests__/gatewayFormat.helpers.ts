@@ -124,7 +124,22 @@ export function gatewayInternals(): GatewayInternals {
     declared +
     gatewaySource
       .replace(/^import[\s\S]*?from\s+["'][^"']+["'];?$/gm, "")
-      .replace(/^export default/m, "const __workerDefault =");
+      .replace(/^export default/m, "const __workerDefault =")
+      /*
+        A named declaration exported from the worker is the same declaration
+        once the module wrapper is gone, so the keyword is dropped and the
+        declaration is evaluated exactly as an unexported one would be. The
+        gateway grew its first of these when `toolDefinitions` was exported so
+        a client's own suite could check what it sends against what is
+        advertised.
+
+        Deliberately only the *declaration* forms. `export {a, b}`,
+        `export * from` and `export {x} from` name bindings rather than
+        introducing them, and there is no reading of those that keeps this
+        extraction honest — so they still fall through to the throw below,
+        which is what that throw is for.
+      */
+      .replace(/^export\s+(?=(?:async\s+)?(?:function|class|const|let|var)\b)/gm, "");
 
   if (/^export\s/m.test(body)) {
     throw new Error(

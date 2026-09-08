@@ -13,6 +13,9 @@ import { describe as describeVisibility } from "./Breadcrumb";
 import { saveButton, type EditorState } from "./editor";
 import { noteHeading, noteHeadingSource, properties, splitNote, type Property } from "./frontmatter";
 import { Confirm } from "./Dialogs";
+import { isPassphraseNote } from "../encryption/envelope";
+import { LockedNoteView } from "../encryption/LockedNoteView";
+import type { NoteEncryptionController } from "../encryption/useNoteEncryption";
 import { LiveEditor, type EditorControls } from "./LiveEditor";
 import { NoteAccessory } from "./NoteAccessory";
 import type { Visibility } from "./types";
@@ -102,6 +105,7 @@ export function NoteEditor({
   onKeepMine,
   onOpenLink,
   notePaths,
+  encryption,
 }: {
   state: EditorState;
   canEdit: boolean;
@@ -173,9 +177,33 @@ export function NoteEditor({
   onDiscard: () => void;
   onUseTheirs: () => void;
   onKeepMine: () => void;
+  /**
+   * What renders a note locked behind a passphrase, and what it writes back
+   * to. Absent wherever there is nowhere to route a write — the landing
+   * page's read-only demo — in which case a passphrase note falls back to
+   * the plain `EncryptedNotice` treatment every other encrypted note gets:
+   * the envelope shown as read-only text, same as this console has always
+   * shown one.
+   */
+  encryption?: {
+    controller: NoteEncryptionController;
+    /** Told the new etag after every write this view makes. */
+    onWritten?: (etag: string) => void;
+  };
 }) {
   const styles = useThemedStyles(makeStyles);
   const editable = canEdit && !state.readOnly;
+  /*
+    A passphrase note is `state.encrypted` exactly as a workspace-encrypted
+    one is — the flag does not (and must not) say which recipient locked it,
+    since that is a question only the envelope itself answers. This is the
+    one place that asks: `isPassphraseNote` reads `state.draft`, which for an
+    encrypted note is its ciphertext (`editorReducer`'s `opened` case sets
+    `draft` to the stored text unchanged), so this is answered from bytes
+    already in hand rather than a second read.
+  */
+  const passphraseLocked =
+    state.encrypted && encryption !== undefined && isPassphraseNote(state.draft);
   const button = saveButton(state);
   const compact = densityFor(useWindowDimensions().width) === "compact";
   /*
@@ -314,7 +342,15 @@ export function NoteEditor({
     <>
       {compact ? pathBar : null}
       {compact ? notices : null}
-      {state.encrypted ? <EncryptedNotice /> : state.readOnly ? <ManifestNotice /> : null}
+      {/*
+        A passphrase note gets `LockedNoteView` below instead of the raw
+        envelope, and `LockedNoteView` says everything `EncryptedNotice`
+        would — printing both would say the same thing twice, once truthfully
+        ("we cannot read this") and once in words written for the mode that
+        is not this one ("readable through a connected client", which is
+        exactly false for a passphrase note).
+      */}
+      {passphraseLocked ? null : state.encrypted ? <EncryptedNotice /> : state.readOnly ? <ManifestNotice /> : null}
 
       {/*
         The note's name, inside the note — Obsidian's inline title.
@@ -387,11 +423,23 @@ export function NoteEditor({
             The filing metadata, folded away — see `Properties` below and
             `frontmatter.ts`. Drawn where there is a block to fold **or** an
             access-map answer to state; a note with neither gets no row at all
-            rather than an empty disclosure.
+            rather than an empty disclosure. Not for a passphrase note: its
+            frontmatter is the marker and nothing a person filed.
           */}
-          {compact && (frontmatter !== "" || visibility !== undefined) ? (
+          {compact && !passphraseLocked && (frontmatter !== "" || visibility !== undefined) ? (
             <Properties frontmatter={frontmatter} visibility={visibility} />
           ) : null}
+          {passphraseLocked ? (
+            <LockedNoteView
+              path={state.path!}
+              stored={state.draft}
+              etag={state.etag}
+              canEdit={canEdit}
+              controller={encryption!.controller}
+              onWritten={encryption!.onWritten}
+            />
+          ) : (
+          <>
           <LiveEditor
             /*
               The body alone on a phone, and the whole file everywhere else.
@@ -479,6 +527,8 @@ export function NoteEditor({
                 onOpenLink(path);
               }}
             />
+          )}
+          </>
           )}
         </View>
 

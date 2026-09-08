@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { isEncryptedNote } from "../encryption/envelope";
 import { demoTreeFor, type DemoContextTree } from "../placeholderData";
 import type { FileBrowser } from "./browser";
 import { editorReducer, emptyEditor } from "./editor";
@@ -42,6 +43,15 @@ export function demoNote(tree: DemoContextTree, path: string): OpenNote | null {
     // anything is a different fact, carried by `canEdit`, and conflating the
     // two put the manifest's explainer on top of every note here.
     readOnly: entry?.readOnly ?? false,
+    // Every real read path (`fileOps.readFile`, the gateway's `read_note`)
+    // answers this from the stored bytes, never from a flag carried
+    // separately — `docs/decisions/encryption.md`'s "whether a write is
+    // encrypted is decided by the stored object" applies just as much to a
+    // read. Without this, a note this demo's own encryption fixture just
+    // wrote as ciphertext reopened reporting `encrypted: undefined`, which
+    // `editorReducer` reads as `false` — a locked note the console would
+    // have shown as an ordinary, editable one.
+    encrypted: isEncryptedNote(text),
   };
 }
 

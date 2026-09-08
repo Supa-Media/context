@@ -34,6 +34,20 @@ export interface FakeRecorder extends MeetingRecorder {
   refuseStart(message: string): void;
   /** What the last `start()` was asked for, or `null`. */
   readonly startedWith: CaptureOptions | null;
+  /**
+   * How many segment handlers are attached right now.
+   *
+   * Exposed because a subscription nobody detached is invisible from the
+   * outside in every other way: the words still arrive, they simply arrive at
+   * more than one meeting. The controller kept one handler per meeting for the
+   * life of a process and the only symptom was a finished meeting's write
+   * carrying a later meeting's transcript — see `listenToRecorder`. Counting
+   * them is how a test asserts the handler was *detached* rather than merely
+   * out-voted by a filter downstream of it.
+   */
+  readonly segmentSubscribers: number;
+  /** How many error handlers are attached right now. See `segmentSubscribers`. */
+  readonly errorSubscribers: number;
 }
 
 export function fakeRecorder(
@@ -50,6 +64,12 @@ export function fakeRecorder(
     calls,
     get startedWith() {
       return startedWith;
+    },
+    get segmentSubscribers() {
+      return segmentListeners.size;
+    },
+    get errorSubscribers() {
+      return errorListeners.size;
     },
     capability: {
       audio: true,

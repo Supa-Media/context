@@ -287,11 +287,25 @@ note first, one note per round with the body re-serialized between rounds
 (`SHED_ROUNDS = 8`). A shed note is never removed: it keeps one entry, so
 `docsByShard` still records the version it was indexed at and the diff
 converges instead of re-fetching it forever. The surviving docs carry
-`shed: true`, `stats[id].shed` counts the notes per shard, and the sync
-answers `shed: string[]`. Only a shard with nothing left to shed is refused,
-and that is counted separately as `oversizedShards`. Both are the opposite of
-`pending`: `pending` says run another pass, these say the corpus does not fit
-the index it has.
+`shed: true`, `stats[id].shed` counts the notes per shard, `stats[id].shedPaths`
+names them (written only when non-empty, the same sparse rule as `shed: true`
+on a doc entry — an older gateway reading this manifest ignores a key it does
+not validate, so both fields travel in both directions with no version bump),
+and the sync answers `shed: string[]`. Only a shard with nothing left to shed
+is refused, and that is counted separately as `oversizedShards`. Both are the
+opposite of `pending`: `pending` says run another pass, these say the corpus
+does not fit the index it has.
+
+`shedNotePathsOf(manifest)` flattens `shedPaths` across every shard — raw and
+unfiltered, private notes included, exactly like `manifest.filters` — so it
+must be run through the caller's own `isVisible` before anything built from it
+leaves the gateway. `searchIndexedNotes` does this on every query (never
+gated on which shards that query's own routing happened to open, since the
+whole failure this exists to fix is a shard whose filter correctly finds
+nothing for a term a shed message used to hold) and reports the result as
+`reducedRecall` / `reducedRecallNotes`, `indexIncomplete`'s opposite claim
+(`docs/decisions/search.md`, "A shed index must say so to the caller it
+happened to").
 
 The manifest and the docmap share `MANIFEST_PARSE_BYTE_CAP = 4MB`; an
 unreadable or oversized manifest is a full rebuild, and an unreadable docmap is
@@ -448,6 +462,14 @@ starts, so a wave can never overspend the counter.
 this walk could not open. `listedAt: null` is an index no pass has recorded
 this for, and it counts as behind: an unknown reported as complete is the one
 direction that tells somebody their note is not written down.
+
+**Honesty about a wall a listing cannot move.** `reducedRecall` /
+`reducedRecallNotes` are `indexIncomplete`'s opposite claim, read off the
+manifest's `stats[id].shedPaths` and filtered through this same `isVisible` —
+see § Caps, "sheds rather than taking the rest with it". Never folded into
+`indexIncomplete`: that flag means another pass helps, and a shed note stays
+shed until it shrinks or the index grows, so saying the same thing about both
+would tell somebody to retry a fix that is not coming.
 
 ### The one exception: a miss may buy a listing
 

@@ -79,6 +79,29 @@ export interface DrainReport {
    * arrives.
    */
   written: { sessionId: string; notePath: string }[];
+  /**
+   * EVERY REFUSAL THIS PASS COLLECTED, SO SOMETHING CAN SAY WHAT WAS REFUSED.
+   *
+   * The queue records `lastError` on the entry, which is the right place for
+   * the *person* to read it and the wrong place for anybody to find it: an
+   * entry that is later retried and accepted takes its own explanation with it,
+   * and until this existed the only surviving evidence of a refusal was the
+   * queue file on disk. An evening of meetings was diagnosed that way.
+   *
+   * The status and the code travel with the sentence, because "400" alone said
+   * nothing and the sentence alone cannot tell a refusal this gateway composed
+   * from a proxy's. **Nothing here is content**: the session id, the kind, the
+   * status, the contract's code, and the gateway's own `error_description` —
+   * never a segment, a note, a title, or the credential.
+   */
+  refusals: {
+    sessionId: string;
+    kind: OutboxKind;
+    status: number | null;
+    code: string;
+    message: string;
+    parked: boolean;
+  }[];
 }
 
 export async function drainOnce(
@@ -99,6 +122,7 @@ export async function drainOnce(
   let sent = 0;
   let failed = 0;
   const written: { sessionId: string; notePath: string }[] = [];
+  const refusals: DrainReport["refusals"] = [];
 
   for (let i = 0; i < maxRequests; i += 1) {
     const entry = nextDrain(current, now());
@@ -110,13 +134,24 @@ export async function drainOnce(
       if (entry.kind === "finalize" && typeof result.notePath === "string") {
         written.push({ sessionId: entry.sessionId, notePath: result.notePath });
       }
-    } else failed += 1;
+    } else {
+      failed += 1;
+      refusals.push({
+        sessionId: entry.sessionId,
+        kind: entry.kind,
+        status: result.status ?? null,
+        code: result.code,
+        message: result.message,
+        parked: !result.retryable,
+      });
+    }
   }
 
   return {
     outbox: current,
     sent,
     failed,
+    refusals,
     parked: current.entries.filter((entry) => entry.state === "parked").length,
     written,
   };

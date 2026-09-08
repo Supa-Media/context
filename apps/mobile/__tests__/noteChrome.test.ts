@@ -44,6 +44,20 @@ import type { FolderListing } from "../features/console/files/types";
 
 const mockInsets = { top: 59, bottom: 34, left: 0, right: 0 };
 
+/**
+ * `BrowsePane` now instantiates its own passphrase controller
+ * (`useNoteEncryption`, for the "Password-encrypt content" advanced option
+ * and a locked note's own view), which calls `useAction`. None of these
+ * renders wrap the tree in a real `ConvexProvider` -- nothing here exercises
+ * encryption -- so a stub that refuses if actually called is enough to let
+ * the pane mount.
+ */
+jest.mock("convex/react", () => ({
+  useAction: () => async () => {
+    throw new Error("not used in this test");
+  },
+}));
+
 jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => mockInsets,
 }));
