@@ -179,3 +179,82 @@ things about them are load-bearing:
 
 Renaming either tool, or "simplifying" the pair away because they duplicate
 `search_notes`/`read_note`, disconnects every ordinary ChatGPT chat.
+
+### The advertised `inputSchema` is enforced, and it is enforced in one place
+
+`tools/list` publishes an `inputSchema` for every tool and nothing
+checked a call against one. `callTool` handed the whole arguments object to the
+handler, which read the properties it knew about and ignored the rest. The gap
+was found by an adversarial review of the key export asking whether
+`export_encryption_keys` could be pointed at another workspace by supplying
+that workspace's identifiers: the answer was no, and the only reason was that
+`toolExportEncryptionKeys(store, scope)` and `toolRotateEncryptionKeys(store,
+scope)` are the only two tool functions in `index.js` that do not declare an
+`args` parameter at all. That is an accident of two signatures. Every other
+tool had the same gap with nothing at all in front of it, and a refactor adding
+`args` "for symmetry" would have closed the accident in one line.
+
+It matters because of who calls these tools. They are AI clients driven by text
+other people wrote — an email body, a meeting transcript, a shared note — and
+an argument the schema does not describe reaching a handler is the shape a
+prompt-injected client uses to turn a read into something else.
+
+`src/toolArguments.js` is a hand-written validator over the subset the tool
+definitions use, because the gateway takes no npm dependencies and runs on the
+Workers runtime. Four things about it are load-bearing:
+
+- **Unknown properties are refused, not dropped.** Dropping is the tempting
+  half-measure and it is worse than either alternative: the call proceeds, so
+  an injected instruction that failed still got a tool to run, and nothing in
+  the transcript says a property was discarded. A call carrying an argument we
+  never advertised is not a nearly-right call, it is a different call.
+- **The order in `callToolForSession` is the security argument, not a
+  formatting choice.** After routing, because `context` is that argument's own
+  to interpret and is already refused on its own terms — a `context` of `123`
+  is "no access to that context", not a type complaint. After the scope gate,
+  so a read-only connection is told it holds a read-only grant rather than
+  handed the argument shape of a tool its own `tools/list` does not show it.
+  Before `callTool`, so no handler, no privacy-manifest read and no storage
+  round trip happens for a call whose arguments we never said we would take —
+  which is also what makes a call naming another workspace's identifiers
+  refused identically whether that workspace exists or not. There is a check
+  for each of those three, and they fail if the order is changed.
+- **A tool whose existence is masked is not validated.** `callTool` answers a
+  team-tier caller `unknown tool: …` for the two encryption tools, byte-identical
+  to an invented name ([encryption](./encryption.md), "a team-tier caller does
+  not even learn the tool exists"). Validating a masked tool's arguments undoes
+  that in one sentence, because a complaint about a property is a statement
+  that the tool is real. `EXISTENCE_MASKED_TOOLS` is read by the mask and by
+  the validator so the two cannot drift.
+- **The refusal is a function of the request and the schema, and of nothing
+  else.** It never reads storage, never names a workspace, and never echoes a
+  value — a client that volunteers a passphrase is told the property is not
+  taken, never what it sent. Property names are escaped outside printable
+  ASCII, so a name differing from a real one only by a Cyrillic letter comes back
+  as `p\u0430th` rather than as something that looks like the correct spelling.
+
+**The census is the part that has to survive the next tool.** A validator wired
+into a dispatch table protects the tools somebody remembered to wire in, so
+`toolArguments.test.mjs` reads `src/index.js` and asserts that every `case` in
+`callTool`'s switch resolves to an advertised schema — through `TOOL_NAME_ALIASES`
+for `archive_chat`, the one name still dispatched and no longer listed — that
+every advertised schema is a closed object, that no schema uses a keyword the
+validator would silently ignore, that there is exactly one place a tool is
+dispatched from, and that the validator runs before it. The keyword check
+earned itself immediately: `move_notes` advertised `minItems` and `maxItems`,
+which nothing enforced, and they are implemented rather than deleted.
+
+Two deliberate consequences, neither of them a widening of a schema to make an
+existing call pass:
+
+- **`search` and `fetch` refuse `context`.** Their schema is ChatGPT's
+  deep-research contract and deliberately does not carry the addressing
+  argument; those chats send what the contract defines and nothing else, and a
+  client that can see the ordinary tools can address a context with them.
+- **A call refused for its arguments spends no rate-limit budget.** The export
+  limit exists to bound how often key material can actually leave, and a call
+  that was never going to produce any has nothing to bound.
+
+The cost is 1 microsecond for a typical `write_note`, measured over 20,000
+iterations in the suite, against a `fetch` to object storage on the other side
+of the same function.
