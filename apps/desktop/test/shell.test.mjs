@@ -22,6 +22,10 @@
  *   `desktopUiMode` reading the value raw rather than trimmed and lowered   1
  *   `desktopUiMode` passing a misspelt mode through                         1
  *   `consoleUrl` choosing its fallback from `NODE_ENV` again                4
+ *   `mayGrantConsolePermission` returning true for everything               4
+ *   `mayGrantConsolePermission` returning false for everything              2
+ *   `media` added to `CONSOLE_PERMISSIONS`                                  2
+ *   `clipboard-read` added to `CONSOLE_PERMISSIONS`                         2
  *
  * Three of those are worth writing down rather than just counting.
  *
@@ -56,12 +60,14 @@
 
 import {
   BRIDGE_VERSION,
+  CONSOLE_PERMISSIONS,
   DEFAULT_CONSOLE_URL,
   DEV_CONSOLE_URL,
   NO_CAPABILITIES,
   consoleOrigin,
   consoleUrl,
   desktopUiMode,
+  mayGrantConsolePermission,
   shouldExposeBridge,
   unexpectedConsoleAddress,
 } from "../src/core/shell/console.ts";
@@ -329,5 +335,50 @@ export function runShellChecks(check) {
   check(
     "the capability probe names system audio, which no version number could predict",
     Object.hasOwn(NO_CAPABILITIES, "systemAudio"),
+  );
+
+  // --- what the console window may ask the operating system for ------------
+  //
+  // "Copy note" did nothing: pressed, clipboard unchanged. The console's
+  // session denied every permission request — written about the microphone, and
+  // right about the microphone — and Chromium routes
+  // `navigator.clipboard.writeText` through a `clipboard-sanitized-write`
+  // request, so the one way a finished meeting gets off this machine was
+  // refused as collateral.
+  //
+  // The list is the security boundary, so it is checked here rather than
+  // written inline in `main/windows.ts`, which imports `electron` and which
+  // nothing in this suite can load.
+
+  check(
+    "the clipboard write a Copy button needs is granted",
+    mayGrantConsolePermission("clipboard-sanitized-write") === true,
+  );
+  check(
+    "...under the other spelling Chromium uses for it too",
+    mayGrantConsolePermission("clipboard-write") === true,
+  );
+  check(
+    "READING THE CLIPBOARD IS NOT GRANTED, because no feature here needs it",
+    mayGrantConsolePermission("clipboard-read") === false,
+  );
+  check(
+    "THE MICROPHONE IS STILL REFUSED: it belongs to the capture window and the gate",
+    mayGrantConsolePermission("media") === false,
+  );
+  check(
+    "...and so is everything else a hosted page might ask for",
+    ["geolocation", "notifications", "midi", "display-capture", "openExternal", "fullscreen"].every(
+      (permission) => mayGrantConsolePermission(permission) === false,
+    ),
+  );
+  check(
+    "a permission Chromium invents later is refused until somebody adds it on purpose",
+    mayGrantConsolePermission("some-permission-from-2028") === false,
+  );
+  check(
+    "the list is exactly the clipboard writes, and nothing has crept onto it",
+    [...CONSOLE_PERMISSIONS].every((permission) => permission.startsWith("clipboard-")) &&
+      !CONSOLE_PERMISSIONS.includes("clipboard-read"),
   );
 }

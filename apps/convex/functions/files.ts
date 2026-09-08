@@ -118,6 +118,7 @@ import {
   type ProjectionPass,
   searchNotes,
   type SearchResults,
+  removeNoteEncryption as removeNoteEncryptionOp,
   resetPrivacyManifest,
   setFolderVisibility,
   setVisibility,
@@ -498,6 +499,12 @@ const operationValidator = v.union(
     text: v.string(),
     expectedEtag: v.optional(v.string()),
   }),
+  v.object({
+    kind: v.literal("removeEncryption"),
+    path: v.string(),
+    text: v.string(),
+    expectedEtag: v.optional(v.string()),
+  }),
   v.object({ kind: v.literal("createFolder"), path: v.string() }),
   /**
    * Bytes into the opaque store, and back out again.
@@ -551,6 +558,13 @@ type FileOperation =
   | { kind: "maintainIndex"; passes?: number }
   | { kind: "projectIndex"; passes?: number }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
+  /**
+   * Replace an encrypted note's content with plaintext. A separate operation
+   * from `write` rather than one more of its shapes — `writeFile` never
+   * accepts plaintext over an encrypted note, and this is the one narrow,
+   * explicit door that does. See `removeNoteEncryption` in `lib/fileOps.ts`.
+   */
+  | { kind: "removeEncryption"; path: string; text: string; expectedEtag?: string }
   | { kind: "createFolder"; path: string }
   | { kind: "move"; from: string; to: string }
   | { kind: "copy"; from: string; to: string }
@@ -1079,6 +1093,15 @@ export async function executeOperation(
           expectedEtag: operation.expectedEtag,
           scope,
           now,
+        });
+        return { kind: "written", ...written };
+      }
+      case "removeEncryption": {
+        const written = await removeNoteEncryptionOp(store, {
+          path: operation.path,
+          text: operation.text,
+          expectedEtag: operation.expectedEtag,
+          scope,
         });
         return { kind: "written", ...written };
       }
@@ -1658,6 +1681,66 @@ export const writeNote = action({
       workspaceId: args.workspaceId,
       actorUserId,
       action: args.expectedEtag === undefined ? "file.create" : "file.write",
+      paths: [result.path],
+      details: { conflictCheck: result.conflictCheck },
+    });
+    return result;
+  },
+});
+
+/**
+ * Remove a passphrase lock, replacing an encrypted note with plaintext.
+ *
+ * **Not `writeNote`, deliberately.** `writeFile`'s own widening lets an
+ * envelope replace an envelope naming the same recipients — an edit while
+ * unlocked, a passphrase change — and refuses plaintext over an encrypted note
+ * in every case, so that an ordinary Save can never silently turn a lock off.
+ * This is the separate, narrower door for the one legitimate plaintext-over-
+ * encrypted write: reachable only from an explicit "Remove encryption" action
+ * in the console, never from the editor's own Save.
+ *
+ * `minimum: "editor"`, the same as `writeNote` — the passphrase is what gates
+ * this, not the workspace role. Anyone who can already write this note and
+ * who was given the passphrase some other way (`docs/decisions/encryption.md`:
+ * "sharing a note does not share its passphrase") may remove the lock they
+ * were told how to open; nobody who lacks the passphrase can produce a
+ * plaintext body this console will accept, because there is nothing here that
+ * could have decrypted the note to produce one.
+ */
+export const removeNoteEncryption = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    text: v.string(),
+    expectedEtag: v.optional(v.string()),
+  },
+  returns: writtenValidator,
+  handler: async (
+      ctx,
+      args,
+    ): Promise<Extract<OperationResult, { kind: "written" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "editor",
+    });
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      operation: {
+        kind: "removeEncryption",
+        path: args.path,
+        text: args.text,
+        expectedEtag: args.expectedEtag,
+      },
+    })) as Extract<OperationResult, { kind: "written" }>;
+
+    // Paths and an outcome. Never the text, same as every other write here.
+    await ctx.runMutation(internal.functions.audit.recordEvent, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      action: "file.decrypt",
       paths: [result.path],
       details: { conflictCheck: result.conflictCheck },
     });

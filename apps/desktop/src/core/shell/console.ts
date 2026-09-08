@@ -258,3 +258,68 @@ export function unexpectedConsoleAddress(
     ? null
     : `the window was pointed at ${resolved}, but this launch resolves ${expected}`;
 }
+
+
+/* --------------------------- what the console may ask for ----------------- */
+
+/**
+ * The permissions the console window is allowed, and it is a list of one.
+ *
+ * ## The bug this exists because of
+ *
+ * "Copy note" did nothing. Pressed, clipboard unchanged, and the button did not
+ * even claim otherwise — `writeClipboard` answers a boolean and the screen says
+ * "Couldn't reach the clipboard on this device", so this was an honest failure
+ * that nobody could act on.
+ *
+ * The cause is one line in `main/windows.ts`. The console hosts a page this app
+ * did not write, so its session denies **every** permission request:
+ *
+ *     setPermissionRequestHandler((_c, _p, callback) => callback(false))
+ *
+ * That was written about the microphone, and it is right about the microphone.
+ * But Chromium routes `navigator.clipboard.writeText` through a
+ * `clipboard-sanitized-write` permission request, so denying everything denies
+ * the clipboard too — collateral rather than intent. The `execCommand("copy")`
+ * fallback in `clipboard.web.ts` is what a page falls back to, and it is
+ * deprecated, increasingly refused, and not something the one way a meeting
+ * gets off this machine should rest on.
+ *
+ * ## Why an allowlist rather than deleting the handler
+ *
+ * Removing it restores Electron's default, which grants most of what a page
+ * asks for — including `media`, which is the microphone this app is built so
+ * that a compromised page cannot reach. So the handler stays and the deny stays
+ * default; exactly one permission is named.
+ *
+ * `clipboard-sanitized-write` and not `clipboard-read`: writing is what Copy
+ * does. Reading the clipboard is a page helping itself to whatever a person
+ * last copied, from anywhere, and there is no feature here that needs it.
+ * Chromium spells the write permission two ways across versions, so both write
+ * spellings are named and neither of them is a read.
+ *
+ * ## Why it is a pure function in this file
+ *
+ * `main/windows.ts` imports `electron` and cannot be loaded by the suite at
+ * all, so a rule written inline there is a rule nothing checks — and this one
+ * is a security boundary with a list in it. Same reason `shouldExposeBridge`
+ * and `mayNavigateConsoleWindow` live out here.
+ */
+export const CONSOLE_PERMISSIONS: readonly string[] = Object.freeze([
+  "clipboard-sanitized-write",
+  "clipboard-write",
+]);
+
+/**
+ * Whether the console window may have this permission.
+ *
+ * Default deny, and an unknown permission is denied by construction: this asks
+ * whether a name is on the list rather than whether it is off any list, so a
+ * permission Chromium invents next year is refused until somebody adds it here
+ * on purpose.
+ *
+ * @param permission Chromium's own name for it, as Electron passes it through.
+ */
+export function mayGrantConsolePermission(permission: string): boolean {
+  return CONSOLE_PERMISSIONS.includes(permission);
+}

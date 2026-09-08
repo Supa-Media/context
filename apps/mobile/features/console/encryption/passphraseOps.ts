@@ -77,7 +77,7 @@ function deriveWith(context: OpsContext, passphrase: string, kdf: KdfDescriptor)
 export async function protectNote(
   input: { path: string; plaintext: string; etag: string | null; passphrase: string },
   context: OpsContext,
-): Promise<{ etag: string; key: Uint8Array }> {
+): Promise<{ etag: string; key: Uint8Array; stored: string }> {
   requirePassphrase(input.passphrase);
   const kdf = newKdfDescriptor();
   const key = deriveWith(context, input.passphrase, kdf);
@@ -91,7 +91,11 @@ export async function protectNote(
     content: document,
     expectedEtag: input.etag,
   });
-  return { etag, key };
+  // `stored` is what a caller needs to keep locally in step with the bucket
+  // without a second read: the next operation on this note (a save, a
+  // passphrase change) reads its KDF descriptor and its recipient straight out
+  // of it, via `passphraseKdfOf`/`parseEncryptedNote`.
+  return { etag, key, stored: document };
 }
 
 /**
@@ -132,7 +136,7 @@ export async function unlockNote(
 export async function saveUnlockedNote(
   input: { path: string; plaintext: string; etag: string | null; key: Uint8Array; stored: string },
   context: OpsContext,
-): Promise<{ etag: string }> {
+): Promise<{ etag: string; stored: string }> {
   const kdf = passphraseKdfOf(input.stored);
   if (kdf === null) throw new NoteCryptoError("this note is not protected by a passphrase");
   const document = await encryptForPassphrase(input.plaintext, {
@@ -140,11 +144,12 @@ export async function saveUnlockedNote(
     kek: input.key,
     kdf,
   });
-  return await context.writer.write({
+  const { etag } = await context.writer.write({
     path: input.path,
     content: document,
     expectedEtag: input.etag,
   });
+  return { etag, stored: document };
 }
 
 /**
@@ -168,7 +173,7 @@ export async function changePassphrase(
     newPassphrase: string;
   },
   context: OpsContext,
-): Promise<{ etag: string; key: Uint8Array }> {
+): Promise<{ etag: string; key: Uint8Array; stored: string }> {
   requirePassphrase(input.newPassphrase);
   const envelope = parseEncryptedNote(input.stored);
   if (envelope === null || !isPassphraseNote(input.stored)) {
@@ -192,12 +197,13 @@ export async function changePassphrase(
   noteKey.fill(0);
   currentKey.fill(0);
 
+  const document = replacingRecipient(input.stored, rewrapped);
   const { etag } = await context.writer.write({
     path: input.path,
-    content: replacingRecipient(input.stored, rewrapped),
+    content: document,
     expectedEtag: input.etag,
   });
-  return { etag, key: nextKey };
+  return { etag, key: nextKey, stored: document };
 }
 
 /**

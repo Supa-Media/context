@@ -684,6 +684,106 @@ export async function runMeetingChecks(check) {
   });
   check("segments must be an array", notAnArray.status === 400 && notAnArray.body?.error === "meeting_invalid");
 
+  /* --------------- 3b. a batch minted for a different meeting --------------- */
+
+  /*
+    THE ONE REFUSAL HERE THAT PROTECTS A NOTE RATHER THAN A BUCKET.
+
+    A recorder's segment id carries, in its own first token, the meeting it was
+    minted for. The console app kept an `onSegment` subscription per meeting and
+    detached none, so every finished meeting of an evening was handed a batch of
+    a *later* meeting's words addressed to it — eight of eight on the owner's
+    Mac. Those were refused only because the sessions they named happened to be
+    `complete` by then; a session still open — two meetings close together, a
+    finalize that had not drained — would have taken them, and the note in
+    somebody's bucket would have held a conversation from another room. Nothing
+    downstream could tell: by the time it is a turn under `## Transcript` there
+    is no id left to check.
+
+    So the check is at the door, on the one fact a wrong envelope cannot
+    overwrite, and it is asserted against a session that is very much **open**
+    — the whole point is that the refusal must not depend on the coincidence
+    that saved the owner's notes.
+  */
+  const foreignBatch = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_MAIN}/segments`, {
+    body: { segments: [segment(`${SESSION_TEAM}-mic-0-s000`, 40_000, "spoken in another meeting")] },
+  });
+  check(
+    "a segment minted for another meeting is refused",
+    foreignBatch.status === 400 && foreignBatch.body?.error === "meeting_invalid"
+  );
+  check(
+    "and the refusal names the meeting the words belong to",
+    (foreignBatch.body?.error_description ?? "").includes(SESSION_TEAM)
+  );
+  check("and nothing of it reaches the transcript", rawRecord().transcript.length === 3);
+
+  const mixedBatch = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_MAIN}/segments`, {
+    body: {
+      segments: [
+        segment(`${SESSION_MAIN}-mic-9-s000`, 41_000, "mine"),
+        segment(`${SESSION_TEAM}-mic-9-s000`, 42_000, "not mine"),
+      ],
+    },
+  });
+  /*
+    The whole batch, not the offending row. `countUnusable`'s "store
+    forty-nine of fifty" is right for a row the merge cannot read and wrong
+    here: a batch with somebody else's words in it was addressed by something
+    that does not know whose words it is holding, and the rest of it is no more
+    trustworthy than the part that gave it away.
+  */
+  check("a batch mixing two meetings is refused whole", mixedBatch.status === 400);
+  check("including the rows that were addressed correctly", rawRecord().transcript.length === 3);
+
+  /*
+    The phone's recorders key their chunks on `String(Date.now())`, so their
+    segment ids name no meeting at all. Unaddressed is not misaddressed: a guard
+    on somebody's transcript may only fail in the direction of accepting what it
+    cannot prove wrong, or it silently stops taking words the day a recorder
+    changes how it mints ids.
+  */
+  /*
+    Its own session, because this is the one check in the block that must
+    *land* something and every count the rest of this file asserts is about
+    `SESSION_MAIN`. `idOf` is exhausted — every character of the id alphabet is
+    already bound to a fixture — so this id is spelled out rather than drawn
+    from that family.
+  */
+  const SESSION_UNADDRESSED = `mtg_${"a".repeat(19)}b`;
+  await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: { id: SESSION_UNADDRESSED, title: "Recorded on a phone", startedAt: "2026-09-01T11:00:00.000Z" },
+  });
+  const unaddressed = await meetingRequest(
+    env,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_UNADDRESSED}/segments`,
+    { body: { segments: [segment("1757280000000-0-s000", 43_000, "from a phone")] } }
+  );
+  check(
+    "a segment id that names no meeting is still taken",
+    unaddressed.status === 200 && unaddressed.body?.segmentCount === 1
+  );
+
+  /*
+    The replay door, not the append door. A client's own log carries
+    `{type: "segments"}` through `POST /meetings/sessions`, so a guard on one of
+    the two is not a guard.
+  */
+  const foreignReplay = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: {
+      id: SESSION_MAIN,
+      events: [
+        {
+          type: "segments",
+          segments: [segment(`${SESSION_TEAM}-mic-1-s000`, 44_000, "replayed from another meeting")],
+        },
+      ],
+    },
+  });
+  check("a replayed log carrying another meeting's words is refused too", foreignReplay.status === 400);
+  check("and that transcript is untouched as well", rawRecord().transcript.length === 3);
+
   /* ---------------------------- 4. the human's notes ----------------------- */
 
   const notes = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_MAIN}/notes`, {
@@ -2920,6 +3020,10 @@ export async function runMeetingChecks(check) {
   check("a speaker is never invented", words.every((word) => word.speaker === null));
   check("a confidence the engine did not give is null, not a number we chose", words[0]?.confidence === null);
   check("...and one it did give is passed through", words[1]?.confidence === 0.5);
+  check(
+    "a service that refused nothing says so, rather than saying nothing",
+    transcribed.body?.refusedSegments === 0
+  );
 
   const forwarded = transcribeCalls.at(-1);
   check("the audio went to the configured service", forwarded?.url === `${TRANSCRIBE_ORIGIN}/transcribe`);
@@ -2968,6 +3072,86 @@ export async function runMeetingChecks(check) {
   check(
     "...AND AN UPSERT OF A SESSION YOU HOLD DOES NOT RESET IT EITHER",
     afterUpsert.transcribedChunks === 1 && afterUpsert.title === "Re-opened to reset the meter"
+  );
+
+  /*
+    SILENCE IS A REAL ANSWER, AND IT ARRIVES WITH ITS REASON.
+
+    The transcription service now refuses the segments the engine's own evidence
+    says are not speech (`infra/transcribe-worker/src/transcribe.ts`, after
+    ninety seconds of a quiet room produced 166 words on the owner's Mac). So a
+    quiet room reaches this gateway as an empty `segments` array beside a
+    non-zero `refused`, and three things have to be true of that here.
+
+    It must not read as a broken service. An empty array falls through
+    `intoSegments` silently — but a payload with no readable `segments` at all
+    is still a 503, because those are different answers and collapsing them is
+    how "every meeting transcribed to nothing" ships with a green health check.
+
+    The count must reach the recorder, because the recorder is what puts a
+    sentence on somebody's screen. `segments: []` with `refused: 3` is "the room
+    was quiet"; with `refused: 0` it is "nothing is transcribing this". A client
+    that cannot tell them apart shows the wrong one, which is the shorter answer
+    with no explanation this repository keeps finding.
+
+    And a service one deploy behind must go on working: it is deployed by its
+    own workflow and answers with a bare array.
+
+    SABOTAGE, each one edit to `src/meetings/transcribe.js`:
+      drop `refusedSegments` from the answer                    3 FAIL
+      read `raw.segments` only, with no bare-array fallback     2 FAIL
+      treat an unreadable payload as an empty transcript        1 FAIL
+
+    What is deliberately NOT checked here is a judgement, because this gateway
+    makes none: it holds a base64 string it must not decode and a list of
+    sentences no filter can tell apart, so it carries the decision and does not
+    take one.
+  */
+  const quietBefore = transcribeCalls.length;
+  transcribeAnswer = () =>
+    new Response(JSON.stringify({ text: "", segments: [], refused: 3 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  const quiet = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk({ chunkId: `${SESSION_TRANSCRIBE}-mic-1` }) }
+  );
+  check("a chunk of silence is a 200, not a failure", quiet.status === 200);
+  check("...with no words in it", (quiet.body?.segments ?? []).length === 0);
+  check("...and the count that says why it is empty", quiet.body?.refusedSegments === 3);
+  check("...having really been forwarded", transcribeCalls.length === quietBefore + 1);
+
+  transcribeAnswer = () =>
+    new Response(JSON.stringify([{ startMs: 0, endMs: 500, text: "older" }]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  const legacy = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk({ chunkId: `${SESSION_TRANSCRIBE}-mic-2` }) }
+  );
+  check("a service that predates the refusal count still transcribes", legacy.status === 200);
+  check("...and reports nothing refused", legacy.body?.refusedSegments === 0);
+
+  transcribeAnswer = () =>
+    new Response(JSON.stringify({ result: { text: "reshaped" } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  const unreadable = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk({ chunkId: `${SESSION_TRANSCRIBE}-mic-3` }) }
+  );
+  check(
+    "an answer with no readable segments is a failure, not a quiet room",
+    unreadable.status === 503
   );
 
   const before = transcribeCalls.length;
@@ -3113,13 +3297,95 @@ export async function runMeetingChecks(check) {
   );
   check(
     "...but it is not told the microphone was the problem, because this gateway took the audio",
-    emptyAfterAudio.body?.emptyReason === "Audio was recorded, but none of it could be transcribed."
+    emptyAfterAudio.body?.emptyReason === "Audio was recorded, but no words came back from it."
+  );
+  check(
+    "...and the sentence names no fault, because there may not be one",
+    !/could not|failed|error/i.test(emptyAfterAudio.body?.emptyReason ?? "")
   );
   check(
     "...and nothing about the session was deleted on the way: the record is still there to read",
     JSON.parse(
       s3.bucketFor("meet-recorder").get(`${MEETING_PREFIX}${SESSION_TRANSCRIBED_TO_NOTHING}.json`)?.body ?? "{}"
     ).transcribedChunks === 1
+  );
+
+  /*
+    THE SHAPE THAT COULD NOT REACH `empty` AT ALL UNTIL TONIGHT.
+
+    A recording of a quiet room. `hasNothingCaptured` — no transcript, no typed
+    notes — is the one rule behind `finalizing -> empty`, and its transcript
+    half was unreachable for any session that opened a microphone: an engine
+    handed ninety seconds of silence answered with 166 words, so the transcript
+    was never empty and the guard merged as `2a120f5` was dead code in practice.
+    The implementation was right; the assumption under it was false.
+
+    Nothing here changed to fix that. What changed is upstream: the
+    transcription service refuses the segments the engine's own evidence says
+    are not speech, so a quiet chunk really does produce no words, and the
+    existing rule reaches the existing state on its own. This is the check that
+    says so end to end — chunks forwarded, no words back, and no note in the
+    bucket.
+
+    SABOTAGE: make the transcription answer carry one invented segment —
+    `{ segments: [{ startMs: 0, endMs: 900, text: "Thank you." }], refused: 3 }`,
+    which is what the engine really did — and 2 checks go RED, including "no
+    note is written for a room nobody spoke in". That is exactly the defect: one
+    hallucinated line is the whole difference between an empty session and a
+    meeting note full of sentences nobody said.
+  */
+  const SESSION_QUIET_ROOM = `mtg_${"z8".repeat(10)}`;
+  await meetingRequest(transcribing, TOKEN_OWNER, "/meetings/sessions", {
+    body: {
+      id: SESSION_QUIET_ROOM,
+      title: "Ninety seconds of nobody talking",
+      startedAt: "2026-09-06T11:00:00.000Z",
+      transcription: "cloud",
+    },
+  });
+  transcribeAnswer = () =>
+    new Response(JSON.stringify({ text: "", segments: [], refused: 4 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  const quietChunks = [];
+  for (let index = 0; index < 3; index += 1) {
+    quietChunks.push(
+      await meetingRequest(
+        transcribing,
+        TOKEN_OWNER,
+        `/meetings/sessions/${SESSION_QUIET_ROOM}/transcribe`,
+        { body: chunk({ chunkId: `${SESSION_QUIET_ROOM}-mic-${index}`, offsetMs: index * 20_000 }) }
+      )
+    );
+  }
+  transcribeAnswer = null;
+  check(
+    "ninety seconds of a quiet room transcribes to nothing, three chunks running",
+    quietChunks.every((answer) => answer.status === 200 && (answer.body?.segments ?? []).length === 0)
+  );
+  check(
+    "...and every one of them says why it is empty",
+    quietChunks.every((answer) => answer.body?.refusedSegments === 4)
+  );
+  const notesBefore = [...s3.bucketFor("meet-recorder").keys()].length;
+  const quietFinal = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_QUIET_ROOM}/finalize`,
+    { body: {} }
+  );
+  check(
+    "A SESSION THAT CAPTURED ONLY SILENCE REACHES `empty`",
+    quietFinal.status === 200 && quietFinal.body?.state === "empty"
+  );
+  check(
+    "no note is written for a room nobody spoke in",
+    [...s3.bucketFor("meet-recorder").keys()].length === notesBefore && !quietFinal.body?.path
+  );
+  check(
+    "...and the session record is still there, with its reason",
+    typeof quietFinal.body?.emptyReason === "string" && quietFinal.body.emptyReason.length > 0
   );
 
   /* ----------------- M1: a moved meeting note is still reachable ---------- */

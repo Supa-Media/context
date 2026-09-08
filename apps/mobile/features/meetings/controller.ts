@@ -18,7 +18,7 @@ import type {
   MeetingSession,
   MeetingSource,
 } from "./protocol";
-import { PROTOCOL_VERSION } from "./protocol";
+import { PROTOCOL_VERSION, foreignSegmentSessions } from "./protocol";
 import { checkFinalizeTimeout } from "./recovery";
 import {
   applyMeetingEvent,
@@ -223,6 +223,14 @@ export class MeetingsController {
   private epoch = 0;
   private persistTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private syncTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * How to stop listening to the recorder for the meeting that is live.
+   *
+   * Held, rather than thrown away, because a subscription that is never
+   * detached is not a leak of memory — it is a leak of *authorship*. See
+   * `listenToRecorder`.
+   */
+  private recorderOff: (() => void)[] = [];
 
   /* --------------------------- the store contract -------------------------- */
 
@@ -439,6 +447,7 @@ export class MeetingsController {
 
   /** Forget the configuration, for a sign-out or a context switch. */
   reset(): void {
+    this.detachRecorder();
     for (const timer of this.persistTimers.values()) clearTimeout(timer);
     this.persistTimers.clear();
     if (this.syncTimer !== null) clearTimeout(this.syncTimer);
@@ -588,6 +597,17 @@ export class MeetingsController {
       // A recorder that will not stop is not a reason to refuse to end a
       // meeting. It is reported through `onError`, which is already wired.
     });
+    /*
+      And stop listening for it, **after** the stop rather than before.
+
+      `capture/desktop.ts` detaches from the shell in the same order and for
+      the same reason: the last segments of a meeting are emitted while the
+      input is closing, and unsubscribing first would drop the final words of
+      every recording. Detaching *here* rather than only at the next `start()`
+      is what makes the window between two meetings empty rather than merely
+      short — a meeting that has ended has no listener at all.
+    */
+    this.detachRecorder();
 
     const live = this.snapshot.live;
     if (live === null) return;
@@ -630,6 +650,10 @@ export class MeetingsController {
       // well. Without this the microphone stays open with nothing left to
       // record into — on iOS, a red bar over an app that has forgotten why.
       await config.recorder.stop().catch(() => {});
+      // And nothing keeps listening on behalf of a meeting that no longer
+      // exists: `apply` would find no projection, but the closure would still
+      // be holding the id of a recording somebody deliberately destroyed.
+      this.detachRecorder();
     }
     this.cancelPersist(meetingId);
     this.projections.delete(meetingId);
@@ -789,6 +813,30 @@ export class MeetingsController {
     const before = this.projections.get(meetingId);
     if (before === undefined) return;
 
+    /*
+      WORDS ARE FOLDED INTO THE MEETING THAT PRODUCED THEM, OR INTO NOTHING.
+
+      The envelope says which meeting this event is for; the segment's own id
+      says which meeting minted it. When those disagree the id is right — see
+      `segmentSessionId` in the contract — and the disagreement is a bug in
+      whatever routed the event, never a reason to write one meeting's
+      transcript into another's note.
+
+      Refused loudly and dropped, rather than re-addressed: a segment belonging
+      to a meeting this record is not is not this record's to keep, and quietly
+      moving it would resurrect a meeting somebody may have finished with. The
+      line names both meetings and the count and carries **no text**, because
+      the whole failure is about whose words these are and the words themselves
+      are the one thing a log may not hold.
+    */
+    const misaddressed = foreignSegmentSessions(meetingId, segmentsIn(event));
+    if (misaddressed.length > 0) {
+      console.warn(
+        `meeting_segment_misaddressed to=${meetingId} from=${misaddressed.join(",")} kind=${event.type}`,
+      );
+      return;
+    }
+
     const after = applyMeetingEvent(before, event);
     // Identity, not deep equality: `applyMeetingEvent` returns the same object
     // for a refused move, so this is exactly "the reducer refused" and costs
@@ -819,12 +867,38 @@ export class MeetingsController {
     this.put(record, { immediate: event.type !== "notes" && event.type !== "title" });
   }
 
+  /**
+   * LISTEN TO THE RECORDER FOR **THIS** MEETING, AND STOP LISTENING FOR THE LAST.
+   *
+   * The handler closes over `meetingId`, which is correct and was the whole
+   * problem: nothing detached the previous meeting's handler, so after two
+   * meetings the recorder had two subscribers, after seven it had seven, and
+   * every segment of the meeting being recorded now was folded into the record
+   * of every meeting recorded before it in this process.
+   *
+   * What that cost, measured on the owner's Mac across one evening: eight
+   * finished meetings, each carrying a `segments` write full of words spoken in
+   * a *later* meeting, each refused by the gateway with 400 because the session
+   * they named was already complete. The refusal is the only reason those words
+   * did not reach somebody's note — `appendSegments` would have appended them
+   * to the wrong meeting's transcript had that meeting still been open, and a
+   * meeting whose finalize has not drained yet (a laptop on a plane) is exactly
+   * that. This is the fix for that, and `foreignSegmentSessions` in the
+   * contract is the guard that makes a future version of it visible instead of
+   * silent.
+   *
+   * `detachRecorder` is also called from `reset()`: a sign-out or a context
+   * switch must not leave a handler holding the previous workspace's meeting id.
+   */
   private listenToRecorder(meetingId: string): void {
     const config = this.require();
-    config.recorder.onSegment((segment) => {
-      this.apply(meetingId, { type: "segment", segment });
-    });
-    config.recorder.onError((error) => {
+    this.detachRecorder();
+    this.recorderOff.push(
+      config.recorder.onSegment((segment) => {
+        this.apply(meetingId, { type: "segment", segment });
+      }),
+    );
+    this.recorderOff.push(config.recorder.onError((error) => {
       /*
         A capture failure never ends a meeting, recoverable or not, and it never
         moves the session's state — see `start` above. The typed notes are the
@@ -835,7 +909,21 @@ export class MeetingsController {
         chip can say so while it lasts; the next successful `start` clears it.
       */
       this.set({ ...this.snapshot, captureError: error.message });
-    });
+    }));
+  }
+
+  /** Stop listening to the recorder. Safe to call when nothing is attached. */
+  private detachRecorder(): void {
+    const offs = this.recorderOff;
+    this.recorderOff = [];
+    for (const off of offs) {
+      try {
+        off();
+      } catch {
+        // A recorder that throws on unsubscribe is a recorder bug, and it must
+        // not stop the next meeting from starting.
+      }
+    }
   }
 
   private put(record: MeetingRecord, options: { immediate: boolean }): void {
@@ -915,6 +1003,19 @@ export class MeetingsController {
     this.snapshot = snapshot;
     for (const listener of this.listeners) listener();
   }
+}
+
+/**
+ * The transcript rows an event carries, for the address check in `apply`.
+ *
+ * Both spellings, because both reach the reducer: a live recorder emits one
+ * `segment` at a time and a replay folds a `segments` batch. Everything else is
+ * an empty list, so the check costs one `Array.isArray` on a `notes` keystroke.
+ */
+function segmentsIn(event: MeetingEvent): unknown[] {
+  if (event.type === "segment") return [event.segment];
+  if (event.type === "segments") return Array.isArray(event.segments) ? event.segments : [];
+  return [];
 }
 
 /**

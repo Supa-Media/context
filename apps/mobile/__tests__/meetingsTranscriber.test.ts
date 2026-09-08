@@ -78,13 +78,18 @@ const CHUNK: TranscribeChunkArgs = {
 };
 
 /** A client that records what it was asked and answers with what it was given. */
-function stubClient(answer: TranscriptSegment[]): ActionRunner & { calls: unknown[][] } {
+function stubClient(
+  answer: TranscriptSegment[],
+  refusedSegments?: number,
+): ActionRunner & { calls: unknown[][] } {
   const calls: unknown[][] = [];
   return {
     calls,
     async action(reference, args) {
       calls.push([reference, args]);
-      return { segments: answer };
+      // Omitted unless a test asks for it, so the default stub is exactly what a
+      // control plane one deploy behind this app answers with.
+      return refusedSegments === undefined ? { segments: answer } : { segments: answer, refusedSegments };
     },
   };
 }
@@ -116,7 +121,7 @@ describe("the cloud transcriber", () => {
   });
 
   test("segments come back as the action offset them, untouched", async () => {
-    const segments = await cloudTranscriber(stubClient([SEGMENT])).transcribe(CHUNK);
+    const { segments } = await cloudTranscriber(stubClient([SEGMENT])).transcribe(CHUNK);
     // The offsetting happens once, on the side that also knows what was said
     // inside the chunk. Adding `offsetMs` again here would put every line of a
     // forty-minute meeting twice as far along as it belongs.
@@ -129,14 +134,14 @@ describe("the cloud transcriber", () => {
    * The one field this boundary rewrites, and the reason it does.
    */
   test("a speaker the engine never heard is refused", async () => {
-    const segments = await cloudTranscriber(
+    const { segments } = await cloudTranscriber(
       stubClient([{ ...SEGMENT, speaker: "Seyi" }]),
     ).transcribe(CHUNK);
     expect(segments[0].speaker).toBeNull();
   });
 
   test("a confidence that is not a number is null rather than a guess", async () => {
-    const segments = await cloudTranscriber(
+    const { segments } = await cloudTranscriber(
       stubClient([
         { ...SEGMENT, confidence: undefined as unknown as null },
         { ...SEGMENT, id: "seg-2", confidence: 0.42 },
@@ -149,15 +154,53 @@ describe("the cloud transcriber", () => {
   });
 
   test("a channel nobody recognises is the microphone, which is what it was", async () => {
-    const segments = await cloudTranscriber(
+    const { segments } = await cloudTranscriber(
       stubClient([{ ...SEGMENT, channel: "speaker" as TranscriptSegment["channel"] }]),
     ).transcribe(CHUNK);
     expect(segments[0].channel).toBe("mic");
   });
 
   test("an action that answers with nothing is not a crash", async () => {
-    const segments = await cloudTranscriber(stubClient([])).transcribe(CHUNK);
+    const { segments } = await cloudTranscriber(stubClient([])).transcribe(CHUNK);
     expect(segments).toEqual([]);
+  });
+
+  /**
+   * WHY AN EMPTY ANSWER NOW ARRIVES WITH A REASON.
+   *
+   * Ninety seconds of a quiet room produced 166 words on a Mac and filed them
+   * into the bucket, so the transcription worker refuses the segments the
+   * engine's own evidence says are not speech. That makes an empty answer
+   * ambiguous in a way it was not before — a quiet room, or a transcriber that
+   * is not working — and the phone shows a different chip for each.
+   *
+   * So this boundary carries the count, and reads it the safe way round.
+   * Everything unreadable is zero: this app is bundled from a checkout that may
+   * be a deploy behind the backend, and a control plane too old to send the
+   * field is not evidence that a room was quiet. Reading it the other way would
+   * tell somebody no speech was heard during a meeting they are talking in.
+   *
+   * SABOTAGE, each one edit to `capture/transcriber.ts`:
+   *   `refusedSegments` dropped from the answer          1 FAIL
+   *   `readRefused` replaced by `Number(value) || 0`     1 FAIL
+   */
+  test("the count of what the engine refused comes back", async () => {
+    const { refusedSegments } = await cloudTranscriber(stubClient([], 3)).transcribe(CHUNK);
+    expect(refusedSegments).toBe(3);
+  });
+
+  test("a control plane that says nothing has refused nothing", async () => {
+    const { refusedSegments } = await cloudTranscriber(stubClient([])).transcribe(CHUNK);
+    expect(refusedSegments).toBe(0);
+  });
+
+  test("a refusal count that is not a number is not a refusal", async () => {
+    for (const value of ["lots", null, Number.NaN, -2] as unknown[]) {
+      const { refusedSegments } = await cloudTranscriber(
+        stubClient([], value as number),
+      ).transcribe(CHUNK);
+      expect(refusedSegments).toBe(0);
+    }
   });
 });
 
@@ -204,15 +247,29 @@ describe("the fake", () => {
   test("it records what it was handed and answers what it was told to", async () => {
     const fake = fakeTranscriber();
     fake.answerWith([SEGMENT]);
-    const segments = await fake.transcribe(CHUNK);
+    const { segments, refusedSegments } = await fake.transcribe(CHUNK);
     expect(fake.chunks).toEqual([CHUNK]);
     expect(segments).toHaveLength(1);
+    // Nothing refused unless a test says so, so a suite about ordering never
+    // trips the phone's "no speech was heard" chip.
+    expect(refusedSegments).toBe(0);
+  });
+
+  test("it can report a chunk the engine heard no speech in", async () => {
+    const fake = fakeTranscriber();
+    fake.refusedNextTime(2);
+    expect((await fake.transcribe(CHUNK)).refusedSegments).toBe(2);
+    // Spent, like `refuse`: one arranged answer, not a mode.
+    expect((await fake.transcribe(CHUNK)).refusedSegments).toBe(0);
   });
 
   test("it can refuse once, the way a request that timed out does", async () => {
     const fake = fakeTranscriber();
     fake.refuse("the network went away");
     await expect(fake.transcribe(CHUNK)).rejects.toThrow("the network went away");
-    await expect(fake.transcribe(CHUNK)).resolves.toEqual([]);
+    await expect(fake.transcribe(CHUNK)).resolves.toEqual({
+      segments: [],
+      refusedSegments: 0,
+    });
   });
 });

@@ -9,8 +9,9 @@ import { Text } from "../design/components/Text";
 import { writeClipboard } from "../design/clipboard";
 import { meetings } from "./controller";
 import { renderMeetingNote } from "./note";
-import { isMeetingId } from "./protocol";
+import { ERRORS, isMeetingId } from "./protocol";
 import { attendeeCount, dayHeading, duration, sourceLabel } from "./format";
+import { pendingSteps } from "./record";
 import type { MeetingRecord } from "./record";
 import { MEETINGS_ROUTE } from "./route";
 import { useMeetingsSnapshot } from "./useMeetings";
@@ -29,6 +30,14 @@ import { useMeetingsSnapshot } from "./useMeetings";
  * print**. The gateway acknowledging a finalize is not the customer's bucket
  * holding a note; only `notePath` says the second. A green tick over an
  * unfinished write is the invented-fact bug this repo has already shipped twice.
+ *
+ * And the converse, which this screen got wrong until a person watched it
+ * happen: **a refusal is never allowed to un-say the path.** A meeting whose
+ * note is in the bucket and whose *later* write was refused is saved and
+ * incomplete, not unsent; saying "This meeting has not left the device"
+ * underneath a path this same screen had been printing for ten minutes is two
+ * contradictory claims about one meeting, and the false one is the newer.
+ * `Landing` decides on `notePath` first and says the refusal underneath.
  *
  * ## The human's notes are shown, verbatim, beside the generated ones
  *
@@ -425,7 +434,26 @@ function Landing({ record }: { record: MeetingRecord }) {
     );
   }
 
-  if (record.rejection !== undefined) {
+  /*
+    A REFUSAL IS SAID ABOUT WHAT WAS REFUSED, NOT ABOUT THE WHOLE MEETING.
+
+    This branch used to run before the `notePath` one and claimed "This meeting
+    has not left the device" whenever anything about the session had been
+    refused. For the defect this screen was rewritten for that was flatly
+    false and visibly so: the note was in the bucket, its path had been on this
+    screen since the finalize landed, and then the same page started saying the
+    meeting had never been sent — because *one* later write, a transcript batch
+    the console had addressed to the wrong meeting, was refused. Two
+    contradictory claims about one meeting, and the second was the wrong one.
+
+    So the note's own path decides which sentence is true, and the refusal is
+    said underneath rather than instead: with a path, the meeting is saved and
+    something about it did not go; with no path, nothing has left. Neither
+    sentence shows the person an HTTP status — `rejectionNotice` turns the
+    gateway's own words into something a person can act on and keeps the
+    gateway's sentence only as the last line of a fallback.
+  */
+  if (record.rejection !== undefined && session.notePath === null) {
     return (
       <View style={[styles.landing, styles.landingCrit]} testID="meeting-landing">
         <Icon name="close" size={18} color={colors.crit} />
@@ -433,7 +461,7 @@ function Landing({ record }: { record: MeetingRecord }) {
           <Text variant="mini" style={styles.landingCritTitle}>
             This meeting has not left the device
           </Text>
-          <Text variant="rowSub">{record.rejection.message}</Text>
+          <Text variant="rowSub" testID="meeting-rejection">{rejectionNotice(record.rejection)}</Text>
         </View>
       </View>
     );
@@ -486,6 +514,29 @@ function Landing({ record }: { record: MeetingRecord }) {
     );
   }
 
+  /*
+    The note is in the bucket. Two things can still be true beside that, and
+    each gets its own line under the path rather than replacing the tick:
+
+     - **Something was refused.** Said here, in words, with no status code.
+     - **Something has not been sent yet.** `pendingSteps` is the queue's own
+       answer to "is there more of this meeting still on the device", and while
+       words or typing are waiting in it this page may not imply the file is
+       finished — the rule in `docs/decisions/app-and-console.md` that a UI
+       never claims a write it has not seen land, applied to the writes that
+       come *after* the one that created the file.
+
+       Content steps only. A `session` step is pending on every finished
+       meeting the instant its note lands, because folding the gateway's
+       `written` answer changes the metadata fingerprint — so reading "anything
+       pending" as "unfinished" would put this line under every meeting this
+       app has ever saved, which is the crying-wolf version of the honesty it
+       is here for. `segments` and `notes` are the two that mean words are
+       still on the device.
+  */
+  const stillSending =
+    record.rejection === undefined &&
+    pendingSteps(record).some((step) => step.kind === "segments" || step.kind === "notes");
   return (
     <View style={[styles.landing, styles.landingOk]} testID="meeting-landing">
       <Icon name="check" size={18} color={colors.ok} />
@@ -496,6 +547,16 @@ function Landing({ record }: { record: MeetingRecord }) {
         <Text style={styles.path} numberOfLines={1}>
           {session.notePath}
         </Text>
+        {record.rejection !== undefined ? (
+          <Text variant="rowSub" testID="meeting-rejection">
+            Part of this meeting was not sent. {rejectionNotice(record.rejection)}
+          </Text>
+        ) : null}
+        {stillSending ? (
+          <Text variant="rowSub" testID="meeting-still-sending">
+            The rest of this meeting is still being sent from this device.
+          </Text>
+        ) : null}
         {record.folderRejected === true ? (
           <Text variant="rowSub" testID="meeting-folder-rejected">
             {FOLDER_REJECTED_NOTICE}
@@ -504,6 +565,34 @@ function Landing({ record }: { record: MeetingRecord }) {
       </View>
     </View>
   );
+}
+
+/**
+ * A REFUSAL, IN WORDS SOMEBODY CAN DO SOMETHING WITH.
+ *
+ * What this screen showed instead was `record.rejection.message`, and for the
+ * whole life of the desktop app that string was **"gateway answered 400"** —
+ * `postEntry` read a `message` field this gateway does not send, so the
+ * sentence explaining the refusal was parsed off the wire and dropped. A person
+ * was shown a status code and no action, about their own meeting.
+ *
+ * The client reads `error_description` now, so the gateway's sentence does
+ * arrive; this maps the codes whose recovery is a thing a *person* does, and
+ * falls through to the gateway's own words for everything else. The fallback
+ * is deliberately the gateway's sentence rather than a generic one: a refusal
+ * this app has never seen before is exactly the one worth quoting.
+ */
+export function rejectionNotice(rejection: { code: string; message: string }): string {
+  if (rejection.code === ERRORS.forbidden) {
+    return "This machine's access to your context was refused. Connect it again from Settings.";
+  }
+  if (rejection.code === ERRORS.conflict) {
+    return "Something else changed this meeting while it was being written. Try again.";
+  }
+  if (rejection.code === ERRORS.invalid) {
+    return `Your context would not accept it: ${rejection.message}`;
+  }
+  return rejection.message;
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({

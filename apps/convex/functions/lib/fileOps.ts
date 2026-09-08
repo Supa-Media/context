@@ -41,7 +41,7 @@
  *     could change hands.
  */
 
-import { isEncryptedNote } from "./noteEncryption";
+import { canReplaceEncryptedNote, isEncryptedNote } from "./noteEncryption";
 import {
   PRIVACY_KEY,
   type PrivacyRule,
@@ -212,8 +212,15 @@ export type FileErrorCode =
    * Its own code rather than `CONFLICT`, because the two mean opposite things
    * to whoever is holding the editor: a conflict says reload and try again, and
    * this says a write through this door cannot succeed at all.
+   *
+   * Also the code `removeNoteEncryption` refuses its own misuse with — a
+   * replacement that is itself still an encrypted note — since that is the same
+   * claim in the other direction: this door writes plaintext, and only
+   * plaintext, over an encrypted note.
    */
   | "NOTE_ENCRYPTED"
+  /** `removeNoteEncryption` asked to act on a note that was never encrypted. */
+  | "NOTE_NOT_ENCRYPTED"
   | "NOT_A_FOLDER";
 
 /**
@@ -765,28 +772,57 @@ export async function writeFile(
   const existing = await store.get(path);
 
   /*
-   * AN ENCRYPTED NOTE IS NOT OVERWRITTEN THROUGH THIS DOOR.
+   * AN ENCRYPTED NOTE IS NOT OVERWRITTEN WITH PLAINTEXT THROUGH THIS DOOR —
+   * AND A DIFFERENT RECIPIENT SET DOES NOT GET THROUGH IT EITHER.
    *
    * The gateway's rule is that whether a write is encrypted is decided by the
-   * stored object, and it enforces that by re-encrypting. This path cannot:
-   * the control plane holds no key, by design. So the only correct answer here
-   * is to refuse — because the alternative is writing the editor's plaintext
-   * over somebody's ciphertext and silently turning off encryption they asked
-   * for, which is the one failure this feature must not have.
+   * stored object, and it enforces that by re-encrypting: the gateway holds a
+   * workspace key and can open a `workspace`-recipient note itself, so it can
+   * tell a legitimate re-encryption from a downgrade. This path cannot — the
+   * control plane holds no key, by design, for either recipient kind — so for
+   * a long time the only correct answer here was to refuse outright.
    *
-   * Checked on the marker rather than on a parse, so a malformed envelope is
-   * refused too. That is the case where overwriting is least recoverable.
+   * A passphrase-locked note changed that, in one direction only. Its owner
+   * derives the key **here**, on this device, and the console is the only
+   * place a passphrase note can ever be edited, its passphrase changed, or its
+   * lock removed — so a door that only ever emitted "no" made every one of
+   * those unreachable as shipped. What is admitted is exactly what those flows
+   * produce and nothing else: a submitted document that is *itself* a
+   * well-formed envelope naming precisely the recipients already at this path.
+   * `canReplaceEncryptedNote` is the whole of that check, and it is what keeps
+   * this from being the second, weaker door onto the same bucket that the
+   * gateway's stronger rule forbids — plaintext is refused exactly as before,
+   * and so is any envelope that adds, drops or swaps a recipient, which is the
+   * shape a downgrade or a mismatched context would take. What this door does
+   * not and cannot check — because it holds no key — is whether the ciphertext
+   * itself decrypts to anything: that is bounded by the same write authority
+   * this caller already has over every other note at this path, not by
+   * encryption, which `docs/decisions/encryption.md` is explicit is
+   * confidentiality and not access control.
+   *
+   * Removing a passphrase lock is deliberately **not** reachable here at any
+   * recipient set: this door never accepts plaintext over an encrypted note.
+   * `removeNoteEncryption` is the separate, narrower door for that, reachable
+   * only from an explicit action — never from an ordinary Save.
+   *
+   * Checked on the marker rather than on a parse, so a malformed *existing*
+   * envelope is refused too — that is the case where overwriting is least
+   * recoverable, and `canReplaceEncryptedNote` answers `false` for it because
+   * a stored envelope it cannot parse can never equal anything.
    *
    * Before the conflict checks on purpose: this is a property of the note, not
    * of the etag, and answering `CONFLICT` first would tell somebody to reload
    * and try again at a write that can never succeed.
    */
-  if (existing !== null && isEncryptedNote(await existing.text())) {
-    throw new FileOpError(
-      "NOTE_ENCRYPTED",
-      "That note is encrypted. Its content is stored as ciphertext and can only be edited through a client that can decrypt it.",
-      existing.etag,
-    );
+  if (existing !== null) {
+    const existingText = await existing.text();
+    if (isEncryptedNote(existingText) && !canReplaceEncryptedNote(existingText, options.text)) {
+      throw new FileOpError(
+        "NOTE_ENCRYPTED",
+        "That note is encrypted. Its content is stored as ciphertext and can only be edited through a client that can decrypt it.",
+        existing.etag,
+      );
+    }
   }
 
   if (options.expectedEtag === undefined) {
@@ -822,6 +858,113 @@ export async function writeFile(
   if (put === null) {
     // The backend rejected the precondition: somebody wrote between our read
     // and our put. Exactly the case conditional writes exist for.
+    const current = await store.get(path);
+    throw new FileOpError(
+      "CONFLICT",
+      "That file changed somewhere else while you were editing it.",
+      current?.etag,
+    );
+  }
+
+  return {
+    path,
+    etag: put.etag,
+    conflictCheck: conditional ? "conditional" : "read-compare",
+  };
+}
+
+/**
+ * Replace an encrypted note's content with plaintext.
+ *
+ * `writeFile`'s widening lets an envelope replace an envelope naming the same
+ * recipients — an edit, a passphrase change — and refuses plaintext over an
+ * encrypted note in every case, on purpose: a person who merely re-saves what
+ * they had loaded must never silently turn a passphrase lock off. Removing one
+ * is therefore a separate, narrower door rather than a wider version of that
+ * one, reachable only from an explicit "Remove encryption" action in the
+ * console — never from the ordinary Save button, and never as a side effect of
+ * `writeFile` accepting a plaintext body.
+ *
+ * **What this can and cannot verify.** The control plane holds no passphrase
+ * and no key — it cannot check that `options.text` really is what the stored
+ * envelope decrypts to, any more than `writeFile`'s widening can check that an
+ * accepted envelope actually re-encrypts the same content. What stands in for
+ * that is the same authority every other write at this path already carries:
+ * `canSee` and a matching etag. `docs/decisions/encryption.md` is explicit that
+ * this is the right boundary — "Encryption is confidentiality, and it is not
+ * access control" — so a caller who could already overwrite this note's bytes
+ * with garbage before it was locked can still overwrite them after, and the
+ * one thing this function refuses that `writeFile` would not have to is a
+ * replacement that is *itself* still an encrypted note: accepting one here
+ * would reopen exactly the recipient-set hole `writeFile`'s own guard exists to
+ * close, wearing this door's name instead.
+ */
+export async function removeNoteEncryption(
+  store: FileStore,
+  options: {
+    path: string;
+    text: string;
+    expectedEtag?: string;
+    scope: Scope;
+  },
+): Promise<WriteResult> {
+  const path = requirePath(options.path);
+  assertWritablePath(path);
+  if (byteLength(options.text) > MAX_NOTE_BYTES) {
+    throw new FileOpError(
+      "CONTENT_TOO_LARGE",
+      `A note must be at most ${MAX_NOTE_BYTES} bytes.`,
+    );
+  }
+  // Refused before anything else is even read: a replacement that is itself an
+  // encrypted note is not a removal, whatever recipients it names, and letting
+  // it through here would be the second, weaker door `writeFile`'s widening was
+  // built not to open.
+  if (isEncryptedNote(options.text)) {
+    throw new FileOpError(
+      "NOTE_ENCRYPTED",
+      "That replacement is itself an encrypted note. Removing encryption writes plain Markdown — use an ordinary save to replace one encrypted note with another.",
+    );
+  }
+
+  const state = await loadPrivacyState(store);
+  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+
+  const existing = await store.get(path);
+  if (existing === null) throw notFound();
+  const existingText = await existing.text();
+  if (!isEncryptedNote(existingText)) {
+    throw new FileOpError(
+      "NOTE_NOT_ENCRYPTED",
+      "That note is not encrypted; save it the ordinary way.",
+      existing.etag,
+    );
+  }
+
+  // Unlike `writeFile`, there is no "this is new" reading of a missing etag:
+  // removal only ever acts on a note that is already there, so an absent
+  // `expectedEtag` can only mean the caller never read the version it is about
+  // to replace.
+  if (options.expectedEtag === undefined) {
+    throw new FileOpError(
+      "CONFLICT",
+      "Removing encryption has to be checked against the version you read. Re-read the note and try again.",
+    );
+  }
+  if (existing.etag !== options.expectedEtag) {
+    throw new FileOpError(
+      "CONFLICT",
+      "That file changed somewhere else while you were editing it.",
+      existing.etag,
+    );
+  }
+
+  const conditional = store.capabilities?.conditionalWrite === true;
+  const put = conditional
+    ? await store.put(path, options.text, { onlyIf: { etagMatches: existing.etag } })
+    : await store.put(path, options.text);
+
+  if (put === null) {
     const current = await store.get(path);
     throw new FileOpError(
       "CONFLICT",

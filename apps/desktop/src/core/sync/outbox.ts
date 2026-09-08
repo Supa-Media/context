@@ -44,7 +44,13 @@
  * gets a queued `fail` — never a silent "Finalizing" forever.
  */
 
-import { FINALIZE_TIMEOUT_MS, checkFinalizeTimeout, ERRORS } from "../contract.ts";
+import {
+  FINALIZE_TIMEOUT_MS,
+  checkFinalizeTimeout,
+  ERRORS,
+  foreignSegmentSessions,
+  segmentSessionId,
+} from "../contract.ts";
 import type { TranscriptSegment } from "../contract.ts";
 
 export type OutboxKind = "session" | "segments" | "notes" | "finalize";
@@ -187,6 +193,32 @@ export function mergeSegments(
   return [...byId.values()].sort((a, b) => a.startMs - b.startMs || a.id.localeCompare(b.id));
 }
 
+/**
+ * THE MEETINGS A WRITE IS CARRYING WORDS FOR THAT ARE NOT THE ONE IT NAMES.
+ *
+ * A segment id names its own meeting (`segmentSessionId`, in the contract), and
+ * that name is the one thing about a batch that cannot be overwritten by
+ * whatever routed it. Empty is the ordinary answer; anything else is a bug
+ * upstream of this queue and the queue is where it stops.
+ *
+ * Exported so the two places that enqueue can *say* it happened. `queueWrite`
+ * below drops the rows either way — a silent drop is bad, and a silent send of
+ * one meeting's transcript into another meeting's note is worse, so the drop is
+ * enforced in the reducer where it cannot be forgotten and the sentence is
+ * owned by the caller that has somewhere to put it.
+ */
+export function misaddressedSegments(sessionId: string, body: Record<string, unknown>): string[] {
+  return foreignSegmentSessions(sessionId, body["segments"]);
+}
+
+/** The rows of `segments` that were minted for `sessionId`, or name no meeting. */
+function addressedTo(sessionId: string, segments: readonly TranscriptSegment[]): TranscriptSegment[] {
+  return segments.filter((segment) => {
+    const named = segmentSessionId(segment?.id);
+    return named === null || named === sessionId;
+  });
+}
+
 export interface QueueInput {
   sessionId: string;
   kind: OutboxKind;
@@ -250,6 +282,26 @@ export const UNROUTABLE = "\u0000unroutable";
 export function queueWrite(outbox: Outbox, input: QueueInput): Outbox {
   const id = entryId(input.sessionId, input.kind);
   const existing = outbox.entries.find((entry) => entry.id === id);
+  /*
+    A batch is stripped of any row minted for a different meeting before it is
+    stored, on the way in and on every collapse.
+
+    Enforced here rather than at the call sites because this is the one function
+    every desktop enqueue goes through — the tray's controller and the console's
+    `writeMeetingFromConsole` both — and a rule that lives in two callers is a
+    rule a third caller will not have. What it stops is not a full queue: it is
+    one meeting's words being posted to another meeting's session, which the
+    gateway takes for any session whose finalize has not landed yet. See
+    `misaddressedSegments`, and `listenToRecorder` in the console app for how
+    eight of one evening's meetings came to hold each other's transcripts.
+  */
+  const body =
+    input.kind === "segments" && Array.isArray(input.body["segments"])
+      ? {
+          ...input.body,
+          segments: addressedTo(input.sessionId, input.body["segments"] as TranscriptSegment[]),
+        }
+      : input.body;
 
   if (!existing) {
     const entry: OutboxEntry = {
@@ -257,7 +309,7 @@ export function queueWrite(outbox: Outbox, input: QueueInput): Outbox {
       sessionId: input.sessionId,
       kind: input.kind,
       context: input.context ?? null,
-      body: input.body,
+      body,
       queuedAt: input.now,
       updatedAt: input.now,
       attempts: 0,
@@ -267,17 +319,20 @@ export function queueWrite(outbox: Outbox, input: QueueInput): Outbox {
     return { ...outbox, entries: [...outbox.entries, entry] };
   }
 
-  const body =
+  const merged =
     input.kind === "segments"
       ? {
           ...existing.body,
-          ...input.body,
+          ...body,
           segments: mergeSegments(
-            (existing.body["segments"] as TranscriptSegment[] | undefined) ?? [],
-            (input.body["segments"] as TranscriptSegment[] | undefined) ?? [],
+            addressedTo(
+              input.sessionId,
+              (existing.body["segments"] as TranscriptSegment[] | undefined) ?? [],
+            ),
+            (body["segments"] as TranscriptSegment[] | undefined) ?? [],
           ),
         }
-      : { ...input.body };
+      : { ...body };
 
   const next: OutboxEntry = {
     ...existing,
@@ -287,7 +342,7 @@ export function queueWrite(outbox: Outbox, input: QueueInput): Outbox {
       keeping the first address would send half of it to the other.
     */
     context: input.context ?? null,
-    body,
+    body: merged,
     updatedAt: input.now,
     ...(existing.state === "parked"
       ? {}
@@ -349,7 +404,22 @@ export type DrainResult =
        */
       notePath?: string | null;
     }
-  | { ok: false; code: string; message: string; retryable: boolean };
+  | {
+      ok: false;
+      code: string;
+      message: string;
+      retryable: boolean;
+      /**
+       * The HTTP status, when the refusal came from a gateway at all.
+       *
+       * Absent for the refusals `postEntry` composes before a request is built
+       * — an unroutable context, a machine with no grant — because those never
+       * had one, and a zero there would read as a status somebody could look
+       * up. It exists so a log line can say `400 meeting_invalid <why>` rather
+       * than a code with no HTTP behind it.
+       */
+      status?: number;
+    };
 
 /**
  * Which refusals are worth trying again.
@@ -465,6 +535,52 @@ export function reconcileDrain(before: Outbox, drained: Outbox, live: Outbox): O
 /** Every entry for one session — what "this meeting has not been saved" means. */
 export function pendingFor(outbox: Outbox, sessionId: string): OutboxEntry[] {
   return outbox.entries.filter((entry) => entry.sessionId === sessionId);
+}
+
+/**
+ * DROP THE WORDS A QUEUE IS HOLDING FOR THE WRONG MEETING.
+ *
+ * Run once when the queue is read off disk, because a queue written by an
+ * earlier build can be holding rows `queueWrite` would refuse today, and a
+ * **parked** entry never gets another write to be cleaned up by: parking is
+ * terminal in this app, so those rows would sit in somebody's queue file
+ * forever, and the meeting they are attached to would go on reporting a
+ * refusal about words that are not missing from anything.
+ *
+ * Measured, on the owner's Mac: eight parked `segments` entries, each holding
+ * a *later* meeting's transcript, put there by a leaked recorder subscription
+ * in the console app. Every one of those rows had also been folded into the
+ * meeting that produced it and had gone out under that meeting's own id, so the
+ * words are in the right note — these are duplicates addressed to the wrong
+ * session, and nothing else.
+ *
+ * **Which is why this may drop them at all**, against this file's own first
+ * rule that nothing is ever dropped: that rule is about a queued transcript
+ * being *the only copy of something that was said in a room*. A row minted for
+ * another meeting is not the only copy of anything — it is a second copy of
+ * words the meeting that owns them already sent. An entry left with nothing of
+ * its own meeting is dropped whole, because there is nothing left in it to
+ * send; an entry with some of its own rows keeps them, and keeps its state
+ * exactly as it was, parked included. Nothing is un-parked here: new content
+ * does not make a rejected write acceptable, and removing content does not
+ * either.
+ *
+ * Answers `{outbox, dropped}` rather than just the queue, so the caller can log
+ * that it happened. `dropped` counts rows, never text.
+ */
+export function dropMisaddressed(outbox: Outbox): { outbox: Outbox; dropped: number } {
+  let dropped = 0;
+  const entries = outbox.entries.flatMap((entry): OutboxEntry[] => {
+    if (entry.kind !== "segments") return [entry];
+    const held = entry.body["segments"];
+    if (!Array.isArray(held)) return [entry];
+    const kept = addressedTo(entry.sessionId, held as TranscriptSegment[]);
+    if (kept.length === held.length) return [entry];
+    dropped += held.length - kept.length;
+    if (kept.length === 0) return [];
+    return [{ ...entry, body: { ...entry.body, segments: kept } }];
+  });
+  return { outbox: { ...outbox, entries }, dropped };
 }
 
 /** A person deleted a meeting. The only path that discards queued content. */

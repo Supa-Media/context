@@ -42,6 +42,48 @@ export const SUMMARY_PLACEHOLDER = "_No summary yet._";
  */
 export const TRANSCRIPT_PLACEHOLDER = "_No transcript was captured._";
 
+/**
+ * The line above a machine transcript that says it is one.
+ *
+ * ## Why a note now carries a caveat it did not
+ *
+ * Measured, twice, on the owner's own machine. Ninety seconds of a quiet room
+ * with nobody speaking produced 166 words and filed them as a meeting note. And
+ * — the finding that decides this line — parked batches from audio that was a
+ * synthesised counting script carried sentences nobody said at all:
+ * *"I'm going to put it in another room."*, *"I'm sorry."* So hallucination is
+ * **not confined to silence**. It happens over real audio, in the middle of
+ * real speech, and there is no signal on that path anybody here can filter on:
+ * a confidently decoded sentence is exactly what a correctly heard one looks
+ * like.
+ *
+ * The transcription service refuses what the engine's own evidence marks as
+ * silence, which is the whole of what can be ruled out. What is left cannot be,
+ * so it is disclosed instead. A person reading their own note eight months from
+ * now — or, worse, quoting it back to somebody who was in the room — is
+ * entitled to know that a sentence in it may never have been said.
+ *
+ * ## Why it is one line, in the section, and not frontmatter
+ *
+ * `transcription: cloud` already names the engine, and that key answers "where
+ * did my audio go". It does not answer "can I trust this sentence", and it is
+ * read by a machine rather than by the person skimming the transcript. A reader
+ * meets this where the words are.
+ *
+ * It is written **only when there is a machine transcript to caveat**: never on
+ * a notes-only meeting, never above the placeholder, and never over a
+ * transcript no engine produced. A caveat on a note with nothing in it is
+ * noise, and noise is what teaches somebody to stop reading the caveat that
+ * matters.
+ *
+ * Nothing parses it back. `parseMeetingNote` returns the transcript section as
+ * raw Markdown and `splitTranscript` cuts on the heading, so this rides inside
+ * the section like any other line — which is also why it must never be the only
+ * thing in the section.
+ */
+export const TRANSCRIPT_CAVEAT =
+  "_Transcribed automatically. Speech recognition mishears, and can produce sentences nobody said._";
+
 /** Frontmatter keys, in the order they are written. */
 export const FRONTMATTER_KEYS = Object.freeze([
   "updated",
@@ -485,7 +527,25 @@ export function renderMeetingNote(session, options = {}) {
     push(renderTurn(turns[i]));
     for (const flag of byTurn.get(i) ?? []) push(renderFlag(flag));
   }
-  out.push(TRANSCRIPT_HEADING, "", ...(body.length ? body : [TRANSCRIPT_PLACEHOLDER]), "");
+  /*
+    The caveat leads the section, and only where there is a machine transcript.
+
+    `turns.length` rather than `body.length`: a meeting with flags and no
+    transcript writes a body — the presses happened — and none of it came from
+    an engine, so there is nothing there to caveat. And `transcriptionLabel`
+    rather than a truthiness check on the field, because `none` and `unknown`
+    are both real values that mean no engine named itself, and a note that
+    cannot say what produced its words must not claim one did.
+  */
+  const machine =
+    turns.length > 0 && TRANSCRIPTION_ENGINES.includes(transcriptionLabel(session.transcription ?? null));
+  out.push(
+    TRANSCRIPT_HEADING,
+    "",
+    ...(machine ? [TRANSCRIPT_CAVEAT, ""] : []),
+    ...(body.length ? body : [TRANSCRIPT_PLACEHOLDER]),
+    ""
+  );
   return out.join("\n");
 }
 

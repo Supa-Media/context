@@ -2137,8 +2137,17 @@ const CONTEXT_ARGUMENT = {
  */
 const FOREIGN_CONTRACT_TOOLS = new Set(["search", "fetch"]);
 
-/** Every tool, with the addressing argument folded in. */
-function toolDefinitions() {
+/**
+ * Every tool, with the addressing argument folded in.
+ *
+ * Exported so a **client's** own suite can check what it sends against what is
+ * advertised. `apps/desktop/test/toolContract.test.mjs` does exactly that: the
+ * gateway holds every call to this schema now (#346), and a first-party client
+ * that sends a property the schema does not name gets a uniform refusal on
+ * every call of that kind, which is the failure shape an evening of meetings
+ * was mistakenly attributed to. Cheaper to assert than to diagnose.
+ */
+export function toolDefinitions() {
   return baseToolDefinitions().map((tool) => {
     if (FOREIGN_CONTRACT_TOOLS.has(tool.name)) return tool;
     const schema = tool.inputSchema || { type: "object" };
@@ -7268,8 +7277,18 @@ function transcriptionForwarder(env) {
       console.warn(JSON.stringify({ event: "transcribe_upstream", status: response.status }));
       throw new Error(`transcription answered ${response.status}`);
     }
-    const payload = await response.json();
-    return payload?.segments;
+    /*
+      The whole answer, not just its segments.
+
+      It used to be `payload?.segments`, which threw away the one field that
+      says why an answer is short: `refused` is how many segments the service
+      dropped because the engine's own evidence said they were not speech. An
+      empty transcript with `refused: 3` is a quiet room and one with
+      `refused: 0` is a broken engine, and a caller that cannot tell them apart
+      shows the wrong sentence for one of them. See
+      `infra/transcribe-worker/src/transcribe.ts`.
+    */
+    return await response.json();
   };
 }
 

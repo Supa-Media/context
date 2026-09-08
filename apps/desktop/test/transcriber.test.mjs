@@ -50,18 +50,34 @@ function frame(overrides = {}) {
   };
 }
 
+/**
+ * What the gateway answers with, as `TranscribeAnswer`.
+ *
+ * `refusedSegments: 0` on every one of these, deliberately: nothing was refused
+ * in any of the checks that predate the silence rule, and a fake that quietly
+ * said otherwise would make the "no speech was heard" notice fire all over a
+ * suite that is about something else.
+ */
 function said(text, index = 0) {
-  return [
-    {
-      id: `whatever-the-far-end-called-it-${index}`,
-      startMs: 0,
-      endMs: 1_000,
-      text,
-      speaker: null,
-      channel: "mixed",
-      confidence: null,
-    },
-  ];
+  return {
+    segments: [
+      {
+        id: `whatever-the-far-end-called-it-${index}`,
+        startMs: 0,
+        endMs: 1_000,
+        text,
+        speaker: null,
+        channel: "mixed",
+        confidence: null,
+      },
+    ],
+    refusedSegments: 0,
+  };
+}
+
+/** An answer with no words in it, and the reason there are none. */
+function heardNothing(refusedSegments) {
+  return { segments: [], refusedSegments };
 }
 
 /** A deferred, so a test can hold a send open and watch what the caller does. */
@@ -120,7 +136,7 @@ export async function runTranscriberChecks(check) {
     const stream = await gatewayTranscriber({
       send: async (request) => {
         sent.push(request.chunkId);
-        return [];
+        return heardNothing(0);
       },
     }).start({ sessionId: SESSION, sampleRate: 16_000, onSegment: () => {} });
     stream.push(frame({ channel: "mic" }));
@@ -153,7 +169,7 @@ export async function runTranscriberChecks(check) {
     check("push hands back nothing to await", answer === undefined);
     stream.push(frame({ atMs: 20_000 }));
     check("a second chunk goes out while the first is still unanswered", sends === 2);
-    for (const gate of gates) gate.resolve([]);
+    for (const gate of gates) gate.resolve(heardNothing(0));
     await stream.finish();
   }
 
@@ -176,10 +192,10 @@ export async function runTranscriberChecks(check) {
     check("the extra chunks are dropped, not queued", notices.length === 2);
     check("...and it says so, in one of its own sentences", notices[0]?.message === CAPTURE_NOTICES.dropped);
     check("...recoverably: the meeting is still being recorded", notices.every((notice) => notice.recoverable));
-    for (const gate of gates) gate.resolve([]);
+    for (const gate of gates) gate.resolve(heardNothing(0));
     await stream.finish();
     check("...and once they answer, the next chunk goes out again", (stream.push(frame()), sends === 4));
-    gates[0].resolve([]);
+    gates[0].resolve(heardNothing(0));
     await stream.finish();
   }
 
@@ -330,7 +346,7 @@ export async function runTranscriberChecks(check) {
     const stream = await gatewayTranscriber({
       send: async () => {
         sends += 1;
-        return [];
+        return heardNothing(0);
       },
     }).start({ sessionId: SESSION, sampleRate: 16_000, onSegment: () => {} });
     stream.push(frame({ data: new Uint8Array() }));
@@ -349,5 +365,95 @@ export async function runTranscriberChecks(check) {
     const random = new Uint8Array(257);
     for (let i = 0; i < random.length; i += 1) random[i] = (i * 37 + 11) % 256;
     check("...and over every byte value", base64(random) === Buffer.from(random).toString("base64"));
+  }
+
+  /*
+    ── SILENCE IS SAID OUT LOUD ───────────────────────────────────────────────
+
+    Ninety seconds of a quiet room on the owner's Mac produced 166 words and
+    filed them into the bucket. The transcription service now refuses the
+    segments the engine's own evidence says are not speech, which means a chunk
+    of a quiet room comes back empty — and an empty chunk is exactly what a
+    transcriber that has stopped working also produces. On the glass they are
+    the same thing: a rail that is not filling up.
+
+    So the quiet one says so. What is checked here is the discrimination, not
+    the refusal — the refusal is the service's and is checked there:
+
+      * empty AND refused        -> the person is told, and recording continues
+      * empty and NOT refused    -> silence, because "the engine said nothing"
+                                    is not evidence that nobody spoke, and a
+                                    gateway too old to send the count sends none
+      * words AND refused        -> silence, because a meeting with pauses in it
+                                    refuses the odd segment continuously, and a
+                                    sentence per pause teaches somebody to
+                                    ignore the sentence that matters
+
+    SABOTAGE, each one edit to `core/capture/gatewayTranscriber.ts`:
+
+      the `segments.length === 0` half of the condition dropped        1 FAIL
+      the `refusedSegments > 0` half dropped                           1 FAIL
+      the notice removed entirely                                      3 FAIL
+      `CAPTURE_NOTICES.silent` given the same text as `failed`         1 FAIL
+
+    The two halves report one each, and that is the honest count rather than a
+    weak one: each half is witnessed by exactly one of the three cases above,
+    because each exists to rule out exactly one wrong sentence.
+  */
+  {
+    const notices = [];
+    const stream = await gatewayTranscriber({
+      send: async () => heardNothing(2),
+    }).start({
+      sessionId: SESSION,
+      sampleRate: 16_000,
+      onSegment: () => {},
+      onNotice: (notice) => notices.push(notice),
+    });
+    stream.push(frame());
+    await stream.finish();
+    check("a chunk the engine heard no speech in is said out loud", notices.length === 1);
+    check("...in the words kept for it", notices[0]?.message === CAPTURE_NOTICES.silent);
+    check("...and the meeting keeps recording", notices[0]?.recoverable === true);
+    check(
+      "...which is not the same sentence as a chunk that failed",
+      CAPTURE_NOTICES.silent !== CAPTURE_NOTICES.failed,
+    );
+  }
+
+  {
+    const notices = [];
+    const stream = await gatewayTranscriber({
+      send: async () => heardNothing(0),
+    }).start({
+      sessionId: SESSION,
+      sampleRate: 16_000,
+      onSegment: () => {},
+      onNotice: (notice) => notices.push(notice),
+    });
+    stream.push(frame());
+    await stream.finish();
+    check(
+      "an empty answer with nothing refused says nothing, because it is not evidence",
+      notices.length === 0,
+    );
+  }
+
+  {
+    const notices = [];
+    const stream = await gatewayTranscriber({
+      send: async () => ({ ...said("we did talk"), refusedSegments: 4 }),
+    }).start({
+      sessionId: SESSION,
+      sampleRate: 16_000,
+      onSegment: () => {},
+      onNotice: (notice) => notices.push(notice),
+    });
+    stream.push(frame());
+    await stream.finish();
+    check(
+      "a chunk with words in it says nothing, however many pauses were refused",
+      notices.length === 0,
+    );
   }
 }
