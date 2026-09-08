@@ -39,7 +39,7 @@ import { isBlockedSource } from "../core/consent/blocklist.ts";
 import { MeetingController } from "../core/recording/controller.ts";
 import type { BeginResult, SessionView } from "../core/recording/controller.ts";
 import { fakeTranscriber } from "../core/capture/transcriber.ts";
-import { gatewayTranscriber } from "../core/capture/gatewayTranscriber.ts";
+import { gatewayTranscriber, speechEvidenceLine } from "../core/capture/gatewayTranscriber.ts";
 import { PLAN_NOTICES, capturePlan } from "../core/capture/plan.ts";
 import type { PermissionKind } from "../core/capture/permissions.ts";
 import { fakeRecorder } from "../core/capture/recorder.ts";
@@ -662,7 +662,25 @@ async function main(): Promise<void> {
     */
     transcriber: FAKE
       ? fakeTranscriber(["...", "..."])
-      : gatewayTranscriber({ send: (request) => transcribeChunk(connection, request) }),
+      : gatewayTranscriber({
+          send: (request) => transcribeChunk(connection, request),
+          /*
+            THE ENGINE'S OWN EVIDENCE, WHERE SOMEBODY CAN READ IT.
+
+            One line per answered chunk, in this process's log rather than the
+            transcription service's — because that service's log is in an
+            account the person diagnosing a recording does not have, and not
+            having it is what stopped a diagnosis on the owner's Mac. See
+            `speechEvidenceLine` for the argument and for what may be in it: a
+            chunk id, counts and readings, and nothing that can hold a word
+            anybody said.
+
+            Always on rather than behind a flag, deliberately. The evidence is
+            wanted *after* a recording turns out wrong, and a diagnostic that
+            has to be switched on beforehand is one nobody has when it matters.
+          */
+          onEvidence: (report) => console.log(speechEvidenceLine(report)),
+        }),
     permissions: electronPermissionBroker(),
     device: { platform: "macos", name: app.getName(), appVersion: app.getVersion() },
     outbox: () => outbox,

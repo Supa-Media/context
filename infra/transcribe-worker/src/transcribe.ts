@@ -225,6 +225,64 @@ interface JudgedSegment extends TranscriptSegment {
   avgLogprob: number | null;
 }
 
+/**
+ * WHAT THE ENGINE SAID ABOUT WHETHER THIS CHUNK WAS SPEECH, AS NUMBERS.
+ *
+ * The refusal above acts on `no_speech_prob`, `avg_logprob` and
+ * `duration_after_vad` and then throws all three away, which is how the
+ * deployment reached a state nobody could diagnose: measured on the signed
+ * build, the rule cut invented words from 1.84/s to 0.64/s and did not stop
+ * them, and **whether the threshold is wrong or the signal is** cannot be
+ * answered without the numbers the surviving segments carried. They were not
+ * on the wire and not in any log a recorder can read, and the contract's own
+ * `confidence` is `null` on every segment this model has ever produced,
+ * because the model does not emit that field at all.
+ *
+ * So this is a **summary of the evidence, per chunk**, and every part of that
+ * sentence is load-bearing:
+ *
+ *  - **A summary, not a per-segment array.** A number beside each utterance
+ *    could be joined to what was said and would eventually be rendered at
+ *    somebody; counts and extremes cannot be. It carries no text, no timings
+ *    and no ids, so it says nothing about what was in the room.
+ *  - **`null` is "the engine did not say".** Never `0`, never a default. A
+ *    model that reports neither field — the fallback, an on-device engine —
+ *    produces `stated*: 0` and `null` extremes, which is the loud answer that
+ *    the fields are absent rather than the quiet one that they were all zero.
+ *  - **The extremes are independent**, and that is how they must be read: the
+ *    highest `no_speech_prob` among kept segments and the lowest `avg_logprob`
+ *    among them may belong to *different* segments. They bound the population
+ *    rather than describing one member of it, which is the question actually
+ *    being asked — did anything survive anywhere near the cutoff, or is the
+ *    whole population far from it.
+ *
+ * What it is for: `keptNoSpeechMax` near `NO_SPEECH_PROB` with
+ * `keptLogprobMin` near `LOGPROB_FLOOR` means the survivors sit just past a
+ * threshold, and moving one is cheap. Both far from them means the engine
+ * decoded silence *confidently*, no threshold reaches it, and the answer has to
+ * come from somewhere other than a threshold.
+ */
+export interface SpeechEvidence {
+  /** How many segments the engine returned, before anything here refused one. */
+  segments: number;
+  /** ...and how many of those stated each field. Absence is visible, not filled in. */
+  statedNoSpeech: number;
+  statedLogprob: number;
+  /**
+   * The closest any KEPT segment came to the silence rule, per axis: the
+   * highest `no_speech_prob` and the lowest `avg_logprob` among survivors.
+   * `null` when no survivor stated that field.
+   */
+  keptNoSpeechMax: number | null;
+  keptLogprobMin: number | null;
+  /** ...and how far past it the REFUSED ones were, on the same two axes. */
+  refusedNoSpeechMin: number | null;
+  refusedLogprobMax: number | null;
+  /** `transcription_info.duration` and `.duration_after_vad`, stated or `null`. */
+  duration: number | null;
+  durationAfterVad: number | null;
+}
+
 export interface Transcription {
   text: string;
   segments: TranscriptSegment[];
@@ -238,6 +296,15 @@ export interface Transcription {
    * and those need different sentences and different actions.
    */
   refused: number;
+  /**
+   * The engine's own numbers about this chunk. See `SpeechEvidence`.
+   *
+   * On the wire beside `refused` rather than in a log here, because this
+   * Worker's log is in an account the person diagnosing a recording does not
+   * have — which is exactly what blocked a diagnosis on the owner's Mac. The
+   * recorder that posted the audio is the one that can read it.
+   */
+  evidence: SpeechEvidence;
 }
 
 /**
@@ -529,6 +596,72 @@ function isReadableAnswer(answer: Record<string, unknown>): boolean {
 }
 
 /**
+ * `transcription_info.duration_after_vad` and `duration`, exactly as stated.
+ *
+ * Deliberately not `vadHeardNothing`'s reading of them. That function answers a
+ * yes/no question and declines to answer it on anything it has no reading of;
+ * this one reports what was there — including a value `vadHeardNothing` refuses
+ * to act on, such as a negative length — because the whole point of the
+ * evidence is to make a wrong-looking answer visible rather than invisible.
+ */
+function statedVad(answer: Record<string, unknown>): {
+  duration: number | null;
+  durationAfterVad: number | null;
+} {
+  const info = answer["transcription_info"];
+  if (typeof info !== "object" || info === null) return { duration: null, durationAfterVad: null };
+  const fields = info as Record<string, unknown>;
+  return {
+    duration: readStated(fields["duration"]),
+    durationAfterVad: readStated(fields["duration_after_vad"]),
+  };
+}
+
+/**
+ * The chunk's evidence, summarised over what the engine actually said.
+ *
+ * `kept` and `refused` are the two halves of `judged` after `isNoSpeech` has
+ * run, so the extremes describe the populations either side of the rule. A
+ * field nobody stated leaves its extreme `null` — see `SpeechEvidence` — which
+ * is also why these are folded by hand rather than spread into `Math.max`,
+ * whose answer over an empty list is `-Infinity` and would be a number this
+ * file made up.
+ */
+function evidenceOf(
+  answer: Record<string, unknown>,
+  judged: readonly JudgedSegment[],
+  kept: readonly JudgedSegment[],
+  refused: readonly JudgedSegment[],
+): SpeechEvidence {
+  const extreme = (
+    segments: readonly JudgedSegment[],
+    read: (segment: JudgedSegment) => number | null,
+    pick: (a: number, b: number) => number,
+  ): number | null => {
+    let out: number | null = null;
+    for (const segment of segments) {
+      const value = read(segment);
+      if (value === null) continue;
+      out = out === null ? value : pick(out, value);
+    }
+    return out;
+  };
+
+  const vad = statedVad(answer);
+  return {
+    segments: judged.length,
+    statedNoSpeech: judged.filter((segment) => segment.noSpeechProb !== null).length,
+    statedLogprob: judged.filter((segment) => segment.avgLogprob !== null).length,
+    keptNoSpeechMax: extreme(kept, (segment) => segment.noSpeechProb, Math.max),
+    keptLogprobMin: extreme(kept, (segment) => segment.avgLogprob, Math.min),
+    refusedNoSpeechMin: extreme(refused, (segment) => segment.noSpeechProb, Math.min),
+    refusedLogprobMax: extreme(refused, (segment) => segment.avgLogprob, Math.max),
+    duration: vad.duration,
+    durationAfterVad: vad.durationAfterVad,
+  };
+}
+
+/**
  * Turn whatever the engine returned into the transcript contract.
  *
  * `null` means "this is not an engine answer", and the handler turns that into
@@ -555,12 +688,20 @@ export function toTranscription(raw: unknown, durationMs: number | null): Transc
   */
   const judged = readSegments(answer["segments"]);
   if (vadHeardNothing(answer)) {
-    return { text: "", segments: [], refused: Math.max(1, judged.length) };
+    return {
+      text: "",
+      segments: [],
+      refused: Math.max(1, judged.length),
+      // Everything the engine returned was refused by the chunk-level rule, so
+      // nothing was kept and the refused population is the whole of it.
+      evidence: evidenceOf(answer, judged, [], judged),
+    };
   }
 
   if (judged.length > 0) {
     const kept = judged.filter((segment) => !isNoSpeech(segment));
-    const refused = judged.length - kept.length;
+    const dropped = judged.filter((segment) => isNoSpeech(segment));
+    const refused = dropped.length;
     /*
       When anything was refused the text is rebuilt from what survived, never
       taken from the engine's flat `text` — which still contains every word this
@@ -569,7 +710,12 @@ export function toTranscription(raw: unknown, durationMs: number | null): Transc
     */
     const rebuilt = kept.map((segment) => segment.text).join(" ").trim();
     const text = refused > 0 ? rebuilt : flat || rebuilt;
-    return { text, segments: kept.map(asSegment), refused };
+    return {
+      text,
+      segments: kept.map(asSegment),
+      refused,
+      evidence: evidenceOf(answer, judged, kept, dropped),
+    };
   }
 
   const span = readWordSpan(answer["words"]);
@@ -578,11 +724,24 @@ export function toTranscription(raw: unknown, durationMs: number | null): Transc
       text: flat,
       segments: [{ startMs: span.startMs, endMs: span.endMs, text: flat, confidence: null }],
       refused: 0,
+      /*
+        No `segments` came back, so there is no per-segment evidence to have and
+        none is invented: every count is zero and every extreme is `null`, which
+        reads as "this engine said nothing about whether that was speech". The
+        two `transcription_info` fields are still reported when the engine
+        stated them, because a shape with no segments can still carry them.
+      */
+      evidence: evidenceOf(answer, [], [], []),
     };
   }
 
   const endMs = durationMs !== null ? Math.round(durationMs) : engineDurationMs(answer);
-  return { text: flat, segments: [{ startMs: 0, endMs, text: flat, confidence: null }], refused: 0 };
+  return {
+    text: flat,
+    segments: [{ startMs: 0, endMs, text: flat, confidence: null }],
+    refused: 0,
+    evidence: evidenceOf(answer, [], [], []),
+  };
 }
 
 /**

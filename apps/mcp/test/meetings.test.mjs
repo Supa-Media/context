@@ -3187,6 +3187,90 @@ export async function runMeetingChecks(check) {
     unreadable.status === 503
   );
 
+  /*
+    THE EVIDENCE THE REFUSAL WAS MADE ON, CARRIED TO THE ONE WHO CAN READ IT.
+
+    The refusal above cut invented words about threefold on the owner's Mac and
+    did not stop them, and the question that decides what to do next — is the
+    threshold wrong, or is the signal wrong — turns on `no_speech_prob`,
+    `avg_logprob` and `duration_after_vad`, which were read in the transcription
+    service and dropped there. Nothing downstream could see them: this gateway's
+    logs are in an account the person diagnosing a recording does not have, and
+    the transcript's own `confidence` is `null` on every segment the deployed
+    model has ever produced, because it does not emit that field.
+
+    So the summary rides the answer, and this gateway does to it exactly what it
+    does to `refusedSegments`: reads the shape, carries it, judges nothing. Two
+    properties, and the second is the one worth the check.
+
+    SABOTAGE, each one edit to `src/meetings/transcribe.js`:
+      drop `speechEvidence` from the answer                     3 FAIL
+      forward `raw.evidence` instead of rebuilding it           1 FAIL
+      default an absent reading to 0 rather than null           1 FAIL
+  */
+  transcribeAnswer = () =>
+    new Response(
+      JSON.stringify({
+        text: "hello",
+        segments: [{ startMs: 0, endMs: 500, text: "hello" }],
+        refused: 2,
+        evidence: {
+          segments: 3,
+          statedNoSpeech: 3,
+          statedLogprob: 3,
+          keptNoSpeechMax: 0.58,
+          keptLogprobMin: -0.99,
+          refusedNoSpeechMin: 0.94,
+          refusedLogprobMax: -1.6,
+          duration: 20,
+          durationAfterVad: null,
+          // A field this gateway does not know, and a place somebody's words
+          // could hide. It must not be forwarded.
+          transcript: "words nobody asked this gateway to carry",
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  const withEvidence = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk({ chunkId: `${SESSION_TRANSCRIBE}-mic-4` }) }
+  );
+  check(
+    "the engine's own evidence reaches the recorder",
+    withEvidence.body?.speechEvidence?.keptNoSpeechMax === 0.58 &&
+      withEvidence.body?.speechEvidence?.keptLogprobMin === -0.99 &&
+      withEvidence.body?.speechEvidence?.refusedNoSpeechMin === 0.94 &&
+      withEvidence.body?.speechEvidence?.segments === 3
+  );
+  check(
+    "...with a field the engine did not state carried as null, not as a number",
+    withEvidence.body?.speechEvidence?.durationAfterVad === null
+  );
+  check(
+    "...AND NOTHING THE GATEWAY DOES NOT KNOW, WHICH IS WHERE TEXT WOULD RIDE",
+    Object.values(withEvidence.body?.speechEvidence ?? {}).every(
+      (value) => value === null || typeof value === "number"
+    ) && !("transcript" in (withEvidence.body?.speechEvidence ?? {}))
+  );
+
+  transcribeAnswer = () =>
+    new Response(JSON.stringify({ text: "hi", segments: [], refused: 1 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  const noEvidence = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk({ chunkId: `${SESSION_TRANSCRIBE}-mic-5` }) }
+  );
+  check(
+    "a service too old to state any evidence says so with null, not with zeros",
+    noEvidence.status === 200 && noEvidence.body?.speechEvidence === null
+  );
+
   const before = transcribeCalls.length;
   const neighbourTranscribe = await meetingRequest(
     transcribing,

@@ -102,6 +102,99 @@ export interface TranscribeAnswer {
   segments: TranscriptSegment[];
   /** Zero from a gateway or a service too old to say. Never a refusal by absence. */
   refusedSegments: number;
+  /**
+   * The engine's own numbers behind that count, or `null` when it did not say.
+   *
+   * See `SpeechEvidence`. `null` is a service or gateway one deploy behind, and
+   * is never an object of zeros: "it did not say" and "it measured zero" are
+   * different answers and only one of them is evidence of anything.
+   */
+  speechEvidence: SpeechEvidence | null;
+}
+
+/**
+ * WHAT THE ENGINE SAID ABOUT WHETHER A CHUNK WAS SPEECH.
+ *
+ * Every value is a count or a reading, and `null` means the engine stated
+ * nothing. The shape is the transcription service's
+ * (`infra/transcribe-worker/src/transcribe.ts`, `SpeechEvidence`), carried
+ * untouched by the gateway; this app reads it and never computes one.
+ *
+ * It exists because the refusal in that service cut invented speech about
+ * threefold on the owner's Mac and did not stop it, and nobody could tell
+ * whether the threshold was wrong or the signal was: the three numbers that
+ * decide it were used for control flow in a Worker whose logs are in an
+ * account the person diagnosing a recording does not have.
+ *
+ * **It is never rendered at a person and never written into a note.** A
+ * `no_speech_prob` on a screen is a number with no meaning to whoever reads
+ * it, and the sentence a person actually needs — `CAPTURE_NOTICES.silent` —
+ * already exists and says what happened in words.
+ */
+export interface SpeechEvidence {
+  segments: number | null;
+  statedNoSpeech: number | null;
+  statedLogprob: number | null;
+  keptNoSpeechMax: number | null;
+  keptLogprobMin: number | null;
+  refusedNoSpeechMin: number | null;
+  refusedLogprobMax: number | null;
+  duration: number | null;
+  durationAfterVad: number | null;
+}
+
+/** One chunk's evidence, with what this side knows about the same chunk. */
+export interface SpeechEvidenceReport {
+  /** The client's own chunk key. Names the meeting and channel; carries no text. */
+  chunkId: string;
+  /** How many segments came back after the service's refusal, and how many went. */
+  kept: number;
+  refused: number;
+  evidence: SpeechEvidence | null;
+}
+
+/**
+ * One chunk's evidence as a single structured line.
+ *
+ * ## Why a log line, and why this process's
+ *
+ * The three candidate homes were the segment, a per-chunk summary, and a log
+ * the gateway keeps. The segment is out because a segment is written into the
+ * customer's note and rendered at a person, and a number there is both
+ * meaningless to its reader and a claim about their words. The gateway's log
+ * is out because reaching it needs an account the person diagnosing does not
+ * have, which is precisely what blocked a diagnosis on the owner's Mac. What
+ * is left is the summary, delivered to the recorder that posted the audio —
+ * and this is the recorder, so this is where it can be read.
+ *
+ * Bounded and content-free by construction: one short line per chunk, so about
+ * three a minute per open channel, carrying counts, readings and a chunk id.
+ * There is no field here that can hold a word anybody said.
+ *
+ * `absent` rather than `null` for a reading the engine did not state, because
+ * the whole reason this exists is that "it did not say" was indistinguishable
+ * from "it said zero" — and `absent` cannot be misread as a measurement.
+ */
+export function speechEvidenceLine(report: SpeechEvidenceReport): string {
+  const value = (one: number | null): string => (one === null ? "absent" : String(one));
+  const head = `meeting_speech_evidence chunk=${report.chunkId} kept=${report.kept} refused=${report.refused}`;
+  const evidence = report.evidence;
+  // A service that says nothing says so in one word. An object of zeros here
+  // would read as an engine that measured silence, which is the confusion this
+  // whole field exists to end.
+  if (evidence === null) return `${head} evidence=absent`;
+  return [
+    head,
+    `segments=${value(evidence.segments)}`,
+    `stated_no_speech=${value(evidence.statedNoSpeech)}`,
+    `stated_logprob=${value(evidence.statedLogprob)}`,
+    `kept_no_speech_max=${value(evidence.keptNoSpeechMax)}`,
+    `kept_logprob_min=${value(evidence.keptLogprobMin)}`,
+    `refused_no_speech_min=${value(evidence.refusedNoSpeechMin)}`,
+    `refused_logprob_max=${value(evidence.refusedLogprobMax)}`,
+    `duration=${value(evidence.duration)}`,
+    `duration_after_vad=${value(evidence.durationAfterVad)}`,
+  ].join(" ");
 }
 
 export type SendChunk = (request: TranscribeRequest) => Promise<TranscribeAnswer>;
@@ -182,6 +275,15 @@ export const NOT_YET_GRACE_MS = 2 * DRAIN_INTERVAL_MS;
 
 export interface GatewayTranscriberDeps {
   send: SendChunk;
+  /**
+   * Where a chunk's speech evidence goes. Never `onNotice`, which is a person.
+   *
+   * Optional because it is a diagnostic and a transcriber with nowhere to put
+   * one still transcribes. Called once per chunk the far end answered, and
+   * never for one it refused: a refusal carries no evidence, and a line saying
+   * so is a line about the network rather than about speech.
+   */
+  onEvidence?: (report: SpeechEvidenceReport) => void;
   /** Bounded for the suite; the default is the shared one every recorder uses. */
   maxInFlight?: number;
   /** Bounded for the suite; the default is `NOT_YET_GRACE_MS`. */
@@ -264,6 +366,23 @@ export function gatewayTranscriber(deps: GatewayTranscriberDeps): Transcriber {
               // known now. The grace below measures an *unbroken* run.
               notYetSince = null;
               const segments = answer.segments;
+              /*
+                The engine's evidence, reported before anything is decided about
+                the words — including before the quiet-chunk notice below, so a
+                meeting whose sentence never appeared still leaves the numbers
+                that say why. Guarded because a diagnostic that can take a
+                recording down is worse than no diagnostic.
+              */
+              try {
+                deps.onEvidence?.({
+                  chunkId: request.chunkId,
+                  kept: segments.length,
+                  refused: answer.refusedSegments,
+                  evidence: answer.speechEvidence,
+                });
+              } catch {
+                // A sink with a bug in it is not a reason to stop transcribing.
+              }
               /*
                 THE QUIET CHUNK, SAID OUT LOUD.
 

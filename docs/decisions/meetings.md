@@ -2906,3 +2906,135 @@ which sentence is true; a refusal is said underneath it, and content still
 waiting on the device is said underneath that. **The test that fails if this is
 reversed** is `A REFUSAL AFTER THE NOTE LANDED DOES NOT UN-SAY THE PATH` in
 `apps/mobile/__tests__/meetingsScreens.test.ts`.
+
+## The engine's own evidence travels to the recorder, because a Worker's log is not a place a person can read
+
+The silence refusal above works and does not finish the job. Measured on the
+signed build, in the same room, with nobody speaking:
+
+```
+before the refusal:  166 words / 90s = 1.84 words/sec
+after  the refusal:   29 words / 45s = 0.64 words/sec
+```
+
+A threefold cut and a meeting still filed, so `hasNothingCaptured` is still
+unreachable and the acceptance — record silence, expect no note at all — still
+fails. The next move depends entirely on one question: **do the surviving
+segments sit just past the thresholds, or far from them?** Just past means the
+threshold is wrong and moving it is cheap. Far from them means the engine
+decoded silence *confidently*, no threshold reaches it, and the answer has to
+come from somewhere else.
+
+**Nobody could answer it, and that is the defect this section is about.** The
+three numbers that decide it — `no_speech_prob`, `avg_logprob`,
+`transcription_info.duration_after_vad` — were read inside
+`infra/transcribe-worker`, used for control flow, and dropped on the floor. The
+transcript segment that reaches the customer's bucket carries exactly
+`id, startMs, endMs, text, speaker, channel, confidence`, and measured across
+every segment of every meeting, the distinct set of `confidence` values is
+`[null]` — not a low number, `null`, because **the deployed model does not emit
+a field called `confidence` at all** and this repository refuses to manufacture
+one. So the one numeric field on the wire is structurally empty, and the three
+fields that are not empty were invisible.
+
+### First: the provider does return them
+
+This was established before anything was built, because the alternative finding
+— that the fields are absent — would have made plumbing them a waste and the
+correct answer would have been to say so loudly.
+
+- **The published output schema of `@cf/openai/whisper-large-v3-turbo` carries
+  them**: `segments[].{start, end, text, temperature, avg_logprob,
+  compression_ratio, no_speech_prob, words[]}` and
+  `transcription_info.{language, language_probability, duration,
+  duration_after_vad}`. It carries no `confidence`, which is why that field is
+  `null` everywhere and always will be on this model.
+- **They demonstrably arrive**, which is stronger than a schema. Rule 1 cannot
+  fire on this deployment at all — `vad_filter` defaults to `false`, so
+  `duration_after_vad` equals `duration` and the rule has no opinion — so the
+  threefold reduction measured on hardware was produced *entirely* by rule 2,
+  which reads both `no_speech_prob` and `avg_logprob` and fires only when both
+  are present. A rule that cannot fire without two fields, firing repeatedly on
+  real audio, is those two fields arriving.
+
+So the finding is that the evidence is real and was being discarded, and the fix
+is to carry it rather than to declare it missing.
+
+### Where it lives, and the two places it may not
+
+**On the segment: no.** A segment is written into the customer's note and
+rendered at a person. A `no_speech_prob` beside a sentence is a number whose
+meaning its reader has no way to know, attached to their own words, in storage
+they own — and `A CONFIDENCE IS NEVER INVENTED` exists precisely to keep numbers
+that look like judgements about somebody's speech out of that file.
+
+**In a log the transcription service keeps: no**, and this is the one the defect
+proves. That Worker's logs are in an account the person diagnosing a recording
+does not have. Tonight that person was on the machine that made the recording,
+holding the app and the bucket, and the numbers were two hops away in a place
+they could not reach. A diagnostic in an inaccessible place is not a diagnostic.
+
+**So: a per-chunk summary, on the wire, to the recorder that posted the audio.**
+`SpeechEvidence` is counts and readings — how many segments came back, how many
+stated each field, the extremes over the kept population and over the refused
+one, and the two `transcription_info` durations. The gateway carries it beside
+`refusedSegments`, reading it key by key and judging nothing, exactly as it
+already carries the count. The desktop writes one structured line per answered
+chunk, `meeting_speech_evidence chunk=… kept=… refused=… …`, in the process the
+person diagnosing already has in front of them.
+
+Four properties, each load-bearing:
+
+- **It is a summary, never a per-segment array.** A number beside each utterance
+  could be joined to what was said, and would eventually be rendered at
+  somebody. Counts and extremes cannot be joined to anything.
+- **It carries no text, no timings and no ids of anybody's words.** Every value
+  is a number or `null`; the only string in the log line is the client's own
+  `chunkId`, which names a meeting and a channel and no content. Both the
+  gateway and the desktop rebuild the object from keys they declare rather than
+  forwarding what arrived, so a field the far end grew does not ride along.
+- **`null` means the engine did not say, and `0` is never substituted for it.**
+  This is the whole point: a `no_speech_prob` of `0` reads as "the decoder was
+  certain somebody was talking", and an engine that stated nothing must never
+  produce that sentence. The line prints `absent`, which cannot be misread as a
+  measurement. A whole answer with no evidence prints `evidence=absent`.
+- **Nothing is put in front of a person.** The sentence a person needs already
+  exists and is words rather than numbers — `CAPTURE_NOTICES.silent`, said only
+  when a whole chunk came back empty. No screen and no note gains a number here.
+
+The extremes are **independent per axis**, and that is how they must be read:
+`keptNoSpeechMax` and `keptLogprobMin` may belong to different segments. They
+bound the surviving population rather than describing one member of it, which is
+exactly the question being asked — did anything survive anywhere near the
+cutoff, or is the whole population far from it.
+
+### What is deliberately not plumbed
+
+**The control plane's path.** The phone and the browser transcribe through
+`apps/convex/functions/meetings/transcribe.ts`, which carries `refusedSegments`
+and could carry this too. It does not, for the reason that decided everything
+above: nothing on the phone can read a log line, so the evidence would land in
+Convex's logs — the same inaccessible place, one provider along — and a field
+nobody reads is plumbing that rots. The desktop is the recorder being
+diagnosed, and it is where the numbers can actually be looked at. When the phone
+grows somewhere to put one, the field crosses the same way.
+
+**Any use of the evidence in code.** Nothing branches on it, on any hop. The
+refusal stays exactly where it is, on the engine's own fields, in the one place
+every recorder's audio passes through. This is a diagnostic and must not quietly
+become a second threshold in a client.
+
+### The cost, stated
+
+One short line per answered chunk, so roughly three a minute per open channel,
+in the desktop's log for the life of a recording. Always on rather than behind a
+flag, deliberately: the evidence is wanted *after* a recording turns out wrong,
+and a diagnostic somebody has to switch on beforehand is one nobody has when it
+matters.
+
+**The test that fails if this is reversed:** `reporting the evidence the refusal
+acted on` in `infra/transcribe-worker/src/transcribe.test.ts`, `the engine's own
+evidence reaches the recorder` in `apps/mcp/test/meetings.test.mjs`, and the
+evidence block in `apps/desktop/test/transcriber.test.mjs`. Filling a `null`
+reading with `0` reddens six checks in the Worker alone.
+
