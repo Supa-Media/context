@@ -63,6 +63,7 @@ function fakeController(overrides: Partial<NoteEncryptionController> = {}): Note
     isUnlocked: (path) => sessionIsUnlocked(session, path),
     msUntilLock: () => null,
     lock: () => dispatch({ type: "lock", reason: "manual" }),
+    close: (path) => dispatch({ type: "closed", path }),
     touch: (path) => dispatch({ type: "touched", path, at: Date.now() }),
     protect: async () => {
       throw new Error("not used in this test");

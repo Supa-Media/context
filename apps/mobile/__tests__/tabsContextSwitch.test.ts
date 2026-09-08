@@ -94,6 +94,7 @@ function browser(
     save: noop,
     flushAutosave: () => false,
     discardLocalCopies: noop,
+    encryptedElsewhere: noop,
     useTheirs: noop,
     keepMine: noop,
     conflict: null,

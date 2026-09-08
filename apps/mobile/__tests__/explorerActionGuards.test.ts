@@ -323,6 +323,7 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     save: noop,
     flushAutosave: () => false,
     discardLocalCopies: record("discardLocalCopies"),
+    encryptedElsewhere: record("encryptedElsewhere"),
     useTheirs: noop,
     keepMine: noop,
     conflict: null,
