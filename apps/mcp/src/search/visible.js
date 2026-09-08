@@ -59,6 +59,7 @@ import {
   fetchShardBytes,
   indexIsBehind,
   loadIndexManifest,
+  shedNotePathsOf,
   syncShardedIndex,
 } from "./shards.js";
 import { termsOf } from "./text.js";
@@ -120,6 +121,44 @@ const MISS_REFRESH_FLOOR = 12;
  * cost the widest bucket in the system its whole index on every keystroke.
  */
 const EXPANSION_SHARD_SAMPLE = 8;
+
+/**
+ * Reduced-recall notes a *rendered* banner names before it starts counting.
+ *
+ * The list is one path per note and a shed context sheds by the day, so a
+ * mailbox well past capacity has hundreds of them — measured: 400 shed days
+ * render as ~23,000 characters, which is a `search_notes` answer whose
+ * warning is longer than every hit in it put together and an `orient` eight
+ * times its usual size, with the owner's own save procedure pushed past all
+ * of it. That is the same defect as the silence this signal replaces, in the
+ * other direction: a notice nobody can read past is a notice nobody reads.
+ *
+ * The rule this follows is the one `orient` already applies to its own lists
+ * (`ORIENT_ROOT_NOTE_LIMIT`, `ORIENT_CHILDREN_LIMIT`) and, more pointedly,
+ * the one the "Recently updated" section applies to mail specifically —
+ * collapsed "so they cannot crowd out a note the user actually touched".
+ * Shed notes are overwhelmingly mail, arriving on the same schedule.
+ *
+ * Named, then counted: the overflow is reported as `(+N more)` rather than
+ * dropped, so the claim stays true — and `reducedRecallNotes` itself is never
+ * truncated, so a programmatic caller (the console) still gets the whole list.
+ */
+export const RENDERED_RECALL_NOTE_LIMIT = 10;
+
+/**
+ * A rendered banner's share of `reducedRecallNotes`, and what it left out.
+ *
+ * `rest` is counted **after** the caller's own `isVisible` filter has run, in
+ * `searchIndexedNotes` and in `orient`'s own copy — so the number a caller
+ * reads is a count of their own notes and never a hint at somebody else's.
+ *
+ * @param {string[]} paths already visibility-filtered
+ * @returns {{shown: string[], rest: number}}
+ */
+export function splitReducedRecallNotes(paths, limit = RENDERED_RECALL_NOTE_LIMIT) {
+  const list = Array.isArray(paths) ? paths : [];
+  return { shown: list.slice(0, limit), rest: Math.max(0, list.length - limit) };
+}
 
 /** A note's own `#` heading, or its filename when it has none. */
 export function noteTitle(path, text) {
@@ -198,6 +237,30 @@ export function snippetLinesFor(text, matchedTerms) {
  * and would make the first search in an unvisited folder as expensive as the
  * scan this replaces.
  *
+ * ## `reducedRecall` is not `indexIncomplete`, and folding them would lie
+ *
+ * `indexIncomplete` means "run a pass and this gets better" — it is read off
+ * `freshness` and off what this walk could not afford to open, both of which
+ * heal the way `pending` does. Shedding does not: a shard that gave up a
+ * note's messages to fit its cap stays that way until the note shrinks or the
+ * index gets more room, and another pass finds exactly the same wall
+ * (`docs/decisions/search.md`, "sheds rather than taking the rest with it").
+ * Answering a shed-affected miss with the same "still catching up" banner
+ * `indexIncomplete` prints would tell somebody to wait for a fix that is not
+ * coming — worse than the silence this replaces, because it is a **specific**
+ * false promise rather than a generic one. So it is its own flag:
+ * `reducedRecallNotes` names which of the caller's own visible notes lost
+ * per-message recall (`docs/decisions/search.md`'s sizing section — the
+ * note's path is a channel and a day, e.g.
+ * `0-inbox/email/name-at-example.com/2026-09-07.md`), and `reducedRecall` is
+ * whether that list is non-empty. **Read off the manifest's own memory of
+ * shedding (`shedNotePathsOf`), never off which shards this query happened to
+ * open** — the whole failure this exists to fix is a shard whose filter
+ * correctly finds nothing for a term that WAS in a message the shard gave up,
+ * so gating the flag on this walk's routing would make it silent in exactly
+ * the case it exists for. It is therefore a fact about the caller's visible
+ * corpus, not about this one query, the same way `indexIncomplete` already is.
+ *
  * @param {object} store the caller's per-request store
  * @param {object} options
  * @param {(path: string) => boolean} options.isVisible the caller's own
@@ -222,12 +285,15 @@ export function snippetLinesFor(text, matchedTerms) {
  *   hits?: {key: string, title: string, snippets: string[]}[],
  *   matchCount?: number, matchCountIsFloor?: boolean,
  *   indexIncomplete?: boolean,
+ *   reducedRecall?: boolean, reducedRecallNotes?: string[],
  *   index?: {shardCount: number, occupiedShards: number, shardsRead: number,
  *     docs: number, pending: number, shardsUnread: boolean,
- *     listedAt: string|null, routed: boolean}}>} `index` is operator-facing
- *   bookkeeping for the trace: counts over the *whole* index, private notes
- *   included, so it is the one thing in this return that must never reach a
- *   caller's answer.
+ *     listedAt: string|null, routed: boolean, shed: number}}>} `index` is
+ *   operator-facing bookkeeping for the trace: counts over the *whole* index,
+ *   private notes included, so it is the one thing in this return that must
+ *   never reach a caller's answer. `reducedRecallNotes` is the opposite on
+ *   purpose — it is already filtered through the caller's own `isVisible`,
+ *   the same as `hits`, and is safe to print.
  */
 export async function searchIndexedNotes(store, options) {
   const {
@@ -326,6 +392,14 @@ async function answerFromIndex(store, options) {
   }
   const indexHasDocs = Boolean(manifest && manifest.stats.some((entry) => entry.docCount > 0));
   if (!indexHasDocs) return { indexed: false };
+
+  // The caller's own share of `shedNotePathsOf(manifest)` — raw and
+  // unfiltered until this line, exactly like `manifest.filters`. Computed
+  // from the manifest already in hand, so a caller learns this for the cost
+  // of the one GET every query already pays, whether or not this query's own
+  // routing happened to open the shard that shed it. See the module doc
+  // comment above on why it must not be gated on that.
+  const reducedRecallNotes = [...new Set(shedNotePathsOf(manifest).filter(isVisible))].sort();
 
   // Parsed once and asked of every shard, so no two shards can be asked a
   // different question — and never re-tokenized per shard.
@@ -646,6 +720,13 @@ async function answerFromIndex(store, options) {
     // their note is not written down.
     indexIncomplete:
       indexIsBehind(manifest.freshness) || shardsUnread || budgetCannotCoverIndex,
+    // `pending`'s opposite, in a shape a caller may actually be shown — see the
+    // module doc comment on why this must never be folded into
+    // `indexIncomplete` above. Already run through `isVisible`, so this is
+    // deliberately unlike `index.shed` below: that is the operator's total
+    // over the whole bucket, and this is the caller's own share of it.
+    reducedRecall: reducedRecallNotes.length > 0,
+    reducedRecallNotes,
     // For the trace, and for a caller deciding whether finishing this index is
     // worth a background pass. Never rendered: these count every doc in the
     // bucket, so printing one beside a team connection's visible hits is the

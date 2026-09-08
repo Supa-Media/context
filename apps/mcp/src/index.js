@@ -104,9 +104,15 @@ import {
   INTERACTIVE_BACKFILL_OPS,
   searchIndexedNotes,
   snippetLinesFor,
+  splitReducedRecallNotes,
 } from "./search/visible.js";
 import { splitMessageAnchor } from "./search/commsIndex.js";
-import { indexIsBehind, loadIndexManifest, syncShardedIndex } from "./search/shards.js";
+import {
+  indexIsBehind,
+  loadIndexManifest,
+  shedNotePathsOf,
+  syncShardedIndex,
+} from "./search/shards.js";
 import { createD1Client } from "./search/d1/client.js";
 import { answerFromProjection } from "./search/d1/serve.js";
 import {
@@ -3544,14 +3550,40 @@ async function surveyOtherContexts(store) {
   );
 }
 
+/**
+ * The caller's own share of the search index's shed notes, for `orient`.
+ *
+ * One extra GET — the manifest `search_notes` already reads on every query —
+ * so an agent that never searches still learns this rather than discovering
+ * it as a silent miss later. Filtered through `isVisible` exactly as
+ * `searchIndexedNotes` filters it, because these paths are gathered from
+ * every doc in a shard, private ones included, and are safe to say out loud
+ * only after that check runs (`docs/decisions/search.md`, sizing section).
+ *
+ * `[]` for every way this can fail to answer — no index yet, an unreadable
+ * manifest, no budget — because to `orient` those all mean the same thing:
+ * nothing to report, and `search_notes` is where a real miss gets explained.
+ */
+async function reducedRecallNotesFor(store, isVisible) {
+  try {
+    const manifest = await loadIndexManifest(store, createSearchBudget(2), 0);
+    if (!manifest) return [];
+    return [...new Set(shedNotePathsOf(manifest).filter(isVisible))].sort();
+  } catch {
+    return [];
+  }
+}
+
 async function toolOrient(store, scope, rules, overrides) {
-  const [frontPage, procedure, privateIndex, pendingProposals, survey] = await Promise.all([
-    readFrontPage(store, scope, rules, overrides, ORIENT_INDEX_CHAR_CAP),
-    readSaveProcedure(store, scope, rules, overrides),
-    scope === "private" ? store.get("index-private.md") : Promise.resolve(null),
-    scope === "private" ? listAllKeys(store, PROPOSAL_PENDING_PREFIX) : Promise.resolve([]),
-    surveyContext(store, scope, rules, overrides),
-  ]);
+  const [frontPage, procedure, privateIndex, pendingProposals, survey, reducedRecallNotes] =
+    await Promise.all([
+      readFrontPage(store, scope, rules, overrides, ORIENT_INDEX_CHAR_CAP),
+      readSaveProcedure(store, scope, rules, overrides),
+      scope === "private" ? store.get("index-private.md") : Promise.resolve(null),
+      scope === "private" ? listAllKeys(store, PROPOSAL_PENDING_PREFIX) : Promise.resolve([]),
+      surveyContext(store, scope, rules, overrides),
+      reducedRecallNotesFor(store, (path) => canSee(path, scope, rules, overrides)),
+    ]);
 
   const total = `${survey.total}${survey.truncated ? "+" : ""}`;
   const parts = [
@@ -3606,6 +3638,24 @@ async function toolOrient(store, scope, rules, overrides) {
       "is not written down — a topic that is missing from this map is usually filed under a " +
       "name you did not guess."
   );
+
+  if (reducedRecallNotes.length) {
+    // Named, then counted — a shed mailbox sheds by the day, so this list is
+    // hundreds of lines long in exactly the context that most needs the rest
+    // of this page. See `RENDERED_RECALL_NOTE_LIMIT`, and the same `(+N more)`
+    // idiom `renderStructure` uses for the identical reason.
+    const { shown, rest } = splitReducedRecallNotes(reducedRecallNotes);
+    const lines = shown.map((path) => `- ${path}`);
+    if (rest) lines.push(`- (+${rest} more notes in the same state)`);
+    parts.push(
+      "## Search coverage\n" +
+        "These notes hold more messages than the search index can keep in full, so " +
+        "search_notes will not find a term that appeared only in a message it had to drop — " +
+        "the note itself is unaffected and read_note always returns it whole. A search miss on " +
+        "one of these is not proof the content is gone:\n" +
+        lines.join("\n")
+    );
+  }
 
   const otherContexts = await surveyOtherContexts(store);
   if (otherContexts) parts.push(otherContexts);
@@ -5825,6 +5875,13 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
        * The console path says the same thing for the same reason.
        */
       indexIncomplete: false,
+      // `false`, and unconditionally rather than read off anything: the D1
+      // projection has no shard byte cap for a mailbox to cross — a message is
+      // one row regardless of how many its channel-day note holds — so
+      // shedding is a fact about the R2 shard index alone. See
+      // `docs/decisions/search.md`'s sizing section.
+      reducedRecall: false,
+      reducedRecallNotes: [],
       degraded: false,
     };
   }
@@ -5870,6 +5927,8 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
       matchCount: found.matchCount,
       matchCountIsFloor: found.matchCountIsFloor,
       indexIncomplete: found.indexIncomplete,
+      reducedRecall: Boolean(found.reducedRecall),
+      reducedRecallNotes: found.reducedRecallNotes ?? [],
       degraded: false,
     };
   }
@@ -5914,6 +5973,10 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
     matchCount: scan.hits.length,
     matchCountIsFloor: scan.totalCount > scan.scannedCount,
     indexIncomplete: false,
+    // The literal scan reads each note's own live text rather than a shard
+    // that could be over-cap, so shedding is not a fact about this answer.
+    reducedRecall: false,
+    reducedRecallNotes: [],
     degraded: true,
     scannedCount: scan.scannedCount,
     totalCount: scan.totalCount,
@@ -6301,6 +6364,26 @@ async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg)
     out +=
       "\n\n[note: the search index is still catching up on this context, so these results may " +
       "be incomplete — searching again continues the backfill]";
+  }
+  // Distinct from the banner above on purpose (`docs/decisions/search.md`,
+  // sizing section): that one resolves by searching again, and this one does
+  // not — a channel-day note past the index's per-shard capacity keeps
+  // exactly one summary document until the note itself shrinks or the index
+  // gets more room. Named rather than counted, and only the notes this
+  // caller may already see: `found.reducedRecallNotes` is pre-filtered by
+  // `isVisible`, the same as every hit above it.
+  if (found.reducedRecall && found.reducedRecallNotes?.length) {
+    // Bounded for the same reason `orient`'s copy is: unbounded, a mailbox
+    // that sheds by the day turns a one-hit answer into 23,000 characters of
+    // warning, which buries the hits this search did find. The overflow is
+    // counted rather than dropped — see `RENDERED_RECALL_NOTE_LIMIT`.
+    const { shown, rest } = splitReducedRecallNotes(found.reducedRecallNotes);
+    out +=
+      "\n\n[note: these notes hold more messages than the search index can keep in full, so a " +
+      "term that appeared only in a message it had to drop will not surface here even though " +
+      "the note itself still exists and read_note always returns it whole — a miss on one of " +
+      `these is not proof the content is gone, only that this search cannot reach all of it: ` +
+      `${shown.join(", ")}${rest ? ` (+${rest} more)` : ""}]`;
   }
   if (found.degraded && found.totalCount > found.scannedCount) {
     out += `\n\n[note: scanned ${found.scannedCount} of ${found.totalCount}${

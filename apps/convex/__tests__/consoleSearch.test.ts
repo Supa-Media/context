@@ -36,6 +36,8 @@ import {
 } from "../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { createSearchBudget } from "../../mcp/src/search/maintain.js";
+import { MANIFEST_KEY, loadIndexManifest, serializeManifest } from "../../mcp/src/search/shards.js";
 
 /**
  * A bucket whose private half is the only place a distinctive word appears.
@@ -516,5 +518,125 @@ describe("the console's search", () => {
     expect(idle.complete).toBe(true);
     expect(idle.changed).toBe(false);
     expect(idle.pending).toBe(0);
+    // `pending`'s opposite exists on this reply now too, and reads zero on a
+    // bucket small enough that nothing ever crossed the shard cap.
+    expect(idle.shed).toBe(0);
+    expect(idle.oversizedShards).toBe(0);
+  });
+});
+
+/**
+ * THE SHED SIGNAL, ACROSS THE CONVEX SURFACE.
+ *
+ * `apps/mcp/test/commsSearchIndex.test.mjs`'s `runShardSizingChecks` already
+ * proves the mechanism end to end against a real mailbox — a fixture too slow
+ * to repeat here on every `pnpm test`. What is unique to this boundary, and
+ * therefore worth its own coverage, is the PLUMBING: does `searchNotes` carry
+ * the manifest's own `shedPaths` through `canSee` to a console caller, per
+ * scope, the same way `hits` already does.
+ *
+ * So the fixture drives the signal directly rather than growing a real
+ * mailbox: index this tiny bucket for real, then edit the stored manifest to
+ * say a real, already-indexed note was shed — exactly the state a converged
+ * mailbox past capacity would leave behind, without paying for one.
+ */
+describe("the console's reduced-recall signal", () => {
+  /** Mark `paths` as shed in the (small, one-shard) bucket's own manifest. */
+  async function markShed(store: MemoryStore & FileStore, paths: string[]): Promise<void> {
+    const manifest = await loadIndexManifest(
+      store as unknown as Parameters<typeof loadIndexManifest>[0],
+      createSearchBudget(10),
+      0,
+    );
+    if (!manifest) throw new Error("no manifest to mutate — settle the index first");
+    // This fixture is small enough to size at one shard; asserted rather than
+    // assumed, because the injection below only touches `stats[0]`.
+    expect(manifest.shardCount).toBe(1);
+    manifest.stats[0] = { ...manifest.stats[0], shed: paths.length, shedPaths: [...paths].sort() };
+    store.seed(MANIFEST_KEY, serializeManifest(manifest));
+  }
+
+  test("a caller's own visible notes carry the manifest's shed marks, unfolded into indexIncomplete", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    await settled(store, { query: "quokkaplan", scope: "private" });
+    await markShed(store, ["1-projects/shared-plan.md", "1-projects/pay.md"]);
+
+    const asOwner = await searchNotes(store, { query: "quokkaplan", scope: "private" });
+    expect(asOwner.reducedRecall).toBe(true);
+    expect(asOwner.reducedRecallNotes.slice().sort()).toEqual([
+      "1-projects/pay.md",
+      "1-projects/shared-plan.md",
+    ]);
+    // The manifest is otherwise untouched — still converged — so the flag
+    // that means "another pass helps" must stay false beside the one that
+    // means "no pass will".
+    expect(asOwner.indexIncomplete).toBe(false);
+  });
+
+  test("...and a team caller never learns a private note was among them", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    await settled(store, { query: "quokkaplan", scope: "private" });
+    await markShed(store, ["1-projects/shared-plan.md", "1-projects/pay.md"]);
+
+    const asTeam = await searchNotes(store, { query: "quokkaplan", scope: "team" });
+    expect(asTeam.reducedRecall).toBe(true);
+    expect(asTeam.reducedRecallNotes).toEqual(["1-projects/shared-plan.md"]);
+    expect(JSON.stringify(asTeam)).not.toContain("pay.md");
+  });
+
+  test("an unmarked index never claims reduced recall", async () => {
+    const store = bucket();
+    const found = await settled(store, { query: "quokkaplan", scope: "private" });
+    expect(found.reducedRecall).toBe(false);
+    expect(found.reducedRecallNotes).toEqual([]);
+  });
+
+  test("maintainSearchIndex reports a real shed, not only the plumbing for one", async () => {
+    // A small `shardByteCap` (test-only — see `runIndexPass`) so a real shed
+    // event happens inside one pass without megabytes of Markdown: one dense
+    // note with a large vocabulary pushes its own one-shard bucket over the
+    // cap, and the note beside it did nothing wrong.
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
+    const dense = Array.from({ length: 200 }, (_, i) => `tok${i.toString(36)}zq`).join(" ");
+    store.seed("1-projects/dense.md", `# Dense\n\n${dense}\n`);
+    store.seed("1-projects/plain.md", "# Plain\n\nordinary-note-word\n");
+
+    let lastPass = null;
+    let everShed = 0;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      lastPass = await maintainSearchIndex(store, { shardByteCap: 2_500 });
+      everShed = Math.max(everShed, lastPass.shed);
+    }
+    expect(lastPass).not.toBeNull();
+    expect(lastPass!.pending).toBe(0);
+    expect(lastPass!.oversizedShards).toBe(0);
+    // The count this reply carries is real, not a stub value: some pass in
+    // this run really did shed the one note that could not fit.
+    expect(everShed).toBe(1);
+
+    const found = await searchNotes(store, { query: "ordinary-note-word", scope: "private" });
+    expect(found.hits.map((hit) => hit.path)).toEqual(["1-projects/plain.md"]);
+    expect(found.reducedRecall).toBe(true);
+    expect(found.reducedRecallNotes).toEqual(["1-projects/dense.md"]);
+  });
+
+  test("the fast (D1) path never claims reduced recall, even over a manifest marked shed", async () => {
+    const store = bucket() as MemoryStore & FileStore;
+    const stub = await projected(store);
+    await markShed(store, ["1-projects/shared-plan.md"]);
+
+    const fast = await searchNotes(
+      store,
+      { query: "quokkaplan", scope: "private" },
+      stub.client,
+    );
+    // Non-vacuity: this really did answer from the projection rather than
+    // silently falling through to the R2 index the mark above was written to.
+    expect(fast.hits.length).toBeGreaterThan(0);
+    expect(fast.reducedRecall).toBe(false);
+    expect(fast.reducedRecallNotes).toEqual([]);
   });
 });

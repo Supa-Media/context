@@ -308,6 +308,15 @@ const searchResultsValidator = v.object({
    * would tell somebody their note does not exist.
    */
   indexMissing: v.boolean(),
+  /**
+   * Some of this caller's own visible notes lost per-message recall to the
+   * search index's own capacity, and never resolves by searching again —
+   * `indexIncomplete`'s opposite claim, which is why it is a field of its own
+   * rather than folded in (`docs/decisions/search.md`, sizing section).
+   */
+  reducedRecall: v.boolean(),
+  /** Which of the caller's own visible notes those are — already `canSee`-filtered. */
+  reducedRecallNotes: v.array(v.string()),
 });
 
 /**
@@ -379,12 +388,22 @@ const blendedResultsValidator = v.object({
  * progress, and deliberately nothing about the notes it read: an indexing pass
  * is scope-blind, so a field naming a path or a term here would be an
  * existence oracle for the private half of somebody's bucket.
+ *
+ * `shed` and `oversizedShards` are `pending`'s own opposite in the same
+ * shape: a whole-bucket scalar, never a path (`docs/decisions/search.md`,
+ * sizing section — `syncShardedIndex`'s `shed`/`oversizedShards`, which no
+ * caller of this reply read before). Where they DO name a path is
+ * `searchResultsValidator.reducedRecallNotes`, which is safe because it is
+ * already filtered through one caller's own `canSee` — this reply, like every
+ * other field above, is not.
  */
 const indexMaintainedValidator = v.object({
   kind: v.literal("indexMaintained"),
   pending: v.number(),
   changed: v.boolean(),
   complete: v.boolean(),
+  shed: v.number(),
+  oversizedShards: v.number(),
 });
 
 /**
@@ -561,7 +580,14 @@ type FileOperation =
 type OperationResult =
   | ({ kind: "searchResults" } & SearchResults)
   | { kind: "notePaths"; paths: string[] | null }
-  | { kind: "indexMaintained"; pending: number; changed: boolean; complete: boolean }
+  | {
+      kind: "indexMaintained";
+      pending: number;
+      changed: boolean;
+      complete: boolean;
+      shed: number;
+      oversizedShards: number;
+    }
   | ({ kind: "indexProjected" } & Omit<ProjectionPass, "failure"> & { failure?: string })
   | {
       kind: "listing";

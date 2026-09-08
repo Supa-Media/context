@@ -2954,6 +2954,24 @@ export interface SearchResults {
    * standing.
    */
   indexMissing: boolean;
+  /**
+   * Some of this caller's own visible notes lost per-message recall to the
+   * search index's own capacity, and never resolves by searching again — the
+   * opposite claim from `indexIncomplete`, which is why it is a separate
+   * field rather than folded into it (`docs/decisions/search.md`, sizing
+   * section). `false` for the D1 projection path: a chunk row per message has
+   * no shard byte cap for a mailbox to cross, so this is a fact about the R2
+   * shard index alone.
+   */
+  reducedRecall: boolean;
+  /**
+   * Which of the caller's own visible notes those are — already filtered
+   * through this scope's `canSee`, the same as every path in `hits`, and safe
+   * to render for that reason. A note's own path names the channel and day
+   * (`0-inbox/email/<address>/2026-09-07.md`), which is what makes this
+   * actionable rather than a bare count.
+   */
+  reducedRecallNotes: string[];
 }
 
 /**
@@ -3098,6 +3116,8 @@ export async function searchNotes(
       matchCountIsFloor: false,
       indexIncomplete: false,
       indexMissing: false,
+      reducedRecall: false,
+      reducedRecallNotes: [],
     };
   }
 
@@ -3145,6 +3165,12 @@ export async function searchNotes(
           // knows, which is that the answer came from a complete projection.
           indexIncomplete: false,
           indexMissing: false,
+          // `false`, unconditionally: the projection holds one row per message
+          // with no shard byte cap for a mailbox to cross, so a channel-day
+          // note is never reduced here the way it can be in the R2 index. See
+          // `SearchResults.reducedRecall`.
+          reducedRecall: false,
+          reducedRecallNotes: [],
         };
       }
     } catch {
@@ -3182,6 +3208,8 @@ export async function searchNotes(
       matchCountIsFloor: false,
       indexIncomplete: false,
       indexMissing: true,
+      reducedRecall: false,
+      reducedRecallNotes: [],
     };
   }
 
@@ -3195,6 +3223,8 @@ export async function searchNotes(
     matchCountIsFloor: Boolean(found.matchCountIsFloor),
     indexIncomplete: Boolean(found.indexIncomplete),
     indexMissing: false,
+    reducedRecall: Boolean(found.reducedRecall),
+    reducedRecallNotes: found.reducedRecallNotes ?? [],
   };
 }
 
@@ -3216,11 +3246,22 @@ async function runIndexPass(
   store: FileStore,
   budget: ReturnType<typeof createSearchBudget>,
   reserve = 0,
+  /**
+   * Test-only injection, exactly as `syncShardedIndex` itself documents:
+   * nothing in production passes this, and `maintainSearchIndex` does not
+   * accept it from its own caller. Real shedding needs a shard's serialized
+   * body to cross `SHARD_PARSE_BYTE_CAP` (2MB), which a unit test proving the
+   * *plumbing* through this file — as opposed to the sizing mechanism itself,
+   * already exhaustively covered in `apps/mcp/test/commsSearchIndex.test.mjs`
+   * — should not have to build megabytes of Markdown to reach.
+   */
+  shardByteCap?: number,
 ) {
   return await syncShardedIndex(store as unknown as Parameters<typeof syncShardedIndex>[0], {
     budget,
     reserve,
     isIndexable: (key: string) => key.endsWith(".md") && !isPlumbing(key),
+    ...(shardByteCap === undefined ? {} : { shardByteCap }),
   });
 }
 
@@ -3253,9 +3294,15 @@ async function runIndexPass(
  */
 export async function maintainSearchIndex(
   store: FileStore,
-  options: { budget?: number } = {},
-): Promise<{ pending: number; changed: boolean; complete: boolean }> {
-  const pass = await runIndexPass(store, createSearchBudget(options.budget ?? INDEX_SYNC_BUDGET));
+  /** `shardByteCap` is test-only — see `runIndexPass`. */
+  options: { budget?: number; shardByteCap?: number } = {},
+): Promise<{ pending: number; changed: boolean; complete: boolean; shed: number; oversizedShards: number }> {
+  const pass = await runIndexPass(
+    store,
+    createSearchBudget(options.budget ?? INDEX_SYNC_BUDGET),
+    0,
+    options.shardByteCap,
+  );
   return {
     pending: pass.pending,
     // `committed`, not `changed`: a pass whose manifest write lost a race to a
@@ -3268,6 +3315,16 @@ export async function maintainSearchIndex(
     // the same reason it does everywhere else here: a walk that was cut short
     // is not evidence that there was nothing more to find.
     complete: pass.pending === 0 && !pass.listingTruncated && !pass.manifestOverflow,
+    // `pending`'s opposite, in the same no-path-no-title-no-term shape every
+    // other count on this return already follows: a scalar over the whole
+    // bucket, private notes included, for the operator rather than any one
+    // caller — `searchNotes`'s own `reducedRecallNotes` is the caller-safe,
+    // per-scope answer to the same fact. This pass's own count, not the
+    // index's running total: a shard nothing changed this pass is not
+    // reopened, so a note shed earlier and untouched since is not recounted
+    // here every pass — see `docs/decisions/search.md`, sizing section.
+    shed: pass.shed.length,
+    oversizedShards: pass.oversizedShards,
   };
 }
 
