@@ -59,6 +59,13 @@ async function sharedScenario() {
   return { t, owner, workspaceId };
 }
 
+/**
+ * The secret a real starting browser keeps, and hands back at completion.
+ * Any constant will do — what the tests are about is that a completion has to
+ * present the one the attempt was parked with.
+ */
+const COMPLETION = "chat-completion-secret-0123456789";
+
 /** An attempt row, parked as `startChatConnect` would park it. */
 async function parkedAttempt(
   t: TestConvex,
@@ -74,6 +81,7 @@ async function parkedAttempt(
       workspaceId,
       startedBy,
       hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(COMPLETION),
       encryptedVerifier: await encryptSecret("verifier-abc", keyset, {
         workspaceId: workspaceId as string,
       }),
@@ -258,6 +266,7 @@ describe("who may answer a callback", () => {
     const state = await parkedAttempt(t, workspaceId, owner);
     const consumed = await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
       hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(COMPLETION),
       code: "code-1",
     });
     expect(consumed?.workspaceId).toBe(workspaceId);
@@ -271,6 +280,7 @@ describe("who may answer a callback", () => {
 
     await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
       hashedState,
+      hashedCompletion: await hashToken(COMPLETION),
       code: "code-1",
     });
     const remaining = await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect());
@@ -278,6 +288,7 @@ describe("who may answer a callback", () => {
 
     const replay = await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
       hashedState,
+      hashedCompletion: await hashToken(COMPLETION),
       code: "code-1",
     });
     expect(replay).toBe(null);
@@ -289,6 +300,7 @@ describe("who may answer a callback", () => {
     const state = await parkedAttempt(t, workspaceId, owner, { expiresAt: Date.now() - 1 });
     const consumed = await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
       hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(COMPLETION),
       code: "code-1",
     });
     expect(consumed).toBe(null);
@@ -301,6 +313,7 @@ describe("who may answer a callback", () => {
     answers.push(
       await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
         hashedState: await hashToken("never-issued-at-all"),
+        hashedCompletion: await hashToken(COMPLETION),
         code: "c",
       }),
     );
@@ -308,11 +321,13 @@ describe("who may answer a callback", () => {
     const spentHash = await hashToken(spent);
     await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
       hashedState: spentHash,
+      hashedCompletion: await hashToken(COMPLETION),
       code: "c",
     });
     answers.push(
       await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
         hashedState: spentHash,
+        hashedCompletion: await hashToken(COMPLETION),
         code: "c",
       }),
     );
@@ -320,6 +335,7 @@ describe("who may answer a callback", () => {
     answers.push(
       await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
         hashedState: await hashToken(expired),
+        hashedCompletion: await hashToken(COMPLETION),
         code: "c",
       }),
     );
@@ -1320,6 +1336,7 @@ describe("an attempt is for the products it parked (chat's third of the rule)", 
 
     const consumed = await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
       hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(COMPLETION),
       code: "code-1",
     });
     expect(consumed).toBeNull();
@@ -1335,6 +1352,7 @@ describe("an attempt is for the products it parked (chat's third of the rule)", 
     expect(
       await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
         hashedState: await hashToken(state),
+        hashedCompletion: await hashToken(COMPLETION),
         code: "code-1",
       }),
     ).toBeNull();
@@ -1346,8 +1364,136 @@ describe("an attempt is for the products it parked (chat's third of the rule)", 
 
     const consumed = await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
       hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(COMPLETION),
       code: "code-1",
     });
     expect(consumed?.workspaceId).toBe(workspaceId);
+  });
+});
+
+describe("the browser that started a Chat connect is the one that may finish it", () => {
+  /**
+   * **THE FLOW THAT WAS LEFT OUT, and the demonstration that it mattered.**
+   *
+   * The change that bound Dropbox, Gmail and Calendar left this one completing
+   * on `{state, code}` alone. Constructed against it, the attack ran to
+   * completion: an attacker starts a Chat connect for a brain they really own,
+   * sends the authorize URL to somebody else, that person consents on Google's
+   * own screen, and the callback binds THEIR Google account — the grant that
+   * reads every space they are in — to the attacker's context.
+   *
+   * The product check this file already makes cannot see it: a Chat attempt
+   * really is for Chat. PKCE cannot see it either: the attacker is the
+   * initiator, so the verifier is genuinely theirs. What separates the two is
+   * a value that never travels through Google.
+   *
+   * Still no session, for `#76`'s reason: a sign-in wall on a callback
+   * outlives a provider's single-use code.
+   */
+  test("A COMPLETION WITHOUT THE STARTING BROWSER'S SECRET IS REFUSED", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const state = await parkedAttempt(t, workspaceId, owner);
+
+    const consumed = await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
+      hashedState: await hashToken(state),
+      hashedCompletion: await hashToken("a-guess"),
+      code: "code-1",
+    });
+    expect(consumed).toBeNull();
+  });
+
+  test("...and the secret the starter kept does complete it", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const state = await parkedAttempt(t, workspaceId, owner);
+
+    const consumed = await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
+      hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(COMPLETION),
+      code: "code-1",
+    });
+    expect(consumed?.workspaceId).toBe(workspaceId);
+  });
+
+  test("an attempt parked without one is refused rather than trusted", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const state = await parkedAttempt(t, workspaceId, owner, { hashedCompletion: undefined });
+
+    const consumed = await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
+      hashedState: await hashToken(state),
+      hashedCompletion: await hashToken("anything"),
+      code: "code-1",
+    });
+    expect(consumed).toBeNull();
+  });
+
+  /** Spent either way: a wrong secret does not leave the attempt for a retry. */
+  test("a refused completion still spends the attempt", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const state = await parkedAttempt(t, workspaceId, owner);
+
+    await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
+      hashedState: await hashToken(state),
+      hashedCompletion: await hashToken("a-guess"),
+      code: "code-1",
+    });
+    const rows = await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect());
+    expect(rows).toHaveLength(0);
+  });
+
+  /**
+   * **The link between the two halves**: the secret the start action HANDS OUT
+   * is the one the attempt was parked under. Park the hash of a different
+   * token and every real connect breaks while every test above still passes,
+   * which is the sabotage this one exists to catch.
+   */
+  test("A CONNECT STARTED FOR REAL COMPLETES WITH THE SECRET IT WAS HANDED", async () => {
+    enableMailConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    const { authorizeUrl, completionSecret } = await asUser(t, owner).action(
+      api.functions.chatProduct.startChatConnect,
+      { workspaceId, redirectUri: REDIRECT },
+    );
+
+    // The state is in the URL — it travels through Google. The secret is not,
+    // and that is the whole property.
+    const state = new URL(authorizeUrl).searchParams.get("state") as string;
+    expect(state).toBeTruthy();
+    expect(authorizeUrl).not.toContain(completionSecret);
+
+    const consumed = await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
+      hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(completionSecret),
+      code: "code-1",
+    });
+    expect(consumed?.workspaceId).toBe(workspaceId);
+  });
+
+  /**
+   * The whole attack, through the PUBLIC action rather than the internal
+   * mutation: a caller with no session, holding only what the URL carried, is
+   * refused — and refused with the same answer an unknown state gets.
+   */
+  test("THE PUBLIC CALLBACK REFUSES A CALLER HOLDING ONLY THE URL", async () => {
+    enableMailConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    const { authorizeUrl } = await asUser(t, owner).action(
+      api.functions.chatProduct.startChatConnect,
+      { workspaceId, redirectUri: REDIRECT },
+    );
+    const state = new URL(authorizeUrl).searchParams.get("state") as string;
+
+    const refusal = await captureError(() =>
+      t.action(api.functions.chatProduct.completeChatConnect, { state, code: "victims-code" }),
+    );
+    const unknown = await captureError(() =>
+      t.action(api.functions.chatProduct.completeChatConnect, {
+        state: "never-issued-at-all",
+        code: "victims-code",
+      }),
+    );
+    expect(errorCode(refusal)).toBe("CONNECT_ATTEMPT_INVALID");
+    expect(JSON.stringify((refusal as { data?: unknown }).data)).toBe(
+      JSON.stringify((unknown as { data?: unknown }).data),
+    );
   });
 });

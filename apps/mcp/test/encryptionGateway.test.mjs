@@ -282,6 +282,27 @@ export async function runEncryptionGatewayChecks(check) {
       clientId: "mcp_client_enc_owner_b",
       userId: "user_enc_owner_b",
     });
+    /*
+      THE DESKTOP MACHINE GRANT, exactly as `apps/desktop/src/main/connect.ts`
+      asks for it: `DESKTOP_SCOPE` is `"context:write context:private"` and
+      deliberately NOT `context:read`, because — its words — "a laptop
+      credential that could read every note its owner ever wrote is past what
+      the feature is worth."
+
+      It is minted with no approve screen at all: the console page answers the
+      parked request with the session it already holds. So this is the widest
+      credential in the product that nobody was ever shown a screen for, and
+      what it may reach is worth pinning rather than assuming.
+    */
+    const MACHINE_A = "cat_test_enc_machine_a_000000000000000";
+    await controlPlane.addGrant({
+      accessToken: MACHINE_A,
+      workspaceId: "ws_enc_a",
+      role: "owner",
+      scopes: ["context:write", "context:private"],
+      clientId: "mcp_client_enc_machine_a",
+      userId: "user_enc_machine_a",
+    });
     await controlPlane.addGrant({
       accessToken: KEYLESS,
       workspaceId: "ws_enc_none",
@@ -1030,6 +1051,67 @@ export async function runEncryptionGatewayChecks(check) {
       !lockedAudit.includes(PASSPHRASE_VECTOR.passphrase) &&
         !lockedAudit.includes(PASSPHRASE_VECTOR.kek),
     );
+
+    /*
+      WHAT KEEPS THE DESKTOP MACHINE GRANT AWAY FROM THE KEYS, and it is not
+      the gate on the tool.
+
+      This block exists because a review of mine got it wrong and the wrong
+      version is the one worth pinning against. The reasoning was: the tool is
+      gated only on `scope !== "private"`; `scope` is the visibility TIER, and
+      `visibilityTierForGrant` answers `"private"` for any owner-held grant
+      carrying `context:private`; `DESKTOP_SCOPE` is exactly
+      `context:write context:private`; the tool is `readOnlyHint: true` so
+      `toolIsWriting` is false and the operation-scope gate is skipped. Every
+      one of those is true. The conclusion — that a machine grant can export
+      the workspace keys — is false, because none of them is reached.
+
+      `/mcp` requires `context:read` at the transport, before a store exists
+      and before any tool is dispatched. A grant without it gets `403
+      insufficient_scope` and never sees a tool at all. So the credential that
+      is minted with no approve screen is kept out by the scope its own design
+      deliberately omits — which is the property `main/connect.ts` claims when
+      it says "a laptop credential that could read every note its owner ever
+      wrote is past what the feature is worth."
+
+      Pinned here rather than assumed, because the reasoning above is what a
+      future change to that transport gate would silently unlock, and because
+      an enumeration of the gates INSIDE a dispatcher says nothing about the
+      one in front of it.
+    */
+    const machineRaw = await worker.fetch(
+      new Request("https://x/mcp", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${MACHINE_A}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 9911,
+          method: "tools/call",
+          params: { name: "export_encryption_keys", arguments: {} },
+        }),
+      }),
+      env,
+      { waitUntil() {} },
+    );
+    const machineBody = await machineRaw.json();
+    check(
+      "THE DESKTOP MACHINE GRANT NEVER REACHES A TOOL: /mcp REQUIRES context:read",
+      machineRaw.status === 403 && machineBody?.error === "insufficient_scope",
+    );
+    check(
+      "...and the refusal names the scope, so a client knows what to ask for",
+      String(machineBody?.error_description || "").includes("context:read"),
+    );
+    /*
+      Deliberately not asserted here: that this grant is otherwise live. The
+      obvious demonstration — a meetings GET — is refused for scope too, since
+      `scopeForMeetingRequest` wants read for a read. What this credential can
+      actually do is POST a meeting, which needs a real body and belongs in the
+      meetings suite that already covers it. A check that cannot make its point
+      without contortion is better left out than stretched into one that
+      passes; the first version of it asserted `!== 401 && !== 403` and would
+      have gone green on a fixture that was simply broken.
+    */
 
     /* -- (15) export_encryption_keys ---------------------------------------- */
 

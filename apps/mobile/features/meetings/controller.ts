@@ -186,6 +186,15 @@ export const SYNC_THROTTLE_MS = 5_000;
 /** Shown when a session captured nothing and the device gave no reason why. */
 export const DEFAULT_EMPTY_REASON = "Nothing was recorded and no notes were typed.";
 
+/**
+ * Shown on a session `recoverInterruptedRecordings` closed at launch.
+ *
+ * Names the device rather than the meeting: nothing about the conversation
+ * failed, this app's own process restarting is what stopped capturing it.
+ */
+export const INTERRUPTED_RECORDING_REASON =
+  "This device restarted while recording, so the rest of this meeting was not captured. What was recorded is kept below.";
+
 const NO_CAPTURE: MeetingRecorder["capability"] = {
   audio: false,
   systemAudio: false,
@@ -290,6 +299,14 @@ export class MeetingsController {
     });
 
     /*
+      A session left `recording` or `paused` here has no capture behind it —
+      see `recoverInterruptedRecordings`'s own header for why that is certain
+      rather than merely likely — so it is reconciled before anything else
+      reads `live` off this snapshot and draws a timer for it.
+    */
+    this.recoverInterruptedRecordings();
+
+    /*
       "On app launch, any `finalizing` session older than the bound is handled
       the same way" — and opening this feature, on this device, is the closest
       thing a phone has to a launch: a session that has been `finalizing`
@@ -297,6 +314,64 @@ export class MeetingsController {
       records `loadMeetings` just restored.
     */
     this.recoverStaleFinalizes();
+  }
+
+  /**
+   * A session found `recording` or `paused` when the app opens has no capture
+   * behind it — not probably, unconditionally.
+   *
+   * Every `MeetingRecorder` this app can hand `configure()` — `capture/audio.ts`,
+   * `capture/audio.web.ts`, `capture/desktop.ts`, `capture/notesOnly.ts`,
+   * `capture/fake.ts` — is a fresh object that starts at `"idle"` and has no way
+   * to reattach to an input a previous process was holding: there is no OS API
+   * a recorder here calls to ask "is something already recording for session
+   * X", and none of them tries. So the only way `configure()` — the closest
+   * thing this app has to "on launch", per the header above — ever finds a
+   * `live` record is that the process which was recording it is gone, and
+   * `elapsedMs` computing wall clock from that record's `startedAt` is exactly
+   * the zombie recording this method exists to close: a bar that has been
+   * "recording" for however long the app was shut, backed by no microphone at
+   * all, with the meeting row itself still reading Draft.
+   *
+   * The move is `fail`, chosen over two tempting alternatives. Silently
+   * resetting the session to `idle` would erase the transcript and the notes
+   * already captured, which is the one outcome `docs/decisions/meetings.md`'s
+   * finalize-deadline section already refuses for a stale finalize — the same
+   * refusal applies one state earlier. Finalizing it automatically, unasked,
+   * would write a note the person never agreed was over — a meeting that was
+   * merely interrupted by a restart may well continue. `fail` does neither: it
+   * closes the open interval at `now` (so `elapsedMs` reports exactly what was
+   * captured and stops, rather than climbing forever from a `startedAt` in the
+   * past or freezing at a wall-clock instant that never happened), it keeps the
+   * transcript and the notes intact, it is visible on the meeting row rather
+   * than silent, and `failed -> finalizing` already exists, so
+   * `retryFinalize`'s Retry reaches a real finalize with what this session
+   * actually captured — the same recovery `recoverStaleFinalizes` beside this
+   * gives a stuck finalize, composing rather than duplicating it.
+   *
+   * Deliberately **not** run from `sync()`. A record legitimately `recording`
+   * during this same process's lifetime is exactly what `sync()` runs beside
+   * without touching, and the guarantee above holds only at the one moment a
+   * fresh recorder has just been handed in — which is here, and only on the
+   * branch of `configure()` that is not the same-workspace fast path (that
+   * branch keeps the *live* recorder, see `retainedRecorder`, and never reaches
+   * this method).
+   */
+  recoverInterruptedRecordings(now?: number): void {
+    const config = this.config;
+    if (config === null) return;
+    const at = now ?? config.now?.() ?? Date.now();
+
+    for (const record of this.snapshot.records) {
+      if (!isLive(record.session.state)) continue;
+      this.apply(record.session.id, {
+        type: "fail",
+        at: new Date(at).toISOString(),
+        reason: INTERRUPTED_RECORDING_REASON,
+      });
+      const failed = this.find(record.session.id);
+      if (failed !== undefined) this.put(retrySync(failed), { immediate: true });
+    }
   }
 
   /**

@@ -881,6 +881,7 @@ async function main(): Promise<void> {
 
   function trayState(): TrayState {
     const view = controller.view();
+    if (view?.state === "failed") return "failed";
     if (view?.state === "finalizing") return "finalizing";
     if (view?.state === "recording" || view?.state === "paused") return "recording";
     if (lastUpdate?.state.active) return "detected";

@@ -619,71 +619,233 @@ which is which is a decision.**
   minting a second generation each. Calling `rotate_encryption_keys` while a
   rotation is already active does not start a second one; it continues the
   one that exists, because there is only ever one shape a rotation can be in.
-- **The re-wrap walk's own progress is *not* persisted anywhere.** No cursor,
-  no row of "notes done so far". `toolRotateEncryptionKeys` in `apps/mcp/src/index.js`
-  lists the whole bucket on every call and re-wraps a bounded batch
-  (`ROTATION_BATCH_CAP`) of whatever is still on `fromGeneration`, skipping
-  anything already on the target generation. That is what makes the walk
-  **idempotent by construction rather than by careful bookkeeping**: calling
-  it again after a partial pass, a crash, or a conflicting concurrent write
-  finds exactly the notes still left and nothing else, because "already done"
-  is read off the note's own frontmatter rather than off a second piece of
-  state that could itself go stale. The cost is the one
-  `docs/decisions/storage-and-credentials.md` already names for bulk moves and
-  accepts for the same reason: a very large bucket's completed pass still has
-  to re-list and re-inspect every already-migrated note on its way to finding
-  none are left. A persisted cursor would remove that cost and add a second
-  piece of state that can itself drift from the truth; this trades efficiency
-  for having one less thing that can be wrong.
+- **The re-wrap walk's own progress *is* persisted, and deliberately not in
+  this table.** `ROTATION_PROGRESS_PATH` (`.context/rotation-progress.json`,
+  `apps/mcp/src/index.js`) holds a `cursor` — every note key at or below it, in
+  the bucket's own sort order, has been examined during the current pass — a
+  `confirmedThrough` timestamp, a small `stuckKeys` list, the `wrote` keys the
+  last call itself moved, and an authentication tag over all of it. It lives beside
+  the notes it describes rather than in `workspaceKeyRotations`, for the same
+  reason `EXPORT_RATE_LIMIT_PATH` does: the control plane holds the one fact
+  that has to be authoritative everywhere — whether a rotation may be
+  *started* — and the walk's own bookkeeping over the customer's content lives
+  beside that content, disposable and best-effort, never the source of truth
+  for whether a note is on the outgoing generation (a note's own frontmatter
+  always is that). A lost write to this file — two overlapping calls, a
+  corrupted read — costs a wider re-scan next call, never a wrong completion:
+  every note a call actually rewraps is still written directly, conditionally
+  on its own etag, whether or not the progress file's own write lands. This
+  reverses the trade the previous paragraph's history made: a persisted cursor
+  *is* a second piece of state that can go stale, and this design accepts that
+  in exchange for a bound this section used to say a cursor was the fix for.
 
-  **What it costs, measured rather than asserted.** One object read per note
-  the walk *examines*, plus one conditional write per note it moves. Over a
-  600-note bucket, three calls at a batch cap of 200: 1,205 reads and 603
-  writes in total, and — the number that matters — **202 reads in the first
-  call rather than 601**, because the walk stops at the first note it finds
-  still on the outgoing generation once its batch is spent, instead of reading
-  to the end of the bucket to count the remainder. It never needed that count:
-  the report has always said "at least *n* left", and one is enough to mean
-  "call again". Without the stop, the reads a single call issues scale with the
-  size of the bucket rather than with the size of the batch, which is the wrong
-  quantity to hand a Worker invocation with a subrequest budget — and on an
-  S3-backed store, where every read is a subrequest, it is the difference
-  between a rotation that finishes and one that cannot.
+  **A call resumes from the cursor instead of re-listing and re-reading
+  everything before it.** `listAllKeys` is still called every time — listing
+  is cheap, a handful of subrequests per thousand keys, not one per note — but
+  the *reads* (`store.get`, one per note actually examined) only touch the
+  frontier past the cursor, plus a small correction described next. This is
+  what bounds every call, **including the one that completes the rotation**,
+  to about `ROTATION_BATCH_CAP` object reads rather than one read per note in
+  the bucket.
 
-  **The residue is a ceiling, not an overhead, and it is on the call that
-  finishes.** The batch cap bounds the *first* call. It cannot bound the
-  *last* one: before the walk may say "complete" it has to prove nothing is
-  left, and with no cursor the only proof available is reading every note in
-  the bucket again. So the completing call always costs one read per note in
-  the bucket, whatever the batch cap is. Measured end to end, driving the tool
-  to completion at a batch cap of 200:
+  **A note created or moved to a key behind the cursor is not skipped.**
+  `listAllKeys` already returns each object's `uploaded` timestamp — free,
+  part of every backend's listing response — so a note whose key sorts at or
+  before the cursor, but whose `uploaded` time is after `confirmedThrough`, is
+  re-examined anyway: it arrived at that position after the cursor had already
+  swept past it, and the sweep proves nothing about content that arrives
+  later.
 
-  | notes | calls | total reads | reads in the largest call |
-  | ---: | ---: | ---: | ---: |
-  | 200 | 1 | 201 | 201 |
-  | 600 | 3 | 1,205 | 601 |
-  | 1,000 | 5 | 3,009 | 1,001 |
-  | 2,000 | 10 | 11,019 | 2,001 |
-  | 4,000 | 20 | 42,039 | 4,001 |
+  **`confirmedThrough` is captured before a call's own listing, and this is
+  the part adversarial review had to correct.** The first version of this
+  change took it at the *end* of the call, after that call's writes landed, so
+  that a call would never re-read its own output. That boundary is later than
+  the listing the call worked from, and everything in between falls into a
+  gap: a note moved behind the cursor *while a call was running* was invisible
+  to that call (its listing predated the move) and looked older than the
+  boundary to the next one. Measured on the branch that proposed it — a
+  `move_note` into an earlier folder during a call left the note on the
+  outgoing generation, and the walk retired the generation anyway. Taking the
+  boundary before the listing closes it, and the re-reading it was meant to
+  avoid is paid for separately, below.
 
-  Total reads grow as `notes x calls / 2`. The last column is the one that
-  decides whether a rotation can happen at all: a 4,000-note context ends its
-  rotation with a single invocation issuing 4,001 reads, and above whatever
-  the deployment's real subrequest budget is, that call cannot run. What that
-  looks like is not a slow rotation — it is a walk that re-wraps every note
-  and then never reports itself complete, leaving `workspaceKeyRotations`
-  `in_progress` forever and the *next* rotation unable to start. Nothing is
-  lost when this happens (every note opens under both generations throughout),
-  but the operation does not finish.
+  **Two smaller corrections in the same place, both measured.** The comparison
+  is made at **whole-second resolution with a strict `<`**, because S3's
+  `ListObjectsV2` and Dropbox's `server_modified` report whole seconds: a
+  millisecond boundary against a truncated timestamp lost a note moved behind
+  the cursor in four of eight runs on a second-granularity store stub. And the
+  progress file carries `wrote`, the keys the last call itself re-wrapped,
+  which the catch-up sweep skips — without it, a boundary taken before the
+  writes puts every note the walk just moved back in front of the next call,
+  and a caller looping the tool faster than the backend's timestamp resolution
+  never converges (measured at 600 notes: calls four through twelve each
+  re-read 252 objects, re-wrapped nothing, and the walk never reported
+  complete). What `wrote` gives up, stated: a write somebody else lands on
+  that exact key between our own write and the next call is not re-examined by
+  this rotation. Through the gateway that write is already on the target
+  generation — a rotation retires the outgoing generation the moment it
+  *starts*, so `sealNoteContent` seals under the new one from then on — so the
+  only shape left is a direct-to-bucket restore of pre-rotation ciphertext,
+  which is the first of the three cases "The grace period is a policy, not a
+  sweep" already exists for.
 
-  **So: honest at the size a personal brain is, and a persisted cursor before
-  this is offered to a context of several thousand notes.** Hundreds to about
-  a thousand is fine. Four thousand — a size this gateway's own literal scan
-  already budgets for (`apps/mcp/src/index.js`, "a 4,000-note" walk) — is not.
-  `apps/mcp/test/encryptionRotation.test.mjs` fails if one call's reads start
-  scaling with the bucket again, and separately pins the completing call's
-  cost at the size of the bucket, so the ceiling is a measured number in the
-  suite rather than an estimate here.
+  All three are proven in `apps/mcp/test/encryptionRotationCursor.test.mjs`
+  with a note moved behind the cursor mid-call, a second-granularity backend,
+  and a sabotage row each, rather than argued.
+
+  **The per-call budget counts object reads, not notes re-wrapped.** Counting
+  what a call *moves* lets it read whatever it passes over for free, and a
+  bucket whose notes are mostly not encrypted — a brain with encryption on for
+  one folder, which is the ordinary shape, not a corner case — is exactly that
+  bucket. Measured on the first version of this change: 4,002 reads in a
+  single call over a 4,000-note bucket with 200 encrypted notes, and 10,002
+  over a 10,000-note one. That is the same ceiling this whole section exists
+  to remove, relocated from the last call to the first. A read is what a
+  Worker's subrequest budget spends, so a read is what the cap counts:
+  `ROTATION_BATCH_CAP` for the forward sweep, the same again plus a little for
+  the behind-the-cursor catch-up (it has to be able to get through its
+  predecessor's whole batch, or a finished walk never gets to say so), and
+  `ROTATION_RETRY_READ_CAP` for the known-stuck retry so a large stuck set can
+  never starve the sweep that actually advances the cursor.
+
+  **The progress file is authenticated, because it is the one bucket object
+  that can make a rotation lie.** A `cursor` sorting after every key, in a
+  file that otherwise parses and names the live generation pair, made the walk
+  report "complete" having read no note at all — every note still wrapped
+  under the outgoing generation, and that generation retired. The paragraph
+  below then tells an operator it is safe to delete a retired generation's row
+  once nothing names it, and that is the step at which those notes stop
+  opening for good. "A leaked bucket credential" is the row this file's own
+  threat table calls the one that matters, and a persisted cursor was the
+  first thing it could write that the remediation reads back. So the file
+  carries an HMAC-SHA-256 tag, derived in one step from the *target*
+  generation's key material (which the gateway holds in-process and a bucket
+  credential alone does not), and a file whose tag does not verify is treated
+  exactly as a missing one: the walk starts fresh and re-reads, which is
+  slower and always correct.
+
+  **A note this pass cannot move does not block the cursor from advancing past
+  it.** A conflicting write or an unopenable envelope goes into `stuckKeys`
+  — small, retried every call independent of cursor position — rather than
+  pinning the cursor at its own key. Without that, a single such note would
+  make the cursor's persisted value stop advancing forever, and every call
+  after it would re-walk everything past that point from scratch: the exact
+  unbounded cost this design removes, just relocated to sit behind one bad
+  note. This is the single guard the sabotage record below spends the most
+  words on, because removing it reopens every other property this section
+  claims at once.
+
+  **The walk reports complete, and asks the control plane to retire the
+  outgoing generation, only once a full pass finds the cursor at the end of
+  the bucket's listing, nothing left behind it, and `stuckKeys` empty** — never
+  on a partial pass, and never while a single note it could not open still
+  exists. `workspaceKeyRotations` stays exactly what it was: the one fact that
+  has to be authoritative everywhere, the walk's own progress unaffected.
+
+  **What it costs, measured rather than asserted — the same table this section
+  used to publish, plus the column a persisted cursor changes.** Driven to
+  completion at a batch cap of 200, every note already encrypted before the
+  walk starts, nothing else touching the bucket mid-walk:
+
+  | notes | version | calls | total reads | reads in the completing call |
+  | ---: | --- | ---: | ---: | ---: |
+  | 600 | before | 3 | 1,205 | 601 |
+  | 600 | **after** | 3 | **606** | **202** |
+  | 4,000 | before | 20 | 42,039 | 4,001 |
+  | 4,000 | **after** | 20 | **4,040** | **202** |
+  | 10,000 | before | 50 | 255,099 | 10,001 |
+  | 10,000 | **after** | 50 | **10,100** | **202** |
+  | 20,000 | **after** | 100 | **20,200** | **202** |
+
+  Re-measured independently in adversarial review at every size above plus
+  20,000, and separately on the shape the first version of this change missed
+  entirely — a bucket where only a fraction of the notes are encrypted:
+
+  | notes | encrypted | version | reads in the largest call |
+  | ---: | ---: | --- | ---: |
+  | 4,000 | 200 | before the cursor | 4,001 |
+  | 4,000 | 200 | first cursor version | 4,002 |
+  | 4,000 | 200 | **after review** | **202** |
+  | 10,000 | 200 | before the cursor | 10,001 |
+  | 10,000 | 200 | first cursor version | 10,002 |
+  | 10,000 | 200 | **after review** | **202** |
+  | 20,000 | 200 | **after review** | **202** |
+
+  Both tables are measured with calls spaced further apart than the backend's
+  own listing resolution, which is what a caller does. **A caller that loops
+  the tool as fast as it will answer pays extra calls, not extra reads per
+  call**: several calls can land inside one second of a listing timestamp, the
+  catch-up sweep stops being able to rule those batches out, and the walk
+  spends bounded calls (452 reads, the worst case above) confirming rather
+  than moving. Measured at 4,000 notes driven with no pause at all: 118 calls
+  instead of 20, every one of them still bounded, still completing.
+
+  Total reads used to grow as `notes x calls / 2`; after, they grow as
+  `notes + calls x (batch cap + a small constant)` — linear in the bucket
+  either way, but the constant that used to multiply by the number of calls
+  is now added once per call instead. **The column that decides whether a
+  rotation can run at all is the last one, and it no longer moves with the
+  size of the bucket**: every call, including the one that reports "complete",
+  reads on the order of the batch cap — measured at 202, never more, at every
+  size this table covers, where the "before" column's own last column is the
+  ceiling this whole change exists to remove: a 4,000-note context used to end
+  its rotation with a single invocation issuing 4,001 reads, and above
+  whatever the deployment's real subrequest budget is, that call could not run
+  at all — not a slow rotation, but a walk that re-wraps every note and then
+  never reports itself complete, leaving `workspaceKeyRotations` `in_progress`
+  forever and the *next* rotation unable to start. Nothing was ever lost when
+  that happened (every note opens under both generations throughout), but the
+  operation did not finish. The 10,000-note "before" row is included precisely
+  because it makes that failure mode concrete rather than extrapolated: it
+  still completes in this benchmark (an in-memory bucket has no subrequest
+  budget to exceed), but 10,001 reads in one invocation is not a number a real
+  Workers deployment gets to attempt.
+
+  **So: the ceiling this section used to report is gone, and the new bound is
+  the batch cap, not the bucket.** `apps/mcp/test/encryptionRotation.test.mjs`
+  pins the completing call's read cost to a small constant rather than to
+  `noteCount`, fails if the cursor stops advancing past a note it cannot move,
+  and fails if a note that arrives behind the cursor mid-walk is not picked
+  up — three separate, sabotage-tested claims rather than one measured
+  estimate.
+
+  **What this does not solve, said the same way the previous paragraph named
+  its own limit.** The batch cap itself — 200 notes, two subrequests each —
+  is still optimistic against a real Worker's subrequest budget in exactly the
+  way `FOLDER_MOVE_CAP` already is (`storage-and-credentials.md`); this change
+  does not touch that number, only the number of calls that pay the *bucket's*
+  cost instead of the *batch's*. And the progress file's own conditional write
+  can still lose a race between two truly concurrent calls against the same
+  rotation — harmless (the next call re-derives a superset of the work, never
+  a false "done"), but not free: a workspace whose owner mashes the tool from
+  two clients at once pays some redundant reads, not correctness. **A lost
+  race must not be a lost cursor, though**, and that is a consequence of
+  counting reads rather than re-wraps: a call that cannot persist its position
+  re-reads the same first batch next time, and a bucket larger than the cap
+  would never finish. So the conditional write is politeness rather than
+  safety — `cursor` means "every key at or below this has been examined",
+  which is true of whichever overlapping call wrote it — and a lost race is
+  retried once unconditionally.
+
+  And one the margin cannot close: `uploaded` is the storage backend's clock,
+  and `confirmedThrough` is the Worker's. A backend running more than a second
+  behind can under-report an arrival into the swept range, and that note stays
+  on the outgoing generation — readable, under a generation this codebase
+  never deletes, and moved by the next rotation. Closing it properly needs a
+  per-key record of when the walk last examined each note, which is more state
+  to keep consistent than the case is worth.
+
+  One more edge, named rather than found later: a note could in principle
+  move to an earlier key in the exact instant between the last confirming
+  read a call makes and the moment it asks the control plane to retire the
+  generation. This is not a new risk — the previous, cursor-less walk had the
+  identical window between its own last check and its own completion call —
+  and it is not a new kind of harm either: the grace period below already
+  exists because a rotation can only promise the walk found nothing naming a
+  generation, never that nothing ever will again. A note that raced the exact
+  completion instant opens exactly as any other note wrapped under a retired
+  generation does, for as long as that generation is kept, which this
+  codebase never purges on its own.
 
 **The grace period is a policy, not a sweep.** A retired generation is kept —
 not deleted, not archived elsewhere, simply left as a row with `retiredAt` set
@@ -717,9 +879,32 @@ them, sabotage-tested by removing the mutation's re-read
 (`apps/convex/__tests__/encryptionKeys.test.ts`); a re-wrap walk interrupted by
 a simulated write conflict leaves every note openable and a later call
 finishes exactly what was left, sabotage-tested by miscounting a conflict as
-done (`apps/mcp/test/encryptionRotation.test.mjs`); and a note wrapped under a
+done (`apps/mcp/test/encryptionRotation.test.mjs`); a note wrapped under a
 generation retired long enough ago that a real deployment would consider
-purging it still opens, because nothing purges it.
+purging it still opens, because nothing purges it; the completing call's read
+cost is pinned to a small constant rather than to the bucket's size,
+sabotage-tested by disabling the persisted cursor; a note moved to a key the
+cursor already swept past is still picked up, sabotage-tested by disabling
+the `uploaded`-timestamp catch-up; and a single note the walk cannot move
+does not stop the cursor from advancing past it, sabotage-tested by letting
+one such note halt the whole sweep — the last two of which fail several
+separate checks at once, because nearly everything else this section claims
+depends on those two lines (all in `apps/mcp/test/encryptionRotation.test.mjs`;
+re-measured in review at 5 and 2 failures respectively, on the file as it
+stands, because a sabotage count is only true of the file it was taken on).
+
+And four the adversarial review of that change added, in
+`apps/mcp/test/encryptionRotationCursor.test.mjs`, each one measured failing
+on the version that was proposed: a note moved behind the cursor **while a
+call is running** is still re-wrapped (sabotage: take the boundary at the end
+of the call — 2 failures); the same holds on a backend whose listing carries
+only whole seconds (sabotage: compare raw milliseconds — 1); a progress file
+this gateway did not sign cannot make the walk report complete without reading
+a note (sabotage: skip the tag check — 2); and one call over a bucket whose
+notes are mostly *not* encrypted still reads about the batch cap rather than
+the bucket (sabotage: count re-wraps instead of reads — 1). A fifth guards the
+fix for the first: the walk recognising its own previous output, without which
+a fast caller never converges (sabotage: stop carrying `wrote` — 1).
 
 And one more, which belongs to the *other* rotation in this file's list of
 three: `STORAGE_SECRET_ENCRYPTION_KEY`'s pass must move **every** generation
@@ -1254,13 +1439,21 @@ that is the point rather than a bug.
 
 **Does not build:** the console button that calls `exportEncryptionKeys` —
 the action is built, owner-gated, rate-limited and audited, but nothing in
-`apps/mobile` references it, so **the console cannot export a key at all**; a
-persisted rotation-walk cursor (see "the whole of what makes 'refused while a
-walk is in progress' true" above for why the walk is idempotent without one,
-and the measured table for the ceiling that costs); and any operator tool to
-purge a retired generation, which is deliberately a manual, documented
-decision rather than code, at least until an owner using this in anger asks
-for one.
+`apps/mobile` references it, so **the console cannot export a key at all**;
+and any operator tool to purge a retired generation, which is deliberately a
+manual, documented decision rather than code, at least until an owner using
+this in anger asks for one.
+
+**A persisted rotation-walk cursor was added after this shipped, once a
+measured ceiling made the trade this section originally accepted the wrong
+one for a workspace larger than a personal brain.** The walk's own progress —
+a cursor, a small stuck-note list, nothing that opens a note — now lives at
+`.context/rotation-progress.json` in the customer's own bucket, bounding
+every call, including the one that completes the rotation, to about the batch
+cap rather than the size of the bucket. See "Rotation" above for the current
+design and its measured before/after table; `startWorkspaceKeyRotation` and
+`completeWorkspaceKeyRotation` are unchanged — the control plane still tracks
+only whether a walk may *start*, never how far it has gotten.
 
 **So what can somebody actually reach on the day this merges?** The two MCP
 tools, on an owner-tier personal connection, from any client they have

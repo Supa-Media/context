@@ -18,12 +18,36 @@
  *
  * **The URL is reduced the same way a window's is.** See `windows.ts`.
  *
- * ## What is missing
+ * ## Two permissions, not one — corrected after a Mac found the second
  *
- * This drives Calendar.app over JXA, which needs Automation permission and is
- * slow — enumerating a busy calendar can take seconds, which is why it runs
- * behind the shared timeout and is the collector most likely to be reported as
- * degraded. The right implementation is EventKit through a small native helper,
+ * This drives Calendar.app over JXA, which needs Automation permission to send
+ * it Apple Events at all — and, separately, macOS gates the *data* those
+ * events return by the same Calendars category `NSCalendarsFullAccessUsageDescription`
+ * governs, exactly as if this were reading through EventKit directly. A build
+ * can show Automation as granted and still get nothing back, because Calendars
+ * is a second door: measured on the owner's Mac, on the shipped bundle
+ * identifier, Automation for this target was granted and Calendars was at the
+ * write-only tier macOS 14+ hands an app that declares only the legacy
+ * `NSCalendarsUsageDescription` — see `docs/decisions/desktop-updates.md`,
+ * "The one-way door", for the citations and what shipping the full-access key
+ * does and does not fix for somebody already at that tier.
+ *
+ * **What this file cannot yet tell apart, and why.** `calendarScript`'s
+ * per-calendar `try { ... } catch (e) { continue }` treats a calendar that
+ * refuses to enumerate exactly like a calendar with nothing on it right now —
+ * both produce the same empty result, and `collectSignals` in
+ * `core/detection/collectors.ts` only marks a collector `degraded` when it
+ * *throws*. So a write-only grant that makes every calendar refuse to
+ * enumerate is indistinguishable, from out here, from a quiet hour with no
+ * meetings — the same shape as `capture/permissions.ts`'s own lesson that a
+ * status answer is not evidence a permission actually works. Closing that gap
+ * needs watching what a real write-only-authorized JXA call actually returns —
+ * throws, or a silent `[]` — which needs a Mac and is not guessed at here.
+ *
+ * It is also, separately, slow — enumerating a busy calendar can take
+ * seconds, which is why it runs behind the shared timeout and is the collector
+ * most likely to be reported as degraded for that reason alone. The right
+ * implementation is EventKit through a small native helper,
  * which also gets a change notification instead of a five-second poll. It is
  * listed in `README.md` under "what is stubbed".
  */
