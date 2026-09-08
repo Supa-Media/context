@@ -731,6 +731,9 @@ describe("an attempt is for the products it parked", () => {
    * `CONNECT_ATTEMPT_INVALID`, which tells a caller nothing about which
    * flow parked what.
    */
+  /** The secret a real starting browser keeps and hands back at completion. */
+  const CAL_COMPLETION = "calendar-completion-secret-0123456789";
+
   async function parkAttemptFor(
     t: TestConvex,
     workspaceId: Id<"workspaces">,
@@ -746,6 +749,7 @@ describe("an attempt is for the products it parked", () => {
         hashedState: await hashToken(state),
         encryptedVerifier: await encryptSecret("verifier", keyset, { workspaceId: workspaceId as string }),
         redirectUri: REDIRECT,
+        hashedCompletion: await hashToken(CAL_COMPLETION),
         products,
         expiresAt: Date.now() + 600_000,
         createdAt: Date.now(),
@@ -760,7 +764,19 @@ describe("an attempt is for the products it parked", () => {
     await parkAttemptFor(t, workspaceId, owner, ["gmail"], state);
 
     const error = await captureError(() =>
-      t.action(api.functions.calendarConnect.completeCalendarConnect, { state, code: "code" }),
+      /*
+        THE SECRET IS PASSED, AND THAT IS WHAT MAKES THIS A TEST OF THE PRODUCT
+        CHECK. The browser binding is checked first, so a call that omits it is
+        refused before `products` is ever read — the assertion would still pass
+        and would be proving something else entirely. Measured: with the secret
+        left out, deleting `!attempt.products.includes(...)` from all three
+        Google flows left the whole convex suite green.
+      */
+      t.action(api.functions.calendarConnect.completeCalendarConnect, {
+        state,
+        code: "code",
+        completionSecret: CAL_COMPLETION,
+      }),
     );
     expect(errorCode(error)).toBe("CONNECT_ATTEMPT_INVALID");
     // Spent either way — a refused attempt is still a burned one.
@@ -777,7 +793,14 @@ describe("an attempt is for the products it parked", () => {
     await parkAttemptFor(t, workspaceId, owner, ["calendar"], state);
 
     const error = await captureError(() =>
-      t.action(api.functions.googleConnect.completeGmailConnect, { state, code: "code" }),
+      // With the secret, for the reason the sibling above gives: without it
+      // this refusal is the binding's, and Gmail's `products` check — the only
+      // test in the tree that covers it — would be testing nothing.
+      t.action(api.functions.googleConnect.completeGmailConnect, {
+        state,
+        code: "code",
+        completionSecret: CAL_COMPLETION,
+      }),
     );
     expect(errorCode(error)).toBe("CONNECT_ATTEMPT_INVALID");
     expect(await t.run((ctx) => ctx.db.query("googleConnections").collect())).toHaveLength(0);
@@ -794,9 +817,61 @@ describe("an attempt is for the products it parked", () => {
     const consumed = await t.mutation(internal.functions.calendarConnect.consumeCalendarAttemptAndExchange, {
       hashedState: await hashToken(state),
       code: "code",
+      hashedCompletion: await hashToken(CAL_COMPLETION),
     });
     expect(consumed?.workspaceId).toBe(workspaceId);
   });
+
+    /**
+     * The third flow to carry this shape, and the second to inherit it from a
+     * sibling. `completeCalendarConnect` is a public action taking
+     * `{state, code}` with no session and, until this, nothing tying the
+     * completion to the browser that started it.
+     *
+     * `state` travels in the authorize URL and comes back in the callback, so
+     * whoever built that URL knows it — including somebody who built it for a
+     * workspace they really do own and sent it to another person to consent.
+     * PKCE cannot see that: the attacker is the *initiator*, so the verifier is
+     * genuinely theirs and matches. The product check this file already makes is
+     * orthogonal — it stops a Calendar attempt binding Gmail, not somebody
+     * else's Google account binding to the attacker's context.
+     *
+     * Still no session, for `#76`'s reason: a sign-in wall on a callback
+     * outlives a provider's single-use code.
+     */
+    test("A COMPLETION WITHOUT THE STARTING BROWSER'S SECRET IS REFUSED", async () => {
+      enableCalendarConnect();
+      const { t, owner, workspaceId } = await personalScenario();
+      const state = "calendar-binding-state-0123456789";
+      await parkAttemptFor(t, workspaceId, owner, ["calendar"], state);
+
+      const consumed = await t.mutation(
+        internal.functions.calendarConnect.consumeCalendarAttemptAndExchange,
+        {
+          hashedState: await hashToken(state),
+          code: "code",
+          hashedCompletion: await hashToken("a-guess"),
+        },
+      );
+      expect(consumed).toBeNull();
+    });
+
+    test("...and the secret the starter kept does complete it", async () => {
+      enableCalendarConnect();
+      const { t, owner, workspaceId } = await personalScenario();
+      const state = "calendar-binding-state-ok-0123456789";
+      await parkAttemptFor(t, workspaceId, owner, ["calendar"], state);
+
+      const consumed = await t.mutation(
+        internal.functions.calendarConnect.consumeCalendarAttemptAndExchange,
+        {
+          hashedState: await hashToken(state),
+          code: "code",
+          hashedCompletion: await hashToken(CAL_COMPLETION),
+        },
+      );
+      expect(consumed?.workspaceId).toBe(workspaceId);
+    });
 });
 
 describe("a grant that does not cover every product says so where somebody looks", () => {

@@ -17,10 +17,14 @@
  *
  * ## Why the client never sees a verifier, a code challenge, or the app key
  *
- * `startDropboxConnect` returns a URL and nothing else. Everything that proves
- * the flow — the PKCE verifier, the state, the app key — is parked in the
- * control plane. So there is nothing here to steal from, and nothing here that
- * has to be kept out of a public repository's bundle.
+ * Everything that **proves** the flow — the PKCE verifier, the state, the app
+ * key — is parked in the control plane, so none of it has to be kept out of a
+ * public repository's bundle.
+ *
+ * The one thing this client does hold is `completionSecret`, and it is not a
+ * proof: it says *this browser started the flow*, which `state` cannot say
+ * because `state` travels through Dropbox. It opens nothing without the
+ * `state`, which is never stored here. See `keepCompletionSecret`.
  *
  * ## Why the redirect URI is chosen from a fixed list rather than built
  *
@@ -146,6 +150,92 @@ export function firstParam(value: string | string[] | undefined): string | null 
  * sending a bare code up to be exchanged is asking the backend to do something
  * it correctly refuses.
  */
+/**
+ * Where the starting browser keeps the one value that does not travel through
+ * Dropbox.
+ *
+ * `state` goes out in the authorize URL and comes back in the callback, so
+ * anyone who built that URL knows it — including somebody who built it for
+ * their own workspace and sent it to another person to consent. The control
+ * plane now mints a second value at start, hands it only to the browser that
+ * started the flow, and requires it back at completion; this is the two lines
+ * that keep it in between.
+ *
+ * **`localStorage`, not `sessionStorage`**: the OAuth round trip can land in a
+ * new tab, and a `sessionStorage` copy would not be there when it did — which
+ * would read as "connect is broken" rather than as the refusal it is.
+ *
+ * Every access is wrapped, because a browser with site data blocked throws on
+ * the property itself rather than returning null. A browser that cannot keep
+ * the value cannot complete a connect, which is the safe direction and is why
+ * this returns `null` rather than inventing one.
+ */
+export const DROPBOX_COMPLETION_KEY = "context.dropbox.completion";
+
+/** The two methods this needs, so a test can hand it a plain object. */
+export interface CompletionStore {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+/** The real one, or `null` where there is no usable storage. */
+export function browserCompletionStore(): CompletionStore | null {
+  try {
+    const store = globalThis.localStorage;
+    if (!store) return null;
+    // Touched rather than trusted: a browser set to block site data throws
+    // here rather than at the property read above.
+    store.getItem(DROPBOX_COMPLETION_KEY);
+    return store;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether this browser can hold the value a connect needs to finish.
+ *
+ * Read **locally**, and used only to change what the failure screen says. The
+ * refusal itself is unchanged and stays identical to every other one — the
+ * control plane still cannot tell these apart and must not.
+ *
+ * The distinction is worth drawing because the ordinary copy is *"start it
+ * again"*, and for a browser with site data blocked that advice is false: it
+ * will fail the same way every time, forever. Telling somebody to retry
+ * something that cannot succeed is not degrading honestly.
+ */
+export function canKeepCompletionSecret(): boolean {
+  return browserCompletionStore() !== null;
+}
+
+/** Keep the secret the control plane just handed this browser. */
+export function keepCompletionSecret(secret: string, store: CompletionStore | null): void {
+  try {
+    store?.setItem(DROPBOX_COMPLETION_KEY, secret);
+  } catch {
+    // A full or refused store means the completion will be refused, which is
+    // the honest outcome — never a reason to fail the navigation to Dropbox.
+  }
+}
+
+/**
+ * Read it back and forget it, in that order.
+ *
+ * `""` rather than `null` when there is nothing, so the caller has one shape
+ * to pass on: the control plane answers a wrong secret and an absent one the
+ * same way, and this is not the place to start telling them apart.
+ */
+export function takeCompletionSecret(store: CompletionStore | null): string {
+  try {
+    const secret = store?.getItem(DROPBOX_COMPLETION_KEY) ?? "";
+    store?.removeItem(DROPBOX_COMPLETION_KEY);
+    return secret;
+  } catch {
+    return "";
+  }
+}
+
 export function parseDropboxCallback(params: {
   code?: string | string[];
   state?: string | string[];

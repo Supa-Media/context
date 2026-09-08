@@ -120,6 +120,81 @@ Adding a scope means adding it to `SUPPORTED_SCOPES` in `session.js` — which
 about it separately. A client that follows discovery to a scope the
 authorization endpoint then rejects is a client that concludes the server lied.
 
+### A third-party OAuth callback carries a secret the browser kept, not just `state`
+
+`state` travels in the authorize URL and comes back in the callback, so
+**whoever built the URL knows it.** That is fine against an interceptor and
+useless against an initiator, and the initiator is the case that matters here:
+somebody can start a perfectly legitimate connect for a workspace they really
+do own, send the resulting authorize URL to another person, and have that
+person's account bound to *their* context. PKCE cannot see it — the verifier is
+genuinely the initiator's, so it matches — and neither can a redirect
+allow-list, because the attack uses the real redirect.
+
+RFC 6749 §10.12 asks for `state` to be **bound to the user-agent that started
+the flow**. A `state` that is only an unguessable server-side lookup key is not
+that. So `startDropboxConnect` mints a second value, returns it to the starting
+browser alone, and `completeDropboxConnect` requires it back:
+
+- it **never travels through the provider**, which is the whole property;
+- it is stored hashed, and compared after the attempt is deleted, so a wrong
+  one spends the attempt exactly as a failed exchange does and cannot be
+  retried against a `state` somebody holds;
+- a wrong secret, an unknown `state` and an expired attempt are **one answer**;
+- an attempt parked before this existed carries no hash and is refused rather
+  than trusted — bounded by the ten-minute TTL, and the safe direction.
+
+**It is deliberately not a session.** `#76` removed the session gate on this
+callback because the OAuth round trip can drop the session, and the sign-in
+wall that followed outlived Dropbox's single-use code on the first live
+connect. Browser storage binds the browser without asking who is signed in, so
+that fix stays intact. A browser that cannot keep the value cannot complete a
+connect, which is the honest outcome rather than a fallback.
+
+The same shape is owed to every third-party connect this repository grows.
+The Google flow was written from this one, cited its older argument verbatim
+(*"it applies here unchanged, PKCE pair and all"*) and inherited the gap with
+it; it carries the same `completionSecret` now. **A connect that cites this
+paragraph is citing the binding, not the absence of a session** — the two
+travelled together once and that is exactly how the gap spread.
+
+**Four flows, and the fourth is why this is a guard rather than a habit.**
+Dropbox, Gmail and Calendar were bound by hand, one file at a time, and Google
+Chat — a separate `startChatConnect` in `chatProduct.ts`, sharing the same
+attempt table — was left completing on `{state, code}` alone. The attack
+demonstrated against it bound a stranger's Chat grant, which reads every space
+they are in. So the rule is enforced by shape rather than by memory, in
+`apps/convex/__tests__/connectBinding.test.ts`: a **table** storing a
+`hashedState` stores a `hashedCompletion`; a **public action** taking
+`{state, code}` declares `completionSecret`; an **internal mutation** keyed on
+`hashedState` requires a `hashedCompletion`. The subjects are read from
+Convex's own exported validators and the discovered lists are asserted, so a
+fifth provider arrives as a failing diff and a rule whose subjects vanished
+fails instead of looping over nothing.
+
+**What the binding forbids, stated rather than discovered later.** Finishing a
+connect in a different browser, a different device, or a private window from
+the one that started it: refused, permanently, and that is the point. A browser
+with site data blocked cannot connect at all — it is told so specifically,
+locally, from a fact only it has, because "start it again" is false advice
+there. Two connects started from one browser share one `localStorage` key, so
+the second start invalidates the first tab's callback. And the callback spends
+the secret before the exchange is attempted, so a *transport* failure there
+(not a refusal) costs the person a restart rather than a reload. All three are
+the shape of the binding, not defects in it; keying the stored value by `state`
+would relax the middle one without weakening anything, if it ever bites.
+
+**It does not replace the product discriminator on `googleConnectAttempts`.**
+That check answers a different question — an attempt is for the products it
+parked — and the case it covers is one the binding structurally cannot see:
+there, the person completing *is* the browser that started it, and what is
+wrong is the consent screen they were shown. Both checks stand, and the order
+matters for the tests that prove them: the binding is checked first, so a test
+of the product rule that omits the secret is refused before `products` is ever
+read. That is not hypothetical — this change caused it, and for one commit the
+discriminator in all three Google flows was unguarded while its tests still
+passed.
+
 ### A first-party signed shell may have its own grant approved by the session hosting it
 
 The owner, on the first end-to-end desktop capture (2026-09-07): *"I don't love
