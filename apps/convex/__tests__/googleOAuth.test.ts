@@ -185,6 +185,12 @@ describe("the authorize URL", () => {
    * of which existing connection (if any) the caller knew about when it built
    * the request. See `docs/decisions/communications.md`, "Adding a product
    * must not silently drop another one".
+   *
+   * Sabotage, measured (adversarial review of the Calendar PR, re-run after
+   * both products landed): commenting out the `include_granted_scopes` line
+   * fails this test and `calendarConnect.test.ts`'s own
+   * "also carries include_granted_scopes" — 2 failures across the two files,
+   * both landing on that one line, every other test in both files green.
    */
   test("always requests every previously granted scope be carried forward — the fix for the union-of-products problem", () => {
     const url = new URL(

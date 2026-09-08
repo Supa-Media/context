@@ -354,6 +354,19 @@ export const consumeChatAttemptAndExchange = internalMutation({
     // exchange has still spent its attempt.
     await ctx.db.delete(attempt._id);
     if (attempt.expiresAt < Date.now()) return null;
+    // AN ATTEMPT IS FOR THE PRODUCTS IT PARKED, and `googleConnectAttempts` is
+    // one table shared by all three flows. Left open when Chat landed as "not
+    // attacker-reachable" — true, the state is the person's own secret and the
+    // workspace still comes from the attempt — but a Gmail-parked state
+    // answered here would attach `chat` to the row out of a consent screen
+    // that never mentioned Chat, which is a claim about what somebody agreed
+    // to rather than a sync that merely fails. The third consumer is what
+    // makes the discriminator worth its three lines: with two it was a
+    // question, with three it is a rule, and it is now stated identically in
+    // `googleConnect.ts` and `calendarConnect.ts`. The refusal is the ordinary
+    // `CONNECT_ATTEMPT_INVALID`, which tells a caller nothing about which flow
+    // parked what.
+    if (!attempt.products.includes("chat")) return null;
 
     await ctx.scheduler.runAfter(0, internal.functions.chatProduct.exchangeAndBindChat, {
       workspaceId: attempt.workspaceId,

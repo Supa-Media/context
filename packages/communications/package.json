@@ -2,7 +2,7 @@
   "name": "@context/communications",
   "version": "0.1.0",
   "private": true,
-  "description": "Communications core: what a day of one channel becomes in the customer's own bucket — paths, anchors, channel-day notes and contact pages",
+  "description": "Communications core: what a day of one channel (or one calendar) becomes in the customer's own bucket — paths, anchors, channel-day and calendar-day notes, and contact pages",
   "type": "module",
   "main": "src/index.js",
   "exports": {
@@ -12,7 +12,16 @@
     "./anchors": "./src/anchors.js",
     "./note": "./src/note.js",
     "./contacts": "./src/contacts.js",
-    "./estimate": "./src/estimate.js"
+    "./estimate": "./src/estimate.js",
+    "./calendar": "./src/calendar/index.js",
+    "./calendar/protocol": "./src/calendar/protocol.js",
+    "./calendar/paths": "./src/calendar/paths.js",
+    "./calendar/anchors": "./src/calendar/anchors.js",
+    "./calendar/timezone": "./src/calendar/timezone.js",
+    "./calendar/render": "./src/calendar/render.js",
+    "./calendar/sync": "./src/calendar/sync.js",
+    "./calendar/meetingLink": "./src/calendar/meetingLink.js",
+    "./calendar/contacts": "./src/calendar/contacts.js"
   },
   "scripts": {
     "test": "node test/test.mjs",

@@ -235,6 +235,12 @@ export function googleAuthorizeUrl(options: {
   // when the caller cannot know in advance which Google account will complete
   // the flow. See `docs/decisions/communications.md`, "Adding a product must
   // not silently drop another one".
+  //
+  // Both product flows that add a scope to an existing grant depend on this
+  // line, and each also asks for the union explicitly on the request side —
+  // `startChatConnect` from a `connectionId` a console screen supplies,
+  // `startCalendarConnect` from the workspace's one unambiguous connection —
+  // because neither defence is load-bearing alone.
   url.searchParams.set("include_granted_scopes", "true");
   url.searchParams.set("scope", options.scopes.join(" "));
   url.searchParams.set("state", options.state);
