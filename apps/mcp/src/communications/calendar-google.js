@@ -9,7 +9,13 @@
 // worth building: it has to mimic exactly one thing, this file's contract,
 // not the whole of `packages/communications`.
 //
-// Zero dependencies, Workers runtime: `fetch` and nothing else.
+// Zero dependencies, Workers runtime: `fetch` and nothing else — plus the
+// one pure function that knows when a day begins on somebody's wall clock,
+// from the same package that decides which day a note is filed under, so the
+// query's window and the note's date can never be drawn from two different
+// definitions of "today".
+
+import { zonedDayStartInstant } from "../../../../packages/communications/src/calendar/timezone.js";
 
 /** `calendar.events.list`, scoped to one calendar. No API key: OAuth only. */
 export const GOOGLE_CALENDAR_EVENTS_URL = (calendarId) =>
@@ -67,9 +73,26 @@ export class CalendarApiError extends Error {
  * discovers by diffing what came back, never a side effect of an HTTP
  * status. See `calendarGoogle.test.mjs`'s explicit 404 case.
  *
+ * ## The window is the OWNER'S days, not UTC's
+ *
+ * `windowStart`/`windowEnd` are calendar dates on the connection's own wall
+ * clock — the same dates `sync.js` decides which day notes to write from —
+ * so they are converted to instants through `timezone`, never by pasting
+ * `T00:00:00.000Z` on the end. Pasting Z is only correct for a UTC
+ * connection: at `Asia/Tokyo` it starts the query nine hours into the
+ * horizon's first day (every event before 09:00 local is never fetched, and
+ * a full sync then writes that day's note without them), and at
+ * `America/New_York` it ends the query four hours before the horizon's last
+ * day does (its whole evening disappears). Both are silent — a note is still
+ * written, just missing events — which is exactly the failure class this
+ * file's `410`-only rule exists to avoid elsewhere. Over-fetching by an hour
+ * either side would be harmless (the cache is keyed by local date and pruned
+ * to the local window); under-fetching is data loss, so the conversion is
+ * exact rather than approximate.
+ *
  * @param {{fetchImpl: typeof fetch, accessToken: string, calendarId: string,
  *          syncToken?: string|null, windowStart?: string|null, windowEnd?: string|null,
- *          pageToken?: string|null}} args
+ *          timezone?: string, pageToken?: string|null}} args
  * @returns {Promise<{items: object[], nextPageToken: string|null, nextSyncToken: string|null}>}
  */
 export async function fetchCalendarPage({
@@ -79,6 +102,7 @@ export async function fetchCalendarPage({
   syncToken = null,
   windowStart = null,
   windowEnd = null,
+  timezone = "UTC",
   pageToken = null,
 }) {
   const url = new URL(GOOGLE_CALENDAR_EVENTS_URL(calendarId));
@@ -90,8 +114,10 @@ export async function fetchCalendarPage({
     // API, which is also *why* `planSyncRequest` never asks for both at once.
     url.searchParams.set("syncToken", syncToken);
   } else {
-    if (windowStart) url.searchParams.set("timeMin", `${windowStart}T00:00:00.000Z`);
-    if (windowEnd) url.searchParams.set("timeMax", `${windowEnd}T00:00:00.000Z`);
+    const timeMin = windowStart ? zonedDayStartInstant(windowStart, timezone) : null;
+    const timeMax = windowEnd ? zonedDayStartInstant(windowEnd, timezone) : null;
+    if (timeMin) url.searchParams.set("timeMin", timeMin);
+    if (timeMax) url.searchParams.set("timeMax", timeMax);
   }
   if (pageToken) url.searchParams.set("pageToken", pageToken);
 

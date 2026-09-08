@@ -127,6 +127,11 @@ export async function syncCalendarAccount({ connection, store, fetchImpl, now })
     syncToken: plan.syncToken,
     windowStart: plan.windowStart,
     windowEnd: plan.windowEnd,
+    // The window is drawn in the SAME zone the day keys are. Without this the
+    // request is bounded to UTC days while the notes are filed under local
+    // ones, and the mismatch is silent data loss at whichever end of the
+    // horizon the offset points — see `calendar-google.js`'s own note.
+    timezone,
   };
 
   let mode = plan.mode;

@@ -11,6 +11,7 @@ export {
   zoneAbbreviation,
   zonedClock,
   zonedDateKey,
+  zonedDayStartInstant,
 } from "./timezone.js";
 export {
   calendarDayNotePath,

@@ -272,6 +272,16 @@ export const consumeCalendarAttemptAndExchange = internalMutation({
     // exchange has still spent its attempt.
     await ctx.db.delete(attempt._id);
     if (attempt.expiresAt < Date.now()) return null;
+    // AN ATTEMPT IS FOR THE PRODUCTS IT PARKED, AND `googleConnectAttempts`
+    // IS ONE TABLE FOR EVERY PRODUCT'S FLOW. Without this check, a state
+    // parked by `startGmailConnect` completes here perfectly happily and
+    // `calendar` is added to the row on the strength of a consent screen
+    // that never mentioned a calendar — the row would then list a product
+    // nobody approved, with an empty scope slice, which is a lie about what
+    // the person agreed to rather than a broken sync. Same refusal as an
+    // unknown state, and deliberately not a distinguishable one: the
+    // callback tells a caller nothing about which flow parked what.
+    if (!attempt.products.includes("calendar")) return null;
 
     await ctx.scheduler.runAfter(0, internal.functions.calendarConnect.exchangeAndBindCalendar, {
       workspaceId: attempt.workspaceId,
@@ -388,6 +398,20 @@ export const applyCalendarConnectionBinding = internalMutation({
     const products = new Set(existing?.products ?? []);
     products.add("calendar");
 
+    // AN HONEST ROW IS NOT THE SAME AS A ROW ANYBODY WILL LOOK AT. Recording
+    // an empty `gmail.scopes` beside a `products` that still lists `gmail` is
+    // the true state (see the comment above), but nothing anywhere reads a
+    // scope slice, so on its own it is a fact written into a table and then
+    // never spoken again — a mail sync that has lost its scope would keep
+    // being scheduled and keep getting 403s from Google, and the console
+    // would go on showing the connection as healthy. So a bind that leaves
+    // ANY product on this row without the scopes that product needs says so
+    // in the one field a person is shown: the connection needs reconnecting,
+    // with all of its products approved this time. `reconnect_required` is
+    // exactly the existing word for that (`markReconnectRequired`), and the
+    // remedy is the same one.
+    const withoutScopes = [...products].filter((product) => grantedScopesFor(product, args.scopes).length === 0);
+
     const fields = {
       workspaceId: args.workspaceId,
       provider: "google" as const,
@@ -415,9 +439,24 @@ export const applyCalendarConnectionBinding = internalMutation({
       // brand-new connection is simply active; an existing connection's
       // health is Gmail's (or Chat's) own state machine to manage and is
       // left alone here rather than reset by an unrelated product's bind.
-      health: existing?.health ?? ("active" as const),
-      lastError: undefined,
-      errorCode: undefined,
+      //
+      // Two exceptions, both about this bind's own subject matter rather
+      // than about Gmail's sync. A grant that does not cover every product
+      // on the row needs a reconnect and says so. And a connection that was
+      // DISCONNECTED has just been given a fresh grant by this very
+      // mutation: leaving it on the `"error"` health `disconnectGoogleConnection`
+      // set — while clearing the `disconnectedAt` that explained it — would
+      // leave a working connection permanently showing a fault with no error
+      // code and nothing to clear it but a Gmail reconnect it may not want.
+      health: withoutScopes.length
+        ? ("reconnect_required" as const)
+        : existing === null || existing.disconnectedAt !== undefined
+          ? ("active" as const)
+          : existing.health,
+      lastError: withoutScopes.length
+        ? "This Google account no longer covers every product this connection syncs. Reconnect and approve all of them."
+        : undefined,
+      errorCode: withoutScopes.length ? "SCOPES_INCOMPLETE" : undefined,
       disconnectedAt: undefined,
       boundBy: args.boundBy,
       updatedAt: now,

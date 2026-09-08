@@ -15,6 +15,7 @@ import {
   zoneAbbreviation,
   zonedClock,
   zonedDateKey,
+  zonedDayStartInstant,
 } from "../../src/calendar/timezone.js";
 
 export function runCalendarTimezoneChecks(check) {
@@ -113,6 +114,57 @@ export function runCalendarTimezoneChecks(check) {
     "occursOn is capped so a corrupt multi-year all-day event cannot run away",
     occursOn({ start: { date: "2026-01-01" }, end: { date: "2030-01-01" } }, "UTC").length <= 60
   );
+
+  // -- when a day actually begins (adversarial review of PR #344) ----------
+  //
+  // The horizon is a set of dates on the OWNER'S wall clock, and a provider
+  // query is a pair of instants. Converting one to the other by pasting
+  // `T00:00:00.000Z` on the end is correct for exactly one zone, and wrong
+  // silently everywhere else — see `apps/mcp/src/communications/calendar-google.js`.
+  check(
+    "a UTC day starts at its own midnight — the case the naive conversion got right",
+    zonedDayStartInstant("2026-09-07", "UTC") === "2026-09-07T00:00:00.000Z"
+  );
+  check(
+    "a Tokyo day starts NINE HOURS BEFORE UTC midnight, not nine hours after it",
+    zonedDayStartInstant("2026-09-07", "Asia/Tokyo") === "2026-09-06T15:00:00.000Z"
+  );
+  check(
+    "a New York day in summer starts four hours after UTC midnight",
+    zonedDayStartInstant("2026-09-07", "America/New_York") === "2026-09-07T04:00:00.000Z"
+  );
+  check(
+    "...and five in winter, because the offset is read for the instant, never fixed once",
+    zonedDayStartInstant("2026-01-07", "America/New_York") === "2026-01-07T05:00:00.000Z"
+  );
+  check(
+    "the day a zone springs forward still starts at its own midnight, an hour before the transition",
+    zonedDayStartInstant("2026-03-08", "America/New_York") === "2026-03-08T05:00:00.000Z"
+  );
+  check(
+    "the day a zone falls back starts at its own midnight too",
+    zonedDayStartInstant("2026-11-01", "America/New_York") === "2026-11-01T04:00:00.000Z"
+  );
+  check(
+    "a half-hour zone is not rounded to an hour",
+    zonedDayStartInstant("2026-09-07", "Asia/Kolkata") === "2026-09-06T18:30:00.000Z"
+  );
+  check(
+    "the instant it returns really is that date's first moment there, and the moment before is the day before",
+    zonedDateKey(zonedDayStartInstant("2026-09-07", "Asia/Tokyo"), "Asia/Tokyo") === "2026-09-07" &&
+      zonedDateKey(Date.parse(zonedDayStartInstant("2026-09-07", "Asia/Tokyo")) - 1, "Asia/Tokyo") === "2026-09-06"
+  );
+  check(
+    "...and the same holds on the spring-forward day, where a one-pass conversion is off by the hour that moved",
+    zonedDateKey(zonedDayStartInstant("2026-03-08", "America/New_York"), "America/New_York") === "2026-03-08" &&
+      zonedDateKey(Date.parse(zonedDayStartInstant("2026-03-08", "America/New_York")) - 1, "America/New_York") ===
+        "2026-03-07"
+  );
+  check(
+    "a bad zone falls back to UTC rather than throwing, same rule as every other function here",
+    zonedDayStartInstant("2026-09-07", "Mars/Olympus_Mons") === "2026-09-07T00:00:00.000Z"
+  );
+  check("a non-date returns null rather than an invalid instant", zonedDayStartInstant("not-a-date", "UTC") === null);
 
   // -- sabotage record --------------------------------------------------
   //

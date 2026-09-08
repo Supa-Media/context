@@ -107,6 +107,62 @@ export function zoneAbbreviation(instant, timeZone) {
   return found ? found.value : zone;
 }
 
+/**
+ * How far ahead of UTC `timeZone`'s wall clock is at `instantMs`, in
+ * milliseconds. Read out of `Intl` for that exact instant rather than from a
+ * table, so it is already the right side of a DST transition.
+ */
+function zoneOffsetMs(instantMs, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(instantMs));
+  const field = (type) => Number(parts.find((part) => part.type === type)?.value);
+  const asIfUtc = Date.UTC(field("year"), field("month") - 1, field("day"), field("hour"), field("minute"), field("second"));
+  return asIfUtc - instantMs;
+}
+
+/**
+ * The instant at which `date` begins on `timeZone`'s wall clock, as an ISO
+ * string — local midnight, expressed in UTC.
+ *
+ * This is what turns a *local* horizon into a query a provider can answer.
+ * A window drawn as `${date}T00:00:00.000Z` is the same calendar day only in
+ * UTC: for `Asia/Tokyo` it starts nine hours into the day and silently drops
+ * every event before 09:00 local; for `America/New_York` it ends four hours
+ * early and drops the last evening of the horizon. Both failures are silent
+ * — the day note is still written, just without those events — which is why
+ * this is computed rather than approximated.
+ *
+ * Two passes: the offset depends on the instant, and the instant depends on
+ * the offset, so the first pass gets within an hour of the answer and the
+ * second lands on it — including on the day of a DST transition, where the
+ * naive one-pass answer is off by exactly the hour that moved. A local
+ * midnight that does not exist (a zone that springs forward at 00:00)
+ * resolves to the first instant that does, which is a lower bound on the day
+ * and therefore still safe for a `timeMin`.
+ *
+ * @param {string} date `YYYY-MM-DD`
+ * @param {string} timeZone
+ * @returns {string|null} `null` if `date` is not a calendar date.
+ */
+export function zonedDayStartInstant(date, timeZone) {
+  const [year, month, day] = String(date ?? "").split("-").map(Number);
+  if (![year, month, day].every((part) => Number.isFinite(part))) return null;
+  const zone = normalizeTimeZone(timeZone);
+  const wall = Date.UTC(year, month - 1, day, 0, 0, 0, 0);
+  if (!Number.isFinite(wall)) return null;
+  let instant = wall;
+  for (let pass = 0; pass < 2; pass += 1) instant = wall - zoneOffsetMs(instant, zone);
+  return Number.isFinite(instant) ? new Date(instant).toISOString() : null;
+}
+
 /** `d` plus `days` calendar days, as `YYYY-MM-DD`. `days` may be negative. */
 export function addCalendarDays(date, days) {
   const [year, month, day] = String(date).split("-").map(Number);

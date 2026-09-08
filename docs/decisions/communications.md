@@ -1276,6 +1276,79 @@ line than the one that decision's own sabotage record found. The checks are
 `calendar days collapse to their own line, never counted as mail and never shown individually`
 and `dropping calendar-day from the summary order — not from classification — still answers with silence, which is the failure this collapse exists to prevent`.
 
+### The horizon is drawn in the owner's timezone at BOTH ends, or it loses a day's edge
+
+Found by adversarial review of the Calendar PR, and it is the failure this
+whole section is otherwise careful about: silent, plausible, and written into
+somebody's bucket as if it were the truth.
+
+A horizon is a set of **calendar dates on the owner's own wall clock** — the
+same dates a day note is filed under. A provider query is a pair of
+**instants**. The first implementation converted one to the other by pasting
+`T00:00:00.000Z` onto the date, which is the owner's own day for exactly one
+timezone. At `Asia/Tokyo` the query began nine hours into the horizon's first
+day, so an 08:00 local meeting was never fetched — and because a full sync is
+*ground truth*, the day note was then regenerated **without** it, deleting an
+event that was really there. At `America/New_York` the same arithmetic ended
+the query four hours before the horizon's last day did, so that day's whole
+evening — or the day's only note — never existed.
+
+So `zonedDayStartInstant(date, timeZone)` in `calendar/timezone.js` is the one
+conversion, `Intl` again rather than an offset table, two passes because the
+offset depends on the instant and the instant depends on the offset (one pass
+is off by exactly the hour that moved on a DST-transition day). Over-fetching
+at an edge would be harmless — the cache is keyed by local date and pruned to
+the local window — so the conversion is exact rather than padded, and the
+padding is not what makes it safe. The checks are
+`an event before 09:00 on a +09:00 owner's first horizon day is fetched, not silently dropped`,
+`an evening event on a -04:00 owner's LAST horizon day is inside the window`,
+and `a Tokyo day starts nine hours BEFORE UTC midnight, not nine hours after it`.
+Sabotage: restoring the `${date}T00:00:00.000Z` window fails 3 checks, all
+three naming the two zones by name, and every other calendar check stays green
+— which is the point, because a UTC-only fixture cannot see this at all.
+
+### An attempt is for the products it parked, and one table serves every flow
+
+`googleConnectAttempts` is shared by every product's connect flow, and the two
+`complete*Connect` actions looked up an attempt by `hashedState` alone. So a
+state parked by `startGmailConnect` could be answered on Calendar's callback —
+attaching `calendar` to the row out of a consent screen that never mentioned a
+calendar, with an empty scope slice beside it — and a Calendar attempt could be
+answered on Gmail's, binding a mailbox folder and a default 90-day backfill out
+of a consent screen that never mentioned mail. Neither is a cross-tenant hole
+(the state is the person's own secret, and the workspace still comes from the
+attempt, never from the caller), but both write a product onto the row that
+nobody consented to, which is a lie about what was agreed rather than a sync
+that merely fails. Both directions now check `attempt.products`, and both
+refuse with the ordinary `CONNECT_ATTEMPT_INVALID`, which tells a caller
+nothing about which flow parked what. The checks are
+`a Gmail-only attempt cannot be completed as a Calendar connect` and its
+mirror; an attempt naming both products is still answerable by either flow,
+because that is the union case the scope fix exists to produce.
+
+### A grant that lost a product's scope is not just recorded, it is reported
+
+The row being *honest* about a downgraded consent — `gmail.scopes: []` beside
+a `products` still listing `gmail` — is the rule this file argues twice above,
+and it is not sufficient on its own: **nothing reads a scope slice.** Written
+and never spoken, that fact leaves a mail sync being scheduled against a grant
+that can only answer 403, while every screen shows the connection as healthy.
+So a bind that leaves any product on the row without the scopes that product
+needs sets `health: "reconnect_required"` with `errorCode: "SCOPES_INCOMPLETE"`
+— the existing word for exactly this state (`markReconnectRequired`), with the
+same remedy — and a bind that covers everything leaves the health field alone,
+because a product's sync state is that product's own to manage.
+
+The one other health case a Calendar bind does own: a connection that was
+**disconnected** and is now being given a fresh grant by this very mutation.
+Clearing `disconnectedAt` while leaving the `"error"` health that disconnect
+set would leave a working connection permanently showing a fault, with no
+error code to explain it and nothing but a Gmail reconnect to clear it. The
+checks are
+`a Calendar bind that loses Gmail's scope marks the connection as needing a reconnect`,
+`a grant that covers both leaves the health alone`, and
+`reconnecting a DISCONNECTED account through Calendar makes it healthy again`.
+
 ### What this does not build yet
 
 **The control-plane connection and the sync engine landed as two separate,

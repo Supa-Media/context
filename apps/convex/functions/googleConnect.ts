@@ -414,6 +414,12 @@ export const consumeAttemptAndExchange = internalMutation({
     // exchange has still spent its attempt.
     await ctx.db.delete(attempt._id);
     if (attempt.expiresAt < Date.now()) return null;
+    // The mirror of the check `calendarConnect.ts` makes: this table is
+    // shared by every product's connect flow, so a Calendar-only attempt
+    // answered on Gmail's callback would bind Gmail — with a default
+    // backfill window and a mailbox folder — out of a consent screen that
+    // only ever named a calendar. An attempt is for the products it parked.
+    if (!attempt.products.includes("gmail")) return null;
 
     await ctx.scheduler.runAfter(0, internal.functions.googleConnect.exchangeAndBind, {
       workspaceId: attempt.workspaceId,
