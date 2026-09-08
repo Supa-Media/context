@@ -705,6 +705,85 @@ describe("`saved` is said only when there is a path to print", () => {
     mounted.unmount();
   });
 
+  test("A REFUSAL AFTER THE NOTE LANDED DOES NOT UN-SAY THE PATH", async () => {
+    /*
+      THE CONTRADICTION A PERSON WATCHED HAPPEN, ON ONE MEETING, TEN MINUTES
+      APART.
+
+      This screen said "Saved to your bucket" with the path, and later said
+      "This meeting has not left the device — gateway answered 400" about the
+      same meeting. The note was in the bucket the whole time; what had been
+      refused was one *later* write. The `rejection` branch ran before the
+      `notePath` branch and claimed the whole meeting, and the sentence it
+      claimed it with was an HTTP status.
+
+      Both facts are true and both are said: the note is where the path says,
+      and something about the meeting did not go. Neither shows a status code.
+    */
+    const { gateway } = await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Saved, then refused" });
+      meetings.setNotes(id, "the decision");
+      await meetings.end();
+    });
+
+    const saved = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(saved.container.textContent).toContain("Saved to your bucket");
+    saved.unmount();
+
+    // A later write about the same meeting, refused in the way that parks it.
+    await act(async () => {
+      gateway.failNext("meeting_invalid", "these segments were minted for another meeting");
+      meetings.setNotes(id, "the decision, expanded");
+      await meetings.sync();
+    });
+
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(mounted.container.textContent).not.toContain("This meeting has not left the device");
+    expect(mounted.container.textContent).toContain("Saved to your bucket");
+    expect(mounted.container.textContent).toContain(`0-inbox/meetings/${id}.md`);
+    expect(mounted.container.textContent).toContain("Part of this meeting was not sent");
+    // The gateway's own sentence, which this app could not see at all until
+    // `postEntry` started reading `error_description`. Never a bare status.
+    expect(mounted.container.textContent).toContain("minted for another meeting");
+    expect(mounted.container.textContent).not.toContain("gateway answered");
+    mounted.unmount();
+  });
+
+  test("a meeting with nothing in the bucket and a refusal still says it has not left", async () => {
+    /*
+      The other half, unchanged and still needed: with no path, nothing has
+      left, and that is what a person is told — in words rather than a code.
+    */
+    const gateway = fakeGateway();
+    await act(async () => {
+      meetings.reset();
+      await meetings.configure({
+        workspaceId: "ws-refused",
+        store: memoryStore(),
+        gateway,
+        recorder: fakeRecorder(),
+        device: { platform: "web" },
+        persistDebounceMs: 0,
+      });
+    });
+
+    let id = "";
+    await act(async () => {
+      gateway.failNext("meeting_forbidden", "this grant may not write here");
+      id = await meetings.start({ title: "Refused outright" });
+      meetings.setNotes(id, "typed anyway");
+      await meetings.end();
+    });
+
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(mounted.container.textContent).toContain("This meeting has not left the device");
+    expect(mounted.container.textContent).toContain("Connect it again");
+    expect(mounted.container.textContent).not.toContain("Saved to your bucket");
+    mounted.unmount();
+  });
+
   test("a folder the context would not file into is said on the screen, not swallowed", async () => {
     /*
       `IngestAck.folderRejected` and the sentence it is for. The gateway falls

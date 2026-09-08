@@ -2228,3 +2228,116 @@ that will never be saved). **The test that fails if this is reversed:** record
 a session with no transcript and no typed notes and finalize it — with the
 rule, `state` is `empty` and the bucket gains nothing; reversed, a fourth empty
 note lands beside the three the owner already found.
+
+## A segment id names its own meeting, and both sides check it
+
+A recorder derives every segment id from the session it was minted for —
+`segmentId(sessionId, index)` in the desktop transcriber, and
+`chunkIdFor(`${sessionId}-${channel}`, n)` through `segmentIdFor` on the cloud
+path. That was done so a re-send merges rather than doubling a transcript, and
+it has a second property nobody was reading: **the id says whose words these
+are, independently of the envelope carrying them.**
+
+The evening that made that matter: `MeetingsController.listenToRecorder`
+subscribed a fresh `onSegment` handler on every `start()` and discarded the
+unsubscribe the recorder returned, and the recorder outlives a meeting on
+purpose (`retainedRecorder`). So the handlers accumulated — one per meeting ever
+started in the process, each closing over its own `meetingId` — and every
+segment of the meeting being recorded now was folded into the projection of
+every meeting recorded before it. Eight of the owner's meetings ended the night
+with a `segments` write full of a *later* meeting's transcript, addressed
+correctly, by a sync layer that had no way to know. Each was refused 400 and
+parked, and the refusal said `gateway answered 400` and nothing else.
+
+**The refusal was a coincidence, not a defence.** `appendSegments` refuses a
+batch on a `complete` session because that meeting is a note now; every stale
+session that night happened to be complete. A stale id pointing at a session
+still *open* — two meetings close together, a finalize that had not drained
+because the laptop was offline — would have been accepted, and one meeting's
+words would have been rendered into another meeting's note in the customer's
+bucket. Nothing downstream could have caught it: by the time a segment is a turn
+under `## Transcript` there is no id left to check.
+
+So the rule is: **a segment whose id names a meeting other than the session it
+is being written to is refused, on both sides, loudly and by name.**
+
+- `segmentSessionId` and `foreignSegmentSessions` in
+  `packages/meetings/src/protocol.js` are the one implementation of "which
+  meeting does this id name".
+- The gateway refuses at both doors — `appendSegments` and the replay path in
+  `foldLog` — with `meeting_invalid` naming the meetings involved and nothing
+  of the text.
+- The clients refuse before enqueueing: `queueWrite` in the desktop's outbox
+  strips foreign rows (in the reducer, so no enqueue can skip it), and the
+  mobile controller's `apply` drops a misaddressed event and logs the two ids.
+- `applyMeetingEvent`'s `segment` and `segments` cases now consult the session
+  state like their neighbours, so a `complete` projection refuses transcript
+  whatever sends it — which is what stops a client queueing a write its own
+  gateway will refuse.
+
+**An id that names no meeting is accepted.** The phone's recorders key their
+chunks on `String(Date.now())`, so their ids name nothing, and a client this
+contract has not met is in the same position. Unaddressed is not misaddressed. A
+guard on somebody's transcript may only fail in the direction of accepting what
+it cannot prove wrong; the alternative is a gateway that silently stops taking
+words the day a recorder changes how it mints ids.
+
+**The whole batch is refused, not the offending rows.** `countUnusable`'s "store
+forty-nine of fifty" is right for a row the merge cannot read and wrong here: a
+batch with somebody else's words in it was addressed by something that does not
+know whose words it is holding, and the rest of it is no more trustworthy than
+the part that gave it away.
+
+**What a "simplification" of this costs.** Dropping the check leaves the
+correctness of every transcript resting on every client keeping its
+subscriptions straight, forever, with the only symptom of a mistake being a
+refusal about *state* — which is what sent three people down three wrong
+diagnoses before anybody read a segment id. Accepting segments on a `complete`
+session, which was the tempting fix while this looked like a late transcription
+tail, would have turned the same defect into cross-meeting contamination in the
+bucket.
+
+**The tests that fail if it is reversed:** in
+`apps/mcp/test/meetings.test.mjs`, post a batch whose ids carry another
+meeting's id to an **open** session and expect 400; in
+`apps/mobile/__tests__/meetingsController.test.ts`, start a meeting, end it,
+start a second, emit one segment and expect the first meeting's transcript to
+be empty and the recorder to hold exactly one subscriber; in
+`apps/desktop/test/outbox.test.mjs`, queue a foreign batch and expect nothing
+of it stored.
+
+## A refusal is shown with the reason the gateway gave for it
+
+`postEntry` read a `message` field off an error body. The gateway's meeting
+routes answer `{error, error_description}` and have never sent `message`, so
+for the whole life of the desktop app every refusal — in the tray, in the
+console, in the queue file on disk — read `gateway answered 400`. The sentence
+explaining it was on the wire, parsed, and thrown away one line from where it
+was needed, and eight parked meetings were eventually diagnosed by reading a
+JSON file off somebody's laptop.
+
+Three things follow, and each is a rule rather than a fix:
+
+- **The client reads the field the gateway sends**, keeps the status in the
+  sentence (so a captive portal's reply is still tellable apart from a refusal
+  this gateway composed), and carries the status as a number for a log line.
+- **A drain reports its refusals** (`DrainReport.refusals`) and the shell logs
+  each one: session id, kind, status, contract code and the gateway's own
+  sentence — never a segment, a note, a title or the credential. The queue
+  entry's `lastError` is the right place for a *person* to read it and the
+  wrong place for anybody to find it, because an entry that is later accepted
+  takes its own explanation with it.
+- **No screen shows a person an HTTP status.** `rejectionNotice` maps the codes
+  whose recovery is something a person does, and falls back to the gateway's
+  own words — deliberately, because a refusal this app has never seen before is
+  exactly the one worth quoting.
+
+**And a refusal never un-says a note that landed.** The meeting detail page
+checked `record.rejection` before `session.notePath`, so one refused *later*
+write made a meeting whose note had been in the bucket for ten minutes read
+"This meeting has not left the device — gateway answered 400". Two contradictory
+claims about one meeting, and the newer one was the false one. The path decides
+which sentence is true; a refusal is said underneath it, and content still
+waiting on the device is said underneath that. **The test that fails if this is
+reversed** is `A REFUSAL AFTER THE NOTE LANDED DOES NOT UN-SAY THE PATH` in
+`apps/mobile/__tests__/meetingsScreens.test.ts`.

@@ -201,16 +201,44 @@ export async function postEntry(config: GatewayConfig, entry: OutboxEntry): Prom
     }
 
     let code = codeForStatus(response.status);
-    let message = `gateway answered ${response.status}`;
+    let described = "";
     try {
-      const body = (await response.json()) as { error?: unknown; message?: unknown };
+      const body = (await response.json()) as {
+        error?: unknown;
+        error_description?: unknown;
+        message?: unknown;
+      };
       if (typeof body.error === "string" && body.error !== "") code = body.error;
-      if (typeof body.message === "string" && body.message !== "") message = body.message;
+      /*
+        `error_description` FIRST, BECAUSE IT IS THE FIELD THIS GATEWAY ACTUALLY
+        SENDS.
+
+        `refusal()` in `apps/mcp/src/meetings/ingest.js` answers
+        `{error, error_description}` and never `message`, so every refusal this
+        app has ever logged read `gateway answered 400` and nothing else — the
+        sentence explaining *why* was on the wire, parsed, and thrown away one
+        line from where it was needed. An evening of meetings was diagnosed by
+        reading a JSON file off somebody's disk because of this line.
+
+        `message` is still read, second, for a proxy or a future route that
+        speaks that spelling instead.
+      */
+      if (typeof body.error_description === "string" && body.error_description !== "") {
+        described = body.error_description;
+      } else if (typeof body.message === "string" && body.message !== "") {
+        described = body.message;
+      }
     } catch {
       // Keep the status-derived code. An unparseable error body is common and
       // is not itself a reason to park a meeting.
     }
-    return { ok: false, code, message, retryable: isRetryable(code) };
+    /*
+      The status stays in the sentence even when the gateway explained itself.
+      "400" alone was useless; the description alone would lose the one fact
+      that tells a captive portal's HTML from a refusal this gateway composed.
+    */
+    const message = described === "" ? `gateway answered ${response.status}` : `${response.status}: ${described}`;
+    return { ok: false, status: response.status, code, message, retryable: isRetryable(code) };
   } catch (error) {
     // Deliberately not `String(error)`: a fetch failure's message can contain
     // the request URL, and this string is written to a log file.
