@@ -2,17 +2,27 @@ import { useCallback, useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
-import { browserOrigin, dropboxRedirectUri, type DropboxStartState } from "./dropbox";
+import {
+  browserCompletionStore,
+  browserOrigin,
+  dropboxRedirectUri,
+  keepCompletionSecret,
+  type DropboxStartState,
+} from "./dropbox";
 import { describeThrownStorageError } from "./errors";
 import { leaveForDropbox } from "./leaveForDropbox";
 
 /**
  * Starting a Dropbox connect: ask the control plane for a URL, then leave.
  *
- * There is deliberately nothing else here. The verifier, the state and the app
- * key all stay server-side — `startDropboxConnect` returns a URL and nothing
- * else — so this hook holds no secret, and a script that read every value in
- * it would have exactly what the address bar is about to show anyway.
+ * Everything that *proves* the flow — the verifier, the state, the app key —
+ * stays server-side, so a script that read every value here would have what
+ * the address bar is about to show anyway. The one thing this hook does hold
+ * is `completionSecret`, which is not a proof: it says *this browser started
+ * the flow*, opens nothing without the `state` it is never stored beside, and
+ * has to survive the navigation, which is why it is written down before it.
+ * `__tests__/dropboxStart.test.ts` is what keeps that line here — deleting it
+ * left the whole mobile suite green, and every live connect broken.
  *
  * The navigation is `leaveForDropbox`, not `router`: Expo Router only knows
  * our own routes. It is platform-split for the same reason the consent
@@ -42,7 +52,7 @@ export function useDropboxStart(
       setState({ kind: "starting" });
       void (async () => {
         try {
-          const { authorizeUrl } = await startConnect({
+          const { authorizeUrl, completionSecret } = await startConnect({
             workspaceId: workspaceId as Id<"workspaces">,
             redirectUri,
             // Omitted rather than sent as an empty string. `undefined` is what
@@ -54,6 +64,14 @@ export function useDropboxStart(
             // nothing. This is how first-run gets its remaining steps back.
             ...(options.resumeTo === undefined ? {} : { resumeTo: options.resumeTo }),
           });
+          /*
+            Kept before the navigation, because the navigation destroys this
+            page. It is the value that says this browser is the one that
+            started the flow — see `keepCompletionSecret` — and it is
+            deliberately not the `state`, which travels through Dropbox and is
+            therefore known to whoever built the URL.
+          */
+          keepCompletionSecret(completionSecret, browserCompletionStore());
           leaveForDropbox(authorizeUrl);
           // Left deliberately in `starting`. On web this line runs while the
           // browser is already navigating away; dropping back to `idle` would

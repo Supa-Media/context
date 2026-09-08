@@ -34,6 +34,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Mail lands in a personal context and nowhere else
 - The privacy tier is a scope on the grant, never an inference from a role
 - A first-party signed shell may have its own grant approved by the session hosting it
+- A third-party OAuth callback carries a secret the browser kept, not just `state`
 - One connection reaches every context its person belongs to
 - A grant is one person's tooling, and the refusal follows the listing
 - An invitation is addressed to a string, and its token is stored in the clear
@@ -71,11 +72,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Round-tripping without damaging ciphertext
 - Sharing: an unlisted link over an encrypted note is refused
 - Rotation: three different things, and they must not be confused
+- What a teardown deletes, and what it keeps — OPEN
 - Revocation and export: the customer keeps a usable context, or this feature breaks the first non-negotiable
 - Encrypted notes are for humans; no AI client reads one
 - The KDF, per client
 - Bounds on a KDF descriptor, because a bucket is not a trusted input
 - What Phase 1 builds, and what it does not
+- What Phase 2a adds
 
 ## [The MCP gateway: protocol, transport, orientation](./gateway-protocol.md)
 
@@ -100,6 +103,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Corpus statistics are per tenant, which is why it is a database each
 - The gateway copies the notes, and a search is what starts it
 - …and the control plane runs the same pass for a person who is not there
+- …and a search reads it, which for a year it did not
+- The descriptor is a sibling of the binding, and the gateway reads it there
+- …and the console asks the same projection, through the same answer
+- One round trip, and why it cannot be zero
+- A blended search over several contexts fuses ranks, and the control plane is where it happens
+- A note is the unit of the index, except when it is bundled mail
+- The index is sized by the volume it has to hold, and an oversized part sheds rather than taking the rest with it
 
 ## [The mobile app and the console](./app-and-console.md)
 
@@ -203,6 +213,21 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Bridge version 4 adds `imessage`, and it is a status object, never a query surface
 - One meeting is one credential, and on a Mac it is the machine's
 - The microphone is asked for just-in-time, and never a dialog that points at the wrong place
+- What is deliberately not built
+
+## [Updating the Mac without shipping a Mac](./desktop-updates.md)
+
+- The binary is a permission envelope, and a code signature does not seal what V8 evaluates later
+- The line the signature actually draws, and the seven things on the far side of it
+- A missing usage string kills the process, which is why over-declaring is nearly free and under-declaring is permanent
+- The one-way door: what goes into the next signed build
+- A main bundle is a manifest, a blob and a signature, and the shell decides about all three before it evaluates any of them
+- Signing the bundle is the design; the update channel is what is left over
+- A bad bundle can brick the app so thoroughly it cannot fetch its own fix
+- `electron-updater` stays, and the two version numbers do not merge
+- Which bundle a Mac is running has to be a fact, or a rollout is a guess
+- Three stages, and the middle one is the only one with a deadline
+- What would make this a bad idea, argued as if we were not going to do it
 - What is deliberately not built
 
 ## [Obsidian plugins](./obsidian-plugins.md)

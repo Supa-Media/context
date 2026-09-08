@@ -188,11 +188,26 @@ export async function runPackagingChecks(check) {
     has already been bitten by twice: the paragraph above the key discusses
     `icon.icns`, the default path and `CFBundleIconFile` by name, so every check
     here would pass on the prose with the key itself deleted.
+
+    And asked of the `mac:` block rather than of the file, because `icon:` is a
+    real key in more than one section. Anchored to a whole line but not to a
+    parent, this check stayed green with the key moved under `dmg:` — where it
+    names the volume icon of the disk image and says nothing about the app —
+    which is the original defect shipping again behind a passing test.
   */
   const builderKeys = withoutYamlComments(BUILDER);
+  /* From `mac:` to the next line that starts a section of its own. */
+  const macBlock = (() => {
+    const lines = builderKeys.split("\n");
+    const start = lines.findIndex((line) => /^mac:\s*$/.test(line));
+    if (start === -1) return "";
+    const rest = lines.slice(start + 1);
+    const end = rest.findIndex((line) => /^\S/.test(line));
+    return (end === -1 ? rest : rest.slice(0, end)).join("\n");
+  })();
   check(
     "THE APP ICON IS CONFIGURED — unset, electron-builder silently ships its own atom",
-    /^\s*icon:\s*build\/icon\.icns\s*$/m.test(builderKeys),
+    /^\s+icon:\s*build\/icon\.icns\s*$/m.test(macBlock),
   );
   check(
     "...and the file it names is really there, because the key alone is not the icon",
@@ -257,13 +272,69 @@ export async function runPackagingChecks(check) {
   );
 
   // -- the sentences macOS shows before anybody agrees to anything ----------
+  //
+  // The declaration, `key + ":"`, and not the comment about it — this file's
+  // own header already argues that distinction for the microphone string
+  // below; the two keys this defect added are held to the same rule rather
+  // than the looser substring check the original three had, which a header
+  // comment naming a renamed key in prose would still have passed.
   for (const key of [
     "NSMicrophoneUsageDescription",
     "NSAudioCaptureUsageDescription",
     "NSCalendarsUsageDescription",
+    "NSCalendarsFullAccessUsageDescription",
+    "NSAppleEventsUsageDescription",
   ]) {
-    check(`${key} is declared, or macOS kills the process instead of asking`, BUILDER.includes(key));
+    check(`${key} is declared, or macOS kills the process instead of asking`, BUILDER.includes(`${key}:`));
   }
+
+  /*
+    EVERY PERMISSION A COLLECTOR OR THE RECORDER ACTUALLY ASKS FOR HAS ITS
+    PLIST STRING — named against the source file that asks, not against a
+    list somebody remembers to keep in step by hand.
+
+    Found the hard way: `NSAppleEventsUsageDescription` and
+    `NSCalendarsFullAccessUsageDescription` were both absent while
+    `core/detection/collectors.ts`' own header already said "browser tab URLs
+    need Automation, and the calendar needs Calendars" — the plist and the
+    code disagreed about what this app needs, and nothing here would have
+    caught it, because the check above only knew the three keys it was
+    written to know about. Read on the owner's own Mac, on the shipped
+    bundle identifier: three Apple Events rows already granted despite the
+    missing string, and the Calendar row sitting at the write-only value
+    macOS 14+ hands out to an app that only declares the legacy key — see
+    `docs/decisions/desktop-updates.md`, "The one-way door", for both
+    findings and what they do and do not explain.
+
+    This table is therefore read against the actual collector source, not
+    hand-typed twice: `windows()` and `calendarEvents()` are the two
+    `SignalCollectors` members `platform/macos/windows.ts` and
+    `platform/macos/calendar.ts` implement over `osascript`/JXA (Apple
+    Events), and `calendar.ts` additionally reads calendar *data*, which is
+    the second, separate TCC category `NSCalendarsFullAccessUsageDescription`
+    gates. A collector added later that also shells out to another
+    application and is never added here is exactly the gap this guard cannot
+    see — which is why it reads the collector interface's own member names
+    rather than a list somebody typed from memory.
+  */
+  const WINDOWS_SOURCE = readFileSync(join(ROOT, "src/platform/macos/windows.ts"), "utf8");
+  const CALENDAR_SOURCE = readFileSync(join(ROOT, "src/platform/macos/calendar.ts"), "utf8");
+  check(
+    "windows() drives another application over Apple Events, as documented",
+    /osascript/.test(WINDOWS_SOURCE),
+  );
+  check(
+    "calendarEvents() drives Calendar.app over Apple Events, as documented",
+    /osascript/.test(CALENDAR_SOURCE),
+  );
+  check(
+    "BOTH COLLECTORS THAT SEND APPLE EVENTS ARE COVERED BY ONE USAGE STRING",
+    BUILDER.includes("NSAppleEventsUsageDescription:"),
+  );
+  check(
+    "THE CALENDAR COLLECTOR'S OWN DATA READ IS COVERED BY THE FULL-ACCESS STRING, not only the legacy one",
+    BUILDER.includes("NSCalendarsFullAccessUsageDescription:"),
+  );
   /*
     The *declaration*, not the comment about it. `BUILDER.split(key)[1]` read
     the header's own prose — this file explains both keys before it sets them —
@@ -690,6 +761,50 @@ export async function runPackagingChecks(check) {
   check(
     "the notarisation key is judged before the build too, not after twenty-six seconds of signing",
     keyCheck !== undefined && steps.indexOf(keyCheck) < steps.indexOf(buildStep),
+  );
+
+  /*
+    The icon, asked of the built app rather than of the config.
+
+    The checks up in the icon section read `electron-builder.yml` and
+    `build/icon.icns` — both of them build *inputs*. That is the same reasoning
+    that `NSCameraUsageDescription` has already shown to be unsound here: that
+    key is in the shipped Info.plist and appears nowhere in the config, because
+    Electron ships a default plist and `extendInfo` is merged into it. A config
+    the repo controls does not describe the plist that came out.
+
+    `icon:` has the same shape. The fallback that shipped the atom happens
+    inside electron-builder, downstream of every line this repo writes, and
+    `CFBundleIconFile` exists only after packaging. So the input checks stay —
+    they fail in seconds and say exactly what is wrong — and this row makes sure
+    the one place the real artifact exists actually looks at it.
+  */
+  const iconStep = steps.find((step) => /Check the icon the build actually bundled/.test(step));
+  check(
+    "THE PACKAGED APP'S OWN ICON IS CHECKED — the config cannot prove what electron-builder bundled",
+    iconStep !== undefined,
+  );
+  check(
+    "...by reading CFBundleIconFile out of the built Info.plist, which is where the atom was found",
+    iconStep !== undefined && /CFBundleIconFile/.test(iconStep) && /Contents\/Info\.plist/.test(iconStep),
+  );
+  check(
+    "...and comparing bytes against build/icon.icns, so a copy of electron.icns under our name still fails",
+    iconStep !== undefined && /cmp -s "\$bundled" build\/icon\.icns/.test(iconStep),
+  );
+  check(
+    "...for both architectures, not just the arm64 one the smoke step gates on",
+    iconStep !== undefined &&
+      /release\/mac-arm64\/Context\.app/.test(iconStep) &&
+      /release\/mac\/Context\.app/.test(iconStep),
+  );
+  check(
+    "...after the build that produces the app, since there is nothing to read before it",
+    iconStep !== undefined && steps.indexOf(iconStep) > steps.indexOf(buildStep),
+  );
+  check(
+    "...and it fails the job rather than warning, because a wrong icon is what shipped last time",
+    iconStep !== undefined && /exit 1/.test(iconStep),
   );
 
   // -- publishing: a boolean input, gated permissions, and idempotency --------

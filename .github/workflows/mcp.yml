@@ -57,6 +57,9 @@ on:
       # is its only CI anywhere, so a direct push that skipped it would leave
       # the app with none on `main`.
       - "apps/desktop/**"
+      # And the offline decryptor, same reason again: `Test Offline Decryptor`
+      # below is its only CI anywhere.
+      - "packages/encryption-decryptor/**"
       - ".github/workflows/mcp.yml"
 
 permissions:
@@ -88,6 +91,42 @@ jobs:
       - name: Run test suite
         working-directory: apps/mcp
         run: node test/test.mjs
+
+  decryptor:
+    name: Test Offline Decryptor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      # NO CI JOB RAN THIS PACKAGE'S SUITE EITHER, for the same reason the
+      # comment on `Test Meetings Core` below records: `ci.yml`'s reusable
+      # pipeline filters on `apps/mobile`, `apps/convex` and `packages/shared`,
+      # and nothing else invoked `packages/encryption-decryptor/test`. It is
+      # `turbo run test`'s graph and nobody's workflow.
+      #
+      # This package is the one artifact in the repository whose whole job is
+      # to work after the customer has revoked our credential — the executable
+      # half of `docs/decisions/encryption.md`'s "you can still read your
+      # notes". Its suite is also the only thing that checks the gateway's
+      # envelope writer against an INDEPENDENT reader: it encrypts with
+      # `apps/mcp/src/encryption.js` and opens the result with its own parser,
+      # so a format bug the two would have shared is exactly what it catches.
+      # Local-only checks on that are the same bet as no checks on it.
+      #
+      # Here rather than in `ci.yml` for the reason in this file's header: no
+      # `paths:` filter on `pull_request`, so it runs on every pull request —
+      # including one that changes only the gateway's envelope module, which is
+      # the change most likely to break it. Bare node, no install: zero
+      # dependencies is this package's promise too.
+      - name: Run test suite
+        working-directory: packages/encryption-decryptor
+        run: node test/decrypt.test.mjs
 
   meetings:
     name: Test Meetings Core

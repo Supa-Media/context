@@ -55,6 +55,25 @@ export interface RecorderOptions {
   sampleRate: number;
   /** Called for every frame. Must not throw; the recorder does not retry. */
   onFrame: (frame: AudioFrame) => void;
+  /**
+   * THE INPUT CLOSED ON ITS OWN — never from this session's own `pause()`,
+   * `resume()` or `stop()`.
+   *
+   * A crashed capture window, a device that disappeared mid-meeting: the
+   * defect this exists to close is a recorder that keeps answering
+   * `capturing: true` after the thing producing frames is gone, which is what
+   * let a meeting's elapsed clock climb forever on wall clock alone with
+   * nothing behind it — the same failure shape as the level meter that always
+   * read zero and the failure label that always blamed the microphone.
+   * `capturing` must already read `false` by the time this fires, exactly as
+   * it does after a normal `stop()`; the difference this carries is that
+   * nobody asked for it.
+   *
+   * Called at most once per `start()`. Must not throw, for the same reason
+   * `onFrame` may not: this can fire from deep inside a platform callback with
+   * nothing above it to catch a rejection.
+   */
+  onDied: (message: string) => void;
 }
 
 export interface RecorderSummary {
@@ -81,12 +100,20 @@ export interface AudioRecorder {
 export function fakeRecorder(): AudioRecorder & {
   step(ms: number, channel?: "mic" | "system"): void;
   summary(): RecorderSummary;
+  /**
+   * Simulate the input closing on its own, mid-capture — a crashed capture
+   * window, a device unplugged — as opposed to `stop()`, which is this
+   * session ending it on purpose. A no-op once not capturing, exactly like a
+   * real recorder cannot die twice.
+   */
+  kill(message: string): void;
 } {
   let capturing = false;
   let paused = false;
   let elapsed = 0;
   let frames = 0;
   let sink: ((frame: AudioFrame) => void) | null = null;
+  let onDied: ((message: string) => void) | null = null;
   let channels: readonly ("mic" | "system")[] = [];
 
   return {
@@ -98,6 +125,7 @@ export function fakeRecorder(): AudioRecorder & {
       capturing = true;
       paused = false;
       sink = options.onFrame;
+      onDied = options.onDied;
       channels = options.channels;
     },
     async pause() {
@@ -110,7 +138,17 @@ export function fakeRecorder(): AudioRecorder & {
       capturing = false;
       paused = false;
       sink = null;
+      onDied = null;
       return { recordedMs: elapsed, frames };
+    },
+    kill(message) {
+      if (!capturing) return;
+      capturing = false;
+      paused = false;
+      sink = null;
+      const died = onDied;
+      onDied = null;
+      died?.(message);
     },
     step(ms, channel) {
       // A paused recorder emits nothing and its clock does not move. That is

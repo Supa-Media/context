@@ -105,6 +105,15 @@ async function endQuietly(controller) {
   }
 }
 
+/**
+ * Let a fire-and-forget `fail()` — `onDied` calling `void this.fail(...)` —
+ * actually finish. It awaits a real recorder/transcriber `stop()`/`finish()`
+ * before its own `#update`, so one microtask tick is not enough.
+ */
+async function flush() {
+  for (let i = 0; i < 5; i += 1) await Promise.resolve();
+}
+
 export async function runControllerChecks(check) {
   // -- consent ---------------------------------------------------------------
   {
@@ -705,5 +714,138 @@ export async function runControllerChecks(check) {
       shell.outbox().entries.every((entry) => entry.sessionId === "mtg_theoneythepagechose"),
     );
     await endQuietly(shell.controller);
+  }
+
+  /*
+    THE APP CANNOT CLAIM TO BE RECORDING WHEN IT IS NOT.
+
+    `elapsedMs()` used to be `now - startedAtMs`, unconditionally — wall clock
+    since the meeting began, whether or not anything was still capturing. A
+    capture that died mid-meeting left `capturing: false` on the view (read
+    off the recorder, which is honest) sitting next to an elapsed clock that
+    kept climbing forever, which is the same shape of lie as the level meter
+    that always read zero: an indicator that says the same thing whether or
+    not the thing it describes is happening.
+  */
+
+  // -- the clock is what was captured, not wall clock since the start -------
+  {
+    const { controller, recorder, clock } = harness();
+    await controller.begin({ source, title: "Design review", grantedEpisode: "e" });
+    clock.advance(3_000);
+    check(
+      "elapsed counts up while audio is actually being captured",
+      controller.elapsedMs() === 3_000,
+    );
+
+    await controller.pause();
+    clock.advance(60_000);
+    check(
+      "PAUSED, THE CLOCK STOPS — a minute passes and elapsed does not move",
+      controller.elapsedMs() === 3_000,
+    );
+
+    await controller.resume();
+    clock.advance(2_000);
+    check(
+      "resumed, it picks back up from what had already been captured",
+      controller.elapsedMs() === 5_000,
+    );
+    check("...and the recorder is the one that says so", recorder.capturing === true);
+    await endQuietly(controller);
+  }
+
+  // -- a typed meeting has nothing to lie about, and keeps wall clock --------
+  {
+    const { controller, clock } = harness();
+    await controller.begin({ source, title: "Typed", grantedEpisode: "e", channels: [] });
+    clock.advance(90_000);
+    check(
+      "a typed meeting opens no capture, so wall clock is the honest answer it always was",
+      controller.elapsedMs() === 90_000,
+    );
+    check("...and it is not an audio meeting", controller.view()?.audio === false);
+    await endQuietly(controller);
+  }
+
+  // -- a capture that dies mid-meeting is failed, not silently kept running --
+  //
+  // `recorder.kill()` is `RecorderOptions.onDied` firing, exactly as
+  // `main/capture.ts` wires a crashed capture window's `render-process-gone`
+  // and `closed` events to it. Nothing here calls `pause()`, `end()` or
+  // `fail()` directly — the controller has to notice on its own.
+  {
+    const { controller, recorder, clock, views } = harness();
+    await controller.begin({ source, title: "Standup", grantedEpisode: "e" });
+    recorder.step(1_000, "mic");
+    clock.advance(4_000);
+    check("recording, before the input dies", controller.view()?.state === "recording");
+
+    recorder.kill("the capture window's renderer stopped (crashed)");
+    // `onDied` is fire-and-forget from inside the recorder's own callback —
+    // see its header — so the state change is observed through `onChange`
+    // rather than awaited here.
+    await flush();
+
+    const view = controller.view();
+    check("THE SESSION IS FAILED, NOT STILL 'RECORDING'", view?.state === "failed");
+    check("the indicator agrees — nothing is capturing any more", view?.capturing === false);
+    check("...and the recorder itself is not capturing either", recorder.capturing === false);
+    check(
+      "the reason names the subsystem, not the microphone",
+      (view?.failureReason ?? "").includes("capture window"),
+    );
+    check(
+      "WHAT WAS CAPTURED IS KEPT — the frame recorded before the death is not discarded",
+      view?.frames === 1,
+    );
+
+    const frozenAt = controller.elapsedMs();
+    clock.advance(120_000);
+    check(
+      "THE CLOCK STOPS THE INSTANT CAPTURE DOES, and does not resume counting on its own",
+      controller.elapsedMs() === frozenAt && frozenAt === 4_000,
+    );
+
+    check(
+      "every view along the way reported `capturing` honestly, never true after the death",
+      views.every((v, i) => (i < views.length - 1 ? true : v.capturing === false)),
+    );
+
+    // A real Retry: `failed -> finalizing` is legal, and it reaches a note
+    // with what this session actually captured — composing with the
+    // finalize-deadline and empty-session rules rather than a second
+    // mechanism beside them.
+    const ended = await endQuietly(controller);
+    check("A RECOVERED SESSION STILL REACHES A REAL RETRY", ended.error === null);
+    check("...and finalizing carries the frame captured before the death", controller.view()?.frames === 1);
+  }
+
+  // -- a capture that dies before any audio is empty, not a phantom failure --
+  {
+    const { controller, recorder } = harness();
+    await controller.begin({ source, title: "Standup", grantedEpisode: "e" });
+    recorder.kill("the capture window closed unexpectedly");
+    await flush();
+
+    const view = controller.view();
+    check("a death with nothing captured yet is still `failed`, not silently `idle`", view?.state === "failed");
+    check("...with zero recorded, honestly, rather than a guess", view?.recordedMs === 0);
+  }
+
+  // -- a fail() outside a state that may legally fail is a no-op, not a throw
+  {
+    const { controller, recorder } = harness();
+    await controller.begin({ source, title: "Standup", grantedEpisode: "e" });
+    await endQuietly(controller);
+    check("the session reached complete", controller.view()?.state === "complete");
+    // A capture module reporting a death after the meeting is already filed —
+    // a message crossing after `stop()` was already called — must not crash
+    // the reporting path or resurrect a finished meeting.
+    await controller.fail("late");
+    check(
+      "A DEATH REPORTED AFTER complete IS IGNORED, not resurrected as failed",
+      controller.view()?.state === "complete",
+    );
   }
 }

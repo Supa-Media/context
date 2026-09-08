@@ -83,13 +83,15 @@ async function harness(
     recorder?: FakeRecorder;
     gateway?: FakeGateway;
     workspaceId?: string;
+    /** Where this launch's clock starts. Defaults to the fixture instant. */
+    startAt?: number;
   } = {},
 ): Promise<Harness> {
   const controller = new MeetingsController();
   const store = options.store ?? memoryStore();
   const gateway = options.gateway ?? fakeGateway();
   const recorder = options.recorder ?? fakeRecorder();
-  const clock = clockFrom(Date.parse("2026-09-05T18:00:00.000Z"));
+  const clock = clockFrom(options.startAt ?? Date.parse("2026-09-05T18:00:00.000Z"));
 
   await controller.configure({
     workspaceId: options.workspaceId ?? "ws-1",
@@ -232,11 +234,19 @@ describe("the clock is the log, not a timer", () => {
 });
 
 describe("the app being killed mid-meeting", () => {
-  test("a relaunch finds the meeting, the notes and the elapsed time", async () => {
+  test("a relaunch never resumes a running timer — it fails, closed, with what was captured", async () => {
     /*
       The whole reason the session log is on disk. Everything below happens with
       the same store and a brand-new controller — which is what a cold launch
       is.
+
+      This test used to assert the opposite of what it does now: that
+      `restored.session.state` came back `"recording"` and that
+      `recordElapsedMs` kept counting from `startedAt` across the relaunch —
+      the zombie-recording defect. A fresh controller's fresh `fakeRecorder` is
+      never told to `start()` again here, exactly like a real relaunch, so a
+      session that came back `"recording"` was never backed by anything: the
+      defect was passing precisely because this test expected it to.
     */
     const store = memoryStore();
     const first = await harness({ store });
@@ -245,15 +255,102 @@ describe("the app being killed mid-meeting", () => {
     first.clock.advance(41 * 60_000);
     await settle();
 
-    const second = await harness({ store });
-    const restored = second.controller.getSnapshot().live;
+    // The relaunch happens at whatever moment it actually happens — a fresh
+    // process's clock does not rewind to the meeting's own start.
+    const second = await harness({ store, startAt: first.clock.now() });
+    // No live recording claims to exist — the bar this would have driven is
+    // gone, not frozen mid-count.
+    expect(second.controller.getSnapshot().live).toBeNull();
 
-    expect(restored?.session.id).toBe(id);
-    expect(restored?.session.notes).toBe("curiosity is the prerequisite");
-    expect(restored?.session.state).toBe("recording");
-    // 41 minutes, from `startedAt` and the log — a `setInterval` would have
-    // died with the process and restarted at zero.
-    expect(recordElapsedMs(restored!, first.clock.now())).toBe(41 * 60_000);
+    const restored = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(restored.session.notes).toBe("curiosity is the prerequisite");
+    expect(restored.session.state).toBe("failed");
+    expect(restored.session.failureReason).toMatch(/restarted while recording/i);
+    // 41 minutes — exactly what was captured before the restart — and it does
+    // not move no matter how much wall clock passes after it.
+    expect(recordElapsedMs(restored, first.clock.now())).toBe(41 * 60_000);
+    expect(recordElapsedMs(restored, first.clock.now() + 60 * 60_000)).toBe(41 * 60_000);
+  });
+
+  test("what was captured survives, and a real Retry reaches a finished note", async () => {
+    const store = memoryStore();
+    const first = await harness({ store });
+    const id = await first.controller.start({ title: "Reboot Camp" });
+    first.recorder.emit(fakeSegment("seg-1", 0, "curiosity is the prerequisite"));
+    first.clock.advance(5 * 60_000);
+    await settle();
+
+    const second = await harness({ store, startAt: first.clock.now() });
+    const restored = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(restored.session.state).toBe("failed");
+    // The transcript captured before the restart is not discarded.
+    expect(restored.session.transcript).toHaveLength(1);
+
+    // `failed -> finalizing` is a legal move for a reason: the meeting is not
+    // gone, it is interrupted, and this is the same Retry a stuck finalize
+    // already gets — composing with recovery rather than a second
+    // implementation of it.
+    await second.controller.retryFinalize(id);
+    await settle();
+
+    const finished = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(finished.session.state).toBe("complete");
+    expect(finished.session.notePath).toBe(`0-inbox/meetings/${id}.md`);
+    expect(second.gateway.notesWritten()).toBe(1);
+  });
+
+  test("a paused meeting is reconciled the same way as a recording one", async () => {
+    const store = memoryStore();
+    const first = await harness({ store });
+    const id = await first.controller.start({ title: "Design review" });
+    first.clock.advance(2 * 60_000);
+    first.controller.pause();
+    await settle();
+
+    const second = await harness({ store, startAt: first.clock.now() });
+    const restored = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(restored.session.state).toBe("failed");
+    expect(recordElapsedMs(restored, second.clock.now())).toBe(2 * 60_000);
+  });
+
+  test("a meeting that ended cleanly is untouched by the reconciliation", async () => {
+    const store = memoryStore();
+    const offline = fakeGateway();
+    offline.offlineFor(50);
+    const first = await harness({ store, gateway: offline });
+    const id = await first.controller.start({ title: "Wrapped up" });
+    first.controller.setNotes(id, "wrapped up on time");
+    await first.controller.end();
+    await settle();
+
+    const second = await harness({ store });
+    const restored = second.controller.getSnapshot().records.find((r) => r.session.id === id);
+    // `end()` moves to `finalizing`, not `failed` — a session mid-finalize on
+    // a genuine relaunch is `recoverStaleFinalizes`'s question, not this one's,
+    // and only after the bound in `checkFinalizeTimeout` has actually passed.
+    expect(restored?.session.state).toBe("finalizing");
+  });
+
+  test("staying on the same workspace never fails a meeting that really is recording", async () => {
+    // The fast path in `configure()`: reconfiguring for the *same* workspace
+    // keeps the live recorder rather than reading a fresh one off the store,
+    // and must never run the reconciliation this describe block is about —
+    // that would fail every recording in the app the moment a screen remounts.
+    const { controller, recorder } = await harness();
+    const id = await controller.start({ title: "Still going" });
+
+    await controller.configure({
+      workspaceId: "ws-1",
+      store: memoryStore(),
+      gateway: fakeGateway(),
+      recorder: fakeRecorder(),
+      device: DEVICE,
+    });
+
+    const live = controller.getSnapshot().live;
+    expect(live?.session.id).toBe(id);
+    expect(live?.session.state).toBe("recording");
+    expect(recorder.calls).not.toContain("stop");
   });
 
   test("a meeting that never reached the gateway is still waiting after a relaunch", async () => {

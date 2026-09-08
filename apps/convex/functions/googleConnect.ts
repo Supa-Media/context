@@ -144,7 +144,14 @@ export const DEFAULT_ATTACHMENT_RETENTION_DAYS = 90;
 type AttachmentMode = "metadata-only" | "store";
 type AttachmentRetention = number | "forever";
 
-function requireGoogleClientId(): string {
+// The four helpers below are exported for `calendarConnect.ts` (and Chat's
+// sibling module): one OAuth client id, one client secret, one "who is
+// calling" check, one "that attempt is gone" refusal — true of every
+// product's connect flow because it is the same client and the same parked
+// attempt shape, not a Gmail-specific fact. Reusing them is what keeps "how
+// do we know who is calling" from becoming a second implementation the day
+// it needs to change.
+export function requireGoogleClientId(): string {
   const id = process.env[GOOGLE_CLIENT_ID_ENV_VAR];
   if (typeof id !== "string" || id.length === 0) {
     throw new ConvexError({
@@ -156,12 +163,12 @@ function requireGoogleClientId(): string {
 }
 
 /** Optional, like Dropbox's app secret — see `googleOAuth.ts` for why PKCE covers the flow either way. */
-function readGoogleClientSecret(): string | undefined {
+export function readGoogleClientSecret(): string | undefined {
   const secret = process.env[GOOGLE_CLIENT_SECRET_ENV_VAR];
   return typeof secret === "string" && secret.length > 0 ? secret : undefined;
 }
 
-async function requireActor(ctx: {
+export async function requireActor(ctx: {
   auth: { getUserIdentity: () => Promise<unknown> };
 }): Promise<Id<"users">> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -172,7 +179,7 @@ async function requireActor(ctx: {
   return userId as Id<"users">;
 }
 
-function refuseAttempt(): never {
+export function refuseAttempt(): never {
   throw new ConvexError({
     code: "CONNECT_ATTEMPT_INVALID",
     message: "That connection attempt has expired. Start it again.",
@@ -249,6 +256,7 @@ export const requirePersonalOwner = internalQuery({
 export const parkAttempt = internalMutation({
   args: {
     hashedState: v.string(),
+    hashedCompletion: v.string(),
     encryptedVerifier: v.string(),
     workspaceId: v.id("workspaces"),
     startedBy: v.id("users"),
@@ -270,6 +278,7 @@ export const parkAttempt = internalMutation({
 
     await ctx.db.insert("googleConnectAttempts", {
       hashedState: args.hashedState,
+      hashedCompletion: args.hashedCompletion,
       encryptedVerifier: args.encryptedVerifier,
       workspaceId: args.workspaceId,
       startedBy: args.startedBy,
@@ -313,8 +322,11 @@ export const startGmailConnect = action({
     attachmentMode: v.optional(v.union(v.literal("metadata-only"), v.literal("store"))),
     attachmentRetentionDays: v.optional(v.union(v.number(), v.literal("forever"))),
   },
-  returns: v.object({ authorizeUrl: v.string() }),
-  handler: async (ctx, args): Promise<{ authorizeUrl: string }> => {
+  returns: v.object({ authorizeUrl: v.string(), completionSecret: v.string() }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ authorizeUrl: string; completionSecret: string }> => {
     requireMailConnectEnabled();
     const userId = await requireActor(ctx);
     const isPersonalOwner: boolean = await ctx.runQuery(
@@ -343,6 +355,15 @@ export const startGmailConnect = action({
     const clientId = requireGoogleClientId();
     const { verifier, challenge } = await createPkcePair();
     const state = randomOpaqueToken(STATE_BYTES);
+    /*
+      The value that never leaves this browser. `state` goes out in the
+      authorize URL and comes back in the callback, so whoever built that URL
+      knows it — including somebody who built it for a workspace they own and
+      sent it to another person to consent. PKCE does not see that case: the
+      attacker is the initiator, so the verifier really is theirs.
+      `dropboxConnect.ts` carries the argument in full.
+    */
+    const completionSecret = randomOpaqueToken(STATE_BYTES);
 
     const encryptedVerifier = await encryptSecret(verifier, requireKeyset(), {
       workspaceId: args.workspaceId as string,
@@ -350,6 +371,7 @@ export const startGmailConnect = action({
 
     await ctx.runMutation(internal.functions.googleConnect.parkAttempt, {
       hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(completionSecret),
       encryptedVerifier,
       workspaceId: args.workspaceId,
       startedBy: userId,
@@ -362,6 +384,7 @@ export const startGmailConnect = action({
     });
 
     return {
+      completionSecret,
       authorizeUrl: googleAuthorizeUrl({
         clientId,
         redirectUri: args.redirectUri,
@@ -374,19 +397,43 @@ export const startGmailConnect = action({
 });
 
 /**
- * Finish a connect. No session required — see `dropboxConnect.ts`'s
- * `completeDropboxConnect` for the full argument for why that is a security
- * property of this shape rather than a shortcut around one; it applies here
- * unchanged, PKCE pair and all.
+ * Finish a connect. **No session required, and that is still deliberate** —
+ * a sign-in wall on a callback outlives a provider's single-use code, which
+ * `dropboxConnect.ts` records from a live failure.
+ *
+ * What that file no longer says, and this one used to inherit by citing it, is
+ * that PKCE makes the rest safe. It does not: PKCE binds the code to whoever
+ * *started* the flow, so it answers an interceptor and says nothing about an
+ * initiator who sends their own authorize URL to somebody else to consent.
+ * `completionSecret` is what binds the flow to the browser that started it —
+ * RFC 6749 §10.12 — and it never travels through Google.
  */
 export const completeGmailConnect = action({
-  args: { state: v.string(), code: v.string() },
+  args: {
+    state: v.string(),
+    code: v.string(),
+    /*
+      Optional, and defaulted to the empty string rather than required.
+
+      A required arg makes a browser still running yesterday's bundle fail with
+      a Convex validator error instead of this flow's one refusal — a
+      distinguishable answer, for the length of a deploy, on the one path whose
+      whole point is that its four failures look identical. The empty string
+      fails the comparison exactly as a wrong secret does, so nothing is
+      loosened by accepting it.
+    */
+    completionSecret: v.optional(v.string()),
+  },
   returns: v.object({ workspaceId: v.id("workspaces") }),
   handler: async (ctx, args): Promise<{ workspaceId: Id<"workspaces"> }> => {
     requireMailConnectEnabled();
     const consumed: { workspaceId: Id<"workspaces"> } | null = await ctx.runMutation(
       internal.functions.googleConnect.consumeAttemptAndExchange,
-      { hashedState: await hashToken(args.state), code: args.code },
+      {
+        hashedState: await hashToken(args.state),
+        code: args.code,
+        hashedCompletion: await hashToken(args.completionSecret ?? ""),
+      },
     );
     if (consumed === null) refuseAttempt();
     return consumed;
@@ -394,7 +441,7 @@ export const completeGmailConnect = action({
 });
 
 export const consumeAttemptAndExchange = internalMutation({
-  args: { hashedState: v.string(), code: v.string() },
+  args: { hashedState: v.string(), code: v.string(), hashedCompletion: v.string() },
   returns: v.union(v.null(), v.object({ workspaceId: v.id("workspaces") })),
   handler: async (ctx, args) => {
     const attempt = await ctx.db
@@ -407,6 +454,20 @@ export const consumeAttemptAndExchange = internalMutation({
     // exchange has still spent its attempt.
     await ctx.db.delete(attempt._id);
     if (attempt.expiresAt < Date.now()) return null;
+    /*
+      Checked after the delete, so a wrong secret spends the attempt exactly as
+      a failed exchange does rather than becoming something to retry against a
+      state somebody holds. Refused with the same `null` as an unknown state and
+      an expired one. An attempt parked before this shipped has no hash and is
+      refused rather than trusted.
+    */
+    if (attempt.hashedCompletion !== args.hashedCompletion) return null;
+    // The mirror of the check `calendarConnect.ts` makes: this table is
+    // shared by every product's connect flow, so a Calendar-only attempt
+    // answered on Gmail's callback would bind Gmail — with a default
+    // backfill window and a mailbox folder — out of a consent screen that
+    // only ever named a calendar. An attempt is for the products it parked.
+    if (!attempt.products.includes("gmail")) return null;
 
     await ctx.scheduler.runAfter(0, internal.functions.googleConnect.exchangeAndBind, {
       workspaceId: attempt.workspaceId,
@@ -571,8 +632,28 @@ export const applyGmailConnectionBinding = internalMutation({
       )
       .unique();
 
-    const products = new Set(existing?.products ?? []);
+    // AN EXPLICIT DISCONNECT ENDED EVERY PRODUCT ON THIS ACCOUNT — one grant,
+    // one revoke — and `products` is left behind only as a record of what the
+    // connection used to sync. So reviving this row for a Gmail connect
+    // revives Gmail and nothing else: the other products' settings objects
+    // and cursors are kept (they are somebody's folder names and sync
+    // positions, not consent), but they are off the live `products` set until
+    // the person reconnects them deliberately. Without this, "I disconnected
+    // my Google account, then reconnected Gmail" silently puts Chat and
+    // Calendar back on the row — a claim of consent out of a revocation.
+    // `chatProduct.ts`'s `applyChatConnectionBinding` states the same rule
+    // from the other side; this is its mirror, and the two must not diverge.
+    const revived = existing !== null && existing.disconnectedAt !== undefined;
+    const products = new Set(revived ? [] : (existing?.products ?? []));
     products.add("gmail");
+
+    // A grant NARROWER than the row's live products, same check and the same
+    // reason `applyChatConnectionBinding` gives: the slice is recorded
+    // honestly as `[]`, nothing anywhere reads a slice, so without this the
+    // row goes on reporting `backfilling` for a product whose sync can only
+    // ever take a refusal from Google. Every name in the message is one of
+    // this module's own literals, never a provider string.
+    const starved = [...products].filter((product) => grantedScopesFor(product, args.scopes).length === 0);
 
     const fields = {
       workspaceId: args.workspaceId,
@@ -631,9 +712,11 @@ export const applyGmailConnectionBinding = internalMutation({
       chat: existing?.chat
         ? { ...existing.chat, scopes: grantedScopesFor("chat", args.scopes) }
         : undefined,
-      health: "backfilling" as const,
-      lastError: undefined,
-      errorCode: undefined,
+      health: (starved.length ? "reconnect_required" : "backfilling") as "reconnect_required" | "backfilling",
+      lastError: starved.length
+        ? `This Google account's authorization no longer covers ${starved.join(", ")}. Reconnect to restore it.`
+        : undefined,
+      errorCode: starved.length ? "SCOPES_INCOMPLETE" : undefined,
       disconnectedAt: undefined,
       boundBy: args.boundBy,
       updatedAt: now,

@@ -6,6 +6,8 @@ import { runCommunicationsChecks } from "./communications.test.mjs";
 import { messageAnchor } from "../../../packages/communications/src/anchors.js";
 import { renderChannelDayNote } from "../../../packages/communications/src/note.js";
 import { runCommsSearchIndexChecks } from "./commsSearchIndex.test.mjs";
+import { runCalendarGoogleChecks } from "./calendarGoogle.test.mjs";
+import { runCalendarSyncChecks } from "./calendarSync.test.mjs";
 import { runOrientationChecks } from "./orientation.test.mjs";
 import { runSearchFilterChecks } from "./searchFilter.test.mjs";
 import { runSearchIndexerChecks } from "./searchIndexer.test.mjs";
@@ -20,16 +22,20 @@ import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
 import { runPluginChecks } from "./plugins.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
+import { runToolArgumentChecks } from "./toolArguments.test.mjs";
 import { runLinkChecks } from "./links.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
 import { runGmailSyncChecks } from "./gmailSync.test.mjs";
+import { runGoogleChatChecks } from "./googleChat.test.mjs";
 import { runSearchD1Checks } from "./searchD1.test.mjs";
 import { runSearchProjectionChecks } from "./searchProjection.test.mjs";
 import { runCredentialShapeChecks } from "./credentialShape.test.mjs";
 import { runEncryptionChecks } from "./encryption.test.mjs";
 import { runEncryptionGatewayChecks } from "./encryptionGateway.test.mjs";
 import { runEncryptionPassphraseChecks } from "./encryptionPassphrase.test.mjs";
+import { runEncryptionRotationChecks } from "./encryptionRotation.test.mjs";
+import { runRotationCursorAdversarialChecks } from "./encryptionRotationCursor.test.mjs";
 import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
@@ -424,7 +430,7 @@ const tools = await rpc("priv-token", "tools/list");
 // one and that a model has to ask for them. 27 with `set_encryption`, which is
 // a write over one note's own bytes and, like `set_visibility` beside it, a
 // personal connection's.
-check("27 tools listed", tools.result?.tools.length === 27);
+check("29 tools listed", tools.result?.tools.length === 29);
 
 // -- list_plugins through the worker
 //
@@ -1203,7 +1209,7 @@ check(
 );
 
 const modernList = await modernFetch({ method: "tools/list" });
-check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 27);
+check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 29);
 check(
   "modern tools/list carries the required freshness hints",
   typeof modernList.body.result?.ttlMs === "number" &&
@@ -1429,7 +1435,7 @@ for (const verb of ["GET", "DELETE"]) {
 // --- and now the half that must not have moved: legacy clients ---
 check(
   "a legacy client sending no version header still works",
-  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 27
+  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 29
 );
 async function legacyWithVersionHeader(version) {
   return worker.fetch(
@@ -3077,8 +3083,28 @@ check(
 // -- the refusals, all identical
 const REFUSAL = "not found";
 const refusalText = (result) => (result.isError ? result.content?.[0]?.text : `RESOLVED:${JSON.stringify(result)}`);
+// Naming no note at all no longer reaches the tool: `note` is required by
+// `read_image`'s advertised schema, and `src/toolArguments.js` now holds
+// callers to it. That is a refusal about the caller's own request, so it is
+// deliberately NOT in the byte-identity set below — it discloses nothing about
+// what exists, because nothing was looked up to answer it.
 const bareHash = await call("priv-token", "read_image", { image: `.images/${TEAM_IMAGE}` });
-check("an image cannot be resolved without naming a note", refusalText(bareHash) === REFUSAL);
+check(
+  "an image cannot be resolved without naming a note",
+  bareHash.isError === true && refusalText(bareHash).includes('missing required argument "note"')
+);
+// The property that check was really about — the `note` argument is the image
+// store's only authorization — still has to be proven at the handler, so here
+// is the version of it the schema lets through: a note named as the empty
+// string is a string, and reaches `toolReadImage`.
+const emptyNote = await call("priv-token", "read_image", {
+  note: "",
+  image: `.images/${TEAM_IMAGE}`,
+});
+check(
+  "...and naming an empty one, which the schema does allow through, resolves nothing",
+  refusalText(emptyNote) === REFUSAL
+);
 const unreferenced = await call("priv-token", "read_image", {
   note: "1-projects/portable/no-image.md",
   image: `.images/${TEAM_IMAGE}`,
@@ -3611,7 +3637,7 @@ check("an image that does not exist resolves nothing", refusalText(missingImage)
 check(
   "every image refusal is byte-identical, so nothing can be distinguished",
   new Set([
-    refusalText(bareHash),
+    refusalText(emptyNote),
     refusalText(unreferenced),
     refusalText(orphan),
     refusalText(teamReachingIntoPrivate),
@@ -3897,6 +3923,16 @@ await runOrientationChecks(check);
 await runCommunicationsChecks(check);
 await runCommsSearchIndexChecks(check);
 
+// The calendar sync: the Google-shaped adapter (calendarGoogle.test.mjs) and
+// the orchestrator against a fake, stateful Calendar API server
+// (calendarSync.test.mjs, fakeCalendarServer.mjs) — syncToken paging, the 410
+// fallback, the bounded horizon, per-day regeneration, disconnect as a real
+// no-op, and two workspaces' connections never touching each other's store.
+// Neither file shares state with anything else in this suite: each stands up
+// its own fake server and store per check block.
+await runCalendarGoogleChecks(check);
+await runCalendarSyncChecks(check);
+
 // The search index. The two format halves are pure functions over their own
 // fixtures and touch no store or control plane, so they run anywhere; the
 // integration checks stand up their own instrumented bucket, like orientation,
@@ -4005,6 +4041,11 @@ await runLinkChecks(check);
 
 await runTenancyChecks(check);
 await runCrossContextChecks(check);
+// The arguments of a tool call, against the schema `tools/list` advertised for
+// it. Its own control plane and S3 backend, so — like the tenancy suite — it
+// swaps globalThis.fetch and restores it, and must not run while anything
+// above still owns that global.
+await runToolArgumentChecks(check);
 await runUsageReportingChecks(check);
 await runSearchD1Checks(check);
 // The copy itself: notes reaching the database fast search provisions. Its own
@@ -4016,6 +4057,8 @@ await runCredentialShapeChecks(check);
 await runEncryptionChecks(check);
 await runEncryptionGatewayChecks(check);
 await runEncryptionPassphraseChecks(check);
+await runEncryptionRotationChecks(check);
+await runRotationCursorAdversarialChecks(check);
 
 // Meeting ingestion: the routes a phone and a desktop app send a meeting to,
 // the one note it becomes, and the neighbour who knows its session id. Its own
@@ -4029,6 +4072,11 @@ await runMeetingChecks(check);
 // gap detection and full reconcile, and the quota bound. No network and no
 // dependency: `gmailSync.js` takes its socket and its store as parameters.
 await runGmailSyncChecks(check);
+
+// Google Chat sync: no shared globals, no worker fetch — pure functions plus
+// a fixture Chat API over an injected fetchImpl, so it runs anywhere in this
+// order without the swap-and-restore discipline the block above needs.
+await runGoogleChatChecks(check);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);
