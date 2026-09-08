@@ -2228,3 +2228,142 @@ that will never be saved). **The test that fails if this is reversed:** record
 a session with no transcript and no typed notes and finalize it — with the
 rule, `state` is `empty` and the bucket gains nothing; reversed, a fourth empty
 note lands beside the three the owner already found.
+
+### A recording that has outlived its own capture is failed, not counted
+
+Found the same way the two decisions above were: on the owner's own Mac, after
+a reinstall and a relaunch. The app came back showing a live recording bar
+counting **2 hours 41 minutes**, no capture window behind it anywhere, and the
+meeting row itself sitting as a Draft. Two defects, the same shape as the level
+meter that always read zero and the failure label that always blamed the
+microphone: an indicator that says the same thing whether or not the thing it
+describes is happening.
+
+**The first was in the console's own boot path, and it is the more serious of
+the two.** `MeetingsController.configure()` — "the phone's nearest thing to a
+launch," in the same sense `recoverStaleFinalizes` already reads that sentence
+— restores whatever `loadMeetings` finds on disk and, until this fix, believed
+a record that read `recording` or `paused`. `elapsedMs` in `session.js` is
+`recordedMs` plus `now - runningSince`: honest while a real recorder is
+feeding it, and simply wrong once the process that opened that recorder is
+gone, because nothing ever told the restored session so. A relaunch is
+therefore not merely *a* moment this can happen, it is **the only** moment it
+can: every `MeetingRecorder` this app can hand `configure()` —
+`capture/audio.ts`, `capture/audio.web.ts`, `capture/desktop.ts`,
+`capture/notesOnly.ts` — is a fresh object that starts at `"idle"`, and none of
+them has an OS API to ask "is something already recording session X". So a
+`live` record surviving into a fresh `configure()` is proof, not suspicion,
+that whatever process was capturing it is gone.
+
+**The second was in the desktop shell's own tray-path recorder, and it is the
+subtler one: `MeetingController.elapsedMs()` in `apps/desktop/src/core/
+recording/controller.ts` was `now - startedAtMs`, unconditionally — the exact
+sentence `core/tray/presentation.ts`'s own `TrayInput.elapsedMs` docblock used
+to carry, word for word: "wall clock since the recording started."** That is
+correct only as long as nothing can stop capturing without saying so, and
+something could: `main/capture.ts`'s hidden capture window can crash
+(`render-process-gone`) or be torn down by anything other than this class's
+own `stop()`, and until this fix nothing told the controller when it did.
+`MeetingController.fail()` already existed — `MEETING_TRANSITIONS.failed` has
+allowed `recording -> failed` and `paused -> failed` since the finalize-
+deadline work above needed them — but **nothing in the whole app ever called
+it**. A capture that died mid-meeting left `#capturing` on the recorder
+answering `false` (honest) beside an elapsed clock climbing from a timestamp
+regardless (not), which is a machine that already knew the truth and an
+interface that declined to ask it.
+
+**The choice, for both: `fail`, never a silent reset and never an automatic
+finalize.** Three options were on the table and two of them cost something
+specific.
+
+- **Silently resetting to `idle`** erases the transcript and the notes already
+  captured — the same loss `hasNothingCaptured` already refuses to manufacture
+  by writing a blank note, arriving one state earlier and by omission instead
+  of by commission. A person who typed for ten minutes before a restart would
+  find nothing anywhere.
+- **Finalizing it automatically, unasked,** writes a note under a title and to
+  a destination the person never confirmed as final while the meeting might
+  merely have been *interrupted* by the restart rather than *over*. This
+  product's whole complaint about a meetings feature that decides things on
+  its own is `docs/decisions/meetings.md`'s own "the human's words are never
+  rewritten" — deciding a meeting is finished is a bigger claim than that.
+- **`fail`**, which is what shipped, does neither. It closes the open interval
+  at the moment of discovery — `session.js`'s `fail` case already does this
+  exactly right, via `closed()`, and the desktop controller's `fail()` now
+  matches it by stopping the recorder for an authoritative count rather than
+  trusting its own bookkeeping — so `elapsedMs`/`recordedMs` read precisely
+  what was captured and no more. It keeps the transcript and the notes
+  untouched. It is visible: `meetingBadge` in `apps/mobile/features/meetings/
+  format.ts` already renders `failed` as "Failed — `<reason>`" rather than
+  "Draft", which is the fix a reader sees without reading a line of this file.
+  And `failed -> finalizing` already existed for the stuck-finalize case above,
+  so **a recovered session reaches finalize through the same door a stuck one
+  does** — `retryFinalize` on the phone, and pressing End again in the
+  desktop's own notepad (`end()`'s `this.#moveTo("finalizing")` accepts
+  `failed` the same as `recording`) — composing with the finalize-deadline and
+  nothing-captured rules rather than a second mechanism beside them. A session
+  reconciled this way with nothing in it still reaches `empty`, not a blank
+  note, through the exact same `hasNothingCaptured` check every other path
+  already goes through.
+
+**The reason is the device's, not the meeting's**, the same distinction
+`captureError` already draws on the phone: nothing about the conversation
+failed, this app's own process ending mid-recording is what stopped capturing
+it — `INTERRUPTED_RECORDING_REASON` on the phone, the recorder's own crash
+message on the desktop (`"the capture window's renderer stopped (<reason>)"`
+or `"...closed unexpectedly"`), never a sentence that reads as the meeting's
+fault.
+
+**Deliberately not run from `sync()`, and not on the fast-path `configure()`
+that keeps a live recorder.** `MeetingsController.configure()`'s existing
+same-workspace branch — the one `retainedRecorder` exists for, because a
+recording has to survive a screen remounting — returns before the
+reconciliation runs, on purpose: the guarantee above ("a fresh recorder is
+always idle") holds only at the one moment a *fresh* recorder was actually
+handed in, and running this on every remount would fail every meeting the app
+is legitimately still recording the instant a screen unmounts and remounts.
+`recoverInterruptedRecordings` is therefore a sibling of
+`recoverStaleFinalizes` with a narrower trigger, not a periodic check: it runs
+once, at the boot branch only.
+
+**On the desktop side, the tray gained a sixth state to say this honestly.**
+`core/tray/presentation.ts`'s `TrayState` gained `"failed"`, with the
+indicator **off** — the one state whose whole point is that nothing is
+capturing any more — rather than reusing `recording`'s presentation with a
+frozen number, which would have kept claiming a microphone was open the moment
+after this fix taught the controller it was not.
+
+**What a Mac cannot confirm, stated rather than assumed.** `main/capture.ts`'s
+crash listener (`render-process-gone`, and `closed` guarded against the
+window's own `stop()`) is reasoned from Electron's documented events and
+verified by the launch smoke test starting for real, not independently unit
+tested — the same limitation this file's own header already states about
+system audio and the loopback tap: driving a real `BrowserWindow` needs a real
+Electron process. What *is* tested, and is the layer that actually matters —
+`MeetingController` never knows or cares whether `onDied` came from a real
+crash or a test's `fakeRecorder().kill()` — is the full state machine this
+signal drives: `apps/desktop/test/controller.test.mjs`'s "the app cannot claim
+to be recording when it is not" block. Somebody has to crash the real hidden
+window on a Mac and watch the tray go to `failed` rather than freeze.
+
+The checks are `apps/mobile/__tests__/meetingsController.test.ts`'s "the app
+being killed mid-meeting" describe block (a relaunch never resumes a running
+timer, closed with exactly what was captured; a paused session is reconciled
+the same way; a genuinely still-finalizing session is untouched; the
+same-workspace fast path never fails a meeting that really is recording; what
+was captured survives and Retry reaches a finished note) and
+`apps/desktop/test/controller.test.mjs`'s new block (elapsed counts only while
+audio is actually captured and freezes across a pause; a typed meeting keeps
+plain wall clock, having nothing to lie about; a capture that dies mid-meeting
+moves to `failed` with the frame already captured kept, the clock frozen, and
+the indicator honest; a death with nothing captured yet is still `failed`
+rather than silently `idle`; a `fail()` arriving after the meeting is already
+`complete` is ignored rather than resurrecting it) and `apps/desktop/
+test/tray.test.mjs`'s indicator sweep, widened to the sixth state.
+**Sabotage, measured**: removing the mobile reconciliation call from the
+boot branch of `configure()` — 3; running it on the same-workspace fast path
+instead of only at boot — 1; reverting the desktop controller's `elapsedMs()`
+to plain wall clock — 3; leaving `onDied` unwired in `begin()` so a died
+capture is never reported at all — 6; dropping `fail()`'s own transition guard
+so a message arriving after `complete` resurrects the session — 1; flipping
+the tray's `failed` presentation to `indicator: true` — 2.

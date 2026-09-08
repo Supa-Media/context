@@ -858,7 +858,11 @@ export async function runConsoleBridgeChecks(check) {
     const CENSUS = {
       "apps/desktop/src/core/shell/bridge.ts": "1 mention, 0 ipc calls",
       "apps/desktop/src/core/shell/console.ts": "1 mention, 0 ipc calls",
-      "apps/desktop/src/main/capture.ts": "11 mentions, 0 ipc calls",
+      // 13, not 11: `#died()` — the capture-window-crashed handler this app's
+      // zombie-recording fix added — calls `ipcMain.removeAllListeners` twice
+      // on its way out, mirroring the same two calls `stop()` already made.
+      // Neither is a registration; the census does not distinguish, by design.
+      "apps/desktop/src/main/capture.ts": "13 mentions, 0 ipc calls",
       "apps/desktop/src/main/consoleBridge.ts": "3 mentions, 5 ipc calls",
       "apps/desktop/src/main/index.ts": "14 mentions, 0 ipc calls",
       "packages/desktop-bridge/src/contract.ts": "1 mention, 0 ipc calls",
@@ -894,6 +898,12 @@ export async function runConsoleBridgeChecks(check) {
     // is DESCRIBED differently, which is cheaper than silence when it IS
     // different.
     //
+    // 33 and not 31: `main/capture.ts` gained two, both `ipcMain.removeAllListeners`
+    // calls in `#died()` — the capture-window-crashed handler — mirroring the
+    // pair `stop()` already made. Named rather than silently re-baselined,
+    // per this file's own rule two paragraphs up: a number that moved because
+    // the surface changed is the guard doing its job.
+    //
     // "IN THE WALK" and not "IN THE MAIN BUNDLE", because the walk is a
     // directory list and the bundle is what esbuild resolves. They do NOT
     // agree even on this tree — 28 in the walk against 27 over the main
@@ -902,8 +912,8 @@ export async function runConsoleBridgeChecks(check) {
     // earlier note here said they agree; it was asserted rather than measured,
     // which is the whole reason the check is named for the walk.
     check(
-      `EVERY MENTION OF ipcMain IN THE WALK IS ACCOUNTED FOR — ${mentions} of 31`,
-      mentions === 31,
+      `EVERY MENTION OF ipcMain IN THE WALK IS ACCOUNTED FOR — ${mentions} of 33`,
+      mentions === 33,
     );
     /*
       Named for what it counts, after a review found the old name false twice

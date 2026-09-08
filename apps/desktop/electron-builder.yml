@@ -21,8 +21,16 @@
 # `NSMicrophoneUsageDescription` and `NSAudioCaptureUsageDescription` are the
 # sentences macOS shows in the permission dialog, and they are the only thing a
 # person reads before deciding whether this app may hear their meeting. They say
-# what is captured and what happens to it. `NSCalendarsUsageDescription` is the
-# same for the detector, which reads events to name a meeting and correlate one.
+# what is captured and what happens to it. `NSCalendarsUsageDescription` and
+# `NSCalendarsFullAccessUsageDescription` are the same for the detector, which
+# reads events to name a meeting and correlate one — both keys, because macOS 14
+# reads the second and an older system reads the first, and an app that
+# declares only the first is granted write-only access on the newer ones
+# (`docs/decisions/desktop-updates.md`, "The one-way door", has the measurement).
+# `NSAppleEventsUsageDescription` is the same again for every collector that
+# drives another application over Apple Events rather than an OS API directly:
+# System Events for window titles, the browser for the active tab, Calendar.app
+# for events.
 #
 # ## The zip target is not cosmetic
 #
@@ -136,6 +144,31 @@ mac:
     NSCalendarsUsageDescription: >-
       Context reads your calendar to notice when a meeting starts and to name it.
       Event details are used on this Mac and are never sent anywhere.
+    # macOS 14 split Calendars into full (read+write) and write-only access, and
+    # an app that declares only the legacy key above is granted write-only —
+    # which macOS shows as a working "Calendars" toggle while the detector's
+    # own read of `cal.calendars()` gets nothing back. Measured on the owner's
+    # Mac, on the shipped bundle identifier, before this key existed: the
+    # Calendar row sat at that write-only value, silently. See
+    # `docs/decisions/desktop-updates.md`, "The one-way door", for what that
+    # cost and what it does not fix on its own — a person who already granted
+    # write-only access has to re-grant in System Settings for this to change
+    # anything for them; it is not retroactive.
+    NSCalendarsFullAccessUsageDescription: >-
+      Context reads your calendar to notice when a meeting starts and to name it.
+      Event details are used on this Mac and are never sent anywhere.
+    # Every collector that is not `processes()` or `microphoneInUse()` drives
+    # another application over Apple Events: `windows()` asks System Events for
+    # window titles and asks the browser for the active tab's URL,
+    # `calendarEvents()` asks Calendar.app. Without this string macOS still
+    # shows a permission dialog the first time one of those is attempted — see
+    # `docs/decisions/desktop-updates.md` for the measurement — but with no
+    # sentence explaining why an app called Context wants to control Calendar.
+    NSAppleEventsUsageDescription: >-
+      Context asks System Events for the active window's title and your browser
+      for the current tab, and asks Calendar for nearby events — only to notice
+      when a meeting starts and to name it. Nothing it reads this way is sent
+      anywhere; it stays on this Mac.
 
 # The hook is `afterSign` rather than `afterAllArtifactBuild` because
 # notarisation happens on the signed `.app`, before it is put in a dmg. It

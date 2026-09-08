@@ -12,7 +12,7 @@
  * the control and this file goes red, or the control is not guarded.
  */
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import {
   asUser,
@@ -42,6 +42,13 @@ async function scenario() {
   return { t, owner, workspaceId };
 }
 
+/**
+ * The secret a real starting browser keeps. Any constant will do — what the
+ * tests are about is that completion must present the one the attempt was
+ * parked with.
+ */
+const COMPLETION = "completion-secret-0123456789";
+
 /** An attempt row, parked as `startDropboxConnect` would park it. */
 async function parkedAttempt(
   t: Awaited<ReturnType<typeof scenario>>["t"],
@@ -57,6 +64,7 @@ async function parkedAttempt(
       workspaceId,
       startedBy,
       hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(COMPLETION),
       encryptedVerifier: await encryptSecret("verifier-abc", keyset, {
         workspaceId: workspaceId as string,
       }),
@@ -214,6 +222,167 @@ describe("which redirect URIs this deployment answers on", () => {
   });
 });
 
+describe("the secret that is minted is the secret that is parked", () => {
+  /**
+   * **THE LINK BETWEEN THE TWO HALVES, which nothing else checks.**
+   *
+   * A review measured it: make `parkAttempt` store no hash at all, or have
+   * `startDropboxConnect` park the hash of a *different* token than the one it
+   * returns, and the whole convex suite stayed green. Both are fail-closed —
+   * every real connect breaks — but "the flow stops working for its owner" is
+   * the failure this repository has already been burned by once, and a guard
+   * nobody has checked is not a guard.
+   *
+   * Nothing reached this path before because `requireAppKey()` throws without
+   * `DROPBOX_APP_KEY`, so `startDropboxConnect` could never get as far as
+   * parking anything. One env var buys the round trip.
+   */
+  test("A CONNECT STARTED FOR REAL COMPLETES WITH THE SECRET IT WAS HANDED", async () => {
+    vi.stubEnv("DROPBOX_APP_KEY", "test-app-key");
+    try {
+      const { t, owner, workspaceId } = await scenario();
+      const { authorizeUrl, completionSecret } = await asUser(t, owner).action(
+        api.functions.dropboxConnect.startDropboxConnect,
+        { workspaceId, redirectUri: `${APP}/storage/dropbox/callback` },
+      );
+
+      // The state is in the URL — it travels through Dropbox. The secret is
+      // not, and that is the whole property.
+      const state = new URL(authorizeUrl).searchParams.get("state");
+      expect(state).toBeTruthy();
+      expect(authorizeUrl).not.toContain(completionSecret);
+
+      const consumed = await t.mutation(
+        internal.functions.dropboxConnect.consumeAttemptAndExchange,
+        {
+          hashedState: await hashToken(state as string),
+          code: "code-1",
+          hashedCompletion: await hashToken(completionSecret),
+        },
+      );
+      expect(consumed?.workspaceId).toBe(workspaceId);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("...and a different secret does not, however real the start was", async () => {
+    vi.stubEnv("DROPBOX_APP_KEY", "test-app-key");
+    try {
+      const { t, owner, workspaceId } = await scenario();
+      const { authorizeUrl } = await asUser(t, owner).action(
+        api.functions.dropboxConnect.startDropboxConnect,
+        { workspaceId, redirectUri: `${APP}/storage/dropbox/callback` },
+      );
+      const state = new URL(authorizeUrl).searchParams.get("state") as string;
+
+      const consumed = await t.mutation(
+        internal.functions.dropboxConnect.consumeAttemptAndExchange,
+        {
+          hashedState: await hashToken(state),
+          code: "code-1",
+          hashedCompletion: await hashToken("not-the-one-it-handed-out"),
+        },
+      );
+      expect(consumed).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe("the browser that started the connect is the one that may finish it", () => {
+  /**
+   * **The attack this closes, stated plainly so nobody removes the check
+   * again.** `#76` dropped the `startedBy` comparison for a real reason — a
+   * session gate on the callback burned Dropbox's single-use code on the first
+   * live run — and reasoned that what remained was safe because "the attack the
+   * check appeared to stop was never stopped by it; it is stopped by the
+   * redirect pin".
+   *
+   * The redirect pin does not stop it, and the direction matters. The pin stops
+   * an attacker sending somebody else's code to a server the attacker controls.
+   * It says nothing about an attacker who uses the **legitimate** redirect:
+   *
+   *   1. the attacker owns their own brain, and starts a connect for it —
+   *      every check in `startDropboxConnect` passes, because the attacker
+   *      really is the owner of the workspace they named;
+   *   2. they send the resulting authorize URL to somebody else;
+   *   3. that person consents on Dropbox's own screen, which correctly names
+   *      Context, so it looks exactly like connecting their own storage;
+   *   4. the callback lands on our real console and completes.
+   *
+   * The binding is then the victim's Dropbox as the attacker's workspace
+   * storage. PKCE cannot see this: the attacker is the *initiator*, so the
+   * verifier is genuinely theirs and matches. This is RFC 6749 §10.12 — `state`
+   * has to be bound to the browser that started the flow, and a `state` that is
+   * only an unguessable server-side lookup key is not that.
+   *
+   * So the flow now carries a second value that never travels through Dropbox:
+   * minted at start, returned to the starting browser alone, stored there, and
+   * required back at completion. **No session is involved**, which is what
+   * keeps `#76`'s fix intact.
+   */
+  test("A COMPLETION WITHOUT THE STARTING BROWSER'S SECRET IS REFUSED", async () => {
+    const { t, owner, workspaceId } = await scenario();
+    const state = await parkedAttempt(t, workspaceId, owner);
+
+    const consumed = await t.mutation(
+      internal.functions.dropboxConnect.consumeAttemptAndExchange,
+      { hashedState: await hashToken(state), code: "code-1", hashedCompletion: await hashToken("a-guess") },
+    );
+    expect(consumed).toBeNull();
+  });
+
+  test("...and the secret the starter kept does complete it", async () => {
+    const { t, owner, workspaceId } = await scenario();
+    const state = await parkedAttempt(t, workspaceId, owner);
+
+    const consumed = await t.mutation(
+      internal.functions.dropboxConnect.consumeAttemptAndExchange,
+      {
+        hashedState: await hashToken(state),
+        code: "code-1",
+        hashedCompletion: await hashToken(COMPLETION),
+      },
+    );
+    expect(consumed?.workspaceId).toBe(workspaceId);
+  });
+
+  /**
+   * An attempt parked before this shipped carries no `hashedCompletion`, and is
+   * refused rather than waved through. The cost is bounded by the ten-minute
+   * TTL — a connect started just before a deploy is retried — and the
+   * alternative is leaving the door open for exactly as long.
+   */
+  test("an attempt parked without one is refused rather than trusted", async () => {
+    const { t, owner, workspaceId } = await scenario();
+    const state = await parkedAttempt(t, workspaceId, owner, {
+      hashedCompletion: undefined,
+    });
+
+    const consumed = await t.mutation(
+      internal.functions.dropboxConnect.consumeAttemptAndExchange,
+      { hashedState: await hashToken(state), code: "code-1", hashedCompletion: await hashToken("anything") },
+    );
+    expect(consumed).toBeNull();
+  });
+
+  /** Spent either way: a wrong secret does not leave the attempt for a retry. */
+  test("a refused completion still spends the attempt", async () => {
+    const { t, owner, workspaceId } = await scenario();
+    const state = await parkedAttempt(t, workspaceId, owner);
+
+    await t.mutation(internal.functions.dropboxConnect.consumeAttemptAndExchange, {
+      hashedState: await hashToken(state),
+      code: "code-1",
+      hashedCompletion: await hashToken("a-guess"),
+    });
+    const rows = await t.run(async (ctx) => ctx.db.query("dropboxConnectAttempts").collect());
+    expect(rows).toHaveLength(0);
+  });
+});
+
 describe("who may answer a connect", () => {
   /**
    * `#76` removed the `startedBy` check on the callback, deliberately, and the
@@ -223,12 +392,20 @@ describe("who may answer a connect", () => {
    * not access. The check cost the flow one more way to fail for its owner, and
    * on the first real run it was the only thing that did.
    *
-   * What makes that safe is what this block pins instead: the binding goes to
-   * the workspace the ATTEMPT names, with the starter as `boundBy`, and a
-   * caller supplies neither. The attack the check appeared to stop — an
-   * attacker's workspace binding to the victim's Dropbox — was never stopped by
-   * it (the attacker really did start their own attempt); it is stopped by the
-   * redirect pin above.
+   * What this block pins is still true: the binding goes to the workspace the
+   * ATTEMPT names, with the starter as `boundBy`, and a caller supplies
+   * neither.
+   *
+   * **The sentence that used to follow it was false, and it is worth leaving
+   * its correction here rather than deleting it.** It said the attack the
+   * `startedBy` check appeared to stop — an attacker's workspace binding to
+   * the victim's Dropbox — "is stopped by the redirect pin above". It is not.
+   * The redirect pin stops an attacker sending somebody else's code to a
+   * server they control; it says nothing about an attacker who uses the
+   * **legitimate** redirect, which is what that attack does. Removing
+   * `startedBy` really was right — a session wall here burns a single-use code
+   * — but nothing replaced what it had been standing next to until
+   * `completionSecret` did. See the block below.
    */
   test("the workspace and the actor come from the attempt, never from the caller", async () => {
     const { t, owner, workspaceId } = await scenario();
@@ -236,7 +413,7 @@ describe("who may answer a connect", () => {
 
     const consumed = await t.mutation(
       internal.functions.dropboxConnect.consumeAttemptAndExchange,
-      { hashedState: await hashToken(state), code: "code-1" },
+      { hashedState: await hashToken(state), code: "code-1", hashedCompletion: await hashToken(COMPLETION) },
     );
     expect(consumed?.workspaceId).toBe(workspaceId);
   });
@@ -256,6 +433,7 @@ describe("who may answer a connect", () => {
     await t.mutation(internal.functions.dropboxConnect.consumeAttemptAndExchange, {
       hashedState,
       code: "code-1",
+      hashedCompletion: await hashToken(COMPLETION),
     });
     const remaining = await t.run(async (ctx) =>
       ctx.db.query("dropboxConnectAttempts").collect(),
@@ -264,7 +442,7 @@ describe("who may answer a connect", () => {
 
     const replay = await t.mutation(
       internal.functions.dropboxConnect.consumeAttemptAndExchange,
-      { hashedState, code: "code-1" },
+      { hashedState, code: "code-1", hashedCompletion: await hashToken(COMPLETION) },
     );
     expect(replay).toBe(null);
   });
@@ -277,7 +455,7 @@ describe("who may answer a connect", () => {
     });
     const consumed = await t.mutation(
       internal.functions.dropboxConnect.consumeAttemptAndExchange,
-      { hashedState: await hashToken(state), code: "code-1" },
+      { hashedState: await hashToken(state), code: "code-1", hashedCompletion: await hashToken(COMPLETION) },
     );
     expect(consumed).toBe(null);
   });
@@ -295,6 +473,7 @@ describe("who may answer a connect", () => {
       await t.mutation(internal.functions.dropboxConnect.consumeAttemptAndExchange, {
         hashedState: await hashToken("never-issued-at-all"),
         code: "c",
+        hashedCompletion: await hashToken(COMPLETION),
       }),
     );
     const spent = await parkedAttempt(t, workspaceId, owner);
@@ -302,11 +481,23 @@ describe("who may answer a connect", () => {
     await t.mutation(internal.functions.dropboxConnect.consumeAttemptAndExchange, {
       hashedState: spentHash,
       code: "c",
+      hashedCompletion: await hashToken(COMPLETION),
     });
     answers.push(
       await t.mutation(internal.functions.dropboxConnect.consumeAttemptAndExchange, {
         hashedState: spentHash,
         code: "c",
+        hashedCompletion: await hashToken(COMPLETION),
+      }),
+    );
+    // The fourth, added when a fifth failure joined the set: a completion
+    // whose secret is wrong must not be the one answer that reads differently.
+    const wrongSecret = await parkedAttempt(t, workspaceId, owner);
+    answers.push(
+      await t.mutation(internal.functions.dropboxConnect.consumeAttemptAndExchange, {
+        hashedState: await hashToken(wrongSecret),
+        code: "c",
+        hashedCompletion: await hashToken("not-the-one-this-browser-kept"),
       }),
     );
     const expired = await parkedAttempt(t, workspaceId, owner, { expiresAt: Date.now() - 1 });
@@ -314,9 +505,10 @@ describe("who may answer a connect", () => {
       await t.mutation(internal.functions.dropboxConnect.consumeAttemptAndExchange, {
         hashedState: await hashToken(expired),
         code: "c",
+        hashedCompletion: await hashToken(COMPLETION),
       }),
     );
-    expect(answers).toEqual([null, null, null]);
+    expect(answers).toEqual([null, null, null, null]);
   });
 });
 

@@ -60,6 +60,11 @@ async function sharedScenario() {
 }
 
 /** An attempt row, parked as `startGmailConnect` would park it. */
+/**
+ * The secret a real starting browser keeps, and hands back at completion.
+ */
+const COMPLETION = "completion-secret-0123456789";
+
 async function parkedAttempt(
   t: TestConvex,
   workspaceId: Id<"workspaces">,
@@ -74,6 +79,7 @@ async function parkedAttempt(
       workspaceId,
       startedBy,
       hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(COMPLETION),
       encryptedVerifier: await encryptSecret("verifier-abc", keyset, {
         workspaceId: workspaceId as string,
       }),
@@ -110,6 +116,7 @@ describe("the flag", () => {
       t.action(api.functions.googleConnect.completeGmailConnect, {
         state: "whatever",
         code: "whatever",
+        completionSecret: "whatever",
       }),
     );
     expect(errorCode(error)).toBe("MAIL_CONNECT_DISABLED");
@@ -396,6 +403,7 @@ describe("who may answer a callback", () => {
     const state = await parkedAttempt(t, workspaceId, owner);
     const consumed = await t.mutation(internal.functions.googleConnect.consumeAttemptAndExchange, {
       hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(COMPLETION),
       code: "code-1",
     });
     expect(consumed?.workspaceId).toBe(workspaceId);
@@ -409,6 +417,7 @@ describe("who may answer a callback", () => {
 
     await t.mutation(internal.functions.googleConnect.consumeAttemptAndExchange, {
       hashedState,
+      hashedCompletion: await hashToken(COMPLETION),
       code: "code-1",
     });
     const remaining = await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect());
@@ -416,6 +425,7 @@ describe("who may answer a callback", () => {
 
     const replay = await t.mutation(internal.functions.googleConnect.consumeAttemptAndExchange, {
       hashedState,
+      hashedCompletion: await hashToken(COMPLETION),
       code: "code-1",
     });
     expect(replay).toBe(null);
@@ -427,6 +437,7 @@ describe("who may answer a callback", () => {
     const state = await parkedAttempt(t, workspaceId, owner, { expiresAt: Date.now() - 1 });
     const consumed = await t.mutation(internal.functions.googleConnect.consumeAttemptAndExchange, {
       hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(COMPLETION),
       code: "code-1",
     });
     expect(consumed).toBe(null);
@@ -439,6 +450,7 @@ describe("who may answer a callback", () => {
     answers.push(
       await t.mutation(internal.functions.googleConnect.consumeAttemptAndExchange, {
         hashedState: await hashToken("never-issued-at-all"),
+        hashedCompletion: await hashToken(COMPLETION),
         code: "c",
       }),
     );
@@ -446,11 +458,13 @@ describe("who may answer a callback", () => {
     const spentHash = await hashToken(spent);
     await t.mutation(internal.functions.googleConnect.consumeAttemptAndExchange, {
       hashedState: spentHash,
+      hashedCompletion: await hashToken(COMPLETION),
       code: "c",
     });
     answers.push(
       await t.mutation(internal.functions.googleConnect.consumeAttemptAndExchange, {
         hashedState: spentHash,
+        hashedCompletion: await hashToken(COMPLETION),
         code: "c",
       }),
     );
@@ -458,6 +472,7 @@ describe("who may answer a callback", () => {
     answers.push(
       await t.mutation(internal.functions.googleConnect.consumeAttemptAndExchange, {
         hashedState: await hashToken(expired),
+        hashedCompletion: await hashToken(COMPLETION),
         code: "c",
       }),
     );
@@ -999,5 +1014,74 @@ describe("isolation: one context's mailbox slugs are invisible to another", () =
     });
     expect(bobsSlugs).toHaveLength(0);
     expect(bobsSlugs).not.toContain("alice-at-example-invalid");
+  });
+});
+
+describe("the browser that started a Google connect is the one that may finish it", () => {
+  /**
+   * The same property `dropboxConnect.ts` now carries, and this file inherited
+   * the gap by citing that file's older argument — *"No session required — see
+   * `completeDropboxConnect` for the full argument… it applies here unchanged,
+   * PKCE pair and all."*
+   *
+   * It did apply unchanged, and that was the problem. `state` travels in the
+   * authorize URL and comes back in the callback, so whoever built the URL
+   * knows it — including somebody who built it for a workspace they really do
+   * own and then sent it to another person to consent. PKCE cannot see that
+   * case: the attacker is the *initiator*, so the verifier is genuinely theirs
+   * and matches. What binds the flow to the browser that started it is a value
+   * that never travels through Google, and RFC 6749 §10.12 is the reason it
+   * has to exist.
+   *
+   * **Still no session**, which is the half of the cited argument that was
+   * always right: a sign-in wall on a callback outlives a single-use code.
+   */
+  test("A COMPLETION WITHOUT THE STARTING BROWSER'S SECRET IS REFUSED", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const state = await parkedAttempt(t, workspaceId, owner);
+
+    const consumed = await t.mutation(internal.functions.googleConnect.consumeAttemptAndExchange, {
+      hashedState: await hashToken(state),
+      hashedCompletion: await hashToken("a-guess"),
+      code: "code-1",
+    });
+    expect(consumed).toBeNull();
+  });
+
+  test("...and the secret the starter kept does complete it", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const state = await parkedAttempt(t, workspaceId, owner);
+
+    const consumed = await t.mutation(internal.functions.googleConnect.consumeAttemptAndExchange, {
+      hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(COMPLETION),
+      code: "code-1",
+    });
+    expect(consumed?.workspaceId).toBe(workspaceId);
+  });
+
+  test("an attempt parked without one is refused rather than trusted", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const state = await parkedAttempt(t, workspaceId, owner, { hashedCompletion: undefined });
+
+    const consumed = await t.mutation(internal.functions.googleConnect.consumeAttemptAndExchange, {
+      hashedState: await hashToken(state),
+      hashedCompletion: await hashToken("anything"),
+      code: "code-1",
+    });
+    expect(consumed).toBeNull();
+  });
+
+  test("a refused completion still spends the attempt", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const state = await parkedAttempt(t, workspaceId, owner);
+
+    await t.mutation(internal.functions.googleConnect.consumeAttemptAndExchange, {
+      hashedState: await hashToken(state),
+      hashedCompletion: await hashToken("a-guess"),
+      code: "code-1",
+    });
+    const rows = await t.run(async (ctx) => ctx.db.query("googleConnectAttempts").collect());
+    expect(rows).toHaveLength(0);
   });
 });

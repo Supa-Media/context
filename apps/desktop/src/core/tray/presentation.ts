@@ -13,12 +13,20 @@
  * The elapsed timer is beside it so a recording that was forgotten announces
  * how long it has been running.
  *
- * The five states are the ones the brief names, and they are not the meeting's
- * states: `MeetingState` describes a session, and this describes an app that
- * may not have one.
+ * The six states are the five the brief names plus `failed`, and they are not
+ * the meeting's states: `MeetingState` describes a session, and this describes
+ * an app that may not have one.
+ *
+ * **`failed` is the one case with the indicator deliberately off.** A
+ * recording that has failed is, by construction, a recording that is no
+ * longer capturing anything — `MeetingController.fail()` releases the device
+ * before this state is ever reported — so `indicator: true` here would be
+ * exactly the lie this file's own opening rule refuses: claiming a microphone
+ * is open when it is not is worse than not saying so, in the other direction
+ * from the bug this state exists to close.
  */
 
-export type TrayState = "idle" | "armed" | "detected" | "recording" | "finalizing";
+export type TrayState = "idle" | "armed" | "detected" | "recording" | "finalizing" | "failed";
 
 export interface TrayPresentation {
   state: TrayState;
@@ -33,7 +41,12 @@ export interface TrayPresentation {
 
 export interface TrayInput {
   state: TrayState;
-  /** Wall clock since the recording started. */
+  /**
+   * What `MeetingController.elapsedMs()` answers — audio actually captured,
+   * frozen the instant capture stops. Never wall clock since the recording
+   * started; see that method's own header for why that used to be the same
+   * thing and no longer is.
+   */
   elapsedMs?: number;
   /** The meeting's name, when there is one. */
   title?: string | null;
@@ -99,6 +112,14 @@ export function trayPresentation(input: TrayInput): TrayPresentation {
         tooltip: `Writing up ${input.title ?? "this meeting"}${queued}`,
         icon: "recording",
         indicator: true,
+      };
+    case "failed":
+      return {
+        state: "failed",
+        title: formatElapsed(input.elapsedMs ?? 0),
+        tooltip: `Stopped recording ${input.title ?? "this meeting"} — ${formatElapsed(input.elapsedMs ?? 0)} kept, open Context to retry${queued}`,
+        icon: "idle",
+        indicator: false,
       };
   }
 }
