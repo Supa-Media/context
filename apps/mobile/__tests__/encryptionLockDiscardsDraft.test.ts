@@ -92,8 +92,6 @@ jest.mock("convex/react", () => {
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { ConvexError } from "convex/values";
-import { getFunctionName } from "convex/server";
-import { api } from "@context/convex/_generated/api";
 import { BrowsePane } from "../features/console/panes/BrowsePane";
 import type { ConsoleData } from "../features/console/types";
 import type { FileBrowser } from "../features/console/files/browser";
