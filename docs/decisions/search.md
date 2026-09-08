@@ -1067,10 +1067,133 @@ The format itself — the doc-entry fields, the placement rule, the
 regeneration rule, the no-message fallback and the deep link the read tools
 accept — is pinned in `apps/mcp/src/search/CONTRACT.md`, "Channel-day notes:
 one sub-document per message", the way every other shape in this file is
-pinned there rather than argued twice. **The sizing is not part of that
-format and does not yet fit a mailbox**: `chooseShardCount` counts the notes
-a listing found, and a heavy mailbox's sub-documents therefore all land in
-the shard its one note hashes to. Measured at 90 days x 200 messages, that
-shard passes `SHARD_PARSE_BYTE_CAP` and is refused on every pass, so the
-whole context — ordinary notes included — has no index at all. The numbers
-and what they gate are in `docs/decisions/communications.md`.
+pinned there rather than argued twice. **The sizing was not part of that
+format and did not fit a mailbox**: `chooseShardCount` counted the notes a
+listing found, and a heavy mailbox's sub-documents therefore all landed in the
+shard its one note hashed to. That is the defect the next section is about.
+
+### The index is sized by the volume it has to hold, and an oversized part sheds rather than taking the rest with it
+
+`chooseShardCount` sized the index from the **note** count in the listing. One
+listed object contributing one document per message broke that in a way
+counting objects cannot see, and the failure was total rather than local:
+measured on a 90-day mailbox at 200 messages a day beside 200 ordinary notes —
+290 notes, 18,200 sub-documents, 27.2 MB of Markdown — the whole context lost
+search.
+
+| | before | after |
+| --- | --- | --- |
+| documents in the index | **0** (18,200 built) | 18,200 |
+| shards | 1 | 56 |
+| shard objects written | **0** (0.00 MB) | 56 (80.84 MB, biggest 1.76 MB) |
+| passes | 40, still `pending: 290` | 1, converged |
+| a search for a term in the mail | `indexed: false` | 1 hit |
+| a search for a term in the **ordinary notes** | `indexed: false` | 10 hits |
+
+Re-measure it with `node apps/mcp/test/bench/shardSizing.mjs`; the mechanism is
+pinned at suite speed in `commsSearchIndex.test.mjs` (`runShardSizingChecks`)
+with `shardByteCap` standing in for the corpus, and that injection scales the
+sizing target and the placement ceiling with the write cap so a small shard
+drives the whole rule rather than half of it.
+
+**The threshold before the fix was four messages a day.** At 90 days the single
+shard held 560 sub-documents in 1.67 MB at 4 a day and passed the 2 MB cap at
+5. (Review's own number for the same shape was 10 fine / 20 dead; the fixture
+here is stricter and it is worth saying why, because it is the same reason the
+sizing has to count bytes: a shard's serialized body is mostly its **postings**,
+one per distinct term per document, so a corpus written in seven repeated words
+measures four times smaller than one written in real prose. The bench draws
+~200 tokens a message from a 20,000-word vocabulary.)
+
+Three parts, and each answers something the one before it cannot:
+
+- **The count follows the volume.** `indexVolumeOf(path, size)` reads the
+  listing's own `size` — R2, S3 and Dropbox all report one, so this costs no
+  store op — and answers what that note can take up in the index: at most one
+  `NOTE_INDEX_CHAR_CAP` window for an ordinary note however large the file is,
+  and `1.25 x` its bytes for a bundled one, whose documents are a set. The
+  target is `NOTES_PER_SHARD * NOTE_INDEX_CHAR_CAP`, which is the note rule's
+  own number written the other way round, so **over ordinary notes the volume
+  term can never win and no existing index is re-sharded by this.** The 1.25 is
+  measured, not chosen: the mailbox above serializes to 2.97 bytes of index per
+  byte of note against ~2.4 per indexed character for ordinary notes.
+- **The count may grow after the manifest is created**, which it never could
+  before. Growth is in place and moves nothing: the sync already routes a doc
+  to the shard the manifest *claims* for it before consulting the hash, so a
+  brain converged for a year that then connects a mailbox goes from one shard
+  to fifty without re-fetching a note and without its search going dark. Down
+  is still "delete the manifest", for the reason it always was — down is the
+  direction that re-routes docs already placed.
+- **Growth made the manifest and the docmap able to disagree, which they never
+  could before**, and self-review found it rather than a test. The manifest is
+  written first and the docmap only if an op is left for it, so a pass that
+  grew the count can store a manifest naming N+k shards over a docmap naming N.
+  `parseDocmap` refused that mismatch — correct while the count was fixed, and
+  badly wrong once it moves: refusing empties the diff, so every note looks
+  stale, every shard is rebuilt from empty, and an index that was answering
+  goes dark for as many passes as the backfill needs. A **shorter** docmap is
+  now padded with empty maps instead, which is exactly right rather than merely
+  cheap — growth moves nothing, so its claims are all still true and the shards
+  it does not name are the new ones, which hold nothing. A **longer** one is
+  still refused; that is a shrunk manifest or a rolled-back deployment.
+- **A bundled note is placed by load, not by hash.** Sizing spreads a corpus
+  evenly *on average*; hashing places it with the variance of a hash, and a
+  channel-day note is indivisible, so three heavy days landing in one shard is
+  past the cap however well the index was sized. Counting volume and then
+  throwing dice with it would have fixed the arithmetic and kept the failure.
+  So a bundled note goes to the least loaded shard that can still take it, and
+  where none can, the index grows by one so that there is one. Ordinary notes
+  are hashed exactly as before.
+
+**And a shard that still will not fit sheds rather than refusing its write,
+because the alternative was one note's size costing every note beside it.**
+Refusing an over-cap shard is right in isolation — storing an object this
+module refuses to read is a rebuild loop — but the shard is shared, so the
+reported failure was `pending`, which reads as "still catching up" rather than
+"this will never fit", over a context whose ordinary notes had done nothing
+wrong. The note contributing most to the body now gives up documents until the
+body fits, largest note first. What that costs is stated rather than hidden:
+
+- A shed note is **reduced, never dropped**. It keeps one document, blanked if
+  that is all that is left, so `docsByShard` still records the version it was
+  indexed at and the diff converges — removing it would make it stale on every
+  later listing and re-fetched forever, which is the non-convergence
+  `subDocumentsFor`'s own never-empty fallback exists to avoid, on the
+  customer's budget.
+- **So one note quietly answers less.** That is worse than nothing and much
+  better than every note in the shard answering nothing, permanently, while
+  `pending` invited more passes that could never land.
+- **The loss is recorded rather than inferred.** The surviving docs carry
+  `shed`, `stats[id].shed` carries the count per shard, the sync answers
+  `shed: string[]` and `oversizedShards`, and the search trace carries the
+  total. It is `pending`'s opposite and must never be folded into it: `pending`
+  asks for another pass, this says another pass finds the same wall. Like every
+  other whole-index count here it is **operator-facing only** — a total over a
+  bucket including its private notes is exactly the subtraction the census is
+  owner-only to prevent.
+
+**The capacity this leaves, measured, and it is a real ceiling rather than a
+theoretical one.** `MAX_SHARD_COUNT x SHARD_PARSE_BYTE_CAP` is 128 MB of index,
+which at the ~4.4 KB of index a message costs is around 26,000 messages; and
+because a note is atomic, the *packing* bites first — a shard takes
+`floor(SHARD_VOLUME_CAP / noteVolume)` days, so a day just over half a shard
+wastes the other half. At 90 days the measured cliff is between **230 messages
+a day** (20,900 messages, 31.2 MB of mail, 64 shards, biggest 1.99 MB against
+the 2 MB cap, nothing shed) and **240** (26 of the 90 days shed to one document
+each). Past it nothing else breaks: at 365 days x 200 — 110 MB of mail, three
+times what the index can hold — all 64 shards are still written, the ordinary
+notes still answer, and 237 of the 365 days are reduced.
+
+Two things about that ceiling are worth writing down rather than discovering
+later. **`MAX_SHARD_COUNT` is not free to raise**: a routing filter is up to
+`FILTER_MAX_BYTES` per shard, and 64 of them already spend ~1.6 MB of the
+manifest's own 4 MB cap, so the manifest runs out at roughly 120. And **which
+days survive is arbitrary** — a function of their byte sizes, not their dates —
+so a mailbox past capacity loses recall on days nobody chose. Neither is fixed
+here. The fix for both is the same one and it is a change with its own
+argument: **let one bundled note's sub-documents span shards**, which is the
+atomicity assumption everything above is built on, and which the docmap's
+one-shard-per-note diff would have to learn first.
+
+The numbers as they gate connecting a mailbox are in
+`docs/decisions/communications.md`.

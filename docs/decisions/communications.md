@@ -448,39 +448,57 @@ proofs above with each visibility guard driven alone, encrypted notes teaching
 the index no plaintext term, and a regeneration replacing exactly one note's
 sub-documents.
 
-**And the shard guardrail is now measured, which is the thing that gates
-connecting a mailbox.** Against a synthetic 90-day mailbox at 200 messages a
-day (18,000 messages, 25.5 MB of Markdown, beside 200 ordinary notes), on the
-gateway's own sync at a subrequest budget of 600:
+**And the shard guardrail is now measured, which is the thing that gated
+connecting a mailbox.** It was measured failing, and then fixed. Against a
+synthetic 90-day mailbox at 200 messages a day (18,000 messages, 27.2 MB of
+Markdown, beside 200 ordinary notes), on the gateway's own sync at a
+subrequest budget of 600:
 
-| | per-note index (today) | per-message sub-documents |
+| | sized by note count | sized by volume |
 | --- | --- | --- |
-| documents | 290 | 18,200 |
-| shards | 1 | 1 |
-| shard objects written | 1 (0.36 MB) | **0** |
-| passes to converge | 1 | 31, then still `pending: 290` |
-| a search | 1 hit, 16ms | `indexed: false` |
+| documents in the index | **0** (18,200 built) | 18,200 |
+| shards | 1 | 56 |
+| shard objects written | **0** (0.00 MB) | 56 (80.84 MB, biggest 1.76 MB) |
+| passes | 40, still `pending: 290` | 1, converged |
+| a search for a term in the mail | `indexed: false` | 1 hit |
+| a search in the 200 **ordinary notes** | `indexed: false` | 10 hits |
 
-**Nothing lands at all, and the loss is the whole context's rather than the
-mailbox's.** `chooseShardCount` sizes the index from the **note** count in the
-listing — 290 notes is one shard — so a day's messages cannot be spread across
-shards, the single shard's serialized body passes `SHARD_PARSE_BYTE_CAP`, and
-the write is correctly refused on every pass. That is the plateau
-`docs/decisions/search.md` describes ("each pass rebuilt the same oversized
-shard and had its write refused"), reached here by a mailbox rather than by a
-brain of thousands of notes, and it takes the 200 ordinary notes in that
-bucket down with it. The threshold is low: at 90 days the shard is 1.13 MB at
-**10** messages a day and 2.14 MB — over the cap — at **20**.
+**The left column is the defect: nothing landed at all, and the loss was the
+whole context's rather than the mailbox's.** `chooseShardCount` sized the index
+from the **note** count in the listing — 290 notes is one shard — so a day's
+messages could not be spread across shards, the single shard's serialized body
+passed `SHARD_PARSE_BYTE_CAP`, and the write was correctly refused on every
+pass. That is the plateau `docs/decisions/search.md` describes ("each pass
+rebuilt the same oversized shard and had its write refused"), reached here by a
+mailbox rather than by a brain of thousands of notes, and it took the 200
+ordinary notes in that bucket down with it. The threshold was **four messages a
+day**: 1.67 MB of shard at four, past the 2 MB cap at five.
 
-So the position is unchanged and now has numbers behind it: this format is
-correct, and **switching a real mailbox on needs the sizing to count
-sub-documents rather than notes** (or a per-note shard split, or a smaller
-per-message cap). That is a decision with its own argument and is not made
-here; what is made here is that nothing writes a channel-day note today, so
-the format can land and be exercised while that is settled.
-`runShardBudgetChecks` in `commsSearchIndex.test.mjs` pins the mechanism at
-suite speed with a small `shardByteCap`, so the plateau cannot be
-rediscovered by a customer.
+**The right column is the fix**, argued in `docs/decisions/search.md`, "The
+index is sized by the volume it has to hold". The count follows the volume the
+listing implies rather than the objects it found, it may grow after the
+manifest exists without moving a doc already placed, a bundled note is placed
+in the least loaded shard rather than by hash, and a shard that still will not
+fit sheds the note that made it that big instead of refusing its whole write.
+
+**What that leaves, for the person deciding whether to connect a mailbox.** At
+90 days the corpus indexes in full up to **230 messages a day** — 20,900
+messages, 31.2 MB of Markdown, 64 shards, the biggest 1.99 MB against the 2 MB
+cap. At 240 a day it needs a 65th shard it cannot have, and 26 of the 90 days
+are reduced to one document each. Past that nothing else breaks and nothing
+else is lost: measured at 365 days x 200 (73,000 messages, 110 MB — three times
+what the index holds), every shard is still written, the ordinary notes still
+answer, and 237 of the 365 days are reduced. **A mailbox can no longer take a
+context's search down with it; a mailbox past capacity loses message-level
+recall on some of its own days**, and which days is a function of their byte
+sizes rather than their dates, which is a real cost and named as one.
+
+So the position is unchanged and now has numbers on both sides of it: this
+format is correct, and the sizing it needed has been built.
+`runShardSizingChecks` in `commsSearchIndex.test.mjs` pins the mechanism at
+suite speed with a small `shardByteCap`, and
+`apps/mcp/test/bench/shardSizing.mjs` re-measures the full-size numbers above,
+so neither the plateau nor the capacity can be rediscovered by a customer.
 
 **Filtering by `comms`'s fields is not built.** They are stored through both
 serialization dialects because a caller needs them to render a result (the
