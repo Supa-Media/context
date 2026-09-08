@@ -429,6 +429,7 @@ describe("turning an engine answer into segments", () => {
  *   `isNoSpeech` returning `true` when either field is absent                6
  *   `vadHeardNothing` dropping the `duration_after_vad` rule                 2
  *   `vadHeardNothing` firing on a POSITIVE duration                          1
+ *   `vadHeardNothing` dropping its `duration > 0` half                       3
  *   `toTranscription` keeping the engine's flat `text` after a refusal       2
  *   `refused` hard-coded to 0                                                5
  *   `NO_SPEECH_PROB` moved to 0.99 (a "be careful" retune)                   3
@@ -537,6 +538,48 @@ describe("refusing what the engine itself says is not speech", () => {
     )!;
     expect(result.segments).toEqual([]);
     expect(result.refused).toBe(1);
+  });
+
+  /*
+    THE CONJUNCTION, AND WHY IT IS NOT REDUNDANT.
+
+    The two ways the VAD rule can be wrong are not equally bad. A missed refusal
+    costs one chunk and the per-segment rule still applies to it. A FALSE
+    refusal — some engine build reporting `duration_after_vad: 0` over audio it
+    never ran VAD on — would empty every chunk of every meeting on the
+    deployment, with a 200, a bound binding and a green /health.
+
+    So the rule demands both halves: a chunk of real audio, and a VAD that kept
+    none of it. Everything short of that is an answer this Worker has no reading
+    of, and it says so by not firing.
+  */
+  it("does not fire when the engine did not say how long the audio was", () => {
+    const result = toTranscription(
+      { text: " Morning.", segments: [spoken], transcription_info: { duration_after_vad: 0 } },
+      20_000,
+    )!;
+    expect(result.segments).toHaveLength(1);
+    expect(result.refused).toBe(0);
+  });
+
+  it("...nor when the whole transcription_info reads as zeros", () => {
+    const result = toTranscription(
+      { text: " Morning.", segments: [spoken], transcription_info: { duration: 0, duration_after_vad: 0 } },
+      20_000,
+    )!;
+    expect(result.segments).toHaveLength(1);
+  });
+
+  it("...nor when the duration is not a number", () => {
+    const result = toTranscription(
+      {
+        text: " Morning.",
+        segments: [spoken],
+        transcription_info: { duration: "20", duration_after_vad: 0 },
+      },
+      20_000,
+    )!;
+    expect(result.segments).toHaveLength(1);
   });
 
   it("leaves a chunk alone when VAD kept audio", () => {

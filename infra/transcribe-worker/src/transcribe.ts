@@ -405,14 +405,39 @@ function isNoSpeech(segment: JudgedSegment): boolean {
  * anywhere in the sentence, that there was no speech in this chunk — so
  * whatever text came back after it is text nobody said.
  *
- * Absent, negative or unreadable is no opinion, for the same reason as
- * `isNoSpeech`. A *positive* value is not read as proof of speech either: VAD
- * keeping audio is not VAD hearing a voice in it.
+ * Absent or unreadable is no opinion, for the same reason as `isNoSpeech`. A
+ * *positive* value is not read as proof of speech either: VAD keeping audio is
+ * not VAD hearing a voice in it.
+ *
+ * ## Why it also demands a positive `duration`, which looks redundant
+ *
+ * Because the two ways this rule can be wrong are not equally bad, and the bad
+ * one is very bad. A missed refusal costs one chunk, and the per-segment rule
+ * below still applies to it. A *false* refusal, if some engine build reported
+ * `duration_after_vad: 0` for audio it had not run VAD over, would empty every
+ * chunk of every meeting on this deployment — with a 200, a healthy binding and
+ * a green `/health`. That is the exact shape `isReadableAnswer` exists to stop
+ * one file up.
+ *
+ * So the rule is the *conjunction*: the engine said it had a chunk of real
+ * audio, **and** said its VAD kept none of it. An answer whose whole
+ * `transcription_info` is zeros or missing halves is one this Worker has no
+ * reading of, and it says so by not firing. That is strictly narrower than
+ * `duration_after_vad <= 0` alone, in the direction where being wrong is
+ * survivable.
+ *
+ * The loudness of the surviving failure mode is the other half of the argument
+ * and it is deliberate: a deployment where this fired wrongly would tell every
+ * recorder, every twenty seconds, that no speech was heard. Somebody would know
+ * within one meeting.
  */
 function vadHeardNothing(answer: Record<string, unknown>): boolean {
   const info = answer["transcription_info"];
   if (typeof info !== "object" || info === null) return false;
-  const remaining = (info as Record<string, unknown>)["duration_after_vad"];
+  const fields = info as Record<string, unknown>;
+  const duration = fields["duration"];
+  const remaining = fields["duration_after_vad"];
+  if (!isFiniteNumber(duration) || duration <= 0) return false;
   return isFiniteNumber(remaining) && remaining <= 0;
 }
 
