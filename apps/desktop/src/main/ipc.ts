@@ -57,7 +57,7 @@ export const COMMANDS = Object.freeze({
 /** What every window renders. No audio, no credentials, no raw signals. */
 export interface UiState {
   tray: {
-    state: "idle" | "armed" | "detected" | "recording" | "finalizing";
+    state: "idle" | "armed" | "detected" | "recording" | "finalizing" | "failed";
     title: string;
     tooltip: string;
     indicator: boolean;

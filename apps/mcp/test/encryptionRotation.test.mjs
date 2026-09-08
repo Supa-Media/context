@@ -48,13 +48,35 @@
  * completing call's read cost is measured on the wrong call and a note is
  * still left on the retired generation. The number in a sabotage record is
  * only true of the file it was measured on.
+ *
+ * Added when the walk grew a persisted cursor, replacing the whole-bucket
+ * re-list this file used to measure above (see `docs/decisions/encryption.md`,
+ * "Rotation", for the before/after table this removes the ceiling from):
+ *
+ *   the "behind the cursor" detection disabled (a note moved or created at a
+ *   key the cursor already swept past is never re-examined)                2
+ *   cursor persistence disabled (`loadRotationProgress` always starts
+ *   fresh) — reintroduces the whole-bucket-per-call cost the cursor exists
+ *   to remove, caught on the completing call's own bound                   1
+ *   the never-destroy-notes guard removed (a note this call could not
+ *   re-wrap is deleted instead of left exactly as it was)                  1
+ *   a single stuck note halts the whole sweep instead of the cursor
+ *   skipping past it via `stuckKeys` — reintroduces the same unbounded
+ *   per-call cost as disabling persistence, just triggered by one bad note
+ *   rather than by no cursor at all                                       5
+ *
+ * The last one is the one worth reading closely: it fails five different
+ * checks at once, because a cursor that cannot get past a single stubborn
+ * note is a cursor that has stopped bounding anything — every property this
+ * file otherwise proves piecemeal (idempotence, the read-cost ceiling, the
+ * behind-cursor catch-up) depends on that one line letting the walk move on.
  */
 
 import worker from "../src/index.js";
 import { isEncryptedNote, parseEncryptedNote } from "../src/encryption.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 
-function makeBucket() {
+export function makeBucket() {
   const objects = new Map();
   let etagCounter = 0;
   const encoder = new TextEncoder();
@@ -75,7 +97,14 @@ function makeBucket() {
         if (expected && objects.get(key)?.etag !== expected) return null;
         const bytes = typeof value === "string" ? encoder.encode(value) : new Uint8Array(value);
         const etag = `e${++etagCounter}`;
-        objects.set(key, { bytes, etag });
+        // A real backend's listing reports a real last-modified time per
+        // object, distinct from every other object's — that is the whole
+        // thing `toolRotateEncryptionKeys`'s "behind the cursor" detection
+        // reads for free off `list()`. Stamped at write time and carried
+        // through, rather than `new Date()` at list time, which would make
+        // every object look freshly written on every single listing and
+        // defeat that detection entirely.
+        objects.set(key, { bytes, etag, uploaded: new Date() });
         return { etag };
       },
       async delete(key) {
@@ -88,7 +117,7 @@ function makeBucket() {
           .map((key) => ({
             key,
             size: objects.get(key).bytes.length,
-            uploaded: new Date(),
+            uploaded: objects.get(key).uploaded,
             etag: objects.get(key).etag,
           }));
         return { objects: listed, truncated: false };
@@ -97,7 +126,7 @@ function makeBucket() {
   };
 }
 
-const PRIVACY = [
+export const PRIVACY = [
   "---",
   "role: privacy-manifest",
   "version: 1",
@@ -118,12 +147,12 @@ const PRIVACY = [
   "",
 ].join("\n");
 
-const KEY_1 = "MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=";
+export const KEY_1 = "MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=";
 
 /** ROTATION_BATCH_CAP in `src/index.js`. Kept in sync by the assertion below. */
-const ROTATION_BATCH_CAP = 200;
+export const ROTATION_BATCH_CAP = 200;
 
-function noteBody(i) {
+export function noteBody(i) {
   return `---\nupdated: 2026-09-07\n---\n\n# note ${i}\n\nbody of note number ${i}.\n`;
 }
 
@@ -215,15 +244,14 @@ export async function runEncryptionRotationChecks(check) {
     /*
       AND WHAT ONE CALL READS.
 
-      There is no persisted cursor: the walk re-lists the bucket every call.
-      That is a deliberate trade (see "Rotation" in
-      `docs/decisions/encryption.md`), and its cost is one object read per note
-      *examined* — which is why the walk stops at the first note it finds still
-      pending once its batch is spent, rather than reading to the end of the
-      bucket to count the remainder. Without that stop this call read 601
-      objects over a 600-note bucket to move 200 of them; a Worker invocation
-      has a subrequest budget and a bucket has no upper bound, so the cost of
-      one call may not scale with the size of the bucket.
+      The walk's own progress is persisted in the bucket
+      (`ROTATION_PROGRESS_PATH`), as a cursor, so a call resumes from where the
+      last one left off rather than re-listing and re-reading everything
+      before it. Its cost is one extra read for the progress file, plus
+      (roughly) one object read per note this call actually examines — the
+      batch it moves, not the notes some earlier call already confirmed clean.
+      See "Rotation" in `docs/decisions/encryption.md` for the measured curve
+      this replaces.
     */
     const realGet = a.bucket.get.bind(a.bucket);
     let getsDuringFirstCall = 0;
@@ -242,13 +270,19 @@ export async function runEncryptionRotationChecks(check) {
       !first?.isError &&
         /rotation in progress: k1 → k2/.test(textOf(first)) &&
         new RegExp(`${ROTATION_BATCH_CAP} note\\(s\\) re-wrapped`).test(textOf(first)) &&
-        // A FLOOR, not a census. The walk stops at the first note it finds
-        // still on the outgoing generation once its batch is spent, rather
-        // than reading the rest of the bucket to count them — see the
-        // `ROTATION_BATCH_CAP` break in `toolRotateEncryptionKeys`. What must
-        // stay true is that it never reports zero left while notes remain,
-        // which the next check asks of the bucket rather than of the sentence.
-        /at least 1 left/.test(textOf(first)),
+        /*
+          TWO DIFFERENT FACTS, AND THE SENTENCE KEEPS THEM APART.
+
+          "at least N left" is a census of what this call actually read and
+          could not move — exact, and zero here. Whether anything remains
+          past the frontier is a separate clause, because the per-call budget
+          counts object READS rather than notes moved: a call can spend all of
+          it on notes that turn out to be clean, so "the batch is spent"
+          cannot be reported as "a note is left". What must stay true is that
+          it never says the walk is done while notes remain, which the next
+          check asks of the bucket rather than of the sentence.
+        */
+        /at least 0 left on k1, and the bucket is not swept to the end yet/.test(textOf(first)),
     );
 
     const onK1AfterFirst = [...a.objects.keys()].filter(
@@ -316,41 +350,38 @@ export async function runEncryptionRotationChecks(check) {
         !(await call("read_note", { path: sabotaged }))?.isError,
     );
 
+    // The property a stuck note must never cost: the FOUR notes that sort
+    // AFTER it were still rewrapped in this SAME call. A cursor that refused
+    // to advance past a note it could not move would pin every call after
+    // this one at that exact position, re-walking everything past it from
+    // scratch forever — the same unbounded cost this design exists to
+    // remove, just moved one note earlier. `stuckKeys` is what lets the
+    // cursor move past it instead.
+    const onK2AfterSecond = [...a.objects.keys()].filter(
+      (key) => key.startsWith("1-projects/") && readA(key).includes("context_encryption_key: ws:k2"),
+    );
+    check(
+      "notes sorting after the stuck one still moved this same call — the cursor did not stall on it",
+      onK2AfterSecond.length === ROTATION_BATCH_CAP + 4,
+    );
+
     /*
       WHAT THE CALL THAT *COMPLETES* A ROTATION COSTS, MEASURED.
 
-      The batch-cap stop bounds the first call's reads to the size of the
-      batch. It cannot bound the last one's, and that asymmetry is the real
-      shape of "no persisted cursor": before this walk may say "complete" it
-      has to prove nothing is left, and with no cursor the only proof
-      available is reading every note in the bucket again. So the completing
-      call's cost is the size of the BUCKET, every time, whatever the batch
-      cap is.
+      With a persisted cursor, the completing call resumes from where the
+      cursor already reached rather than re-listing and re-reading every note
+      in the bucket to prove none are left. Its cost is: one read for the
+      progress file, one retry per note still in `stuckKeys` (here: the one
+      note the sabotage above left behind), plus whatever is left in the
+      cursor's own forward and behind-cursor sweeps — a small, roughly
+      constant number, not one read per note in the bucket. See the measured
+      before/after table in `docs/decisions/encryption.md` for the curve this
+      replaces (the "before" column is what this exact scenario cost prior to
+      the persisted cursor: reads scaling with `noteCount`).
 
-      That is not a slow path, it is a ceiling. A Cloudflare Worker
-      invocation has a subrequest budget (`docs/decisions/storage-and-credentials.md`
-      calls it 50 and is openly optimistic about `FOLDER_MOVE_CAP`'s 500), and
-      every one of these reads is one. Measured over the whole curve, outside
-      this suite, at a batch cap of 200:
-
-        notes   calls   total reads   reads in the largest call
-          200       1           201                         201
-          600       3         1,205                         601
-        1,000       5         3,009                       1,001
-        2,000      10        11,019                       2,001
-        4,000      20        42,039                       4,001
-
-      Total reads grow as `notes x calls / 2`, which the decision file already
-      names. The last column is the one it did not: a rotation of a
-      4,000-note bucket ends with a single invocation issuing 4,001 reads, and
-      a rotation cannot finish at a size where that call cannot run. The
-      failure is not "expensive", it is "the walk re-wraps every note and then
-      never reports complete", leaving the rotation row `in_progress` and the
-      next rotation unable to start.
-
-      Asserted here so the ceiling is a measured number in the suite rather
-      than an estimate in prose, and so the day somebody adds the cursor this
-      check fails and says why.
+      Asserted here so the new bound is a measured number in the suite rather
+      than an estimate in prose, and so the day somebody reintroduces a full
+      re-scan on the completing call this check fails and says why.
     */
     let readsDuringCompletingCall = 0;
     // The exact reference, put back exactly — the `put` wrapper armed above is
@@ -368,8 +399,9 @@ export async function runEncryptionRotationChecks(check) {
       !third?.isError && /rotation complete: k1 → k2/.test(textOf(third)),
     );
     check(
-      "the call that COMPLETES a rotation reads the whole bucket, not the batch — the cursor-less ceiling",
-      readsDuringCompletingCall >= noteCount && readsDuringCompletingCall <= noteCount + 5,
+      "the call that COMPLETES a rotation reads a small, roughly constant number of objects, " +
+        "not one per note in the bucket — the ceiling the persisted cursor removes",
+      readsDuringCompletingCall <= 5,
     );
 
     const remainingOnK1 = [...a.objects.keys()].filter(
@@ -425,7 +457,81 @@ export async function runEncryptionRotationChecks(check) {
       "a note that reappears wrapped under the now-retired generation still opens",
       !strayRead?.isError && textOf(strayRead).includes("# note stray"),
     );
+
+    /* -- (5) a note added or moved BEHIND the cursor is not skipped --------- */
+    //
+    // The cursor sweeps the bucket in key order. A note that lands at an
+    // earlier key — moved in from elsewhere, or freshly created — after the
+    // cursor has already passed that position is exactly the case a
+    // positional cursor alone would miss forever. `toolRotateEncryptionKeys`
+    // catches it using `uploaded`, which every listing already reports at no
+    // extra cost: a key at or before the cursor whose upload time is after
+    // the current pass began is re-examined regardless of position.
+    //
+    // A second, brand-new rotation (k2 -> k3) exercises this on the same
+    // bucket the first rotation left on k2 — 205 notes on k2, one stray still
+    // on the long-retired k1 (untouched by this rotation too, same as ever).
+    const exportedForK2 = await call("export_encryption_keys", {});
+    const exportedDoc = JSON.parse(textOf(exportedForK2).slice(textOf(exportedForK2).indexOf("{")));
+    const K2_MATERIAL = exportedDoc.keys.find((entry) => entry.generation === "k2")?.key;
+    check("the export carries k2's own material to build the fixture below", typeof K2_MATERIAL === "string");
+
+    const secondRotationFirstCall = await call("rotate_encryption_keys", {});
+    check(
+      "a fresh rotation starts (k2 -> k3) and moves a bounded batch, exactly like the first one did",
+      !secondRotationFirstCall?.isError &&
+        /rotation in progress: k2 → k3/.test(textOf(secondRotationFirstCall)) &&
+        new RegExp(`${ROTATION_BATCH_CAP} note\\(s\\) re-wrapped`).test(textOf(secondRotationFirstCall)),
+    );
+
+    // A note lands at a key that sorts BEFORE every "1-projects/..." key the
+    // cursor has already swept past this pass — the shape of a move into an
+    // earlier folder while a rotation is under way. Wrapped under k2, the
+    // CURRENT-at-the-time generation, exactly as a real move would leave it:
+    // a move never touches the envelope, so its generation is whatever it
+    // already was.
+    const movedInBehindCursor = await encryptNote(noteBody("moved-in"), {
+      workspaceId: "ws_rot",
+      workspaceKey: K2_MATERIAL,
+      keyId: "k2",
+    });
+    await a.bucket.put("0-inbox/moved-in-behind-cursor.md", movedInBehindCursor);
+
+    let secondRotationDone = false;
+    for (let i = 0; i < 10 && !secondRotationDone; i += 1) {
+      const res = await call("rotate_encryption_keys", {});
+      if (/rotation complete: k2 → k3/.test(textOf(res))) secondRotationDone = true;
+    }
+    check("the second rotation still completes with a note added behind the cursor mid-walk", secondRotationDone);
+
+    const movedInRead = await call("read_note", { path: "0-inbox/moved-in-behind-cursor.md" });
+    check(
+      "the note added behind the cursor opens, and now names the new generation — it was not skipped",
+      !movedInRead?.isError &&
+        textOf(movedInRead).includes("# note moved-in") &&
+        readA("0-inbox/moved-in-behind-cursor.md").includes("context_encryption_key: ws:k3"),
+    );
+
+    // And the same census as before, restated for the second rotation: no
+    // note anywhere in the bucket still names k2 once this reports complete,
+    // and the k1-wrapped stray from section (4) is exactly as untouched as it
+    // was — a rotation only ever targets its own outgoing generation.
+    const anyOnK2 = [...a.objects.keys()].some((key) => {
+      if (isPlumbingPath(key) || !key.endsWith(".md")) return false;
+      const text = readA(key);
+      return text.includes("context_encryption_key: ws:k2");
+    });
+    check("no note anywhere in the bucket still names k2 once the second rotation reports complete", !anyOnK2);
+    check(
+      "the k1-wrapped stray from the first rotation's grace-period check is still exactly on k1",
+      readA("1-projects/stray-restored-note.md").includes("context_encryption_key: ws:k1"),
+    );
   } finally {
     restore();
   }
+}
+
+/** Mirrors `isPlumbing` in `src/index.js` closely enough for this file's own bucket census. */
+export function isPlumbingPath(key) {
+  return key.split("/").some((segment) => segment.startsWith("."));
 }
