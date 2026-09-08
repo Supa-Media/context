@@ -823,11 +823,11 @@ export function useFileBrowser(options: {
           source of every file that could reach one. So whatever is found
           here for an encrypted note's path *predates* it becoming encrypted:
           a lock made on this device with nothing yet discarding it (see
-          `discardLocalCopies`, and `BrowsePane`'s own caller of it), a lock made on
-          another device or tab that shares this one's local storage, or a
-          queued write that raced the lock and can now only ever come back
-          refused (`fileOps.ts`'s "a note this request cannot open is a note
-          this request cannot write").
+          `discardLocalCopies`, and `BrowsePane`'s own caller of it), a lock
+          made on another device or tab that shares this one's local storage,
+          or a queued write that raced the lock and can now only ever come
+          back refused (`fileOps.ts`'s "a note this request cannot open is a
+          note this request cannot write").
 
           None of that is restorable, and `restoreFor` has no way to know to
           refuse it: it compares text and etags, a stale plaintext draft never
