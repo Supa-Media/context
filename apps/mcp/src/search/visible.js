@@ -670,7 +670,7 @@ async function answerFromIndex(store, options) {
       // note changes or the index is rebuilt with more room. In the trace and
       // never in an answer, like every other count here — it is over the whole
       // bucket, private notes included.
-      degraded: manifest.stats.reduce((total, entry) => total + (entry.degraded || 0), 0),
+      shed: manifest.stats.reduce((total, entry) => total + (entry.shed || 0), 0),
     },
   };
 }

@@ -238,22 +238,62 @@ peak memory is one shard.
   holds; writers emit version 3 only. A version-3 posting whose index is not an
   integer inside the `docs` array refuses the shard whole.
 
-A note belongs to shard `fnv1a32(path) % shardCount` (FNV-1a, 32-bit,
-offset-basis 2166136261, prime 16777619 — pinned so every writer agrees).
-`shardCount` is chosen when the manifest is first created —
-`clamp(ceil(listedNoteCount / 300), 1, 64)` — and never changes for the life
-of the index; a brain that outgrows it is re-sharded by deleting the manifest
-(everything here is disposable). A one-note brain gets one shard, so small
-contexts pay v1's costs plus one manifest read.
+An **ordinary** note belongs to shard `fnv1a32(path) % shardCount` (FNV-1a,
+32-bit, offset-basis 2166136261, prime 16777619 — pinned so every writer
+agrees). A **bundled** note — one whose documents are a set, which today means
+a channel-day note — is placed instead in the least loaded shard that can
+still take it (`placeUnclaimed`), because hashing an indivisible object with
+hundreds of documents in it puts three of them in one shard often enough to be
+certain. Either way, **a doc the manifest already claims never moves**: the
+sync routes to the claimed shard first and consults placement only for a note
+nothing claims yet.
+
+`shardCount` is
+
+```
+clamp(max(ceil(listedNoteCount / 300),
+          ceil(listedVolume / (300 * NOTE_INDEX_CHAR_CAP))), 1, MAX_SHARD_COUNT)
+```
+
+where `listedVolume` is `indexVolumeOf` summed over the listing: an ordinary
+note is worth `min(size, NOTE_INDEX_CHAR_CAP)` and a bundled one is worth
+`ceil(size * 1.25)`. The note term is the original formula and the volume term
+can never beat it over ordinary notes, by construction — so no existing index
+is re-sharded by this — while a bundled note can, which is the point.
+
+The count **may grow on a later pass**, in place, when the volume or the
+placement asks for it; it never shrinks, and shrinking is still "delete the
+manifest" (everything here is disposable). A one-note brain gets one shard, so
+small contexts pay v1's costs plus one manifest read.
 
 ## Caps
 
 `SHARD_PARSE_BYTE_CAP = 2MB` per shard and the same rule in both directions as
 v1: a shard too big to read is refused unparsed and rebuilt; a shard the sync
-built past the cap is not written (that shard plateaus, `pending` says so).
+built past the cap is **not** written.
+
+Before it gives up on writing one, the sync **sheds**: the note contributing
+most to the over-cap body gives up documents — everything after its first, and
+that first one blanked if it is all that is left — until the body fits, largest
+note first, one note per round with the body re-serialized between rounds
+(`SHED_ROUNDS = 8`). A shed note is never removed: it keeps one entry, so
+`docsByShard` still records the version it was indexed at and the diff
+converges instead of re-fetching it forever. The surviving docs carry
+`shed: true`, `stats[id].shed` counts the notes per shard, and the sync
+answers `shed: string[]`. Only a shard with nothing left to shed is refused,
+and that is counted separately as `oversizedShards`. Both are the opposite of
+`pending`: `pending` says run another pass, these say the corpus does not fit
+the index it has.
+
 The manifest and the docmap share `MANIFEST_PARSE_BYTE_CAP = 4MB`; an
 unreadable or oversized manifest is a full rebuild, and an unreadable docmap is
 a re-index of what is already indexed. `NOTE_INDEX_CHAR_CAP` stays as v1.
+
+`MAX_SHARD_COUNT = 64` is therefore also the index's whole capacity —
+64 x 2MB = 128MB of index — and it is not free to raise: a routing filter is up
+to `FILTER_MAX_BYTES` per shard, and 64 of them already spend ~1.6MB of the
+manifest's own 4MB (measured). Past that capacity the index sheds rather than
+failing; the numbers are in `docs/decisions/search.md`.
 
 A routing filter is sized at `FILTER_BITS_PER_TERM = 8` with `FILTER_HASHES = 5`
 — a false-positive rate near 2%, measured — clamped to `[FILTER_MIN_BYTES,
@@ -490,12 +530,15 @@ it is today** — nothing about this reaches a brain with no mailbox connected.
 
 ## Placement, shape and the fields added to a doc entry
 
-- **A channel-day note's messages all live in the shard its own path hashes
-  to** (`shardOf(path, shardCount)`), never split across shards by anchor.
-  Shard *sizing* (`chooseShardCount`) is still a function of note count from
-  the listing, not sub-document count — a heavy mailbox can load a handful of
-  shards more than a note-count estimate predicts, which is the sizing
-  guardrail the decision names as unmeasured rather than a defect fixed here.
+- **A channel-day note's messages all live in one shard**, never split across
+  shards by anchor — but that shard is chosen by load rather than by hash
+  (`placeUnclaimed`, above), and shard *sizing* counts the volume the listing
+  implies rather than the objects it found. Both are the fix for the defect the
+  first version of this section left open: counting objects sized a 25MB
+  mailbox at one shard, whose body then passed `SHARD_PARSE_BYTE_CAP` on every
+  pass, and the whole context — the ordinary notes beside the mail included —
+  had no index at all. A note is still atomic, so a day too big for any shard
+  is shed rather than refused (see Caps).
 - **Every doc entry — in both v1's `docs` map and v2's shard `docs` — carries
   three new fields**, all optional so a stored index or shard written before
   this feature parses exactly as before (absent means "an ordinary note",
@@ -516,6 +559,14 @@ it is today** — nothing about this reaches a brain with no mailbox connected.
     can give. `participants` is the mailbox's own address plus the message's
     sender label, both read off the rendered heading and frontmatter — never
     re-derived from raw event data this module never sees.
+- **A fourth field, `shed: true`, is written only where it is true.** The three
+  above are absent on a pre-change shard and default to "an ordinary note", so
+  writing them always is what says which docs are sub-documents. This one marks
+  the rare case — a doc surviving in a note the shard could not hold whole —
+  and `"shed": false` on every entry of every shard would be a standing cost in
+  the customer's bucket for a fact that is almost never true. A stored `shed`
+  that is present and not a boolean refuses the shard, like any other
+  malformed field.
 - **`notePath`/`anchor` are never parsed out of the doc's own key.** A doc's
   key can itself contain a literal `#` in principle, so every consumer that
   needs to tell a sub-document from its note reads the explicit field rather

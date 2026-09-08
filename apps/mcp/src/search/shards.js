@@ -549,7 +549,7 @@ export function emptyShard() {
 
 /** Zeroed per-shard bookkeeping. */
 function emptyStats() {
-  return { docCount: 0, lenTotals: { title: 0, headings: 0, tags: 0, body: 0 }, degraded: 0 };
+  return { docCount: 0, lenTotals: { title: 0, headings: 0, tags: 0, body: 0 }, shed: 0 };
 }
 
 /**
@@ -694,7 +694,7 @@ export function serializeManifest(manifest) {
       // as 0 there, which is what those indexes mean; an older gateway reading
       // this one ignores a key it does not validate, so the field travels in
       // both directions without a version bump.
-      degraded: entry.degraded || 0,
+      shed: entry.shed || 0,
     })),
     filters: manifest.filters.map((filter) => (typeof filter === "string" ? filter : null)),
     freshness: {
@@ -849,9 +849,9 @@ export function parseManifest(text, byteCap = MANIFEST_PARSE_BYTE_CAP) {
     if (!FIELD_ORDER.every((field) => isFiniteNumber(entry.lenTotals[field]))) return null;
     // Absent is 0 — every manifest written before shedding existed. Present
     // and not a number is refused like any other malformed field: a stat that
-    // parses as `undefined` would be reported as "nothing is degraded", which
+    // parses as `undefined` would be reported as "nothing is shed", which
     // is the one direction this number must not be wrong in.
-    if (entry.degraded !== undefined && (!isFiniteNumber(entry.degraded) || entry.degraded < 0)) {
+    if (entry.shed !== undefined && (!isFiniteNumber(entry.shed) || entry.shed < 0)) {
       return null;
     }
     stats.push({
@@ -862,7 +862,7 @@ export function parseManifest(text, byteCap = MANIFEST_PARSE_BYTE_CAP) {
         tags: entry.lenTotals.tags,
         body: entry.lenTotals.body,
       },
-      degraded: entry.degraded === undefined ? 0 : Math.floor(entry.degraded),
+      shed: entry.shed === undefined ? 0 : Math.floor(entry.shed),
     });
   }
 
@@ -1388,12 +1388,12 @@ function statsOfShard(shard) {
   // docs themselves rather than remembered from the pass that shed them, so
   // it cannot outlive the condition: a note re-indexed in full arrives with
   // no shed doc among its fresh ones and stops being counted here.
-  const degraded = new Set();
+  const shed = new Set();
   for (const doc of shard.docs.values()) {
     for (const field of FIELD_ORDER) lenTotals[field] += doc.len[field];
-    if (doc.shed) degraded.add(doc.notePath ?? null);
+    if (doc.shed) shed.add(doc.notePath ?? null);
   }
-  return { docCount: shard.docs.size, lenTotals, degraded: degraded.size };
+  return { docCount: shard.docs.size, lenTotals, shed: shed.size };
 }
 
 /**
@@ -1426,7 +1426,7 @@ function sameVersions(a, b) {
 function sameStats(a, b) {
   return (
     a.docCount === b.docCount &&
-    (a.degraded || 0) === (b.degraded || 0) &&
+    (a.shed || 0) === (b.shed || 0) &&
     FIELD_ORDER.every((field) => a.lenTotals[field] === b.lenTotals[field])
   );
 }
@@ -1666,7 +1666,7 @@ function auditCandidates(manifest, busy, nowMs, count = AUDIT_SHARDS_PER_SYNC) {
  * Three ways a pass can be incomplete, and each is reported rather than
  * papered over:
  *
- * - `degraded` / `oversizedShards` — the corpus not fitting the index rather
+ * - `shed` / `oversizedShards` — the corpus not fitting the index rather
  *   than the pass running out of room in it. A bundled note whose documents a
  *   shard could not hold whole is shed down to what fits and named here; a
  *   shard with nothing to shed is not written and counted here. Separate from
@@ -1702,7 +1702,7 @@ function auditCandidates(manifest, busy, nowMs, count = AUDIT_SHARDS_PER_SYNC) {
  *   manifestOverflow: boolean,
  *   changed: boolean,
  *   committed: boolean,
- *   degraded: string[],
+ *   shed: string[],
  *   oversizedShards: number,
  *   spent: number,
  * }>} `shards` holds only what this pass loaded or built.
@@ -1801,7 +1801,7 @@ export async function syncShardedIndex(
       removed: [],
       changed: false,
       committed: false,
-      degraded: [],
+      shed: [],
       oversizedShards: 0,
       spent: ops.spent,
     };
@@ -2004,7 +2004,7 @@ export async function syncShardedIndex(
    * opposite things from a caller: `pending` says run another pass, and these
    * say the corpus does not fit the index it has and somebody has to know.
    */
-  const degradedPaths = new Set();
+  const shedPaths = new Set();
   let oversizedShards = 0;
 
   for (const id of [...ids, ...auditing, ...filtering]) {
@@ -2215,7 +2215,7 @@ export async function syncShardedIndex(
       if (exceedsUtf8Bytes(body, shardCap)) {
         const reduced = shedToFit(shard, body, shardCap);
         body = reduced.body;
-        for (const path of reduced.shed) degradedPaths.add(path);
+        for (const path of reduced.shed) shedPaths.add(path);
       }
       if (body !== null) {
         // `remaining` is peeked before the op is charged, so a refused shard
@@ -2390,7 +2390,7 @@ export async function syncShardedIndex(
     // count over the whole bucket, private notes included, is the subtraction
     // the census is owner-only to prevent. They are for the operator's trace
     // and for a caller deciding whether this index can hold this bucket.
-    degraded: [...degradedPaths],
+    shed: [...shedPaths],
     oversizedShards,
     spent: ops.spent,
   };

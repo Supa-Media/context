@@ -590,9 +590,9 @@ export async function runSearchShardsChecks(check) {
     /*
       The two fields shedding added, in both directions.
 
-      A manifest written before shedding existed carries no `degraded` in its
+      A manifest written before shedding existed carries no `shed` in its
       stats and a shard written then carries no `shed` on its docs, and both
-      must read back as "nothing is degraded" rather than being refused —
+      must read back as "nothing is shed" rather than being refused —
       refusing would rebuild every working index on the day this deploys. In
       the other direction an older gateway reads the new objects: it validates
       only the fields it knows, so the extra keys ride along. What is NOT
@@ -604,11 +604,11 @@ export async function runSearchShardsChecks(check) {
     const manifestWith = (extra) =>
       JSON.stringify({ version: 3, shardCount: 1, generatedAt: null, stats: statsOf(extra) });
     check(
-      "a manifest with no degraded count reads as none, one with a count reads it, a malformed one is refused",
-      parseManifest(manifestWith({}))?.stats[0].degraded === 0 &&
-        parseManifest(manifestWith({ degraded: 3 }))?.stats[0].degraded === 3 &&
-        parseManifest(manifestWith({ degraded: "3" })) === null &&
-        parseManifest(manifestWith({ degraded: -1 })) === null
+      "a manifest with no shed count reads as none, one with a count reads it, a malformed one is refused",
+      parseManifest(manifestWith({}))?.stats[0].shed === 0 &&
+        parseManifest(manifestWith({ shed: 3 }))?.stats[0].shed === 3 &&
+        parseManifest(manifestWith({ shed: "3" })) === null &&
+        parseManifest(manifestWith({ shed: -1 })) === null
     );
 
     const shedDoc = (extra) => [
@@ -899,15 +899,15 @@ export async function runSearchShardsChecks(check) {
     );
     check(
       "...naming that note rather than reporting work still outstanding",
-      refused.degraded.length === 1 &&
-        refused.degraded[0] === bigPath &&
+      refused.shed.length === 1 &&
+        refused.shed[0] === bigPath &&
         refused.oversizedShards === 0 &&
         refused.pending === 0
     );
     check(
       "...and the note stays recorded at its version, so the diff converges rather than re-fetching it",
       storedManifest(capped)?.docsByShard[bigId].get(bigPath) === capped.etagOf(bigPath) &&
-        storedManifest(capped)?.stats[bigId].degraded === 1 &&
+        storedManifest(capped)?.stats[bigId].shed === 1 &&
         storedManifest(capped)?.docsByShard[smallId].size === 1
     );
     const again = await syncShardedIndex(cappedStore, {
@@ -916,7 +916,7 @@ export async function runSearchShardsChecks(check) {
     });
     check(
       "and a second pass under the same cap has nothing to do rather than shedding it again",
-      again.pending === 0 && again.degraded.length === 0 && again.touched.length === 0
+      again.pending === 0 && again.shed.length === 0 && again.touched.length === 0
     );
   }
 

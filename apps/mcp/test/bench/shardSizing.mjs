@@ -5,7 +5,7 @@
  * **Deliberately not part of `pnpm test`.** It builds tens of megabytes of
  * Markdown and runs the real 2MB shard cap, which is a minute of CPU rather
  * than a suite check; the *mechanism* is pinned at suite speed by
- * `runShardBudgetChecks` in `commsSearchIndex.test.mjs` with a small
+ * `runShardSizingChecks` in `commsSearchIndex.test.mjs` with a small
  * `shardByteCap`. This file exists so the numbers in the decision docs can be
  * re-measured by anyone who doubts them, which is the standing rule in
  * `docs/decisions/testing.md`: a guard nobody has checked is not a guard, and
@@ -95,7 +95,45 @@ function createBucket() {
 
 const ACCOUNT = "name-at-example-com";
 
-function dayNote(dayIndex, perDay, marker) {
+/**
+ * How many distinct words the synthetic mail is written in.
+ *
+ * **Not repeated filler, and the difference is the whole measurement.** A
+ * shard's serialized body is mostly its postings — one interned entry per
+ * distinct term in a document — so a corpus written in seven repeated words
+ * produces a shard several times smaller than one written in real prose, and
+ * a threshold measured against that would be a fiction in the unsafe
+ * direction. Measured both ways at 90 days x 200 messages: seven repeated
+ * words gave 51 shards, 13.5MB of index and a biggest shard of 0.3MB, and
+ * this gives 56 shards, 80.8MB and a biggest shard of 1.76MB — the same
+ * corpus, four times the index, and the difference between "nowhere near the
+ * cap" and "just under it".
+ */
+const VOCABULARY = 20_000;
+
+/**
+ * A deterministic body of `words` tokens drawn from that vocabulary — ~200 of
+ * them by default, which is ~1.4KB on the wire, the storage estimate's low end
+ * for a normalized mail, with ~190 of the 200 distinct.
+ *
+ * xorshift32 rather than anything seeded from the clock: the same run has to
+ * measure the same corpus, and a dependency is not taken to get one.
+ */
+function bodyWords(seed, words) {
+  const out = [];
+  let x = seed >>> 0 || 1;
+  for (let i = 0; i < words; i += 1) {
+    x ^= x << 13;
+    x >>>= 0;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    x >>>= 0;
+    out.push(`w${x % VOCABULARY}`);
+  }
+  return out.join(" ");
+}
+
+function dayNote(dayIndex, perDay, marker, words) {
   const date = new Date(Date.UTC(2026, 0, 1 + dayIndex)).toISOString().slice(0, 10);
   const events = [];
   for (let i = 0; i < perDay; i += 1) {
@@ -109,8 +147,7 @@ function dayNote(dayIndex, perDay, marker) {
       subject: `Message ${i} of day ${dayIndex}`,
       from: { name: "Adam Okonkwo", address: "adam@example.net" },
       to: [{ address: "name@example.com" }],
-      // ~1.4KB of body, the storage estimate's low end for a normalized mail.
-      body: `Body ${i}. ${"lorem ipsum dolor sit amet consectetur ".repeat(30)}${
+      body: `Body ${i}. ${bodyWords(dayIndex * 7919 + i + 1, words)}${
         last && marker ? ` ${marker}` : ""
       }`,
       attachments: [],
@@ -130,11 +167,11 @@ function dayNote(dayIndex, perDay, marker) {
   };
 }
 
-function seedScenario({ days, perDay, plainNotes, marker }) {
+function seedScenario({ days, perDay, plainNotes, marker, words }) {
   const bucket = createBucket();
   let mailBytes = 0;
   for (let day = 0; day < days; day += 1) {
-    const note = dayNote(day, perDay, day === days - 1 ? marker : null);
+    const note = dayNote(day, perDay, day === days - 1 ? marker : null, words);
     mailBytes += encoder.encode(note.text).length;
     bucket.seed(note.path, note.text);
   }
@@ -149,9 +186,9 @@ function seedScenario({ days, perDay, plainNotes, marker }) {
 
 /* -- one measured run ---------------------------------------------------- */
 
-async function measure({ days, perDay, plainNotes = 200, budget = 600, maxPasses = 40 }) {
+async function measure({ days, perDay, plainNotes = 200, budget = 600, maxPasses = 40, words = 200 }) {
   const marker = "zzmarkerzz";
-  const { bucket, mailBytes } = seedScenario({ days, perDay, plainNotes, marker });
+  const { bucket, mailBytes } = seedScenario({ days, perDay, plainNotes, marker, words });
 
   let passes = 0;
   let last = null;
@@ -164,10 +201,18 @@ async function measure({ days, perDay, plainNotes = 200, budget = 600, maxPasses
   }
 
   const shardKeys = [...bucket.objects.keys()].filter((key) => key.startsWith(".index/v2/shard-"));
-  const shardBytes = shardKeys.reduce(
-    (total, key) => total + encoder.encode(bucket.objects.get(key).body).length,
-    0
-  );
+  const eachShard = shardKeys.map((key) => encoder.encode(bucket.objects.get(key).body).length);
+  const shardBytes = eachShard.reduce((total, bytes) => total + bytes, 0);
+  // The number the 2MB cap is actually about: a total spread over 64 shards
+  // says nothing about whether any one of them could be stored.
+  const biggest = eachShard.reduce((most, bytes) => Math.max(most, bytes), 0);
+  // The other two caps, because `MAX_SHARD_COUNT` is really a fact about
+  // these: a routing filter is up to 24KB raw per shard, so 64 of them already
+  // spend half of `MANIFEST_PARSE_BYTE_CAP`.
+  const sizeOf = (key) =>
+    bucket.objects.has(key) ? encoder.encode(bucket.objects.get(key).body).length : 0;
+  const manifestBytes = sizeOf(".index/v2/manifest.json");
+  const docmapBytes = sizeOf(".index/v2/docmap.json");
 
   const run = async (query) => {
     const started = Date.now();
@@ -195,10 +240,17 @@ async function measure({ days, perDay, plainNotes = 200, budget = 600, maxPasses
     shardCount: last.manifest.shardCount,
     shardObjects: shardKeys.length,
     shardMB: (shardBytes / 1e6).toFixed(2),
+    biggestMB: (biggest / 1e6).toFixed(2),
+    manifestMB: (manifestBytes / 1e6).toFixed(2),
+    docmapMB: (docmapBytes / 1e6).toFixed(2),
     passes,
     pending: last.pending,
     oversized: last.oversizedShards ?? 0,
-    degraded: (last.degraded || []).length,
+    // The manifest's own cumulative count, never the last pass's list: a note
+    // shed on pass one and left alone on pass two is still a note the index
+    // holds only part of, and reading it off the final pass would report zero
+    // for an index that is knowingly incomplete.
+    shed: last.manifest.stats.reduce((total, entry) => total + (entry.shed || 0), 0),
     mail: `${mail.answer.indexed ? `${(mail.answer.hits || []).length} hit` : "indexed: false"}, ${mail.ms}ms`,
     plain: `${plain.answer.indexed ? `${(plain.answer.hits || []).length} hit` : "indexed: false"}, ${plain.ms}ms`,
   };
@@ -223,10 +275,13 @@ function print(row) {
       `built=${row.built}`,
       `shards=${row.shardCount}`,
       `written=${row.shardObjects} (${row.shardMB}MB)`,
+      `biggest=${row.biggestMB}MB`,
+      `manifest=${row.manifestMB}MB`,
+      `docmap=${row.docmapMB}MB`,
       `passes=${row.passes}`,
       `pending=${row.pending}`,
       `oversized=${row.oversized}`,
-      `degraded=${row.degraded}`,
+      `shed=${row.shed}`,
       `mail-search=${row.mail}`,
       `plain-search=${row.plain}`,
     ].join("  ")
@@ -234,10 +289,18 @@ function print(row) {
 }
 
 const sweep = process.argv.includes("--sweep");
+const words = arg("words", 200);
 if (sweep) {
-  for (const perDay of [10, 20, 50, 100, 200, 400, 800]) {
-    print(await measure({ days: arg("days", 90), perDay }));
+  for (const perDay of [10, 20, 50, 100, 200, 400, 800, 1600]) {
+    print(await measure({ days: arg("days", 90), perDay, words }));
   }
 } else {
-  print(await measure({ days: arg("days", 90), perDay: arg("per-day", 200), plainNotes: arg("plain", 200) }));
+  print(
+    await measure({
+      days: arg("days", 90),
+      perDay: arg("per-day", 200),
+      plainNotes: arg("plain", 200),
+      words,
+    })
+  );
 }

@@ -1399,7 +1399,7 @@ async function runShardSizingChecks(check) {
   );
   check(
     "nothing was shed and no shard was refused: the sizing alone was enough",
-    built.degraded.length === 0 && built.oversizedShards === 0
+    built.shed.length === 0 && built.oversizedShards === 0
   );
 
   const lastDay = await search(mailbox, "lastword13marker");
@@ -1495,7 +1495,7 @@ async function runShardSizingChecks(check) {
   }
   check(
     "a day whose documents no shard can hold is shed rather than refusing the shard's write",
-    shedPass.degraded.includes(huge.path)
+    shedPass.shed.includes(huge.path)
   );
   const shedShards = [...tight.objects.keys()].filter((key) => key.startsWith(".index/v2/shard-"));
   check(
@@ -1522,18 +1522,18 @@ async function runShardSizingChecks(check) {
   });
   check(
     "...proved by the next pass having nothing to do, rather than shedding the same note forever",
-    idle.touched.length === 0 && idle.pending === 0 && idle.degraded.length === 0
+    idle.touched.length === 0 && idle.pending === 0 && idle.shed.length === 0
   );
-  const degradedCount = shedPass.manifest.stats.reduce(
-    (total, entry) => total + (entry.degraded || 0),
+  const shedCount = shedPass.manifest.stats.reduce(
+    (total, entry) => total + (entry.shed || 0),
     0
   );
   check(
     "...and the manifest carries the count, so an answer can say the index is knowingly incomplete",
-    degradedCount === 1
+    shedCount === 1
   );
   const reported = await search(tight, "ordinary-note-word", { budget: createSearchBudget(600) });
-  check("...which the search reports for the operator", reported.index.degraded === 1);
+  check("...which the search reports for the operator", reported.index.shed === 1);
 
   /* -- 7. an ordinary note in an over-cap shard, and its neighbours ------ */
 
@@ -1553,7 +1553,7 @@ async function runShardSizingChecks(check) {
       budget: createSearchBudget(2000),
       shardByteCap: 2_500,
     });
-    for (const path of stuckPass.degraded) everShed.add(path);
+    for (const path of stuckPass.shed) everShed.add(path);
   }
   check(
     "the note that put its shard over the cap is the one that loses its body from the index",
