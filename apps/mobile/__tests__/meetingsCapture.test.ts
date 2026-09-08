@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import type { TranscriptSegment } from "../features/meetings/protocol";
+import { segmentSessionId } from "../features/meetings/protocol";
 import type { RecorderError } from "../features/meetings/capture";
 import { createRecorder } from "../features/meetings/capture";
 /**
@@ -362,6 +363,15 @@ const {
 
 const SESSION_START = Date.parse("2026-09-05T18:00:00.000Z");
 
+/**
+ * A meeting id shaped exactly like a real one — `mtg_` plus twenty characters
+ * of `MEETING_ID_ALPHABET` — because the whole point of this file's fix is that
+ * `segmentSessionId` can read a chunk id's first token back out as this string.
+ * A fixture that used any other shape would not exercise that.
+ */
+const TEST_MEETING_ID = `mtg_${"a".repeat(20)}`;
+const OTHER_MEETING_ID = `mtg_${"b".repeat(20)}`;
+
 interface Harness {
   recorder: ReturnType<typeof audioRecorder>;
   transcriber: FakeTranscriber;
@@ -378,6 +388,15 @@ interface HarnessOptions {
    * platform split leaves it at that default; the tests that do care pass
    * `"android"` explicitly rather than this default ever silently changing. */
   platform?: "ios" | "android";
+  /**
+   * The meeting id `recorder.start()` is given when a test calls it with no
+   * arguments. Defaults to `TEST_MEETING_ID` so the ~40 existing
+   * `recorder.start()` call sites in this file did not all have to learn about
+   * `CaptureOptions` — only the handful of tests about the id itself override
+   * it. `""` here means "start with no options at all", for the one test that
+   * wants the caller-bug refusal.
+   */
+  sessionId?: string;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -404,6 +423,18 @@ function harness(options: HarnessOptions = {}): Harness {
   const errors: RecorderError[] = [];
   recorder.onSegment((segment) => segments.push(segment));
   recorder.onError((error) => errors.push(error));
+  /*
+    Every real call site (`controller.ts`) always passes `sessionId`, so a bare
+    `recorder.start()` in a test would either be refused outright or would have
+    to repeat `{ sessionId: TEST_MEETING_ID, systemAudio: false }` at every one
+    of this file's call sites. Wrapping `start` here keeps the ~40 unrelated
+    tests unchanged and lets the handful of tests that care about the id itself
+    override it through `harness({ sessionId })`.
+  */
+  const sessionId = options.sessionId ?? TEST_MEETING_ID;
+  const realStart = recorder.start.bind(recorder);
+  recorder.start = (given) =>
+    realStart(sessionId === "" ? given : { sessionId, systemAudio: false, ...given });
   return { recorder, transcriber, segments, errors };
 }
 
@@ -549,27 +580,72 @@ describe("rotation", () => {
   });
 
   /**
-   * The id has to survive a re-send, so it is a function of the session and the
-   * index and of nothing that changes between two attempts. Two sessions begun
-   * at the same instant produce the same first id — the observable form of
-   * "there is no `Math.random()` and no clock read at send time in here".
+   * The id has to survive a re-send, so it is a function of the meeting and the
+   * index and of nothing that changes between two attempts — never the clock.
+   * Re-recording the same meeting id at a later moment produces the same first
+   * id; two chunks in one session are still two different chunks.
    */
   test("a chunk keeps its id when the same chunk is produced twice", async () => {
-    const first = harness();
+    const first = harness({ sessionId: TEST_MEETING_ID });
     await first.recorder.start();
     await advance(SEGMENT_MS);
     await first.recorder.stop();
 
-    jest.setSystemTime(SESSION_START);
-    const second = harness();
+    jest.setSystemTime(SESSION_START + 60_000);
+    const second = harness({ sessionId: TEST_MEETING_ID });
     await second.recorder.start();
     await advance(SEGMENT_MS);
     await second.recorder.stop();
 
     expect(first.transcriber.chunks[0].chunkId).toBe(second.transcriber.chunks[0].chunkId);
-    expect(first.transcriber.chunks[0].chunkId).toBe(chunkIdFor(String(SESSION_START), 0));
+    expect(first.transcriber.chunks[0].chunkId).toBe(chunkIdFor(TEST_MEETING_ID, 0));
     // And two chunks in one session are still two different chunks.
-    expect(chunkIdFor(String(SESSION_START), 0)).not.toBe(chunkIdFor(String(SESSION_START), 1));
+    expect(chunkIdFor(TEST_MEETING_ID, 0)).not.toBe(chunkIdFor(TEST_MEETING_ID, 1));
+  });
+
+  /**
+   * THE ASYMMETRY AN ADVERSARIAL REVIEW OF #353 NAMED, CLOSED.
+   *
+   * Before this fix `sessionKey` was `String(Date.now())`, so a chunk's id
+   * carried no meeting at all: `segmentSessionId` answered `null` for every
+   * phone segment, which made the identity guard built on it
+   * (`foreignSegmentSessions`, checked both by the gateway and by this
+   * controller's own `apply`) permanently unable to catch a phone segment
+   * folded into the wrong meeting — inert rather than merely unneeded. Two
+   * meetings started in the same millisecond would also have minted the exact
+   * same first chunk id, which is the collision this test's second half rules
+   * out directly.
+   */
+  test("a chunk's id names the meeting it was recorded for, and only that one", async () => {
+    const mine = harness({ sessionId: TEST_MEETING_ID });
+    await mine.recorder.start();
+    await advance(SEGMENT_MS);
+    await mine.recorder.stop();
+
+    expect(segmentSessionId(mine.transcriber.chunks[0].chunkId)).toBe(TEST_MEETING_ID);
+
+    // Two different meetings, started at the very same instant, do not collide.
+    jest.setSystemTime(SESSION_START);
+    const theirs = harness({ sessionId: OTHER_MEETING_ID });
+    await theirs.recorder.start();
+    await advance(SEGMENT_MS);
+    await theirs.recorder.stop();
+
+    expect(theirs.transcriber.chunks[0].chunkId).not.toBe(mine.transcriber.chunks[0].chunkId);
+    expect(segmentSessionId(theirs.transcriber.chunks[0].chunkId)).toBe(OTHER_MEETING_ID);
+  });
+
+  /**
+   * A caller that starts a recorder with no meeting id has a bug, and it must
+   * be loud on the first press: a generated fallback here is exactly how the
+   * guard above goes back to being inert, quietly, the next time somebody
+   * forgets to wire `sessionId` through. `controller.ts` always does.
+   */
+  test("a recorder given no meeting id refuses to start, rather than inventing one", async () => {
+    const { recorder } = harness({ sessionId: "" });
+    await expect(recorder.start()).rejects.toThrow(/no id to record against/i);
+    expect(mockDevices).toEqual([]);
+    expect(recorder.state).toBe("idle");
   });
 
   test("the mime type says what the file actually is", async () => {
@@ -1208,7 +1284,7 @@ describe("the arithmetic survives a bad chunk", () => {
     // The wall clock kept the lost chunk's twenty seconds…
     expect(transcriber.chunks[0].offsetMs).toBe(SEGMENT_MS);
     // …and the id it never spent. A chunk that sent nothing burns no id.
-    expect(transcriber.chunks[0].chunkId).toBe(chunkIdFor(String(SESSION_START), 0));
+    expect(transcriber.chunks[0].chunkId).toBe(chunkIdFor(TEST_MEETING_ID, 0));
 
     void recorder.stop();
     await advance(0);

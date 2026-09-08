@@ -267,6 +267,37 @@ function refusalKeyFor(code) {
   return "invalid";
 }
 
+/**
+ * How much of a client's own `event.type` this file will echo in a refusal.
+ *
+ * Every other refusal here is built from constants (`LIMITS.*`) or from
+ * identifiers `isMeetingId` already bounds to a couple dozen characters
+ * (`assertSegmentsAddressed`'s foreign meeting ids). `event.type` has no such
+ * shape — `assertEventWithinLimits` only validates the fields a *known* event
+ * type carries, so an unrecognised one reaches this line exactly as a client
+ * sent it, up to the whole request body. `apps/desktop`'s queue now logs the
+ * gateway's own sentence verbatim (`docs/decisions/meetings.md`, "A refusal is
+ * shown with the reason the gateway gave for it"), so an unbounded value here
+ * is an unbounded write to a customer's log file, not merely a long HTTP body.
+ */
+const EVENT_TYPE_ECHO_MAX = 40;
+
+/**
+ * A client-supplied `event.type`, safe to fold into a refusal sentence.
+ *
+ * Bounded rather than quoted verbatim or dropped: naming the type a client
+ * sent is genuinely useful — it is the one thing here a client author can act
+ * on — so the fix is a length limit, the same instinct as
+ * `MAX_CHUNK_ID_LENGTH`, rather than the "never quotes what was sent" rule
+ * `INVALID_CHUNK_ID` uses for a value with no legitimate reason to be long.
+ * `typeof` for a non-string is itself a short, fixed word, so this can never
+ * exceed the bound by construction rather than by testing every input shape.
+ */
+function describeEventType(type) {
+  const text = typeof type === "string" ? type : typeof type;
+  return text.length > EVENT_TYPE_ECHO_MAX ? `${text.slice(0, EVENT_TYPE_ECHO_MAX)}…` : text;
+}
+
 /** The same, for a client replaying its log. */
 export function foldLog(session, events) {
   if (events === undefined || events === null) return session;
@@ -276,7 +307,9 @@ export function foldLog(session, events) {
   }
   for (const event of events) {
     assertEventWithinLimits(event);
-    if (!CLIENT_EVENTS.has(event.type)) throw invalid(`a client may not send a ${event.type} event`);
+    if (!CLIENT_EVENTS.has(event.type)) {
+      throw invalid(`a client may not send a ${describeEventType(event.type)} event`);
+    }
     /*
       The replay path carries transcript too — `{type: "segments"}` in a
       client's own log — so the address check belongs here as well as in

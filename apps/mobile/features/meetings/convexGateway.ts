@@ -4,7 +4,7 @@ import { announceBucketWrite } from "../console/files/bucketWrites";
 import { toFileError } from "../console/files/browser";
 import { MeetingGatewayError, type MeetingAddress, type MeetingsGateway } from "./gateway";
 import { renderMeetingNote } from "./note";
-import { ERRORS } from "./protocol";
+import { ERRORS, foreignSegmentSessions } from "./protocol";
 import type { IngestAck, MeetingSession, MeetingSessionSummary } from "./protocol";
 import { hasNothingCaptured } from "./session";
 
@@ -199,6 +199,38 @@ export function createConvexGateway(options: ConvexGatewayOptions): MeetingsGate
 
     async finalize(to: MeetingAddress, session: MeetingSession): Promise<IngestAck> {
       /*
+        THE ONE GUARD THIS DOOR CAN STILL HAVE, ON THE ONE FACT THAT SURVIVES
+        A WRONG ENVELOPE.
+
+        `docs/decisions/meetings.md` names the asymmetry directly: the desktop
+        has a gateway door (`apps/mcp`'s `appendSegments` and `foldLog`) that no
+        client can talk past; this path has none, because `files.writeNote` is
+        the same generic write every note save uses and has no idea a meeting
+        exists. Routing a meeting through the MCP gateway instead would need
+        this app to hold the kind of credential `docs/decisions/meetings.md`'s
+        "the desktop is an OAuth client" section argues a phone should not —
+        a control-plane session already reaches every context its owner
+        belongs to, and minting a second, narrower credential on top of that is
+        the "larger change" that section is explicit about not being worth
+        making for this. So this is the strongest guard achievable without it:
+        the same identity check the gateway and this app's own controller
+        already run (`foreignSegmentSessions`, mirroring `assertSegmentsAddressed`
+        in `apps/mcp/src/meetings/state.js`), run once more here, against the
+        whole transcript, at the one moment before it becomes a note.
+
+        It is not the gateway's guard. A build that skipped this call would
+        skip it silently — nothing downstream would refuse the write the way
+        `appendSegments` refuses a foreign batch — so it is defense against the
+        bug this repository has actually had (a leaked subscription folding one
+        meeting's words into another's session) rather than against a client
+        that has been rewritten to lie. `controller.apply` already keeps a
+        foreign segment out of `session.transcript` on the way in; this is what
+        catches a transcript that reached this call some other way — a record
+        restored from disk, a future path that does not go through `apply`.
+      */
+      assertOwnTranscript(session);
+
+      /*
         A defensive backstop, not the primary decision: `controller.end()`
         checks `hasNothingCaptured` before this is ever called and folds
         `empty` locally, so `pendingSteps` never queues a finalize for a
@@ -319,6 +351,32 @@ export function createConvexGateway(options: ConvexGatewayOptions): MeetingsGate
 }
 
 /**
+ * REFUSE TO WRITE A TRANSCRIPT THAT NAMES ANOTHER MEETING.
+ *
+ * See the header comment inside `finalize`. `foreignSegmentSessions` answers
+ * the meetings this transcript's own segment ids name that are not this
+ * session's — the same function `apps/mcp/src/meetings/state.js`'s
+ * `assertSegmentsAddressed` and this app's own `controller.apply` build on —
+ * so the three checks agree on what "addressed" means without agreeing on
+ * anything else about how they are reached.
+ *
+ * An id that names no meeting at all is not foreign: `foreignSegmentSessions`
+ * already draws that line, and repeating it here would refuse every meeting
+ * recorded before this repository gave phone chunk ids a meeting to name.
+ *
+ * The refusal never quotes a word of the transcript, and the sentence a
+ * person sees never quotes the foreign meeting's id either — `console.warn`
+ * carries that, the same way `controller.apply` logs it, for whoever reads a
+ * device's logs rather than for the person waiting on their notes.
+ */
+function assertOwnTranscript(session: MeetingSession): void {
+  const foreign = foreignSegmentSessions(session.id, session.transcript);
+  if (foreign.length === 0) return;
+  console.warn(`meeting_transcript_contaminated meeting=${session.id} from=${foreign.join(",")}`);
+  throw new MeetingGatewayError(ERRORS.invalid, MEETING_WRITE_SENTENCES.contaminatedTranscript);
+}
+
+/**
  * The meeting as the note records it: finished, at the key it was filed under.
  *
  * The `written` fold, applied where the gateway applies it. Spelled out rather
@@ -410,6 +468,9 @@ export const MEETING_WRITE_SENTENCES = {
   unwritable: "Your context could not write that note.",
   noReadableDate:
     "This meeting's start time is not a date this app can read, so it has no note to be filed under. Copy the note out from this screen.",
+  /** `assertOwnTranscript` refused a transcript naming another meeting. */
+  contaminatedTranscript:
+    "This meeting's transcript could not be verified as its own, so it was not written. Copy your notes out and start again.",
 } as const;
 
 /**

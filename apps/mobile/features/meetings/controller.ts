@@ -519,10 +519,18 @@ export class MeetingsController {
     try {
       /*
         The meeting's own id goes to the recorder, and it is the only thing in
-        this call that is not the person's choice. Four of the five recorders
-        ignore both fields; the desktop shell queues writes in another process
-        keyed by session, so a capture started under any other name would be a
-        second meeting in somebody's bucket.
+        this call that is not the person's choice.
+
+        Every capturing recorder now mints its chunk ids from it — `audio.ts`
+        and `audio.web.ts` join `desktop.ts` here, since a chunk id that names
+        no meeting is a segment the identity guard
+        (`assertSegmentsAddressed`/`foreignSegmentSessions`) cannot tell apart
+        from a foreign one, which is what let a leaked recorder subscription
+        contaminate a note undetected. `notesOnlyRecorder` and `fakeRecorder`
+        still ignore it — one captures nothing, and the other only records what
+        it was asked for. The desktop shell also queues writes in another
+        process keyed by session, so a capture started under any other name
+        would be a second meeting in somebody's bucket.
       */
       await config.recorder.start({
         sessionId: id,

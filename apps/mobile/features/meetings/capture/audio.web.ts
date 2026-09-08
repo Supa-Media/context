@@ -1,7 +1,7 @@
 import { capabilitiesFrom, getDesktopBridge, type DesktopBridge } from "@context/desktop-bridge";
 import type { TranscriptSegment } from "../protocol";
 import { desktopRecorder } from "./desktop";
-import type { MeetingRecorder, RecorderError, RecorderState } from "./index";
+import type { CaptureOptions, MeetingRecorder, RecorderError, RecorderState } from "./index";
 import { notesOnlyRecorder } from "./notesOnly";
 import { MAX_INFLIGHT_CHUNKS, SEGMENT_MS, chunkIdFor } from "./segments";
 import { resolveTranscriber } from "./transcriber";
@@ -79,6 +79,10 @@ const INTERRUPTED =
 const NO_TRANSCRIBER =
   "This meeting is not being transcribed — the app could not reach transcription. Your notes still land in your bucket.";
 
+/** Same rule and same words as `audio.ts`: a caller bug, refused loudly. */
+const NO_SESSION_ID =
+  "This meeting had no id to record against, so nothing was captured. Start the meeting again.";
+
 const CHUNK_FAILED =
   "A few seconds of audio could not be transcribed. Capture is still running.";
 
@@ -121,6 +125,7 @@ export const CAPTURE_MESSAGES: readonly string[] = Object.freeze([
   CHUNK_FAILED,
   SEND_BACKLOG,
   NO_SPEECH,
+  NO_SESSION_ID,
 ]);
 
 /**
@@ -513,8 +518,9 @@ function mediaRecorderRecorder(): MeetingRecorder {
       return state;
     },
 
-    async start() {
+    async start(options?: CaptureOptions) {
       if (state === "recording") return;
+      const meetingId = requireSessionId(options);
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch {
@@ -525,7 +531,7 @@ function mediaRecorderRecorder(): MeetingRecorder {
       }
       for (const track of stream.getAudioTracks()) watch(track);
 
-      sessionKey = String(Date.now());
+      sessionKey = meetingId;
       chunkIndex = 0;
       chunkStartOffsetMs = 0;
       interrupted = false;
@@ -678,4 +684,20 @@ async function toBase64(blob: Blob): Promise<string> {
  */
 function messageOf(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.length > 0 ? error.message : fallback;
+}
+
+/**
+ * The meeting this capture belongs to, refused rather than invented.
+ *
+ * Same function as `audio.ts` and `desktop.ts`, restated here for the reason
+ * they each restate it: every chunk id this recorder mints is
+ * `${meetingId}-${index}`, and a generated fallback would put this recorder
+ * back to keying its ids on the clock — unaddressed, and the identity guard
+ * `assertSegmentsAddressed`/`foreignSegmentSessions` inert against it — the one
+ * time a caller forgets to pass it. `controller.ts` always does.
+ */
+function requireSessionId(options: CaptureOptions | undefined): string {
+  const id = options?.sessionId ?? "";
+  if (id === "") throw new Error(NO_SESSION_ID);
+  return id;
 }

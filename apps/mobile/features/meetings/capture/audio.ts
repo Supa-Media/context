@@ -8,7 +8,7 @@ import {
 import type { AudioMode, AudioRecorder, RecordingStatus } from "expo-audio";
 import { Directory, File, Paths } from "expo-file-system";
 import type { TranscriptSegment } from "../protocol";
-import type { MeetingRecorder, RecorderError, RecorderState } from "./index";
+import type { CaptureOptions, MeetingRecorder, RecorderError, RecorderState } from "./index";
 import { MAX_INFLIGHT_CHUNKS, SEGMENT_MS, chunkIdFor } from "./segments";
 import { resolveTranscriber } from "./transcriber";
 
@@ -102,12 +102,28 @@ import { resolveTranscriber } from "./transcriber";
  * failure is the chunk **id** — an id is spent when there is something to send
  * with it, so a run of bad chunks does not leave gaps in the sequence.
  *
- * `chunkId` is `<session>-<index>`, derived from when the session began and how
- * many chunks preceded this one. Nothing about it is random and nothing about
- * it is read at send time, because the protocol's idempotency rests on it: "the
- * same segment id replaces", so a client re-sending a batch after a timeout it
- * never saw the response to must produce the same ids it produced the first
- * time.
+ * `chunkId` is `<meetingId>-<index>`, derived from the meeting this capture was
+ * started for and how many chunks preceded this one — the controller's own
+ * `newMeetingId()`, the same value `desktop.ts` requires of the shell, never a
+ * clock reading. Nothing about it is random and nothing about it is read at
+ * send time, because the protocol's idempotency rests on it: "the same segment
+ * id replaces", so a client re-sending a batch after a timeout it never saw the
+ * response to must produce the same ids it produced the first time.
+ *
+ * **It used to be `String(Date.now())`, and that was a second bug wearing the
+ * first one's clothes.** A chunk id keyed on the clock is still stable across a
+ * re-send of *the same* chunk, which is all the idempotency test above ever
+ * checked — but it names no meeting, so `segmentSessionId` in the contract reads
+ * every one of this recorder's ids as unaddressed rather than misaddressed, and
+ * the identity guard `assertSegmentsAddressed`/`foreignSegmentSessions` waves
+ * every phone segment through whatever it is being folded into. That guard is
+ * exactly what caught the desktop's leaked-subscription bug
+ * (`docs/decisions/meetings.md`, "A segment id names its own meeting, and both
+ * sides check it") — inert here for the same reason it was inert nowhere else.
+ * Minting the id from `options.sessionId` is what makes it live on this
+ * recorder too, and it costs nothing: the id was already a function of "which
+ * capture session is this" once per meeting, and the meeting's own id is a
+ * more truthful answer to that question than a timestamp ever was.
  *
  * ────────────────────────────────────────────────────────────────────────────
  * 5. THE AUDIO NEVER LEAVES THIS FILE.
@@ -253,6 +269,17 @@ const INTERRUPTED =
 const NO_TRANSCRIBER =
   "This meeting is not being transcribed — the app could not reach transcription. Your notes still land in your bucket.";
 
+/**
+ * The controller always supplies `sessionId`, so this is a caller bug rather
+ * than a real-world situation — the same posture `desktop.ts`'s
+ * `requireSessionId` takes, and for the same reason: a generated fallback here
+ * is how the identity guard above goes back to being inert, quietly, on the day
+ * somebody forgets to pass it. Loud on the first press beats quiet until the
+ * next contamination review.
+ */
+const NO_SESSION_ID =
+  "This meeting had no id to record against, so nothing was captured. Start the meeting again.";
+
 const CHUNK_FAILED =
   "A few seconds of audio could not be transcribed. Capture is still running.";
 
@@ -300,6 +327,7 @@ export const CAPTURE_MESSAGES: readonly string[] = Object.freeze([
   CHUNK_FAILED,
   SEND_BACKLOG,
   NO_SPEECH,
+  NO_SESSION_ID,
 ]);
 
 /** Where `expo-audio` writes: `<caches>/ExpoAudio/recording-<uuid>.m4a`. */
@@ -767,12 +795,13 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
       return state;
     },
 
-    async start() {
+    async start(options?: CaptureOptions) {
       if (state === "recording") return;
+      const meetingId = requireSessionId(options);
       if (!(await ensurePermission())) throw new Error(MIC_DENIED);
       await configureAudioSession(platform);
 
-      sessionKey = String(Date.now());
+      sessionKey = meetingId;
       chunkIndex = 0;
       chunkStartOffsetMs = 0;
       interrupted = false;
@@ -924,6 +953,23 @@ function discard(uri: string): void {
     // build cannot make a handle for. Nothing to do, and nothing worth telling
     // somebody in a meeting about.
   }
+}
+
+/**
+ * The meeting this capture belongs to, refused rather than invented.
+ *
+ * `desktop.ts`'s own function, restated here rather than shared: every chunk id
+ * this recorder mints is `${meetingId}-${index}`, and a generated fallback —
+ * `Math.random()`, a fresh id, the very `Date.now()` this replaced — would put
+ * this recorder back where it started, silently, the one time a caller forgets
+ * to pass it. `controller.ts` always does; a caller that does not has a bug and
+ * it should be loud on the first press rather than discovered in a
+ * contamination review.
+ */
+function requireSessionId(options: CaptureOptions | undefined): string {
+  const id = options?.sessionId ?? "";
+  if (id === "") throw new Error(NO_SESSION_ID);
+  return id;
 }
 
 /**

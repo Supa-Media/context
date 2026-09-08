@@ -866,6 +866,39 @@ export async function runMeetingChecks(check) {
     stillFinalizing.state === "finalizing" && stillFinalizing.notePath === null
   );
 
+  /*
+    5a. A REFUSAL IS BUILT FROM CONSTANTS AND IDENTIFIERS, NEVER FROM AN
+    UNBOUNDED FIELD A CLIENT SENT.
+
+    `assertEventWithinLimits` only validates the shape a *known* event type
+    carries, so an unrecognised `event.type` reaches `foldLog`'s own refusal
+    exactly as a client sent it — up to the whole request body, before this
+    fix. `apps/desktop`'s queue logs the gateway's own sentence to a file on
+    disk, so an unbounded value here was an unbounded write to a customer's
+    log, once per retried batch, not merely a long HTTP response.
+  */
+  const hugeEventType = "x".repeat(50_000);
+  const unbounded = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: { id: SESSION_FORGED, events: [{ type: hugeEventType }] },
+  });
+  check(
+    "an event of a type this contract has never heard of is still refused",
+    unbounded.status === 400 && unbounded.body?.error === "meeting_invalid"
+  );
+  check(
+    "and the refusal names it, bounded, rather than echoing the whole thing back",
+    typeof unbounded.body?.error_description === "string" &&
+      unbounded.body.error_description.length < 200 &&
+      !unbounded.body.error_description.includes(hugeEventType)
+  );
+  const notEvenAString = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: { id: SESSION_FORGED, events: [{ type: 12345 }] },
+  });
+  check(
+    "a non-string type is described by its typeof, not thrown over",
+    notEvenAString.status === 400 && notEvenAString.body?.error_description?.includes("number")
+  );
+
   /* ------------------------------ 6. finalize ------------------------------ */
 
   /*

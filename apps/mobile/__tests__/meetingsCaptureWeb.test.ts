@@ -4,6 +4,7 @@
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import type { MeetingRecorder, RecorderError } from "../features/meetings/capture";
+import { segmentSessionId } from "../features/meetings/protocol";
 import { CAPTURE_MESSAGES, audioRecorder } from "../features/meetings/capture/audio.web";
 import {
   MAX_INFLIGHT_CHUNKS,
@@ -252,6 +253,10 @@ function removeGetUserMedia(): void {
 
 const SESSION_START = Date.parse("2026-09-05T18:00:00.000Z");
 
+/** See `meetingsCapture.test.ts` for why this is shaped like a real meeting id. */
+const TEST_MEETING_ID = `mtg_${"a".repeat(20)}`;
+const OTHER_MEETING_ID = `mtg_${"b".repeat(20)}`;
+
 interface Harness {
   recorder: MeetingRecorder;
   transcriber: FakeTranscriber;
@@ -263,6 +268,12 @@ interface HarnessOptions {
   hang?: boolean;
   /** Install nothing at all, so `resolveTranscriber()` answers `null`. */
   noTranscriber?: boolean;
+  /**
+   * The meeting id `recorder.start()` is given when a test calls it with no
+   * arguments. See `meetingsCapture.test.ts`'s harness for why this exists and
+   * what `""` means.
+   */
+  sessionId?: string;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -281,6 +292,10 @@ function harness(options: HarnessOptions = {}): Harness {
   const recorder = audioRecorder("web");
   const errors: RecorderError[] = [];
   recorder.onError((error) => errors.push(error));
+  const sessionId = options.sessionId ?? TEST_MEETING_ID;
+  const realStart = recorder.start.bind(recorder);
+  recorder.start = (given) =>
+    realStart(sessionId === "" ? given : { sessionId, systemAudio: false, ...given });
   return { recorder, transcriber, errors };
 }
 
@@ -421,21 +436,55 @@ describe("rotation", () => {
   });
 
   test("a chunk keeps its id when the same chunk is produced twice", async () => {
-    const first = harness();
+    const first = harness({ sessionId: TEST_MEETING_ID });
     await first.recorder.start();
     await advance(SEGMENT_MS);
     await first.recorder.stop();
 
-    jest.setSystemTime(SESSION_START);
+    jest.setSystemTime(SESSION_START + 60_000);
     instances = [];
-    const second = harness();
+    const second = harness({ sessionId: TEST_MEETING_ID });
     await second.recorder.start();
     await advance(SEGMENT_MS);
     await second.recorder.stop();
 
     expect(first.transcriber.chunks[0].chunkId).toBe(second.transcriber.chunks[0].chunkId);
-    expect(first.transcriber.chunks[0].chunkId).toBe(chunkIdFor(String(SESSION_START), 0));
-    expect(chunkIdFor(String(SESSION_START), 0)).not.toBe(chunkIdFor(String(SESSION_START), 1));
+    expect(first.transcriber.chunks[0].chunkId).toBe(chunkIdFor(TEST_MEETING_ID, 0));
+    expect(chunkIdFor(TEST_MEETING_ID, 0)).not.toBe(chunkIdFor(TEST_MEETING_ID, 1));
+  });
+
+  /**
+   * THE ASYMMETRY AN ADVERSARIAL REVIEW OF #353 NAMED, CLOSED ON THE BROWSER
+   * RECORDER TOO. See `meetingsCapture.test.ts`'s sibling test for the full
+   * argument: a chunk id keyed on the clock names no meeting, which is what let
+   * `foreignSegmentSessions` — checked by the gateway and by this app's own
+   * controller — go on waving every browser-recorded segment through
+   * regardless of which meeting it actually belonged to.
+   */
+  test("a chunk's id names the meeting it was recorded for, and only that one", async () => {
+    const mine = harness({ sessionId: TEST_MEETING_ID });
+    await mine.recorder.start();
+    await advance(SEGMENT_MS);
+    await mine.recorder.stop();
+
+    expect(segmentSessionId(mine.transcriber.chunks[0].chunkId)).toBe(TEST_MEETING_ID);
+
+    jest.setSystemTime(SESSION_START);
+    instances = [];
+    const theirs = harness({ sessionId: OTHER_MEETING_ID });
+    await theirs.recorder.start();
+    await advance(SEGMENT_MS);
+    await theirs.recorder.stop();
+
+    expect(theirs.transcriber.chunks[0].chunkId).not.toBe(mine.transcriber.chunks[0].chunkId);
+    expect(segmentSessionId(theirs.transcriber.chunks[0].chunkId)).toBe(OTHER_MEETING_ID);
+  });
+
+  test("a recorder given no meeting id refuses to start, rather than inventing one", async () => {
+    const { recorder } = harness({ sessionId: "" });
+    await expect(recorder.start()).rejects.toThrow(/no id to record against/i);
+    expect(instances).toEqual([]);
+    expect(recorder.state).toBe("idle");
   });
 });
 
@@ -706,7 +755,7 @@ describe("the send is off the device's critical path", () => {
 
     expect(transcriber.chunks).toHaveLength(1);
     expect(transcriber.chunks[0].offsetMs).toBe(SEGMENT_MS);
-    expect(transcriber.chunks[0].chunkId).toBe(chunkIdFor(String(SESSION_START), 0));
+    expect(transcriber.chunks[0].chunkId).toBe(chunkIdFor(TEST_MEETING_ID, 0));
 
     void recorder.stop();
     await advance(0);
