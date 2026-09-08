@@ -222,6 +222,10 @@ export const RESUME_RETRY_MS = 2_000;
  */
 export const MEETING_AUDIO_MODE: Partial<AudioMode> = Object.freeze({
   allowsRecording: true,
+  // The iOS runtime switch that keeps an active recorder alive when the
+  // screen locks or the app backgrounds. The app config's `audio` background
+  // mode is the native capability; this is the per-session opt-in.
+  allowsBackgroundRecording: true,
   playsInSilentMode: true,
   shouldPlayInBackground: true,
   interruptionMode: "mixWithOthers",
@@ -231,23 +235,7 @@ export const MEETING_AUDIO_MODE: Partial<AudioMode> = Object.freeze({
 export const FOREGROUND_AUDIO_MODE: Partial<AudioMode> = Object.freeze({
   ...MEETING_AUDIO_MODE,
   shouldPlayInBackground: false,
-});
-
-/**
- * The same session, plus the one field that is Android's own switch.
- *
- * Not exported, and not merged into `MEETING_AUDIO_MODE` itself: that object
- * is what `meetingsCapture.test.ts` pins byte-for-byte against what iOS reads,
- * and `allowsBackgroundRecording` is documented `@platform android` in
- * `expo-audio`'s own types for a reason — on iOS it gates whether a recorder
- * pauses when the app backgrounds, a decision this file has never touched and
- * is not touching now. On Android it is what tells `expo-audio`'s native
- * module to start its own bundled foreground service — see point 6 in the
- * header comment.
- */
-const ANDROID_MEETING_AUDIO_MODE: Partial<AudioMode> = Object.freeze({
-  ...MEETING_AUDIO_MODE,
-  allowsBackgroundRecording: true,
+  allowsBackgroundRecording: false,
 });
 
 /**
@@ -925,12 +913,13 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
  * shape costs nothing to keep for Android too, if `setAudioModeAsync` ever
  * throws there for a reason of its own.
  *
- * `platform` picks which mode is the first attempt: Android's carries
- * `allowsBackgroundRecording`, iOS's does not, and this is the one place that
- * difference is applied — see `ANDROID_MEETING_AUDIO_MODE`.
+ * Both native platforms use the same background-capable session. The runtime
+ * switch is required on iOS as well as Android; the app config's native
+ * background mode remains the separate build-time capability declaration.
  */
 async function configureAudioSession(platform: "ios" | "android"): Promise<void> {
-  const mode = platform === "android" ? ANDROID_MEETING_AUDIO_MODE : MEETING_AUDIO_MODE;
+  void platform;
+  const mode = MEETING_AUDIO_MODE;
   try {
     await setAudioModeAsync(mode);
   } catch {

@@ -485,6 +485,7 @@ describe("the audio session", () => {
 
     expect(mockAudioModes[0]).toEqual({
       allowsRecording: true,
+      allowsBackgroundRecording: true,
       playsInSilentMode: true,
       shouldPlayInBackground: true,
       interruptionMode: "mixWithOthers",
@@ -1062,17 +1063,12 @@ describe("android", () => {
   });
 
   /**
-   * The one field Android needs that iOS must never see.
-   *
-   * `allowsBackgroundRecording` is what tells `expo-audio`'s native module to
-   * start its bundled foreground service (`AudioRecorder.kt`'s
-   * `useForegroundService`, set from this field — see `AudioModule.kt`). It is
-   * documented `@platform android` on iOS's own side too, where it gates
-   * something this app has never touched: whether a recorder pauses on
-   * backgrounding. Mixing it into the object iOS reads would be a behaviour
-   * change nobody asked for, so it has to land only on Android's session.
+   * The runtime switch is required on both native platforms. On iOS it keeps
+   * the recorder alive through screen lock/backgrounding; on Android it also
+   * opts into expo-audio's foreground service. The app config's
+   * `UIBackgroundModes: ["audio"]` is the separate iOS build-time capability.
    */
-  test("android's audio session asks for the foreground service; ios's is untouched", async () => {
+  test("both native audio sessions request background recording", async () => {
     const ios = harness({ platform: "ios" });
     await ios.recorder.start();
     const android = harness({ platform: "android" });
@@ -1082,8 +1078,7 @@ describe("android", () => {
     const androidMode = mockAudioModes[1];
 
     expect(iosMode).toEqual(MEETING_AUDIO_MODE);
-    expect((iosMode as { allowsBackgroundRecording?: boolean }).allowsBackgroundRecording).toBeUndefined();
-    expect(androidMode).toEqual({ ...MEETING_AUDIO_MODE, allowsBackgroundRecording: true });
+    expect(androidMode).toEqual(MEETING_AUDIO_MODE);
 
     await ios.recorder.stop();
     await android.recorder.stop();
