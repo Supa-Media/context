@@ -1013,6 +1013,86 @@ describe("rotating the encryption key", () => {
   });
 
   /**
+   * AND THE THIRD ROW SHAPE, THE ONE A **CALENDAR** CONNECT ACTUALLY WRITES.
+   *
+   * Added by the adversarial review of the Calendar PR, for the reason the
+   * Chat test above gives and one more: this row is written by
+   * `applyCalendarConnectionBinding` itself rather than inserted by hand, so
+   * it also proves the mutation this product ships puts the token pair where
+   * the walk looks — top-level on the shared row — rather than somewhere a
+   * clean-looking rotation pass would report success without visiting.
+   *
+   * Sabotage, measured: adding `if (row.products.includes("calendar")) continue;`
+   * to `listGoogleConnectionRekeyCandidates` — the shape of any "skip the
+   * rows this pass does not own" refactor — fails exactly this test, on the
+   * rekeyed count, and leaves every other test in this file green, both the
+   * Gmail and Chat rotation proofs above included.
+   */
+  test("a Calendar-only connection's token rotates too — the token is the account's, not the product's", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    const originalKey = process.env.STORAGE_SECRET_ENCRYPTION_KEY!;
+    const context = { workspaceId: workspaceId as string };
+
+    await t.mutation(internal.functions.calendarConnect.applyCalendarConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      address: "person@example.invalid",
+      googleAccountId: "google-account-cal",
+      scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
+      encryptedRefreshToken: await encryptSecret("calendar-refresh-abc", requireKeyset(), context),
+      encryptedAccessToken: await encryptSecret("calendar-access-xyz", requireKeyset(), context),
+      accessTokenExpiresAt: Date.now() + 3_600_000,
+    });
+
+    const before = await t.run((ctx) => ctx.db.query("googleConnections").unique());
+    expect(before!.gmail).toBeUndefined();
+    expect(before!.chat).toBeUndefined();
+    expect(before!.products).toEqual(["calendar"]);
+    expect(before!.encryptedRefreshToken.startsWith("v2:k1:")).toBe(true);
+
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: originalKey,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: "k1",
+      },
+      async () => {
+        expect(await t.action(internal.functions.storage.rekeyStorageBindings, {})).toMatchObject({
+          googleConnectionsRekeyed: 2, // refresh AND the cached access token
+          googleConnectionsSkipped: 0,
+          googleConnectionsUnreadable: 0,
+        });
+        const row = await t.run((ctx) => ctx.db.query("googleConnections").unique());
+        expect(row!.encryptedRefreshToken.startsWith("v2:k2:")).toBe(true);
+        expect(row!.encryptedAccessToken!.startsWith("v2:k2:")).toBe(true);
+      },
+    );
+
+    // The old key gone from the environment entirely — the state a finished
+    // rotation leaves — and the calendar connection still opens.
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: undefined,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: undefined,
+      },
+      async () => {
+        const row = await t.run((ctx) => ctx.db.query("googleConnections").unique());
+        expect(await decryptSecret(row!.encryptedRefreshToken, requireKeyset(), context)).toBe(
+          "calendar-refresh-abc",
+        );
+        expect(await decryptSecret(row!.encryptedAccessToken!, requireKeyset(), context)).toBe(
+          "calendar-access-xyz",
+        );
+        // The calendar product's own cursor state rode along untouched.
+        expect(row!.calendar?.scopes).toEqual(["https://www.googleapis.com/auth/calendar.events.readonly"]);
+      },
+    );
+  });
+
+  /**
    * A disconnected connection's refresh token is the empty string
    * (`disconnectGoogleConnection` clears it, never deletes the row), and
    * empty is never a rekey candidate — there is nothing there to re-seal, and

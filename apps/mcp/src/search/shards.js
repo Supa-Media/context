@@ -46,9 +46,17 @@
 
 import { indexableText } from "../encryption.js";
 import { buildTermFilter } from "./filter.js";
-import { addDoc, emptyIndex, readComms, removeDocsForNote, serializeComms } from "./indexer.js";
-import { subDocumentsFor } from "./commsIndex.js";
 import {
+  addDoc,
+  emptyIndex,
+  readComms,
+  removeDoc,
+  removeDocsForNote,
+  serializeComms,
+} from "./indexer.js";
+import { indexVolumeOf, isBundledIndexPath, subDocumentsFor } from "./commsIndex.js";
+import {
+  NOTE_INDEX_CHAR_CAP,
   createSearchBudget,
   defaultIsIndexable,
   exceedsUtf8Bytes,
@@ -125,6 +133,37 @@ export const MANIFEST_PARSE_BYTE_CAP = 4_000_000;
 export const MAX_SHARD_COUNT = 64;
 /** Notes per shard the sizing aims at, from CONTRACT.md's pinned formula. */
 const NOTES_PER_SHARD = 300;
+/**
+ * What a shard is aimed at, in `indexVolumeOf`'s unit — and it is the note
+ * rule's own number, written the other way round.
+ *
+ * `NOTES_PER_SHARD * NOTE_INDEX_CHAR_CAP` is exactly the volume
+ * `ceil(noteCount / 300)` was already assuming each shard would hold, so on a
+ * bucket of ordinary notes the two rules agree by construction and the volume
+ * rule can never ask for more shards than counting notes already did. What it
+ * can do is ask for more when a *bundled* note carries more than one note's
+ * worth of documents, which is the whole defect this exists to fix.
+ *
+ * Measured: 300 ordinary notes at the per-note cap serialize to 1.50MB, and
+ * 400 channel-day sub-documents of the same volume to 1.50MB, against a 2MB
+ * `SHARD_PARSE_BYTE_CAP`. See `apps/mcp/test/bench/shardSizing.mjs`.
+ */
+const INDEX_VOLUME_PER_SHARD = NOTES_PER_SHARD * NOTE_INDEX_CHAR_CAP;
+/**
+ * The volume a shard may be **filled to** by placement, as against the volume
+ * sizing *aims* at above.
+ *
+ * Two numbers, because a note is atomic: sizing spreads the corpus evenly, and
+ * then one indivisible bundled note lands on top of a shard already at its
+ * target. `INDEX_VOLUME_PER_SHARD` is ~1.5MB serialized and this is ~2MB — the
+ * cap itself — so the gap between them is exactly the room one more note has
+ * to land in before the write is refused.
+ *
+ * Both scale with `shardByteCap` (see `syncShardedIndex`), so a test driving a
+ * small cap drives the sizing and the placement with it rather than needing a
+ * second injection point that could disagree with the first.
+ */
+const SHARD_VOLUME_CAP = 800_000;
 
 const FIELD_ORDER = ["title", "headings", "tags", "body"];
 const LIST_PAGE_LIMIT = 1000;
@@ -322,17 +361,162 @@ export function shardOf(path, shardCount) {
 }
 
 /**
- * `clamp(ceil(noteCount / 300), 1, 64)` — CONTRACT.md's pinned sizing, chosen
- * once when the manifest is created and never changed for the life of the
- * index. A one-note brain gets one shard, so a small context pays v1's costs
- * plus one manifest read.
+ * `clamp(max(ceil(noteCount / 300), ceil(volume / 614400)), 1, 64)` — the
+ * index sized by **what it has to hold** rather than by how many objects the
+ * listing found.
+ *
+ * The note term is CONTRACT.md's original formula, unchanged: a one-note brain
+ * gets one shard, so a small context pays v1's costs plus one manifest read.
+ * The volume term is the fix for the defect this whole rule exists to answer —
+ * a channel-day note is one listed object contributing hundreds of documents,
+ * so counting objects sized a 25MB mailbox at one shard, that shard's
+ * serialized body passed `SHARD_PARSE_BYTE_CAP`, its write was refused on
+ * every pass, and the **whole context** — the ordinary notes beside the mail
+ * included — had no index at all.
+ *
+ * The two terms cannot disagree on a bucket of ordinary notes, by
+ * construction: `indexVolumeOf` caps an ordinary note's contribution at
+ * `NOTE_INDEX_CHAR_CAP` and `INDEX_VOLUME_PER_SHARD` is
+ * `NOTES_PER_SHARD * NOTE_INDEX_CHAR_CAP`, so the volume term is at most the
+ * note term and every existing index keeps the shard count it has. It is only
+ * a bundled note — one whose documents are a set — that can make the volume
+ * term win, which is exactly the case counting notes could not see.
+ *
+ * The count is a **floor**, in two directions that both fall the safe way: a
+ * truncated listing under-counts both terms, and the placement below may raise
+ * the count further when a note it must place fits in no existing shard.
  *
  * @param {number} noteCount
+ * @param {number} [volume] total `indexVolumeOf` over the listed notes
+ * @param {number} [volumePerShard] injectable with `shardByteCap`; production
+ *   never passes it
  * @returns {number}
  */
-export function chooseShardCount(noteCount) {
-  if (!Number.isFinite(noteCount) || noteCount <= 0) return 1;
-  return Math.min(MAX_SHARD_COUNT, Math.max(1, Math.ceil(noteCount / NOTES_PER_SHARD)));
+export function chooseShardCount(noteCount, volume = 0, volumePerShard = INDEX_VOLUME_PER_SHARD) {
+  const perShard = Number.isFinite(volumePerShard) && volumePerShard > 0
+    ? volumePerShard
+    : INDEX_VOLUME_PER_SHARD;
+  const byNotes = Number.isFinite(noteCount) && noteCount > 0 ? Math.ceil(noteCount / NOTES_PER_SHARD) : 1;
+  const byVolume = Number.isFinite(volume) && volume > 0 ? Math.ceil(volume / perShard) : 1;
+  return Math.min(MAX_SHARD_COUNT, Math.max(1, byNotes, byVolume));
+}
+
+/**
+ * Extend a manifest to `count` shards in place, and answer whether it moved.
+ *
+ * **Growth only, and it re-indexes nothing.** Every doc the manifest already
+ * records keeps the shard it is in — the sync routes a doc to its *claimed*
+ * shard before it consults `shardOf` (see `claimedShard`), and that claim is
+ * what makes a shard count that changes over the life of an index affordable
+ * at all. So a brain that has been converged for a year and then connects a
+ * mailbox grows from one shard to fifty without re-fetching a single one of
+ * its existing notes, and without its search going dark while it does: the
+ * shards it already had are still the shards its answers come from.
+ *
+ * Shrinking is still "delete the manifest", exactly as CONTRACT.md says, and
+ * for the same reason: down is the direction that re-routes docs that are
+ * already placed.
+ *
+ * @param {ReturnType<typeof emptyManifest>} manifest
+ * @param {number} count
+ * @returns {boolean}
+ */
+function growManifest(manifest, count) {
+  const target = Math.min(MAX_SHARD_COUNT, Math.max(manifest.shardCount, Math.floor(count) || 1));
+  if (target <= manifest.shardCount) return false;
+  for (let id = manifest.shardCount; id < target; id += 1) {
+    manifest.docsByShard.push(new Map());
+    manifest.stats.push(emptyStats());
+    // `null` is "no filter", which every reader treats as "read this shard" —
+    // the only direction a filter is allowed to be wrong in (`filter.js`).
+    manifest.filters.push(null);
+  }
+  manifest.shardCount = target;
+  return true;
+}
+
+/**
+ * Which shard each note the manifest has no claim for should be indexed into.
+ *
+ * An ordinary note answers `shardOf(path, shardCount)`, exactly as it always
+ * has. **A bundled note does not**, and that asymmetry is the second half of
+ * the sizing fix rather than an inconsistency:
+ *
+ * - Sizing spreads the corpus evenly *on average*. Hashing places it with the
+ *   variance of a hash, and a channel-day note is not divisible — 90 day notes
+ *   over 50 shards puts three of them in one shard often enough to be certain,
+ *   and three days of a heavy mailbox is past the cap however well the index
+ *   was sized. Counting volume and then throwing dice with it would have fixed
+ *   the arithmetic and kept the failure.
+ * - So a bundled note goes to the **least loaded shard that can still take
+ *   it**, and where no shard can, the index grows by one so that there is one.
+ *   That is the same rule as the sizing, applied one note at a time and with
+ *   the real loads rather than an average — and it terminates at
+ *   `MAX_SHARD_COUNT`, after which a note is placed in the least loaded shard
+ *   there is and the write may be refused or shed.
+ *
+ * Load is measured in `indexVolumeOf`'s unit over the notes each shard already
+ * claims, read off the **listing** rather than off the shards, which is what
+ * makes this cost no store op: the manifest says which notes are where, and
+ * the listing says how big each of them is.
+ *
+ * Deterministic, because a rebuild must reproduce an index rather than merely
+ * resemble one: the bundled notes are placed in a fixed order (largest first,
+ * ties by path) and the ordinary ones by a pure hash of their path.
+ *
+ * @param {ReturnType<typeof emptyManifest>} manifest mutated by growth
+ * @param {Map<string, {version: string, uploaded: string|null, size: number|null}>} entries
+ * @param {Map<string, number>} claimedShard
+ * @param {number} volumeCap what one shard may be filled to
+ * @returns {Map<string, number>} path → shard id, for unclaimed paths only
+ */
+function placeUnclaimed(manifest, entries, claimedShard, volumeCap) {
+  const load = manifest.stats.map(() => 0);
+  for (const [path, id] of claimedShard) {
+    if (id < load.length) load[id] += indexVolumeOf(path, entries.get(path)?.size);
+  }
+
+  const bundled = [];
+  const ordinary = [];
+  for (const [path, listed] of entries) {
+    if (claimedShard.has(path)) continue;
+    if (isBundledIndexPath(path)) bundled.push([path, indexVolumeOf(path, listed.size)]);
+    else ordinary.push(path);
+  }
+  bundled.sort((a, b) => (b[1] - a[1]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+
+  const placed = new Map();
+  for (const [path, volume] of bundled) {
+    let best = -1;
+    for (let id = 0; id < manifest.shardCount; id += 1) {
+      if (load[id] + volume > volumeCap) continue;
+      if (best === -1 || load[id] < load[best]) best = id;
+    }
+    if (best === -1 && growManifest(manifest, manifest.shardCount + 1)) {
+      load.push(0);
+      best = manifest.shardCount - 1;
+    }
+    if (best === -1) {
+      // `MAX_SHARD_COUNT` reached and every shard is full: the least loaded
+      // one, so the overflow lands where it does least damage, and the write
+      // that refuses or sheds it says so rather than this pretending it fits.
+      best = 0;
+      for (let id = 1; id < manifest.shardCount; id += 1) if (load[id] < load[best]) best = id;
+    }
+    load[best] += volume;
+    placed.set(path, best);
+  }
+
+  // After the growth above, so an ordinary note is hashed against the count
+  // the index actually ends this pass with rather than the one it started it
+  // with — two different answers for the same note in the same pass is a
+  // document indexed twice.
+  for (const path of ordinary) {
+    const id = shardOf(path, manifest.shardCount);
+    load[id] += indexVolumeOf(path, entries.get(path)?.size);
+    placed.set(path, id);
+  }
+  return placed;
 }
 
 /**
@@ -365,7 +549,7 @@ export function emptyShard() {
 
 /** Zeroed per-shard bookkeeping. */
 function emptyStats() {
-  return { docCount: 0, lenTotals: { title: 0, headings: 0, tags: 0, body: 0 } };
+  return { docCount: 0, lenTotals: { title: 0, headings: 0, tags: 0, body: 0 }, shed: 0 };
 }
 
 /**
@@ -504,6 +688,13 @@ export function serializeManifest(manifest) {
         tags: entry.lenTotals.tags,
         body: entry.lenTotals.body,
       },
+      // Notes this shard holds only part of, so an answer can say the index is
+      // knowingly incomplete for a reason that will not resolve by waiting.
+      // Absent on every manifest written before shedding existed and read back
+      // as 0 there, which is what those indexes mean; an older gateway reading
+      // this one ignores a key it does not validate, so the field travels in
+      // both directions without a version bump.
+      shed: entry.shed || 0,
     })),
     filters: manifest.filters.map((filter) => (typeof filter === "string" ? filter : null)),
     freshness: {
@@ -535,12 +726,30 @@ export function serializeDocmap(manifest) {
 
 /**
  * `docsByShard` out of a stored docmap, or `null` for anything that does not
- * fully validate — including a docmap for a different shard count, which is a
- * docmap for a different index.
+ * fully validate.
  *
  * A `null` here is not a failure: the sync proceeds with an empty diff, which
  * makes every listed note look stale and re-indexes the bucket. Slow, correct,
  * and self-healing, which is the direction every unknown in this file falls.
+ *
+ * **A docmap written under FEWER shards than the manifest now has is accepted
+ * and padded, and that is load-bearing rather than lenient.** Since the shard
+ * count can grow (`growManifest`), the two objects can legitimately disagree:
+ * the manifest is written first and the docmap only if an op is left for it,
+ * so a grown index whose docmap write was skipped stores a docmap for the
+ * count it had a moment ago. Refusing it would re-index the entire bucket on
+ * the next pass — rebuilding shards from empty, so an index that was answering
+ * goes dark for as many passes as the backfill needs — to learn something it
+ * already knew.
+ *
+ * And padding is exactly right rather than merely cheap: the count only ever
+ * grows, and growth **moves nothing**, so every claim in the shorter docmap is
+ * still true of the shard it names, and the shards it does not name are the
+ * new ones, which hold nothing. An empty map is what "holds nothing" is.
+ *
+ * A docmap for MORE shards than the manifest is still refused. That is a
+ * manifest that shrank or a rolled-back deployment, and there the claims
+ * really are about a different index.
  *
  * @param {string} text
  * @param {number} shardCount
@@ -559,8 +768,12 @@ export function parseDocmap(text, shardCount, byteCap = MANIFEST_PARSE_BYTE_CAP)
   }
   if (!isPlainObject(parsed)) return null;
   if (parsed.version !== 3) return null;
-  if (parsed.shardCount !== shardCount) return null;
-  return readDocsByShard(parsed.docsByShard, shardCount);
+  if (!Number.isInteger(parsed.shardCount) || parsed.shardCount < 1) return null;
+  if (parsed.shardCount > shardCount) return null;
+  const docsByShard = readDocsByShard(parsed.docsByShard, parsed.shardCount);
+  if (!docsByShard) return null;
+  while (docsByShard.length < shardCount) docsByShard.push(new Map());
+  return docsByShard;
 }
 
 /** `docsByShard` as `Map`s, or `null`. Shared by both stored dialects. */
@@ -656,6 +869,13 @@ export function parseManifest(text, byteCap = MANIFEST_PARSE_BYTE_CAP) {
     if (!isPlainObject(entry) || !isFiniteNumber(entry.docCount)) return null;
     if (!isPlainObject(entry.lenTotals)) return null;
     if (!FIELD_ORDER.every((field) => isFiniteNumber(entry.lenTotals[field]))) return null;
+    // Absent is 0 — every manifest written before shedding existed. Present
+    // and not a number is refused like any other malformed field: a stat that
+    // parses as `undefined` would be reported as "nothing is shed", which
+    // is the one direction this number must not be wrong in.
+    if (entry.shed !== undefined && (!isFiniteNumber(entry.shed) || entry.shed < 0)) {
+      return null;
+    }
     stats.push({
       docCount: entry.docCount,
       lenTotals: {
@@ -664,6 +884,7 @@ export function parseManifest(text, byteCap = MANIFEST_PARSE_BYTE_CAP) {
         tags: entry.lenTotals.tags,
         body: entry.lenTotals.body,
       },
+      shed: entry.shed === undefined ? 0 : Math.floor(entry.shed),
     });
   }
 
@@ -728,6 +949,14 @@ export function serializeShard(shard) {
       notePath: doc.notePath ?? path,
       anchor: doc.anchor ?? null,
       comms: serializeComms(doc.comms),
+      // Written **only when true**, unlike the three above. Those are absent
+      // on pre-change shards and default to "an ordinary note", so writing
+      // them explicitly says which docs are sub-documents without inferring it
+      // from a `#` in a key. This one is the rare exception rather than a
+      // property of every doc — a note the shard could not hold whole — and a
+      // `"shed":false` on every entry of every shard would be a standing cost
+      // in the customer's bucket for a fact that is almost never true.
+      ...(doc.shed ? { shed: true } : {}),
     },
   ]);
   const indexByPath = new Map(docs.map(([path], position) => [path, position]));
@@ -765,6 +994,7 @@ function readDocEntry(entry) {
   // every other field here gets.
   if (doc.notePath !== undefined && typeof doc.notePath !== "string") return null;
   if (doc.anchor !== undefined && doc.anchor !== null && typeof doc.anchor !== "string") return null;
+  if (doc.shed !== undefined && typeof doc.shed !== "boolean") return null;
   const { ok: commsOk, comms } = readComms(doc.comms);
   if (!commsOk) return null;
   return {
@@ -784,6 +1014,10 @@ function readDocEntry(entry) {
       notePath: typeof doc.notePath === "string" ? doc.notePath : path,
       anchor: typeof doc.anchor === "string" ? doc.anchor : null,
       comms,
+      // Survives a reload, so a shard the pass never touched still reports the
+      // notes it holds only part of. A fresh `addDoc` never sets it, which is
+      // what makes a note re-indexed in full stop being counted.
+      shed: doc.shed === true,
     },
   };
 }
@@ -1109,6 +1343,13 @@ async function listNoteObjects(store, budget, reserve, isIndexable) {
       // Whether that token is the backend's own etag, which decides what the
       // backfill may store back — see the comment at the `addDoc` call.
       fromEtag: typeof object.etag === "string" && object.etag.length > 0,
+      // What the sizing and the placement are computed from, and the reason
+      // both cost no store op: R2, S3 and Dropbox all report a size on a
+      // listing, so how much index a note will take up is knowable before
+      // anything has been read. `null` where a backend does not, which
+      // `indexVolumeOf` reads as one note's worth — the assumption counting
+      // notes was already making.
+      size: Number.isFinite(object.size) ? object.size : null,
     });
   };
 
@@ -1165,10 +1406,16 @@ async function listNoteObjects(store, budget, reserve, isIndexable) {
 /** Per-shard bookkeeping, derived from the shard's own docs and nothing else. */
 function statsOfShard(shard) {
   const lenTotals = { title: 0, headings: 0, tags: 0, body: 0 };
+  // Notes this shard holds only part of — see `shedToFit`. Counted off the
+  // docs themselves rather than remembered from the pass that shed them, so
+  // it cannot outlive the condition: a note re-indexed in full arrives with
+  // no shed doc among its fresh ones and stops being counted here.
+  const shed = new Set();
   for (const doc of shard.docs.values()) {
     for (const field of FIELD_ORDER) lenTotals[field] += doc.len[field];
+    if (doc.shed) shed.add(doc.notePath ?? null);
   }
-  return { docCount: shard.docs.size, lenTotals };
+  return { docCount: shard.docs.size, lenTotals, shed: shed.size };
 }
 
 /**
@@ -1200,8 +1447,171 @@ function sameVersions(a, b) {
 
 function sameStats(a, b) {
   return (
-    a.docCount === b.docCount && FIELD_ORDER.every((field) => a.lenTotals[field] === b.lenTotals[field])
+    a.docCount === b.docCount &&
+    (a.shed || 0) === (b.shed || 0) &&
+    FIELD_ORDER.every((field) => a.lenTotals[field] === b.lenTotals[field])
   );
+}
+
+/**
+ * How much of a shard's serialized body one doc is responsible for, near
+ * enough to choose which to drop.
+ *
+ * Token counts, because the postings are what a shard is mostly made of: a
+ * doc's entry in `docs` is a constant few hundred bytes, and its share of
+ * `terms` is one interned posting per distinct term in it. Measured across two
+ * corpora that differ as much as any two do — 300 ordinary notes at the
+ * per-note cap and 400 channel-day sub-documents — 18 to 26 bytes per token,
+ * which is close enough to rank contributors and nowhere near close enough to
+ * predict a size, which is why the loop below re-serializes rather than
+ * projecting.
+ */
+function docWeight(key, doc) {
+  return key.length + doc.len.title + doc.len.headings + doc.len.tags + doc.len.body;
+}
+
+/**
+ * Notes one over-cap shard may shed before it is given up on and refused.
+ *
+ * One note per round with a full re-serialization between them, so this is
+ * also the CPU bound on the pathological path: at most eight `JSON.stringify`
+ * of a shard already at its cap, on top of the one every touched shard pays
+ * anyway. A shard needing more than this reports `oversizedShards` rather than
+ * grinding, and the pass after it starts from the same place.
+ */
+const SHED_ROUNDS = 8;
+
+/**
+ * Make an over-cap shard writable by dropping documents from the notes that
+ * are largest in it, and answer the body to write plus the notes that lost
+ * something.
+ *
+ * **The rule this exists for: a shard that cannot be written must not take the
+ * rest of the context's search down with it.** Before this, a body over
+ * `SHARD_PARSE_BYTE_CAP` was simply not written — correct in isolation, since
+ * storing an object this module refuses to read is a rebuild loop — but it
+ * meant every ordinary note that happened to share the shard with a heavy
+ * bundled note was unsearchable too, and the reported reason was `pending`,
+ * which reads as "still catching up" rather than "this will never fit".
+ *
+ * So the shard sheds instead: the note contributing most to it gives up
+ * documents until the body fits, largest note first. What that costs is stated
+ * rather than hidden:
+ *
+ * - **A shed note is never dropped, only reduced.** It keeps at least one
+ *   document, and where it is down to its last one that document is *blanked*
+ *   — kept, carrying its title and no body — rather than removed. Removing it
+ *   would take the note out of `docVersionsOf`, which makes it stale on every
+ *   later listing, re-fetched forever: the non-convergence
+ *   `subDocumentsFor`'s own fallback exists to avoid, and a burn loop on the
+ *   customer's own budget. Reduced, the note converges and simply answers
+ *   fewer queries than it did.
+ * - **So an ordinary note in an over-cap shard loses its body from the index**,
+ *   which is a real recall loss and the honest trade: the alternative — the one
+ *   this replaced — was every note in the shard losing everything, permanently,
+ *   while `pending` told the caller to keep running passes that could never
+ *   land. One note quietly answering less is worse than nothing and much
+ *   better than four.
+ * - **The loss is recorded** — the surviving docs carry `shed`,
+ *   `statsOfShard` counts the notes, and the manifest carries the count to the
+ *   query side, so an answer knows the index is incomplete for a reason that
+ *   will not resolve by waiting.
+ * - **It is sticky until the note changes or the index is rebuilt.** Sizing
+ *   and placement run before this on every pass, so a shard reaching here has
+ *   already failed to be given room; re-trying the full set each pass would
+ *   spend the same reads to shed it again. A rebuild re-derives it from the
+ *   files with whatever room the index has then, which is the disposable
+ *   derivative's own answer to a state it does not like.
+ *
+ * @param {ReturnType<typeof emptyShard>} shard mutated
+ * @param {string} body the serialization already found to be over the cap
+ * @param {number} cap
+ * @returns {{body: string|null, shed: string[]}} `body: null` where no amount
+ *   of shedding got it under the cap
+ */
+function shedToFit(shard, body, cap) {
+  const shed = new Set();
+  let current = body;
+  for (let round = 0; round < SHED_ROUNDS; round += 1) {
+    if (!exceedsUtf8Bytes(current, cap)) return { body: current, shed: [...shed] };
+
+    /** @type {Map<string, {keys: string[], weight: number}>} */
+    const byNote = new Map();
+    for (const [key, doc] of shard.docs) {
+      const notePath = doc.notePath ?? key;
+      const entry = byNote.get(notePath) || { keys: [], weight: 0 };
+      entry.keys.push(key);
+      entry.weight += docWeight(key, doc);
+      byNote.set(notePath, entry);
+    }
+
+    // **One note per round, and the body re-serialized between them.** The
+    // obvious cheaper loop — take the overshoot as a fraction of the shard's
+    // weight and shed that fraction in one sweep — was measured and sheds far
+    // too much: weight is tokens, and a note of two hundred *unique* terms
+    // costs several times the bytes per token of one written in the shard's
+    // existing vocabulary, so the share taken from the notes that are cheap
+    // per token is paid by notes that never needed to lose anything. Measured
+    // on a fixture of one dense note beside six ordinary ones: the sweep
+    // blanked all seven where shedding the dense one alone was enough.
+    // Re-measuring after each note is the only estimate of a serialized size
+    // that is not a model of one, and its cost is bounded — a shard reaching
+    // here is already over its cap, and there are at most `SHED_ROUNDS` of it.
+    let heaviest = null;
+    for (const [notePath, entry] of byNote) {
+      // Nothing left to give: one document, already blank.
+      if (entry.keys.length === 1 && !hasBody(shard.docs.get(entry.keys[0]))) continue;
+      if (
+        heaviest === null ||
+        entry.weight > heaviest[1].weight ||
+        (entry.weight === heaviest[1].weight && notePath < heaviest[0])
+      ) {
+        heaviest = [notePath, entry];
+      }
+    }
+    // Every note is down to a blank document and the shard still will not fit.
+    // Refused, exactly as it was before shedding existed, and counted so the
+    // caller is told which of the two things happened.
+    if (heaviest === null) return { body: null, shed: [...shed] };
+
+    const [notePath, entry] = heaviest;
+    // Everything after the first document goes; the first is blanked where it
+    // is all that is left. Which documents survive is the shard's own stored
+    // order — the order they were indexed in for a note this pass wrote, and
+    // sorted-by-key order for one it read back. A bounded subset either way,
+    // and not a promise about which messages it holds.
+    while (entry.keys.length > 1) removeDoc(shard, entry.keys.pop());
+    const key = entry.keys[0];
+    const doc = shard.docs.get(key);
+    if (hasBody(doc)) {
+      removeDoc(shard, key);
+      addDoc(shard, key, {
+        etag: doc.etag,
+        uploaded: doc.uploaded,
+        // Blanked, not removed: the note keeps an entry — and with it the
+        // version `docVersionsOf` records — so the diff converges instead of
+        // re-fetching it on every pass forever.
+        content: "",
+        notePath: doc.notePath,
+        anchor: doc.anchor,
+        comms: doc.comms,
+      });
+      shard.docs.get(key).rank = NEUTRAL_RANK;
+    }
+    // The survivors carry the flag, so the fact travels in the shard's own
+    // bytes rather than in a memory of this pass.
+    for (const surviving of entry.keys) shard.docs.get(surviving).shed = true;
+    shed.add(notePath);
+    current = serializeShard(shard);
+  }
+  return exceedsUtf8Bytes(current, cap)
+    ? { body: null, shed: [...shed] }
+    : { body: current, shed: [...shed] };
+}
+
+/** Whether a doc still has anything but its title to give up. */
+function hasBody(doc) {
+  return doc.len.headings + doc.len.tags + doc.len.body > 0;
 }
 
 function pushInto(map, key, value) {
@@ -1278,6 +1688,12 @@ function auditCandidates(manifest, busy, nowMs, count = AUDIT_SHARDS_PER_SYNC) {
  * Three ways a pass can be incomplete, and each is reported rather than
  * papered over:
  *
+ * - `shed` / `oversizedShards` — the corpus not fitting the index rather
+ *   than the pass running out of room in it. A bundled note whose documents a
+ *   shard could not hold whole is shed down to what fits and named here; a
+ *   shard with nothing to shed is not written and counted here. Separate from
+ *   `pending` because they ask for opposite things: `pending` says run again,
+ *   and these say another pass will find exactly the same wall.
  * - `pending` — stale notes this pass did not land. That includes the notes of
  *   a shard whose serialized form crossed `SHARD_PARSE_BYTE_CAP`, which is a
  *   deliberate difference from v1's `pending` (v1 reports what the *answer*
@@ -1308,6 +1724,8 @@ function auditCandidates(manifest, busy, nowMs, count = AUDIT_SHARDS_PER_SYNC) {
  *   manifestOverflow: boolean,
  *   changed: boolean,
  *   committed: boolean,
+ *   shed: string[],
+ *   oversizedShards: number,
  *   spent: number,
  * }>} `shards` holds only what this pass loaded or built.
  */
@@ -1405,6 +1823,8 @@ export async function syncShardedIndex(
       removed: [],
       changed: false,
       committed: false,
+      shed: [],
+      oversizedShards: 0,
       spent: ops.spent,
     };
   }
@@ -1485,21 +1905,56 @@ export async function syncShardedIndex(
   // it to record that nothing happened is a standing cost on a converged
   // bucket.
   let docmapChanged = migratingFromV2;
+
+  // What this bucket's notes will take up in the index, from the listing
+  // alone — the number the sizing was missing. See `indexVolumeOf`: an
+  // ordinary note is worth at most one per-note window however large the file
+  // is, and a channel-day note is worth its bytes, because its documents are
+  // a set rather than one.
+  let listedVolume = 0;
+  for (const [path, listed] of entries) listedVolume += indexVolumeOf(path, listed.size);
+  // Both derived from the one injected cap, so a test that shrinks the shard
+  // shrinks the sizing with it and the two cannot be driven apart — the same
+  // argument `shardByteCap` itself makes about read and write.
+  const capScale = shardCap / SHARD_PARSE_BYTE_CAP;
+  const volumePerShard = Math.max(1, Math.floor(INDEX_VOLUME_PER_SHARD * capScale));
+  const volumeCap = Math.max(1, Math.floor(SHARD_VOLUME_CAP * capScale));
+  const needed = chooseShardCount(entries.size, listedVolume, volumePerShard);
+
   if (!manifest) {
-    manifest = emptyManifest(chooseShardCount(entries.size));
+    manifest = emptyManifest(needed);
     manifestChanged = true;
+  } else if (growManifest(manifest, needed)) {
+    // An index that outgrew its shard count, grown in place. Both objects have
+    // to record it: the manifest because it is the query surface, and the
+    // docmap because it carries the shard count too and a docmap for the old
+    // count is refused by the next pass — which is safe (everything looks
+    // stale) and would re-index the whole bucket to learn what it knew.
+    manifestChanged = true;
+    docmapChanged = true;
   }
-  const { shardCount } = manifest;
 
   // Where the manifest claims each doc lives. A doc is re-indexed into the
   // shard that already holds it rather than into the one `shardOf` names today:
   // the two agree for every manifest this module wrote, and where a
   // hand-written one disagrees, honouring the claim keeps one copy of the doc
-  // instead of creating a second that nothing ever removes.
+  // instead of creating a second that nothing ever removes. It is also what
+  // makes growth free — an existing doc never moves.
   const claimedShard = new Map();
-  for (let id = 0; id < shardCount; id += 1) {
+  for (let id = 0; id < manifest.shardCount; id += 1) {
     for (const path of manifest.docsByShard[id].keys()) claimedShard.set(path, id);
   }
+
+  // ...and where everything else goes. `placeUnclaimed` may grow the manifest
+  // again, one shard at a time, for a bundled note that fits in none of the
+  // ones there are — so `shardCount` is read only after it has run.
+  const countBeforePlacement = manifest.shardCount;
+  const placement = placeUnclaimed(manifest, entries, claimedShard, volumeCap);
+  if (manifest.shardCount > countBeforePlacement) {
+    manifestChanged = true;
+    docmapChanged = true;
+  }
+  const { shardCount } = manifest;
 
   /**
    * What this pass moved, for whoever else derives from the same notes.
@@ -1523,7 +1978,7 @@ export async function syncShardedIndex(
   const staleByShard = new Map();
   const queued = new Set();
   for (const [path, listed] of entries) {
-    const id = claimedShard.has(path) ? claimedShard.get(path) : shardOf(path, shardCount);
+    const id = claimedShard.has(path) ? claimedShard.get(path) : placement.get(path);
     if (manifest.docsByShard[id].get(path) === listed.version) continue;
     pushInto(staleByShard, id, [path, listed]);
     queued.add(path);
@@ -1561,6 +2016,18 @@ export async function syncShardedIndex(
     filtering.add(id);
   }
   let pending = 0;
+  /**
+   * Notes this pass could not index in full, and shards it could not write at
+   * all — the two ways the index is knowingly incomplete for a reason no
+   * amount of further passes will resolve, as against `pending`, which is
+   * "not reached yet".
+   *
+   * Reported rather than folded into `pending`, because the two ask for
+   * opposite things from a caller: `pending` says run another pass, and these
+   * say the corpus does not fit the index it has and somebody has to know.
+   */
+  const shedPaths = new Set();
+  let oversizedShards = 0;
 
   for (const id of [...ids, ...auditing, ...filtering]) {
     const stale = staleByShard.get(id) || [];
@@ -1745,28 +2212,34 @@ export async function syncShardedIndex(
       if (wave.length < Math.min(BACKFILL_CONCURRENCY, work.length - start)) break;
     }
 
-    const nextVersions = docVersionsOf(shard);
-    const nextStats = statsOfShard(shard);
     // A shard whose object could not be parsed differs from its bookkeeping
     // even when nothing was fetched, and that difference is what gets it
     // rewritten rather than left unreadable behind a manifest that vouches for
     // it.
     if (
-      !sameVersions(manifest.docsByShard[id], nextVersions) ||
-      !sameStats(manifest.stats[id], nextStats)
+      !sameVersions(manifest.docsByShard[id], docVersionsOf(shard)) ||
+      !sameStats(manifest.stats[id], statsOfShard(shard))
     ) {
       touched = true;
     }
 
     let persisted = !touched;
     if (touched) {
-      const body = serializeShard(shard);
-      // **Never write an object this same module will refuse to read.** A shard
-      // past the cap is not written at all: the last readable one survives, the
-      // query in hand is still answered from what was built, and `pending` says
-      // the shard plateaued. Storing it would cost the readable predecessor and
-      // buy an object no read ever parses.
-      if (!exceedsUtf8Bytes(body, shardCap)) {
+      let body = serializeShard(shard);
+      // **Never write an object this same module will refuse to read**, and
+      // never let one shard's refusal be the whole context's. A body past the
+      // cap sheds documents from the bundled notes that made it that big until
+      // it fits — see `shedToFit`, which argues what that costs and why the
+      // ordinary notes sharing the shard are what it is protecting. A shard
+      // with nothing to shed is still not written at all: the last readable
+      // one survives, the query in hand is answered from what was built, and
+      // `pending` says the shard plateaued.
+      if (exceedsUtf8Bytes(body, shardCap)) {
+        const reduced = shedToFit(shard, body, shardCap);
+        body = reduced.body;
+        for (const path of reduced.shed) shedPaths.add(path);
+      }
+      if (body !== null) {
         // `remaining` is peeked before the op is charged, so a refused shard
         // does not take a subrequest from the caller's snippet reads.
         if (ops.take(callerReserve + MANIFEST_WRITE_RESERVE)) {
@@ -1776,12 +2249,17 @@ export async function syncShardedIndex(
           await store.put(shardKey(id), body);
           persisted = true;
         }
+      } else {
+        oversizedShards += 1;
       }
     }
 
     if (persisted && touched) {
-      manifest.docsByShard[id] = nextVersions;
-      manifest.stats[id] = nextStats;
+      // Read **after** any shedding, so what the manifest records is what the
+      // stored object holds rather than what this pass built before the cap
+      // was applied to it.
+      manifest.docsByShard[id] = docVersionsOf(shard);
+      manifest.stats[id] = statsOfShard(shard);
       docmapChanged = true;
       // Rebuilt from the shard that was just stored, in the same step that
       // records its documents — never from the shard the manifest used to
@@ -1928,6 +2406,14 @@ export async function syncShardedIndex(
     // same notes.
     changed: docmapChanged,
     committed: docmapChanged && committed,
+    // Notes this pass stored only part of, and shards it could not store at
+    // all. Both are `pending`'s opposite — work that finished badly rather
+    // than work not yet done — and neither is ever printed to a caller: a
+    // count over the whole bucket, private notes included, is the subtraction
+    // the census is owner-only to prevent. They are for the operator's trace
+    // and for a caller deciding whether this index can hold this bucket.
+    shed: [...shedPaths],
+    oversizedShards,
     spent: ops.spent,
   };
 }

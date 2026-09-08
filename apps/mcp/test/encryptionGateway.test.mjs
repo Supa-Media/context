@@ -973,11 +973,25 @@ export async function runEncryptionGatewayChecks(check) {
       textOf(locked.write).includes("encrypted") && !textOf(locked.write).includes("written:"),
     );
     check("...and the stored object is byte-for-byte what it was", lockedAfter === lockedBefore);
+    /*
+      The guess is now refused rather than ignored, which is the stronger of
+      the two answers and the one that matters here: an argument this gateway
+      never advertised does not reach a handler at all, so the passphrase a
+      client volunteered is never read, never compared, and never logged. The
+      refusal names the property and never its value — asserted, because a
+      validator that echoed what it rejected would put a secret a client
+      guessed into a tool result and from there into a transcript.
+    */
     check(
-      "...and supplying a passphrase to the gateway changes nothing at all",
-      textOf(locked.writeWithPassphrase) === textOf(locked.write),
+      "...and supplying a passphrase to the gateway is refused before the tool runs",
+      textOf(locked.writeWithPassphrase).includes('unknown argument "passphrase"') &&
+        !textOf(locked.writeWithPassphrase).includes(PASSPHRASE_VECTOR.passphrase),
     );
-    check("...on the read path either", textOf(locked.readWithPassphrase) === textOf(locked.read));
+    check(
+      "...on the read path either",
+      textOf(locked.readWithPassphrase).includes('unknown argument "passphrase"') &&
+        !textOf(locked.readWithPassphrase).includes(PASSPHRASE_VECTOR.passphrase),
+    );
     check(
       "...and `set_encryption` cannot turn the lock off with one",
       !textOf(locked.decrypt).includes("decrypted:"),
@@ -1141,23 +1155,29 @@ export async function runEncryptionGatewayChecks(check) {
 
       `context` is the *routing* argument and it is re-decided in the context
       it points at, which the two checks above ask. This asks the rest of the
-      surface. `inputSchema` declares `properties: {}` with
-      `additionalProperties: false`, but this gateway does not validate a
-      tool's arguments against its own schema — `callTool` hands the object
-      straight through — so "this tool takes no arguments" is a statement
-      about the advertisement, not about the door. What makes it true of the
-      door is that `toolExportEncryptionKeys(store, scope)` and
-      `toolRotateEncryptionKeys(store, scope)` are the only two tool functions
-      in `index.js` that do not take `args` at all, and so have nothing to
-      read an attacker-supplied id out of.
+      surface, and the answer changed: the door now enforces the
+      advertisement.
 
-      Asserted rather than read off the signature, because a later refactor
-      that added `args` "for symmetry" is a one-line change with no test
-      standing in front of it. Every name these two routes could plausibly
-      grow — the control plane's own field names included,
-      `startEncryptionRotation` and `completeEncryptionRotation` among them —
-      carrying context B's identifiers, on a connection that owns A and
-      nothing else:
+      It did not used to. `inputSchema` declared `properties: {}` with
+      `additionalProperties: false` and nothing validated a call against it —
+      `callTool` handed the object straight through — so "this tool takes no
+      arguments" was a statement about the advertisement, and what made it
+      true of the door was an accident of two signatures:
+      `toolExportEncryptionKeys(store, scope)` and
+      `toolRotateEncryptionKeys(store, scope)` are the only two tool functions
+      in `index.js` that do not take `args` at all, and so had nothing to read
+      an attacker-supplied id out of. A later refactor adding `args` "for
+      symmetry" would have been a one-line change with nothing standing in
+      front of it, and every other tool in the gateway had the same gap with
+      no such accident protecting it.
+
+      `src/toolArguments.js` is what stands there now. Every name these two
+      routes could plausibly grow — the control plane's own field names
+      included, `startEncryptionRotation` and `completeEncryptionRotation`
+      among them — carrying context B's identifiers, on a connection that owns
+      A and nothing else, is refused before the handler runs, before the
+      privacy manifest is read, and before anything is looked up about the
+      workspace those identifiers name.
     */
     const SMUGGLED = {
       workspaceId: "ws_enc_b",
@@ -1177,12 +1197,35 @@ export async function runEncryptionGatewayChecks(check) {
     const smuggledExport = await call(OWNER_A, "export_encryption_keys", { ...SMUGGLED });
     const smuggledText = textOf(smuggledExport);
     check(
-      "an owner naming ANOTHER context in every argument but `context` still exports only their own",
-      !smuggledExport?.isError &&
-        smuggledText.includes(KEY_A) &&
+      "an owner naming ANOTHER context in every argument but `context` exports nothing at all",
+      smuggledExport?.isError === true &&
+        smuggledText.startsWith("unknown argument") &&
+        // The one property these two do advertise is the addressing argument,
+        // folded in centrally by `toolDefinitions`; the refusal names it and
+        // nothing else, which is the whole of what they take.
+        smuggledText.includes("permitted here: context") &&
+        !smuggledText.includes(KEY_A) &&
         !smuggledText.includes(KEY_B) &&
-        !smuggledText.includes("ws_enc_b") &&
-        JSON.parse(smuggledText.slice(smuggledText.indexOf("{"))).workspace_id === "ws_enc_a",
+        !smuggledText.includes("ws_enc_a") &&
+        !smuggledText.includes("ws_enc_b"),
+    );
+    /*
+      And identically whether the workspace those identifiers name exists or
+      not. A refusal that varied would be an existence oracle over a global
+      namespace assembled out of the guard that closed the smuggling — which
+      is why the check happens before anything is looked up rather than after
+      the lookup fails.
+    */
+    const smuggledAtNobody = await call(OWNER_A, "export_encryption_keys", {
+      ...SMUGGLED,
+      workspaceId: "ws_no_such_workspace_anywhere",
+      workspace: "@no-such-context-anywhere",
+      workspace_id: "ws_no_such_workspace_anywhere",
+      slug: "no-such-context-anywhere",
+    });
+    check(
+      "...and identically whether the context it names exists or not",
+      textOf(smuggledAtNobody) === smuggledText,
     );
 
     check(
@@ -1238,9 +1281,13 @@ export async function runEncryptionGatewayChecks(check) {
     /*
       THE RATE LIMIT, ASKED THE WAY AN ATTACKER WOULD.
 
-      Three exports have happened above — the first one, the
-      smuggled-argument one, and the log-capture one — so exactly two of the
-      six attempts below may be accepted. The
+      Two exports have happened above — the first one and the log-capture one
+      — so exactly three of the six attempts below may be accepted. It used to
+      be three exports and two acceptances: the smuggled-argument call counted
+      against the budget because it reached the handler. It no longer reaches
+      one, and a call refused for its arguments deliberately spends nothing —
+      the budget exists to bound how often key material can actually leave,
+      and a call that was never going to produce any has nothing to bound. The
       limit is five per rolling day per CONTEXT,
       and the three ways a caller would try to get around it are all the same
       question — is the counter attached to the session, or to the context?
@@ -1281,7 +1328,7 @@ export async function runEncryptionGatewayChecks(check) {
     }
     check(
       "exactly five exports per context per window are accepted, counting the ones already spent",
-      accepted === 2 && refused === 4,
+      accepted === 3 && refused === 3,
     );
     check(
       "a second client, a second grant and a reconnection all meet the same counter",
@@ -1423,19 +1470,32 @@ export async function runEncryptionGatewayChecks(check) {
       hand a caller a rotation of somebody else's workspace key — the one
       operation in this file that can strand every note in a bucket.
 
-      Two things have to hold: B's bytes are untouched, and this call rotated
-      A rather than reporting on B. The generation labels are the tell —
-      A is on k3 by now, B has never rotated and is still on k1, so a call
-      that answered about B would say "k1 → k2".
+      Three things have to hold now. B's bytes are untouched, which was always
+      the point. Nothing rotated at all, because the call is refused for its
+      arguments before `callTool` runs — the strongest of the available
+      answers, and the reason the third real rotation this block used to
+      perform never happens: A stays on k3. And the refusal names only the
+      caller's own property, disclosing neither key nor workspace id.
+
+      A does not rotate is the load-bearing half, and it is asserted by the
+      bytes rather than by the message: a completed rotation re-wraps every
+      encrypted note in the bucket, so an unchanged ciphertext for A's own
+      secret is what says the rotation did not run.
     */
     const bStolenBefore = readB("1-projects/stolen.md");
     const bOwnBefore = readB("1-projects/own.md");
+    const aSecretBefore = readA("1-projects/vault/private-secret.md");
     const smuggledRotate = await call(OWNER_A, "rotate_encryption_keys", { ...SMUGGLED });
     check(
-      "a rotation named at another context in every argument rotates this one, and leaves that one's bytes alone",
-      !smuggledRotate?.isError &&
-        /rotation complete: k3 → k4/.test(textOf(smuggledRotate)) &&
+      "a rotation named at another context in every argument rotates nothing, and leaves that one's bytes alone",
+      smuggledRotate?.isError === true &&
+        textOf(smuggledRotate).startsWith("unknown argument") &&
+        textOf(smuggledRotate).includes("permitted here: context") &&
+        !/rotation complete/.test(textOf(smuggledRotate)) &&
+        !textOf(smuggledRotate).includes(KEY_A) &&
         !textOf(smuggledRotate).includes(KEY_B) &&
+        !textOf(smuggledRotate).includes("ws_enc_b") &&
+        readA("1-projects/vault/private-secret.md") === aSecretBefore &&
         readB("1-projects/stolen.md") === bStolenBefore &&
         readB("1-projects/own.md") === bOwnBefore,
     );

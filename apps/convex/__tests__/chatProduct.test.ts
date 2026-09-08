@@ -1300,3 +1300,54 @@ describe("the PKCE verifier never leaves this server, and the request asks for n
     for (const scope of scopes) expect(scope).not.toMatch(/\.(send|write|create|delete|modify)$/);
   });
 });
+
+/**
+ * The third consumer of one shared attempt table, closed after Chat landed.
+ *
+ * `googleConnectAttempts` is shared by Gmail's, Calendar's and Chat's connect
+ * flows, and each `complete*` used to look an attempt up by `hashedState`
+ * alone. Not attacker-reachable — the state is the person's own secret and
+ * the workspace still comes from the attempt, never from the caller — but a
+ * state parked by one flow and answered by another attaches a product to the
+ * row out of a consent screen that never mentioned it, which is a claim about
+ * what somebody agreed to rather than a sync that merely fails. All three
+ * consumers now check `products`, identically.
+ */
+describe("an attempt is for the products it parked (chat's third of the rule)", () => {
+  test("a Gmail-only attempt cannot be completed as a Chat connect", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const state = await parkedAttempt(t, workspaceId, owner, { products: ["gmail"] });
+
+    const consumed = await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
+      hashedState: await hashToken(state),
+      code: "code-1",
+    });
+    expect(consumed).toBeNull();
+    // Spent either way — a refused attempt is still a burned one.
+    expect(await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect())).toHaveLength(0);
+    expect(await t.run((ctx) => ctx.db.query("googleConnections").collect())).toHaveLength(0);
+  });
+
+  test("a Calendar-only attempt cannot be completed as a Chat connect either", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const state = await parkedAttempt(t, workspaceId, owner, { products: ["calendar"] });
+
+    expect(
+      await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
+        hashedState: await hashToken(state),
+        code: "code-1",
+      }),
+    ).toBeNull();
+  });
+
+  test("an attempt naming chat alongside another product is still answerable here — the union case is not collateral damage", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const state = await parkedAttempt(t, workspaceId, owner, { products: ["gmail", "chat"] });
+
+    const consumed = await t.mutation(internal.functions.chatProduct.consumeChatAttemptAndExchange, {
+      hashedState: await hashToken(state),
+      code: "code-1",
+    });
+    expect(consumed?.workspaceId).toBe(workspaceId);
+  });
+});

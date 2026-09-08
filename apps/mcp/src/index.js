@@ -76,6 +76,7 @@ import {
   writesAnywhere,
 } from "./session.js";
 import { enforceOrigin, isTransportPath } from "./origin.js";
+import { validateArguments } from "./toolArguments.js";
 import {
   handleMeetings,
   isMeetingPath,
@@ -1744,6 +1745,75 @@ const PRIVATE_TIER_ONLY_TOOLS = new Set([
 ]);
 
 /**
+ * The subset of those whose *existence* is masked, not merely refused.
+ *
+ * `list_plugins` and `set_encryption` answer a lower tier with a plain
+ * "permission denied": what they do is not itself sensitive. A workspace's key
+ * material is, so `callTool` answers these two with the byte-identical
+ * `unknown tool: …` an invented name gets.
+ *
+ * It is a named set rather than two inline `scope !== "private"` lines because
+ * argument validation has to consult the same list. A masked tool must not be
+ * validated: telling a team-tier caller that `export_encryption_keys` does not
+ * take an argument named `x`, when the same caller sending no arguments is
+ * told the tool does not exist, is an existence oracle built out of the guard
+ * that was supposed to close one. Two readers, one list, no drift.
+ */
+const EXISTENCE_MASKED_TOOLS = new Set(["export_encryption_keys", "rotate_encryption_keys"]);
+
+/** Is this tool's existence hidden from a caller at this visibility tier? */
+function toolExistenceMasked(name, scope) {
+  return EXISTENCE_MASKED_TOOLS.has(name) && scope !== "private";
+}
+
+/**
+ * Names still dispatched that `tools/list` no longer advertises.
+ *
+ * `archive_chat` is what `save_context` shipped as, and a client holding a
+ * cached tool list still calls it. It is a live dispatch path, so it needs a
+ * schema like every other one — the alias resolves to the schema of the tool
+ * it became, which is exactly what such a client is sending arguments for.
+ * A dispatch case with neither a definition nor an entry here fails the
+ * census test rather than quietly skipping validation.
+ */
+const TOOL_NAME_ALIASES = new Map([["archive_chat", "save_context"]]);
+
+/**
+ * The advertised `inputSchema` for a tool name, alias resolved.
+ *
+ * Built once per isolate. `toolDefinitions()` rebuilds twenty-nine objects
+ * from constants on every call and is already called twice per tool call; a
+ * third rebuild to answer "what did we advertise for this name" would be pure
+ * waste on the hot path. Nothing mutates the result, and every input to it is
+ * a module constant, so there is nothing to invalidate.
+ */
+let advertisedSchemas = null;
+function advertisedSchemaFor(name) {
+  if (!advertisedSchemas) {
+    advertisedSchemas = new Map(toolDefinitions().map((tool) => [tool.name, tool.inputSchema]));
+  }
+  return advertisedSchemas.get(TOOL_NAME_ALIASES.get(name) ?? name) ?? null;
+}
+
+/**
+ * The refusal for a tool call whose arguments are not what we advertised, or
+ * `null` if the call may proceed.
+ *
+ * Two ways this deliberately says nothing. A name with no advertised schema —
+ * an invented one, a typo — is passed through untouched so `callTool` answers
+ * it with `unknown tool: …`; validating it first would let a caller tell a
+ * misspelled tool from a real one by the shape of the complaint. And a tool
+ * masked from this tier is passed through for the same reason, one step
+ * stronger: see `EXISTENCE_MASKED_TOOLS`.
+ */
+function toolArgumentRefusal(name, args, scope) {
+  if (toolExistenceMasked(name, scope)) return null;
+  const schema = advertisedSchemaFor(name);
+  if (!schema) return null;
+  return validateArguments(schema, args);
+}
+
+/**
  * The tools this connection may see.
  *
  * A read-only grant is not shown tools it cannot use. Advertising them and then
@@ -1870,6 +1940,30 @@ async function callToolForSession(params, store, session) {
             "Reconnect the client with write access from the Context dashboard."
     );
   }
+  /*
+    The arguments have to match the schema this gateway advertised for this
+    tool, and this is the one place that is checked.
+
+    Ordering, which is the whole of the security argument here:
+
+      - After routing, because the addressing argument is `context`'s alone to
+        interpret and it is refused above on its own terms — a `context` of
+        `123` is "no access to that context", not a type complaint, and
+        `crossContext.test.mjs` pins that. By the time we get here `context` is
+        absent or a usable string, so validating the *supplied* object (the one
+        that still has it) checks it like any other advertised property.
+      - After the scope gate, so a read-only connection is told it holds a
+        read-only grant rather than being handed the argument shape of a tool
+        its own `tools/list` does not show it.
+      - Before `callTool`, which is the point: no handler, no privacy manifest
+        read, no storage round trip happens for a call whose arguments we never
+        said we would take. That is also why an argument naming another
+        workspace is refused identically whether that workspace exists or not
+        — nothing is looked up to answer it.
+  */
+  const badArguments = toolArgumentRefusal(params?.name, supplied, target.scope);
+  if (badArguments) return toolError(badArguments);
+
   const result = await callTool(params?.name, args, targetStore, target.scope);
   // Counted after the call, against the context the call was *routed to* —
   // `target`, never `session`. A cross-context call is activity in the brain it
@@ -2620,10 +2714,10 @@ async function callTool(name, args, store, scope) {
     // a narrower thing to advertise, so this refuses as though the tool were
     // never registered at all.
     case "export_encryption_keys":
-      if (scope !== "private") return toolError(`unknown tool: ${name}`);
+      if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
       return toolExportEncryptionKeys(store, scope);
     case "rotate_encryption_keys":
-      if (scope !== "private") return toolError(`unknown tool: ${name}`);
+      if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
       return toolRotateEncryptionKeys(store, scope);
     case "set_folder_visibility":
       return toolSetFolderVisibility(store, scope, args);
@@ -2972,9 +3066,9 @@ async function surveyContext(store, scope, rules, overrides) {
  * mailbox they cannot see (`canSee` already ran, in `surveyContext`, before
  * `notes` reaches here).
  *
- * Ordered `channel-day`, `meeting`, `session` — a fixed order rather than by
- * recency, so the section's shape does not reflow between calls when two
- * kinds are close in time.
+ * Ordered `channel-day`, `calendar-day`, `meeting`, `session` — a fixed order
+ * rather than by recency, so the section's shape does not reflow between
+ * calls when two kinds are close in time.
  */
 function summarizeCaptured(notes) {
   const groups = new Map();
@@ -2984,7 +3078,7 @@ function summarizeCaptured(notes) {
     if (!groups.has(kind)) groups.set(kind, []);
     groups.get(kind).push(note);
   }
-  const order = ["channel-day", "meeting", "session"];
+  const order = ["channel-day", "calendar-day", "meeting", "session"];
   const summaries = [];
   for (const kind of order) {
     const group = groups.get(kind);
@@ -3016,6 +3110,7 @@ function capturedKindLabel(kind, notes) {
   const plural = count === 1 ? "" : "s";
   if (kind === "meeting") return `${count} meeting${plural}`;
   if (kind === "session") return `${count} saved session${plural}`;
+  if (kind === "calendar-day") return `${count} calendar day${plural}`;
   const allEmail = notes.every((note) => note.key.startsWith("0-inbox/email/"));
   if (allEmail) return `${count} mail day${plural}`;
   const allChat = notes.every(
@@ -4253,6 +4348,292 @@ async function toolExportEncryptionKeys(store, scope) {
 const ROTATION_BATCH_CAP = 200;
 
 /**
+ * Where a rotation walk's own progress is tracked. Plumbing: never listed,
+ * never a note, never containing key material — only generation ids and note
+ * paths already visible in every affected note's own frontmatter.
+ *
+ * **This is bookkeeping about the walk, not a second copy of the truth.** A
+ * note's own frontmatter is still the only thing that says which generation
+ * it is on; this file only says where the walk last looked, so a lost,
+ * corrupted, or concurrently-overwritten copy costs a wider re-scan next
+ * call, never a wrong answer. See `loadRotationProgress`.
+ *
+ * Lives in the customer's own bucket rather than the control plane, matching
+ * `EXPORT_RATE_LIMIT_PATH` elsewhere in this file: the control plane holds
+ * the one fact that has to be authoritative across every Worker isolate —
+ * whether a rotation may be *started* (`workspaceKeyRotations`) — and the
+ * walk's own progress over the customer's content lives beside that content,
+ * on the same "one source of truth" the bucket already is for "which notes
+ * exist".
+ */
+const ROTATION_PROGRESS_PATH = ".context/rotation-progress.json";
+
+/**
+ * How many object reads ONE call may spend on the retry sweeps — the
+ * known-stuck set, and the behind-the-cursor catch-up — before it carries the
+ * rest to the next call.
+ *
+ * The forward sweep is the only one that advances the cursor, so it is the
+ * only one that makes a large bucket finish. Without a separate, smaller
+ * budget for the two retry sweeps, a call whose `stuckKeys` list had grown
+ * past `ROTATION_BATCH_CAP` would spend its entire budget re-reading notes it
+ * already knows about and never move the cursor at all — a starvation with
+ * exactly the shape of the bug this whole file exists to remove.
+ */
+const ROTATION_RETRY_READ_CAP = Math.floor(ROTATION_BATCH_CAP / 4);
+
+/**
+ * How many "this walk wrote it" keys the progress file will carry. Four
+ * batches, so a caller hammering the tool inside one second of a backend's
+ * listing resolution still has its own recent output recognised, and the file
+ * still cannot grow with the bucket.
+ */
+const ROTATION_WROTE_CAP = ROTATION_BATCH_CAP * 4;
+
+/** First `limit` distinct entries, in order. */
+function dedupeCapped(values, limit) {
+  const out = [];
+  const seen = new Set();
+  for (const value of values) {
+    if (seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * Was this object definitely written before the boundary the last call
+ * confirmed through? Compared at WHOLE-SECOND resolution, with a strict `<`,
+ * because that is the resolution the timestamp actually carries.
+ *
+ * **S3's `ListObjectsV2` and Dropbox's `server_modified` report whole
+ * seconds.** A note that lands behind the cursor at 12.900s is reported as
+ * 12.000s, and a boundary of 12.750s compared exactly would call it older
+ * than the last sweep and never look at it again. Measured on a
+ * second-granularity store stub, exactly that lost a note moved behind the
+ * cursor in four of eight runs — and the walk retired the generation anyway.
+ * Rounding both sides down and demanding a strictly earlier second is the
+ * comparison the data supports: it can only ever be over-inclusive, by at
+ * most the writes that share one second with the boundary.
+ *
+ * What it does not cover, said rather than assumed: skew between the storage
+ * backend's clock and this Worker's beyond a second. A backend running more
+ * than a second behind can under-report an arrival into the swept range, and
+ * that note stays on the outgoing generation — readable, under a generation
+ * this codebase never deletes, and moved by the next rotation.
+ */
+function uploadedBefore(uploadedMs, confirmedThrough) {
+  if (!Number.isFinite(uploadedMs)) return false; // no timestamp: always re-examine
+  return Math.floor(uploadedMs / 1000) < Math.floor(confirmedThrough / 1000);
+}
+
+/**
+ * The label this file's authentication tag is derived under, so the tag can
+ * never be replayed from, or onto, anything else signed with the same key.
+ */
+const ROTATION_PROGRESS_MAC_LABEL = "context/rotation-progress/v1";
+
+/**
+ * Authenticate the progress file under the generation the walk is moving
+ * *to*, so a resume point is only ever trusted if this gateway wrote it.
+ *
+ * **Why a rotation's own bookkeeping needs a tag when the export rate-limit
+ * counter next door does not.** This file is the only bucket object whose
+ * contents can make `rotate_encryption_keys` report "complete" without having
+ * looked at a note. A `cursor` that sorts after every key, in a file that
+ * otherwise parses, is a two-line JSON document that makes the walk retire the
+ * outgoing generation with every note still wrapped under it — silently, and
+ * with the tool's own success message as the evidence. `docs/decisions/encryption.md`
+ * then tells an operator to delete a retired generation's row once a re-run
+ * says nothing names it, and that is the step at which those notes stop
+ * opening for good. A leaked bucket credential is the threat that table calls
+ * "the one that matters"; this change gave it a lever on the remediation
+ * itself, and this closes it.
+ *
+ * The key is the new generation's material, which the gateway already holds
+ * in-process for the length of this request and an attacker holding only the
+ * bucket does not. It is used through one HMAC derivation step rather than
+ * directly, so nothing here is the same key input as the AES-GCM wrap it also
+ * performs. A tag that does not verify is treated exactly as a missing file:
+ * the walk starts fresh and re-reads, which is slower and always correct.
+ */
+async function rotationProgressMac(keyMaterial, body) {
+  const encoder = new TextEncoder();
+  const rootKey = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(String(keyMaterial)),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const subKeyBytes = await crypto.subtle.sign("HMAC", rootKey, encoder.encode(ROTATION_PROGRESS_MAC_LABEL));
+  const subKey = await crypto.subtle.importKey(
+    "raw",
+    subKeyBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return encodeBase64(new Uint8Array(await crypto.subtle.sign("HMAC", subKey, encoder.encode(body))));
+}
+
+/** The exact bytes the tag covers. Order is fixed so a re-serialisation verifies. */
+function rotationProgressPayload({ fromGeneration, toGeneration, cursor, confirmedThrough, stuckKeys, wrote }) {
+  return JSON.stringify({ fromGeneration, toGeneration, cursor, confirmedThrough, stuckKeys, wrote });
+}
+
+/**
+ * Read the walk's own resume point, or a fresh one if there is none, it does
+ * not parse, its authentication tag does not verify, or it names a different
+ * generation pair than the one being walked right now — which is exactly
+ * right for a rotation that just started on top of a previous one's leftover
+ * file, and costs nothing extra to check.
+ *
+ * @returns {Promise<{cursor: string, confirmedThrough: number, stuckKeys: string[], etag: string|undefined}>}
+ *   `cursor` — every note key at or below this one, in the bucket's own sort
+ *   order, has been examined at least once as of `confirmedThrough`.
+ *   `confirmedThrough` — a moment in time captured BEFORE the listing the
+ *   call that produced this file worked from, less `ROTATION_CLOCK_MARGIN_MS`.
+ *   A note whose `uploaded` time is at or before this was in that listing and
+ *   was therefore accounted for; anything later than it may have landed in
+ *   the window between that listing and now, at any key, and gets looked at
+ *   again whatever its position (see `toolRotateEncryptionKeys` for what a
+ *   later boundary saves, and what it costs).
+ *   `stuckKeys` — notes still on the outgoing generation that a previous call
+ *   could not move (a conflicting write, or an envelope this pass cannot
+ *   open), tracked separately from `cursor` so one bad note never blocks the
+ *   walk from moving past it.
+ */
+async function loadRotationProgress(store, fromGeneration, toGeneration, newKeyMaterial) {
+  const fresh = () => ({ cursor: "", confirmedThrough: 0, stuckKeys: [], wrote: new Set(), etag: undefined });
+  const existing = await store.get(ROTATION_PROGRESS_PATH);
+  if (!existing) return fresh();
+  let parsed;
+  try {
+    parsed = JSON.parse(await existing.text());
+  } catch {
+    return fresh(); // corrupt file: treated as absent, never as a reason to refuse
+  }
+  if (
+    !parsed ||
+    parsed.fromGeneration !== fromGeneration ||
+    parsed.toGeneration !== toGeneration ||
+    typeof parsed.cursor !== "string" ||
+    typeof parsed.confirmedThrough !== "number" ||
+    !Array.isArray(parsed.stuckKeys) ||
+    !Array.isArray(parsed.wrote)
+  ) {
+    return fresh(); // a different rotation's leftover file, or one this build cannot read
+  }
+  const stuckKeys = parsed.stuckKeys.filter((k) => typeof k === "string");
+  const wrote = parsed.wrote.filter((k) => typeof k === "string");
+  // Authenticated, not merely shaped: an unsigned or wrongly-signed resume
+  // point is a resume point somebody other than this gateway chose, and the
+  // one thing a chosen cursor buys is a walk that reports "complete" without
+  // reading a note. See `rotationProgressMac`.
+  const expected = await rotationProgressMac(
+    newKeyMaterial,
+    rotationProgressPayload({
+      fromGeneration,
+      toGeneration,
+      cursor: parsed.cursor,
+      confirmedThrough: parsed.confirmedThrough,
+      stuckKeys,
+      wrote,
+    }),
+  );
+  if (typeof parsed.mac !== "string" || !timingSafeEqual(parsed.mac, expected)) return fresh();
+  return {
+    cursor: parsed.cursor,
+    confirmedThrough: parsed.confirmedThrough,
+    stuckKeys,
+    wrote: new Set(wrote),
+    etag: existing.etag,
+  };
+}
+
+/**
+ * Persist the walk's resume point after a call that did not finish the
+ * rotation. Best-effort, like `checkAndConsumeExportRateLimit`'s counter: this
+ * file is never the source of truth for whether a note is on the outgoing
+ * generation — a note's own frontmatter always is — only for where to resume
+ * *looking*. A lost conditional-write race (two overlapping calls against the
+ * same rotation) costs a wider re-scan on the next call, never a wrong
+ * completion: every note this call actually rewrapped was written directly,
+ * unconditionally on its own etag, whether or not this file's write lands.
+ */
+async function saveRotationProgress(
+  store,
+  { fromGeneration, toGeneration, cursor, confirmedThrough, stuckKeys, wrote, etag, newKeyMaterial },
+) {
+  const payload = rotationProgressPayload({
+    fromGeneration,
+    toGeneration,
+    cursor,
+    confirmedThrough,
+    stuckKeys,
+    wrote,
+  });
+  const mac = await rotationProgressMac(newKeyMaterial, payload);
+  const body = JSON.stringify({ ...JSON.parse(payload), mac });
+  if (!etag) {
+    await store.put(ROTATION_PROGRESS_PATH, body);
+    return;
+  }
+  const written = await store.put(ROTATION_PROGRESS_PATH, body, { onlyIf: { etagMatches: etag } });
+  if (written) return;
+  /*
+    THE CONDITIONAL WRITE IS POLITENESS, NOT SAFETY, AND LOSING IT MUST NOT
+    STALL THE WALK.
+
+    `cursor` means "every key at or below this one has been examined", which
+    is true of whichever overlapping call wrote it — so overwriting the other
+    call's position with our own is always a true statement, at worst a
+    narrower one that costs a re-read. What is NOT survivable is giving up:
+    the read budget is spent on reads rather than re-wraps, so a call that
+    cannot persist its cursor re-reads the same first batch next time and a
+    bucket larger than the cap never finishes. Losing the race twice in a row
+    is left alone — the next call reads whatever did land, which is a valid
+    position either way.
+  */
+  await store.put(ROTATION_PROGRESS_PATH, body);
+}
+
+/**
+ * Try to move one note off `fromGeneration`.
+ *
+ * @returns {Promise<"rewrapped"|"clean"|"stuck">} `"rewrapped"` — moved to the
+ *   target generation this call. `"clean"` — nothing to do: deleted since it
+ *   was listed, not encrypted, or already off `fromGeneration` (on the target
+ *   generation, on some other still-retired one, or a passphrase-only note
+ *   with no workspace recipient to move at all). `"stuck"` — still on
+ *   `fromGeneration` and this call could not move it: a conflicting
+ *   concurrent write, or an envelope this pass cannot open. Left exactly as
+ *   it is either way — the one outcome worse than leaving a note behind is
+ *   guessing at its content — for a later call to retry.
+ */
+async function rewrapOneNote(store, key, { fromGeneration, toGeneration, keys, newKeyMaterial, workspaceId }) {
+  const object = await store.get(key);
+  if (!object) return "clean";
+  const text = await object.text();
+  if (!isEncryptedNote(text) || encryptedNoteKeyId(text) !== fromGeneration) return "clean";
+  let rewrappedText;
+  try {
+    rewrappedText = await rewrapWorkspaceRecipient(text, { workspaceId, keys, newGeneration: toGeneration, newKeyMaterial });
+  } catch (error) {
+    if (error instanceof NoteCryptoError) return "stuck";
+    throw error;
+  }
+  // Conditional on the etag this pass read: a note edited concurrently (its
+  // plaintext changed, or `set_encryption` turned it off) is left for the
+  // next call rather than overwritten.
+  const put = await store.put(key, rewrappedText, { onlyIf: { etagMatches: object.etag } });
+  return put ? "rewrapped" : "stuck";
+}
+
+/**
  * Rotate this context's workspace data key.
  *
  * Owner-only through the same masked gate `export_encryption_keys` uses. What
@@ -4261,22 +4642,52 @@ const ROTATION_BATCH_CAP = 200;
  * already under way, this call simply continues it — see
  * `startWorkspaceKeyRotation` in the control plane for why a second caller
  * never mints a second generation), and every note still on the outgoing
- * generation has its **`workspace` recipient** re-wrapped toward the new one.
- * No note body is ever decrypted or re-encrypted here.
+ * generation has its **`workspace` recipient** re-wrapped toward it. No note
+ * body is ever decrypted or re-encrypted here.
  *
- * **There is no persisted cursor.** Every call walks the whole bucket, in the
- * store's own listing order, and skips a note the instant it finds it already
- * on the target generation — which is what makes the walk idempotent and
- * resumable with no state of its own: calling this tool again after a partial
- * pass, a crash, or a conflicting concurrent write finds exactly the notes
- * still left and nothing else. The cost this trades away is efficiency on a
- * very large bucket, where a completed pass still has to re-list and
- * re-inspect every already-migrated note on its way to finding none are
- * left — the same "optimistic about `FOLDER_MOVE_CAP`" trade
- * `storage-and-credentials.md` already names for bulk moves, made again here
- * for the same reason: a persisted cursor is a second piece of state that can
- * itself go stale, and the bucket is already the one source of truth this
- * gateway trusts for "which notes exist".
+ * **The walk's progress is persisted**, in the customer's own bucket
+ * (`ROTATION_PROGRESS_PATH`), as a `cursor`: every note at or below it, in the
+ * bucket's own sort order, has been examined at least once during the current
+ * pass. A call resumes from the cursor rather than re-listing and re-reading
+ * everything before it — which is what bounds *every* call, including the one
+ * that finishes the rotation, to a constant number of object reads instead of
+ * one read per note in the bucket. **The budget counts reads, not re-wraps**,
+ * because a read is what a Worker's subrequest budget counts: at most
+ * `ROTATION_BATCH_CAP` for the forward sweep, that plus
+ * `ROTATION_RETRY_READ_CAP` for the behind-the-cursor catch-up (it has to be
+ * able to get through a full forward batch, or a walk that is otherwise
+ * finished never gets to say so), and `ROTATION_RETRY_READ_CAP` for the
+ * known-stuck retry. See the measured table in `docs/decisions/encryption.md`.
+ *
+ * **A note created or moved behind the cursor is not skipped.** `listAllKeys`
+ * already returns each object's `uploaded` timestamp at no extra cost — it is
+ * part of every storage backend's listing response — so a note whose key
+ * sorts at or before the cursor, but whose `uploaded` time is after
+ * `confirmedThrough`, is re-examined anyway: it was either moved into that
+ * position, or newly created there, after the last call took the listing it
+ * worked from, and the cursor sweeping past that key position earlier proves
+ * nothing about content that arrived there afterward. This costs one extra
+ * read per note touched inside that window — not per note in the bucket. The
+ * boundary is captured *before* a call's own listing, and compared through
+ * `uploadedBefore` at the resolution the backend's timestamp actually
+ * carries; a boundary taken after the writes instead would lose any note that
+ * moved behind the cursor while the call was running. The re-reading that
+ * earlier boundary would otherwise cause is paid for by `wrote`, the keys the
+ * last call moved, which the catch-up skips.
+ *
+ * **A note this pass cannot move — a conflicting write, or one it cannot
+ * open — does not block the cursor from advancing past it.** It is tracked
+ * separately, in `stuckKeys`, and retried every call independent of cursor
+ * position. Without that, a single such note would pin the cursor at its own
+ * position forever, and every call after it would re-walk everything past
+ * that point from scratch — the same unbounded cost this design exists to
+ * remove, just moved one note earlier.
+ *
+ * The walk reports complete, and asks the control plane to retire the
+ * outgoing generation, only once a full pass finds the cursor has reached the
+ * end of the bucket's listing, nothing is left behind it, and `stuckKeys` is
+ * empty — never on a partial pass, and never while a single note it could not
+ * open still exists.
  */
 async function toolRotateEncryptionKeys(store, scope) {
   if (!store.encryptionKey) {
@@ -4307,62 +4718,164 @@ async function toolRotateEncryptionKeys(store, scope) {
     );
   }
 
+  /*
+    THE BOUNDARY, TAKEN BEFORE THE LISTING THIS CALL WILL WORK FROM.
+
+    Everything this call knows about the bucket comes from the listing below.
+    A note that lands behind the cursor after that listing was taken — a
+    `move_note` into an earlier folder while this call is mid-sweep, an
+    Obsidian sync landing a restored file — is invisible to this call by
+    construction. So the boundary the NEXT call compares `uploaded` against
+    has to be a moment no later than this listing, or that note falls into the
+    gap between the two calls and is never examined again.
+
+    Taking it at the END of the call instead (after this call's own writes)
+    buys one thing — a call never re-reads its own rewrites — and costs
+    exactly that note. Measured: a note moved behind the cursor while a call
+    was running was left on the outgoing generation and the walk retired the
+    generation anyway. The re-read is bounded by the previous call's own
+    batch and comes back "clean"; the missed note is not bounded by anything.
+
+    Compared through `uploadedBefore`, because `uploaded` is the storage
+    backend's clock and carries only whole seconds on S3 and Dropbox.
+  */
+  const boundary = Date.now();
+
   const allKeys = await listAllKeys(store, "");
+  const noteKeys = allKeys
+    .filter(({ key }) => key.endsWith(".md") && !isPlumbing(key))
+    .map(({ key, uploaded }) => ({ key, uploadedMs: new Date(uploaded).getTime() }))
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const uploadedByKey = new Map(noteKeys.map(({ key, uploadedMs }) => [key, uploadedMs]));
+
+  const progress = await loadRotationProgress(store, fromGeneration, toGeneration, newKeyMaterial);
+  const rewrapContext = { fromGeneration, toGeneration, keys: encryptionKey.keys, newKeyMaterial, workspaceId };
+
   let rewrapped = 0;
-  let stillPending = 0;
-  for (const { key } of allKeys) {
-    if (!key.endsWith(".md") || isPlumbing(key)) continue;
-    const object = await store.get(key);
-    if (!object) continue;
-    const text = await object.text();
-    if (!isEncryptedNote(text) || encryptedNoteKeyId(text) !== fromGeneration) continue;
+  const stillStuck = new Set();
+  /*
+    THE KEYS THIS CALL ITSELF WROTE.
 
-    if (rewrapped >= ROTATION_BATCH_CAP) {
-      /*
-        This note is genuinely still on the outgoing generation, and this call
-        has spent its batch. STOP HERE rather than reading the rest of the
-        bucket to count them.
+    Carried to the next call so the behind-the-cursor catch-up does not spend
+    its budget re-reading this call's own output. Without it the boundary
+    above — deliberately taken *before* this call's writes — makes every note
+    this call re-wrapped look freshly arrived to the next one, and on a
+    backend whose listing timestamps carry only whole seconds a fast sequence
+    of calls can keep an entire bucket inside that window and never converge:
+    measured at 600 notes, calls four through twelve each re-read 252 objects,
+    re-wrapped nothing, and the walk never reported complete.
 
-        One pending note is the whole of what the caller needs to know: the
-        walk is not done, call again. Counting the exact remainder costs one
-        object read per note on a bucket whose size is the reason the cap
-        exists — measured at 601 reads per call over a 600-note bucket, of
-        which 400 bought nothing but a number in a sentence that already says
-        "at least". The report stays true because it was always a floor.
-      */
-      stillPending += 1;
-      break;
+    A key is skipped for exactly one call — the next one — because only that
+    call's file names it. The residue, stated rather than hidden: a write
+    somebody else lands on that exact key, in the window between our own write
+    and the next call, is not re-examined by this rotation. Through the
+    gateway that write is already on the target generation (a rotation retires
+    the outgoing generation the moment it starts, so `sealNoteContent` seals
+    under the new one from then on), so the only shape left is a direct-to-
+    bucket restore of pre-rotation ciphertext — the first of the three cases
+    "The grace period is a policy, not a sweep" already exists for.
+  */
+  const wroteThisCall = [];
+
+  /*
+    THE BUDGET IS READS, NOT RE-WRAPS.
+
+    Every one of the sweeps below spends an object read per note it examines,
+    whatever that read turns out to say. Counting only the notes actually
+    MOVED lets a call read the whole bucket for free whenever most of what it
+    passes over comes back "clean" — a bucket where encryption is on for a
+    subset of the notes, which is the ordinary shape of a brain, not a corner
+    case. Measured on this branch before this line changed: a 10,000-note
+    bucket with 200 encrypted notes issued 10,002 reads in a single call, the
+    exact ceiling the persisted cursor exists to remove. The cap has to count
+    the quantity a Worker's subrequest budget counts.
+  */
+  let reads = 0;
+
+  // Retry known-stuck notes first — a separately tracked set (see the
+  // function doc) so one of them never blocks the cursor loops below from
+  // making progress on everything after it, under its own smaller budget so
+  // a large stuck set can never starve the forward sweep either.
+  let retryReads = 0;
+  for (const key of progress.stuckKeys) {
+    if (retryReads >= ROTATION_RETRY_READ_CAP) {
+      stillStuck.add(key);
+      continue;
     }
-    let rewrappedText;
-    try {
-      rewrappedText = await rewrapWorkspaceRecipient(text, {
-        workspaceId,
-        keys: encryptionKey.keys,
-        newGeneration: toGeneration,
-        newKeyMaterial,
-      });
-    } catch (error) {
-      if (error instanceof NoteCryptoError) {
-        // A note this pass cannot open under any live generation, or one
-        // whose envelope is malformed. Left exactly as it is — the one
-        // outcome worse than leaving it behind is guessing at its content —
-        // and counted as still pending so the walk never silently reports
-        // done while it exists.
-        stillPending += 1;
-        continue;
-      }
-      throw error;
-    }
-    // Conditional on the etag this pass read: a note edited concurrently
-    // (its plaintext changed, or `set_encryption` turned it off) is left for
-    // the next pass rather than overwritten.
-    const put = await store.put(key, rewrappedText, { onlyIf: { etagMatches: object.etag } });
-    if (put) rewrapped += 1;
-    else stillPending += 1;
+    reads += 1;
+    retryReads += 1;
+    const result = await rewrapOneNote(store, key, rewrapContext);
+    if (result === "rewrapped") {
+      rewrapped += 1;
+      wroteThisCall.push(key);
+    } else if (result === "stuck") stillStuck.add(key);
+    // "clean" is dropped: e.g. `set_encryption` turned encryption off for it
+    // since the last call left it stuck.
   }
 
-  if (stillPending === 0) {
+  // The cursor's own frontier: notes not yet examined (`key > cursor`), plus
+  // notes at or before the cursor that were touched — moved in, or written
+  // to — since `confirmedThrough` (see the function doc for why the boundary
+  // is taken before this call's listing).
+  let cursor = progress.cursor;
+  let aheadDone = true;
+  for (const { key } of noteKeys) {
+    if (key <= cursor) continue;
+    if (reads >= ROTATION_BATCH_CAP) {
+      aheadDone = false;
+      break;
+    }
+    reads += 1;
+    const result = await rewrapOneNote(store, key, rewrapContext);
+    if (result === "rewrapped") {
+      rewrapped += 1;
+      wroteThisCall.push(key);
+    } else if (result === "stuck") stillStuck.add(key);
+    cursor = key; // advance past every examined key regardless of outcome —
+    // a "stuck" one is retried through `stuckKeys`, never by revisiting this
+    // position.
+  }
+
+  // The behind-the-cursor catch-up gets its own budget rather than sharing
+  // the forward sweep's, because in the steady state it re-reads the previous
+  // call's own batch (the boundary above is taken before this call's writes,
+  // on purpose) and would otherwise leave the forward sweep nothing to spend.
+  // Sized a little above a full forward batch for the same reason: a walk
+  // that is otherwise finished has to be able to get through its predecessor's
+  // output plus whatever genuinely arrived, or it never gets to say so.
+  let behindDone = true;
+  let behindReads = 0;
+  const behindReadCap = ROTATION_BATCH_CAP + ROTATION_RETRY_READ_CAP;
+  for (const { key, uploadedMs } of noteKeys) {
+    if (key > progress.cursor || uploadedBefore(uploadedMs, progress.confirmedThrough)) continue;
+    if (progress.wrote.has(key)) continue; // the last call's own output, not an arrival
+    if (behindReads >= behindReadCap) {
+      behindDone = false;
+      break;
+    }
+    reads += 1;
+    behindReads += 1;
+    const result = await rewrapOneNote(store, key, rewrapContext);
+    if (result === "rewrapped") {
+      rewrapped += 1;
+      wroteThisCall.push(key);
+    } else if (result === "stuck") stillStuck.add(key);
+    // Cursor is not moved here: every one of these keys is already at or
+    // below it.
+  }
+
+  const passComplete = aheadDone && behindDone && stillStuck.size === 0;
+
+  if (passComplete) {
     const completed = await store.rotateEncryptionKeys({ complete: toGeneration });
+    try {
+      await store.delete(ROTATION_PROGRESS_PATH);
+    } catch {
+      // Best-effort cleanup. A leftover file naming this now-finished
+      // generation pair is harmless — the next rotation names a different
+      // pair, and `loadRotationProgress` starts fresh the moment it does not
+      // match.
+    }
     await recordChange(store, "rotate_encryption_keys", scope, [], {
       from_generation: fromGeneration,
       to_generation: toGeneration,
@@ -4381,6 +4894,41 @@ async function toolRotateEncryptionKeys(store, scope) {
     );
   }
 
+  // `boundary`, not `Date.now()`: it was taken before the listing this call
+  // worked from, so anything that landed while this call was running is still
+  // ahead of it and the next call looks at it. See where `boundary` is
+  // captured for what taking it later costs.
+  await saveRotationProgress(store, {
+    fromGeneration,
+    toGeneration,
+    cursor,
+    confirmedThrough: boundary,
+    stuckKeys: [...stillStuck],
+    // Plus whatever an earlier call wrote that the boundary still cannot rule
+    // out — a caller looping this tool as fast as it will go can fit several
+    // calls inside one second of a backend's listing resolution, and dropping
+    // the older entries would put every one of those batches back in front of
+    // the catch-up sweep. Bounded, because an entry ages out the moment its
+    // listed second is strictly earlier than the boundary.
+    wrote: dedupeCapped(
+      [...wroteThisCall, ...[...progress.wrote].filter((key) => uploadedByKey.has(key) && !uploadedBefore(uploadedByKey.get(key), boundary))],
+      ROTATION_WROTE_CAP,
+    ),
+    etag: progress.etag,
+    newKeyMaterial,
+  });
+  /*
+    WHAT THIS CALL CAN HONESTLY SAY IS LEFT.
+
+    `stuckKeys` is a census: those notes were read, are still on the outgoing
+    generation, and this call could not move them. The unexamined remainder is
+    not — since the budget counts reads rather than re-wraps, a call can spend
+    it entirely on notes that turn out to be clean, and there may be nothing at
+    all left behind the frontier. So the sentence separates the two rather than
+    adding a note that might not exist to a count that is exact.
+  */
+  const unexamined = !(aheadDone && behindDone);
+  const stillPending = stillStuck.size;
   await recordChange(store, "rotate_encryption_keys", scope, [], {
     from_generation: fromGeneration,
     to_generation: toGeneration,
@@ -4389,7 +4937,8 @@ async function toolRotateEncryptionKeys(store, scope) {
   });
   return toolText(
     `rotation in progress: ${fromGeneration} → ${toGeneration}\n` +
-      `${rewrapped} note(s) re-wrapped this call, at least ${stillPending} left on ${fromGeneration}.\n` +
+      `${rewrapped} note(s) re-wrapped this call, at least ${stillPending} left on ${fromGeneration}` +
+      (unexamined ? ", and the bucket is not swept to the end yet.\n" : ".\n") +
       "Call this tool again to continue. The retiring generation stays readable until the walk completes.",
   );
 }

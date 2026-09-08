@@ -144,7 +144,14 @@ export const DEFAULT_ATTACHMENT_RETENTION_DAYS = 90;
 type AttachmentMode = "metadata-only" | "store";
 type AttachmentRetention = number | "forever";
 
-function requireGoogleClientId(): string {
+// The four helpers below are exported for `calendarConnect.ts` (and Chat's
+// sibling module): one OAuth client id, one client secret, one "who is
+// calling" check, one "that attempt is gone" refusal — true of every
+// product's connect flow because it is the same client and the same parked
+// attempt shape, not a Gmail-specific fact. Reusing them is what keeps "how
+// do we know who is calling" from becoming a second implementation the day
+// it needs to change.
+export function requireGoogleClientId(): string {
   const id = process.env[GOOGLE_CLIENT_ID_ENV_VAR];
   if (typeof id !== "string" || id.length === 0) {
     throw new ConvexError({
@@ -156,12 +163,12 @@ function requireGoogleClientId(): string {
 }
 
 /** Optional, like Dropbox's app secret — see `googleOAuth.ts` for why PKCE covers the flow either way. */
-function readGoogleClientSecret(): string | undefined {
+export function readGoogleClientSecret(): string | undefined {
   const secret = process.env[GOOGLE_CLIENT_SECRET_ENV_VAR];
   return typeof secret === "string" && secret.length > 0 ? secret : undefined;
 }
 
-async function requireActor(ctx: {
+export async function requireActor(ctx: {
   auth: { getUserIdentity: () => Promise<unknown> };
 }): Promise<Id<"users">> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -172,7 +179,7 @@ async function requireActor(ctx: {
   return userId as Id<"users">;
 }
 
-function refuseAttempt(): never {
+export function refuseAttempt(): never {
   throw new ConvexError({
     code: "CONNECT_ATTEMPT_INVALID",
     message: "That connection attempt has expired. Start it again.",
@@ -407,6 +414,12 @@ export const consumeAttemptAndExchange = internalMutation({
     // exchange has still spent its attempt.
     await ctx.db.delete(attempt._id);
     if (attempt.expiresAt < Date.now()) return null;
+    // The mirror of the check `calendarConnect.ts` makes: this table is
+    // shared by every product's connect flow, so a Calendar-only attempt
+    // answered on Gmail's callback would bind Gmail — with a default
+    // backfill window and a mailbox folder — out of a consent screen that
+    // only ever named a calendar. An attempt is for the products it parked.
+    if (!attempt.products.includes("gmail")) return null;
 
     await ctx.scheduler.runAfter(0, internal.functions.googleConnect.exchangeAndBind, {
       workspaceId: attempt.workspaceId,
@@ -571,8 +584,28 @@ export const applyGmailConnectionBinding = internalMutation({
       )
       .unique();
 
-    const products = new Set(existing?.products ?? []);
+    // AN EXPLICIT DISCONNECT ENDED EVERY PRODUCT ON THIS ACCOUNT — one grant,
+    // one revoke — and `products` is left behind only as a record of what the
+    // connection used to sync. So reviving this row for a Gmail connect
+    // revives Gmail and nothing else: the other products' settings objects
+    // and cursors are kept (they are somebody's folder names and sync
+    // positions, not consent), but they are off the live `products` set until
+    // the person reconnects them deliberately. Without this, "I disconnected
+    // my Google account, then reconnected Gmail" silently puts Chat and
+    // Calendar back on the row — a claim of consent out of a revocation.
+    // `chatProduct.ts`'s `applyChatConnectionBinding` states the same rule
+    // from the other side; this is its mirror, and the two must not diverge.
+    const revived = existing !== null && existing.disconnectedAt !== undefined;
+    const products = new Set(revived ? [] : (existing?.products ?? []));
     products.add("gmail");
+
+    // A grant NARROWER than the row's live products, same check and the same
+    // reason `applyChatConnectionBinding` gives: the slice is recorded
+    // honestly as `[]`, nothing anywhere reads a slice, so without this the
+    // row goes on reporting `backfilling` for a product whose sync can only
+    // ever take a refusal from Google. Every name in the message is one of
+    // this module's own literals, never a provider string.
+    const starved = [...products].filter((product) => grantedScopesFor(product, args.scopes).length === 0);
 
     const fields = {
       workspaceId: args.workspaceId,
@@ -631,9 +664,11 @@ export const applyGmailConnectionBinding = internalMutation({
       chat: existing?.chat
         ? { ...existing.chat, scopes: grantedScopesFor("chat", args.scopes) }
         : undefined,
-      health: "backfilling" as const,
-      lastError: undefined,
-      errorCode: undefined,
+      health: (starved.length ? "reconnect_required" : "backfilling") as "reconnect_required" | "backfilling",
+      lastError: starved.length
+        ? `This Google account's authorization no longer covers ${starved.join(", ")}. Reconnect to restore it.`
+        : undefined,
+      errorCode: starved.length ? "SCOPES_INCOMPLETE" : undefined,
       disconnectedAt: undefined,
       boundBy: args.boundBy,
       updatedAt: now,

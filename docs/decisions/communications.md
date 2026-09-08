@@ -448,39 +448,57 @@ proofs above with each visibility guard driven alone, encrypted notes teaching
 the index no plaintext term, and a regeneration replacing exactly one note's
 sub-documents.
 
-**And the shard guardrail is now measured, which is the thing that gates
-connecting a mailbox.** Against a synthetic 90-day mailbox at 200 messages a
-day (18,000 messages, 25.5 MB of Markdown, beside 200 ordinary notes), on the
-gateway's own sync at a subrequest budget of 600:
+**And the shard guardrail is now measured, which is the thing that gated
+connecting a mailbox.** It was measured failing, and then fixed. Against a
+synthetic 90-day mailbox at 200 messages a day (18,000 messages, 27.2 MB of
+Markdown, beside 200 ordinary notes), on the gateway's own sync at a
+subrequest budget of 600:
 
-| | per-note index (today) | per-message sub-documents |
+| | sized by note count | sized by volume |
 | --- | --- | --- |
-| documents | 290 | 18,200 |
-| shards | 1 | 1 |
-| shard objects written | 1 (0.36 MB) | **0** |
-| passes to converge | 1 | 31, then still `pending: 290` |
-| a search | 1 hit, 16ms | `indexed: false` |
+| documents in the index | **0** (18,200 built) | 18,200 |
+| shards | 1 | 56 |
+| shard objects written | **0** (0.00 MB) | 56 (80.84 MB, biggest 1.76 MB) |
+| passes | 40, still `pending: 290` | 1, converged |
+| a search for a term in the mail | `indexed: false` | 1 hit |
+| a search in the 200 **ordinary notes** | `indexed: false` | 10 hits |
 
-**Nothing lands at all, and the loss is the whole context's rather than the
-mailbox's.** `chooseShardCount` sizes the index from the **note** count in the
-listing — 290 notes is one shard — so a day's messages cannot be spread across
-shards, the single shard's serialized body passes `SHARD_PARSE_BYTE_CAP`, and
-the write is correctly refused on every pass. That is the plateau
-`docs/decisions/search.md` describes ("each pass rebuilt the same oversized
-shard and had its write refused"), reached here by a mailbox rather than by a
-brain of thousands of notes, and it takes the 200 ordinary notes in that
-bucket down with it. The threshold is low: at 90 days the shard is 1.13 MB at
-**10** messages a day and 2.14 MB — over the cap — at **20**.
+**The left column is the defect: nothing landed at all, and the loss was the
+whole context's rather than the mailbox's.** `chooseShardCount` sized the index
+from the **note** count in the listing — 290 notes is one shard — so a day's
+messages could not be spread across shards, the single shard's serialized body
+passed `SHARD_PARSE_BYTE_CAP`, and the write was correctly refused on every
+pass. That is the plateau `docs/decisions/search.md` describes ("each pass
+rebuilt the same oversized shard and had its write refused"), reached here by a
+mailbox rather than by a brain of thousands of notes, and it took the 200
+ordinary notes in that bucket down with it. The threshold was **four messages a
+day**: 1.67 MB of shard at four, past the 2 MB cap at five.
 
-So the position is unchanged and now has numbers behind it: this format is
-correct, and **switching a real mailbox on needs the sizing to count
-sub-documents rather than notes** (or a per-note shard split, or a smaller
-per-message cap). That is a decision with its own argument and is not made
-here; what is made here is that nothing writes a channel-day note today, so
-the format can land and be exercised while that is settled.
-`runShardBudgetChecks` in `commsSearchIndex.test.mjs` pins the mechanism at
-suite speed with a small `shardByteCap`, so the plateau cannot be
-rediscovered by a customer.
+**The right column is the fix**, argued in `docs/decisions/search.md`, "The
+index is sized by the volume it has to hold". The count follows the volume the
+listing implies rather than the objects it found, it may grow after the
+manifest exists without moving a doc already placed, a bundled note is placed
+in the least loaded shard rather than by hash, and a shard that still will not
+fit sheds the note that made it that big instead of refusing its whole write.
+
+**What that leaves, for the person deciding whether to connect a mailbox.** At
+90 days the corpus indexes in full up to **230 messages a day** — 20,900
+messages, 31.2 MB of Markdown, 64 shards, the biggest 1.99 MB against the 2 MB
+cap. At 240 a day it needs a 65th shard it cannot have, and 26 of the 90 days
+are reduced to one document each. Past that nothing else breaks and nothing
+else is lost: measured at 365 days x 200 (73,000 messages, 110 MB — three times
+what the index holds), every shard is still written, the ordinary notes still
+answer, and 237 of the 365 days are reduced. **A mailbox can no longer take a
+context's search down with it; a mailbox past capacity loses message-level
+recall on some of its own days**, and which days is a function of their byte
+sizes rather than their dates, which is a real cost and named as one.
+
+So the position is unchanged and now has numbers on both sides of it: this
+format is correct, and the sizing it needed has been built.
+`runShardSizingChecks` in `commsSearchIndex.test.mjs` pins the mechanism at
+suite speed with a small `shardByteCap`, and
+`apps/mcp/test/bench/shardSizing.mjs` re-measures the full-size numbers above,
+so neither the plateau nor the capacity can be rediscovered by a customer.
 
 **Filtering by `comms`'s fields is not built.** They are stored through both
 serialization dialects because a caller needs them to render a result (the
@@ -1008,17 +1026,31 @@ where it did before. The checks are `a disconnected connection's products are
 never folded into a new scope request` and `reviving a disconnected row for
 chat enables chat alone`.
 
-**The mirror of that second rule, on Gmail's own binding, is named here and
-not built.** `applyGmailConnectionBinding` revives a disconnected row the same
-way, so reconnecting Gmail on an account that used to sync Chat puts `chat`
-back on `products` with an empty scope slice. It is the lighter half of the
-same bug — Gmail's connect flow requests only `["gmail"]`, so nothing
-re-requests `chat.messages.readonly`; what it produces is a dead product entry
-rather than a revived consent — and it is left to the change that next touches
-that function (the sibling Calendar reconciliation is the obvious one) rather
-than edited from a Chat review into merged code a concurrent branch is
-working in. The check it will need is `reconnecting one product on a
-disconnected account does not revive the others`.
+**The mirror of that second rule, on Gmail's own binding, is now built** — by
+the Calendar review, the change that next touched that function, exactly as
+this paragraph predicted. `applyGmailConnectionBinding` revived a disconnected
+row the same way, so reconnecting Gmail on an account that used to sync Chat
+or Calendar put that product back on `products` with an empty scope slice: the
+lighter half of the same bug (Gmail's connect flow requests only `["gmail"]`,
+so nothing re-requested a restricted scope; what it produced was a dead
+product entry rather than a revived consent) and now closed with the same two
+lines. **All three bindings state the rule identically**, which is the point:
+a console reading a connection should not have to know which product's flow
+last wrote it. The checks are `reconnecting GMAIL on a disconnected account
+does not revive Calendar or Chat`, `a Calendar connect on a disconnected
+account never re-requests the mail scope`, and `binding Calendar onto it
+revives Calendar and nothing else`.
+
+**And the starved-scope report is on all three too.** Chat's binding marks a
+connection `reconnect_required` / `SCOPES_INCOMPLETE` when the grant just
+written does not cover every product still on the live set; Calendar's and
+Gmail's now do the same, spelled the same way and reaching the same error
+code, because the failure is a property of the row rather than of whichever
+flow noticed it. Gmail's own case is real and was open: a Gmail reconnect
+whose consent screen has Calendar unchecked leaves `calendar.scopes: []`
+beside a live `calendar` product, and before this the row went on reporting
+`backfilling`. The check is `a Gmail reconnect whose grant drops Calendar's
+scope while Calendar is still live says so`.
 
 **And `nonceSeed` is stored in the clear, deliberately, which is not what the
 sync module's comment claimed.** `sync.js` described the seed as "sealed
@@ -1138,9 +1170,25 @@ replaced. The settings and the cursor on each product object are its own and
 survive; only the scopes are derived. The check is `a reconnect recomputes
 every product's scope slice from the one verbatim grant`.
 
-The second half is closed too, by Chat's own reconciliation onto this row
-(2026-09-07) — see "Adding a product must not silently drop another one"
-below for the two-part fix and the tests that pin it.
+The second half is closed twice over, once by each sibling that actually adds
+a product to an existing row: Chat's reconciliation (2026-09-07) — see
+"Adding a product must not silently drop another one" below for the two-part
+fix — and Calendar's own connect flow, which requests the **union** of every
+product on the one unambiguous existing `googleConnections` row for the
+workspace plus Calendar, not Calendar alone, when exactly one such row exists.
+("Exactly one" matters: two Google accounts on one workspace is a real,
+supported shape, and a Calendar connect does not guess which one a person
+means to extend — `include_granted_scopes` is what still protects that
+ambiguous case, at Google's end. Chat's flow takes a `connectionId` from a
+console screen that does know, which is the same fix reached from the other
+direction.) Proven and sabotaged in `calendarConnect.test.ts` and
+`googleOAuth.test.ts`: dropping the request-side union fails 2 Calendar-connect
+tests; removing `include_granted_scopes` fails 2 tests spread across both
+files; reverting `applyCalendarConnectionBinding`'s Gmail-slice recompute back
+to a bare carry-forward (the same "two views of one fact" rule as the reconnect
+paragraph above, now proved in the Calendar-onto-Gmail direction too) fails 3 —
+each sabotage isolated to exactly the tests naming it, with every other test in
+the affected files staying green.
 
 **Disconnecting ends every product on the account, because it is one
 grant.** There is no "disconnect just Gmail while keeping Calendar" — Google's
@@ -1294,6 +1342,379 @@ for its own phase boundary ("decided here and built in phase 2"). Until then
 the control plane can connect a mailbox and the gateway can render one
 correctly; nothing yet makes the second happen automatically for a real
 person.
+
+## Calendar
+
+The owner's ask was plain: "a sync for a calendar," so the person's context
+knows their meetings. It is built the same way mail is — not a calendar app
+with its own account, but a day of somebody's schedule becoming plain
+Markdown in the bucket they own, read by whatever AI client is already
+connected. `packages/communications/src/calendar` is the prototype, the same
+role `src/` plays for the channel-day contract above; this section is the
+argument behind it.
+
+### A calendar day lands at `0-inbox/calendar/YYYY-MM-DD.md`, with no account level
+
+Email nests under `0-inbox/email/<mailbox-slug>/` because a person has
+several mailboxes they think of as separate things, and `privacy.md` needs a
+folder per one to say "this mailbox, forever." A calendar does not have that
+shape: a person has several *accounts* that can each contribute events, but
+they think of the result as one thing — "my calendar," not "my work
+calendar's folder and my personal calendar's folder, merged by me." Google
+Calendar itself agrees: a single view already merges every calendar a person
+has access to.
+
+So every connected account's events are merged into one folder,
+`0-inbox/calendar/`, one file per day, and which account an event came from is
+recorded on the event itself (`account`) and rolled up into the day's
+`accounts` frontmatter list — never made a folder boundary. The alternative,
+`0-inbox/calendar/<account>/YYYY-MM-DD.md`, was rejected for the cost it would
+add and buy nothing with: a person asking "what's on my calendar Tuesday"
+would get two files to check instead of one, `set_folder_visibility` would
+have nothing sensible to scope (a calendar's privacy is a property of a
+*day* — who is a meeting with — not of which account created the invite), and
+a day with events from two accounts would need a virtual merge at read time
+regardless, which is the thing the single-folder layout gives for free by
+already storing the merge. There is no `YYYY/MM/` nesting either, for the
+same reason a channel day has none: a flat folder sorted by name already
+gives the ordering a date tree would, and nobody reaches a day of their
+calendar by scrolling a folder — they reach it from `list_meetings`-style
+tooling, a search hit, or the meeting-link half below. The check is
+`every calendar path this package writes begins with 0-inbox/calendar/, with no account segment`.
+
+### An event anchor is `evt-` plus the same FNV-1a 64 a message anchor uses
+
+Every event heading carries `{#evt-<16 hex>}`, computed from
+`fnv1a64(account \0 calendarId \0 eventId)`. The reasons are the ones
+`anchors.js` already argues for a message: the provider's id is a sibling
+field on a resource an inviter partly controls, it means something to Google
+and nothing to the customer, and FNV-1a is synchronous where
+`crypto.subtle.digest` is not. Nothing new is decided here — this is the
+existing anchor scheme applied to a second kind of thing, on purpose, so a
+calendar link and a mail link are one mechanism rather than two. `eventId` is
+the provider's *per-occurrence* id, which Google already hands out once a
+request asks for `singleEvents=true` — this package never expands a
+recurrence rule itself, and does not need to: each occurrence of a recurring
+series arrives as its own object with its own stable id, so it gets its own
+anchor exactly like a standalone event.
+
+### The horizon rolls forward on a clock, not on a token
+
+The owner's default is 14 days of future calendar, regenerated as it
+changes — but *how* a sync keeps a *rolling* 14-day window fresh, on top of
+Google's own incremental-sync mechanism, is the one part of this feature that
+does not have a well-known answer, and it is worth stating why the obvious
+design fails.
+
+The obvious design: mint one `syncToken` from a request bounded to
+`[today, today+14)`, and poll with just that token afterward — small,
+efficient, and Google's own docs sound like they invite it. It breaks because
+a **syncToken is scoped to the request that minted it, and does not follow a
+moving `timeMax`.** A window minted on Monday stays a window ending 14 days
+after Monday; on Wednesday, "today+14" has moved but the token has not, so an
+event created for what is now the newly-in-range 14th day out was never
+inside the window the token remembers and Google has no obligation to report
+it on any later incremental call. Combining a `syncToken` with `timeMin`/
+`timeMax` on the same request is not even accepted — the two are mutually
+exclusive parameters — so there is no "just widen the window each poll"
+patch, either.
+
+So the sync this package's `planSyncRequest` describes does two things,
+deliberately kept apart: a **full request**, bounded to `[today, today+14)`
+with no token, run once whenever the owner's own calendar date has moved past
+the day the last full request was anchored to (`lastFullSyncDate !== today`)
+— which is what actually rolls the window forward, at most once per day per
+connection; and a plain **incremental request**, token only, no window at
+all, for everything in between — which is what keeps the common case (a day
+with nothing rescheduled) to one cheap call rather than a full backfill every
+time. A `410 Gone` — Google's own signal that a token no longer resolves —
+folds into the same full-request path with no separate code of its own: it is
+just one more reason `lastFullSyncDate` should be treated as stale.
+
+**Ground truth on a full sync, cache-and-project on an incremental one.**
+Because Google's incremental sync carries no window at all, a changed event
+can, in principle, arrive dated anywhere — including well outside this
+connection's own horizon, which must be absorbed into bookkeeping and never
+written as a note (`calendarSync.test.mjs`, "a change dated ten months past
+the horizon never becomes a note"). And because rendering a day needs its
+*complete* current event list, not the delta that just arrived, incremental
+sync keeps a small local cache — everything currently known to be in
+play — folds each incoming change into it (`applyIncremental`), and
+regenerates only the day(s) a change actually touched
+(`docs/decisions/communications.md`'s own "per-day regeneration" test, and
+the reason: a channel-day note never needed this, because a mailbox's inbox
+is already a complete list with nothing to project). A **cancelled** instance
+is removed from the cache outright — there is no "cancelled" state stored,
+because a cache entry existing at all already means "render this," and a
+full sync's ground truth needs no separate deletion list for the same reason:
+an event absent from a full listing is absent from the calendar, full stop.
+
+The residual, stated rather than hidden: a **standalone** (non-recurring)
+event's cancellation notice can arrive with no date information at all —
+Google's documented shape for that case is `{id, status: "cancelled"}`,
+nothing else — and the only way to know which day to regenerate is the
+cache's own memory of where that event used to be. A cache that had never
+seen the event (a connection reconnecting mid-flight, say) cannot regenerate
+that day; it is left as it was, which is the same "leave it as it was rather
+than guess" rule the horizon boundary already follows. Checks:
+`applyIncremental resolves a bare cancellation from its own previous record`
+and `an event that moves days regenerates both the day it left and the day it landed on`.
+
+### Idempotent regeneration is two separate properties, and both are tested
+
+"The same day rendered twice is the same bytes" is `renderCalendarDay`'s own
+determinism (chronological order, anchor as the tiebreak, exactly the
+discipline `renderChannelDayNote` already has). "Running the same sync twice
+makes no writes" is a second, gateway-level property:
+`syncCalendarAccount` compares a candidate day's freshly rendered text against
+what the store already holds and skips the write when they match — a
+no-op incremental poll costs a handful of cheap reads and exactly zero
+writes, exactly zero conditional-write retries, and zero entries in a
+customer's object-version history. The check is `re-running an unchanged sync makes no writes at all, and every byte matches the prior run`.
+
+### Timezone: `Intl.DateTimeFormat` only, and a DST fixture pinned to real dates
+
+Every start/end, every day-of-week decision, and every zone label
+(`EST`/`EDT`, not a fixed offset) is computed with `Intl.DateTimeFormat`
+against the connection's own IANA timezone — never a hand-rolled offset table.
+Workers and Node both ship the full tz database behind `Intl`, so this adds no
+dependency and no data file to keep current as governments change their DST
+rules, which they periodically do.
+
+**Tested against real transition instants, not an assumption about how DST
+behaves**: America/New_York's actual 2026 transitions (spring forward March
+8, fall back November 1) are hard-coded fixture instants either side of each
+transition, and the check asserts both the clock *and* the zone abbreviation
+change correctly. This matters because the failure mode that broke it in
+sabotage was not "the time is wrong" — the clock stayed right — it was "the
+event says EST when it happened during EDT," a class of bug that reads as
+correct to anyone not doing the arithmetic by hand and is exactly the kind of
+thing a note a person actually reads would show them being lied to by an
+hour's label without the time itself moving. The check:
+`before spring-forward, EST; past the transition, EDT — same zone, same day, different instant`.
+
+### Contacts: attendees feed the same merge rules email does, through a draft shape
+
+`docs/decisions/communications.md`'s contacts section (above) already decided
+how two people become one contact: exact identifier equality auto-merges,
+everything weaker is a suggestion, and a person's own edit always wins. None
+of that is redecided here. `contactDraftsFromEvent` turns one calendar
+event's attendees (and its organizer, if not already listed as one) into the
+same `Contact`-shaped object `canAutoMerge`/`mergeContacts` already consume —
+one identifier, one activity entry pointing at the event's own anchor and day
+— so folding a calendar attendee into an existing email-derived contact is
+the existing merge machinery, unmodified, fed a second kind of source. A
+cancelled event drafts nobody: crediting activity to a meeting that did not
+happen is the failure `docs/decisions/communications.md`'s own merge argument
+exists to avoid one level up. The check is
+`a calendar draft auto-merges with an existing contact sharing the address, and a cancelled event drafts nothing`.
+
+### The link lives in a frontmatter key, not a new section
+
+A captured meeting note that matches a calendar event by time window and
+title gains a link to the event's anchor — the scoping note's request, and
+the desktop's own detection is explicitly left to consult the resulting day
+note on its own; this package builds only the matching and the write.
+
+**The match**: a candidate calendar event must overlap the meeting's own
+recorded time window (with a 15-minute tolerance either side, because a
+recorder starts when a person joins a call, not when the calendar says a
+meeting begins) — that is the gate, and with exactly one overlapping
+candidate it is also the whole answer, because a meeting recorded during
+exactly one calendar event is that event whatever either happened to be
+titled. Only when there is a genuine *choice* between two or more overlapping
+candidates does title similarity (a dependency-free word-set Jaccard score)
+break the tie, and a choice with no title resemblance to either candidate
+resolves to no match rather than a guess — the same "absence over a wrong
+answer" instinct the rest of this file argues throughout. Check:
+`a single overlapping candidate matches on the time window alone; two candidates need title agreement, and no agreement is no match`.
+
+**The write is a text patch, not `renderMeetingNote(session)` run again.**
+`packages/meetings` gained one new, optional frontmatter key — `event`,
+empty until a match exists — for exactly this. The obvious way to set it
+("load the session, set `.event`, render again") is wrong for the reason
+`## My notes` is never rewritten: by the time a calendar sync runs, the
+session that produced the note may not exist anywhere any more, and three
+surfaces write a meeting note today (phone, desktop, gateway) with a fourth
+"soon" — a re-render pipeline would have to agree with all of them on a
+session shape it does not need to know about at all. So `attachEventLink`
+is a **patch**: find the closing `---` of an existing frontmatter block,
+insert or replace one `event:` line, leave every other byte untouched —
+including a transcript nobody wants re-parsed to add a link. It works on a
+note this package never rendered (a hand-written fixture using the same YAML
+convention is a check by name:
+`a note this package did not render is patched the same way`), and setting the
+same link twice is byte-identical, which is what keeps a repeated match from
+ever producing a no-op write. The cost of the frontmatter-key approach over a
+new section: none measured — `parseMeetingNote` already reads every key it
+finds rather than a fixed list, so an older client reading a linked note
+simply sees one more frontmatter line it does not use, and a client
+constructing a `MeetingSession` with no `.event` at all renders exactly the
+note it always has, `event: ""` and all.
+
+### Calendar-day notes join the recency exclusion as their own kind, not folded into mail
+
+`docs/decisions/communications.md`'s "A firehose is not attention" already
+collapses a connected mailbox's daily notes to one line in `orient`'s recency
+list, because a note written every active day forever would otherwise drown
+every hand-edited note within days. A calendar day is written on exactly the
+same cadence and would cause exactly the same flood, so `classifyCaptureKind`
+gained a fourth answer, `calendar-day`, recognised the same way every other
+kind is — by path alone, `0-inbox/calendar/<date>.md` and nothing else,
+because there is still no writer-identity signal anywhere in this stack that
+could do better.
+
+**Its own kind, not `channel-day`**, even though both are "automated capture"
+in the same sense: "what came in" (mail) and "what's on my calendar" are
+different questions, and folding the two into one collapsed line would answer
+neither — a caller asking `orient` for their day would see "40 automated
+notes arrived" and learn nothing about the *shape* of that number. Sabotage
+found the direction this actually breaks in: dropping `calendar-day` from the
+*display* order (leaving classification alone) does not misclassify anything
+— it makes calendar days vanish from `orient`'s answer with no summary line
+at all, silently, which is exactly the "answer with a pointer, never silence"
+failure the firehose decision was written to reject, reached from a different
+line than the one that decision's own sabotage record found. The checks are
+`calendar days collapse to their own line, never counted as mail and never shown individually`
+and `dropping calendar-day from the summary order — not from classification — still answers with silence, which is the failure this collapse exists to prevent`.
+
+### The horizon is drawn in the owner's timezone at BOTH ends, or it loses a day's edge
+
+Found by adversarial review of the Calendar PR, and it is the failure this
+whole section is otherwise careful about: silent, plausible, and written into
+somebody's bucket as if it were the truth.
+
+A horizon is a set of **calendar dates on the owner's own wall clock** — the
+same dates a day note is filed under. A provider query is a pair of
+**instants**. The first implementation converted one to the other by pasting
+`T00:00:00.000Z` onto the date, which is the owner's own day for exactly one
+timezone. At `Asia/Tokyo` the query began nine hours into the horizon's first
+day, so an 08:00 local meeting was never fetched — and because a full sync is
+*ground truth*, the day note was then regenerated **without** it, deleting an
+event that was really there. At `America/New_York` the same arithmetic ended
+the query four hours before the horizon's last day did, so that day's whole
+evening — or the day's only note — never existed.
+
+So `zonedDayStartInstant(date, timeZone)` in `calendar/timezone.js` is the one
+conversion, `Intl` again rather than an offset table, two passes because the
+offset depends on the instant and the instant depends on the offset (one pass
+is off by exactly the hour that moved on a DST-transition day). Over-fetching
+at an edge would be harmless — the cache is keyed by local date and pruned to
+the local window — so the conversion is exact rather than padded, and the
+padding is not what makes it safe. The checks are
+`an event before 09:00 on a +09:00 owner's first horizon day is fetched, not silently dropped`,
+`an evening event on a -04:00 owner's LAST horizon day is inside the window`,
+and `a Tokyo day starts nine hours BEFORE UTC midnight, not nine hours after it`.
+Sabotage: restoring the `${date}T00:00:00.000Z` window fails 3 checks, all
+three naming the two zones by name, and every other calendar check stays green
+— which is the point, because a UTC-only fixture cannot see this at all.
+
+### An attempt is for the products it parked, and one table serves every flow
+
+`googleConnectAttempts` is shared by every product's connect flow, and all
+three `complete*` consumers looked up an attempt by `hashedState` alone. So a
+state parked by `startGmailConnect` could be answered on Calendar's callback —
+attaching `calendar` to the row out of a consent screen that never mentioned a
+calendar, with an empty scope slice beside it — and a Calendar attempt could be
+answered on Gmail's, binding a mailbox folder and a default 90-day backfill out
+of a consent screen that never mentioned mail. Neither is a cross-tenant hole
+(the state is the person's own secret, and the workspace still comes from the
+attempt, never from the caller), but each writes a product onto the row that
+nobody consented to, which is a lie about what was agreed rather than a sync
+that merely fails. **Whether a discriminator earns its cost is a question of
+how many consumers there are**, and Chat's review left it open at two on
+exactly that ground; at three it is a rule rather than a question, so all
+three now check `attempt.products` and all three refuse with the ordinary
+`CONNECT_ATTEMPT_INVALID`, which tells a caller nothing about which flow
+parked what. Three lines, one per consumer, and a fourth product inherits it
+by copying the file it starts from. The checks are
+`a Gmail-only attempt cannot be completed as a Calendar connect`, the same for
+Chat, and their mirrors; an attempt naming two products is still answerable by
+either of their flows, because that is the union case the scope fix exists to
+produce.
+
+### A grant that lost a product's scope is not just recorded, it is reported
+
+(Chat's own reconciliation reached the same conclusion independently and
+landed first; the two implementations were reconciled on merge into one rule
+spelled the same way in all three bindings. What follows is the argument.)
+
+The row being *honest* about a downgraded consent — `gmail.scopes: []` beside
+a `products` still listing `gmail` — is the rule this file argues twice above,
+and it is not sufficient on its own: **nothing reads a scope slice.** Written
+and never spoken, that fact leaves a mail sync being scheduled against a grant
+that can only answer 403, while every screen shows the connection as healthy.
+So a bind that leaves any product on the row without the scopes that product
+needs sets `health: "reconnect_required"` with `errorCode: "SCOPES_INCOMPLETE"`
+— the existing word for exactly this state (`markReconnectRequired`), with the
+same remedy — and a bind that covers everything leaves the health field alone,
+because a product's sync state is that product's own to manage.
+
+The one other health case a Calendar bind does own: a connection that was
+**disconnected** and is now being given a fresh grant by this very mutation.
+Clearing `disconnectedAt` while leaving the `"error"` health that disconnect
+set would leave a working connection permanently showing a fault, with no
+error code to explain it and nothing but a Gmail reconnect to clear it. The
+checks are
+`a Calendar bind that loses Gmail's scope marks the connection as needing a reconnect`,
+`a grant that covers both leaves the health alone`, and
+`reconnecting a DISCONNECTED account through Calendar makes it healthy again`.
+
+### What this does not build yet
+
+**The control-plane connection and the sync engine landed as two separate,
+reconciled changes, and only their join point is left.** This section
+originally assumed a calendar connection would be its own OAuth grant, its
+own attempt table and its own row — a guess that did not survive contact with
+how Gmail's flow was actually generalized: `googleConnections` (see "The
+Gmail connection" above) is one row per Google account, one grant, a
+`products` set, and one nested settings-and-cursor object per product, built
+specifically so a sibling product could attach without a second migration.
+Calendar is that sibling: `functions/calendarConnect.ts` is the real
+connect/reconnect/disconnect flow — same PKCE-attempt-then-scheduled-exchange
+shape as Gmail's, its own `CALENDAR_CONNECT_ENABLED` flag (Calendar's scope
+is *sensitive*, not *restricted* — a real distinction in Google's policy, so
+it is not tied to Gmail's CASA-verification timeline), and it attaches
+`calendar` to whatever `googleConnections` row a workspace already has rather
+than inventing a table. What is **still** not built is the last mile: nothing
+yet reads a `googleConnections` row's `calendar` product, decrypts its token,
+and calls `apps/mcp/src/communications/calendar-sync.js` with the
+`CalendarConnection`-shaped object that function expects — the same live-
+trigger gap `gmailSync.js` has too (see the fence-nonce paragraph below).
+`calendar-sync.js` remains exercised entirely against a fake, stateful
+Calendar API server (`fakeCalendarServer.mjs`) and a fake store, deliberately
+the same "pure functions plus fixtures" shape the whole of this package
+already has — see "The Gmail restricted scope is Google's decision" above for
+the same argument about testing ahead of a credential nobody can grant an
+agent yet. Wiring a live sync trigger for either channel is one change,
+scoped the same way for both, and is named here rather than built silently
+because it is the kind of "while I'm in here" scope creep this file's own
+rule warns against.
+
+**The fence nonce is a placeholder, and the same gap already exists in the
+Gmail sync.** `calendar-sync.js` derives it from the connection's account and
+the day (`account:date`), which keeps regeneration idempotent but is weaker
+than the fence's own design goal — both values end up visible in the
+rendered note, so an inviter who knows which account they invited and what
+day their invite landed on could compute it. `gmailSync.js` has exactly the
+same gap: its nonce is caller-supplied (`options.nonce`) with nothing yet
+generating or persisting a real one, because neither sync is wired to a live
+trigger yet. The fix that keeps both properties — unpredictable, and stable
+across a regeneration — reads the *existing* note's own nonce back out and
+reuses it, minting a fresh random one only the first time a day is written;
+named here as a decision for whoever builds the live sync trigger for either
+channel, not a gap discovered after one lands.
+
+Also not built, named so a future reader knows these were considered rather
+than missed: RSVP/response writes (v1 is read-only, matching the read-only
+mail decision above); a scheduling or free/busy feature; a per-calendar (as
+opposed to per-account) connection; splitting an oversized calendar day into
+parts (a day's worth of meetings — dozens at most — does not approach the
+512 KB threshold a heavy mail day can, so the machinery `planChannelDay`
+already has was not duplicated for a case that does not arise); and the
+desktop's own consultation of a calendar day note as a detection signal,
+which is explicitly the other project's to build against the day note this
+one already writes.
 
 ### What is deliberately not built
 
