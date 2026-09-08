@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /**
  * ENCRYPT, RELOAD, UNLOCK, EDIT, SAVE, LOCK — against a real WebKit engine.
@@ -83,6 +83,56 @@ async function openShareDialog(page: Page): Promise<void> {
   await expect(page.getByRole("heading", { name: /^Share/ })).toBeVisible();
 }
 
+/**
+ * `.fill()` on its own is not enough here: under enough contention that this
+ * page's own JS main thread starves for a stretch, we measured a real
+ * WebKit + react-native-web `TextInput` occasionally accept the fill's
+ * `input` event, start a re-render, and still end up back at its last
+ * *React-committed* value — the DOM snaps back to `""` rather than holding
+ * what was typed, with no error anywhere: `.fill()` resolves normally and
+ * the next `.fill()` on a different field proceeds. A bare `.fill()` on the
+ * passphrase fields turned that into a button that stayed disabled for the
+ * rest of the test's timeout, for a reason nothing at that point could name.
+ * Verifying and retrying here fails fast, at the field that actually lost
+ * its keystrokes, instead of ninety seconds later at a click with no field
+ * left to blame.
+ */
+async function fillReliably(locator: Locator, value: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await locator.fill(value);
+    try {
+      await expect(locator).toHaveValue(value, { timeout: 2_000 });
+      return;
+    } catch {
+      // Retry — see the comment above this function.
+    }
+  }
+  await expect(locator).toHaveValue(value);
+}
+
+/**
+ * The full "lock this note" sequence every test here starts with: open
+ * Share, open the lock dialog, fill and confirm the passphrase, acknowledge,
+ * confirm, and close Share behind it. Every test needs the note unlocked
+ * immediately afterward to do its own work, which is `protectNote`'s own
+ * contract — locking is the one operation that leaves a note open, because
+ * the person just typed the passphrase and proved they know it.
+ */
+async function lockNote(page: Page, passphrase: string): Promise<void> {
+  await openShareDialog(page);
+  await page.getByTestId("share-lock-note").click();
+  await fillReliably(page.getByLabel("Passphrase", { exact: true }), passphrase);
+  await fillReliably(page.getByLabel("Passphrase again", { exact: true }), passphrase);
+  await fillReliably(page.getByLabel("Type I understand to confirm", { exact: true }), "I understand");
+  await page.getByLabel("Lock this note", { exact: true }).click();
+  // The lock dialog unmounts itself once `EncryptionAdvancedSection` sees
+  // `encrypted: true`, but the Share dialog it was opened over does not —
+  // it is a plain modal, dismissed only by "Done" or its scrim, and its
+  // scrim otherwise sits over `LockedNoteView`'s own controls.
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByTestId("locked-note-body").waitFor();
+}
+
 test.beforeEach(async ({ page }) => {
   // Argon2id at OWASP's floor is about a second of real work per unlock
   // (`docs/decisions/encryption.md`'s own bench), and several of these cases
@@ -116,22 +166,11 @@ test("locking replaces the plaintext with an envelope, in the bucket and on scre
   expect(before).toContain("This paragraph is the plaintext this fixture starts with.");
   expect(before).not.toContain("context_encryption");
 
-  await openShareDialog(page);
-  await page.getByTestId("share-lock-note").click();
-  await page.getByLabel("Passphrase", { exact: true }).fill(PASSPHRASE);
-  await page.getByLabel("Passphrase again", { exact: true }).fill(PASSPHRASE);
-  await page.getByLabel("Type I understand to confirm", { exact: true }).fill("I understand");
-  await page.getByLabel("Lock this note", { exact: true }).click();
-  // The lock dialog unmounts itself once `EncryptionAdvancedSection` sees
-  // `encrypted: true`, but the Share dialog it was opened over does not —
-  // it is a plain modal, dismissed only by "Done" or its scrim, and its
-  // scrim otherwise sits over `LockedNoteView`'s own controls.
-  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await lockNote(page, PASSPHRASE);
 
   // Locking is the one operation that leaves the note open afterwards
   // (`useNoteEncryption.protect`'s own comment) — the person just typed the
   // passphrase and proved they know it.
-  await page.getByTestId("locked-note-body").waitFor();
   await expect(page.getByTestId("locked-note-body")).toHaveValue(
     /This paragraph is the plaintext this fixture starts with\./,
   );
@@ -147,18 +186,7 @@ test("editing while unlocked re-encrypts under the same passphrase, and a wrong 
   page,
 }) => {
   await openFixtureNote(page);
-  await openShareDialog(page);
-  await page.getByTestId("share-lock-note").click();
-  await page.getByLabel("Passphrase", { exact: true }).fill(PASSPHRASE);
-  await page.getByLabel("Passphrase again", { exact: true }).fill(PASSPHRASE);
-  await page.getByLabel("Type I understand to confirm", { exact: true }).fill("I understand");
-  await page.getByLabel("Lock this note", { exact: true }).click();
-  // The lock dialog unmounts itself once `EncryptionAdvancedSection` sees
-  // `encrypted: true`, but the Share dialog it was opened over does not —
-  // it is a plain modal, dismissed only by "Done" or its scrim, and its
-  // scrim otherwise sits over `LockedNoteView`'s own controls.
-  await page.getByRole("button", { name: "Done", exact: true }).click();
-  await page.getByTestId("locked-note-body").waitFor();
+  await lockNote(page, PASSPHRASE);
 
   // Edit while unlocked.
   const body = page.getByTestId("locked-note-body");
@@ -174,7 +202,7 @@ test("editing while unlocked re-encrypts under the same passphrase, and a wrong 
   // indistinguishable — `unlockNote`'s own contract.
   await page.getByTestId("locked-note-lock").click();
   await page.getByTestId("locked-note-prompt").waitFor();
-  await page.getByLabel("Passphrase", { exact: true }).fill("the wrong passphrase entirely");
+  await fillReliably(page.getByLabel("Passphrase", { exact: true }), "the wrong passphrase entirely");
   await page.getByTestId("locked-note-unlock").click();
   await expect(page.getByTestId("locked-note-error")).toHaveText(
     "that passphrase did not open this note",
@@ -183,7 +211,7 @@ test("editing while unlocked re-encrypts under the same passphrase, and a wrong 
   await expect(page.getByTestId("locked-note-body")).toHaveCount(0);
 
   // The right one opens exactly what was saved.
-  await page.getByLabel("Passphrase", { exact: true }).fill(PASSPHRASE);
+  await fillReliably(page.getByLabel("Passphrase", { exact: true }), PASSPHRASE);
   await page.getByTestId("locked-note-unlock").click();
   await expect(page.getByTestId("locked-note-body")).toHaveValue(new RegExp(EDITED_LINE));
 });
@@ -192,18 +220,7 @@ test("a real page reload proves the ciphertext persisted and the unlock session 
   page,
 }) => {
   await openFixtureNote(page);
-  await openShareDialog(page);
-  await page.getByTestId("share-lock-note").click();
-  await page.getByLabel("Passphrase", { exact: true }).fill(PASSPHRASE);
-  await page.getByLabel("Passphrase again", { exact: true }).fill(PASSPHRASE);
-  await page.getByLabel("Type I understand to confirm", { exact: true }).fill("I understand");
-  await page.getByLabel("Lock this note", { exact: true }).click();
-  // The lock dialog unmounts itself once `EncryptionAdvancedSection` sees
-  // `encrypted: true`, but the Share dialog it was opened over does not —
-  // it is a plain modal, dismissed only by "Done" or its scrim, and its
-  // scrim otherwise sits over `LockedNoteView`'s own controls.
-  await page.getByRole("button", { name: "Done", exact: true }).click();
-  await page.getByTestId("locked-note-body").waitFor();
+  await lockNote(page, PASSPHRASE);
   const storedBeforeReload = await assertStoredCiphertext(page);
 
   // A genuine reload: the whole page, the whole JS bundle, re-executes.
@@ -225,7 +242,7 @@ test("a real page reload proves the ciphertext persisted and the unlock session 
   // in memory and nowhere else" is what this is: a fresh reducer, so the
   // note that was unlocked a moment ago now asks again.
   await page.getByTestId("locked-note-prompt").waitFor();
-  await page.getByLabel("Passphrase", { exact: true }).fill(PASSPHRASE);
+  await fillReliably(page.getByLabel("Passphrase", { exact: true }), PASSPHRASE);
   await page.getByTestId("locked-note-unlock").click();
   await expect(page.getByTestId("locked-note-body")).toHaveValue(
     /This paragraph is the plaintext this fixture starts with\./,
@@ -236,23 +253,12 @@ test("changing the passphrase rewraps the key without rewriting the body, and th
   page,
 }) => {
   await openFixtureNote(page);
-  await openShareDialog(page);
-  await page.getByTestId("share-lock-note").click();
-  await page.getByLabel("Passphrase", { exact: true }).fill(PASSPHRASE);
-  await page.getByLabel("Passphrase again", { exact: true }).fill(PASSPHRASE);
-  await page.getByLabel("Type I understand to confirm", { exact: true }).fill("I understand");
-  await page.getByLabel("Lock this note", { exact: true }).click();
-  // The lock dialog unmounts itself once `EncryptionAdvancedSection` sees
-  // `encrypted: true`, but the Share dialog it was opened over does not —
-  // it is a plain modal, dismissed only by "Done" or its scrim, and its
-  // scrim otherwise sits over `LockedNoteView`'s own controls.
-  await page.getByRole("button", { name: "Done", exact: true }).click();
-  await page.getByTestId("locked-note-body").waitFor();
+  await lockNote(page, PASSPHRASE);
 
   await page.getByRole("button", { name: "Change passphrase…", exact: true }).click();
-  await page.getByLabel("Current passphrase", { exact: true }).fill(PASSPHRASE);
-  await page.getByLabel("New passphrase", { exact: true }).fill(NEW_PASSPHRASE);
-  await page.getByLabel("New passphrase again", { exact: true }).fill(NEW_PASSPHRASE);
+  await fillReliably(page.getByLabel("Current passphrase", { exact: true }), PASSPHRASE);
+  await fillReliably(page.getByLabel("New passphrase", { exact: true }), NEW_PASSPHRASE);
+  await fillReliably(page.getByLabel("New passphrase again", { exact: true }), NEW_PASSPHRASE);
   await page.getByRole("button", { name: "Change passphrase", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Change this note's passphrase" })).toHaveCount(0);
 
@@ -265,12 +271,12 @@ test("changing the passphrase rewraps the key without rewriting the body, and th
   await page.getByTestId("locked-note-prompt").waitFor();
 
   // The passphrase that opened it a minute ago no longer does.
-  await page.getByLabel("Passphrase", { exact: true }).fill(PASSPHRASE);
+  await fillReliably(page.getByLabel("Passphrase", { exact: true }), PASSPHRASE);
   await page.getByTestId("locked-note-unlock").click();
   await expect(page.getByTestId("locked-note-error")).toBeVisible();
 
   // The new one does.
-  await page.getByLabel("Passphrase", { exact: true }).fill(NEW_PASSPHRASE);
+  await fillReliably(page.getByLabel("Passphrase", { exact: true }), NEW_PASSPHRASE);
   await page.getByTestId("locked-note-unlock").click();
   await expect(page.getByTestId("locked-note-body")).toHaveValue(
     /This paragraph is the plaintext this fixture starts with\./,
@@ -281,30 +287,19 @@ test("removing the passphrase publishes the note back as plain Markdown, and req
   page,
 }) => {
   await openFixtureNote(page);
-  await openShareDialog(page);
-  await page.getByTestId("share-lock-note").click();
-  await page.getByLabel("Passphrase", { exact: true }).fill(PASSPHRASE);
-  await page.getByLabel("Passphrase again", { exact: true }).fill(PASSPHRASE);
-  await page.getByLabel("Type I understand to confirm", { exact: true }).fill("I understand");
-  await page.getByLabel("Lock this note", { exact: true }).click();
-  // The lock dialog unmounts itself once `EncryptionAdvancedSection` sees
-  // `encrypted: true`, but the Share dialog it was opened over does not —
-  // it is a plain modal, dismissed only by "Done" or its scrim, and its
-  // scrim otherwise sits over `LockedNoteView`'s own controls.
-  await page.getByRole("button", { name: "Done", exact: true }).click();
-  await page.getByTestId("locked-note-body").waitFor();
+  await lockNote(page, PASSPHRASE);
 
   // A wrong passphrase refuses the removal too — this is the one
   // plaintext-over-encrypted write the product allows, and it is gated on
   // proving the *current* passphrase, not on the session already holding a
   // key for it.
   await page.getByRole("button", { name: "Remove encryption…", exact: true }).click();
-  await page.getByLabel("Current passphrase", { exact: true }).fill("not the passphrase");
+  await fillReliably(page.getByLabel("Current passphrase", { exact: true }), "not the passphrase");
   await page.getByRole("button", { name: "Remove encryption", exact: true }).click();
   await expect(page.getByTestId("passphrase-action-error")).toBeVisible();
   await assertStoredCiphertext(page);
 
-  await page.getByLabel("Current passphrase", { exact: true }).fill(PASSPHRASE);
+  await fillReliably(page.getByLabel("Current passphrase", { exact: true }), PASSPHRASE);
   await page.getByRole("button", { name: "Remove encryption", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Remove this note's passphrase" })).toHaveCount(0);
 
