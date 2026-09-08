@@ -4653,8 +4653,10 @@ async function rewrapOneNote(store, key, { fromGeneration, toGeneration, keys, n
  * that finishes the rotation, to a constant number of object reads instead of
  * one read per note in the bucket. **The budget counts reads, not re-wraps**,
  * because a read is what a Worker's subrequest budget counts: at most
- * `ROTATION_BATCH_CAP` for the forward sweep, the same again for the
- * behind-the-cursor catch-up, and `ROTATION_RETRY_READ_CAP` for the
+ * `ROTATION_BATCH_CAP` for the forward sweep, that plus
+ * `ROTATION_RETRY_READ_CAP` for the behind-the-cursor catch-up (it has to be
+ * able to get through a full forward batch, or a walk that is otherwise
+ * finished never gets to say so), and `ROTATION_RETRY_READ_CAP` for the
  * known-stuck retry. See the measured table in `docs/decisions/encryption.md`.
  *
  * **A note created or moved behind the cursor is not skipped.** `listAllKeys`
@@ -4666,11 +4668,12 @@ async function rewrapOneNote(store, key, { fromGeneration, toGeneration, keys, n
  * worked from, and the cursor sweeping past that key position earlier proves
  * nothing about content that arrived there afterward. This costs one extra
  * read per note touched inside that window — not per note in the bucket. The
- * boundary is captured *before* a call's own listing, less a margin for the
- * backend's clock, which is why a call re-reads the batch its predecessor
- * wrote: those reads come back "clean" and cost a bounded number of
- * subrequests, where a boundary taken after the writes would instead lose any
- * note that moved behind the cursor while the call was running.
+ * boundary is captured *before* a call's own listing, and compared through
+ * `uploadedBefore` at the resolution the backend's timestamp actually
+ * carries; a boundary taken after the writes instead would lose any note that
+ * moved behind the cursor while the call was running. The re-reading that
+ * earlier boundary would otherwise cause is paid for by `wrote`, the keys the
+ * last call moved, which the catch-up skips.
  *
  * **A note this pass cannot move — a conflicting write, or one it cannot
  * open — does not block the cursor from advancing past it.** It is tracked
