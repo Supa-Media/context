@@ -329,6 +329,14 @@ reported "no meetings" when it meant "not allowed to look," on this exact
 machine, at this exact moment** — not a hypothetical this file was leaving
 open, a defect this session watched happen.
 
+**That last paragraph is retracted below, named rather than edited out of
+place.** The chain from the TCC values above to "every per-calendar call
+fails" to "the app reported no meetings when it meant not allowed to look"
+reads as a captured observation. It was reasoning from a permission value,
+not a launch anyone watched refuse — see "Retraction: the blindness was never
+observed, only inferred", a few paragraphs down, for what was actually
+measured and what is still open.
+
 **Fixed, rather than left for a future Mac session.** `calendarScript` now
 counts calendars and per-calendar refusals and reports both; `parseCalendarEvents`
 throws when there is at least one calendar and every one of them refused to
