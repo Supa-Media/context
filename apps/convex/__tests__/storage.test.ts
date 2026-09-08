@@ -922,6 +922,97 @@ describe("rotating the encryption key", () => {
   });
 
   /**
+   * THE SAME MISS, ASKED OF A ROW WITH NO `gmail` OBJECT ON IT AT ALL.
+   *
+   * The test above proves the walk visits `googleConnections`, but it seeds a
+   * Gmail row — so it would still pass if the walk (or a future "only rows we
+   * actually sync" optimisation of it) filtered on `products`, on the presence
+   * of `gmail`, or on a mailbox slug. A Chat-only connection is the row shape
+   * that has none of those, and it holds exactly the same refresh token: the
+   * token is top-level on the shared row precisely so rotation never has to
+   * know which products are enabled, and this is the test that says so.
+   *
+   * Sabotage: add `.filter((q) => q.neq(q.field("gmail"), undefined))` to
+   * `listGoogleConnectionRekeyCandidates` — the Gmail test above stays green
+   * and this one fails, with the chat row's token stranded on the old key.
+   */
+  test("a Chat-only connection's token is moved forward too", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    const originalKey = process.env.STORAGE_SECRET_ENCRYPTION_KEY!;
+    const context = { workspaceId: workspaceId as string };
+    const now = Date.now();
+    const refreshBefore = await encryptSecret("google-chat-refresh-abc", requireKeyset(), context);
+    expect(refreshBefore.startsWith("v2:k1:")).toBe(true);
+
+    const connectionId = await t.run((ctx) =>
+      ctx.db.insert("googleConnections", {
+        workspaceId,
+        provider: "google" as const,
+        address: "person@example.invalid",
+        encryptedRefreshToken: refreshBefore,
+        accessTokenExpiresAt: now + 3_600_000,
+        scopes: [
+          "https://www.googleapis.com/auth/chat.messages.readonly",
+          "https://www.googleapis.com/auth/chat.spaces.readonly",
+        ],
+        googleAccountId: "google-account-1",
+        products: ["chat"] as const,
+        chat: {
+          scopes: [
+            "https://www.googleapis.com/auth/chat.messages.readonly",
+            "https://www.googleapis.com/auth/chat.spaces.readonly",
+          ],
+          nonceSeed: "not-a-credential-just-a-seed",
+        },
+        health: "active" as const,
+        boundBy: owner,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: originalKey,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: "k1",
+      },
+      async () => {
+        expect(await t.action(internal.functions.storage.rekeyStorageBindings, {})).toMatchObject({
+          googleConnectionsRekeyed: 1, // refresh only — a chat row caches no access token yet
+          googleConnectionsSkipped: 0,
+          googleConnectionsUnreadable: 0,
+        });
+        expect((await t.run((ctx) => ctx.db.get(connectionId)))!.encryptedRefreshToken.startsWith("v2:k2:")).toBe(
+          true,
+        );
+      },
+    );
+
+    // And it still opens once the old key is gone from the environment
+    // entirely — the state a finished rotation leaves, which is the whole
+    // point of the walk having visited this row.
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: undefined,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: undefined,
+      },
+      async () => {
+        const row = await t.run((ctx) => ctx.db.get(connectionId));
+        expect(await decryptSecret(row!.encryptedRefreshToken, requireKeyset(), context)).toBe(
+          "google-chat-refresh-abc",
+        );
+        // The chat product's own state rode along untouched — rotation moves
+        // the envelope and nothing else.
+        expect(row!.chat?.nonceSeed).toBe("not-a-credential-just-a-seed");
+      },
+    );
+  });
+
+  /**
    * A disconnected connection's refresh token is the empty string
    * (`disconnectGoogleConnection` clears it, never deletes the row), and
    * empty is never a rekey candidate — there is nothing there to re-seal, and

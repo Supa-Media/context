@@ -32,9 +32,17 @@ function calendarDate(iso) {
  * own fence security argues for
  * (`packages/communications/src/note.js`, "the nonce is why the fence is
  * worth anything"). `nonceSeed` is a random value generated once at connect
- * time and sealed alongside the connection's refresh token; it is never
- * derived from the account handle or the date alone, both of which a
- * motivated sender could guess.
+ * time and stored **in the clear** on the connection row — deliberately, and
+ * this comment said "sealed alongside the refresh token" until review caught
+ * it, which is the kind of claim that gets believed rather than checked. It
+ * is not a credential: it opens no account and reaches no message, and the
+ * worst a leak buys is one connection's fence marker, which `defangFence`
+ * strips out of every sender-written body anyway, so the fence survives a
+ * seed a sender somehow learned. What the seed does buy is that the nonce is
+ * never derived from the account handle or the date alone, both of which a
+ * motivated sender can simply guess. If it ever becomes the *only* thing
+ * standing between a sender and a closed fence, it belongs in an envelope and
+ * this paragraph is the one to reverse.
  */
 export function dayNonce(nonceSeed, account, date) {
   return fnv1a64(`${String(nonceSeed ?? "")} ${String(account ?? "")} ${String(date ?? "")}`);

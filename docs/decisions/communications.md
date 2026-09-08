@@ -963,6 +963,90 @@ empties `gmail.scopes`. The second test exists so a regression that
 reintroduces the bug is a known, named test going red, not a support ticket
 about mail sync stopping for no visible reason.
 
+Two things review found on top of that pair, both of which are the *same*
+question asked one step further out — "what does the row do when the grant it
+was handed is not the grant it asked for?" — and neither of which either
+mechanism above answers on its own.
+
+**A grant narrower than the row's own products is reported, not merely
+recorded.** Both fixes can be in place and Google can still hand back less
+than was asked for: the person unticks a product on the consent screen, or a
+Workspace admin policy refuses a restricted scope outright. The row is then
+exactly as honest as it was designed to be — `gmail.scopes: []` beside a
+`products` still listing `gmail` — and until this, **nothing anywhere read
+that empty slice.** `applyChatConnectionBinding` went on to write
+`health: "backfilling"`, `mintGoogleAccessToken` mints from the refresh token
+without consulting a product's scopes at all, and the first thing that would
+have noticed was a 403 from Google inside a Gmail sync that is not built yet.
+So the binding now compares the recomputed slice of **every product on the
+live row** against the grant it just wrote, and a product left with no scopes
+puts the row into `health: "reconnect_required"` with
+`errorCode: "SCOPES_INCOMPLETE"` and a message naming the products, built from
+this file's own literals and never from a provider string. The recomputation
+rule is unchanged and the record is as honest as before; what changed is that
+somebody is told. The check is `adding chat with a grant that dropped gmail
+marks the row reconnect_required`.
+
+**A disconnect is not undone by adding a different product.** `products` is
+deliberately left behind by `disconnectGoogleConnection` as a record of what
+the connection *used to* sync (above, "Disconnecting ends every product"), and
+that record is a trap for anything that reads it as intent. Unfixed, a console
+offering "Add Chat" against a disconnected row folds `["gmail"]` into the
+scope request — so the person who explicitly ended our access to their mail is
+shown a Google consent screen asking for `gmail.readonly` again, and the row
+comes back with Gmail enabled, **because they added Chat**. That is a
+restricted scope being re-requested on the strength of a revocation, which is
+the wrong direction for a revocation to point. Two halves, matching the two
+above: `productsForConnection` contributes nothing for a connection whose
+`disconnectedAt` is set, so the *request* never asks; and
+`applyChatConnectionBinding`, reviving a disconnected row, enables the product
+being connected and no other, so the *row* never re-lists one. What survives
+is each product's settings object — a `gmail.mailboxSlug` is a folder
+somebody's mail is already sitting in, and renaming it later is a migration
+nobody asked for — so a deliberate Gmail reconnect afterwards lands exactly
+where it did before. The checks are `a disconnected connection's products are
+never folded into a new scope request` and `reviving a disconnected row for
+chat enables chat alone`.
+
+**The mirror of that second rule, on Gmail's own binding, is named here and
+not built.** `applyGmailConnectionBinding` revives a disconnected row the same
+way, so reconnecting Gmail on an account that used to sync Chat puts `chat`
+back on `products` with an empty scope slice. It is the lighter half of the
+same bug — Gmail's connect flow requests only `["gmail"]`, so nothing
+re-requests `chat.messages.readonly`; what it produces is a dead product entry
+rather than a revived consent — and it is left to the change that next touches
+that function (the sibling Calendar reconciliation is the obvious one) rather
+than edited from a Chat review into merged code a concurrent branch is
+working in. The check it will need is `reconnecting one product on a
+disconnected account does not revive the others`.
+
+**And `nonceSeed` is stored in the clear, deliberately, which is not what the
+sync module's comment claimed.** `sync.js` described the seed as "sealed
+alongside the connection's refresh token"; it is not, and the schema says so
+in the opposite direction. The seed is not a credential — it opens no account
+and reaches no message, and `defangFence` strips the fence marker out of every
+sender-written body regardless, so the fence survives a seed a sender somehow
+learned. What the seed buys is that the nonce is not derivable from the
+account handle and the date, both of which a sender can simply guess. The
+comment is corrected rather than the storage, and the paragraph to reverse if
+the seed ever becomes the only thing between a sender and a closed fence is
+that one.
+
+**A space key is bounded before it becomes a field name.**
+`setChatSpaceState`'s `spaceKey` is written as a key inside a `v.record`, which
+makes a caller-chosen string into a field name on a stored document: unbounded
+length is a row an owner can grow toward the document size limit one call at a
+time, a `$`-prefixed key or one carrying a control character is refused by
+Convex's own validation as an unhandled write failure with no error code, and
+`_` is the prefix Convex reserves for its own system fields — which the
+in-memory store the suite runs against does **not** enforce, so it is checked
+in our code rather than left to production to catch. Only the owner of the
+connection can reach any of it, which is why this is a bound and not an alarm.
+It is deliberately a bound rather than Chat's resource-name grammar: pinning
+`spaces/[A-Za-z0-9_-]+` would be this repository asserting a format Google owns
+and can extend, and what that buys is a space somebody can see in their console
+and cannot exclude.
+
 ### The five open decisions, and who settles them
 
 The scoping note lists five. Three are recommended and taken here; **two are

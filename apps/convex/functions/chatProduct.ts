@@ -137,6 +137,44 @@ function refuseAttempt(): never {
   });
 }
 
+/**
+ * A Google Chat space resource name, which is the only thing `spaceSettings`
+ * is ever keyed by — `spaces/{space}`, exactly as `spaces.list` returns it and
+ * exactly as `apps/mcp/src/communications/googleChat/sync.js` reads it back.
+ *
+ * Bounded rather than trusted, for two reasons that are not about Google. The
+ * key goes into a `v.record` on a Convex document, so a caller-chosen string
+ * decides a *field name* on a stored row: an unbounded one is a row somebody
+ * can grow toward the document size limit one call at a time, and a
+ * `$`-prefixed one, or one carrying a control character, is refused by
+ * Convex's own value validation as an unhandled write failure with no error
+ * code — a 500 where a console wanted a refusal it could render. `_` is the
+ * prefix Convex reserves for its own system fields and is refused here for
+ * the same reason, though the in-memory store the suite runs against does
+ * NOT enforce that one, which is precisely why it is checked in our own code
+ * rather than left to the backend to catch in production. None of this is
+ * reachable by anyone but the owner of the connection, which is why it is a
+ * bound and not an alarm — but "only the owner can do it" is not a reason to
+ * accept arbitrary field names into a stored document.
+ *
+ * Deliberately a *bound* and not Chat's resource-name grammar: pinning
+ * `spaces/[A-Za-z0-9_-]+` here would be this repository asserting a format
+ * Google owns and can extend, and the failure that buys is a space the person
+ * can see in their console and cannot exclude. The two concrete failure modes
+ * above are closed without that bet.
+ */
+const SPACE_KEY_MAX_LENGTH = 256;
+
+function isSpaceKey(value: string): boolean {
+  if (typeof value !== "string") return false;
+  if (value.length === 0 || value.length > SPACE_KEY_MAX_LENGTH) return false;
+  if (value.startsWith("_") || value.startsWith("$")) return false;
+  // No control characters, and nothing that is not a printable single line —
+  // the same reason `singleLine` exists one package over: a field name is
+  // read back by people and by tooling.
+  return !/[\u0000-\u001f\u007f-\u009f]/.test(value);
+}
+
 /** A random, non-secret seed for one connection's Chat day-note fence nonces. See the schema comment on `chat.nonceSeed`. */
 function generateNonceSeed(): string {
   return randomOpaqueToken(32);
@@ -148,6 +186,17 @@ function generateNonceSeed(): string {
  * to build a *request*, and a caller who guessed wrong about which
  * connection it was extending should get "starting fresh" rather than a
  * cross-tenant existence signal about a connection id it does not own.
+ *
+ * A DISCONNECTED connection contributes nothing either, and that is a
+ * security answer rather than a tidiness one. `products` is deliberately left
+ * as a record of what the connection *used to* sync
+ * (`disconnectGoogleConnection`), so folding it into a new scope request
+ * would silently re-ask Google for `gmail.readonly` — a restricted scope,
+ * covering the mail of somebody who explicitly ended that access — because
+ * they later added Chat. A person who disconnects and then connects one
+ * product gets that one product, and reconnecting the others stays a
+ * deliberate act. See `docs/decisions/communications.md`, "A disconnect is
+ * not undone by adding a different product".
  */
 export const productsForConnection = internalQuery({
   args: { workspaceId: v.id("workspaces"), connectionId: v.id("googleConnections") },
@@ -155,6 +204,7 @@ export const productsForConnection = internalQuery({
   handler: async (ctx, args) => {
     const connection = await ctx.db.get(args.connectionId);
     if (connection === null || connection.workspaceId !== args.workspaceId) return [];
+    if (connection.disconnectedAt !== undefined) return [];
     return connection.products;
   },
 });
@@ -397,8 +447,31 @@ export const applyChatConnectionBinding = internalMutation({
       .withIndex("by_workspace_address", (q) => q.eq("workspaceId", args.workspaceId).eq("address", args.address))
       .unique();
 
-    const products = new Set(existing?.products ?? []);
+    // An explicit disconnect ended EVERY product on this account — one grant,
+    // one revoke — and `products` is left behind only as a record of what the
+    // connection used to sync. So reviving this row for a Chat connect
+    // revives Chat and nothing else: the other products' settings objects are
+    // kept (a mailbox slug is a folder somebody's mail is already sitting in,
+    // and renaming it later is a migration nobody asked for), but they are
+    // off the live `products` set until the person reconnects them
+    // deliberately. Without this, "I disconnected my Google account, then
+    // added Chat" silently puts Gmail back on the row.
+    // `productsForConnection` above is the other half — it is what stops the
+    // *request* re-asking Google for the mail scope in the first place.
+    const revived = existing !== null && existing.disconnectedAt !== undefined;
+    const products = new Set<GoogleProduct>(revived ? [] : ((existing?.products ?? []) as GoogleProduct[]));
     products.add("chat");
+
+    // A grant NARROWER than the row's live products is exactly the failure
+    // `include_granted_scopes=true` and the union request exist to prevent —
+    // and until this, nothing anywhere noticed it: the slice was recorded
+    // honestly as `[]` beside a `products` still listing the product, and the
+    // row went on to report `health: "backfilling"`. The recomputation rule is
+    // unchanged (the record stays honest); what changes is that the row says
+    // so out loud, so a console and a sync scheduler read "reconnect" rather
+    // than "healthy, and mysteriously syncing nothing". Every name in the
+    // message is one of this file's own literals, never a provider string.
+    const starved = [...products].filter((product) => grantedScopesFor(product, args.scopes).length === 0);
 
     const fields = {
       workspaceId: args.workspaceId,
@@ -433,9 +506,13 @@ export const applyChatConnectionBinding = internalMutation({
         nonceSeed: existing?.chat?.nonceSeed ?? generateNonceSeed(),
         lastSyncedAt: existing?.chat?.lastSyncedAt,
       },
-      health: "backfilling" as const,
-      lastError: undefined,
-      errorCode: undefined,
+      health: (starved.length ? "reconnect_required" : "backfilling") as
+        | "reconnect_required"
+        | "backfilling",
+      lastError: starved.length
+        ? `This Google account's authorization no longer covers ${starved.join(", ")}. Reconnect to restore it.`
+        : undefined,
+      errorCode: starved.length ? "SCOPES_INCOMPLETE" : undefined,
       disconnectedAt: undefined,
       boundBy: args.boundBy,
       updatedAt: now,
@@ -485,6 +562,9 @@ export const setChatSpaceState = mutation({
     const connection = await ctx.db.get(args.connectionId);
     if (connection === null || connection.workspaceId !== args.workspaceId || !connection.chat) {
       throw new ConvexError({ code: "NOT_FOUND", message: "That Chat connection was not found." });
+    }
+    if (!isSpaceKey(args.spaceKey)) {
+      throw new ConvexError({ code: "SPACE_KEY_INVALID", message: "That is not a Google Chat space name." });
     }
 
     const spaceSettings = { ...(connection.chat.spaceSettings ?? {}) };
