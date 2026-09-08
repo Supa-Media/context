@@ -31,7 +31,7 @@ export interface SignalCollectors {
   /** True when some other application holds an input device. */
   microphoneInUse(): Promise<boolean>;
   /** Events overlapping `now`, widened by the contract's lead and trail. */
-  calendarEvents(now: Date): Promise<CalendarEvent[]>;
+  calendarEvents(now: Date): Promise<CollectedCalendar>;
 }
 
 /**
@@ -44,6 +44,25 @@ export interface SignalCollectors {
 export interface CollectedWindows {
   windows: WindowSignal[];
   tabUrlRefusals: number;
+}
+
+/**
+ * What the calendar collector found, plus the two counts that make the
+ * question "did it succeed and see nothing, or was it refused?" answerable
+ * from outside the app. An empty `events` array is identical either way
+ * without these; `calendarCount` and `refusedCount` are the script's own
+ * per-poll tally (`src/platform/macos/calendar.ts`), never a name, a title,
+ * or anything about content — counts only. On a *total* refusal the
+ * collector throws instead of returning this shape (see
+ * `PermissionRefusedError` below), so these two numbers are only carried on
+ * the non-throwing path — which is deliberately the case this file could not
+ * previously tell apart from "asked, found nothing": a partial refusal, or no
+ * refusal at all.
+ */
+export interface CollectedCalendar {
+  events: CalendarEvent[];
+  calendarCount: number;
+  refusedCount: number;
 }
 
 /**
@@ -84,6 +103,21 @@ export interface CollectedSignals {
    * rather than one indistinguishable from "nothing to see there".
    */
   tabUrlRefusals: number;
+  /**
+   * How many calendars this poll saw, and how many of those refused to
+   * enumerate their events — counts only, never a calendar name or an event
+   * title. Both are `0` whenever the calendar collector is itself in
+   * `degraded` (a total refusal, or any other throw): that case is already
+   * visible through `degraded`/`degradedReasons`, so these two numbers exist
+   * for the case that is not — a partial or total success where nobody could
+   * previously tell whether a write-only grant (or anything else) was
+   * quietly discarding some of what the app asked for. Diagnostic only: kept
+   * off the panel on purpose (`evidence.ts`'s `degradedNotice` never reads
+   * these two fields), since a person cannot act on "1 of 3 calendars
+   * refused this poll" the way they can act on "cannot see your calendar".
+   */
+  calendarCount: number;
+  calendarRefusedCount: number;
 }
 
 async function attempt<T>(
@@ -122,11 +156,12 @@ export async function collectSignals(
   const degraded: string[] = [];
   const degradedReasons: Record<string, DegradedReason> = {};
   const emptyWindows: CollectedWindows = { windows: [], tabUrlRefusals: 0 };
-  const [processes, windowsResult, microphoneInUse, calendarEvents] = await Promise.all([
+  const emptyCalendar: CollectedCalendar = { events: [], calendarCount: 0, refusedCount: 0 };
+  const [processes, windowsResult, microphoneInUse, calendarResult] = await Promise.all([
     attempt("processes", [] as string[], degraded, degradedReasons, () => collectors.processes()),
     attempt("windows", emptyWindows, degraded, degradedReasons, () => collectors.windows()),
     attempt("microphone", false, degraded, degradedReasons, () => collectors.microphoneInUse()),
-    attempt("calendar", [] as CalendarEvent[], degraded, degradedReasons, () => collectors.calendarEvents(now)),
+    attempt("calendar", emptyCalendar, degraded, degradedReasons, () => collectors.calendarEvents(now)),
   ]);
 
   return {
@@ -135,11 +170,13 @@ export async function collectSignals(
       processes,
       windows: windowsResult.windows,
       microphoneInUse,
-      calendarEvents,
+      calendarEvents: calendarResult.events,
     },
     degraded: degraded.sort(),
     degradedReasons,
     tabUrlRefusals: windowsResult.tabUrlRefusals,
+    calendarCount: calendarResult.calendarCount,
+    calendarRefusedCount: calendarResult.refusedCount,
   };
 }
 
@@ -152,9 +189,14 @@ export async function collectSignals(
  * a meeting, and a fake that only the tests can reach is a fake that rots.
  * ------------------------------------------------------------------------- */
 
-/** A fake's signals, plus the one field `DetectionSignals` itself has no room
- * for: how many browsers this poll's window read refused a tab URL. */
-type FakeSignals = Partial<DetectionSignals> & { tabUrlRefusals?: number };
+/** A fake's signals, plus the fields `DetectionSignals` itself has no room
+ * for: how many browsers this poll's window read refused a tab URL, and how
+ * many calendars this poll saw versus how many of them refused. */
+type FakeSignals = Partial<DetectionSignals> & {
+  tabUrlRefusals?: number;
+  calendarCount?: number;
+  calendarRefusedCount?: number;
+};
 
 /** Collectors that answer the same thing forever. */
 export function fixedCollectors(partial: FakeSignals = {}): SignalCollectors {
@@ -162,7 +204,11 @@ export function fixedCollectors(partial: FakeSignals = {}): SignalCollectors {
     processes: async () => partial.processes ?? [],
     windows: async () => ({ windows: partial.windows ?? [], tabUrlRefusals: partial.tabUrlRefusals ?? 0 }),
     microphoneInUse: async () => partial.microphoneInUse ?? false,
-    calendarEvents: async () => partial.calendarEvents ?? [],
+    calendarEvents: async () => ({
+      events: partial.calendarEvents ?? [],
+      calendarCount: partial.calendarCount ?? 0,
+      refusedCount: partial.calendarRefusedCount ?? 0,
+    }),
   };
 }
 
@@ -201,7 +247,14 @@ export function scriptedCollectors(script: readonly FakeSignals[]): SignalCollec
       return { windows: value.windows ?? [], tabUrlRefusals: value.tabUrlRefusals ?? 0 };
     },
     microphoneInUse: async () => current().microphoneInUse ?? false,
-    calendarEvents: async () => current().calendarEvents ?? [],
+    calendarEvents: async () => {
+      const value = current();
+      return {
+        events: value.calendarEvents ?? [],
+        calendarCount: value.calendarCount ?? 0,
+        refusedCount: value.calendarRefusedCount ?? 0,
+      };
+    },
   };
 }
 

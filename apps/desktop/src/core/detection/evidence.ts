@@ -44,14 +44,21 @@ export function summaryLine(result: Pick<DetectionResult, "reason">): string {
  * is the one a person would wrongly infer from a short evidence list.
  *
  * **The calendar case gets its own sentence, naming what to do about it — but
- * only when the failure is actually a permission refusal.** The demonstrated
- * failure on a real Mac was a write-only Calendars grant — Apple Events to
+ * only when the failure is actually a permission refusal.** The shape this
+ * sentence exists for is a write-only Calendars grant — Apple Events to
  * Calendar allowed, the data itself refused — which `calendarScript` reports
  * as a `PermissionRefusedError` rather than an empty diary (see
- * `platform/macos/calendar.ts`). `attempt()` in `collectors.ts` also marks the
- * calendar degraded on a timeout, a malformed result, or Calendar.app simply
- * hanging — none of which is a permission problem — so `reasons` is what
- * tells the two apart. Sending somebody to System Settings for a grant that is
+ * `platform/macos/calendar.ts`). Whether that shape has ever actually
+ * occurred on a real Mac is an open question, not a demonstrated fact — an
+ * earlier version of this comment claimed it had been, and that claim is
+ * retracted in `docs/decisions/desktop-updates.md`, "The one-way door": it
+ * was inferred from a permission value, never observed, and a later
+ * measurement against the running collector found no refusal at all on the
+ * same write-only machine. The sentence below is written for the shape
+ * regardless of whether it has ever fired. `attempt()` in `collectors.ts`
+ * also marks the calendar degraded on a timeout, a malformed result, or
+ * Calendar.app simply hanging — none of which is a permission problem — so
+ * `reasons` is what tells the two apart. Sending somebody to System Settings for a grant that is
  * already correct is the same mistake as the notice that once blamed the
  * microphone for a fault that was never the microphone's: confidently naming
  * a cause the app never established. A transient failure gets the plain

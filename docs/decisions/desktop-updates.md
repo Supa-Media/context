@@ -271,7 +271,7 @@ already argues each one and that argument is unchanged.
 | Key | Why | Present? |
 | --- | --- | --- |
 | `NSAppleEventsUsageDescription` | The sentence macOS shows when the app first asks to drive Chrome, Safari or Calendar. **Corrected**: the row used to say this crashes the Apple Event path rather than prompting when the key is missing, which is not the sentence's actual failure mode — see the entitlement row above for the citation and what it does say — but the key is worth having regardless, since without it any prompt macOS does show carries no explanation of why an app called Context wants to control Calendar. | **Present** — added in the pull request that corrected this row |
-| `NSCalendarsFullAccessUsageDescription` | macOS 14 split Calendars into write-only and full access, and the detector reads events, never writes any. **Measured, not merely reasoned**: read on the owner's Mac, on the shipped bundle identifier, the Calendar row sat at the write-only value this key's absence predicts — while the entry in Privacy & Security still reads as a granted toggle to a person glancing at it, because macOS shows one checkbox for the category regardless of which tier was granted. The app's own collector could not tell the difference either: `calendarScript`'s per-calendar `try { ... } catch (e) { continue }` (`src/platform/macos/calendar.ts`) treats "this calendar refused to enumerate" exactly like "this calendar has no events right now," so a write-only grant and a quiet hour both surface as an empty array — see this file's `packages/meetings/src/detect.js` sibling docs on `collectSignals`, and the note below on what this pull request could and could not close about that. | **Present** — added in the pull request that corrected this row |
+| `NSCalendarsFullAccessUsageDescription` | macOS 14 split Calendars into write-only and full access, and the detector reads events, never writes any. **Measured, not merely reasoned**: read on the owner's Mac, on the shipped bundle identifier, the Calendar row sat at the write-only value this key's absence predicts — while the entry in Privacy & Security still reads as a granted toggle to a person glancing at it, because macOS shows one checkbox for the category regardless of which tier was granted. **What that tier does to this app's own collector is retracted below, not confirmed.** This row used to go on to say a write-only grant and a quiet hour both surface as an empty array from `calendarScript`'s per-calendar `try { ... } catch (e) { continue }` (`src/platform/macos/calendar.ts`) — see "Retraction: the blindness was never observed, only inferred" below for why that sentence overstated what was actually measured, and what is known instead. The permission tier itself, and this key's ability to fix a *future* grant, are unaffected by that retraction. | **Present** — added in the pull request that corrected this row |
 | `NSLocalNetworkUsageDescription` | `src/main/connect.ts` binds a loopback listener for the OAuth redirect. Loopback is not local network today, but Apple has tightened this boundary twice and a shell that cannot complete a sign-in is a shell that cannot record. Pure insurance, and insurance is what this list is. | Missing |
 | `NSRemindersUsageDescription` | Speculative but cheap: "notice the meeting, capture it, file the follow-ups" is one step from a product that already writes notes into somebody's bucket. Declaring it costs a string; needing it in eighteen months costs a release and a wait. | Missing |
 | `NSContactsUsageDescription` | The same argument, with a stronger pull: `docs/decisions/communications.md` already builds contact pages, one per person, and the address book is the obvious enrichment for an attendee list the calendar gives us as bare emails. | Missing |
@@ -342,6 +342,82 @@ than reading a write-only grant as a quiet hour. `apps/desktop/src/platform/maco
 had the identical swallow — per-process window-title reads refusing exactly
 like "no windows open" — under the same Accessibility gate, and got the same
 fix for the same reason.
+
+#### Retraction: the blindness was never observed, only inferred
+
+**The two paragraphs above claimed more than the TCC database actually
+showed, and it needs naming rather than quietly softening.** "The app
+reported 'no meetings' when it meant 'not allowed to look,' on this exact
+machine, at this exact moment — not a hypothetical this file was leaving
+open, a defect this session watched happen" is not what the session did. It
+read one permission value — `kTCCServiceCalendar` at the write-only tier —
+and *reasoned* from Apple's documented behaviour for that tier to "every
+per-calendar `c.events.whose(...)` call fails," then wrote the conclusion of
+that reasoning up as if `calendarScript` itself had been run and watched
+refuse. Nobody launched the collector against this permission state and
+captured a refusal. This is the same shape of mistake the automation-
+entitlement row above corrects — a chain of reasoning about a permission
+value, presented with the confidence of an observation — and it is being
+named for the same reason that one was: a decision record that quietly
+drops its own overstated claim is worse than one that says so.
+
+**A later measurement against the running app found no refusal at all, on
+the same write-only machine, and the working explanation is the same
+indirection that closed the automation-entitlement question.** `calendarScript`
+drives `Calendar.app` over Apple Events rather than reading calendar data
+in-process through EventKit. When `osascript` asks Calendar.app for its
+events, it may be Calendar.app itself that reads its own data, under
+whatever access Calendar.app holds — not this app reading through EventKit's
+own privacy gate the way the row above assumed. If that is right, the
+write-only tier this app is granted may never be the gate this particular
+design goes through at all, exactly as the automation entitlement was never
+the thing gating the Apple Events send.
+
+**This does not make the opposite claim true, and none is being made here.**
+Nobody has watched `calendarScript` refuse on a write-only machine, and
+nobody has watched it succeed on one either, in a run designed to tell the
+two apart. The honest state is **unknown** — not confirmed blind, not
+confirmed sighted. Two things are true regardless of how it resolves:
+
+- **The fix stands.** `calendarScript` and `parseCalendarEvents` count
+  attempts and refusals and throw only on a total refusal because that is the
+  correct shape for *a* refusal to produce, whether or not this permission
+  tier ever triggers one on this design. Nothing about the retraction above
+  reopens that code.
+- **What would actually settle it is counts, not another single reading of
+  the TCC database.** `calendarScript` already computes `calendarCount` and
+  `refusedCount` on every poll and, before this pull request, discarded both
+  on the non-throwing path — exactly the path a partial or total success
+  takes. This pull request surfaces them on `CollectedSignals` and
+  `DetectionUpdate` (`apps/desktop/src/core/detection/collectors.ts`,
+  `apps/desktop/src/platform/macos/calendar.ts`), and logs a nonzero refusal
+  once per collection. Counts only — never a calendar name or an event title,
+  and never shown to a person, since a partial refusal is a diagnosis, not
+  something anyone can act on the way a total one is. Watching `refusedCount`
+  across enough real polls on a write-only machine is what a future Mac
+  session would need to run to close this, and nobody has run it yet.
+
+**The automation-entitlement correction above is not reopened by this.** It
+rests on `codesign -d --entitlements -` against the installed binary and
+`git log --follow` against this tree's own history — both reproducible
+directly from the artifacts, neither an inference from a permission tier.
+The two corrections happened the same night and share a cause — a chain of
+reasoning written up as an observation — but not a mechanism, and only the
+calendar one is retracted here.
+
+**`NSCalendarsFullAccessUsageDescription`'s place on the one-way-door list
+should be read in light of this, without deciding it now.** That key was
+added to close a "future grant lands at write-only" gap, which itself assumes
+the write-only tier is what gates this app's calendar reads — the same
+assumption this retraction reopens. If the Apple Events path turns out not
+to consult that tier at all, the key may be unnecessary for the design this
+app currently ships, in exactly the shape the automation entitlement turned
+out to be unnecessary. It stays on the table without being marked load-
+bearing: shipping it is harmless, it future-proofs the native EventKit
+implementation this file already calls "the right implementation," and
+pulling it back out before the question is settled trades a free option for
+nothing. What changes is only this — it must not be cited as proof of the
+blindness claim, because that claim is exactly what is retracted here.
 
 **One thing the measurement turned up that nobody wrote:**
 `NSCameraUsageDescription` is in the shipped Info.plist and is declared nowhere
