@@ -26,27 +26,35 @@
  *
  * ## Sabotage record
  *
- * Run as temporary local edits and reverted, with the counts as measured:
+ * Run as temporary local edits and reverted, with the counts as measured
+ * rather than as expected:
  *
- * 1. **The validator call is deleted from `callToolForSession`** — 68 checks
- *    failed across this file and 5 elsewhere, including both halves of the
- *    smuggled-argument attack in `encryptionGateway.test.mjs`.
- * 2. **`additionalProperties` is ignored** (the unknown-property loop removed)
- *    — 43 checks failed here, and the census still passed: the census asks
- *    whether every tool is *reached*, which is why the behavioural half is not
- *    optional.
- * 3. **The `required` loop is removed** — 6 checks failed, including
- *    `read_image` without a note in `test.mjs`.
- * 4. **Type checking is removed** — 12 checks failed.
- * 5. **The node budget is raised to `Infinity`** — 2 checks failed, both the
- *    large-argument ones, and the suite took 9 seconds longer.
+ * 1. **The validator call is deleted from `callToolForSession`** — 30 checks
+ *    failed: 26 here, and 4 elsewhere that were written against the old
+ *    behaviour and now depend on the new one, including both halves of the
+ *    smuggled-argument attack in `encryptionGateway.test.mjs` and the
+ *    passphrase a client volunteered.
+ * 2. **`additionalProperties` is ignored** (the unknown-property loop is
+ *    skipped) — 32 checks failed. The census still passed, and that is the
+ *    point of having both: the census asks whether every tool is *reached*,
+ *    never what the validator then does.
+ * 3. **The `required` loop is removed** — 3 checks failed, including
+ *    `read_image` called without a note over in `test.mjs`.
+ * 4. **Type checking is removed** — 10 checks failed.
+ * 5. **The node budget is raised a ten-thousandfold** — 2 checks failed: the
+ *    oversized array, and the check that pins the budget itself. The first
+ *    attempt at this sabotage set it to `Infinity` and failed *nothing*,
+ *    because the fixtures were sized at `VALIDATION_NODE_BUDGET * 3` and threw
+ *    a RangeError instead; that is recorded in the fixture below rather than
+ *    quietly fixed, because it is the same lesson as rule 4 of
+ *    `scripts/check-no-identifiers.mjs`.
  * 6. **The masked-tool skip is removed**, so a masked tool is validated like
- *    any other — 2 checks failed, both the existence-oracle ones: a team-tier
+ *    any other — 2 checks failed, both existence-oracle ones: a team-tier
  *    caller could tell `export_encryption_keys` from an invented name by the
  *    shape of the complaint.
  * 7. **The census's dispatch-table parser is pointed at a function that does
- *    not exist** — 1 check failed, the parser's own self-test, which is why it
- *    is there.
+ *    not exist** — 1 check failed, the parser's own self-test, which is the
+ *    only thing standing between a census and a regex that matches nothing.
  */
 
 import { readFile } from "node:fs/promises";
@@ -384,7 +392,24 @@ export async function runToolArgumentChecks(check) {
     deepRefusal === 'argument "path" must be a string, not object' && deepMs < 100
   );
 
-  const hugeArray = Array.from({ length: VALIDATION_NODE_BUDGET * 3 }, () => ({
+  /*
+    A literal count, not one derived from the exported budget.
+
+    The first version of these two checks sized their fixtures at
+    `VALIDATION_NODE_BUDGET * 3`, which made them measure the constant against
+    itself: sabotaging the budget to `Infinity` did not fail them, it made
+    `Array.from({length: Infinity})` throw and took the whole suite down with a
+    RangeError. A fixture that moves with the thing it is guarding is not a
+    guard. 60,000 is a number; the check below pins the budget itself, so
+    raising it past these fixtures is a visible change rather than a silent
+    one.
+  */
+  const OVER_BUDGET = 60000;
+  check(
+    "the work budget is the one this file's fixtures are sized against",
+    VALIDATION_NODE_BUDGET === 10000 && VALIDATION_NODE_BUDGET < OVER_BUDGET
+  );
+  const hugeArray = Array.from({ length: OVER_BUDGET }, () => ({
     source: "a.md",
     destination: "b.md",
   }));
@@ -396,10 +421,15 @@ export async function runToolArgumentChecks(check) {
     hugeRefusal === "arguments are too large to check" && hugeMs < 250
   );
   const wideObject = { path: "a.md" };
-  for (let i = 0; i < VALIDATION_NODE_BUDGET * 3; i += 1) wideObject[`k${i}`] = i;
+  for (let i = 0; i < OVER_BUDGET; i += 1) wideObject[`k${i}`] = i;
+  const wideStart = Date.now();
+  const wideRefusal = validateArguments(NOTE_SCHEMA, wideObject);
   check(
-    "an object with more keys than the budget is refused too",
-    typeof validateArguments(NOTE_SCHEMA, wideObject) === "string"
+    // Refused at the first unknown key rather than after sixty thousand of
+    // them, which is the property worth having: the budget is the backstop for
+    // the case where the keys are all legal and the values are not.
+    "an object with tens of thousands of keys is refused at the first one",
+    typeof wideRefusal === "string" && Date.now() - wideStart < 100
   );
   const BOUNDED_ARRAY = {
     type: "object",
