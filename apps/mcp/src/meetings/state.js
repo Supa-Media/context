@@ -283,6 +283,21 @@ function refusalKeyFor(code) {
 const EVENT_TYPE_ECHO_MAX = 40;
 
 /**
+ * The characters a client's `event.type` may be echoed with.
+ *
+ * An event type in this contract is an identifier — `segments`, `notes`,
+ * `enhanced`, `written` — and nothing else has a reason to appear in one. So
+ * the set is the identifier's own: letters, digits, and the three separators a
+ * future namespaced type could plausibly want. Everything outside it is
+ * described rather than repeated, because this sentence is written to a log
+ * file as the tail of a line somebody parses (see `describeEventType`).
+ */
+const EVENT_TYPE_ECHO_SHAPE = /^[A-Za-z0-9_.:-]+$/;
+
+/** What a type outside `EVENT_TYPE_ECHO_SHAPE` is called instead of quoted. */
+const UNNAMEABLE_EVENT_TYPE = "non-identifier";
+
+/**
  * A client-supplied `event.type`, safe to fold into a refusal sentence.
  *
  * Bounded rather than quoted verbatim or dropped: naming the type a client
@@ -292,10 +307,26 @@ const EVENT_TYPE_ECHO_MAX = 40;
  * `INVALID_CHUNK_ID` uses for a value with no legitimate reason to be long.
  * `typeof` for a non-string is itself a short, fixed word, so this can never
  * exceed the bound by construction rather than by testing every input shape.
+ *
+ * **A length bound is not the whole of "safe", and the first version of this
+ * function only had that half.** The sentence built here is written to a log
+ * file by `apps/desktop` as the tail of one line — `meeting_write_refused
+ * session=… kind=… status=… code=…: <this sentence>` — so a value carrying a
+ * newline forges a second line in a customer's log, and a CR or an escape
+ * sequence rewrites the one already printed, in forty characters or four.
+ * That is the same reasoning `assertSafeEtag` and `describeKeyProblem` in
+ * `src/store/index.js` already apply to a value that reaches a header or a
+ * key, and it is why the shape is checked before the length: an event type in
+ * this contract is an identifier (`segments`, `notes`, `enhanced`), so
+ * anything that is not one is described rather than echoed. The bound and
+ * the shape together are what make this line "a refusal is built from
+ * constants and identifiers" rather than a client's text with a ruler held
+ * against it.
  */
 function describeEventType(type) {
-  const text = typeof type === "string" ? type : typeof type;
-  return text.length > EVENT_TYPE_ECHO_MAX ? `${text.slice(0, EVENT_TYPE_ECHO_MAX)}…` : text;
+  if (typeof type !== "string") return typeof type;
+  if (!EVENT_TYPE_ECHO_SHAPE.test(type)) return UNNAMEABLE_EVENT_TYPE;
+  return type.length > EVENT_TYPE_ECHO_MAX ? `${type.slice(0, EVENT_TYPE_ECHO_MAX)}…` : type;
 }
 
 /** The same, for a client replaying its log. */

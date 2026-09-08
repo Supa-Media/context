@@ -153,6 +153,7 @@ import {
 } from "../src/meetings/state.js";
 import { SessionRefusal, sessionForContext, splitWorkspacePath } from "../src/session.js";
 import { handleMeetings } from "../src/meetings/ingest.js";
+import { MEETING_TRANSITIONS } from "../../../packages/meetings/src/protocol.js";
 
 const S3_ENDPOINT = "https://s3.example-meetings.test";
 
@@ -899,6 +900,43 @@ export async function runMeetingChecks(check) {
     notEvenAString.status === 400 && notEvenAString.body?.error_description?.includes("number")
   );
 
+  /*
+    AND THE BOUND IS ON THE SHAPE AS WELL AS THE LENGTH.
+
+    The sentence this refusal builds is the tail of one line in a customer's
+    log file — `apps/desktop`'s `meeting_write_refused session=… kind=…
+    status=… code=…: <sentence>` — so forty characters of a client's own text
+    is enough to forge a second line, and four to rewrite the one already
+    printed. A length bound alone does not see that: `\n` is one character.
+    This is the same rule `assertSafeEtag` applies one folder over, for the
+    same reason and against the same trick.
+  */
+  const forgedLine = "notes\nmeeting_write_refused session=mtg_ok kind=finalize: written";
+  const injected = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: { id: SESSION_FORGED, events: [{ type: forgedLine }] },
+  });
+  check(
+    "an event type carrying a newline is described rather than echoed into a log line",
+    injected.status === 400 &&
+      typeof injected.body?.error_description === "string" &&
+      !/[\u0000-\u001f\u007f]/.test(injected.body.error_description) &&
+      !injected.body.error_description.includes("meeting_write_refused")
+  );
+  const escaped = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: { id: SESSION_FORGED, events: [{ type: "\u001b[2Kwritten" }] },
+  });
+  check(
+    "...and so is one carrying a terminal escape",
+    escaped.status === 400 && !escaped.body?.error_description?.includes("\u001b")
+  );
+  const ordinary = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: { id: SESSION_FORGED, events: [{ type: "written" }] },
+  });
+  check(
+    "an identifier-shaped type is still named, because that is what a client author acts on",
+    ordinary.status === 400 && ordinary.body?.error_description?.includes("written")
+  );
+
   /* ------------------------------ 6. finalize ------------------------------ */
 
   /*
@@ -1011,6 +1049,36 @@ export async function runMeetingChecks(check) {
   });
   check("while a metadata re-send is a no-op ack, not an error", lateUpsert.status === 200);
   check("that does not rewrite a finished meeting", rawRecord().title === "Roadmap review");
+
+  /*
+    THE STATES THIS MODULE'S REFUSALS NAME BY HAND, HELD AGAINST THE TABLE
+    THAT DECIDES THEM.
+
+    `ingest.js` refuses transcript, notes and a re-open to a `complete` or an
+    `empty` session, and it names those two states literally rather than
+    asking `MEETING_TRANSITIONS` which ones are terminal. **Terminal** is the
+    property that actually matters — there is no move left that reaches
+    `finalizing`, so words folded in now can never be written out — and the
+    hand-written pair agrees with the table today by coincidence rather than
+    by construction. That is exactly the residue the phone's
+    `acceptsTranscript` closed by deriving itself from the table; this side
+    cannot derive as cheaply, because each of the three refusals carries its
+    own sentence per state.
+
+    So the coupling is checked instead of assumed. The day the table grows a
+    third terminal state this fails, and `appendSegments`, `replaceNotes` and
+    `upsertSession` are the three places that have to learn about it before
+    that state can ship — rather than silently accepting transcript into a
+    meeting nothing will ever write out.
+  */
+  const terminalStates = Object.keys(MEETING_TRANSITIONS)
+    .filter((state) => MEETING_TRANSITIONS[state].length === 0)
+    .sort()
+    .join(",");
+  check(
+    "the terminal states ingest.js names by hand are exactly the table's own",
+    terminalStates === "complete,empty"
+  );
 
   /* -------------------------------- 7. audit ------------------------------- */
 
