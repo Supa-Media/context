@@ -328,8 +328,14 @@ export async function runCommunicationsChecks(check) {
       )
     );
     check(
+      // Refused by the advertised schema now, before the tool runs: the
+      // definition says `minimum: 1, maximum: 25`, and `src/toolArguments.js`
+      // enforces what the definition claims rather than leaving it to the
+      // handler to re-derive.
       "an out-of-range limit is refused",
-      (await callTool(env, OWNER_TOKEN, "list_channel_days", { limit: 99 })).includes("limit must be")
+      (await callTool(env, OWNER_TOKEN, "list_channel_days", { limit: 99 })).includes(
+        'argument "limit" must be at most 25'
+      )
     );
 
     /* ------------------------------- privacy ------------------------------ */

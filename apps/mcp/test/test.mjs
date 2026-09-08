@@ -3078,8 +3078,28 @@ check(
 // -- the refusals, all identical
 const REFUSAL = "not found";
 const refusalText = (result) => (result.isError ? result.content?.[0]?.text : `RESOLVED:${JSON.stringify(result)}`);
+// Naming no note at all no longer reaches the tool: `note` is required by
+// `read_image`'s advertised schema, and `src/toolArguments.js` now holds
+// callers to it. That is a refusal about the caller's own request, so it is
+// deliberately NOT in the byte-identity set below — it discloses nothing about
+// what exists, because nothing was looked up to answer it.
 const bareHash = await call("priv-token", "read_image", { image: `.images/${TEAM_IMAGE}` });
-check("an image cannot be resolved without naming a note", refusalText(bareHash) === REFUSAL);
+check(
+  "an image cannot be resolved without naming a note",
+  bareHash.isError === true && refusalText(bareHash).includes('missing required argument "note"')
+);
+// The property that check was really about — the `note` argument is the image
+// store's only authorization — still has to be proven at the handler, so here
+// is the version of it the schema lets through: a note named as the empty
+// string is a string, and reaches `toolReadImage`.
+const emptyNote = await call("priv-token", "read_image", {
+  note: "",
+  image: `.images/${TEAM_IMAGE}`,
+});
+check(
+  "...and naming an empty one, which the schema does allow through, resolves nothing",
+  refusalText(emptyNote) === REFUSAL
+);
 const unreferenced = await call("priv-token", "read_image", {
   note: "1-projects/portable/no-image.md",
   image: `.images/${TEAM_IMAGE}`,
@@ -3612,7 +3632,7 @@ check("an image that does not exist resolves nothing", refusalText(missingImage)
 check(
   "every image refusal is byte-identical, so nothing can be distinguished",
   new Set([
-    refusalText(bareHash),
+    refusalText(emptyNote),
     refusalText(unreferenced),
     refusalText(orphan),
     refusalText(teamReachingIntoPrivate),
