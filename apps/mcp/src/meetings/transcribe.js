@@ -102,9 +102,10 @@ export function acceptableMimeType(value) {
  * @param {object} store        The caller's own bucket, already resolved.
  * @param {object} session      The resolved gateway session (tier, workspace).
  * @param {string} id           The meeting this chunk is charged against.
- * @param {null | ((input: {audioBase64: string, mimeType: string, durationMs: number, callerId: string}) => Promise<unknown[]>)} transcribe
+ * @param {null | ((input: {audioBase64: string, mimeType: string, durationMs: number, callerId: string}) => Promise<unknown>)} transcribe
  *   Built from the environment by `index.js`, or `null` when this deployment
- *   has no transcription configured.
+ *   has no transcription configured. It answers with the service's whole
+ *   payload — `{ segments, refused }` — rather than with the segments alone.
  */
 export async function transcribeChunk(request, store, session, id, transcribe) {
   if (typeof transcribe !== "function") {
@@ -165,7 +166,55 @@ export async function transcribeChunk(request, store, session, id, transcribe) {
     throw new MeetingRefusal(503, "unavailable", "transcription is unavailable right now; the meeting is still recording");
   }
 
-  return { segments: intoSegments(raw, body) };
+  return {
+    segments: intoSegments(answerSegments(raw), body),
+    /*
+      HOW MANY SEGMENTS THE ENGINE'S OWN EVIDENCE SAID WERE NOT SPEECH.
+
+      Carried through untouched rather than acted on, and that is a decision
+      rather than laziness. This gateway has neither the audio nor the engine's
+      fields — it holds a base64 string it must not decode and a list of
+      sentences it cannot tell apart — so it is in no position to judge whether
+      anybody spoke, and a policy invented here would be a threshold over text.
+      The service that has the evidence decides
+      (`infra/transcribe-worker/src/transcribe.ts`); this reports the decision
+      to the recorder that has to explain it to a person.
+
+      Zero from a transcription service too old to say, which reads as "nothing
+      was refused" — the honest answer from a deployment where nothing is.
+    */
+    refusedSegments: refusedCount(raw),
+  };
+}
+
+/**
+ * The segments out of whatever the service answered with.
+ *
+ * Two shapes, because the transcription service is deployed by its own workflow
+ * and can be a version behind this one: `{ segments, refused }` is current, and
+ * a bare array is what it answered with before it could refuse anything. A
+ * skew that turned every chunk into a 503 would be this change breaking
+ * transcription for the length of one deploy.
+ *
+ * @param {unknown} raw
+ */
+function answerSegments(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === "object") return /** @type {Record<string, unknown>} */ (raw).segments;
+  return undefined;
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {number}
+ */
+function refusedCount(raw) {
+  const value =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? /** @type {Record<string, unknown>} */ (raw).refused
+      : 0;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0;
+  return Math.floor(value);
 }
 
 function sessionGone() {
@@ -235,6 +284,12 @@ function intoSegments(raw, body) {
   if (!Array.isArray(raw)) {
     throw new MeetingRefusal(503, "unavailable", "transcription answered with nothing usable");
   }
+  /*
+    An EMPTY array is a real answer and not an unusable one, and since the
+    service began refusing the segments an engine says are silence it is the
+    ordinary answer for a quiet room. The check above is about a payload with no
+    readable `segments` at all, which is a service this gateway cannot read.
+  */
   const segments = [];
   raw.forEach((segment, index) => {
     if (!segment || typeof segment !== "object") return;

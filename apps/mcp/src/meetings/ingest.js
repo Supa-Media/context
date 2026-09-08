@@ -835,10 +835,36 @@ function reopenFailed(session) {
  * acts on: they would go looking at their permissions for a recording that
  * really happened. The gateway's own knowledge wins over the device's guess
  * here, which is what "the gateway's to accept or replace" means.
+ *
+ * ## ...and why that sentence stopped naming a fault
+ *
+ * It used to read *"Audio was recorded, but none of it could be transcribed."*
+ * That was true while an empty transcript had one cause. It now has two, and
+ * they are not the same news:
+ *
+ *   - every chunk failed, which is a fault worth going and looking at;
+ *   - **every chunk was transcribed and nobody had said anything**, which is
+ *     what a quiet room does now that the transcription service refuses the
+ *     segments the engine's own evidence marks as silence
+ *     (`infra/transcribe-worker/src/transcribe.ts`, after ninety seconds of a
+ *     quiet room produced 166 words and filed them into a bucket).
+ *
+ * **This gateway cannot tell them apart, and deliberately does not buy the
+ * ability to.** It would take a second conditional write per chunk to record
+ * each answer's outcome on the session — and a quiet chunk is the *ordinary*
+ * chunk in a meeting with pauses in it, so that is a write every twenty
+ * seconds, on a customer's bucket, to improve one sentence. The recorder
+ * already tells the person which it is *while the meeting runs*, from
+ * `refusedSegments` on the answer it is holding anyway
+ * (`CAPTURE_NOTICES.silent`, and the phone's `NO_SPEECH`), which is both
+ * cheaper and better timed.
+ *
+ * So the sentence says exactly what this side knows: audio went out and no
+ * words came back. It names no fault, because there may not be one.
  */
 function emptyReasonFrom(body, session) {
   const chunks = typeof session?.transcribedChunks === "number" ? session.transcribedChunks : 0;
-  if (chunks > 0) return "Audio was recorded, but none of it could be transcribed.";
+  if (chunks > 0) return "Audio was recorded, but no words came back from it.";
   const raw = typeof body.emptyReason === "string" ? body.emptyReason.trim() : "";
   if (!raw) return "Nothing was captured during this meeting.";
   return raw.slice(0, LIMITS.emptyReasonChars);

@@ -7185,8 +7185,18 @@ function transcriptionForwarder(env) {
       console.warn(JSON.stringify({ event: "transcribe_upstream", status: response.status }));
       throw new Error(`transcription answered ${response.status}`);
     }
-    const payload = await response.json();
-    return payload?.segments;
+    /*
+      The whole answer, not just its segments.
+
+      It used to be `payload?.segments`, which threw away the one field that
+      says why an answer is short: `refused` is how many segments the service
+      dropped because the engine's own evidence said they were not speech. An
+      empty transcript with `refused: 3` is a quiet room and one with
+      `refused: 0` is a broken engine, and a caller that cannot tell them apart
+      shows the wrong sentence for one of them. See
+      `infra/transcribe-worker/src/transcribe.ts`.
+    */
+    return await response.json();
   };
 }
 

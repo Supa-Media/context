@@ -650,8 +650,28 @@ export const transcribeChunk = action({
      */
     durationMs: v.number(),
   },
-  returns: v.object({ segments: v.array(transcriptSegment) }),
-  handler: async (ctx, args): Promise<{ segments: TranscriptSegment[] }> => {
+  returns: v.object({
+    segments: v.array(transcriptSegment),
+    /**
+     * How many segments the worker refused because the engine's own evidence
+     * said they were not speech.
+     *
+     * Carried, never decided here. Ninety seconds of a quiet room on a Mac
+     * produced 166 words and filed them into a bucket, so the worker now drops
+     * the segments Whisper's own `no_speech_prob`/`avg_logprob` pair — and its
+     * VAD — say nobody spoke in. This control plane has neither the audio nor
+     * those fields, so it reports the decision rather than taking one.
+     *
+     * It is on the wire because an empty transcript has two causes that need
+     * two different sentences on a phone: a quiet room, and a transcriber that
+     * is not working. `segments: []` with `refusedSegments: 0` is the second.
+     */
+    refusedSegments: v.number(),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ segments: TranscriptSegment[]; refusedSegments: number }> => {
     // Before anything is read and before a byte of inference is spent. An
     // action has no `ctx.db`, so `requireAuthId` is unavailable here; this is
     // the same check it makes. There is no workspace argument to authorize
@@ -784,6 +804,23 @@ export const transcribeChunk = action({
       });
     }
 
-    return { segments };
+    /*
+      Zero for anything unreadable, and that direction is deliberate on every
+      hop this field takes. A worker one deploy behind, a proxy that rewrote the
+      body, a value that is not a number: none of them is evidence that a room
+      was quiet, and reading them as such would put "no speech was heard" on a
+      phone during a meeting somebody is talking in.
+
+      Note the asymmetry with `segments` above, which throws when it is absent.
+      That is not an inconsistency: a missing `segments` array means the worker's
+      shape has changed and nothing is being transcribed, which must be loud; a
+      missing `refusedSegments` means the worker cannot yet say why an answer was
+      short, which costs a sentence and no words.
+    */
+    const refused = (payload as { refused?: unknown })?.refused;
+    const refusedSegments =
+      typeof refused === "number" && Number.isFinite(refused) && refused > 0 ? Math.floor(refused) : 0;
+
+    return { segments, refusedSegments };
   },
 });

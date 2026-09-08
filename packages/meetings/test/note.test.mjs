@@ -72,6 +72,7 @@ import {
   NOTES_HEADING,
   SUMMARY_HEADING,
   SUMMARY_PLACEHOLDER,
+  TRANSCRIPT_CAVEAT,
   TRANSCRIPT_HEADING,
   TRANSCRIPT_PLACEHOLDER,
   TRANSCRIPTION_NONE,
@@ -376,7 +377,11 @@ export function runNoteChecks(check) {
   check("notes containing --- round-trip exactly", nastyParsed.notes === NASTY_NOTES);
   check("...including a fenced `## Transcript`", nastyParsed.notes.includes("```\n## Transcript\n"));
   check("...and their own `## Summary` heading", nastyParsed.notes.includes("## Summary\n\nand a heading of my own"));
-  check("the real transcript is still found", nastyParsed.transcript?.startsWith("**[00:00] Attendee One**") === true);
+  check(
+    "the real transcript is still found",
+    nastyParsed.transcript?.includes("**[00:00] Attendee One**") === true &&
+      nastyParsed.transcript?.includes("this is pasted, not recorded") === false
+  );
   check("...and their pasted turn is not in it", nastyParsed.transcript?.includes("**[00:00] Nobody**") === false);
   check("...and is not the pasted one", nastyParsed.transcript?.includes("this is pasted") === false);
   check("the real summary is still the generated one", nastyParsed.summary === "### Decisions\n- redo the pricing page");
@@ -525,4 +530,84 @@ export function runNoteChecks(check) {
       [...FRONTMATTER_KEYS]
     )
   );
+
+  /*
+    ── THE TRANSCRIPT SAYS WHAT MADE IT ──────────────────────────────────────
+
+    Two measurements, both on the owner's own machine. Ninety seconds of a quiet
+    room produced 166 words and filed them as a note. And parked batches from
+    audio that was a synthesised counting script carried sentences nobody said
+    at all — "I'm going to put it in another room.", "I'm sorry."
+
+    The second is the one this line exists for. Hallucination is NOT confined to
+    silence: it happens over real audio, in the middle of real speech, and there
+    is no signal there anybody can filter on, because a confidently decoded
+    invention looks exactly like a correctly heard sentence. The transcription
+    service refuses what the engine's own evidence marks as silence, which is
+    the whole of what can be ruled out; the rest is disclosed instead of being
+    presented as certain.
+
+    What is checked is the discrimination, because a caveat on everything is a
+    caveat nobody reads:
+
+      words from an engine    -> the line, once, leading the section
+      a notes-only meeting    -> nothing, and the placeholder is untouched
+      no engine named         -> nothing, because a note that cannot say what
+                                 produced its words must not claim one did
+      flags but no turns      -> nothing; the presses happened, no engine spoke
+
+    SABOTAGE, each one edit to `src/note.js`:
+      the caveat dropped                                          3 FAIL
+      written unconditionally, whatever the session says          6 FAIL
+      keyed on `body.length` rather than `turns.length`           1 FAIL
+      keyed on the field being truthy rather than a known engine  1 FAIL
+  */
+  {
+    const cloud = renderMeetingNote(finished({ transcription: "cloud" }), { now: NOW });
+    const section = parseMeetingNote(cloud).transcript ?? "";
+    check("a machine transcript says so, above the words", section.startsWith(TRANSCRIPT_CAVEAT));
+    check("...once", section.split(TRANSCRIPT_CAVEAT).length === 2);
+    check("...and the words are still there under it", section.includes("**[00:00] Attendee One**"));
+    check(
+      "...and it names what a reader has to be careful of, not merely that a machine did it",
+      /nobody said/i.test(TRANSCRIPT_CAVEAT)
+    );
+
+    const onDevice = parseMeetingNote(
+      renderMeetingNote(finished({ transcription: "on-device" }), { now: NOW })
+    ).transcript;
+    check("an on-device engine is a machine too", onDevice?.startsWith(TRANSCRIPT_CAVEAT) === true);
+
+    const typed = parseMeetingNote(
+      renderMeetingNote(finished({ transcript: [], transcription: null }), { now: NOW })
+    ).transcript;
+    check("a meeting nothing transcribed is not caveated", typed === TRANSCRIPT_PLACEHOLDER);
+
+    const unknownEngine = parseMeetingNote(
+      renderMeetingNote(finished({ transcription: "quantum" }), { now: NOW })
+    ).transcript;
+    check(
+      "an engine nobody recognises does not earn the claim that a machine wrote this",
+      unknownEngine?.includes(TRANSCRIPT_CAVEAT) === false
+    );
+
+    const noEngine = parseMeetingNote(
+      renderMeetingNote(finished({ transcription: null }), { now: NOW })
+    ).transcript;
+    check(
+      "...nor does a session that names no engine at all",
+      noEngine?.includes(TRANSCRIPT_CAVEAT) === false
+    );
+
+    const flaggedOnly = parseMeetingNote(
+      renderMeetingNote(
+        finished({ transcript: [], transcription: "cloud", flags: [{ at: 0, kind: "mark" }] }),
+        { now: NOW }
+      )
+    ).transcript;
+    check(
+      "a meeting with flags and no words has nothing an engine produced to caveat",
+      flaggedOnly?.includes(TRANSCRIPT_CAVEAT) === false
+    );
+  }
 }

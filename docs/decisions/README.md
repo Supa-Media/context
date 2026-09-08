@@ -172,6 +172,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - What is deliberately not built
 - Consent is the customer's, and the product may never make recording invisible
 - A `finalizing` session has a deadline, because the gateway does not need one
+- Silence is not a transcript, and the engine's own evidence is what says so
 - A session that captured nothing is not filed
 
 ## [Communications](./communications.md)
