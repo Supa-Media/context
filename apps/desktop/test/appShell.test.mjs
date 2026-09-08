@@ -64,6 +64,7 @@
  *   `askSomething` never passing the parent window                          1
  *   the connect question asked with `dialog.showMessageBox` directly        2
  *   `imessage.reconfigure()` back where #329 had it                         2
+ *   the same, moved to just below `const controller`                        2
  *   `push()` hoisted above `const tray`                                     1
  *   `loop.start()` hoisted above `const tray`                               1
  *
@@ -558,17 +559,27 @@ export function runAppShellChecks(check) {
 
     Positional on purpose. A call textually above the declaration is the defect
     whether or not today's reading of the control flow says it is reachable.
+
+    Anchored on `tray` and not on `controller`, which is where this check was
+    first written and is the wrong boundary: `controller` is only the *first*
+    binding `push()` reads, and `const tray = new AppTray(` is the last. The
+    variant that moves this call to just below `const controller` is still a
+    launch failure — `ReferenceError: Cannot access 'tray' before
+    initialization`, exit 1 — measured on a GitHub-hosted macOS runner while
+    #341's launch gate was being built and reproduced here on Linux under
+    `xvfb-run`, and the `controller` spelling of this check stayed green
+    through both. The boundary is the last binding, so that is what it names.
   */
   check(
-    "NOTHING RECONFIGURES THE IMESSAGE SERVICE ABOVE `controller` — that path reaches push(), and the app exits 1 on launch",
+    "NOTHING RECONFIGURES THE IMESSAGE SERVICE ABOVE `tray` — that path reaches push(), and the app exits 1 on launch",
     source.includes("imessage.reconfigure()") &&
-      source.includes("const controller = new MeetingController") &&
-      source.indexOf("imessage.reconfigure()") >
-        source.indexOf("const controller = new MeetingController"),
+      source.includes("const tray = new AppTray(") &&
+      source.indexOf("imessage.reconfigure()") > source.indexOf("const tray = new AppTray("),
   );
 
   /*
-    ...and the same defect one name over, because the check above is one line.
+    ...and the same defect one name over, because the check above is still one
+    call site.
 
     The class is not `imessage.reconfigure()`. It is: a callback registered
     inside `main()` reaches `push()`, and something drives it before the things
@@ -591,6 +602,7 @@ export function runAppShellChecks(check) {
     of this suite:
 
       `imessage.reconfigure()` back where #329 had it   both checks red; app exits 1
+      the same, moved to just below `const controller`  both checks red; app exits 1
       `push()` hoisted above `const tray`               this check only;  app exits 1
       `loop.start()` hoisted above `const tray`         this check only;  app still exits 0
 
