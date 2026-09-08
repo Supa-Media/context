@@ -728,6 +728,8 @@ export function useFileBrowser(options: {
         hits: found.hits,
         indexMissing: found.indexMissing,
         indexIncomplete: found.indexIncomplete,
+        reducedRecall: found.reducedRecall,
+        reducedRecallNotes: found.reducedRecallNotes,
       };
     },
     [searchContext, workspaceId],

@@ -48,6 +48,31 @@ export interface SearchAnswer {
    * and the first is a lie the console is not entitled to tell.
    */
   indexIncomplete: boolean;
+  /**
+   * Some of this caller's own visible notes hold more messages than the
+   * search index can keep in full, so a term that only appeared in a
+   * message the index had to drop will not surface here even though the
+   * note itself still exists.
+   *
+   * The opposite claim from `indexIncomplete`, and never folded into it:
+   * that one means "a pass helps, ask again"; this one does not resolve by
+   * searching again — a shed note stays that way until it shrinks or the
+   * index gets more room. See `docs/decisions/search.md`, "A shed index
+   * must say so to the caller it happened to", and the same fact as
+   * `apps/mcp/src/index.js`'s `toolSearchNotes` and `orient` render for an
+   * AI client — this must not tell a person a fourth, different story.
+   */
+  reducedRecall: boolean;
+  /**
+   * Which of the caller's own visible notes those are.
+   *
+   * Already filtered through this scope's `canSee` on the server, the same
+   * as every path in `hits` — safe to render as-is. Never truncated here:
+   * `reducedRecallMessage` in `useContextSearch.ts` is where the rendered
+   * list is bounded, so a programmatic reader of this field still gets the
+   * whole thing.
+   */
+  reducedRecallNotes: string[];
 }
 
 export interface FileBrowser {

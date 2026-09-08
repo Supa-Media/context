@@ -79,7 +79,13 @@ function browser(
     // fixtures have no draft, so it always does.
     select: () => true,
     deselect: () => true,
-    search: async () => ({ hits: [], indexMissing: false, indexIncomplete: false }),
+    search: async () => ({
+      hits: [],
+      indexMissing: false,
+      indexIncomplete: false,
+      reducedRecall: false,
+      reducedRecallNotes: [],
+    }),
     // A note already open at mount, which is what reloading the console on a
     // note looks like. Without one, a redundant reset at mount hits
     // `useReducer`'s bail-out and is invisible.

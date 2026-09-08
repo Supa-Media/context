@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { rank, type Match, type PaletteItem } from "../../console/files/palette";
+import { reducedRecallMessage } from "../../console/files/useContextSearch";
 import { resolve } from "../keymap";
 import { fonts, layout, radii, space } from "../tokens";
 import { useColors, useThemedStyles, type Colors } from "../theme";
@@ -171,6 +172,18 @@ export interface PaletteSearch {
   state: "idle" | "searching" | "ready" | "indexing" | "failed";
   /** Rendered above the search results, e.g. "In your notes". */
   heading?: string;
+  /**
+   * The caller's own visible notes that hold more messages than the search
+   * index can keep in full, or absent/`[]` for none.
+   *
+   * Drawn as a fixed banner rather than folded into `state`: unlike
+   * `indexing`, this does not resolve by searching again, so it stays true
+   * beside a screen full of real hits exactly as it does beside none. See
+   * `reducedRecallMessage` in `features/console/files/useContextSearch.ts`,
+   * which is also where the rendered wording lives — the same sentence an
+   * AI client reads off this field, never a fourth version of it.
+   */
+  reducedRecallNotes?: readonly string[];
 }
 
 export interface PaletteProps {
@@ -610,6 +623,24 @@ export function Palette({
   const searchNote = remote.length > 0 ? (search?.heading ?? "In your notes") : null;
 
   /**
+   * The shed-note caveat, fixed above the list rather than inside it.
+   *
+   * Placed here rather than folded into `emptyText` or the "still searching"
+   * strip below the rows: both of those are inside the `ScrollView` and a
+   * palette that actually found something can push either one out of sight,
+   * which is exactly backwards for a person who typed a word and got back
+   * fewer or emptier results than they expected. This sits between the input
+   * and the list on both presentations, so it is on screen with the very
+   * first row rather than a scroll away from it.
+   */
+  const reducedRecallText = reducedRecallMessage(search?.reducedRecallNotes ?? []);
+  const reducedRecallNotice = reducedRecallText ? (
+    <View style={styles.notice} testID="palette-reduced-recall">
+      <Text variant="rowSub">{reducedRecallText}</Text>
+    </View>
+  ) : null;
+
+  /**
    * Rows that are answers, as opposed to rows that are a way out of here.
    *
    * `matches` is what the keyboard walks and it includes the handoff; this is
@@ -723,6 +754,7 @@ export function Palette({
             />
           </View>
           {heading}
+          {reducedRecallNotice}
           {list}
         </KeyboardAvoidingView>
       </Modal>
@@ -756,6 +788,7 @@ export function Palette({
             {field}
           </View>
           {heading}
+          {reducedRecallNotice}
           {list}
         </Pressable>
       </Pressable>
@@ -840,6 +873,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   empty: {
     paddingHorizontal: space.x4,
     paddingVertical: space.x5,
+  },
+  /**
+   * Fixed above the scrolling list — see `reducedRecallNotice`'s own
+   * comment for why this cannot live inside it. `lineStrong` on both edges
+   * so it reads as its own strip rather than as part of whichever
+   * neighbour happens to be empty this render.
+   */
+  notice: {
+    paddingHorizontal: space.x4,
+    paddingVertical: space.x2,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.lineStrong,
+    backgroundColor: colors.surface2,
   },
 
   /* --------------------------------- row --------------------------------- */

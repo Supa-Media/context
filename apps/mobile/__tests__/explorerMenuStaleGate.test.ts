@@ -88,7 +88,13 @@ function browser(canSetVisibility: boolean): FileBrowser {
     // fixtures have no draft, so it always does.
     select: () => true,
     deselect: () => true,
-    search: async () => ({ hits: [], indexMissing: false, indexIncomplete: false }),
+    search: async () => ({
+      hits: [],
+      indexMissing: false,
+      indexIncomplete: false,
+      reducedRecall: false,
+      reducedRecallNotes: [],
+    }),
     // `emptyEditor` rather than a hand-written literal. The first version of
     // this fixture was copied from a shape `EditorState` no longer has — it was
     // missing `status` and `baseline` and carried four fields that are gone —
