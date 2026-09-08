@@ -4914,7 +4914,18 @@ async function toolRotateEncryptionKeys(store, scope) {
     etag: progress.etag,
     newKeyMaterial,
   });
-  const stillPending = stillStuck.size + (aheadDone && behindDone ? 0 : 1);
+  /*
+    WHAT THIS CALL CAN HONESTLY SAY IS LEFT.
+
+    `stuckKeys` is a census: those notes were read, are still on the outgoing
+    generation, and this call could not move them. The unexamined remainder is
+    not — since the budget counts reads rather than re-wraps, a call can spend
+    it entirely on notes that turn out to be clean, and there may be nothing at
+    all left behind the frontier. So the sentence separates the two rather than
+    adding a note that might not exist to a count that is exact.
+  */
+  const unexamined = !(aheadDone && behindDone);
+  const stillPending = stillStuck.size;
   await recordChange(store, "rotate_encryption_keys", scope, [], {
     from_generation: fromGeneration,
     to_generation: toGeneration,
@@ -4923,7 +4934,8 @@ async function toolRotateEncryptionKeys(store, scope) {
   });
   return toolText(
     `rotation in progress: ${fromGeneration} → ${toGeneration}\n` +
-      `${rewrapped} note(s) re-wrapped this call, at least ${stillPending} left on ${fromGeneration}.\n` +
+      `${rewrapped} note(s) re-wrapped this call, at least ${stillPending} left on ${fromGeneration}` +
+      (unexamined ? ", and the bucket is not swept to the end yet.\n" : ".\n") +
       "Call this tool again to continue. The retiring generation stays readable until the walk completes.",
   );
 }

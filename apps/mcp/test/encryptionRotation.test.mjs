@@ -270,13 +270,19 @@ export async function runEncryptionRotationChecks(check) {
       !first?.isError &&
         /rotation in progress: k1 → k2/.test(textOf(first)) &&
         new RegExp(`${ROTATION_BATCH_CAP} note\\(s\\) re-wrapped`).test(textOf(first)) &&
-        // A FLOOR, not a census. The walk stops at the first note it finds
-        // still on the outgoing generation once its batch is spent, rather
-        // than reading the rest of the bucket to count them — see the
-        // `ROTATION_BATCH_CAP` break in `toolRotateEncryptionKeys`. What must
-        // stay true is that it never reports zero left while notes remain,
-        // which the next check asks of the bucket rather than of the sentence.
-        /at least 1 left/.test(textOf(first)),
+        /*
+          TWO DIFFERENT FACTS, AND THE SENTENCE KEEPS THEM APART.
+
+          "at least N left" is a census of what this call actually read and
+          could not move — exact, and zero here. Whether anything remains
+          past the frontier is a separate clause, because the per-call budget
+          counts object READS rather than notes moved: a call can spend all of
+          it on notes that turn out to be clean, so "the batch is spent"
+          cannot be reported as "a note is left". What must stay true is that
+          it never says the walk is done while notes remain, which the next
+          check asks of the bucket rather than of the sentence.
+        */
+        /at least 0 left on k1, and the bucket is not swept to the end yet/.test(textOf(first)),
     );
 
     const onK1AfterFirst = [...a.objects.keys()].filter(
