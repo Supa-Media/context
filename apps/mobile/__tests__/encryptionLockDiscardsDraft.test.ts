@@ -443,6 +443,9 @@ describe("discardLocalCopies, against the real offline layer", () => {
     expect((await cache.getOutbox(after, WORKSPACE)).writes).toHaveLength(0);
   });
 
+  /** `keys.ts`'s separator, spelled the same way it is: as an escape. */
+  const SEP = "\u001f";
+
   /*
     The store is enumerated rather than probed key by key. Three of the four
     kinds `keys.ts` defines held this note's plaintext at some point in the
@@ -459,7 +462,10 @@ describe("discardLocalCopies, against the real offline layer", () => {
       if ((window.localStorage.getItem(key) ?? "").includes(PLAINTEXT)) {
         // Rendered readable: the separator is a control character, so a
         // failure message would otherwise print keys that look identical.
-        found.push(key.replace(/\u001f/g, "|"));
+        // Split-and-join rather than a regex — a control character in one is
+        // an eslint error (`no-control-regex`), and disabling that rule to
+        // pretty-print a test failure is the wrong trade.
+        found.push(key.split(SEP).join("|"));
       }
     }
     return found;
