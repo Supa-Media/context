@@ -870,7 +870,7 @@ export function BrowsePane({
                         `useNoteEncryption.ts`'s own header explains why this
                         cannot be that call's job: it never touches
                         `features/offline`, on purpose, so the door has to be
-                        reached from out here instead. See `discardDraft`'s
+                        reached from out here instead. See `discardLocalCopies`'s
                         own comment on `FileBrowser` for the rest of the
                         argument, including the boundary this keeps rather
                         than widens.
@@ -883,7 +883,7 @@ export function BrowsePane({
                         call that actually knows a lock, not a mere reopen,
                         is what just happened.
                       */
-                      files.discardDraft(sharing);
+                      files.discardLocalCopies(sharing);
                       // Reopen so `files.editor.encrypted` catches up — the
                       // note this session just locked is unlocked in it
                       // already (`useNoteEncryption.protect` leaves it so),

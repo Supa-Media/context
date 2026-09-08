@@ -183,8 +183,22 @@ export interface FileBrowser {
    */
   flushAutosave: (path?: string) => boolean;
   /**
-   * Drop `path`'s local, un-sent plaintext: its draft and any write still
-   * waiting in the offline queue. Writes nothing to the bucket.
+   * Drop every local copy of `path`'s plaintext: its draft, any write still
+   * waiting in the offline queue, and the cached body last read from the
+   * bucket. Writes nothing to the bucket.
+   *
+   * **All three, and the third is the one a name like `discardDraft` would
+   * have hidden.** A draft and a queued write are the person's own typing;
+   * the *cached body* is a copy of what the bucket answered — and for the
+   * caller this exists for, all three hold the same plaintext. Leaving the
+   * cache behind and trusting the reopen that follows a lock to overwrite it
+   * (`rememberNote`) is a fix that holds only while that reopen lands: a read
+   * that loses the connection between the lock and the reopen serves the
+   * pre-lock plaintext back out of `localStorage` — into an ordinary editor,
+   * because a cached copy taken before the lock says `encrypted: false` and so
+   * walks past `openNote`'s own guard — and leaves it there across reloads.
+   * Measured, not reasoned about: `encryptionLockDiscardsDraft.test.ts`
+   * enumerates the store after a lock whose reopen fails.
    *
    * **The one caller today is the moment a note becomes encrypted** — a
    * first lock, or a re-lock after `removeNoteEncryption` put it back — where
@@ -210,8 +224,13 @@ export interface FileBrowser {
    * Takes an explicit path rather than reading `editor.path`: the note this
    * clears is the one the lock just finished with, and a caller must never
    * have to open it first to close the door behind it.
+   *
+   * What dropping the cached body costs, stated rather than hidden: the note
+   * is not readable offline until something reads it again. That is one round
+   * trip on a note that has just become unreadable without a passphrase
+   * anyway, and the reopen every caller already makes pays it immediately.
    */
-  discardDraft: (path: string) => void;
+  discardLocalCopies: (path: string) => void;
   /** Take the version that is on the server, discarding this draft. Writes nothing. */
   useTheirs: () => void;
   /** Keep this draft and save it over theirs, on the etag that is now current. */

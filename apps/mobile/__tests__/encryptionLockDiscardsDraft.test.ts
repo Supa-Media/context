@@ -3,7 +3,7 @@
  */
 
 /**
- * LOCKING A NOTE DISCARDS ITS PRE-LOCK DRAFT — AND ANYTHING QUEUED FOR IT.
+ * LOCKING A NOTE DISCARDS EVERY LOCAL COPY OF ITS PRE-LOCK PLAINTEXT.
  *
  * The residual from the adversarial review of #352: password-encrypting a
  * note wrote a real envelope over the bucket and left a plaintext copy of
@@ -19,13 +19,17 @@
  * Three things, in three `describe` blocks:
  *
  *  1. `BrowsePane`'s onLock success handler now calls the new
- *     `FileBrowser.discardDraft`, and only on success — a failed lock must
+ *     `FileBrowser.discardLocalCopies`, and only on success — a failed lock must
  *     leave the draft exactly where it was, because the note is still
  *     plaintext and the person's typing is the only copy of it.
- *  2. `discardDraft` itself reaches the *durable* store, not just an
+ *  2. `discardLocalCopies` itself reaches the *durable* store, not just an
  *     in-memory queue — proved across a reload (a fresh `openStore()` over
  *     the same `localStorage`, not a second read off the same object), for
- *     both the draft and a queued offline write.
+ *     all three of the things that hold this note's plaintext: the draft, a
+ *     queued offline write, and the **cached body**. The third was the leak
+ *     the adversarial review of this change measured by enumerating the store
+ *     rather than by asking it for the two keys it expected, and it is why
+ *     this method is not called `discardDraft`.
  *  3. None of this touches the *ordinary* draft path: a plain note's draft
  *     still survives a reload, and opening it still restores it.
  *
@@ -166,7 +170,7 @@ function dataWith(files: Partial<FileBrowser>): ConsoleData {
     editor: { ...emptyEditor, status: "clean", path: NOTE, baseline: PLAINTEXT, draft: PLAINTEXT, etag: "e0" },
     setDraft: () => {},
     save: () => {},
-    discardDraft: () => {},
+    discardLocalCopies: () => {},
     useTheirs: () => {},
     keepMine: () => {},
     conflict: null,
@@ -287,19 +291,19 @@ describe("BrowsePane's onLock handler", () => {
 
   test("discards the draft, and only after the lock actually succeeds", async () => {
     const calls: string[] = [];
-    const discardDraft = jest.fn((path: string) => calls.push(`discard:${path}`));
+    const discardLocalCopies = jest.fn((path: string) => calls.push(`discard:${path}`));
     const select = jest.fn((path: string) => {
       calls.push(`select:${path}`);
       return true;
     });
 
-    mount(dataWith({ discardDraft, select }));
+    mount(dataWith({ discardLocalCopies, select }));
     lockWith("a genuinely long passphrase");
     await settle();
 
     expect(writeCalls).toHaveLength(1);
-    expect(discardDraft).toHaveBeenCalledTimes(1);
-    expect(discardDraft).toHaveBeenCalledWith(NOTE);
+    expect(discardLocalCopies).toHaveBeenCalledTimes(1);
+    expect(discardLocalCopies).toHaveBeenCalledWith(NOTE);
     expect(select).toHaveBeenCalledTimes(1);
     expect(select).toHaveBeenCalledWith(NOTE);
     // Discard before reopening — the note this session just wrote is what a
@@ -316,14 +320,14 @@ describe("BrowsePane's onLock handler", () => {
       throw new ConvexError({ code: "UNKNOWN", message: "the bucket refused this write" });
     }) as (args: never) => Promise<unknown>;
 
-    const discardDraft = jest.fn();
+    const discardLocalCopies = jest.fn();
     const select = jest.fn(() => true);
 
-    const container = mount(dataWith({ discardDraft, select }));
+    const container = mount(dataWith({ discardLocalCopies, select }));
     lockWith("a genuinely long passphrase");
     await settle();
 
-    expect(discardDraft).not.toHaveBeenCalled();
+    expect(discardLocalCopies).not.toHaveBeenCalled();
     expect(select).not.toHaveBeenCalled();
     // And the person is told, rather than left to wonder whether it worked.
     expect(container.ownerDocument.body.textContent).toContain("the bucket refused this write");
@@ -331,7 +335,7 @@ describe("BrowsePane's onLock handler", () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/*         part 2: discardDraft reaches the durable store, not just RAM       */
+/*         part 2: discardLocalCopies reaches the durable store, not just RAM       */
 /* -------------------------------------------------------------------------- */
 
 const WORKSPACE = "w1";
@@ -391,7 +395,7 @@ function mountBrowser(): () => void {
 
 let unmountBrowser: (() => void) | null = null;
 
-describe("discardDraft, against the real offline layer", () => {
+describe("discardLocalCopies, against the real offline layer", () => {
   beforeEach(() => {
     window.localStorage.clear();
     actions[name("listFiles")] = async () => folderListing("1-projects");
@@ -405,7 +409,7 @@ describe("discardDraft, against the real offline layer", () => {
     unmountBrowser = null;
   });
 
-  test("a draft and a queued write for the same path both survive in storage until discardDraft runs, and neither comes back after", async () => {
+  test("a draft and a queued write for the same path both survive in storage until discardLocalCopies runs, and neither comes back after", async () => {
     const seeded = openStore();
     await cache.putDraft(seeded, WORKSPACE, {
       path: PATH,
@@ -427,11 +431,11 @@ describe("discardDraft, against the real offline layer", () => {
     unmountBrowser = mountBrowser();
     await settle();
     act(() => {
-      browser.discardDraft(PATH);
+      browser.discardLocalCopies(PATH);
     });
     await settle();
 
-    // Not the same store handle `discardDraft` wrote through, and not the
+    // Not the same store handle `discardLocalCopies` wrote through, and not the
     // hook's own in-memory state — a fresh open of the same `localStorage`,
     // which is what a reload actually re-reads.
     const after = openStore();
@@ -439,7 +443,115 @@ describe("discardDraft, against the real offline layer", () => {
     expect((await cache.getOutbox(after, WORKSPACE)).writes).toHaveLength(0);
   });
 
-  test("discardDraft leaves a different path's draft and queued write alone", async () => {
+  /*
+    The store is enumerated rather than probed key by key. Three of the four
+    kinds `keys.ts` defines held this note's plaintext at some point in the
+    sequence below, and the one this file originally checked — the draft — was
+    the only one anybody had looked for. A test that asks
+    `getDraft(...) === null` cannot see the other two; a test that reads every
+    value in `localStorage` and greps it can, and is the only shape of this
+    assertion that keeps working when a fifth kind is added.
+  */
+  function plaintextHolders(): string[] {
+    const found: string[] = [];
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index)!;
+      if ((window.localStorage.getItem(key) ?? "").includes(PLAINTEXT)) {
+        // Rendered readable: the separator is a control character, so a
+        // failure message would otherwise print keys that look identical.
+        found.push(key.replace(/\u001f/g, "|"));
+      }
+    }
+    return found;
+  }
+
+  test("the cached body goes too — a reopen that never lands cannot serve the pre-lock plaintext back", async () => {
+    /*
+      The leak the adversarial review of this PR measured, and the reason
+      `discardDraft` became `discardLocalCopies`.
+
+      Opening a note caches its body (`rememberNote`), so the plaintext is in
+      `localStorage` under a *third* key before the lock — not the draft, not
+      the queue. Dropping only the first two left the fix resting on the
+      reopen `BrowsePane` makes after a lock overwriting that record with the
+      envelope. It does, right up until the read that reopen makes fails: the
+      connection drops, the tab is closed, the app is killed. What stays then
+      is the pre-lock plaintext, it survives every reload, and `openNote`'s own
+      encrypted guard never fires on it because a copy taken before the lock
+      says `encrypted: false`.
+
+      So the reopen here fails on purpose, which is the only version of this
+      sequence that can tell the fix from the coincidence.
+    */
+    actions[name("readNote")] = async () => openNote(PATH, PLAINTEXT, "e0");
+    actions[name("listFiles")] = async () =>
+      folderListing("1-projects", [openNote(PATH, PLAINTEXT, "e0")]);
+
+    unmountBrowser = mountBrowser();
+    await settle();
+    act(() => {
+      browser.select(PATH);
+    });
+    await settle();
+    expect(browser.editor.path).toBe(PATH);
+
+    // The fixture, before the fix can be credited with anything: the body is
+    // on the device, under a key nothing in this file used to look at.
+    expect(plaintextHolders()).toEqual([
+      `context.lc.offline|v2|note|private|${WORKSPACE}|${PATH}`,
+    ]);
+
+    // The lock lands on the bucket; the reopen it triggers does not.
+    actions[name("readNote")] = async () => {
+      throw new Error("the connection went while this was reopening");
+    };
+    act(() => {
+      browser.discardLocalCopies(PATH);
+    });
+    act(() => {
+      browser.select(PATH);
+    });
+    await settle();
+
+    expect(plaintextHolders()).toEqual([]);
+    // And across a reload, which is the whole point of it being durable.
+    const after = openStore();
+    expect(await cache.getNote(after, "private", WORKSPACE, PATH)).toBeNull();
+    expect(await cache.getNote(after, "team", WORKSPACE, PATH)).toBeNull();
+  });
+
+  test("a copy filed under a clearance this session cannot even read goes too", async () => {
+    /*
+      `putNote` keys a copy by the clearance that read it and `getNote` widens
+      (`readableAt`), so clearing only "the one this session would read" leaves
+      a copy no read from this session can see — and the direction that matters
+      is the one where the leftover is *plaintext*. Seeded at `team` while the
+      session below reads at `private`.
+    */
+    const seeded = openStore();
+    /*
+      Stamped now, not at a fixed `1`, and that is not tidiness: the first
+      mount runs `sweep`, `MAX_AGE_MS` is thirty days, and a record stamped in
+      1970 is deleted by the sweep before the call under test runs. Written
+      that way first, this test passed with the fix removed — which is the
+      whole of what `docs/decisions/testing.md` means by a guard nobody has
+      checked. The assertion below the mount is the other half of the same
+      lesson.
+    */
+    await cache.putNote(seeded, "team", WORKSPACE, openNote(PATH, PLAINTEXT, "e0"), Date.now());
+
+    unmountBrowser = mountBrowser();
+    await settle();
+    expect(await cache.getNote(openStore(), "team", WORKSPACE, PATH)).not.toBeNull();
+    act(() => {
+      browser.discardLocalCopies(PATH);
+    });
+    await settle();
+
+    expect(await cache.getNote(openStore(), "team", WORKSPACE, PATH)).toBeNull();
+  });
+
+  test("discardLocalCopies leaves a different path's draft and queued write alone", async () => {
     const other = "1-projects/unrelated.md";
     const seeded = openStore();
     await cache.putDraft(seeded, WORKSPACE, { path: PATH, text: PLAINTEXT, baseEtag: "e0", savedAt: 1 });
@@ -455,7 +567,7 @@ describe("discardDraft, against the real offline layer", () => {
     unmountBrowser = mountBrowser();
     await settle();
     act(() => {
-      browser.discardDraft(PATH);
+      browser.discardLocalCopies(PATH);
     });
     await settle();
 

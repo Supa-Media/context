@@ -316,7 +316,7 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     setDraft: noop,
     save: noop,
     flushAutosave: () => false,
-    discardDraft: record("discardDraft"),
+    discardLocalCopies: record("discardLocalCopies"),
     useTheirs: noop,
     keepMine: noop,
     conflict: null,
