@@ -33,6 +33,7 @@
  *   `parseWindows`'s refusal comparison loosened to "at least one"         1
  *   `parseTabUrlRefusals` hard-coded to return 0                            3
  *   `loop.ts` drops `tabUrlRefusals` from the `degradedNotice` call         1
+ *   `loop.ts` drops `degradedReasons` from the `degradedNotice` call         1
  *   `degradedNotice`'s tab-URL-refusal sentence removed entirely            5
  *
  * The first of those five is the reason `attempt()` exists: without it, a
@@ -50,11 +51,15 @@
  * and "it throws the *right kind*" was not: a bare `Error` there passed every
  * existing check and failed only once this one was added.
  *
- * The last four guard the browser tab-URL count: the window-title refusal
- * comparison (a different guard, sharing the same shape as the calendar's),
- * the count itself hard-coded away, the wiring that carries it from
- * `collectSignals` through `tick()` into the update a person actually sees,
- * and the sentence that turns a nonzero count into something they read.
+ * The last five guard the browser tab-URL count and the reason it travels
+ * beside: the window-title refusal comparison (a different guard, sharing the
+ * same shape as the calendar's), the count itself hard-coded away, the wiring
+ * that carries the count from `collectSignals` through `tick()` into the
+ * update a person actually sees, the same wiring for `degradedReasons` — found
+ * in review rather than shipped with the fix: a `loop.ts` that forwards
+ * `tabUrlRefusals` but drops `degradedReasons` passes every check above it,
+ * since none of them calls `tick()` with a real permission refusal — and the
+ * sentence that turns a nonzero count into something they read.
  *
  * Both of the two originals are also a note about *this file* rather than
  * about the source. Each of them, on the first attempt, threw out of a bare
@@ -243,6 +248,28 @@ export async function runDetectionLoopChecks(check) {
       (updates[0].degradedNotice ?? "").length > 0,
     );
     check("...and reports no collector as degraded for it", updates[0].degraded.length === 0);
+
+    // The same wiring gap, for `degradedReasons` rather than `tabUrlRefusals`:
+    // a real `PermissionRefusedError` from the calendar collector, driven
+    // through the actual loop rather than through `collectSignals` and
+    // `degradedNotice` called separately. A `loop.ts` that forwards
+    // `tabUrlRefusals` but passes `{}` (or nothing) for `degradedReasons`
+    // would still pass the check above — measured: it did, until this one was
+    // added — because that check's fixture has no calendar failure in it at
+    // all.
+    const permissionRefusedLoop = loopOver([false], {
+      collectors: {
+        ...fixedCollectors({ processes: ["zoom.us"] }),
+        calendarEvents: async () => {
+          throw new PermissionRefusedError("calendar access refused: every calendar failed to enumerate its events");
+        },
+      },
+    });
+    await run(permissionRefusedLoop.loop, 1);
+    check(
+      "the running loop's own update carries the calendar's permission-refusal reason, not just its name",
+      (permissionRefusedLoop.updates[0].degradedNotice ?? "").includes("System Settings"),
+    );
   }
 
   // -- the edges -----------------------------------------------------------
