@@ -261,6 +261,23 @@ const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   //
   // See `docs/decisions/encryption.md`.
   "functions/encryptionKeys.ts",
+  // THE SIXTH, AND THE SAME SHAPE AS THE THIRD ONE OVER.
+  //
+  // `googleConnect.ts` is `dropboxConnect.ts`'s argument, restated for a
+  // different OAuth provider and a different credential: a PKCE verifier
+  // parked for the ten minutes of a Google consent round trip
+  // (`exchangeAndBind`), the account's refresh token opened one last time to
+  // disable the WHOLE grant at Google after a disconnect
+  // (`revokeGoogleGrant`), and — the one without a Dropbox equivalent — a
+  // refresh token opened to mint a short-lived access token for the
+  // gateway's sync job (`mintGoogleAccessToken`), the same "hand the gateway
+  // minutes, not the standing grant" shape `getBindingForGateway` already
+  // uses for a bucket credential. It could not call `storage.ts`'s decrypt
+  // path for the same reason `dropboxConnect.ts` could not: neither has
+  // anything to do with an OAuth handshake for a *Google account*, and
+  // folding a second provider's connect flow into either would put two
+  // unrelated handshakes behind one module.
+  "functions/googleConnect.ts",
 ]);
 
 /** An import of `decryptSecret`, in code rather than in prose. */
@@ -1018,6 +1035,19 @@ describe("no public function can reach a storage secret", () => {
       // invisible here and are not any more. See `unattributed` in `analyze`.
       "functions.fastSearchProvision.provisionIndex",
       "functions.fastSearchProvision.releaseIndex",
+      // THE GOOGLE CONNECT FLOW'S THREE, THE SAME SHAPE AS DROPBOX'S TWO PLUS
+      // ONE. See the `functions/googleConnect.ts` entry in `DECRYPT_IMPORTERS`
+      // for why a third OAuth-connect module exists rather than folding into
+      // one of the first two, and why the third function here — minting an
+      // access token for the sync job — has no Dropbox analogue at all: a
+      // Dropbox binding hands the gateway a cached access token straight off
+      // the row (`storage.ts`'s own `S3`/`Dropbox` credential path), while a
+      // Google connection is read-only *from the gateway's side* and
+      // refreshes through the control plane instead, so it needs a function
+      // of its own — reused for every product on the grant, not only Gmail.
+      "functions.googleConnect.exchangeAndBind",
+      "functions.googleConnect.mintGoogleAccessToken",
+      "functions.googleConnect.revokeGoogleGrant",
     ].sort());
   });
 

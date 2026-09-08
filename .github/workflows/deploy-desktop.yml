@@ -525,6 +525,64 @@ jobs:
             echo "::warning::Not every check passed, but this build is not both signed and notarised — Gatekeeper is expected to refuse it elsewhere. See PASS/FAIL lines above."
           fi
 
+      # The icon is the one thing `electron-builder.yml` cannot prove about the
+      # app. `NSCameraUsageDescription` is in the shipped Info.plist and is
+      # declared nowhere in that file — it arrives from Electron's own default
+      # plist, which `extendInfo` is merged *into* rather than replacing. So the
+      # config is an additive, partial view of the plist, and a check that reads
+      # it is reasoning about an input, not about what was built. `icon:` has
+      # exactly that shape: the fallback that shipped the atom fires inside
+      # electron-builder, after the last line this repo controls.
+      #
+      # `CFBundleIconFile` is written at package time and cannot be read without
+      # packaging, so this is the earliest place the real answer exists. The
+      # bytes are compared, not the name: `CFBundleIconFile: icon.icns` pointing
+      # at a copy of `electron.icns` would satisfy every check that only reads a
+      # string, and is precisely the failure being guarded against.
+      - name: Check the icon the build actually bundled
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          status=0
+          for app in release/mac-arm64/Context.app release/mac/Context.app; do
+            if [ ! -d "$app" ]; then
+              echo "FAIL: $app was not built, so its icon could not be checked"
+              status=1
+              continue
+            fi
+            named="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "$app/Contents/Info.plist" 2>/dev/null || true)"
+            if [ -z "$named" ]; then
+              echo "FAIL: $app declares no CFBundleIconFile at all"
+              status=1
+              continue
+            fi
+            case "$named" in
+              *.icns) file="$named" ;;
+              *) file="$named.icns" ;;
+            esac
+            if [ "$file" = "electron.icns" ]; then
+              echo "FAIL: $app ships electron.icns — the Dock tile is Electron's atom, which is the defect this check exists for"
+              status=1
+              continue
+            fi
+            bundled="$app/Contents/Resources/$file"
+            if [ ! -f "$bundled" ]; then
+              echo "FAIL: $app names $named as its icon but $bundled is not there"
+              status=1
+              continue
+            fi
+            if cmp -s "$bundled" build/icon.icns; then
+              echo "PASS: $app bundles build/icon.icns byte for byte, as $named"
+            else
+              echo "FAIL: $app bundles a $named that is not build/icon.icns — some other icon was packaged"
+              status=1
+            fi
+          done
+          if [ "$status" -ne 0 ]; then
+            echo "::error::The packaged app does not carry this repo's icon — see FAIL lines above."
+            exit 1
+          fi
+
       # 922 checks passed on a build that had never opened a window — see
       # docs/decisions/desktop.md, "a release is a build that started". `--smoke`
       # is the app's own contribution (`apps/desktop/src/main/index.ts`, a

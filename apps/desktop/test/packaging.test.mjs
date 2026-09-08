@@ -17,6 +17,11 @@
  *    turns "let me look at the app" into a build failure, or one that
  *    half-runs, which hangs on Apple's API for ten minutes and then blames
  *    authentication.
+ *  - **no app icon**, which ships Electron's atom. This one is not
+ *    hypothetical: it went out, and the owner asked why their Dock had an
+ *    atom in it. No key, no file at the default path, no warning — every
+ *    other gate green, because an icon is the one part of the packaging that
+ *    the app working perfectly tells you nothing about.
  *
  * ## Sabotage record
  *
@@ -48,11 +53,23 @@
  *   "still alive at the deadline" no longer failing the step                 1
  *   the x64 leg's timeout switched from a warning back to a fatal FAIL      1
  *   the crash-string check scoped to skip the x64 leg                      1
+ *   the `icon:` key removed from `electron-builder.yml`                    1
+ *   `build/icon.icns` deleted, the key left pointing at nothing            1
+ *   the icns rebuilt with only its 1024 rung                               1
+ *   `withoutYamlComments` made a no-op (its self-test, in appShell)        2
  *
  * The first one was measured at **0** before these checks were asked of the
  * plist\'s keys rather than of its text: that file\'s header discusses every
  * entitlement it grants and several it refuses, so an `includes()` was true of
  * the prose after the key itself was gone.
+ *
+ * **The icon rows are the same lesson, and were written already knowing it.**
+ * With the `icon:` key deleted and the comments left alone, a plain
+ * `BUILDER.includes("icon.icns")` still returns true — measured — because the
+ * paragraph above that key explains what the file is and why it is named. The
+ * check is anchored to a whole line *and* run against the config with comments
+ * stripped, and the row above showing the stripper reddening its own self-test
+ * is what keeps that second half honest.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -61,6 +78,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createPrivateKey, generateKeyPairSync } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { withoutYamlComments } from "./appShell.test.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -129,8 +147,113 @@ export async function runPackagingChecks(check) {
     /target:\s*zip/.test(BUILDER),
   );
   check("...for both architectures, because an Intel Mac is still a Mac", BUILDER.includes("arm64") && BUILDER.includes("x64"));
-  check("it is a menu-bar app, with no dock icon", /LSUIElement:\s*true/.test(BUILDER));
+  /*
+    A check that used to be here, deliberately gone rather than quietly dropped:
+
+        check("it is a menu-bar app, with no dock icon", /LSUIElement:\s*true/.test(BUILDER));
+
+    It asserted the opposite of what this app now is. `LSUIElement` was removed
+    from `electron-builder.yml` when the console became what a launch opens —
+    the owner's report was "I dont even see a launched app" — and that file's
+    `extendInfo` block explains the removal at length. The check went on passing
+    anyway, because it matched the *explanation*: `# \`LSUIElement: true\` used
+    to be here`. It was green while asserting a fact that had been false for as
+    long as the sentence keeping it green had existed.
+
+    Deleting it loses no coverage. `appShell.test.mjs` asserts the true fact —
+    that `LSUIElement` is absent — against the config with comments stripped,
+    and carries `LSUIElement: true` put back as a sabotage row. That is the
+    assertion; this was its stale negation.
+  */
   check("the notarisation hook is wired", BUILDER.includes("afterSign: build/notarize.cjs"));
+
+  // -- the icon that tile in the Dock actually draws -------------------------
+  /*
+    The defect this section is about: the owner asked why the app in their Dock
+    was the Electron atom. It was never configured. There was no `icon:` key in
+    this file and no file at electron-builder's default `build/icon.icns`, and
+    that combination does not warn — electron-builder falls back to the
+    `electron.icns` inside its own dependency and writes it into
+    `CFBundleIconFile`. Confirmed on the shipped app:
+
+        $ PlistBuddy -c "Print :CFBundleIconFile" Context.app/Contents/Info.plist
+        electron.icns
+
+    Every other gate was green. It signed, it notarised, Gatekeeper accepted it,
+    the smoke test launched it. An icon is the one part of the packaging that no
+    amount of the app working correctly can tell you about, which is why it went
+    out and stayed out.
+
+    Asked of the config with its comments stripped, for the reason this suite
+    has already been bitten by twice: the paragraph above the key discusses
+    `icon.icns`, the default path and `CFBundleIconFile` by name, so every check
+    here would pass on the prose with the key itself deleted.
+
+    And asked of the `mac:` block rather than of the file, because `icon:` is a
+    real key in more than one section. Anchored to a whole line but not to a
+    parent, this check stayed green with the key moved under `dmg:` — where it
+    names the volume icon of the disk image and says nothing about the app —
+    which is the original defect shipping again behind a passing test.
+  */
+  const builderKeys = withoutYamlComments(BUILDER);
+  /* From `mac:` to the next line that starts a section of its own. */
+  const macBlock = (() => {
+    const lines = builderKeys.split("\n");
+    const start = lines.findIndex((line) => /^mac:\s*$/.test(line));
+    if (start === -1) return "";
+    const rest = lines.slice(start + 1);
+    const end = rest.findIndex((line) => /^\S/.test(line));
+    return (end === -1 ? rest : rest.slice(0, end)).join("\n");
+  })();
+  check(
+    "THE APP ICON IS CONFIGURED — unset, electron-builder silently ships its own atom",
+    /^\s+icon:\s*build\/icon\.icns\s*$/m.test(macBlock),
+  );
+  check(
+    "...and the file it names is really there, because the key alone is not the icon",
+    existsSync(join(ROOT, "build/icon.icns")),
+  );
+
+  /*
+    A real icns, and a complete one.
+
+    An `.icns` is a container: `icns`, a length, then `[4-byte type][length]
+    [data]` chunks. macOS picks the member matching what it is drawing — 16 and
+    32 for the Finder list and the menu bar, 512 and 1024 for the Dock and Quick
+    Look — and falls back to resampling the nearest when a rung is missing. A
+    single-resolution file is therefore not a failure anyone sees as one: it
+    looks right in the Dock and smeared everywhere else, which is exactly the
+    kind of half-fix this check exists to refuse.
+  */
+  const ICNS = readFileSync(join(ROOT, "build/icon.icns"));
+  check(
+    "it is an icns rather than a renamed png, and its own length header agrees",
+    ICNS.subarray(0, 4).toString("ascii") === "icns" && ICNS.readUInt32BE(4) === ICNS.length,
+  );
+  const chunks = new Set();
+  for (let at = 8; at + 8 <= ICNS.length; ) {
+    chunks.add(ICNS.subarray(at, at + 4).toString("ascii"));
+    const size = ICNS.readUInt32BE(at + 4);
+    if (size < 8) break; // a zero length would spin here; a malformed file is a failure below
+    at += size;
+  }
+  /*
+    The ladder `iconutil` emits for a full iconset, by the type codes it writes:
+    16, 32, 128, 256 and 512 at 1x (ic04, ic05, ic07, ic08, ic09) and their @2x
+    partners 32, 64, 256, 512 and 1024 (ic11, ic12, ic13, ic14, ic10).
+  */
+  const RUNGS = {
+    ic04: "16", ic05: "32", ic07: "128", ic08: "256", ic09: "512",
+    ic11: "16@2x", ic12: "32@2x", ic13: "128@2x", ic14: "256@2x", ic10: "512@2x",
+  };
+  const missing = Object.entries(RUNGS).filter(([type]) => !chunks.has(type)).map(([, size]) => size);
+  check(
+    `IT CARRIES THE WHOLE LADDER, 16 TO 1024 — a one-size icns looks right in the Dock and smeared in Finder${
+      missing.length ? ` (missing ${missing.join(", ")})` : ""
+    }`,
+    missing.length === 0,
+  );
+
   check(
     "publishing targets GitHub Releases, not left for a build to guess a provider",
     /publish:\s*\n\s*provider:\s*github/.test(BUILDER),
@@ -582,6 +705,50 @@ export async function runPackagingChecks(check) {
   check(
     "the notarisation key is judged before the build too, not after twenty-six seconds of signing",
     keyCheck !== undefined && steps.indexOf(keyCheck) < steps.indexOf(buildStep),
+  );
+
+  /*
+    The icon, asked of the built app rather than of the config.
+
+    The checks up in the icon section read `electron-builder.yml` and
+    `build/icon.icns` — both of them build *inputs*. That is the same reasoning
+    that `NSCameraUsageDescription` has already shown to be unsound here: that
+    key is in the shipped Info.plist and appears nowhere in the config, because
+    Electron ships a default plist and `extendInfo` is merged into it. A config
+    the repo controls does not describe the plist that came out.
+
+    `icon:` has the same shape. The fallback that shipped the atom happens
+    inside electron-builder, downstream of every line this repo writes, and
+    `CFBundleIconFile` exists only after packaging. So the input checks stay —
+    they fail in seconds and say exactly what is wrong — and this row makes sure
+    the one place the real artifact exists actually looks at it.
+  */
+  const iconStep = steps.find((step) => /Check the icon the build actually bundled/.test(step));
+  check(
+    "THE PACKAGED APP'S OWN ICON IS CHECKED — the config cannot prove what electron-builder bundled",
+    iconStep !== undefined,
+  );
+  check(
+    "...by reading CFBundleIconFile out of the built Info.plist, which is where the atom was found",
+    iconStep !== undefined && /CFBundleIconFile/.test(iconStep) && /Contents\/Info\.plist/.test(iconStep),
+  );
+  check(
+    "...and comparing bytes against build/icon.icns, so a copy of electron.icns under our name still fails",
+    iconStep !== undefined && /cmp -s "\$bundled" build\/icon\.icns/.test(iconStep),
+  );
+  check(
+    "...for both architectures, not just the arm64 one the smoke step gates on",
+    iconStep !== undefined &&
+      /release\/mac-arm64\/Context\.app/.test(iconStep) &&
+      /release\/mac\/Context\.app/.test(iconStep),
+  );
+  check(
+    "...after the build that produces the app, since there is nothing to read before it",
+    iconStep !== undefined && steps.indexOf(iconStep) > steps.indexOf(buildStep),
+  );
+  check(
+    "...and it fails the job rather than warning, because a wrong icon is what shipped last time",
+    iconStep !== undefined && /exit 1/.test(iconStep),
   );
 
   // -- publishing: a boolean input, gated permissions, and idempotency --------

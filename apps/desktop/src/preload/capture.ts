@@ -22,6 +22,23 @@ export interface CaptureChunk {
   data: Uint8Array;
 }
 
+/**
+ * How loud each open channel is right now, 0–1.
+ *
+ * Structurally the bridge's `AudioLevel` and deliberately declared here rather
+ * than imported from it: this is the *capture window's* payload, on the capture
+ * window's own channel, and `main/capture.ts` is the process that turns it into
+ * the contract's shape. Nothing about this window knows a console exists.
+ *
+ * A number, never samples. The audio in this window is transient because there
+ * is nothing to hand over, and a meter is the one thing about it that may
+ * cross a process boundary — because two floats are not a recording.
+ */
+export interface CaptureLevel {
+  mic: number;
+  systemAudio: number;
+}
+
 contextBridge.exposeInMainWorld(
   "capture",
   Object.freeze({
@@ -40,5 +57,7 @@ contextBridge.exposeInMainWorld(
     ready: (degraded: string[]): void => ipcRenderer.send("context:capture-ready", degraded),
     failed: (message: string): void => ipcRenderer.send("context:capture-failed", message),
     chunk: (chunk: CaptureChunk): void => ipcRenderer.send("context:capture-chunk", chunk),
+    /** How loud it is. Send-only, like everything else this window may do. */
+    level: (level: CaptureLevel): void => ipcRenderer.send("context:capture-level", level),
   }),
 );

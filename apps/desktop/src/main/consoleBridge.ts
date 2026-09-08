@@ -59,6 +59,7 @@ import {
   BRIDGE_CHANNELS,
   MEETING_WRITE_KINDS,
   TRAY_COMMANDS,
+  type AudioLevel,
   type CaptureStarted,
   type CaptureStateUpdate,
   type CaptureSummary,
@@ -66,6 +67,7 @@ import {
   type DesktopCapabilities,
   type DesktopShell,
   type DetectionView,
+  type ImessageStatus,
   type MachineApprovalResult,
   type MeetingWrite,
   type MeetingWriteAck,
@@ -163,15 +165,36 @@ export interface ConsoleBridgeDeps {
    * window-less queue is not on the path at all.
    */
   writeMeeting: (write: MeetingWrite) => Promise<MeetingWriteAck>;
+  /**
+   * Whether this machine imports iMessage history, and what it knows about
+   * Full Disk Access. The version-5 addition — see `packages/desktop-bridge`'s
+   * `imessage` member for the reasoning behind its shape.
+   */
+  imessage: () => ImessageStatus;
+  /** Turn import on or off. Never touches the microphone, the calendar, or anything else the tray already gates. */
+  setImessageEnabled: (enabled: boolean) => void;
 }
 
 export interface ConsoleBridge {
   /** Push the four subscribable views. Silent when there is no window. */
   push(view: ConsoleBridgeView): void;
   emitSegment(segment: TranscriptSegment): void;
+  /**
+   * How loud it is, as often as the recorder says.
+   *
+   * Its own method rather than a fifth member of `push()`, and the difference
+   * is the cadence: `push()` is every state change in the shell — a settings
+   * write, a drain, a tray render — and the level moves ten times a second on
+   * its own clock. Folding one into the other would either publish the whole
+   * shell view at 10Hz or publish the level at whatever rate the shell happened
+   * to change, and the second of those is the meter this app already had.
+   */
+  emitLevel(level: AudioLevel): void;
   /** Tell the page a machine approval opened, or that it is over (`null`). */
   emitPendingApproval(pending: PendingMachineApproval | null): void;
   emitTrayCommand(command: TrayCommand): void;
+  /** Tell the page iMessage's enabled/permission/last-sync state changed. */
+  emitImessage(status: ImessageStatus): void;
   /** Unregister every channel. For a window that is going away for good. */
   dispose(): void;
 }
@@ -337,6 +360,13 @@ function approvalResultFrom(payload: unknown): MachineApprovalResult | null {
   return { requestId, approved: source.approved === true };
 }
 
+/** A fraction of full scale, or `0`. Nothing else may reach the glass. */
+function unit(value: unknown): number {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.min(1, Math.max(0, number));
+}
+
 function messageOf(error: unknown, fallback: string): string {
   return error instanceof Error && error.message !== "" ? error.message : fallback;
 }
@@ -491,6 +521,13 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     return null;
   });
 
+  handle(BRIDGE_CHANNELS.imessageStatus, () => ({ ...deps.imessage() }));
+  handle(BRIDGE_CHANNELS.imessageSetEnabled, (payload) => {
+    const enabled = (payload as { enabled?: unknown } | undefined)?.enabled === true;
+    deps.setImessageEnabled(enabled);
+    return null;
+  });
+
   function send(channel: string, payload: unknown): void {
     /*
       A window that went away between the check and the send throws, and one
@@ -519,6 +556,15 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
       send(BRIDGE_CHANNELS.segment, segment);
     },
     /*
+      Rebuilt from the two fields the contract declares and clamped into 0-1,
+      like every other answer here: this goes to a page served from the network
+      and the shape it is given is the shape the contract names, never whatever
+      the recorder happened to hand over.
+    */
+    emitLevel(level: AudioLevel): void {
+      send(BRIDGE_CHANNELS.level, { mic: unit(level?.mic), systemAudio: unit(level?.systemAudio) });
+    },
+    /*
       Pushed rather than polled, and `null` is a value on this channel: it is
       how the shell says the approval is over — approved, refused, timed out or
       abandoned — so the card stops offering to mint one. Wrapped in an
@@ -533,6 +579,9 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     emitTrayCommand(command: TrayCommand): void {
       if (!TRAY_COMMANDS.includes(command)) return;
       send(BRIDGE_CHANNELS.trayCommand, command);
+    },
+    emitImessage(status: ImessageStatus): void {
+      send(BRIDGE_CHANNELS.imessageChange, { ...status });
     },
     dispose(): void {
       for (const channel of [
@@ -549,6 +598,8 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
         BRIDGE_CHANNELS.outboxStatus,
         BRIDGE_CHANNELS.outboxDrain,
         BRIDGE_CHANNELS.meetingsWrite,
+        BRIDGE_CHANNELS.imessageStatus,
+        BRIDGE_CHANNELS.imessageSetEnabled,
       ]) {
         deps.ipc.removeHandler(channel);
       }
