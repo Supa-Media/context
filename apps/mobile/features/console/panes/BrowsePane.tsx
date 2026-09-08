@@ -860,6 +860,30 @@ export function BrowsePane({
                       passphrase,
                     })
                     .then(() => {
+                      /*
+                        The lock just wrote an envelope over `sharing`. The
+                        plaintext this call sent — `files.editor.draft` above
+                        — is exactly what a local draft or a queued write for
+                        this path would also be holding, and either one left
+                        behind would be a plaintext copy sitting outside the
+                        envelope this success is the whole promise of closing.
+                        `useNoteEncryption.ts`'s own header explains why this
+                        cannot be that call's job: it never touches
+                        `features/offline`, on purpose, so the door has to be
+                        reached from out here instead. See `discardDraft`'s
+                        own comment on `FileBrowser` for the rest of the
+                        argument, including the boundary this keeps rather
+                        than widens.
+
+                        Before `select`, not after: `select` is what makes
+                        `files.editor.path` this note's next open, and
+                        `openNote` now refuses to restore anything for an
+                        encrypted note regardless — but there is no reason to
+                        depend on that ordering here when this is the one
+                        call that actually knows a lock, not a mere reopen,
+                        is what just happened.
+                      */
+                      files.discardDraft(sharing);
                       // Reopen so `files.editor.encrypted` catches up — the
                       // note this session just locked is unlocked in it
                       // already (`useNoteEncryption.protect` leaves it so),

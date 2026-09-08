@@ -55,6 +55,7 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
     setDraft: noop,
     save: noop,
     flushAutosave: () => false,
+    discardDraft: noop,
     useTheirs: noop,
     keepMine: noop,
     conflict: null,
