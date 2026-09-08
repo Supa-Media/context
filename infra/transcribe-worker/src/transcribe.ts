@@ -35,6 +35,68 @@
  * number up.
  *
  * ============================================================================
+ * SILENCE IS NOT A TRANSCRIPT, AND THIS IS WHERE THAT IS DECIDED
+ * ============================================================================
+ *
+ * Measured on the owner's Mac, on the signed build: ninety seconds of a quiet
+ * room, nobody speaking, produced **166 words** — 62 by thirty seconds, 87 by
+ * fifty, 147 by seventy — and they were filed into the customer's bucket as a
+ * meeting note. The same evening, a real six-minute meeting carried seven
+ * consecutive "Thank you." lines. Whisper hallucinates on silence; that is now
+ * measured rather than inferred.
+ *
+ * Nothing downstream can undo it. The words an engine invents are, as text,
+ * indistinguishable from words somebody said — there is no filter over a
+ * transcript that tells "Thank you." from "Thank you." — and every guard past
+ * this point reads the transcript. `hasNothingCaptured`, which is supposed to
+ * stop an empty session being filed at all, requires an empty transcript, so a
+ * hallucinating engine makes it unreachable for any session that opened a
+ * microphone. It is not wrong; the assumption under it was.
+ *
+ * **So the answer is here, and it is the engine's own evidence rather than
+ * anybody's threshold on the text or on the audio.** Two rules, in order of how
+ * much they assume:
+ *
+ *  1. **`duration_after_vad`, when the engine reports it.** Voice-activity
+ *     detection is the engine's own front end; a chunk whose audio is entirely
+ *     gone after it is a chunk the engine itself says had no speech in it. No
+ *     threshold of ours appears in that sentence, which is what makes it the
+ *     first rule. Absent — the fallback model reports nothing of the kind — it
+ *     has no opinion and says so by not firing.
+ *
+ *  2. **`no_speech_prob` together with `avg_logprob`.** Whisper's own decoder
+ *     treats a segment as silence when `no_speech_prob` is above its
+ *     `no_speech_threshold` **and** `avg_logprob` is below its
+ *     `logprob_threshold`, at the reference defaults `0.6` and `-1.0`. Both
+ *     halves, and that conjunction is the whole of its safety: a confidently
+ *     decoded segment survives however unsure the silence detector was, which
+ *     is what stops it eating quiet speech. `NO_SPEECH_PROB` and
+ *     `LOGPROB_FLOOR` below are those defaults, cited rather than chosen, and
+ *     they are applied to fields the engine states rather than to any number
+ *     computed here.
+ *
+ * Note what this is not. It is **not** a confidence: `no_speech_prob` is a
+ * different quantity with its own meaning, read literally, used to decide
+ * control flow and never written into the contract as `confidence`. The rule
+ * above stands untouched.
+ *
+ * ── Why the gate is not on the audio, which was the obvious answer ──────────
+ *
+ * The desktop already runs an `AnalyserNode` on every stream for its level
+ * meter, so a loudness floor per chunk looked free. Measured on the same Mac,
+ * mic levels at 10 Hz through the meter's own scale:
+ *
+ *     silence, 30s      median -43.4 dBFS                  max -28.3 dBFS
+ *     speech, loud      median -44.2 dBFS  p90 -37.2 dBFS  max -23.7 dBFS
+ *
+ * The medians are identical, and **the silent room's peak is louder than
+ * speech's 90th percentile**. There is no threshold on that data — mean,
+ * median, percentile or peak — that refuses the silence and keeps the speech.
+ * A gate built on it would drop real speech, which is the worse failure of the
+ * two, so none is built. `docs/decisions/meetings.md` carries the argument and
+ * the one measurement that would reopen it.
+ *
+ * ============================================================================
  * THE AUDIO IS NEVER DECODED HERE
  * ============================================================================
  *
@@ -150,10 +212,54 @@ export interface TranscriptSegment {
   confidence: number | null;
 }
 
+/**
+ * A segment plus the two fields the engine states about whether it is speech at
+ * all.
+ *
+ * Deliberately internal. They decide control flow here and go no further: the
+ * contract's segment has no room for them, and a `no_speech_prob` written into
+ * a note would be a number a reader has no way to interpret.
+ */
+interface JudgedSegment extends TranscriptSegment {
+  noSpeechProb: number | null;
+  avgLogprob: number | null;
+}
+
 export interface Transcription {
   text: string;
   segments: TranscriptSegment[];
+  /**
+   * How many segments the engine's own evidence said were not speech.
+   *
+   * On the wire, and read all the way to the glass, because the alternative is
+   * the failure this repository keeps finding: a shorter answer with nothing
+   * saying why it is shorter. A caller that sees `segments: []` with
+   * `refused: 3` can tell "the room was quiet" from "transcription is broken",
+   * and those need different sentences and different actions.
+   */
+  refused: number;
 }
+
+/**
+ * Whisper's `no_speech_threshold`, at the reference implementation's default.
+ *
+ * Not tuned here, and deliberately not: it is the number the decoder that
+ * produces the field was calibrated with, so it is the one value in this file
+ * with published provenance. Raising it keeps more hallucination; lowering it
+ * starts eating speech, and only in company with the floor below does either
+ * mean anything.
+ */
+export const NO_SPEECH_PROB = 0.6;
+
+/**
+ * ...and its `logprob_threshold`, likewise the reference default.
+ *
+ * The conjunction is the safety. A segment the decoder is confident about
+ * (`avg_logprob` at or above this) is kept no matter what the silence detector
+ * thought, so the cost of a wrong `no_speech_prob` is bounded to segments the
+ * engine was *also* unsure of.
+ */
+export const LOGPROB_FLOOR = -1;
 
 /** Strict base64: no whitespace, no URL alphabet, padding only at the end. */
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
@@ -239,10 +345,22 @@ function readConfidence(value: unknown): number | null {
   return value;
 }
 
+/**
+ * A number the engine stated, or `null`.
+ *
+ * Unlike `readConfidence` there is no range to check beyond finiteness:
+ * `avg_logprob` is a log-probability and is legitimately any negative number,
+ * and a `no_speech_prob` outside `0..1` would be an engine bug that `isNoSpeech`
+ * handles by simply not firing, which is the safe direction.
+ */
+function readStated(value: unknown): number | null {
+  return isFiniteNumber(value) ? value : null;
+}
+
 /** Segment timings, as `@cf/openai/whisper-large-v3-turbo` reports them. */
-function readSegments(value: unknown): TranscriptSegment[] {
+function readSegments(value: unknown): JudgedSegment[] {
   if (!Array.isArray(value)) return [];
-  const out: TranscriptSegment[] = [];
+  const out: JudgedSegment[] = [];
   for (const entry of value) {
     if (typeof entry !== "object" || entry === null) continue;
     const record = entry as Record<string, unknown>;
@@ -257,9 +375,55 @@ function readSegments(value: unknown): TranscriptSegment[] {
       endMs: Math.round(end * 1000),
       text: typeof record["text"] === "string" ? record["text"].trim() : "",
       confidence: readConfidence(record["confidence"]),
+      // Kept for the length of this function and no longer. See `JudgedSegment`.
+      noSpeechProb: readStated(record["no_speech_prob"]),
+      avgLogprob: readStated(record["avg_logprob"]),
     });
   }
   return out;
+}
+
+/**
+ * Whether the engine's own evidence says this segment is not speech.
+ *
+ * Both fields required, and **absence is never a refusal**: a model that
+ * reports neither — the fallback, an on-device engine, any future one — has
+ * said nothing about whether somebody was talking, and "it did not say" must
+ * never be read as "nobody spoke". Written the other way round, one model
+ * change silently transcribes nothing at all.
+ */
+function isNoSpeech(segment: JudgedSegment): boolean {
+  if (segment.noSpeechProb === null || segment.avgLogprob === null) return false;
+  return segment.noSpeechProb > NO_SPEECH_PROB && segment.avgLogprob < LOGPROB_FLOOR;
+}
+
+/**
+ * Whether the engine's voice-activity detection removed the whole chunk.
+ *
+ * `transcription_info.duration_after_vad` is how much audio survived the
+ * engine's own front end. Zero is the engine saying, with no threshold of ours
+ * anywhere in the sentence, that there was no speech in this chunk — so
+ * whatever text came back after it is text nobody said.
+ *
+ * Absent, negative or unreadable is no opinion, for the same reason as
+ * `isNoSpeech`. A *positive* value is not read as proof of speech either: VAD
+ * keeping audio is not VAD hearing a voice in it.
+ */
+function vadHeardNothing(answer: Record<string, unknown>): boolean {
+  const info = answer["transcription_info"];
+  if (typeof info !== "object" || info === null) return false;
+  const remaining = (info as Record<string, unknown>)["duration_after_vad"];
+  return isFiniteNumber(remaining) && remaining <= 0;
+}
+
+/** The contract's segment, with this file's private evidence dropped. */
+function asSegment(segment: JudgedSegment): TranscriptSegment {
+  return {
+    startMs: segment.startMs,
+    endMs: segment.endMs,
+    text: segment.text,
+    confidence: segment.confidence,
+  };
 }
 
 /**
@@ -344,10 +508,30 @@ export function toTranscription(raw: unknown, durationMs: number | null): Transc
   if (!isReadableAnswer(answer)) return null;
   const flat = typeof answer["text"] === "string" ? (answer["text"] as string).trim() : "";
 
-  const segments = readSegments(answer["segments"]);
-  if (segments.length > 0) {
-    const text = flat || segments.map((segment) => segment.text).join(" ").trim();
-    return { text, segments };
+  /*
+    The VAD rule first, because it is about the whole chunk and needs no
+    per-segment evidence — so it is the one that also covers the two shapes
+    below, where there is none to have. `refused` is at least one whenever it
+    fires: something came back, and it is being thrown away, and a caller that
+    saw `refused: 0` beside an empty transcript would read this as an engine
+    that answered nothing rather than one that answered noise.
+  */
+  const judged = readSegments(answer["segments"]);
+  if (vadHeardNothing(answer)) {
+    return { text: "", segments: [], refused: Math.max(1, judged.length) };
+  }
+
+  if (judged.length > 0) {
+    const kept = judged.filter((segment) => !isNoSpeech(segment));
+    const refused = judged.length - kept.length;
+    /*
+      When anything was refused the text is rebuilt from what survived, never
+      taken from the engine's flat `text` — which still contains every word this
+      function just decided nobody said. That is the line that makes the refusal
+      real rather than cosmetic.
+    */
+    const text = refused > 0 ? kept.map((segment) => segment.text).join(" ").trim() : flat || kept.map((segment) => segment.text).join(" ").trim();
+    return { text, segments: kept.map(asSegment), refused };
   }
 
   const span = readWordSpan(answer["words"]);
@@ -355,11 +539,12 @@ export function toTranscription(raw: unknown, durationMs: number | null): Transc
     return {
       text: flat,
       segments: [{ startMs: span.startMs, endMs: span.endMs, text: flat, confidence: null }],
+      refused: 0,
     };
   }
 
   const endMs = durationMs !== null ? Math.round(durationMs) : engineDurationMs(answer);
-  return { text: flat, segments: [{ startMs: 0, endMs, text: flat, confidence: null }] };
+  return { text: flat, segments: [{ startMs: 0, endMs, text: flat, confidence: null }], refused: 0 };
 }
 
 /**
