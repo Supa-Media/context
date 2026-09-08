@@ -122,6 +122,44 @@ const MISS_REFRESH_FLOOR = 12;
  */
 const EXPANSION_SHARD_SAMPLE = 8;
 
+/**
+ * Reduced-recall notes a *rendered* banner names before it starts counting.
+ *
+ * The list is one path per note and a shed context sheds by the day, so a
+ * mailbox well past capacity has hundreds of them — measured: 400 shed days
+ * render as ~23,000 characters, which is a `search_notes` answer whose
+ * warning is longer than every hit in it put together and an `orient` eight
+ * times its usual size, with the owner's own save procedure pushed past all
+ * of it. That is the same defect as the silence this signal replaces, in the
+ * other direction: a notice nobody can read past is a notice nobody reads.
+ *
+ * The rule this follows is the one `orient` already applies to its own lists
+ * (`ORIENT_ROOT_NOTE_LIMIT`, `ORIENT_CHILDREN_LIMIT`) and, more pointedly,
+ * the one the "Recently updated" section applies to mail specifically —
+ * collapsed "so they cannot crowd out a note the user actually touched".
+ * Shed notes are overwhelmingly mail, arriving on the same schedule.
+ *
+ * Named, then counted: the overflow is reported as `(+N more)` rather than
+ * dropped, so the claim stays true — and `reducedRecallNotes` itself is never
+ * truncated, so a programmatic caller (the console) still gets the whole list.
+ */
+export const RENDERED_RECALL_NOTE_LIMIT = 10;
+
+/**
+ * A rendered banner's share of `reducedRecallNotes`, and what it left out.
+ *
+ * `rest` is counted **after** the caller's own `isVisible` filter has run, in
+ * `searchIndexedNotes` and in `orient`'s own copy — so the number a caller
+ * reads is a count of their own notes and never a hint at somebody else's.
+ *
+ * @param {string[]} paths already visibility-filtered
+ * @returns {{shown: string[], rest: number}}
+ */
+export function splitReducedRecallNotes(paths, limit = RENDERED_RECALL_NOTE_LIMIT) {
+  const list = Array.isArray(paths) ? paths : [];
+  return { shown: list.slice(0, limit), rest: Math.max(0, list.length - limit) };
+}
+
 /** A note's own `#` heading, or its filename when it has none. */
 export function noteTitle(path, text) {
   const heading = String(text).split("\n").find((line) => /^#{1,6}\s+\S/.test(line));

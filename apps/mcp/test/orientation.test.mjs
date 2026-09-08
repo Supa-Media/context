@@ -995,6 +995,42 @@ export async function runOrientationChecks(check) {
         !shedTeamText.includes("2-areas/vault/secret.md") &&
         !shedTeamText.includes("privateword")
     );
+
+    /*
+     * -- and it cannot take the page over -------------------------------
+     *
+     * Shedding is per note and a mailbox sheds by the day, so "a few paths"
+     * is the small case and hundreds is the one that actually happens.
+     * Unbounded, this section measured 23,798 characters and pushed every
+     * later section — other contexts, pending proposals, the owner's own
+     * save procedure — past 400 lines of mail paths. `orient` already
+     * collapses automatic captures for exactly this reason ("so they cannot
+     * crowd out a note the user actually touched"), and shed notes are the
+     * same mail arriving on the same schedule.
+     */
+    const floodPaths = Array.from(
+      { length: 400 },
+      (_, i) =>
+        `0-inbox/email/name-at-example-com/2026-${String((i % 12) + 1).padStart(2, "0")}-` +
+        `${String((i % 28) + 1).padStart(2, "0")}-part-${i}.md`
+    ).sort();
+    const flooded = await loadIndexManifest(shedBucket, createSearchBudget(10), 0);
+    flooded.stats[0] = { ...flooded.stats[0], shed: floodPaths.length, shedPaths: floodPaths };
+    await shedBucket.put(MANIFEST_KEY, serializeManifest(flooded));
+    const floodedText = await orientText(shedEnv, SHED_OWNER);
+    const coverage = floodedText
+      .slice(floodedText.indexOf("## Search coverage"))
+      .split("\n\n")[0];
+    check(
+      "a context with hundreds of shed notes names some of them and counts the rest",
+      coverage.includes("- (+390 more notes in the same state)") && coverage.split("\n").length < 20
+    );
+    check(
+      "...so the page stays a page rather than a list of mail paths",
+      floodedText.length < shedOwnerText.length + 1_500 &&
+        floodedText.includes("## Front page") &&
+        floodedText.includes("## Structure")
+    );
   } finally {
     restore();
   }

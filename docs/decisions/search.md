@@ -1260,6 +1260,20 @@ do. Telling somebody to search again for a fix that is not coming is a
   though the note itself still exists and read_note always returns it
   whole."* Naming the note is what makes it actionable — a bare count would
   tell somebody to distrust an answer without saying which part of it.
+- **Named to a limit, then counted — because a shed mailbox sheds by the
+  day.** The list is one path per note, so "a few paths" is the small case and
+  hundreds is the one that actually happens. Unbounded it was measured at
+  ~23,000 characters: a one-hit `search_notes` answer whose warning was longer
+  than every hit in it, and an `orient` eight times its usual size with the
+  owner's own save procedure pushed below 400 lines of mail paths. A notice
+  nobody can read past is the same defect as the silence it replaces, pointing
+  the other way, and `orient` already collapses automatic captures for exactly
+  this reason ("so they cannot crowd out a note the user actually touched").
+  So the *rendered* list stops at `RENDERED_RECALL_NOTE_LIMIT` and reports the
+  remainder as `(+N more)` — counted after `isVisible`, so the number is a
+  count of the caller's own notes and never a hint at somebody else's, and
+  never silently truncated. `reducedRecallNotes` itself is not capped: a
+  programmatic caller (the console) still receives the whole list.
 - **It reaches every surface that answers a question about search, not only
   the one that returns hits.** `search_notes` carries it beside
   `indexIncomplete`; `orient` — which read nothing about the index before

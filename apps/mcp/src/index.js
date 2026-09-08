@@ -104,6 +104,7 @@ import {
   INTERACTIVE_BACKFILL_OPS,
   searchIndexedNotes,
   snippetLinesFor,
+  splitReducedRecallNotes,
 } from "./search/visible.js";
 import { splitMessageAnchor } from "./search/commsIndex.js";
 import {
@@ -3630,13 +3631,20 @@ async function toolOrient(store, scope, rules, overrides) {
   );
 
   if (reducedRecallNotes.length) {
+    // Named, then counted — a shed mailbox sheds by the day, so this list is
+    // hundreds of lines long in exactly the context that most needs the rest
+    // of this page. See `RENDERED_RECALL_NOTE_LIMIT`, and the same `(+N more)`
+    // idiom `renderStructure` uses for the identical reason.
+    const { shown, rest } = splitReducedRecallNotes(reducedRecallNotes);
+    const lines = shown.map((path) => `- ${path}`);
+    if (rest) lines.push(`- (+${rest} more notes in the same state)`);
     parts.push(
       "## Search coverage\n" +
         "These notes hold more messages than the search index can keep in full, so " +
         "search_notes will not find a term that appeared only in a message it had to drop — " +
         "the note itself is unaffected and read_note always returns it whole. A search miss on " +
         "one of these is not proof the content is gone:\n" +
-        reducedRecallNotes.map((path) => `- ${path}`).join("\n")
+        lines.join("\n")
     );
   }
 
@@ -6356,12 +6364,17 @@ async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg)
   // caller may already see: `found.reducedRecallNotes` is pre-filtered by
   // `isVisible`, the same as every hit above it.
   if (found.reducedRecall && found.reducedRecallNotes?.length) {
+    // Bounded for the same reason `orient`'s copy is: unbounded, a mailbox
+    // that sheds by the day turns a one-hit answer into 23,000 characters of
+    // warning, which buries the hits this search did find. The overflow is
+    // counted rather than dropped — see `RENDERED_RECALL_NOTE_LIMIT`.
+    const { shown, rest } = splitReducedRecallNotes(found.reducedRecallNotes);
     out +=
       "\n\n[note: these notes hold more messages than the search index can keep in full, so a " +
       "term that appeared only in a message it had to drop will not surface here even though " +
       "the note itself still exists and read_note always returns it whole — a miss on one of " +
       `these is not proof the content is gone, only that this search cannot reach all of it: ` +
-      `${found.reducedRecallNotes.join(", ")}]`;
+      `${shown.join(", ")}${rest ? ` (+${rest} more)` : ""}]`;
   }
   if (found.degraded && found.totalCount > found.scannedCount) {
     out += `\n\n[note: scanned ${found.scannedCount} of ${found.totalCount}${

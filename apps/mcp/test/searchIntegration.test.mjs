@@ -1503,6 +1503,39 @@ export async function runSearchIntegrationChecks(check) {
       "a team caller reads the same claim about their own note and never the private one",
       teamHitText.includes("1-projects/shared.md") && !teamHitText.includes("2-areas/vault/secret.md")
     );
+
+    /*
+     * -- the banner is bounded, because a shed mailbox sheds by the day ---
+     *
+     * Unbounded, 400 shed days made a one-hit answer 23,482 characters long,
+     * of which 23,430 were the warning: the hits this search *did* find,
+     * buried under the notice about the ones it could not. That is the same
+     * defect as the silence this signal replaces, pointing the other way.
+     * Named to the limit, then counted — never truncated silently.
+     */
+    const floodPaths = Array.from(
+      { length: 400 },
+      (_, i) =>
+        `0-inbox/email/name-at-example-com/2026-${String((i % 12) + 1).padStart(2, "0")}-` +
+        `${String((i % 28) + 1).padStart(2, "0")}-part-${i}.md`
+    ).sort();
+    const floodedManifest = await loadIndexManifest(recall, createSearchBudget(10), 0);
+    floodedManifest.stats[0] = {
+      ...floodedManifest.stats[0],
+      shed: floodPaths.length,
+      shedPaths: floodPaths,
+    };
+    await recall.put(MANIFEST_KEY, serializeManifest(floodedManifest));
+    const floodedText = await searchText(recallEnv, RECALL_OWNER, { query: "teamword" });
+    check(
+      "hundreds of shed notes are named to a limit and then counted, not all listed",
+      floodedText.includes("(+390 more)") && floodedText.length < 2_000
+    );
+    check(
+      "...and the hit the search actually found is still readable above it",
+      floodedText.includes("1-projects/shared.md") &&
+        floodedText.indexOf("[note: these notes hold") > floodedText.indexOf("teamword") - 1
+    );
   } finally {
     restore?.();
   }
