@@ -41,6 +41,14 @@ describe("above the floor", () => {
     expect(["fair", "strong"]).toContain(strength);
   });
 
+  test("the sentence names the rough offline crack-time assumption", () => {
+    const { label } = passphraseStrength("correct horse battery staple");
+    expect(label).toContain("Rough offline crack time");
+    expect(label).toContain("Argon2id guesses/sec");
+    expect(label).toContain("order-of-magnitude");
+    expect(label).toContain("common or patterned phrases");
+  });
+
   test("a very long passphrase reads as strong even with no symbols or digits", () => {
     const { strength } = passphraseStrength("the quick brown fox jumps over lazy dogs today");
     expect(strength).toBe("strong");
@@ -59,5 +67,13 @@ describe("above the floor", () => {
       const passphrase = ("aA1!".repeat(6)).slice(0, length);
       expect(passphraseStrength(passphrase).strength).not.toBe("strong");
     }
+  });
+
+  test("repeated patterns stay conservative rather than reading like random input", () => {
+    const repeated = passphraseStrength("aA1!aA1!aA1!");
+    const varied = passphraseStrength("aA1!bcdeFGHI");
+    const rank: Record<string, number> = { tooShort: 0, weak: 1, fair: 2, strong: 3 };
+    expect(rank[repeated.strength]).toBeLessThanOrEqual(rank[varied.strength]);
+    expect(repeated.label).toContain("common or patterned phrases");
   });
 });
