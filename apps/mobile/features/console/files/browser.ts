@@ -256,6 +256,11 @@ export interface FileBrowser {
    * anyway, and the reopen every caller already makes pays it immediately.
    */
   discardLocalCopies: (path: string) => void;
+  /**
+   * Another live console has just encrypted `path`. Cancels rather than flushes
+   * autosave, drops plaintext immediately, then re-reads the ciphertext.
+   */
+  encryptedElsewhere: (path: string) => void;
   /** Take the version that is on the server, discarding this draft. Writes nothing. */
   useTheirs: () => void;
   /** Keep this draft and save it over theirs, on the etag that is now current. */

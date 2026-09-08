@@ -76,6 +76,8 @@ export interface NoteEncryptionController {
   msUntilLock(path: string, now: number): number | null;
   /** Locks every open note in this session — see `session.ts`'s `lock` rule. */
   lock(): void;
+  /** Forget one note's key because another console encrypted that note. */
+  close(path: string): void;
   /** Renews a note's idle timer without touching its key or its content. */
   touch(path: string): void;
   /** Lock a plaintext note behind a passphrase for the first time. */
@@ -311,6 +313,7 @@ export function useNoteEncryption(
       isUnlocked: (path) => isUnlocked(session, path),
       msUntilLock: (path, now) => msUntilLock(session, path, now),
       lock: () => dispatch({ type: "lock", reason: "manual" }),
+      close: (path) => dispatch({ type: "closed", path }),
       /*
         Sweep, *then* touch, and never the other way round.
 

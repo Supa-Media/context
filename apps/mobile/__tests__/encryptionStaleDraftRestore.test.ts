@@ -267,3 +267,83 @@ describe("the same guard leaves an unencrypted note's draft alone", () => {
     expect(await cache.getDraft(after, WORKSPACE, PATH)).not.toBeNull();
   });
 });
+
+describe("a live notification that another console encrypted the open note", () => {
+  test("cancels autosave, clears plaintext immediately, and reopens the ciphertext", async () => {
+    let reads = 0;
+    let releaseEncrypted!: (note: OpenNote) => void;
+    const encryptedRead = new Promise<OpenNote>((resolve) => { releaseEncrypted = resolve; });
+    const plainNote: OpenNote = {
+      path: PATH,
+      text: "old body",
+      etag: "pre-lock-etag",
+      visibility: "private",
+      inherited: "private",
+      exception: false,
+      readOnly: false,
+      encrypted: false,
+    };
+    actions[name("readNote")] = (async () => {
+      reads += 1;
+      return reads === 1 ? plainNote : await encryptedRead;
+    }) as (args: never) => Promise<unknown>;
+
+    unmount = mountBrowser();
+    await settle();
+    act(() => browser.select(PATH));
+    await settle();
+    act(() => browser.setDraft(PRE_LOCK_PLAINTEXT));
+
+    act(() => browser.encryptedElsewhere(PATH));
+    expect(browser.editor.path).toBeNull();
+    expect(browser.editor.draft).toBe("");
+    expect(browser.flushAutosave(PATH)).toBe(false);
+
+    await act(async () => releaseEncrypted(ENCRYPTED_NOTE));
+    await settle();
+    expect(browser.editor.path).toBe(PATH);
+    expect(browser.editor.draft).toBe(ENVELOPE);
+    expect(browser.editor.encrypted).toBe(true);
+  });
+
+  test("an in-flight plaintext save cannot repopulate local state after the notification", async () => {
+    const plainNote: OpenNote = {
+      path: PATH,
+      text: "old body",
+      etag: "pre-lock-etag",
+      visibility: "private",
+      inherited: "private",
+      exception: false,
+      readOnly: false,
+      encrypted: false,
+    };
+    let reads = 0;
+    actions[name("readNote")] = (async () => {
+      reads += 1;
+      return reads === 1 ? plainNote : ENCRYPTED_NOTE;
+    }) as (args: never) => Promise<unknown>;
+    let rejectSave!: (error: Error) => void;
+    actions[name("writeNote")] = (() => new Promise((_, reject) => { rejectSave = reject; })) as (
+      args: never,
+    ) => Promise<unknown>;
+
+    unmount = mountBrowser();
+    await settle();
+    act(() => browser.select(PATH));
+    await settle();
+    act(() => browser.setDraft(PRE_LOCK_PLAINTEXT));
+    act(() => browser.save());
+    expect(browser.editor.status).toBe("saving");
+
+    act(() => browser.encryptedElsewhere(PATH));
+    await settle();
+    expect(browser.editor.encrypted).toBe(true);
+    await act(async () => rejectSave(new Error("encrypted note refuses plaintext")));
+    await settle();
+
+    expect(browser.editor.draft).toBe(ENVELOPE);
+    expect(browser.editor.status).toBe("clean");
+    expect(await cache.getDraft(openStore(), WORKSPACE, PATH)).toBeNull();
+    expect((await cache.getOutbox(openStore(), WORKSPACE)).writes).toHaveLength(0);
+  });
+});

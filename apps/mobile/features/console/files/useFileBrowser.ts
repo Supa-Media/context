@@ -1386,6 +1386,30 @@ export function useFileBrowser(options: {
   }, []);
 
   /**
+   * React to a lock performed by another live console. Stop future local
+   * writes, invalidate a save already in flight, remove durable copies, and
+   * clear the editor before waiting for the bucket. `select` cannot be reused:
+   * it intentionally flushes autosave, which would send the plaintext this
+   * notification exists to revoke.
+   */
+  const encryptedElsewhere = useCallback(
+    (path: string) => {
+      if (autosave.pending() === path) autosave.cancel();
+      const running = saveTimers.current.get(path);
+      if (running !== undefined) {
+        clearTimeout(running);
+        saveTimers.current.delete(path);
+      }
+      saveRuns.current.set(path, (saveRuns.current.get(path) ?? 0) + 1);
+      discardLocalCopies(path);
+      if (editorRef.current.path !== path) return;
+      dispatch({ type: "closed" });
+      void openNote(path);
+    },
+    [autosave, discardLocalCopies, openNote],
+  );
+
+  /**
    * The person answered the conflict: this text, over the version they saw.
    *
    * One function for two of the three answers — "keep mine" is this with the
@@ -2292,6 +2316,7 @@ export function useFileBrowser(options: {
       save,
       flushAutosave,
       discardLocalCopies,
+      encryptedElsewhere,
       useTheirs,
       keepMine,
       conflict,
@@ -2363,6 +2388,7 @@ export function useFileBrowser(options: {
       destroy,
       discard,
       discardLocalCopies,
+      encryptedElsewhere,
       dismissNotice,
       dismissToast,
       duplicate,

@@ -107,6 +107,7 @@ function browser(canSetVisibility: boolean): FileBrowser {
     save: noop,
     flushAutosave: () => false,
     discardLocalCopies: noop,
+    encryptedElsewhere: noop,
     useTheirs: noop,
     keepMine: noop,
     conflict: null,

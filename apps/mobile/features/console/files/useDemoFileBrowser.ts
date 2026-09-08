@@ -155,6 +155,7 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       // draft, a queued write or a cached body to drop — the demo's own
       // `select` note above says the same about a draft to guard.
       discardLocalCopies: noop,
+      encryptedElsewhere: noop,
       useTheirs: noop,
       keepMine: noop,
       // No bucket, so no second writer and never a conflict to resolve.

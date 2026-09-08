@@ -12,6 +12,7 @@ import { ConflictResolver } from "../files/ConflictResolver";
 import { contextFootLine } from "../files/contextFoot";
 import { EncryptionAdvancedSection } from "../encryption/EncryptionAdvancedSection";
 import { useNoteEncryption } from "../encryption/useNoteEncryption";
+import { useNoteLockPropagation } from "../encryption/lockPropagation";
 import { FolderView } from "../files/FolderView";
 import { NoteEditor } from "../files/NoteEditor";
 import { ShareDialog } from "../files/ShareDialog";
@@ -175,6 +176,13 @@ export function BrowsePane({
     settled ? (current?.id ?? null) : null,
     undefined,
     data.encryptionWriters,
+  );
+  const announceNoteLock = useNoteLockPropagation(
+    settled ? (current?.id ?? null) : null,
+    (path) => {
+      noteEncryption.close(path);
+      files.encryptedElsewhere(path);
+    },
   );
 
   /**
@@ -884,6 +892,7 @@ export function BrowsePane({
                         is what just happened.
                       */
                       files.discardLocalCopies(sharing);
+                      announceNoteLock(sharing);
                       // Reopen so `files.editor.encrypted` catches up — the
                       // note this session just locked is unlocked in it
                       // already (`useNoteEncryption.protect` leaves it so),
