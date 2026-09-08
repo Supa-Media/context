@@ -67,7 +67,14 @@ import {
 } from "../src/search/commsIndex.js";
 import { NOTE_INDEX_CHAR_CAP, createSearchBudget } from "../src/search/maintain.js";
 import { searchIndexedNotes } from "../src/search/visible.js";
-import { chooseShardCount, serializeShard, syncShardedIndex } from "../src/search/shards.js";
+import {
+  MANIFEST_KEY,
+  chooseShardCount,
+  loadIndexManifest,
+  serializeManifest,
+  serializeShard,
+  syncShardedIndex,
+} from "../src/search/shards.js";
 import { addDoc, emptyIndex, readComms } from "../src/search/indexer.js";
 import { parseQuery, rankedVisibleTo } from "../src/search/query.js";
 import { collectShardCandidates, scoreCollected } from "../src/search/shardQuery.js";
@@ -1449,6 +1456,52 @@ async function runShardSizingChecks(check) {
     "...as a deep link into the day that holds it",
     lastDay.hits[0].key.startsWith(days[13].path + "#")
   );
+  check(
+    "...and an index with nothing shed never claims reduced recall",
+    lastDay.reducedRecall === false && lastDay.reducedRecallNotes.length === 0
+  );
+
+  /*
+    -- reducedRecallNotes is isVisible-filtered, exactly like `hits` --------
+
+    `shedNotePathsOf` deliberately returns every shed note in the manifest,
+    private ones included — the same raw shape `manifest.filters` already has.
+    The one thing standing between that and a caller is `isVisible`, run
+    inside `answerFromIndex` rather than by this test, so what is on trial is
+    that the filter actually runs rather than that a scoped fixture happens to
+    agree with an unfiltered one. Every other check in this file passes
+    `isVisible: () => true`, which cannot catch a dropped filter — this one
+    uses a real predicate on purpose.
+  */
+  const scoped = createBucket();
+  scoped.seed("team/shared.md", "# Shared\n\nteamword\n");
+  scoped.seed("private/secret.md", "# Secret\n\nprivateword\n");
+  await converge(scoped);
+  const scopedManifestBefore = await loadIndexManifest(scoped, createSearchBudget(10), 0);
+  check(
+    "the visibility fixture converged to one shard, which the injection below assumes",
+    scopedManifestBefore?.shardCount === 1
+  );
+  scopedManifestBefore.stats[0] = {
+    ...scopedManifestBefore.stats[0],
+    shed: 2,
+    shedPaths: ["team/shared.md", "private/secret.md"],
+  };
+  await scoped.put(MANIFEST_KEY, serializeManifest(scopedManifestBefore));
+  const teamOnly = (path) => path.startsWith("team/");
+  const scopedAnswer = await searchIndexedNotes(scoped, {
+    isVisible: teamOnly,
+    isIndexable: (key) => key.endsWith(".md"),
+    query: "teamword",
+    budget: createSearchBudget(600),
+    refreshOnMiss: false,
+  });
+  check(
+    "a caller's own reduced-recall list carries only the notes their own isVisible accepts",
+    scopedAnswer.reducedRecall === true &&
+      scopedAnswer.reducedRecallNotes.length === 1 &&
+      scopedAnswer.reducedRecallNotes[0] === "team/shared.md"
+  );
 
   /* -- 2b. a bundled note is placed by load, never by hash --------------- */
 
@@ -1498,6 +1551,7 @@ async function runShardSizingChecks(check) {
     "the ordinary notes beside the mailbox all answer — the failure was never theirs to take",
     ordinary.indexed === true && ordinary.matchCount === 20
   );
+  check("...with no reduced-recall claim, since nothing here was shed", ordinary.reducedRecall === false);
   const one = await search(mailbox, "plan7ownword");
   check("...and each of them individually", one.indexed === true && one.hits.length === 1);
 
@@ -1673,6 +1727,40 @@ async function runShardSizingChecks(check) {
   );
   const reported = await search(tight, "ordinary-note-word", { budget: createSearchBudget(600) });
   check("...which the search reports for the operator", reported.index.shed === 1);
+  check(
+    "...and, in the caller's own answer rather than only the operator trace, which note it was",
+    reported.reducedRecall === true &&
+      reported.reducedRecallNotes.length === 1 &&
+      reported.reducedRecallNotes[0] === huge.path
+  );
+
+  /*
+    A rebuild from the files reproduces not only the same shards
+    (§ 4 above already proves that for the unshed case) but the SAME
+    reduced-recall signal — because it is read off the manifest's own
+    `stats[id].shedPaths`, which a rebuild must re-derive exactly the way it
+    re-derives `stats[id].shed`, never off a listing that happened to run.
+  */
+  const rebuiltTight = createBucket();
+  rebuiltTight.seed(huge.path, huge.text);
+  for (const note of plainNotes(8)) rebuiltTight.seed(note.path, note.text);
+  let rebuiltShedPass = null;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    rebuiltShedPass = await syncShardedIndex(rebuiltTight, {
+      budget: createSearchBudget(2000),
+      shardByteCap: shedCap,
+    });
+    if (rebuiltShedPass.pending === 0) break;
+  }
+  const rebuiltReported = await search(rebuiltTight, "ordinary-note-word", {
+    budget: createSearchBudget(600),
+  });
+  check(
+    "...surviving a rebuild from the files, not only an incremental update",
+    rebuiltReported.reducedRecall === true &&
+      JSON.stringify(rebuiltReported.reducedRecallNotes) ===
+        JSON.stringify(reported.reducedRecallNotes)
+  );
 
   /* -- 7. an ordinary note in an over-cap shard, and its neighbours ------ */
 
@@ -1707,6 +1795,22 @@ async function runShardSizingChecks(check) {
   check(
     "...while the shed note's own body really is gone rather than merely reported as gone",
     denseGone.indexed === true && denseGone.hits.length === 0
+  );
+  /*
+    THE FINDING FROM THE ADVERSARIAL REVIEW OF #347, REPRODUCED AND CLOSED.
+    A term that WAS in the note returns zero hits — this shard converged, so
+    `indexIncomplete` is entitled to say "run again finds more" and correctly
+    does not — and before this change nothing else in the answer said
+    anything different from an ordinary miss over a word never written down.
+    `reducedRecall` is the fix: true on the exact same zero-hit answer,
+    naming the note, so a caller can tell "not written down" from "written
+    down, and this search cannot reach all of it".
+  */
+  check(
+    "...and THE SAME zero-hit answer now says why: not 'run another pass', but 'this note lost recall'",
+    denseGone.indexIncomplete === false &&
+      denseGone.reducedRecall === true &&
+      denseGone.reducedRecallNotes.includes("1-projects/dense.md")
   );
   check(
     "...the pass converges, so the shard is not rebuilt and refused forever",

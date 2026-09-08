@@ -493,6 +493,14 @@ context's search down with it; a mailbox past capacity loses message-level
 recall on some of its own days**, and which days is a function of their byte
 sizes rather than their dates, which is a real cost and named as one.
 
+**That cost is now told to the person it happens to, not only argued here.**
+This section named it and stopped; a search over a reduced day used to answer
+plainly empty, `indexIncomplete: false` included, which is the silent-wrong-
+answer defect `docs/decisions/search.md`'s "A shed index must say so to the
+caller it happened to" closes — `reducedRecall` / `reducedRecallNotes` on a
+search answer, `orient`'s own `## Search coverage` section, and the note's own
+path (which already names the channel and the day) rather than a bare count.
+
 So the position is unchanged and now has numbers on both sides of it: this
 format is correct, and the sizing it needed has been built.
 `runShardSizingChecks` in `commsSearchIndex.test.mjs` pins the mechanism at

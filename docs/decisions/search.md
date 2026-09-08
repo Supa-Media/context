@@ -1197,3 +1197,112 @@ one-shard-per-note diff would have to learn first.
 
 The numbers as they gate connecting a mailbox are in
 `docs/decisions/communications.md`.
+
+### A shed index must say so to the caller it happened to, not only to the operator
+
+The section above shipped the sizing fix and, in its own words, left one thing
+"known and recorded" rather than closed: **the capacity past which a mailbox
+loses per-message recall was not visible to the person it happens to.**
+`syncShardedIndex`'s `shed` and `oversizedShards` were read by no caller in
+`apps/mcp/src/`, the control plane's `indexMaintained` reply did not carry
+them, `orient` said nothing, and the only surface was `index.shed` in one
+trace line per search — operator-only, and correctly so, since it is a total
+over the whole bucket, private notes included. Worst: `indexIncomplete`, whose
+whole job is "tell somebody the index is still catching up", stayed `false`
+while a shed day answered zero hits for a term that was in the mail. A search
+confidently answering "nothing" about mail that exists is the same failure
+family as a level meter that always reads zero: an instrument that says the
+same thing whether or not the thing it measures is true.
+
+**`indexIncomplete` keeps its existing meaning, and a second, separate signal
+carries this one — folding them was considered and rejected.** The prior
+section already drew this line for the *operator* fields — "`shed` /
+`oversizedShards` … are the opposite of `pending`: `pending` says run another
+pass, these say the corpus does not fit the index it has" — and printing the
+shed banner as the same words `indexIncomplete` prints would make that same
+mistake in front of a person instead of an operator. `indexIncomplete` means
+"an honest pass would find more, so ask again"; a shed note does not resolve
+that way — the same day is reduced on every future pass until the note itself
+shrinks or the index gets more shards, neither of which searching again can
+do. Telling somebody to search again for a fix that is not coming is a
+**specific** false promise, worse than the generic silence it replaces. So:
+
+- **`reducedRecallNotes: string[]`** is the caller's own visible share of
+  every note the index currently holds only part of — one path per note, in
+  the note's own path (a channel-day note's path already names the channel
+  and the day, e.g. `0-inbox/email/name-at-example-com/2026-09-07.md`), never
+  a count. **`reducedRecall`** is whether that list is non-empty.
+- It is read off the manifest's own durable memory of shedding
+  (`shedNotePathsOf`, backed by a new `stats[id].shedPaths` beside the
+  existing `stats[id].shed` count — the identities behind the number,
+  written and parsed exactly as sparsely and as strictly as `shed` itself),
+  **never off which shards this one query's routing happened to open.** That
+  is load-bearing rather than a style choice: the review's exact failure is a
+  shard whose Bloom filter correctly finds nothing for a term that WAS in a
+  message the shard had to give up, because the filter is rebuilt from the
+  shard as shed and no longer claims a term that is really gone — so a flag
+  gated on "did this query's routing open the shed shard" would stay silent
+  in precisely the case it exists for. Reading it off the manifest costs
+  nothing extra: it is the one GET a query already pays for.
+- It is filtered through the caller's own `isVisible` before it is computed,
+  the same line every hit, snippet and count already crosses — `manifest`
+  itself carries every shed note including private ones, exactly the way
+  `manifest.filters` already does, and nothing raw leaves this function.
+  Proved both ways: a team caller reads their own shed note's path and never
+  a private one shed in the same pass (`consoleSearch.test.ts`,
+  `orientation.test.mjs`).
+- **It answers a scoped claim, not "this mail is gone".** A shed note is
+  reduced to one surviving document, not deleted — `read_note` still returns
+  it whole — so the wording a person reads
+  (`toolSearchNotes` in `apps/mcp/src/index.js`) says exactly that: *"these
+  notes hold more messages than the search index can keep in full, so a term
+  that appeared only in a message it had to drop will not surface here even
+  though the note itself still exists and read_note always returns it
+  whole."* Naming the note is what makes it actionable — a bare count would
+  tell somebody to distrust an answer without saying which part of it.
+- **It reaches every surface that answers a question about search, not only
+  the one that returns hits.** `search_notes` carries it beside
+  `indexIncomplete`; `orient` — which read nothing about the index before
+  this — now reads the manifest once (a cost it did not pay before) and
+  prints a `## Search coverage` section naming the caller's own affected
+  notes, so an agent that never calls `search_notes` still learns this before
+  it needs to; the control plane's `searchResultsValidator` carries
+  `reducedRecall` / `reducedRecallNotes` the same way it already carries
+  `indexIncomplete`, for the console. `indexMaintainedValidator` — read by
+  nobody with a per-note view — gets `shed` and `oversizedShards` as plain
+  scalars instead, the operator's own numbers in the same no-path-no-term
+  shape `pending` already has, so a fix at this boundary does not mean adding
+  a second existence-oracle surface at the one reply that is scope-blind by
+  construction.
+- **The D1 fast-search projection reports `reducedRecall: false`
+  unconditionally, and correctly**: a chunk row per message has no shard byte
+  cap for a mailbox to cross, so shedding is a fact about the R2 shard index
+  alone, argued in `search/visible.js`'s module doc and proved by a test that
+  marks a manifest shed and then asks the fast path anyway.
+
+**What this does not do, on purpose.** `MAX_SHARD_COUNT` is unchanged and the
+sizing formula is unchanged — this is about telling the truth about a
+capacity limit, not about raising it or hiding it behind a bigger number. The
+"let a bundled note's sub-documents span shards" fix named at the end of the
+previous section is still not built; when it is, this signal is what stops
+being true rather than what has to change to say so.
+
+Tests: `apps/mcp/test/commsSearchIndex.test.mjs` (`runShardSizingChecks`)
+drives the crux case directly — a shed note's own term returns zero hits with
+`indexIncomplete: false` and `reducedRecall: true` naming it, on the same
+answer — plus the `isVisible` filter proved with a real scoped predicate
+(every other check in that file passes `() => true`, which cannot catch a
+dropped filter) and a rebuild-from-files round trip. `apps/mcp/test/
+searchIntegration.test.mjs` proves the *rendered* tool text, not only the
+object underneath it. `apps/mcp/test/orientation.test.mjs` proves `orient`'s
+own privacy split. `apps/convex/__tests__/consoleSearch.test.ts` proves the
+plumbing through `searchNotes` and `maintainSearchIndex`, including a real
+shed produced through a test-only `shardByteCap` injection (the same pattern
+`syncShardedIndex` itself already documents) rather than a stubbed number.
+Nine sabotages, each caught: dropping the `isVisible` filter in the shared
+query path (1 failure) and in `orient`'s own copy of it (1); folding
+`reducedRecall` into `indexIncomplete` (1); dropping `shedPaths` from the
+in-memory shard stats (3), from `parseManifest` (7) and from
+`serializeManifest` (7); hardcoding the control plane's `shed`/
+`oversizedShards` to zero (1); removing the rendered banner from
+`toolSearchNotes` (1); and claiming `reducedRecall` from the D1 fast path (1).
