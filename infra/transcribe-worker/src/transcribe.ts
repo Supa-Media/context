@@ -438,7 +438,19 @@ function vadHeardNothing(answer: Record<string, unknown>): boolean {
   const duration = fields["duration"];
   const remaining = fields["duration_after_vad"];
   if (!isFiniteNumber(duration) || duration <= 0) return false;
-  return isFiniteNumber(remaining) && remaining <= 0;
+  /*
+    Exactly zero, not "zero or less".
+
+    `duration_after_vad` is a length of audio, so a negative one is not an
+    engine saying its VAD kept nothing — it is an answer with no reading, the
+    same class as an absent field or a string, and this rule's own argument
+    says those do not fire. `<= 0` read one of them as a refusal, which is the
+    catastrophic direction: a build reporting `-1` here would empty every chunk
+    of every meeting on the deployment behind a 200 and a green `/health`. In
+    the engine this number comes from it is `audio.shape[0] / sampling_rate`,
+    so "kept nothing" is `0` and nothing else.
+  */
+  return isFiniteNumber(remaining) && remaining === 0;
 }
 
 /** The contract's segment, with this file's private evidence dropped. */

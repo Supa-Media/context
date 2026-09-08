@@ -609,6 +609,75 @@ describe("refusing what the engine itself says is not speech", () => {
     expect(result.segments).toHaveLength(1);
   });
 
+  /*
+    ADVERSARIAL REVIEW, and the one thing the review changed.
+
+    `duration_after_vad <= 0` fired on a NEGATIVE value too. A length of audio
+    cannot be negative, so that is an answer with no reading — the same class as
+    an absent field or a string, both of which this rule already declines to act
+    on — and reading it as a refusal is the catastrophic direction the
+    conjunction was added for: one engine build reporting `-1` empties every
+    chunk of every meeting on the deployment, with a 200 and a green /health.
+    The rule now fires on exactly zero, which is what "my VAD kept nothing"
+    is in the engine that reports this (`audio.shape[0] / sampling_rate`).
+
+    SABOTAGE: put `remaining <= 0` back and the first row here goes red.
+  */
+  it("does not fire on a negative duration_after_vad, which is not a length", () => {
+    const result = toTranscription(
+      {
+        text: " Morning.",
+        segments: [spoken],
+        transcription_info: { duration: 20, duration_after_vad: -1 },
+      },
+      20_000,
+    )!;
+    expect(result.segments).toHaveLength(1);
+    expect(result.refused).toBe(0);
+  });
+
+  it("...and keeps a sliver of audio VAD did hold on to", () => {
+    const result = toTranscription(
+      {
+        text: " Yes.",
+        segments: [spoken],
+        transcription_info: { duration: 20, duration_after_vad: 0.4 },
+      },
+      20_000,
+    )!;
+    expect(result.segments).toHaveLength(1);
+    expect(result.refused).toBe(0);
+  });
+
+  /*
+    FALSE REFUSALS, which are the expensive direction: a missed refusal costs
+    one chunk, and a wrong one empties every meeting on the deployment. Each row
+    is a shape of REAL speech, at values the engine really produces, and every
+    one of them must survive. The conjunction is what carries most of them: a
+    detector that is unsure cannot drop a segment the decoder was sure of, and a
+    badly decoded segment cannot be dropped by a detector that heard a voice.
+  */
+  it.each([
+    ["quiet speech the detector is unsure about", { no_speech_prob: 0.55, avg_logprob: -0.85 }],
+    ["quiet speech the detector is wrong about", { no_speech_prob: 0.72, avg_logprob: -0.62 }],
+    ["a distant microphone, poorly decoded", { no_speech_prob: 0.48, avg_logprob: -1.35 }],
+    ["a heavily accented speaker", { no_speech_prob: 0.05, avg_logprob: -1.42 }],
+    ["speech in another language", { no_speech_prob: 0.11, avg_logprob: -1.05 }],
+    ["music with words in it", { no_speech_prob: 0.35, avg_logprob: -1.6 }],
+    ["no no_speech_prob reported at all", { avg_logprob: -1.9 }],
+    ["no avg_logprob reported at all", { no_speech_prob: 0.99 }],
+    ["a probability exactly at the threshold", { no_speech_prob: 0.6, avg_logprob: -3 }],
+    ["a log-probability exactly at the floor", { no_speech_prob: 0.99, avg_logprob: -1 }],
+    ["fields that are not numbers", { no_speech_prob: "0.9", avg_logprob: "-2" }],
+  ])("keeps real speech: %s", (_name, evidence) => {
+    const result = toTranscription(
+      { text: " we should ship it", segments: [{ ...spoken, ...evidence }] },
+      20_000,
+    )!;
+    expect(result.segments).toHaveLength(1);
+    expect(result.refused).toBe(0);
+  });
+
   it("still refuses an unreadable answer rather than calling it silence", () => {
     // The distinction the file already made and must keep: "this is not an
     // engine answer" is a 502, not an empty transcript.

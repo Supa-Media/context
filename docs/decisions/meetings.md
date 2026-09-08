@@ -2218,6 +2218,59 @@ round, one model change silently transcribes nothing while every health check
 stays green, which is the exact failure shape `isReadableAnswer` was added for.
 Six checks stand on that line, which is more than stand on the refusal itself.
 
+#### Whether either rule can fire is a property of how the engine is run, and adversarial review checked it against the vendor's schema
+
+The numbers above were taken from the engine authors on trust; review went and
+read them, and read the deployed model's own published schema beside them. Three
+findings, and the third changes what rule 1 is for.
+
+**The two thresholds are the published defaults, twice over.** OpenAI's
+`whisper/transcribe.py` ships `no_speech_threshold = 0.6` and
+`logprob_threshold = -1.0`; `faster-whisper` — the implementation whose
+`duration_after_vad` this reads — ships the same pair, and spells the silence
+test as `no_speech_prob > no_speech_threshold and avg_logprob <
+log_prob_threshold`, the strict `<` this file uses rather than the `<=` the
+reference's inverted phrasing implies. A segment sitting exactly on the floor is
+kept here, which is the conservative direction. **And Workers AI publishes the
+same two numbers as its own request defaults** for
+`@cf/openai/whisper-large-v3-turbo` — `no_speech_threshold: 0.6`,
+`log_prob_threshold: -1` — so this deployment's engine is calibrated at the two
+values this file names.
+
+**`confidence` is not a field, checked at the vendor rather than in our
+fixtures.** That model's published output schema is
+`text`, `word_count`, `vtt`, `transcription_info.{language,
+language_probability, duration, duration_after_vad}` and
+`segments[].{start, end, text, temperature, avg_logprob, compression_ratio,
+no_speech_prob, words[]}`. There is no `confidence` anywhere in it. So
+`readConfidence` here, and the three `typeof … === "number" ? … : null` writers
+downstream, are pass-throughs that will carry a number the day an engine states
+one and write `null` every day until then — which is why a confidence rule, if
+one ever becomes possible, drops into `isNoSpeech`'s place with no plumbing.
+
+**`vad_filter` defaults to `false` on that model, which tells rule 1 what it is
+for.** With VAD off, `faster-whisper` sets `duration_after_vad = duration`, so
+rule 1 reads a positive number and has no opinion — it is armed for a deployment
+that turns VAD on, not the rule that catches the 166 words. Rule 2's reach
+depends on the same kind of detail: the sequential `transcribe()` path applies
+this exact conjunction itself and *skips the window*, so a segment that reached
+us through it cannot satisfy the rule, while the batched pipeline attaches the
+same two fields to every segment and yields them **without** the skip — which is
+what a run of seven identical `Thank you.` lines looks like. So rule 2 is either
+redundant or the whole fix, depending on a serving detail nobody outside
+Cloudflare can read, and it is written to be harmless in the first case and
+decisive in the second. Reading the three fields off a parked batch is what
+settles it, and it is the first thing still needing a Mac.
+
+One line changed in review as a result. Rule 1 fires on `duration_after_vad`
+being **exactly zero**, not on `<= 0`: a length of audio cannot be negative, so
+a negative one is an answer with no reading — the class this rule already
+declines to act on — and treating it as a refusal is the catastrophic direction
+the conjunction exists to close. The check is `does not fire on a negative
+duration_after_vad, which is not a length`, beside eleven rows of real speech —
+quiet, distant, accented, another language, music, and each field absent — that
+must all survive.
+
 #### Why not a gate on the audio, which was the obvious answer
 
 The desktop has run an `AnalyserNode` per channel since the level meter landed,
