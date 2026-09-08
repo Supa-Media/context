@@ -2920,6 +2920,10 @@ export async function runMeetingChecks(check) {
   check("a speaker is never invented", words.every((word) => word.speaker === null));
   check("a confidence the engine did not give is null, not a number we chose", words[0]?.confidence === null);
   check("...and one it did give is passed through", words[1]?.confidence === 0.5);
+  check(
+    "a service that refused nothing says so, rather than saying nothing",
+    transcribed.body?.refusedSegments === 0
+  );
 
   const forwarded = transcribeCalls.at(-1);
   check("the audio went to the configured service", forwarded?.url === `${TRANSCRIBE_ORIGIN}/transcribe`);
@@ -2968,6 +2972,86 @@ export async function runMeetingChecks(check) {
   check(
     "...AND AN UPSERT OF A SESSION YOU HOLD DOES NOT RESET IT EITHER",
     afterUpsert.transcribedChunks === 1 && afterUpsert.title === "Re-opened to reset the meter"
+  );
+
+  /*
+    SILENCE IS A REAL ANSWER, AND IT ARRIVES WITH ITS REASON.
+
+    The transcription service now refuses the segments the engine's own evidence
+    says are not speech (`infra/transcribe-worker/src/transcribe.ts`, after
+    ninety seconds of a quiet room produced 166 words on the owner's Mac). So a
+    quiet room reaches this gateway as an empty `segments` array beside a
+    non-zero `refused`, and three things have to be true of that here.
+
+    It must not read as a broken service. An empty array falls through
+    `intoSegments` silently — but a payload with no readable `segments` at all
+    is still a 503, because those are different answers and collapsing them is
+    how "every meeting transcribed to nothing" ships with a green health check.
+
+    The count must reach the recorder, because the recorder is what puts a
+    sentence on somebody's screen. `segments: []` with `refused: 3` is "the room
+    was quiet"; with `refused: 0` it is "nothing is transcribing this". A client
+    that cannot tell them apart shows the wrong one, which is the shorter answer
+    with no explanation this repository keeps finding.
+
+    And a service one deploy behind must go on working: it is deployed by its
+    own workflow and answers with a bare array.
+
+    SABOTAGE, each one edit to `src/meetings/transcribe.js`:
+      drop `refusedSegments` from the answer                    3 FAIL
+      read `raw.segments` only, with no bare-array fallback     2 FAIL
+      treat an unreadable payload as an empty transcript        1 FAIL
+
+    What is deliberately NOT checked here is a judgement, because this gateway
+    makes none: it holds a base64 string it must not decode and a list of
+    sentences no filter can tell apart, so it carries the decision and does not
+    take one.
+  */
+  const quietBefore = transcribeCalls.length;
+  transcribeAnswer = () =>
+    new Response(JSON.stringify({ text: "", segments: [], refused: 3 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  const quiet = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk({ chunkId: `${SESSION_TRANSCRIBE}-mic-1` }) }
+  );
+  check("a chunk of silence is a 200, not a failure", quiet.status === 200);
+  check("...with no words in it", (quiet.body?.segments ?? []).length === 0);
+  check("...and the count that says why it is empty", quiet.body?.refusedSegments === 3);
+  check("...having really been forwarded", transcribeCalls.length === quietBefore + 1);
+
+  transcribeAnswer = () =>
+    new Response(JSON.stringify([{ startMs: 0, endMs: 500, text: "older" }]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  const legacy = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk({ chunkId: `${SESSION_TRANSCRIBE}-mic-2` }) }
+  );
+  check("a service that predates the refusal count still transcribes", legacy.status === 200);
+  check("...and reports nothing refused", legacy.body?.refusedSegments === 0);
+
+  transcribeAnswer = () =>
+    new Response(JSON.stringify({ result: { text: "reshaped" } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  const unreadable = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk({ chunkId: `${SESSION_TRANSCRIBE}-mic-3` }) }
+  );
+  check(
+    "an answer with no readable segments is a failure, not a quiet room",
+    unreadable.status === 503
   );
 
   const before = transcribeCalls.length;

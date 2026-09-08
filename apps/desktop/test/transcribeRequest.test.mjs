@@ -63,7 +63,7 @@ export async function runTranscribeRequestChecks(check) {
   {
     const segment = { id: "x", startMs: 20_000, endMs: 21_000, text: "hello", speaker: null, channel: "mixed", confidence: null };
     const impl = fakeFetch([{ status: 200, body: { segments: [segment] } }]);
-    const segments = await transcribeChunk(connection(), request, impl);
+    const { segments, refusedSegments } = await transcribeChunk(connection(), request, impl);
     const call = impl.calls[0] ?? { url: "", init: { headers: {}, body: "{}" } };
     check("the route is the contract's", call.url === `https://gateway.example.test${ROUTES.transcribe(SESSION)}`);
     check("THE CREDENTIAL IS NOT IN THE URL", !call.url.includes(TOKEN));
@@ -74,6 +74,10 @@ export async function runTranscribeRequestChecks(check) {
     check("...and where the chunk sits in the meeting", body.offsetMs === 20_000 && body.durationMs === 20_000);
     check("...and its stable id", body.chunkId === `${SESSION}-mic-0`);
     check("the words come back", segments.length === 1 && segments[0]?.text === "hello");
+    check(
+      "a gateway that names no refusal count is read as having refused nothing",
+      refusedSegments === 0,
+    );
   }
 
   // -- an unconnected machine sends nothing ---------------------------------
@@ -170,7 +174,55 @@ export async function runTranscribeRequestChecks(check) {
   // -- a gateway that answered with nothing ---------------------------------
   {
     const impl = fakeFetch([{ status: 200, body: { segments: [] } }]);
-    const segments = await transcribeChunk(connection(), request, impl);
-    check("an empty answer is an answer: the engine heard nothing", Array.isArray(segments) && segments.length === 0);
+    const answer = await transcribeChunk(connection(), request, impl);
+    check(
+      "an empty answer is an answer: the engine heard nothing",
+      Array.isArray(answer.segments) && answer.segments.length === 0,
+    );
+  }
+
+  /*
+    -- WHY THE ANSWER WAS EMPTY, WHICH IS A DIFFERENT QUESTION ----------------
+
+    Since the transcription service began refusing the segments the engine's own
+    evidence says are not speech, an empty answer has two causes that need two
+    different sentences: a quiet room, and a transcriber that is not working.
+    `refusedSegments` is the only thing that tells them apart, so it is read —
+    and read carefully, because everything that is *not* a positive number from
+    a gateway is read as zero.
+
+    That direction is the whole of the care here. A gateway one deploy behind,
+    a proxy that rewrote the body, a string where a number should be: none of
+    those is evidence that a room was quiet, and reading them as such would put
+    "no speech was heard" on somebody's screen during a meeting they are
+    talking in.
+
+    SABOTAGE, each one edit to `main/transcribe.ts`:
+      `refusedSegments` dropped from the answer                  2 FAIL
+      the whole read replaced by `Number(body.refusedSegments)`  3 FAIL
+
+    The second row is the lazy version of this: it reads a string, a negative
+    and a fraction all as refusals, and it is the version somebody writes when
+    the field is "obviously just a number".
+  */
+  {
+    const impl = fakeFetch([{ status: 200, body: { segments: [], refusedSegments: 3 } }]);
+    const answer = await transcribeChunk(connection(), request, impl);
+    check("...and the count that says why it was empty comes back", answer.refusedSegments === 3);
+  }
+  {
+    const impl = fakeFetch([{ status: 200, body: { segments: [], refusedSegments: "lots" } }]);
+    const answer = await transcribeChunk(connection(), request, impl);
+    check("a refusal count that is not a number is not a refusal", answer.refusedSegments === 0);
+  }
+  {
+    const impl = fakeFetch([{ status: 200, body: { segments: [], refusedSegments: -2 } }]);
+    const answer = await transcribeChunk(connection(), request, impl);
+    check("...nor is a negative one", answer.refusedSegments === 0);
+  }
+  {
+    const impl = fakeFetch([{ status: 200, body: { segments: [], refusedSegments: 2.9 } }]);
+    const answer = await transcribeChunk(connection(), request, impl);
+    check("...and a fractional one is a whole number of segments", answer.refusedSegments === 2);
   }
 }

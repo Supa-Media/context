@@ -25,7 +25,7 @@
 
 import { ERRORS, ROUTES } from "../core/contract.ts";
 import { TranscribeRefused } from "../core/capture/gatewayTranscriber.ts";
-import type { TranscribeRequest } from "../core/capture/gatewayTranscriber.ts";
+import type { TranscribeAnswer, TranscribeRequest } from "../core/capture/gatewayTranscriber.ts";
 import type { TranscriptSegment } from "../core/contract.ts";
 import type { GatewayConnection } from "../core/sync/connection.ts";
 
@@ -89,7 +89,7 @@ export async function transcribeChunk(
   connection: GatewayConnection,
   request: TranscribeRequest,
   fetchImpl: typeof fetch = fetch,
-): Promise<TranscriptSegment[]> {
+): Promise<TranscribeAnswer> {
   const token = await connection.token();
   const baseUrl = connection.baseUrl();
   if (token === null || baseUrl === null) {
@@ -127,8 +127,25 @@ export async function transcribeChunk(
       );
     }
 
-    const body = (await response.json()) as { segments?: unknown };
-    return Array.isArray(body.segments) ? (body.segments as TranscriptSegment[]) : [];
+    const body = (await response.json()) as { segments?: unknown; refusedSegments?: unknown };
+    return {
+      segments: Array.isArray(body.segments) ? (body.segments as TranscriptSegment[]) : [],
+      /*
+        HOW MANY SEGMENTS THE ENGINE SAID WERE NOT SPEECH.
+
+        Zero for anything unreadable, and that direction is the whole of the
+        care in this line: a gateway too old to send the field, a proxy that
+        rewrote the body, a number that is not one — none of those is evidence
+        that a room was quiet, and reading them as such would put a sentence
+        about silence on a screen during a meeting somebody is talking in.
+      */
+      refusedSegments:
+        typeof body.refusedSegments === "number" &&
+        Number.isFinite(body.refusedSegments) &&
+        body.refusedSegments > 0
+          ? Math.floor(body.refusedSegments)
+          : 0,
+    };
   } catch (error) {
     if (error instanceof TranscribeRefused) throw error;
     // A network failure, a timeout, or a body that was not JSON. All temporary,

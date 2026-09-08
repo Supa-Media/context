@@ -86,7 +86,25 @@ export class TranscribeRefused extends Error {
   }
 }
 
-export type SendChunk = (request: TranscribeRequest) => Promise<TranscriptSegment[]>;
+/**
+ * What the gateway answers a chunk with.
+ *
+ * `refusedSegments` is how many segments the transcription service dropped
+ * because the engine's own evidence said they were not speech — VAD that kept
+ * no audio, or a `no_speech_prob`/`avg_logprob` pair over Whisper's own
+ * thresholds. It exists because of a measurement: ninety seconds of a quiet
+ * room on this machine produced 166 words and filed them into the bucket, so
+ * "the engine answered with nothing" and "the engine answered with nothing
+ * *because nobody was talking*" are now different answers, and only one of them
+ * is worth telling somebody about.
+ */
+export interface TranscribeAnswer {
+  segments: TranscriptSegment[];
+  /** Zero from a gateway or a service too old to say. Never a refusal by absence. */
+  refusedSegments: number;
+}
+
+export type SendChunk = (request: TranscribeRequest) => Promise<TranscribeAnswer>;
 
 /**
  * Everything this transcriber may say, and the whole of it.
@@ -100,6 +118,18 @@ export const CAPTURE_NOTICES = Object.freeze({
   failed: "A few seconds of audio could not be transcribed. Recording continues.",
   refused:
     "This meeting is not being transcribed — the gateway would not accept the audio. Your notes and the meeting still land in your bucket.",
+  /*
+    The one a person will actually see on a quiet recording, and the reason it
+    is a sentence rather than nothing at all.
+
+    A chunk the engine says had no speech in it produces no words, and until
+    this existed that was indistinguishable on the glass from a transcript that
+    had stopped working. Both look like a rail that is not filling up. So the
+    quiet one says so, and says it is deliberate — otherwise the honest fix for
+    the hallucination defect ships as a *second* silent failure, which is the
+    shape this repository keeps finding.
+  */
+  silent: "No speech was heard in the last stretch of audio, so nothing was transcribed from it. Recording continues.",
 });
 
 /**
@@ -229,10 +259,23 @@ export function gatewayTranscriber(deps: GatewayTranscriberDeps): Transcriber {
 
           const run = deps
             .send(request)
-            .then((segments) => {
+            .then((answer) => {
               // A chunk got through, so whatever was not known a moment ago is
               // known now. The grace below measures an *unbroken* run.
               notYetSince = null;
+              const segments = answer.segments;
+              /*
+                THE QUIET CHUNK, SAID OUT LOUD.
+
+                Only when the whole chunk came back empty: a meeting with pauses
+                in it refuses the odd segment all the time, and a sentence per
+                pause would be noise that teaches somebody to ignore the one
+                that matters. "Nothing at all came back, and the engine says it
+                is because nobody was talking" is the case worth a line.
+              */
+              if (segments.length === 0 && answer.refusedSegments > 0) {
+                notice({ recoverable: true, message: CAPTURE_NOTICES.silent });
+              }
               segments.forEach((segment, index) => {
                 options.onSegment({
                   ...segment,
