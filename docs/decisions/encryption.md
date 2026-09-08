@@ -1502,3 +1502,12 @@ Supa Media, and therefore invisible to every AI client the customer has
 connected?** That is the difference between "encrypted at rest" and what the
 product note asked for, it is the whole of Phase 2's scope, and it is a product
 call about which failure mode the customer prefers, not an engineering one.
+
+### Additional owner decisions (2026-09-08)
+
+- There are no legacy workspace-key notes requiring migration. Do not invent a
+  migration or deletion exception for that nonexistent format.
+- Passphrase-protected notes are treated the same as other notes in exports;
+  their ciphertext is exported without a special case.
+- Export remains owner-only. Sharing a note or its passphrase does not grant
+  export authority.
