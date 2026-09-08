@@ -88,6 +88,20 @@ describe("offerOwnContext — whether the console should offer to make you one",
 const mockInsets = { top: 0, bottom: 0, left: 0, right: 0 };
 const mockPushed: string[] = [];
 
+/**
+ * `BrowsePane` now instantiates its own passphrase controller
+ * (`useNoteEncryption`, for the "Password-encrypt content" advanced option
+ * and a locked note's own view), which calls `useAction`. None of these
+ * renders wrap the tree in a real `ConvexProvider` -- nothing here exercises
+ * encryption -- so a stub that refuses if actually called is enough to let
+ * the pane mount.
+ */
+jest.mock("convex/react", () => ({
+  useAction: () => async () => {
+    throw new Error("not used in this test");
+  },
+}));
+
 jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => mockInsets,
 }));

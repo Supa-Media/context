@@ -35,6 +35,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The privacy tier is a scope on the grant, never an inference from a role
 - A first-party signed shell may have its own grant approved by the session hosting it
 - A third-party OAuth callback carries a secret the browser kept, not just `state`
+- The same derived-subjects shape closes a teardown gap, not just a binding gap
 - One connection reaches every context its person belongs to
 - A grant is one person's tooling, and the refusal follows the listing
 - An invitation is addressed to a string, and its token is stored in the clear
@@ -110,6 +111,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A blended search over several contexts fuses ranks, and the control plane is where it happens
 - A note is the unit of the index, except when it is bundled mail
 - The index is sized by the volume it has to hold, and an oversized part sheds rather than taking the rest with it
+- A shed index must say so to the caller it happened to, not only to the operator
 
 ## [The mobile app and the console](./app-and-console.md)
 

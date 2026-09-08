@@ -549,7 +549,14 @@ export function emptyShard() {
 
 /** Zeroed per-shard bookkeeping. */
 function emptyStats() {
-  return { docCount: 0, lenTotals: { title: 0, headings: 0, tags: 0, body: 0 }, shed: 0 };
+  return {
+    docCount: 0,
+    lenTotals: { title: 0, headings: 0, tags: 0, body: 0 },
+    shed: 0,
+    // See `statsOfShard`: the identities behind `shed`, so a caller can be told
+    // WHICH of their own visible notes lost recall rather than only a count.
+    shedPaths: [],
+  };
 }
 
 /**
@@ -599,11 +606,41 @@ export function indexIsBehind(freshness) {
 }
 
 /**
+ * Every note path shedding has reduced to one document, across the whole
+ * manifest — **raw and unfiltered, private notes included.**
+ *
+ * This is the durable half of `syncShardedIndex`'s own `shed: string[]`, which
+ * only ever names notes shed *by the pass that just ran* — a shard nothing
+ * changed this pass is not reopened, so a note shed on Tuesday and untouched
+ * since is invisible to Wednesday's pass even though the index still holds it
+ * reduced. `manifest.stats[id].shedPaths` is written by the pass that shed a
+ * note and carried forward by `parseManifest` for every pass after, exactly as
+ * `stats[id].shed`'s count already is — so this reads the manifest's own
+ * memory of it rather than re-deriving anything, at the cost of the one GET a
+ * query already pays.
+ *
+ * **Every caller of this must run the result through its own `isVisible`
+ * before it reaches anyone.** These paths are gathered the same way the
+ * routing filters are — over every doc in a shard, private ones included —
+ * and hidden until the same privacy check every other index-derived fact
+ * passes through it: `canSee` applied to `notePath`, never to a document key
+ * (`CONTRACT.md`, "`canSee` runs on the containing note").
+ */
+export function shedNotePathsOf(manifest) {
+  const paths = [];
+  for (const entry of manifest?.stats ?? []) {
+    for (const path of entry.shedPaths ?? []) paths.push(path);
+  }
+  return paths;
+}
+
+/**
  * A manifest describing `shardCount` empty shards.
  *
  * @param {number} shardCount clamped to [1, MAX_SHARD_COUNT]
  * @returns {{version: number, shardCount: number, generatedAt: string|null,
- *   docsByShard: Map<string, string>[], stats: {docCount: number, lenTotals: object}[],
+ *   docsByShard: Map<string, string>[],
+ *   stats: {docCount: number, lenTotals: object, shed: number, shedPaths: string[]}[],
  *   filters: (string|null)[],
  *   freshness: {listedAt: string|null, pending: number, truncated: boolean}}}
  */
@@ -695,6 +732,13 @@ export function serializeManifest(manifest) {
       // this one ignores a key it does not validate, so the field travels in
       // both directions without a version bump.
       shed: entry.shed || 0,
+      // The paths behind that count — absent rather than `[]` on the common
+      // case, the same reasoning `shed: true` on a doc entry already follows:
+      // a standing empty array on every shard of every manifest is a cost paid
+      // for a fact that is almost never true. A gateway that predates this
+      // field ignores a key it does not validate, so it travels both ways with
+      // no version bump, exactly as `shed` itself did.
+      ...(entry.shedPaths && entry.shedPaths.length ? { shedPaths: [...entry.shedPaths] } : {}),
     })),
     filters: manifest.filters.map((filter) => (typeof filter === "string" ? filter : null)),
     freshness: {
@@ -876,6 +920,14 @@ export function parseManifest(text, byteCap = MANIFEST_PARSE_BYTE_CAP) {
     if (entry.shed !== undefined && (!isFiniteNumber(entry.shed) || entry.shed < 0)) {
       return null;
     }
+    // Same strictness as every other field here: absent is "a manifest written
+    // before this existed", and present-but-malformed refuses the whole
+    // manifest rather than being repaired path by path — a repaired list is a
+    // guess about which entries were real.
+    if (entry.shedPaths !== undefined) {
+      if (!Array.isArray(entry.shedPaths)) return null;
+      if (!entry.shedPaths.every((path) => typeof path === "string")) return null;
+    }
     stats.push({
       docCount: entry.docCount,
       lenTotals: {
@@ -885,6 +937,7 @@ export function parseManifest(text, byteCap = MANIFEST_PARSE_BYTE_CAP) {
         body: entry.lenTotals.body,
       },
       shed: entry.shed === undefined ? 0 : Math.floor(entry.shed),
+      shedPaths: entry.shedPaths === undefined ? [] : [...entry.shedPaths],
     });
   }
 
@@ -1403,7 +1456,15 @@ async function listNoteObjects(store, budget, reserve, isIndexable) {
 
 // -- the sync loop ---------------------------------------------------------
 
-/** Per-shard bookkeeping, derived from the shard's own docs and nothing else. */
+/**
+ * Per-shard bookkeeping, derived from the shard's own docs and nothing else.
+ *
+ * `shedPaths` is `shed`'s own evidence, not a second count of it: **the
+ * identities are what let a caller be told which of their own visible notes
+ * lost recall**, the way `pending`'s callers are told which notes are stale
+ * rather than only how many. Sorted so the manifest's serialized bytes do not
+ * churn on note order alone, the same reason every other array here is.
+ */
 function statsOfShard(shard) {
   const lenTotals = { title: 0, headings: 0, tags: 0, body: 0 };
   // Notes this shard holds only part of — see `shedToFit`. Counted off the
@@ -1415,7 +1476,7 @@ function statsOfShard(shard) {
     for (const field of FIELD_ORDER) lenTotals[field] += doc.len[field];
     if (doc.shed) shed.add(doc.notePath ?? null);
   }
-  return { docCount: shard.docs.size, lenTotals, shed: shed.size };
+  return { docCount: shard.docs.size, lenTotals, shed: shed.size, shedPaths: [...shed].sort() };
 }
 
 /**
@@ -1445,10 +1506,23 @@ function sameVersions(a, b) {
   return true;
 }
 
+function sameShedPaths(a, b) {
+  const pathsA = a || [];
+  const pathsB = b || [];
+  if (pathsA.length !== pathsB.length) return false;
+  // Both sides are written sorted (`statsOfShard`, `parseManifest`), so a
+  // positional compare is exact rather than a heuristic.
+  return pathsA.every((path, i) => path === pathsB[i]);
+}
+
 function sameStats(a, b) {
   return (
     a.docCount === b.docCount &&
     (a.shed || 0) === (b.shed || 0) &&
+    // Two shards can shed the same COUNT of different notes — a fresh note
+    // pushing an older one over the cap, say — and a compare that stopped at
+    // the count would call that "unchanged" and leave `shedPaths` stale.
+    sameShedPaths(a.shedPaths, b.shedPaths) &&
     FIELD_ORDER.every((field) => a.lenTotals[field] === b.lenTotals[field])
   );
 }

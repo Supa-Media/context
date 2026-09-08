@@ -1228,6 +1228,26 @@ successful write. The rule is now one step stronger, and the stronger form is
 the one to keep: **a note this request cannot open is a note this request cannot
 write.**
 
+**The console's own door is the narrowest form of that rule a keyless runtime
+can state, and what it cannot check is a boundary rather than a gap.** The
+console holds the passphrase and the control plane does not, so `writeFile`
+admits a write to a locked note only when the submission is *itself* a
+well-formed envelope naming exactly the recipients already stored **and
+byte-identical to the stored note everywhere outside the JSON blob**
+(`canReplaceEncryptedNote`). Three checks, and the third — the skeleton — is
+the one that stops a caller who holds editor access and no passphrase wrapping
+a valid envelope around plaintext smuggled before the frontmatter's close,
+between it and the fence, or after the fence's own close. What no check here can
+reach is the ciphertext: this runtime cannot tell one locked note's blob from
+another's, so an editor **can** put another locked note's envelope, or an older
+envelope of this same note, at this path. That is destruction and never
+disclosure — it reveals nothing, it downgrades nothing, and it is bounded by the
+write authority that caller already has over every byte at that path, which is
+this file's own opening line about confidentiality not being deletion protection
+or availability, applied where it costs something. Both are asserted in
+`apps/convex/__tests__/fileOps.test.ts` rather than merely argued here, so that
+a future change which makes them refusals has to come and say so.
+
 **Other humans, and the sentence that must go with it.** A locked note may be
 `team`-visible, and then the people it is shared with see a locked object in the
 console and open it if — and only if — the owner gave them the passphrase some
