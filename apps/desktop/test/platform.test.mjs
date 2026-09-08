@@ -33,7 +33,7 @@
  */
 
 import { parseProcessList } from "../src/platform/macos/processes.ts";
-import { parseWindows, redactUrl } from "../src/platform/macos/windows.ts";
+import { parseTabUrlRefusals, parseWindows, redactUrl } from "../src/platform/macos/windows.ts";
 import { parseEngineState, readingToSignal } from "../src/platform/macos/microphone.ts";
 import { calendarWindow, parseCalendarEvents } from "../src/platform/macos/calendar.ts";
 import { DETECTOR_THRESHOLDS } from "@context/meetings/protocol";
@@ -126,6 +126,61 @@ export function runPlatformChecks(check) {
     check(
       "a partial title refusal that still found something is not treated as a total refusal",
       partialWindows.length === 1 && partialWindows[0].app === "zoom.us",
+    );
+
+    // The case the fixture above cannot exercise: a partial title refusal
+    // where nothing was collected at all. `items.length === 0` is what makes
+    // this a *different* case from the one above — the guard is
+    // `items.length === 0 && titleRefusals === titleAttempts`, and the fixture
+    // above already fails the first half with a non-empty `windows` array, so
+    // it would pass unchanged even if the second half were loosened from
+    // equality to "at least one refusal". This fixture keeps `windows` empty
+    // so the refusal comparison is the thing actually being tested.
+    let partialRefusalNoWindowsThrew = false;
+    let partialRefusalNoWindows = null;
+    try {
+      partialRefusalNoWindows = parseWindows(
+        JSON.stringify({ windows: [], titleAttempts: 3, titleRefusals: 1 }),
+      );
+    } catch {
+      partialRefusalNoWindowsThrew = true;
+    }
+    check(
+      "a partial title refusal with nothing collected is a quiet moment, not a refusal",
+      !partialRefusalNoWindowsThrew && partialRefusalNoWindows.length === 0,
+    );
+
+    // Tab URL refusals: counted, not thrown, and never mistaken for the
+    // window-title Accessibility refusal above.
+    check(
+      "a poll with no browsers reads as zero tab URL refusals",
+      parseTabUrlRefusals(JSON.stringify({ windows: [], titleAttempts: 1, titleRefusals: 0, tabUrlAttempts: 0, tabUrlRefusals: 0 })) === 0,
+    );
+    check(
+      "one browser refusing its tab URL is counted",
+      parseTabUrlRefusals(
+        JSON.stringify({ windows: [], titleAttempts: 1, titleRefusals: 0, tabUrlAttempts: 1, tabUrlRefusals: 1 }),
+      ) === 1,
+    );
+    check(
+      "two browsers refusing is counted as two, not clamped to one",
+      parseTabUrlRefusals(
+        JSON.stringify({ windows: [], titleAttempts: 2, titleRefusals: 0, tabUrlAttempts: 2, tabUrlRefusals: 2 }),
+      ) === 2,
+    );
+    check("malformed input reads as zero refusals rather than throwing", parseTabUrlRefusals("not json") === 0);
+    check(
+      "the count found alongside real window evidence is not discarded",
+      (() => {
+        const stdout = JSON.stringify({
+          windows: [{ app: "zoom.us", title: "Weekly sync", focused: true }],
+          titleAttempts: 2,
+          titleRefusals: 0,
+          tabUrlAttempts: 1,
+          tabUrlRefusals: 1,
+        });
+        return parseWindows(stdout).length === 1 && parseTabUrlRefusals(stdout) === 1;
+      })(),
     );
   }
 

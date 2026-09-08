@@ -50,6 +50,7 @@ import {
   collectSignals,
   failingCollectors,
   fixedCollectors,
+  PermissionRefusedError,
   scriptedCollectors,
 } from "../src/core/detection/collectors.ts";
 import { degradedNotice, evidenceLines } from "../src/core/detection/evidence.ts";
@@ -98,10 +99,31 @@ export async function runDetectionLoopChecks(check) {
   check("the degraded notice names the calendar", (degradedNotice(broken?.degraded ?? []) ?? "").includes("your calendar"));
   check("nothing degraded means no notice", degradedNotice([]) === null);
 
+  // `failingCollectors()` throws a bare `Error` for every collector — a
+  // timeout or a malformed result, never a permission refusal — so it must
+  // classify as "unknown" and get none of the calendar's actionable guidance.
+  // This is the exact bug closed here: `attempt()` used to mark the calendar
+  // degraded on *any* throw and `degradedNotice` used to append the
+  // write-only guidance regardless, so a transient failure told the person to
+  // go change a permission that was already fine.
+  check("an unclassified calendar failure reads as unknown, not a permission refusal", broken?.degradedReasons.calendar === "unknown");
+  const transientCalendarNotice = degradedNotice(broken?.degraded ?? [], broken?.degradedReasons ?? {}) ?? "";
+  check("a transient calendar failure names the calendar", transientCalendarNotice.includes("your calendar"));
+  check(
+    "A TRANSIENT CALENDAR FAILURE GETS NO SYSTEM SETTINGS GUIDANCE — it is not a permission refusal",
+    !transientCalendarNotice.includes("System Settings"),
+  );
+  check(
+    "a reason-less call is the same honest default — no guidance without a classification",
+    !(degradedNotice(["calendar"]) ?? "").includes("System Settings"),
+  );
+
   // A refused Calendars grant is not just "we cannot see it" — the notice has
   // to say what the person can do, and that a fresh ask from this app cannot
-  // fix a permission already sitting at write-only.
-  const calendarNotice = degradedNotice(["calendar"]) ?? "";
+  // fix a permission already sitting at write-only. This is the *other* half
+  // of the same fix: a genuine `PermissionRefusedError` must still earn the
+  // detailed sentence, so the guard is a gate on the reason, not a deletion.
+  const calendarNotice = degradedNotice(["calendar"], { calendar: "permission-refused" }) ?? "";
   check("the calendar notice names System Settings", calendarNotice.includes("System Settings"));
   check("the calendar notice names Full Access", calendarNotice.includes("Full Access"));
   check(
@@ -110,8 +132,78 @@ export async function runDetectionLoopChecks(check) {
   );
   check(
     "a collector with no calendar problem gets no System Settings guidance",
-    !(degradedNotice(["windows"]) ?? "").includes("System Settings"),
+    !(degradedNotice(["windows"], { calendar: "permission-refused" }) ?? "").includes("System Settings"),
   );
+
+  // The classification comes from the error's *type*, checked all the way
+  // through `collectSignals` — not from a string this test invents.
+  {
+    const permissionRefusedCollectors = {
+      ...fixedCollectors({}),
+      calendarEvents: async () => {
+        throw new PermissionRefusedError("calendar access refused: every calendar failed to enumerate its events");
+      },
+    };
+    const permissionRefused = await collectSignals(permissionRefusedCollectors, new Date(0));
+    check(
+      "collectSignals classifies a real PermissionRefusedError as a permission refusal",
+      permissionRefused.degradedReasons.calendar === "permission-refused",
+    );
+    const notice = degradedNotice(permissionRefused.degraded, permissionRefused.degradedReasons) ?? "";
+    check("...and the end-to-end notice names System Settings for it", notice.includes("System Settings"));
+
+    const timeoutCollectors = {
+      ...fixedCollectors({}),
+      calendarEvents: async () => {
+        throw new Error("osascript failed");
+      },
+    };
+    const timedOut = await collectSignals(timeoutCollectors, new Date(0));
+    check(
+      "collectSignals classifies a bare Error (a timeout, here) as unknown",
+      timedOut.degradedReasons.calendar === "unknown",
+    );
+    const timeoutNotice = degradedNotice(timedOut.degraded, timedOut.degradedReasons) ?? "";
+    check(
+      "...and the end-to-end notice for a timeout says nothing about System Settings",
+      !timeoutNotice.includes("System Settings"),
+    );
+  }
+
+  // -- browser tab URL refusals ---------------------------------------------
+  //
+  // A browser refusing one poll's tab URL does not degrade the window
+  // collector — its titles, including that browser's, are still evidence —
+  // so this must be visible with `degraded` staying empty, never by marking
+  // `windows` degraded over evidence that was not actually lost.
+  {
+    check("no tab URL refusals means no notice on their own", degradedNotice([], {}, 0) === null);
+    const oneRefusalNotice = degradedNotice([], {}, 1) ?? "";
+    check("one tab URL refusal is visible", oneRefusalNotice.length > 0);
+    check("...without pretending anything is degraded", !oneRefusalNotice.toLowerCase().includes("cannot see"));
+    check(
+      "two tab URL refusals are counted as two",
+      (degradedNotice([], {}, 2) ?? "").includes("2 open browsers"),
+    );
+    check(
+      "a tab URL refusal notice composes with a genuine degraded notice",
+      (degradedNotice(["calendar"], { calendar: "permission-refused" }, 1) ?? "").includes("System Settings") &&
+        (degradedNotice(["calendar"], { calendar: "permission-refused" }, 1) ?? "").includes("open tab"),
+    );
+
+    const withTabRefusal = await collectSignals(
+      fixedCollectors({ processes: ["zoom.us"], tabUrlRefusals: 1 }),
+      new Date(0),
+    );
+    check("a tab URL refusal does not mark the window collector degraded", !withTabRefusal.degraded.includes("windows"));
+    check("...and the count still reaches collectSignals' result", withTabRefusal.tabUrlRefusals === 1);
+    const tabRefusalNotice = degradedNotice(
+      withTabRefusal.degraded,
+      withTabRefusal.degradedReasons,
+      withTabRefusal.tabUrlRefusals,
+    );
+    check("...so the person still learns about it", (tabRefusalNotice ?? "").length > 0);
+  }
 
   // -- the edges -----------------------------------------------------------
   {

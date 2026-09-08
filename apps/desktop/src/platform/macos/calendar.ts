@@ -65,6 +65,7 @@
 
 import { DETECTOR_THRESHOLDS } from "../../core/contract.ts";
 import type { Attendee, CalendarEvent } from "../../core/contract.ts";
+import { PermissionRefusedError } from "../../core/detection/collectors.ts";
 import { osascript } from "../exec.ts";
 import { redactUrl } from "./windows.ts";
 
@@ -115,15 +116,19 @@ export function calendarScript(from: Date, to: Date): string {
  * gets them from the gateway's own calendar connection where one exists.
  * Returning `[]` is honest; inventing names from an event title would not be.
  *
- * **A total refusal throws instead of returning `[]`.** `calendarCount` and
- * `refusedCount` come from the script, not from this function guessing at
- * JXA's failure shape: when there is at least one calendar and every single
- * one of them refused to enumerate its events, that is Calendars data access
- * denied — write-only, or revoked outright — never an empty diary, because an
- * authorized call that is merely idle returns an empty event list without
- * throwing. `collectSignals` turns this throw into `degraded`, the same as
- * any other collector failure. Zero calendars at all is left alone: it is not
- * evidence of a refusal, it is evidence of nothing to ask.
+ * **A total refusal throws a `PermissionRefusedError` instead of returning
+ * `[]`.** `calendarCount` and `refusedCount` come from the script, not from
+ * this function guessing at JXA's failure shape: when there is at least one
+ * calendar and every single one of them refused to enumerate its events, that
+ * is Calendars data access denied — write-only, or revoked outright — never
+ * an empty diary, because an authorized call that is merely idle returns an
+ * empty event list without throwing. `collectSignals` turns this throw into
+ * `degraded`, the same as any other collector failure, and the *type* of the
+ * error — never its message — is what lets `degradedNotice` tell this apart
+ * from a timeout or a malformed result and show the System Settings sentence
+ * only when it is actually a permission refusal. Zero calendars at all is
+ * left alone: it is not evidence of a refusal, it is evidence of nothing to
+ * ask.
  */
 export function parseCalendarEvents(stdout: string): CalendarEvent[] {
   let raw: unknown;
@@ -142,7 +147,12 @@ export function parseCalendarEvents(stdout: string): CalendarEvent[] {
   const calendarCount = typeof payload["calendarCount"] === "number" ? payload["calendarCount"] : 0;
   const refusedCount = typeof payload["refusedCount"] === "number" ? payload["refusedCount"] : 0;
   if (calendarCount > 0 && refusedCount === calendarCount) {
-    throw new Error("calendar access refused: every calendar failed to enumerate its events");
+    // A `PermissionRefusedError`, not a bare `Error`: this is the one shape
+    // this collector can actually tell apart from a timeout or a hung
+    // Calendar.app, and `degradedNotice` uses that identity — never this
+    // message — to decide whether the panel names System Settings or says
+    // only that the read failed this time.
+    throw new PermissionRefusedError("calendar access refused: every calendar failed to enumerate its events");
   }
 
   const events: CalendarEvent[] = [];

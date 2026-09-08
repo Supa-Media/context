@@ -134,7 +134,7 @@ export function createDetectionLoop(options: DetectionLoopOptions): DetectionLoo
         evidence: evidenceLines(result),
         summary: summaryLine(result),
         degraded: collected.degraded,
-        degradedNotice: degradedNotice(collected.degraded),
+        degradedNotice: degradedNotice(collected.degraded, collected.degradedReasons, collected.tabUrlRefusals),
       };
       options.onUpdate?.(update);
       return update;

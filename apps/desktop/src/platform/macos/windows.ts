@@ -42,9 +42,22 @@
  * collected by the read above — throwing the whole collector away over a
  * missing tab URL would discard evidence the poll already has for the sake of
  * evidence it does not.
+ *
+ * **That swallow used to be silent, and now it counts.** Discarding the tab
+ * URL rather than the whole poll is the right call about the *evidence* — a
+ * blocked-but-not-refused browser's window titles are still worth having —
+ * but it made a refused browser indistinguishable from one with no windows
+ * open at all: both produced nothing, in the same list, for a different
+ * reason. The script now counts how many browsers it found among the running
+ * processes and how many of those refused to hand back a URL, and
+ * `collectWindows` reports the count alongside the windows it did collect —
+ * never by throwing, since nothing here was lost that the throw-on-total-
+ * refusal check above already exists to catch. `degradedNotice` turns a
+ * nonzero count into one honest sentence, without naming which browser.
  */
 
 import type { WindowSignal } from "../../core/contract.ts";
+import type { CollectedWindows } from "../../core/detection/collectors.ts";
 import { osascript } from "../exec.ts";
 
 /** Browsers we ask for a tab URL, by the name `System Events` reports. */
@@ -85,6 +98,8 @@ export const WINDOW_SCRIPT = `
   const procs = se.processes.whose({ backgroundOnly: false })();
   let titleAttempts = 0;
   let titleRefusals = 0;
+  let tabUrlAttempts = 0;
+  let tabUrlRefusals = 0;
   for (const proc of procs) {
     let app;
     try { app = proc.name(); } catch (e) { continue; }
@@ -98,6 +113,7 @@ export const WINDOW_SCRIPT = `
       out.push({ app, title: String(title), focused: frontmost });
     }
     if (browsers.indexOf(app) !== -1) {
+      tabUrlAttempts += 1;
       try {
         const browser = Application(app);
         const windows = browser.windows();
@@ -109,10 +125,10 @@ export const WINDOW_SCRIPT = `
           try { name = w.name(); } catch (e) {}
           if (url) out.push({ app, title: String(name || ""), url: String(url), focused: frontmost });
         }
-      } catch (e) {}
+      } catch (e) { tabUrlRefusals += 1; }
     }
   }
-  JSON.stringify({ windows: out, titleAttempts, titleRefusals });
+  JSON.stringify({ windows: out, titleAttempts, titleRefusals, tabUrlAttempts, tabUrlRefusals });
 `;
 
 /**
@@ -164,9 +180,31 @@ export function parseWindows(stdout: string): WindowSignal[] {
   return windows;
 }
 
-export async function collectWindows(): Promise<WindowSignal[]> {
+/**
+ * How many browsers this poll's tab-URL read refused, out of the script's own
+ * `tabUrlRefusals` count. Read separately from `parseWindows` rather than
+ * folded into its return value, so that a poll's window titles keep their
+ * well-tested, unchanged shape — `WindowSignal[]` — and this stays what it is:
+ * a count, not evidence. Deliberately lenient: anything that is not the shape
+ * the script produces reads as zero refusals rather than a second thing that
+ * can throw, since `parseWindows` above is already what decides whether this
+ * poll's output is usable at all.
+ */
+export function parseTabUrlRefusals(stdout: string): number {
+  try {
+    const raw: unknown = JSON.parse(stdout);
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return 0;
+    const value = (raw as Record<string, unknown>)["tabUrlRefusals"];
+    return typeof value === "number" && value > 0 ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function collectWindows(): Promise<CollectedWindows> {
   // Longer than the other collectors: System Events enumerating every process
   // on a busy machine is genuinely slow, and this is still well inside the
   // contract's five-second poll.
-  return parseWindows(await osascript(WINDOW_SCRIPT, { timeoutMs: 4_000 }));
+  const stdout = await osascript(WINDOW_SCRIPT, { timeoutMs: 4_000 });
+  return { windows: parseWindows(stdout), tabUrlRefusals: parseTabUrlRefusals(stdout) };
 }
