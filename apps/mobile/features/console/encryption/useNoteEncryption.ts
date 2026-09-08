@@ -45,7 +45,7 @@ import { useAction } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { toFileError } from "../files/browser";
-import { NoteCryptoError } from "./envelope";
+import { decryptWithPassphrase, NoteCryptoError } from "./envelope";
 import type { KdfDescriptor } from "./kdf";
 import {
   changePassphrase,
@@ -84,12 +84,24 @@ export interface NoteEncryptionController {
     plaintext: string;
     etag: string | null;
     passphrase: string;
-  }): Promise<{ etag: string }>;
+  }): Promise<{ etag: string; stored: string }>;
   /** Open a locked note for this session. No request is made — see `unlockNote`. */
   unlock(input: { path: string; stored: string; passphrase: string }): Promise<{ plaintext: string }>;
+  /**
+   * Read a note this session already unlocked, without asking for the
+   * passphrase again.
+   *
+   * `null` when this session holds no key for `path` — the caller falls back
+   * to a passphrase prompt. The session never keeps the *plaintext* (only the
+   * key does, in memory), so a note revisited after navigating away needs this
+   * to redraw without unlocking twice; unlike `unlock`, this makes no request
+   * either, for the same reason: the ciphertext is already in hand.
+   */
+  peek(path: string, stored: string): Promise<string | null>;
   /** Save an edit to a note unlocked in this session. */
   save(input: { path: string; plaintext: string; etag: string | null; stored: string }): Promise<{
     etag: string;
+    stored: string;
   }>;
   /** Change a locked note's passphrase without rewriting its body. */
   changePassphrase(input: {
@@ -98,7 +110,7 @@ export interface NoteEncryptionController {
     etag: string | null;
     currentPassphrase: string;
     newPassphrase: string;
-  }): Promise<{ etag: string }>;
+  }): Promise<{ etag: string; stored: string }>;
   /** Take the passphrase off a note, requiring it. */
   remove(input: {
     path: string;
@@ -213,7 +225,7 @@ export function useNoteEncryption(
       // asking them to unlock what they just locked would be the console
       // second-guessing its own write.
       dispatch({ type: "unlocked", path: input.path, key: result.key, at: Date.now() });
-      return { etag: result.etag };
+      return { etag: result.etag, stored: result.stored };
     },
     [ordinaryContext],
   );
@@ -225,6 +237,19 @@ export function useNoteEncryption(
       return { plaintext: result.plaintext };
     },
     [ordinaryContext],
+  );
+
+  const peek = useCallback(
+    async (path: string, stored: string): Promise<string | null> => {
+      const key = keyFor(session, path);
+      if (key === null) return null;
+      dispatch({ type: "touched", path, at: Date.now() });
+      return await decryptWithPassphrase(stored, {
+        workspaceId: workspaceIdRef.current ?? "",
+        kek: key,
+      });
+    },
+    [session],
   );
 
   const save = useCallback(
@@ -253,7 +278,7 @@ export function useNoteEncryption(
       // a note already open stays open under the passphrase that now opens it
       // — the person just proved they knew the old one and chose the new one.
       dispatch({ type: "unlocked", path: input.path, key: result.key, at: Date.now() });
-      return { etag: result.etag };
+      return { etag: result.etag, stored: result.stored };
     },
     [ordinaryContext],
   );
@@ -278,11 +303,12 @@ export function useNoteEncryption(
       touch: (path) => dispatch({ type: "touched", path, at: Date.now() }),
       protect,
       unlock,
+      peek,
       save,
       changePassphrase: changePassphraseOp,
       remove,
     }),
-    [session, protect, unlock, save, changePassphraseOp, remove],
+    [session, protect, unlock, peek, save, changePassphraseOp, remove],
   );
 }
 
