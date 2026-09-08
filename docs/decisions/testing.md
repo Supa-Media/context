@@ -111,6 +111,60 @@ that clears the one identifier a bug report names is not the same as a fix
 that clears every identifier the broken call path actually reads, and only
 running the real launch — not reading the diff — told the two apart.
 
+**Adversarial review measured whether `desktop-launch-smoke` needs to be
+macOS at all, and the answer is yes — but not for the reason first
+assumed.** `apps/desktop/node_modules/electron` installs a real Linux x64
+binary, and this repository's own agent sandbox has `xvfb-run` on it. Run
+there — `ELECTRON_DISABLE_SANDBOX=1 xvfb-run -a node test/launch.smoke.mjs`,
+the `--no-sandbox` equivalent, because the sandbox runs as root and Electron
+aborts before `main()` otherwise — the *unpackaged* dev bundle starts for
+real: a genuine Electron process, a genuine window, no `ELECTRON_RUN_AS_NODE`
+substitution. With #329's dead zone reintroduced it reproduces the exact
+bisected failure, character for character: `[smoke] unhandled rejection:
+ReferenceError: Cannot access 'controller' before initialization`, 2
+FAILURES. With the ordering fixed it reports 20 PASS, 2 SKIP (the same
+network-dependent mirror rows this job already expects to skip everywhere
+but a real Mac) and exactly 1 FAILURE: `IT HAS A DOCK TILE — dock is hidden`.
+Everything else — the window, the application menu, all six Edit-menu roles,
+the console address — passes on Linux precisely because none of it is
+Darwin-specific: it is Electron and Node control flow, the same class #329
+was.
+
+So the defect class this job exists for is provably catchable on
+`ubuntu-latest` under `xvfb-run`, at Linux queue cost rather than macOS
+queue cost — the same trade `editor-webkit` above already takes for the
+WebKit engine. **This job stays on `macos-latest` anyway, and the reason is
+the one row that did fail:** `#335`, "The app in the Dock is Electron's
+atom, because no icon was ever configured," and `#339`, "Ask the built app
+what icon it has, because the config cannot answer," are both real,
+recent, Dock-identity defects in this exact app, found by a person looking
+at a running Dock on a Mac — not in CI, and not by this job, which did not
+exist yet. A Linux runner cannot merely under-test that class, it is
+structurally blind to it: `app.dock` does not exist as a concept outside
+Darwin, so `report.dock` reads `"hidden"` unconditionally, on every commit,
+whether the icon is right, wrong, or missing entirely. Moving this job to
+Linux would not weaken the Dock-tile check, it would delete it from every
+pull request and leave it to `deploy-desktop.yml`'s release gate alone —
+which is exactly the "spoke too late" shape the rest of this section exists
+to close, reintroduced for a narrower class of defect. `MACOS GAVE IT A
+MENU-BAR ITEM` is the same risk in a quieter form: it passed on Linux only
+because the check asserts `tray.bounds()` returns a numeric-width object, and
+a `Tray` with no real system tray to embed into still returns one, zeroed —
+proving the constructor did not throw, nothing about a menu-bar icon
+actually existing.
+
+**The measurement is recorded rather than discarded**, because the trade
+could invert: if this job's macOS queue time ever becomes the genuine
+bottleneck the affordability argument above assumes it is not, a Linux leg
+under `xvfb-run` is a proven fallback for the module-graph/`main()` class of
+defect specifically — provided the Dock-tile and menu-bar-item rows are
+skipped with a stated reason on that leg (matching this file's `skip()`
+convention, not silently dropped) and a macOS run is kept somewhere in the
+loop to cover them, rather than ceding that coverage to release time alone.
+Today, with the path-gated job affordable and the Dock-icon incident recent
+enough to still be the one this repository was burned by, that fallback is
+not taken up.
+
 ### A hand-scan is not a fix for something that has already recurred
 
 Two rounds removed numbered pointers into a document this repository does not
