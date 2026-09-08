@@ -1436,14 +1436,15 @@ describe("/gateway/binding — the search index", () => {
  *  - **Present for a context that has one**, so the two refusals above are not
  *    passing because the feature never returns anything.
  */
+async function seedDataKey(t: TestConvex, workspaceId: Id<"workspaces">) {
+  const opened = await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+    workspaceId,
+    create: true,
+  });
+  return opened!.keys[opened!.current]!;
+}
+
 describe("/gateway/binding — the encryption key", () => {
-  async function seedDataKey(t: TestConvex, workspaceId: Id<"workspaces">) {
-    const opened = await t.action(
-      internal.functions.encryptionKeys.openWorkspaceDataKey,
-      { workspaceId, create: true },
-    );
-    return opened!.dataKey;
-  }
 
   test("a context that has never encrypted anything has no encryptionKey key at all", async () => {
     const { t, aliceWs } = await twoConnectedTenants();
@@ -1486,7 +1487,7 @@ describe("/gateway/binding — the encryption key", () => {
     // The binding is untouched by any of this, the same way the index is an
     // upgrade beside it rather than a condition of it.
     expect((body.binding as { bucket: string }).bucket).toBe("tenant-a");
-    expect(body.encryptionKey).toEqual({ generation: "k1", dataKey });
+    expect(body.encryptionKey).toEqual({ current: "k1", keys: { k1: dataKey } });
   });
 
   test("a caller cannot obtain another tenant's encryption key by naming it", async () => {
@@ -1518,7 +1519,8 @@ describe("/gateway/binding — the encryption key", () => {
         expectedWorkspaceId: bobWs,
       }),
     );
-    expect((joined.encryptionKey as { dataKey: string }).dataKey).toBe(bobKey);
+    const joinedKey = joined.encryptionKey as { current: string; keys: Record<string, string> };
+    expect(joinedKey.keys[joinedKey.current]).toBe(bobKey);
   });
 
   test("...and the refusal is byte-identical to a context that never existed", async () => {
@@ -1578,6 +1580,154 @@ describe("/gateway/binding — the encryption key", () => {
     expect(response.status).toBe(200);
     expect((JSON.parse(text).binding as { bucket: string }).bucket).toBe("tenant-a");
     expect(text).not.toContain("encryptionKey");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* 3b-iii. /gateway/binding — workspace-key rotation                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ROTATION, DRIVEN ENTIRELY THROUGH THE ROUTE THAT WAS ALREADY ENUMERATED.
+ *
+ * `startEncryptionRotation` and `completeEncryptionRotation` are two more
+ * optional fields on the same request `/gateway/binding` already answers, not
+ * a second door — `structure.test.ts`'s `CREDENTIAL_HTTP_ROUTES` stays exactly
+ * two members. See "Rotation" in `docs/decisions/encryption.md`.
+ */
+describe("/gateway/binding — workspace-key rotation", () => {
+  test("starting a rotation mints a new generation and both keys open", async () => {
+    const { t, aliceWs } = await twoConnectedTenants();
+    const oldKey = await seedDataKey(t, aliceWs);
+
+    const body = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: aliceWs,
+        startEncryptionRotation: true,
+      }),
+    );
+    const key = body.encryptionKey as { current: string; keys: Record<string, string> };
+    expect(key.current).toBe("k2");
+    expect(key.keys.k1).toBe(oldKey);
+    expect(key.keys.k2).toBeDefined();
+    expect(key.keys.k2).not.toBe(oldKey);
+
+    const rotation = body.rotation as { fromGeneration: string; toGeneration: string };
+    expect(rotation).toEqual({ fromGeneration: "k1", toGeneration: "k2" });
+  });
+
+  test("a plain read reports the rotation too, without being asked to start one", async () => {
+    const { t, aliceWs } = await twoConnectedTenants();
+    await seedDataKey(t, aliceWs);
+    await gatewayPost(t, "/gateway/binding", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+      startEncryptionRotation: true,
+    });
+
+    const body = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: aliceWs,
+      }),
+    );
+    expect(body.rotation).toEqual({ fromGeneration: "k1", toGeneration: "k2" });
+  });
+
+  test("starting a rotation twice does not mint a third generation", async () => {
+    const { t, aliceWs } = await twoConnectedTenants();
+    await seedDataKey(t, aliceWs);
+
+    const first = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: aliceWs,
+        startEncryptionRotation: true,
+      }),
+    );
+    const second = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: aliceWs,
+        startEncryptionRotation: true,
+      }),
+    );
+    expect(second.rotation).toEqual(first.rotation);
+    expect(second.encryptionKey).toEqual(first.encryptionKey);
+
+    const rows = await t.run((ctx) => ctx.db.query("workspaceDataKeys").collect());
+    expect(rows).toHaveLength(2);
+  });
+
+  test("completing a rotation clears it, and a later rotation starts a fresh one", async () => {
+    const { t, aliceWs } = await twoConnectedTenants();
+    await seedDataKey(t, aliceWs);
+    await gatewayPost(t, "/gateway/binding", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+      startEncryptionRotation: true,
+    });
+
+    const completed = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: aliceWs,
+        completeEncryptionRotation: "k2",
+      }),
+    );
+    expect(completed.rotation).toBeUndefined();
+    expect((completed.encryptionKey as { current: string }).current).toBe("k2");
+
+    const next = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: aliceWs,
+        startEncryptionRotation: true,
+      }),
+    );
+    expect(next.rotation).toEqual({ fromGeneration: "k2", toGeneration: "k3" });
+  });
+
+  test("completing with the wrong target does nothing — a stale call cannot finish the next rotation", async () => {
+    const { t, aliceWs } = await twoConnectedTenants();
+    await seedDataKey(t, aliceWs);
+    await gatewayPost(t, "/gateway/binding", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+      startEncryptionRotation: true,
+    });
+
+    const body = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: aliceWs,
+        completeEncryptionRotation: "k9",
+      }),
+    );
+    expect(body.rotation).toEqual({ fromGeneration: "k1", toGeneration: "k2" });
+  });
+
+  test("a rotation on one tenant never appears on another's response, and old and new material stay isolated", async () => {
+    const { t, aliceWs, bobWs } = await twoConnectedTenants();
+    await seedDataKey(t, aliceWs);
+    await seedDataKey(t, bobWs);
+    await gatewayPost(t, "/gateway/binding", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+      startEncryptionRotation: true,
+    });
+
+    const bobBody = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_B,
+        expectedWorkspaceId: bobWs,
+      }),
+    );
+    expect(bobBody.rotation).toBeUndefined();
+    expect(Object.keys((bobBody.encryptionKey as { keys: Record<string, string> }).keys)).toEqual([
+      "k1",
+    ]);
   });
 });
 

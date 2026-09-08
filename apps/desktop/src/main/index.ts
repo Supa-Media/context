@@ -597,7 +597,6 @@ async function main(): Promise<void> {
       push();
     },
   });
-  imessage.reconfigure();
   // `null` in console mode. Every use below is guarded rather than the flag
   // being read a second time — see `UI_MODE`.
   const panel = RENDERER_UI ? createPanel(RENDERER_DIR) : null;
@@ -2100,6 +2099,19 @@ async function main(): Promise<void> {
   openConsoleWindowIfAsked();
   loop.start();
   updater.start();
+  /*
+    Down here with the other services, and not beside its own constructor.
+
+    `reconfigure()` can reach `onChange`, `onChange` calls `push()`, and `push()`
+    reads `controller`, `tray` and `updater` — all declared *below* where this
+    service is built. Called at construction it therefore threw
+    `ReferenceError: Cannot access 'controller' before initialization`, through a
+    promise, so it surfaced as an unhandled rejection with no stack at the call
+    site and the app exited 1 about a second after launch. `main` shipped that
+    way from #329 until this, because the only thing that starts the app is the
+    release workflow's gate, which does not run on a pull request.
+  */
+  imessage.reconfigure();
   setInterval(() => void drain(), DRAIN_INTERVAL_MS);
   push();
 

@@ -52,8 +52,31 @@
  *   `indexableText` returning its argument unchanged                         1
  *   `rewriteReferences` dropping its `isEncryptedNote` skip                  0
  *
- * Three of those rows are findings about this file rather than about the
- * source.
+ * Added in adversarial review, with their own counts:
+ *
+ *   `export_encryption_keys`/`rotate_encryption_keys` left out of
+ *   `PRIVATE_TIER_ONLY_TOOLS`, so `tools/list` advertises them to a
+ *   team-tier connection the call then tells they do not exist              1
+ *   `toolExportEncryptionKeys`'s `scope !== "private"` gate removed     3 → 4
+ *   `EXPORT_RATE_LIMIT.limit` moved from 5 to 1                             2
+ *   the export document written to a `console.log`                          1
+ *   the audit detail carrying `Object.values(key.keys)` (the material
+ *   itself) instead of its generation ids                                   2
+ *
+ * Added in a second adversarial review, re-measured on the same denominator:
+ *
+ *   `toolExportEncryptionKeys` taking `args` and reading a workspace id
+ *   out of it — the smuggled-argument attack                                1
+ *   `toolRotateEncryptionKeys` doing the same                               1
+ *
+ * The export-gate row moved from 3 to 4 because of a check added here, not
+ * because the gate got stronger: with the gate gone, the team-tier caller's
+ * earlier attempt succeeds and spends one of the five exports the window
+ * allows, so the exact-count rate-limit check fails too. Re-measured rather
+ * than left at the number it had when it was written.
+ *
+ * Three of the original rows are findings about this file rather than about
+ * the source.
  *
  * **The scan skip measured zero**, because the only search in the file used a
  * needle out of the note's plaintext, which no envelope contains — so the scan
@@ -211,14 +234,14 @@ export async function runEncryptionGatewayChecks(check) {
       bindingName: "BUCKET_A",
       capabilities: { conditionalWrite: true },
       status: "active",
-      encryptionKey: { generation: "k1", dataKey: KEY_A },
+      encryptionKey: { current: "k1", keys: { k1: KEY_A } },
     });
     controlPlane.addWorkspace("ws_enc_b", "encb", {
       provider: "r2-binding",
       bindingName: "BUCKET_B",
       capabilities: { conditionalWrite: true },
       status: "active",
-      encryptionKey: { generation: "k1", dataKey: KEY_B },
+      encryptionKey: { current: "k1", keys: { k1: KEY_B } },
     });
     // The third context is the ordinary one: a workspace that has never
     // encrypted anything, so the control plane sends no key at all. Every
@@ -297,6 +320,10 @@ export async function runEncryptionGatewayChecks(check) {
     const textOf = (result) => result?.content?.[0]?.text ?? "";
     const readA = (key) => {
       const entry = a.objects.get(key);
+      return entry ? new TextDecoder().decode(entry.bytes) : undefined;
+    };
+    const readB = (key) => {
+      const entry = b.objects.get(key);
       return entry ? new TextDecoder().decode(entry.bytes) : undefined;
     };
 
@@ -988,6 +1015,429 @@ export async function runEncryptionGatewayChecks(check) {
       "...and no audit row carries a passphrase, because no call ever had one to record",
       !lockedAudit.includes(PASSPHRASE_VECTOR.passphrase) &&
         !lockedAudit.includes(PASSPHRASE_VECTOR.kek),
+    );
+
+    /* -- (15) export_encryption_keys ---------------------------------------- */
+
+    const teamExport = await call(TEAM_A, "export_encryption_keys", {});
+    check(
+      "a team connection cannot see export_encryption_keys exists",
+      teamExport?.isError === true && textOf(teamExport) === "unknown tool: export_encryption_keys",
+    );
+
+    /*
+      THE OTHER HALF OF "DOES NOT EVEN LEARN THE TOOL EXISTS", and the half
+      that was missing: the refusal above says `unknown tool` while
+      `tools/list` was, until this check existed, handing the same connection
+      the name, the description and the sentence "Export this context's
+      workspace data key(s) in the clear". A masked refusal about a capability
+      the same connection was just advertised masks nothing.
+
+      Asked on the listing AND on the call, because either alone passes for a
+      gateway that gets the other one wrong.
+    */
+    const listedFor = async (token) => {
+      const res = await worker.fetch(
+        new Request("https://x/mcp", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method: "tools/list", params: {} }),
+        }),
+        env,
+        { waitUntil() {} },
+      );
+      return ((await res.json()).result?.tools ?? []).map((tool) => tool.name);
+    };
+    const ownerTools = await listedFor(OWNER_A);
+    const teamTools = await listedFor(TEAM_A);
+    check(
+      "an owner is offered both encryption tools",
+      ownerTools.includes("export_encryption_keys") && ownerTools.includes("rotate_encryption_keys"),
+    );
+    check(
+      "a team connection is not offered either of them — the listing masks what the call masks",
+      !teamTools.includes("export_encryption_keys") &&
+        !teamTools.includes("rotate_encryption_keys") &&
+        // and the listing is not simply empty for that connection
+        teamTools.includes("read_note"),
+    );
+
+    /*
+      BYTE-IDENTICAL, asserted on the whole payload rather than on the message.
+      `canSee`'s own idiom is that the refusal for a thing you may not have is
+      indistinguishable from the refusal for a thing that never existed, and a
+      check on the text alone would pass for a payload that differed in
+      `isError`, in a second content block, or in a `_meta` hint.
+    */
+    const invented = await call(TEAM_A, "export_encryption_keys_x", {});
+    check(
+      "the refusal is byte-identical to the one an invented tool name gets",
+      JSON.stringify(teamExport).replace("export_encryption_keys", "export_encryption_keys_x") ===
+        JSON.stringify(invented),
+    );
+
+    /*
+      NAMING SOMEBODY ELSE'S CONTEXT.
+
+      The tool takes no arguments, so the only id an attacker can supply is the
+      routing one — `context`, which `callToolForSession` resolves before the
+      tool runs. A connection that owns context A and is merely an *editor* in
+      context B holds `context:private` in the grant and reads private in A,
+      so the tool is legitimately theirs *there*: the question is whether the
+      capability travels with the connection or is re-decided in the context it
+      is routed to. It is re-decided — `target.scope` for B is `team`, and the
+      answer is the same masked refusal, with none of B's key material in it.
+    */
+    const OWNER_A_IN_B = "cat_test_enc_owner_a_in_b_0000000000";
+    await controlPlane.addGrant({
+      accessToken: OWNER_A_IN_B,
+      workspaceId: "ws_enc_a",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "mcp_client_enc_owner_a_in_b",
+      userId: "user_enc_owner_a_in_b",
+      alsoMemberOf: [{ workspaceId: "ws_enc_b", role: "editor" }],
+    });
+    const crossExport = await call(OWNER_A_IN_B, "export_encryption_keys", { context: "@encb" });
+    check(
+      "an owner of one context cannot export the key of another they are only an editor in",
+      crossExport?.isError === true &&
+        textOf(crossExport) === "unknown tool: export_encryption_keys" &&
+        !textOf(crossExport).includes(KEY_B),
+    );
+    const crossRotate = await call(OWNER_A_IN_B, "rotate_encryption_keys", { context: "@encb" });
+    check(
+      "...and cannot rotate it either",
+      crossRotate?.isError === true && textOf(crossRotate) === "unknown tool: rotate_encryption_keys",
+    );
+    const strangerExport = await call(OWNER_B, "export_encryption_keys", { context: "@enca" });
+    check(
+      "a context the connection is not a member of at all answers with no-access, not with a key",
+      strangerExport?.isError === true &&
+        !textOf(strangerExport).includes(KEY_A) &&
+        /no access to that context/.test(textOf(strangerExport)),
+    );
+
+    const keylessExport = await call(KEYLESS, "export_encryption_keys", {});
+    check(
+      "a context that has never encrypted anything has nothing to export, and it is not a refusal",
+      !keylessExport?.isError && /nothing to export/.test(textOf(keylessExport)),
+    );
+
+    const exported = await call(OWNER_A, "export_encryption_keys", {});
+    const exportedText = textOf(exported);
+    const exportedDoc = JSON.parse(exportedText.slice(exportedText.indexOf("{")));
+    check(
+      "the export names the workspace, the current generation, and includes the live key",
+      !exported?.isError &&
+        exportedDoc.workspace_id === "ws_enc_a" &&
+        exportedDoc.current === "k1" &&
+        exportedDoc.keys.length === 1 &&
+        exportedDoc.keys[0].generation === "k1" &&
+        exportedDoc.keys[0].key === KEY_A,
+    );
+    /*
+      AND NAMING IT IN EVERY OTHER ARGUMENT THE ROUTE ACCEPTS.
+
+      `context` is the *routing* argument and it is re-decided in the context
+      it points at, which the two checks above ask. This asks the rest of the
+      surface. `inputSchema` declares `properties: {}` with
+      `additionalProperties: false`, but this gateway does not validate a
+      tool's arguments against its own schema — `callTool` hands the object
+      straight through — so "this tool takes no arguments" is a statement
+      about the advertisement, not about the door. What makes it true of the
+      door is that `toolExportEncryptionKeys(store, scope)` and
+      `toolRotateEncryptionKeys(store, scope)` are the only two tool functions
+      in `index.js` that do not take `args` at all, and so have nothing to
+      read an attacker-supplied id out of.
+
+      Asserted rather than read off the signature, because a later refactor
+      that added `args` "for symmetry" is a one-line change with no test
+      standing in front of it. Every name these two routes could plausibly
+      grow — the control plane's own field names included,
+      `startEncryptionRotation` and `completeEncryptionRotation` among them —
+      carrying context B's identifiers, on a connection that owns A and
+      nothing else:
+    */
+    const SMUGGLED = {
+      workspaceId: "ws_enc_b",
+      expectedWorkspaceId: "ws_enc_b",
+      workspace: "@encb",
+      workspace_id: "ws_enc_b",
+      slug: "encb",
+      generation: "k1",
+      current: "k1",
+      keys: { k1: KEY_B },
+      encryptionKey: { current: "k1", keys: { k1: KEY_B } },
+      startEncryptionRotation: true,
+      completeEncryptionRotation: "k1",
+      scope: "private",
+      accessToken: OWNER_B,
+    };
+    const smuggledExport = await call(OWNER_A, "export_encryption_keys", { ...SMUGGLED });
+    const smuggledText = textOf(smuggledExport);
+    check(
+      "an owner naming ANOTHER context in every argument but `context` still exports only their own",
+      !smuggledExport?.isError &&
+        smuggledText.includes(KEY_A) &&
+        !smuggledText.includes(KEY_B) &&
+        !smuggledText.includes("ws_enc_b") &&
+        JSON.parse(smuggledText.slice(smuggledText.indexOf("{"))).workspace_id === "ws_enc_a",
+    );
+
+    check(
+      "the export says what it means and points at the offline decryptor",
+      /one-way action/.test(exportedText) && exportedText.includes("packages/encryption-decryptor"),
+    );
+    check(
+      "...and names the one thing it does not open, rather than leaving it to be discovered",
+      /locked with a passphrase is not\s+opened by this file|locked with a passphrase is not opened by this file/.test(
+        exportedText.replace(/\s+/g, " "),
+      ),
+    );
+    check(
+      "the export never appears in the audit trail",
+      !(await (async () => {
+        const keys = [...a.objects.keys()].filter((key) => key.startsWith(".audit/"));
+        const text = keys.map((key) => new TextDecoder().decode(a.objects.get(key).bytes)).join("\n");
+        return text.includes(KEY_A);
+      })()),
+    );
+
+    /*
+      THE KEY LEAVES IN THE RESPONSE BODY AND NOWHERE ELSE.
+
+      The audit check above covers `.audit/`. This one covers the gateway's
+      own structured logs, which are the other place a value that passes
+      through a request routinely ends up — `console.log` is captured for the
+      length of one export and searched for the material itself. A log line is
+      not a place a key can be revoked from.
+    */
+    const captured = [];
+    const exportLogSpy = console.log;
+    const exportWarnSpy = console.warn;
+    const exportErrorSpy = console.error;
+    console.log = (...parts) => captured.push(parts.map(String).join(" "));
+    console.warn = (...parts) => captured.push(parts.map(String).join(" "));
+    console.error = (...parts) => captured.push(parts.map(String).join(" "));
+    let loggedExport;
+    try {
+      loggedExport = await call(OWNER_A, "export_encryption_keys", {});
+    } finally {
+      console.log = exportLogSpy;
+      console.warn = exportWarnSpy;
+      console.error = exportErrorSpy;
+    }
+    check(
+      "the exported key material never reaches a log line",
+      !loggedExport?.isError &&
+        textOf(loggedExport).includes(KEY_A) && // it IS in the response — the check is not vacuous
+        !captured.join("\n").includes(KEY_A),
+    );
+
+    /*
+      THE RATE LIMIT, ASKED THE WAY AN ATTACKER WOULD.
+
+      Three exports have happened above — the first one, the
+      smuggled-argument one, and the log-capture one — so exactly two of the
+      six attempts below may be accepted. The
+      limit is five per rolling day per CONTEXT,
+      and the three ways a caller would try to get around it are all the same
+      question — is the counter attached to the session, or to the context?
+
+        - a second call on the same connection
+        - a *different* grant, a different OAuth client, a different user, on
+          the same context
+        - a reconnection (every `call` here is already a fresh session: this
+          worker holds no per-connection state between requests, so the loop
+          below is a reconnect on every iteration)
+
+      The counter lives in the customer's own bucket, so all three meet it.
+      Asserted as an exact count rather than "one of them failed", which is
+      what the first version of this check measured — a limit of one and a
+      limit of five both pass that.
+    */
+    const OWNER_A2 = "cat_test_enc_owner_a2_00000000000000";
+    await controlPlane.addGrant({
+      accessToken: OWNER_A2,
+      workspaceId: "ws_enc_a",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "mcp_client_enc_owner_a_second",
+      userId: "user_enc_owner_a_second",
+    });
+    let accepted = 0;
+    let refused = 0;
+    let lastRefusal = null;
+    // Alternating tokens: a second client cannot spend a budget of its own.
+    for (const token of [OWNER_A, OWNER_A2, OWNER_A, OWNER_A2, OWNER_A, OWNER_A2]) {
+      const attempt = await call(token, "export_encryption_keys", {});
+      if (attempt?.isError) {
+        refused += 1;
+        lastRefusal = attempt;
+      } else {
+        accepted += 1;
+      }
+    }
+    check(
+      "exactly five exports per context per window are accepted, counting the ones already spent",
+      accepted === 2 && refused === 4,
+    );
+    check(
+      "a second client, a second grant and a reconnection all meet the same counter",
+      lastRefusal !== null && /rate limited/.test(textOf(lastRefusal)),
+    );
+    check(
+      "a rate-limited attempt returns no key material at all",
+      !textOf(lastRefusal).includes(KEY_A),
+    );
+
+    /*
+      THE COUNTER IS A NEW OBJECT IN SOMEBODY'S BUCKET, so it has to behave
+      like the plumbing it claims to be: written under `.context/`, never
+      listed as a note, never readable as one, and carrying nothing but two
+      numbers. A counter a tool could read would leak how often the owner
+      exports; a counter a tool could *write* would be a rate limit anyone
+      holding a write scope could reset.
+    */
+    const counterKey = ".context/encryption-export-rate.json";
+    const counter = JSON.parse(readA(counterKey) ?? "null");
+    const listedNotes = await call(OWNER_A, "list_notes", {});
+    const readCounter = await call(OWNER_A, "read_note", { path: counterKey });
+    const wroteCounter = await call(OWNER_A, "write_note", {
+      path: counterKey,
+      content: "{\"windowStartedAt\":0,\"count\":0}",
+    });
+    check(
+      "the export counter is plumbing: two numbers, unlisted, unreadable, unwritable",
+      counter !== null &&
+        Object.keys(counter).sort().join(",") === "count,windowStartedAt" &&
+        !textOf(listedNotes).includes("encryption-export-rate") &&
+        readCounter?.isError === true &&
+        wroteCounter?.isError === true &&
+        // and the refused write did not reset it
+        JSON.parse(readA(counterKey)).count === counter.count,
+    );
+
+    /* -- (16) rotate_encryption_keys ------------------------------------------ */
+
+    const teamRotate = await call(TEAM_A, "rotate_encryption_keys", {});
+    check(
+      "a team connection cannot see rotate_encryption_keys exists either",
+      teamRotate?.isError === true && textOf(teamRotate) === "unknown tool: rotate_encryption_keys",
+    );
+
+    const keylessRotate = await call(KEYLESS, "rotate_encryption_keys", {});
+    check(
+      "a context with no key has nothing to rotate, and it is not a refusal",
+      !keylessRotate?.isError && /nothing to rotate/.test(textOf(keylessRotate)),
+    );
+
+    // Three WORKSPACE-encrypted notes exist by this point:
+    // `1-projects/vault/private-secret.md` (encrypted in section (3) and never
+    // decrypted), `1-projects/conflict.md` (left encrypted by section (12)),
+    // and the one section (14) re-sealed while proving the write guard.
+    // `1-projects/moved-secret.md`, moved in section (6), was decrypted again
+    // in section (10) and is plaintext.
+    //
+    // And one note that is NOT among them: `1-projects/locked.md`, the
+    // passphrase-locked note from section (14), which carries a `passphrase`
+    // recipient and no workspace one. The rotation walk must pass it by —
+    // there is no workspace recipient in it to move, its key is not ours, and
+    // the failure to avoid is a pass that counts it as a note it could not
+    // place and therefore never reports itself finished. It is skipped on the
+    // frontmatter marker, which `renderEncryptedNote` omits for a note with no
+    // workspace recipient precisely so this walk does not go looking for a key
+    // called "undefined".
+    const beforeRotate = readA("1-projects/vault/private-secret.md");
+    const lockedBeforeRotate = readA(LOCKED);
+    const rotated = await call(OWNER_A, "rotate_encryption_keys", {});
+    check(
+      "rotation reports what it did and completes in one call for a small context",
+      !rotated?.isError &&
+        /rotation complete: k1 → k2/.test(textOf(rotated)) &&
+        /3 note\(s\) re-wrapped/.test(textOf(rotated)),
+    );
+    check(
+      "a passphrase-locked note is passed over by the walk, byte for byte, and does not stall it",
+      readA(LOCKED) === lockedBeforeRotate,
+    );
+
+    const afterRotate = readA("1-projects/vault/private-secret.md");
+    check(
+      "the note's body ciphertext is byte-for-byte unchanged by rotation",
+      isEncryptedNote(afterRotate) &&
+        isEncryptedNote(beforeRotate) &&
+        parseEncryptedNote(afterRotate).ct === parseEncryptedNote(beforeRotate).ct &&
+        parseEncryptedNote(afterRotate).iv === parseEncryptedNote(beforeRotate).iv,
+    );
+    check(
+      "...but its frontmatter now names the new generation",
+      /context_encryption_key: ws:k2/.test(afterRotate),
+    );
+
+    const readAfterRotate = await call(OWNER_A, "read_note", {
+      path: "1-projects/vault/private-secret.md",
+    });
+    check(
+      "the rotated note still reads back to exactly its plaintext",
+      !readAfterRotate?.isError && textOf(readAfterRotate).endsWith(SECRET_BODY),
+    );
+
+    // Calling the tool again with no rotation in progress starts a FRESH one
+    // (k2 -> k3) — rotation has no "already rotated, do nothing" state, only
+    // "a walk is in progress" or not. Both live notes move again, and the
+    // walk completes in the same call for a context this small.
+    const rotateAgain = await call(OWNER_A, "rotate_encryption_keys", {});
+    check(
+      "rotating again with no walk in progress starts and completes a fresh rotation",
+      !rotateAgain?.isError &&
+        /rotation complete: k2 → k3/.test(textOf(rotateAgain)) &&
+        /3 note\(s\) re-wrapped/.test(textOf(rotateAgain)),
+    );
+    check(
+      "...and the locked note is still exactly what it was, two rotations later",
+      readA(LOCKED) === lockedBeforeRotate,
+    );
+
+    const auditAfterRotate = [...a.objects.keys()]
+      .filter((key) => key.startsWith(".audit/"))
+      .map((key) => new TextDecoder().decode(a.objects.get(key).bytes))
+      .join("\n");
+    check(
+      "rotation is audited by generation id, never by key material",
+      /rotate_encryption_keys/.test(auditAfterRotate) &&
+        !auditAfterRotate.includes(KEY_A) &&
+        !readA("1-projects/vault/private-secret.md").includes(KEY_A),
+    );
+
+    /*
+      THE ROTATION HALF OF THE SMUGGLED-ARGUMENT ATTACK, ASKED LAST.
+
+      The export half is above, beside the other export checks. This one has
+      the sharper version of the same question and belongs here, after two
+      real rotations, because it performs a third: two of the names in
+      `SMUGGLED` are the literal flags `/gateway/binding` accepts
+      (`startEncryptionRotation`, `completeEncryptionRotation`), so a tool
+      that passed its arguments through to `store.rotateEncryptionKeys` would
+      hand a caller a rotation of somebody else's workspace key — the one
+      operation in this file that can strand every note in a bucket.
+
+      Two things have to hold: B's bytes are untouched, and this call rotated
+      A rather than reporting on B. The generation labels are the tell —
+      A is on k3 by now, B has never rotated and is still on k1, so a call
+      that answered about B would say "k1 → k2".
+    */
+    const bStolenBefore = readB("1-projects/stolen.md");
+    const bOwnBefore = readB("1-projects/own.md");
+    const smuggledRotate = await call(OWNER_A, "rotate_encryption_keys", { ...SMUGGLED });
+    check(
+      "a rotation named at another context in every argument rotates this one, and leaves that one's bytes alone",
+      !smuggledRotate?.isError &&
+        /rotation complete: k3 → k4/.test(textOf(smuggledRotate)) &&
+        !textOf(smuggledRotate).includes(KEY_B) &&
+        readB("1-projects/stolen.md") === bStolenBefore &&
+        readB("1-projects/own.md") === bOwnBefore,
     );
   } finally {
     restore();

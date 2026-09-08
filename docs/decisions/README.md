@@ -72,11 +72,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Round-tripping without damaging ciphertext
 - Sharing: an unlisted link over an encrypted note is refused
 - Rotation: three different things, and they must not be confused
+- What a teardown deletes, and what it keeps — OPEN
 - Revocation and export: the customer keeps a usable context, or this feature breaks the first non-negotiable
 - Encrypted notes are for humans; no AI client reads one
 - The KDF, per client
 - Bounds on a KDF descriptor, because a bucket is not a trusted input
 - What Phase 1 builds, and what it does not
+- What Phase 2a adds
 
 ## [The MCP gateway: protocol, transport, orientation](./gateway-protocol.md)
 

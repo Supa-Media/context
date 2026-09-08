@@ -43,6 +43,29 @@ export function createControlPlaneStub(options = {}) {
   /** workspaceId → binding descriptor (without workspaceId; added on the way out). */
   const bindings = new Map();
   /**
+   * workspaceId → the rotation in progress, or `null` — mutated by
+   * `startEncryptionRotation`/`completeEncryptionRotation` on `/gateway/binding`,
+   * modelling `startWorkspaceKeyRotation`/`completeWorkspaceKeyRotation` on the
+   * real control plane. Real, valid AES-256 base64 material is minted for a new
+   * generation — never a placeholder — because this feeds straight into
+   * `src/encryption.js`'s actual AES-GCM calls in the gateway under test.
+   */
+  const rotations = new Map();
+
+  /** A fresh, real AES-256 key, base64. */
+  function mintKeyMaterial() {
+    let binary = "";
+    for (const byte of crypto.getRandomValues(new Uint8Array(32))) binary += String.fromCharCode(byte);
+    return btoa(binary);
+  }
+
+  /** `k1` -> `k2`, `k9` -> `k10` — the same scheme the real control plane uses. */
+  function nextGeneration(current) {
+    const match = /^([A-Za-z_-]*?)(\d+)$/.exec(current);
+    if (match === null) return `${current}-2`;
+    return `${match[1]}${Number(match[2]) + 1}`;
+  }
+  /**
    * Knobs a test flips to model a control plane that is not this one — older
    * than a field, or misbehaving. Read at request time, never at setup.
    */
@@ -246,11 +269,38 @@ export function createControlPlaneStub(options = {}) {
         // is a third sibling on the real route, absent for every context that
         // has never encrypted a note — so a fixture that does not mention it
         // produces exactly the bytes a context without one gets today.
+        //
+        // `rotation` is a fourth. `startEncryptionRotation`/
+        // `completeEncryptionRotation` mutate `binding.encryptionKey` and
+        // `rotations` in place — on THIS workspace's row in `bindings`, so a
+        // rotation started by one call is visible to the next, exactly like
+        // the real control plane's persisted state.
+        if (body.startEncryptionRotation === true && binding.encryptionKey) {
+          const active = rotations.get(served) ?? null;
+          if (active === null) {
+            const fromGeneration = binding.encryptionKey.current;
+            const toGeneration = nextGeneration(fromGeneration);
+            binding.encryptionKey = {
+              current: toGeneration,
+              keys: { ...binding.encryptionKey.keys, [toGeneration]: mintKeyMaterial() },
+            };
+            rotations.set(served, { fromGeneration, toGeneration });
+          }
+        }
+        if (typeof body.completeEncryptionRotation === "string") {
+          const active = rotations.get(served) ?? null;
+          if (active !== null && active.toGeneration === body.completeEncryptionRotation) {
+            rotations.set(served, null);
+          }
+        }
+        const rotation = rotations.get(served) ?? null;
+
         const { searchIndex, encryptionKey, ...storage } = binding;
         const envelope = (workspaceId) => ({
           binding: workspaceId === null ? { ...storage } : { workspaceId, ...storage },
           ...(searchIndex ? { searchIndex } : {}),
           ...(encryptionKey ? { encryptionKey } : {}),
+          ...(rotation ? { rotation } : {}),
         });
         if (flags.omitBindingWorkspaceId) return ok(envelope(null));
         return ok(envelope(served));

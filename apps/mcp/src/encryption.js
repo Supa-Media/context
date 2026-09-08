@@ -81,6 +81,13 @@ export const FENCE_LANGUAGE = "context-encrypted";
 export const RECIPIENT_WORKSPACE = "workspace";
 
 /**
+ * The key export format version. Independent of `ENVELOPE_VERSION`: an export
+ * bundles zero or more note-envelope-openers, it is not itself a note envelope,
+ * and the two have no reason to change together.
+ */
+export const KEY_EXPORT_VERSION = 1;
+
+/**
  * The recipient kind a passphrase opens.
  *
  * The key that unwraps it is derived **on the client**, from a passphrase this
@@ -764,6 +771,24 @@ export function hasRecipient(stored, kind, id) {
  * `decryptNote` and everything below share this one.
  */
 async function unwrapWithWorkspaceKey(envelope, { workspaceId, keys }) {
+  const recipient = workspaceRecipientFor(envelope, workspaceId, keys);
+  return await unwrapNoteKey(recipient, keyBytesFrom(keys[recipient.id]), workspaceId);
+}
+
+/**
+ * WHICH workspace recipient opens this envelope here — the selection half of
+ * the function above, split out because a second caller needs it.
+ *
+ * `unwrapWithWorkspaceKey` reads a note; `rewrapWorkspaceRecipient` re-wraps
+ * one, and has to know which entry of the array it opened in order to replace
+ * that one and leave every other alone. Two copies of "which recipient opens
+ * this, and what does a failure say" is exactly the drift the comment above
+ * refuses, so there is one — and the rotation pass and the read path therefore
+ * fail identically, including on the note this file's passphrase section is
+ * about, which carries a passphrase recipient and no workspace one and is
+ * refused by name rather than reported as a key that is merely missing.
+ */
+function workspaceRecipientFor(envelope, workspaceId, keys) {
   if (envelope.aad !== contentAad(workspaceId)) {
     throw new NoteCryptoError("this envelope is bound to a different context");
   }
@@ -782,7 +807,7 @@ async function unwrapWithWorkspaceKey(envelope, { workspaceId, keys }) {
         : "that note is protected by a passphrase and carries no workspace recipient; nothing here can open it",
     );
   }
-  return await unwrapNoteKey(recipient, keyBytesFrom(keys[recipient.id]), workspaceId);
+  return recipient;
 }
 
 /**
@@ -972,4 +997,196 @@ function kekBytesFrom(kek) {
     return kek;
   }
   return keyBytesFrom(kek);
+}
+
+/* -------------------------------- rotation -------------------------------- */
+
+/**
+ * Re-wrap one note's `workspace` recipient under a new key generation,
+ * without decrypting — or re-encrypting — the note's body.
+ *
+ * This is the entire cost of a workspace-key rotation, per note: unwrap the
+ * note key with whatever generation currently opens it, wrap the same bytes
+ * again under the new generation's key, and rewrite the frontmatter marker so
+ * a future pass can tell this note is done. `ct`, `iv` and `aad` on the
+ * envelope — the actual content — are copied through unchanged. A rotation
+ * that decrypted and re-encrypted the body instead would turn "rotate the
+ * workspace key" into "re-encrypt every note in the bucket", which
+ * `docs/decisions/encryption.md` names as the cost a per-note key exists to
+ * avoid.
+ *
+ * Any non-`workspace` recipient — a future `passphrase` one — is copied
+ * through untouched: rotating the workspace's own key does not, and must not,
+ * disturb a recipient wrapped under a key this workspace does not hold.
+ *
+ * Idempotent by construction rather than by a caller's care: a note already
+ * on `newGeneration` unwraps with `newKeyMaterial` (present in `keys`) and
+ * re-wraps to the same bytes it already had, modulo IV — safe to call twice,
+ * and safe for a resumed walk to call again on a note the last pass already
+ * moved.
+ *
+ * @param {string} stored the document as it sits in the bucket
+ * @param {{workspaceId: string, keys: Record<string,string>, newGeneration: string, newKeyMaterial: string}} context
+ *   `keys` must include an entry for whatever generation the note is
+ *   currently wrapped under — every live (non-purged) generation, in
+ *   practice — so a note several generations behind still re-wraps in one
+ *   step straight to the current one.
+ * @returns {Promise<string>} the document to store, unchanged but for the
+ *   `workspace` recipient and the frontmatter marker naming its generation.
+ */
+export async function rewrapWorkspaceRecipient(
+  stored,
+  { workspaceId, keys, newGeneration, newKeyMaterial },
+) {
+  const envelope = parseEncryptedNote(stored);
+  if (envelope === null) throw new NoteCryptoError("that note is not encrypted");
+  const generation = requireKeyId(newGeneration);
+
+  // The same selection the read path makes, so a note this refuses to re-wrap
+  // is exactly a note it refuses to read, with the same words - including a
+  // passphrase-only note, which has no workspace recipient to move and is
+  // named as such rather than reported as a key that went missing.
+  const current = workspaceRecipientFor(envelope, workspaceId, keys);
+  const noteKeyBytes = await unwrapNoteKey(
+    current,
+    keyBytesFrom(keys[current.id]),
+    workspaceId,
+  );
+
+  const wrappingKey = await importAesKey(keyBytesFrom(newKeyMaterial));
+  const wrapIv = crypto.getRandomValues(new Uint8Array(IV_BYTE_LENGTH));
+  const wrapped = new Uint8Array(
+    await crypto.subtle.encrypt(
+      {
+        name: "AES-GCM",
+        iv: wrapIv,
+        additionalData: new TextEncoder().encode(wrapAad(workspaceId)),
+      },
+      wrappingKey,
+      noteKeyBytes,
+    ),
+  );
+
+  // Matched by identity, not by index or by id: `current` is the very object
+  // the selection returned, so the entry replaced is the entry opened, and
+  // every other recipient - a `passphrase` one above all - is the same object
+  // it was.
+  const recipients = envelope.recipients.map((existing) =>
+    existing === current
+      ? {
+          kind: RECIPIENT_WORKSPACE,
+          id: generation,
+          alg: CONTENT_ALG,
+          iv: toBase64Url(wrapIv),
+          wrapped: toBase64Url(wrapped),
+        }
+      : existing,
+  );
+
+  return renderEncryptedNote({ ...envelope, recipients });
+}
+
+/* ----------------------------- key export --------------------------------- */
+
+/**
+ * The versioned, language-neutral bundle `export_encryption_keys` and the
+ * console's export action both produce, and `packages/encryption-decryptor`
+ * consumes.
+ *
+ * Every *live* generation is included, not only the current one — a bucket
+ * can hold notes from before the workspace's most recent rotation, and an
+ * export that carried only `current` would be an export that cannot open
+ * them. `current` is named separately so a decryptor (or a human) knows which
+ * one a freshly-encrypted note would use, but every entry here is enough, on
+ * its own, to open the notes wrapped under it.
+ *
+ * Deliberately hand-assembled, like `renderEncryptedNote`: this is the format
+ * a reimplementation has to produce and consume with nothing but this
+ * module's algorithm and string concatenation, so its shape is part of the
+ * contract in `docs/decisions/encryption.md` and not an internal detail.
+ *
+ * @param {{workspaceId: string, current: string, keys: Array<{generation: string, material: string}>}} input
+ * @returns {object} the export document, ready for `JSON.stringify`
+ */
+export function renderKeyExport({ workspaceId, current, keys }) {
+  requireWorkspaceId(workspaceId);
+  if (typeof current !== "string" || current === "") {
+    throw new NoteCryptoError("a key export must name its current generation");
+  }
+  if (!Array.isArray(keys) || keys.length === 0) {
+    throw new NoteCryptoError("a key export must include at least one key generation");
+  }
+  const seen = new Set();
+  const entries = keys.map((entry) => {
+    if (!entry || typeof entry.generation !== "string" || typeof entry.material !== "string") {
+      throw new NoteCryptoError("a key export entry must have a generation and material");
+    }
+    const generation = requireKeyId(entry.generation);
+    keyBytesFrom(entry.material); // shape-validates the material without holding onto the bytes
+    if (seen.has(generation)) {
+      throw new NoteCryptoError("a key export cannot repeat a generation");
+    }
+    seen.add(generation);
+    return { generation, alg: CONTENT_ALG, key: entry.material };
+  });
+  if (!seen.has(current)) {
+    throw new NoteCryptoError("a key export's current generation must be one of its own keys");
+  }
+  return {
+    v: KEY_EXPORT_VERSION,
+    workspace_id: workspaceId,
+    exported_at: new Date().toISOString(),
+    current,
+    keys: entries,
+    envelope: { version: ENVELOPE_VERSION, alg: CONTENT_ALG, spec: "docs/decisions/encryption.md" },
+  };
+}
+
+/**
+ * The inverse of `renderKeyExport`: validate an export document (parsed JSON,
+ * not yet trusted) and answer the `{workspaceId, keys}` shape `decryptNote`
+ * and `rewrapWorkspaceRecipient` accept.
+ *
+ * This is what the offline decryptor calls before it opens a single note, so
+ * every failure here is a message an owner reads on their own machine with no
+ * gateway and no control plane to ask — hence the spelled-out reasons rather
+ * than a single "invalid export".
+ *
+ * @param {unknown} doc parsed JSON
+ * @returns {{workspaceId: string, current: string, keys: Record<string,string>}}
+ */
+export function parseKeyExport(doc) {
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
+    throw new NoteCryptoError("key export is not a JSON object");
+  }
+  if (doc.v !== KEY_EXPORT_VERSION) {
+    throw new NoteCryptoError(`unsupported key export version ${describeField(doc.v)}`);
+  }
+  if (typeof doc.workspace_id !== "string" || doc.workspace_id.length === 0) {
+    throw new NoteCryptoError("key export is missing workspace_id");
+  }
+  if (typeof doc.current !== "string" || doc.current.length === 0) {
+    throw new NoteCryptoError("key export is missing current");
+  }
+  if (!Array.isArray(doc.keys) || doc.keys.length === 0) {
+    throw new NoteCryptoError("key export has no keys");
+  }
+  const keys = {};
+  for (const entry of doc.keys) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new NoteCryptoError("key export has a malformed key entry");
+    }
+    if (typeof entry.generation !== "string" || typeof entry.key !== "string") {
+      throw new NoteCryptoError("key export has a malformed key entry");
+    }
+    if (entry.alg !== CONTENT_ALG) {
+      throw new NoteCryptoError(`key export entry has an unsupported algorithm ${describeField(entry.alg)}`);
+    }
+    keyBytesFrom(entry.key);
+    keys[entry.generation] = entry.key;
+  }
+  if (!Object.prototype.hasOwnProperty.call(keys, doc.current)) {
+    throw new NoteCryptoError("key export's current generation is not among its own keys");
+  }
+  return { workspaceId: doc.workspace_id, current: doc.current, keys };
 }
