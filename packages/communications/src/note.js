@@ -59,7 +59,7 @@ import {
   SPLIT_BYTE_THRESHOLD,
   TRUST,
 } from "./protocol.js";
-import { messageAnchor, threadKey } from "./anchors.js";
+import { messageAnchor, spaceKey, threadKey } from "./anchors.js";
 import { channelDayNotePath, isCalendarDate } from "./paths.js";
 
 /** The literal fence marker, minus its nonce. */
@@ -218,6 +218,51 @@ export function groupIntoThreads(events) {
   return [...threads.values()];
 }
 
+/**
+ * A space (or DM)'s label, as it is written into a day note.
+ *
+ * Two shapes, matching the two things Google Chat calls a space: a named
+ * room ("Space -- Engineering Team") and a direct message, which the Chat API
+ * gives no name for and this labels by the other participant instead
+ * ("Direct message -- Bea Lindqvist"). A space with no display name still
+ * gets a heading rather than none, the same "never an empty heading" rule
+ * NO_SUBJECT follows for a thread.
+ *
+ * The caller defangs and quotes this like every other sender-influenced
+ * string; this function only decides the words, never the markdown.
+ */
+function spaceLabel(event) {
+  const space = event?.space && typeof event.space === "object" ? event.space : {};
+  const name = singleLine(space.displayName);
+  if (space.type === "direct_message") return name ? `Direct message — ${name}` : "Direct message";
+  return name ? `Space — ${name}` : "Space";
+}
+
+/**
+ * Messages grouped into spaces, each holding its own threads in first-message
+ * order -- the shape a Google Chat day is rendered from. groupIntoThreads is
+ * unaware of spaces on purpose: a channel with no space field on any event
+ * (email, iMessage) never reaches this function, and the two stay independent
+ * so neither can regress the other silently.
+ *
+ * @param {import("./protocol.js").CommunicationEvent[]} events
+ * @returns {Array<{key: string, label: string, events: object[],
+ *                   threads: ReturnType<typeof groupIntoThreads>}>}
+ */
+export function groupIntoSpaces(events) {
+  const spaces = new Map();
+  for (const event of chronological(events ?? [])) {
+    const key = spaceKey(event);
+    let space = spaces.get(key);
+    if (!space) {
+      space = { key, label: spaceLabel(event), events: [] };
+      spaces.set(key, space);
+    }
+    space.events.push(event);
+  }
+  return [...spaces.values()].map((space) => ({ ...space, threads: groupIntoThreads(space.events) }));
+}
+
 /** `09:14` in UTC, or `--:--` for a message whose timestamp does not parse. */
 function timeOfDay(event) {
   const at = Date.parse(String(event?.sentAt ?? ""));
@@ -239,11 +284,12 @@ function senderLabel(event) {
  * the heading itself is `singleLine`d because a newline in it would end the
  * heading and start a paragraph the reader would take as the note's own voice.
  */
-function renderMessage(event, nonce) {
+function renderMessage(event, nonce, level = 3) {
   const anchor = messageAnchor(event);
   const subject = defangOutsideFence(singleLine(event?.subject)) || NO_SUBJECT;
+  const hashes = "#".repeat(level);
   const lines = [
-    `### ${timeOfDay(event)} · ${defangOutsideFence(senderLabel(event))} · ${subject} {#${anchor}}`,
+    `${hashes} ${timeOfDay(event)} · ${defangOutsideFence(senderLabel(event))} · ${subject} {#${anchor}}`,
     "",
     `<!-- ${FENCE_MARKER} begin ${nonce} -->`,
     "",
@@ -314,11 +360,46 @@ function preamble(nonce) {
 }
 
 /**
+ * The fixed prose for a space this connection could not read the history of.
+ *
+ * Two reasons, and only two -- both facts about the *provider*, never a
+ * caller's string, so this is never an injection surface the way a message
+ * body is: `"history-off"` is Chat's own per-space history setting, and
+ * `"no-access"` is this connection no longer being able to list a space's
+ * messages (membership revoked, or too small a scope). Fixed enum in, fixed
+ * prose out -- see docs/decisions/communications.md, "A firehose is not
+ * attention" for why an honest gap is written down rather than smoothed over
+ * or silently omitted.
+ */
+function unavailableNotice(reason) {
+  if (reason === "no-access") {
+    return (
+      "> [!warning] History unavailable: this connection can no longer read this space's\n" +
+      "> messages (membership may have changed), so nothing from it is recorded here."
+    );
+  }
+  return (
+    "> [!warning] History unavailable: message history is off for this space, so only\n" +
+    "> messages received while this connection was listening can ever be recorded here."
+  );
+}
+
+/**
  * One part of one channel-day, as Markdown. Pure: same inputs, same bytes.
+ *
+ * Google Chat days are grouped one level deeper than every other channel:
+ * space (or DM), then thread, then message -- `## `, `### Thread — `, `#### `
+ * -- selected by `day.channel === "google-chat"` alone, so an email or
+ * iMessage day is unaffected byte-for-byte whether or not this branch exists.
+ * `day.unavailableSpaces`, rendered only on part 1, is how a sync says "we
+ * could not read this space's history" instead of a day silently looking
+ * like nothing happened there -- see docs/decisions/communications.md,
+ * "Google Chat groups spaces, then threads, then messages".
  *
  * @param {{
  *   channel: string, account?: string, address?: string, date: string,
  *   events: import("./protocol.js").CommunicationEvent[],
+ *   unavailableSpaces?: Array<{label: string, reason: "history-off"|"no-access"}>,
  *   part?: number, parts?: number, nonce: string, now?: string, origin?: string
  * }} day
  * @returns {string}
@@ -331,10 +412,19 @@ export function renderChannelDayNote(day) {
 
   const events = Array.isArray(day.events) ? day.events : [];
   const threads = groupIntoThreads(events);
+  const isSpaceGrouped = day.channel === "google-chat";
+  // Normalized the same direction `yamlNumber` already normalizes the
+  // frontmatter's own `part` key: a caller's non-numeric string must not
+  // silently read as "not part 1" and drop a real unavailable-space notice,
+  // nor show up verbatim in the title the way an un-normalized value would.
+  const part = Number.isInteger(day.part) ? day.part : 1;
+  const unavailableSpaces = part === 1 && Array.isArray(day.unavailableSpaces) ? day.unavailableSpaces : [];
 
   // Keyed off FRONTMATTER_KEYS so the documented order and the written order
   // cannot drift: the on-bucket layout is a stable format, not an internal
-  // detail, and changing it is a breaking change.
+  // detail, and changing it is a breaking change. Deliberately uniform across
+  // every channel -- history-unavailable spaces are recorded in the body,
+  // never a new key, so this list does not fork by channel.
   const values = {
     updated: yamlScalar(day.now ?? new Date().toISOString()),
     type: yamlScalar(CHANNEL_DAY_TYPE),
@@ -345,6 +435,10 @@ export function renderChannelDayNote(day) {
     date: yamlScalar(day.date),
     messages: yamlNumber(events.length),
     threads: yamlNumber(threads.length),
+    // The frontmatter reads the caller's raw value, never the normalized
+    // `part` below: `yamlNumber` already turns a non-numeric string into "0"
+    // on its own, and normalizing it to 1 first would quietly turn that
+    // same garbage into a plausible-looking "1" instead.
     part: yamlNumber(day.part ?? 1),
     parts: yamlNumber(day.parts ?? 1),
     trust: yamlScalar(TRUST),
@@ -354,14 +448,30 @@ export function renderChannelDayNote(day) {
   const heading = [day.date, singleLine(day.address ?? day.account ?? day.channel)]
     .filter(Boolean)
     .join(" · ");
-  const partSuffix = (day.parts ?? 1) > 1 ? ` (part ${day.part ?? 1} of ${day.parts})` : "";
+  const partSuffix = (day.parts ?? 1) > 1 ? ` (part ${part} of ${day.parts})` : "";
 
   const out = ["---", ...FRONTMATTER_KEYS.map((key) => `${key}: ${values[key]}`), "---", ""];
   out.push(`# ${heading}${partSuffix}`, "");
   out.push(preamble(nonce), "");
 
-  if (!threads.length) {
+  if (!threads.length && !unavailableSpaces.length) {
     out.push("_(no messages)_", "");
+    return out.join("\n");
+  }
+
+  if (isSpaceGrouped) {
+    for (const space of groupIntoSpaces(events)) {
+      out.push(`## ${defangOutsideFence(space.label)}`, "");
+      for (const thread of space.threads) {
+        out.push(`### Thread — ${defangOutsideFence(thread.subject)}`, "");
+        for (const event of thread.events) out.push(renderMessage(event, nonce, 4), "");
+      }
+    }
+    for (const space of unavailableSpaces) {
+      const label = defangOutsideFence(singleLine(space?.label)) || "Space";
+      out.push(`## ${label} (history unavailable)`, "");
+      out.push(unavailableNotice(space?.reason), "");
+    }
     return out.join("\n");
   }
 
@@ -403,7 +513,10 @@ export function planChannelDay(day, options = {}) {
   if (threshold <= PART_HEADER_RESERVE) throw new TypeError("threshold must leave room for a header");
   const budget = threshold - PART_HEADER_RESERVE;
 
-  const ordered = groupIntoThreads(day?.events ?? []).flatMap((thread) => thread.events);
+  const isSpaceGrouped = day?.channel === "google-chat";
+  const ordered = isSpaceGrouped
+    ? groupIntoSpaces(day?.events ?? []).flatMap((space) => space.threads.flatMap((thread) => thread.events))
+    : groupIntoThreads(day?.events ?? []).flatMap((thread) => thread.events);
   const nonce = singleLine(day?.nonce);
 
   /** Grouping is done on the rendered message, so the bound is the real one. */
@@ -411,11 +524,16 @@ export function planChannelDay(day, options = {}) {
   let current = [];
   let used = 0;
   for (const event of ordered) {
-    // The thread heading is re-emitted whenever a part starts mid-thread, so
-    // its cost is charged to every message rather than tracked per thread —
-    // an over-estimate by design, in the direction that keeps a part inside
-    // its bound.
-    const cost = utf8Length(renderMessage(event, nonce)) + utf8Length(`## Thread — ${event?.subject ?? ""}`) + 8;
+    // The thread (and, for a space-grouped day, the space) heading is
+    // re-emitted whenever a part starts mid-group, so its cost is charged to
+    // every message rather than tracked per group — an over-estimate by
+    // design, in the direction that keeps a part inside its bound.
+    const cost = isSpaceGrouped
+      ? utf8Length(renderMessage(event, nonce, 4)) +
+        utf8Length(`## ${spaceLabel(event)}`) +
+        utf8Length(`### Thread — ${event?.subject ?? ""}`) +
+        12
+      : utf8Length(renderMessage(event, nonce)) + utf8Length(`## Thread — ${event?.subject ?? ""}`) + 8;
     if (current.length && used + cost > budget) {
       groups.push(current);
       current = [];
@@ -499,6 +617,7 @@ export function parseChannelDayNote(text) {
   const messages = [];
   let inFence = false;
   let thread = "";
+  let space = "";
   for (const line of body.split("\n")) {
     if (line.startsWith(`<!-- ${FENCE_MARKER} begin `)) {
       inFence = true;
@@ -509,12 +628,35 @@ export function parseChannelDayNote(text) {
       continue;
     }
     if (inFence) continue;
-    if (line.startsWith("## Thread — ")) {
-      thread = line.slice("## Thread — ".length).trim();
+
+    // Checked before the thread/space patterns below because it is the more
+    // specific one: a message heading is `###` or `####` and always carries
+    // the `{#msg-...}` suffix neither of the others do, so a Google Chat
+    // day's `### Thread — …` line (three hashes, no suffix) can never be
+    // mistaken for a message and vice versa.
+    const heading = /^#{3,4}\s(.*)\s\{#(msg-[0-9a-f]+)\}\s*$/.exec(line);
+    if (heading) {
+      messages.push({ anchor: heading[2], summary: heading[1].trim(), thread, space });
       continue;
     }
-    const heading = /^###\s(.*)\s\{#(msg-[0-9a-f]+)\}\s*$/.exec(line);
-    if (heading) messages.push({ anchor: heading[2], summary: heading[1].trim(), thread });
+    // Email and iMessage write `## Thread — `; a Google Chat day writes
+    // `### Thread — ` one level deeper, under its own `## ` space heading.
+    const threadHeading = /^#{2,3}\sThread\s—\s(.+)$/.exec(line);
+    if (threadHeading) {
+      thread = threadHeading[1].trim();
+      continue;
+    }
+    // Anything else at `## ` is a space (or DM) heading — the level no other
+    // channel writes at, since their own group heading is "## Thread — ".
+    const spaceHeading = /^##\s(.+)$/.exec(line);
+    if (spaceHeading) {
+      space = spaceHeading[1].trim();
+      // No `thread = ""` here: the renderer always writes a thread heading
+      // before the first message of a space (every message belongs to a
+      // thread), so `thread` is unconditionally overwritten before it is
+      // next read. Resetting it here would be a line no input can reach.
+      continue;
+    }
   }
   return { frontmatter, title, messages, anchors: messages.map((entry) => entry.anchor) };
 }

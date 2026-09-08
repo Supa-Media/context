@@ -278,6 +278,32 @@ const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // folding a second provider's connect flow into either would put two
   // unrelated handshakes behind one module.
   "functions/googleConnect.ts",
+  // THE SEVENTH, THE SAME SHAPE AGAIN — ATTACHING A PRODUCT, NOT A SECOND
+  // OAUTH-CONNECT MODULE FOR A SECOND PROVIDER.
+  //
+  // `chatProduct.ts` decrypts a PKCE verifier for its own connect round trip
+  // (`exchangeAndBindChat`) — the same reason `googleConnect.ts` has one.
+  // It is a sibling file rather than functions added to `googleConnect.ts`
+  // itself for the same reason that file gives for not folding Dropbox in:
+  // two independent connect flows (Gmail's and Chat's) patching one shared
+  // row is a real design, not a reason to interleave their code.
+  "functions/chatProduct.ts",
+  // THE SEVENTH, AND A PRODUCT ON THE SAME ROW RATHER THAN A NEW PROVIDER.
+  //
+  // `calendarConnect.ts` opens the same *kind* of thing `googleConnect.ts`
+  // does — a PKCE verifier parked for a Google consent round trip — but for
+  // a second product's own connect flow, not folded into `googleConnect.ts`
+  // itself. It could not call that module's decrypt path directly because
+  // that path lives inside `exchangeAndBind`'s own internalAction, private
+  // to Gmail's binding shape (backfill days, folders, attachment mode) that
+  // a Calendar-only connect carries none of; sharing the helpers that do not
+  // touch a credential (`requireGoogleClientId`, `requireActor`, …) is what
+  // `googleConnect.ts` exports them for, and this is what still needs its
+  // own verifier-opening step. Reused, not re-derived: `mintGoogleAccessToken`
+  // and `revokeGoogleGrant` in `googleConnect.ts` already serve every
+  // product on the grant, so this module adds exactly one new decrypt site,
+  // not three.
+  "functions/calendarConnect.ts",
 ]);
 
 /** An import of `decryptSecret`, in code rather than in prose. */
@@ -1048,6 +1074,19 @@ describe("no public function can reach a storage secret", () => {
       "functions.googleConnect.exchangeAndBind",
       "functions.googleConnect.mintGoogleAccessToken",
       "functions.googleConnect.revokeGoogleGrant",
+      // CHAT'S OWN CONNECT ROUND TRIP — the same PKCE-verifier decrypt
+      // `googleConnect.ts`'s `exchangeAndBind` needs, on its own sibling
+      // file. Disconnect and access-token minting are reused verbatim from
+      // `googleConnect.ts` (they are already product-agnostic), so Chat adds
+      // exactly one barrier function, not three.
+      "functions.chatProduct.exchangeAndBindChat",
+      // CALENDAR'S OWN VERIFIER-OPENING STEP — see the
+      // `functions/calendarConnect.ts` entry in `DECRYPT_IMPORTERS` for why
+      // this exists rather than reusing `googleConnect.exchangeAndBind`.
+      // Minting an access token and revoking the grant are NOT duplicated
+      // here: `googleConnect.mintGoogleAccessToken` and `.revokeGoogleGrant`
+      // above already serve every product on the one connection row.
+      "functions.calendarConnect.exchangeAndBindCalendar",
     ].sort());
   });
 

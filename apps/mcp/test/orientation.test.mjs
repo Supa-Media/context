@@ -758,6 +758,15 @@ export async function runOrientationChecks(check) {
       "session one",
       new Date(recencyNow - 12 * 60 * 60 * 1000)
     );
+    // Three calendar days — its own kind, never folded into the mail count
+    // above even though both are "automated capture" in the same sense.
+    let newestCalendarKey = "";
+    for (let day = 0; day < 3; day += 1) {
+      const at = new Date(recencyNow - (3 - day) * 24 * 60 * 60 * 1000);
+      const key = `0-inbox/calendar/${at.toISOString().slice(0, 10)}.md`;
+      recencyBucket.seed(key, "a day of the calendar", at);
+      newestCalendarKey = key;
+    }
     // Three notes a person actually wrote or edited, oldest and newest far
     // enough apart that a broken sort cannot pass by accident.
     recencyBucket.seed("1-projects/alpha.md", "alpha", new Date(recencyNow - 1 * 60 * 60 * 1000));
@@ -814,6 +823,25 @@ export async function runOrientationChecks(check) {
       /^- 1 saved session arrived/m.test(ownerRecent) &&
         !ownerRecent.includes("0-inbox/sessions/claude/2026-09-06T10-00-00-000Z.md —")
     );
+    check(
+      "calendar days collapse to their own line — never counted as mail, never as an individual entry",
+      /^- 3 calendar days arrived/m.test(ownerRecent) &&
+        !/^- 34 mail days arrived/m.test(ownerRecent) &&
+        !/^- 0-inbox\/calendar\//m.test(ownerRecent)
+    );
+    check(
+      "the collapsed calendar line points at the newest calendar day",
+      ownerRecent.includes(`newest \`${newestCalendarKey}\``)
+    );
+    // Sabotage, measured: dropped `"calendar-day"` from `summarizeCaptured`'s
+    // `order` array (leaving `classifyCaptureKind` itself untouched) — 2
+    // checks failed, exactly these two, and not the individual-entry check
+    // three lines up, which is the interesting result rather than a shortfall:
+    // a calendar day is still classified as automated capture, so it is
+    // still removed from `authored` before `mostRecent` runs, and it simply
+    // vanishes from orient's answer with no summary line either — the
+    // "silence" failure "A firehose is not attention" was written to reject,
+    // reached from `order` instead of from `classifyCaptureKind`.
     check(
       "the section explains that automated capture is collapsed",
       ownerRecent.includes("collapsed to one")

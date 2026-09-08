@@ -145,6 +145,7 @@ export function runNoteChecks(check) {
       "device",
       "attendees",
       "status",
+      "event",
     ]
   ));
   check("...which is exactly what FRONTMATTER_KEYS says it is", deepEqual(writtenKeys, [...FRONTMATTER_KEYS]));
@@ -338,10 +339,10 @@ export function runNoteChecks(check) {
   const hostileNote = renderMeetingNote(hostile, { now: NOW });
   const hostileParsed = parseMeetingNote(hostileNote);
   check("a hostile title does not break the frontmatter", hostileParsed.frontmatter["meeting-id"] === FIXTURE_ID);
-  check("...the frontmatter still closes where it should", hostileNote.split("\n").indexOf("---", 1) === 12);
+  check("...the frontmatter still closes where it should", hostileNote.split("\n").indexOf("---", 1) === FRONTMATTER_KEYS.length + 1);
   check("...the title survives as the H1, verbatim", hostileParsed.title === 'Q3: "review" — #1');
   check("...and hostile attendee names round-trip exactly", deepEqual(hostileParsed.frontmatter.attendees, ['Attendee, "One"', "- Attendee: Two #2"]));
-  check("...with every frontmatter key still readable", deepEqual(Object.keys(hostileParsed.frontmatter).length, 11));
+  check("...with every frontmatter key still readable", deepEqual(Object.keys(hostileParsed.frontmatter).length, FRONTMATTER_KEYS.length));
 
   /* --------------------- the human's notes are theirs ------------------- */
 
@@ -501,4 +502,27 @@ export function runNoteChecks(check) {
   check("parsing a hand-written note without frontmatter does not throw", deepEqual(parseMeetingNote("# hello\n").frontmatter, {}));
   check("...and still finds the title", parseMeetingNote("# hello\n").title === "hello");
   check("parsing an empty string does not throw", parseMeetingNote("").notes === "");
+
+  /* ------------------------- the `event` key ---------------------------- */
+  //
+  // Added for the calendar-link half of `docs/decisions/communications.md`'s
+  // "A captured meeting can gain a link to its calendar event" — a meeting
+  // this product has always been able to render, before any calendar was
+  // ever connected, must render identically once the key exists.
+  check(
+    "a session with no event link renders an empty event key, the same way `ended` is empty until a meeting finishes",
+    parseMeetingNote(renderMeetingNote(finished(), { now: NOW })).frontmatter.event === ""
+  );
+  const linked = renderMeetingNote(finished({ event: "[[0-inbox/calendar/2026-03-04#evt-0123456789abcdef]]" }), { now: NOW });
+  check(
+    "a session carrying an event link writes it verbatim as an ordinary wikilink",
+    parseMeetingNote(linked).frontmatter.event === "[[0-inbox/calendar/2026-03-04#evt-0123456789abcdef]]"
+  );
+  check(
+    "the event key never displaces or reorders any other key",
+    deepEqual(
+      linked.split("\n").slice(1, linked.split("\n").indexOf("---", 1)).map((line) => line.slice(0, line.indexOf(":"))),
+      [...FRONTMATTER_KEYS]
+    )
+  );
 }
