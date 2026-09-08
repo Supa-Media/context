@@ -4,14 +4,18 @@ import {
   DROPBOX_CALLBACK_PATH,
   DROPBOX_REDIRECT_ORIGINS,
   DROPBOX_TIMEOUT_MESSAGE,
+  DROPBOX_COMPLETION_KEY,
+  browserCompletionStore,
   browserOrigin,
   describeDropboxFailure,
   dropboxCallbackHref,
   dropboxRedirectUri,
   firstParam,
   isDropboxAuthorizeUrl,
+  keepCompletionSecret,
   parseDropboxCallback,
   resolveDropboxCallbackView,
+  takeCompletionSecret,
   type DropboxAttempt,
   type DropboxCallback,
 } from "../features/console/storage/dropbox";
@@ -512,5 +516,91 @@ describe("the folder inside the app folder", () => {
   test("the noun follows the surface, so neither names the other's container", () => {
     expect(validateRootPrefix("/x", "app folder")).toContain("app folder");
     expect(validateRootPrefix("/x")).toContain("bucket");
+  });
+});
+
+describe("the value that does not travel through Dropbox", () => {
+  /**
+   * `state` goes out in the authorize URL and comes back in the callback, so
+   * whoever built that URL knows it — including somebody who built it for
+   * their own workspace and sent it to another person to consent. The control
+   * plane mints a second value at start and requires it back; these are the
+   * two lines that keep it in the browser that started the flow, and the
+   * reason they are functions rather than two `localStorage` calls inside a
+   * component is `features/console/capabilities.ts`'s: every guard expressed
+   * inside a component in this app was held by nothing.
+   */
+  const store = () => {
+    const held = new Map<string, string>();
+    return {
+      getItem: (key: string) => held.get(key) ?? null,
+      setItem: (key: string, value: string) => void held.set(key, value),
+      removeItem: (key: string) => void held.delete(key),
+      size: () => held.size,
+    };
+  };
+
+  test("what was kept is what comes back", () => {
+    const s = store();
+    keepCompletionSecret("secret-abc", s);
+    expect(s.getItem(DROPBOX_COMPLETION_KEY)).toBe("secret-abc");
+    expect(takeCompletionSecret(s)).toBe("secret-abc");
+  });
+
+  test("TAKING IT FORGETS IT, so a secret does not outlive its one connect", () => {
+    const s = store();
+    keepCompletionSecret("secret-abc", s);
+    takeCompletionSecret(s);
+    expect(s.size()).toBe(0);
+    expect(takeCompletionSecret(s)).toBe("");
+  });
+
+  /**
+   * A browser that never started this flow — the victim's, in the case this
+   * exists for — has nothing to hand over, and answers with the empty string
+   * rather than inventing one. The control plane refuses that exactly as it
+   * refuses a wrong one, so there is nothing here to tell them apart.
+   */
+  test("a browser that started nothing hands over nothing", () => {
+    expect(takeCompletionSecret(store())).toBe("");
+    expect(takeCompletionSecret(null)).toBe("");
+  });
+
+  /**
+   * A browser with site data blocked throws on the property rather than
+   * answering null, and a connect that cannot keep the value cannot complete
+   * — which is the safe direction. What must never happen is the navigation
+   * to Dropbox failing because of it.
+   */
+  test("a store that throws is survivable, in both directions", () => {
+    const hostile = {
+      getItem: () => {
+        throw new Error("site data blocked");
+      },
+      setItem: () => {
+        throw new Error("site data blocked");
+      },
+      removeItem: () => {
+        throw new Error("site data blocked");
+      },
+    };
+    expect(() => keepCompletionSecret("secret-abc", hostile)).not.toThrow();
+    expect(takeCompletionSecret(hostile)).toBe("");
+  });
+
+  test("browserCompletionStore answers null where there is no usable storage", () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("site data blocked");
+      },
+    });
+    try {
+      expect(browserCompletionStore()).toBeNull();
+    } finally {
+      if (original) Object.defineProperty(globalThis, "localStorage", original);
+      else delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
   });
 });

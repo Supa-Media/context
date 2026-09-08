@@ -145,6 +145,7 @@ export const parkCalendarAttempt = internalMutation({
     workspaceId: v.id("workspaces"),
     startedBy: v.id("users"),
     redirectUri: v.string(),
+    hashedCompletion: v.string(),
     products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
   },
   returns: v.null(),
@@ -161,6 +162,7 @@ export const parkCalendarAttempt = internalMutation({
 
     await ctx.db.insert("googleConnectAttempts", {
       hashedState: args.hashedState,
+      hashedCompletion: args.hashedCompletion,
       encryptedVerifier: args.encryptedVerifier,
       workspaceId: args.workspaceId,
       startedBy: args.startedBy,
@@ -177,13 +179,16 @@ export const parkCalendarAttempt = internalMutation({
 });
 
 /**
- * Begin a Calendar connect. Returns a URL to send the person to, and
- * nothing else — same shape as `startGmailConnect`.
+ * Begin a Calendar connect. Returns a URL to send the person to, and the one
+ * value the starting browser has to keep — same shape as `startGmailConnect`.
  */
 export const startCalendarConnect = action({
   args: { workspaceId: v.id("workspaces"), redirectUri: v.string() },
-  returns: v.object({ authorizeUrl: v.string() }),
-  handler: async (ctx, args): Promise<{ authorizeUrl: string }> => {
+  returns: v.object({ authorizeUrl: v.string(), completionSecret: v.string() }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ authorizeUrl: string; completionSecret: string }> => {
     requireCalendarConnectEnabled();
     const userId = await requireActor(ctx);
     const isPersonalOwner: boolean = await ctx.runQuery(internal.functions.googleConnect.requirePersonalOwner, {
@@ -207,6 +212,12 @@ export const startCalendarConnect = action({
     const clientId = requireGoogleClientId();
     const { verifier, challenge } = await createPkcePair();
     const state = randomOpaqueToken(STATE_BYTES);
+    /*
+      The value that never leaves this browser — see
+      `consumeCalendarAttemptAndExchange` for why `state` alone cannot say
+      which browser started the flow.
+    */
+    const completionSecret = randomOpaqueToken(STATE_BYTES);
 
     const encryptedVerifier = await encryptSecret(verifier, requireKeyset(), {
       workspaceId: args.workspaceId as string,
@@ -226,6 +237,7 @@ export const startCalendarConnect = action({
 
     await ctx.runMutation(internal.functions.calendarConnect.parkCalendarAttempt, {
       hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(completionSecret),
       encryptedVerifier,
       workspaceId: args.workspaceId,
       startedBy: userId,
@@ -234,6 +246,7 @@ export const startCalendarConnect = action({
     });
 
     return {
+      completionSecret,
       authorizeUrl: googleAuthorizeUrl({
         clientId,
         redirectUri: args.redirectUri,
@@ -253,13 +266,29 @@ export const startCalendarConnect = action({
  * victim's own connect and nothing else.
  */
 export const completeCalendarConnect = action({
-  args: { state: v.string(), code: v.string() },
+  args: {
+    state: v.string(),
+    code: v.string(),
+    /*
+      Optional with an empty-string default, for the reason the sibling flows
+      give: a required arg makes a browser on yesterday's bundle fail with a
+      validator error instead of this flow's one refusal — a distinguishable
+      answer, for the length of a deploy, on a path whose whole point is that
+      its failures look identical. The empty string fails the comparison
+      exactly as a wrong secret does.
+    */
+    completionSecret: v.optional(v.string()),
+  },
   returns: v.object({ workspaceId: v.id("workspaces") }),
   handler: async (ctx, args): Promise<{ workspaceId: Id<"workspaces"> }> => {
     requireCalendarConnectEnabled();
     const consumed: { workspaceId: Id<"workspaces"> } | null = await ctx.runMutation(
       internal.functions.calendarConnect.consumeCalendarAttemptAndExchange,
-      { hashedState: await hashToken(args.state), code: args.code },
+      {
+        hashedState: await hashToken(args.state),
+        code: args.code,
+        hashedCompletion: await hashToken(args.completionSecret ?? ""),
+      },
     );
     if (consumed === null) refuseAttempt();
     return consumed;
@@ -267,7 +296,7 @@ export const completeCalendarConnect = action({
 });
 
 export const consumeCalendarAttemptAndExchange = internalMutation({
-  args: { hashedState: v.string(), code: v.string() },
+  args: { hashedState: v.string(), code: v.string(), hashedCompletion: v.string() },
   returns: v.union(v.null(), v.object({ workspaceId: v.id("workspaces") })),
   handler: async (ctx, args) => {
     const attempt = await ctx.db
@@ -280,6 +309,22 @@ export const consumeCalendarAttemptAndExchange = internalMutation({
     // exchange has still spent its attempt.
     await ctx.db.delete(attempt._id);
     if (attempt.expiresAt < Date.now()) return null;
+    /*
+      THE BROWSER THAT STARTED THIS IS THE ONE THAT MAY FINISH IT, and it is a
+      different question from the product check below.
+
+      `state` travels through Google and comes back in the callback, so whoever
+      built the authorize URL knows it — including somebody who built it for a
+      workspace they own and sent it to another person to consent. PKCE does
+      not see that case: the attacker is the initiator, so the verifier is
+      genuinely theirs. The product check stops a Calendar attempt binding
+      Gmail; this stops somebody else's Google account binding to the
+      attacker's context. `dropboxConnect.ts` carries the full argument.
+
+      Checked after the delete, so a wrong secret spends the attempt. Refused
+      with the same `null` as every other failure here.
+    */
+    if (attempt.hashedCompletion !== args.hashedCompletion) return null;
     // AN ATTEMPT IS FOR THE PRODUCTS IT PARKED, AND `googleConnectAttempts`
     // IS ONE TABLE FOR EVERY PRODUCT'S FLOW. Without this check, a state
     // parked by `startGmailConnect` completes here perfectly happily and
