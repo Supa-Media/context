@@ -303,6 +303,9 @@ describe("the app being killed mid-meeting", () => {
     const store = memoryStore();
     const first = await harness({ store });
     const id = await first.controller.start({ title: "Design review" });
+    // Something captured, so this test is exercising the "recording vs.
+    // paused" question rather than the "nothing captured" one covered above.
+    first.controller.setNotes(id, "agenda: the review");
     first.clock.advance(2 * 60_000);
     first.controller.pause();
     await settle();
@@ -311,6 +314,37 @@ describe("the app being killed mid-meeting", () => {
     const restored = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
     expect(restored.session.state).toBe("failed");
     expect(recordElapsedMs(restored, second.clock.now())).toBe(2 * 60_000);
+  });
+
+  /*
+    THE HARDWARE CASE THIS SECTION WAS NAMED FOR: a recording killed within
+    seconds, before anything at all was captured. "Interrupted, retry it" is
+    the wrong sentence for this one — there is no "rest of this meeting" a
+    Retry could ever find, and `INTERRUPTED_RECORDING_REASON` saying "what was
+    recorded is kept below" would be false about a session with nothing in it.
+    `end()` already tells this apart with `hasNothingCaptured`; this is the
+    same rule reaching the one caller of `fail` that had not been taught it.
+  */
+  test("a recording killed within seconds — nothing captured — is empty, not failed", async () => {
+    const store = memoryStore();
+    const first = await harness({ store });
+    const id = await first.controller.start({ title: "Killed instantly" });
+    first.clock.advance(2_000);
+    await settle();
+
+    const second = await harness({ store, startAt: first.clock.now() });
+    const restored = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(restored.session.state).toBe("empty");
+    expect(restored.session.emptyReason).toMatch(/restarted before anything was captured/i);
+    expect(restored.session.failureReason).toBeNull();
+
+    // Nothing to retry: `failed -> finalizing` is the only route `retryFinalize`
+    // takes, and this session never enters `failed` at all, so pressing it is
+    // a no-op rather than a Retry that could never succeed.
+    await second.controller.retryFinalize(id);
+    expect(
+      second.controller.getSnapshot().records.find((r) => r.session.id === id)!.session.state,
+    ).toBe("empty");
   });
 
   test("a meeting that ended cleanly is untouched by the reconciliation", async () => {

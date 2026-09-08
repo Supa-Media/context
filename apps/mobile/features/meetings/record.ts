@@ -1,6 +1,7 @@
 import { parseDestination, type MeetingDestination } from "./destination";
 import { ERRORS } from "./protocol";
 import type { MeetingSession, TranscriptSegment } from "./protocol";
+import { hasNothingCaptured } from "./session";
 
 /**
  * What one meeting looks like on this device, and what still has to reach the
@@ -276,6 +277,28 @@ export function classifySyncFailure(
  */
 export const MAX_SYNC_ATTEMPTS = 6;
 
+/**
+ * What `markSyncFailed` says when it parks a meeting.
+ *
+ * A permanent, correct refusal and a genuinely transient failure are not the
+ * same fact, and this is where they used to be flattened into one sentence.
+ * Six failed reconnections is a fact about the *connection* — it says nothing
+ * about whether this particular meeting has anything worth sending. A session
+ * with nothing captured (no transcript, no typed notes) is the permanent case:
+ * there is no request a retry could make succeed and no notes "copy your
+ * notes out" could find, so the honest sentence says that once rather than
+ * offering a retry that cannot work.
+ *
+ * `end()` (`controller.ts`) and `recoverInterruptedRecordings` beside it both
+ * keep a session like this out of the sync queue in the first place, by
+ * folding straight to `empty` — which is also why `Landing` in
+ * `MeetingNoteScreen` checks `session.state === "empty"` before it ever reads
+ * `record.rejection`, so a session that took that path never reaches this
+ * message at all. This check is the same backstop `convexGateway.finalize`
+ * keeps for the same reason its own header gives: a bug in an earlier step
+ * should not turn into a false "try again" here, any more than it should turn
+ * into a real, empty note in somebody's bucket.
+ */
 export function markSyncFailed(
   record: MeetingRecord,
   message: string,
@@ -283,13 +306,31 @@ export function markSyncFailed(
 ): MeetingRecord {
   const attempts = record.attempts + 1;
   if (attempts >= MAX_SYNC_ATTEMPTS) {
+    if (hasNothingCaptured(record.session)) {
+      return {
+        ...record,
+        attempts,
+        rejection: {
+          code: "NOTHING_CAPTURED",
+          message:
+            "Nothing was captured during this meeting, so there is nothing to send and nothing to copy out.",
+          noticedAt: now,
+        },
+      };
+    }
     return {
       ...record,
       attempts,
       rejection: {
         code: "RETRIES_EXHAUSTED",
-        message:
-          "This meeting has failed to reach your context several times. It is still on this device — try again, or copy your notes out.",
+        /*
+          The refusal's own reason, carried through, rather than a generic
+          count of attempts standing in for it. `message` is the last thing
+          the gateway or the network actually said — always a transient
+          sentence here, never a raw status code or a bug's own text, because
+          `classifySyncFailure`'s allowlist is what routes a call here at all.
+        */
+        message: `${message} It is still on this device after several tries — try again, or copy your notes out.`,
         noticedAt: now,
       },
     };
