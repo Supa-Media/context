@@ -158,6 +158,43 @@ it; it carries the same `completionSecret` now. **A connect that cites this
 paragraph is citing the binding, not the absence of a session** — the two
 travelled together once and that is exactly how the gap spread.
 
+**Four flows, and the fourth is why this is a guard rather than a habit.**
+Dropbox, Gmail and Calendar were bound by hand, one file at a time, and Google
+Chat — a separate `startChatConnect` in `chatProduct.ts`, sharing the same
+attempt table — was left completing on `{state, code}` alone. The attack
+demonstrated against it bound a stranger's Chat grant, which reads every space
+they are in. So the rule is enforced by shape rather than by memory, in
+`apps/convex/__tests__/connectBinding.test.ts`: a **table** storing a
+`hashedState` stores a `hashedCompletion`; a **public action** taking
+`{state, code}` declares `completionSecret`; an **internal mutation** keyed on
+`hashedState` requires a `hashedCompletion`. The subjects are read from
+Convex's own exported validators and the discovered lists are asserted, so a
+fifth provider arrives as a failing diff and a rule whose subjects vanished
+fails instead of looping over nothing.
+
+**What the binding forbids, stated rather than discovered later.** Finishing a
+connect in a different browser, a different device, or a private window from
+the one that started it: refused, permanently, and that is the point. A browser
+with site data blocked cannot connect at all — it is told so specifically,
+locally, from a fact only it has, because "start it again" is false advice
+there. Two connects started from one browser share one `localStorage` key, so
+the second start invalidates the first tab's callback. And the callback spends
+the secret before the exchange is attempted, so a *transport* failure there
+(not a refusal) costs the person a restart rather than a reload. All three are
+the shape of the binding, not defects in it; keying the stored value by `state`
+would relax the middle one without weakening anything, if it ever bites.
+
+**It does not replace the product discriminator on `googleConnectAttempts`.**
+That check answers a different question — an attempt is for the products it
+parked — and the case it covers is one the binding structurally cannot see:
+there, the person completing *is* the browser that started it, and what is
+wrong is the consent screen they were shown. Both checks stand, and the order
+matters for the tests that prove them: the binding is checked first, so a test
+of the product rule that omits the secret is refused before `products` is ever
+read. That is not hypothetical — this change caused it, and for one commit the
+discriminator in all three Google flows was unguarded while its tests still
+passed.
+
 ### A first-party signed shell may have its own grant approved by the session hosting it
 
 The owner, on the first end-to-end desktop capture (2026-09-07): *"I don't love

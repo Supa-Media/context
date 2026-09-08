@@ -15,10 +15,14 @@ import { leaveForDropbox } from "./leaveForDropbox";
 /**
  * Starting a Dropbox connect: ask the control plane for a URL, then leave.
  *
- * There is deliberately nothing else here. The verifier, the state and the app
- * key all stay server-side — `startDropboxConnect` returns a URL and nothing
- * else — so this hook holds no secret, and a script that read every value in
- * it would have exactly what the address bar is about to show anyway.
+ * Everything that *proves* the flow — the verifier, the state, the app key —
+ * stays server-side, so a script that read every value here would have what
+ * the address bar is about to show anyway. The one thing this hook does hold
+ * is `completionSecret`, which is not a proof: it says *this browser started
+ * the flow*, opens nothing without the `state` it is never stored beside, and
+ * has to survive the navigation, which is why it is written down before it.
+ * `__tests__/dropboxStart.test.ts` is what keeps that line here — deleting it
+ * left the whole mobile suite green, and every live connect broken.
  *
  * The navigation is `leaveForDropbox`, not `router`: Expo Router only knows
  * our own routes. It is platform-split for the same reason the consent

@@ -764,7 +764,19 @@ describe("an attempt is for the products it parked", () => {
     await parkAttemptFor(t, workspaceId, owner, ["gmail"], state);
 
     const error = await captureError(() =>
-      t.action(api.functions.calendarConnect.completeCalendarConnect, { state, code: "code" }),
+      /*
+        THE SECRET IS PASSED, AND THAT IS WHAT MAKES THIS A TEST OF THE PRODUCT
+        CHECK. The browser binding is checked first, so a call that omits it is
+        refused before `products` is ever read — the assertion would still pass
+        and would be proving something else entirely. Measured: with the secret
+        left out, deleting `!attempt.products.includes(...)` from all three
+        Google flows left the whole convex suite green.
+      */
+      t.action(api.functions.calendarConnect.completeCalendarConnect, {
+        state,
+        code: "code",
+        completionSecret: CAL_COMPLETION,
+      }),
     );
     expect(errorCode(error)).toBe("CONNECT_ATTEMPT_INVALID");
     // Spent either way — a refused attempt is still a burned one.
@@ -781,7 +793,14 @@ describe("an attempt is for the products it parked", () => {
     await parkAttemptFor(t, workspaceId, owner, ["calendar"], state);
 
     const error = await captureError(() =>
-      t.action(api.functions.googleConnect.completeGmailConnect, { state, code: "code" }),
+      // With the secret, for the reason the sibling above gives: without it
+      // this refusal is the binding's, and Gmail's `products` check — the only
+      // test in the tree that covers it — would be testing nothing.
+      t.action(api.functions.googleConnect.completeGmailConnect, {
+        state,
+        code: "code",
+        completionSecret: CAL_COMPLETION,
+      }),
     );
     expect(errorCode(error)).toBe("CONNECT_ATTEMPT_INVALID");
     expect(await t.run((ctx) => ctx.db.query("googleConnections").collect())).toHaveLength(0);
