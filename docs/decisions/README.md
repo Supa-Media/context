@@ -179,6 +179,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A segment id names its own meeting, and both sides check it
 - The phone had one barrier where the desktop has four, and both halves are named
 - A refusal is shown with the reason the gateway gave for it
+- The engine's own evidence travels to the recorder, because a Worker's log is
+  not a place a person can read
+- A build is what shipped, not what merged — two "the fix did not work" reports
+  were one build
 
 ## [Communications](./communications.md)
 

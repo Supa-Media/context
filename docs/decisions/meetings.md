@@ -3038,3 +3038,72 @@ evidence reaches the recorder` in `apps/mcp/test/meetings.test.mjs`, and the
 evidence block in `apps/desktop/test/transcriber.test.mjs`. Filling a `null`
 reading with `0` reddens six checks in the Worker alone.
 
+## A build is what shipped, not what merged — two "the fix did not work" reports were one build
+
+Two defects were reported against the signed build the owner installed on
+2026-09-08, and both dissolve into the same fact.
+
+- **The eight parked outbox rows did not clear**, though `dropMisaddressed` runs
+  over the queue as it is read off disk and drops exactly those rows.
+- **Every segment was delivered to the page more than once**, at a ratio equal
+  to the meeting's index in the run — one subscription leaking per meeting.
+
+The build is workflow run `34181715875`, whose `head_sha` is `fd0081e` (#351,
+the silence refusal), started at `02:55:14Z`. `dropMisaddressed` and the
+controller's detach both landed in `7bc99ca` (#353), which merged at `03:00:52Z`
+— **five minutes and thirty-eight seconds after that build started**. Neither
+fix was in the binary. The dispatch message named #353 as carried because it was
+sent after the merge was requested and before it landed.
+
+Both reports are therefore correct observations of the *old* code, and both were
+reproduced against `fd0081e` and shown absent on `main`: three meetings driven
+through the real controller against the old commit deliver meeting N's segments
+N times and leave each meeting's record holding every later meeting's words; the
+same run on `main` delivers each exactly once and leaves the recorder's
+subscription count back at zero between meetings.
+
+Two rules follow, and the first is the durable one:
+
+- **A fix is confirmed against the binary that was installed, never against the
+  branch that was checked out.** The report that confirmed #353's leak fixed did
+  so by reading `controller.ts` in a working tree — on a machine running a build
+  that did not contain it. Reading the source proves what will ship; only the
+  build proves what did. A dispatched workflow's `head_sha` is the fact, and it
+  is one API call.
+- **The queue is the evidence either way.** "No new parked entry appeared" was
+  read as the leak being fixed, and "the outbox stayed at 8" as the drop not
+  working. On the build that actually ran, those are one sentence — nothing
+  dropped them because the code was not there — and the pair should have been
+  read together rather than as two findings.
+
+**What clears the parked rows:** any build cut from `7bc99ca` or later. They are
+dropped once, on the way in, the first time that build reads the queue, and it
+logs `meeting_segments_misaddressed_dropped rows=<n>`. Nothing is lost — each of
+those rows also went out under the meeting that produced it and was acknowledged
+there.
+
+### The leak's third instance, and the guard the comment described
+
+The recorder-to-bridge attachment in `apps/mobile/features/meetings/capture/
+desktop.ts` is **correct, and was**. Its own `attach()` docblock states the
+hazard in the words the third report used — *"a recorder is created per
+configuration and `stop()` must genuinely detach, or a second meeting is fed by
+two subscriptions and every segment is emitted twice"* — and the only check
+standing on it ran **one** meeting, which is the single length at which a
+per-meeting leak is invisible. A comment describing the failure it sits above,
+with no test at that length, is how the same shape gets reported three times.
+
+So the guard is now where the comment is: three meetings in one run, each
+segment delivered exactly once, and the recorder's subscription count asserted
+back at its baseline after every `stop()` — the stricter half, because a fix
+that halved a leak passes a delivery count and fails a baseline. The overlapping
+`start()` race is checked too, which is the one path where `attach()`'s opening
+`detach?.()` is reachable at all; deleting that line failed nothing in the app's
+whole suite before it.
+
+**Three instances of one shape** — controller-to-recorder (#353), the phone's
+equivalent, and this comment's hazard — say the answer may be structural rather
+than three fixes: one attach/detach helper that owns a subscription set, or a
+check that every subscription taken in this subsystem is released. That is a
+larger change than the pull request making this note, and it is proposed here
+rather than built.
