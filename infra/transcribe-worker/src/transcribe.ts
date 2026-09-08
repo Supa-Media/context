@@ -530,7 +530,8 @@ export function toTranscription(raw: unknown, durationMs: number | null): Transc
       function just decided nobody said. That is the line that makes the refusal
       real rather than cosmetic.
     */
-    const text = refused > 0 ? kept.map((segment) => segment.text).join(" ").trim() : flat || kept.map((segment) => segment.text).join(" ").trim();
+    const rebuilt = kept.map((segment) => segment.text).join(" ").trim();
+    const text = refused > 0 ? rebuilt : flat || rebuilt;
     return { text, segments: kept.map(asSegment), refused };
   }
 
