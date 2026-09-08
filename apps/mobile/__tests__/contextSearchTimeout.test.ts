@@ -87,6 +87,8 @@ const answer = (over: Partial<SearchAnswer> = {}): SearchAnswer => ({
   hits: [],
   indexMissing: false,
   indexIncomplete: false,
+  reducedRecall: false,
+  reducedRecallNotes: [],
   ...over,
 });
 
