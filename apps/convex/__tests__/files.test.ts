@@ -380,6 +380,57 @@ describe("read access and write access are different grants", () => {
     ).toEqual([]);
   });
 
+  /**
+   * AND THE ENUMERATION WENT STALE AGAIN, THE MOMENT A NEW WRITE DOOR OPENED.
+   *
+   * `removeNoteEncryption` is the one action in this file that writes plaintext
+   * over an encrypted note, and it arrived after the list above was last
+   * checked. Measured the way that comment says to measure: with its
+   * `minimum: "editor"` lowered to `"member"`, the whole `apps/convex` run
+   * stayed green — 2170 of 2170 — so nothing at all was holding the bar on the
+   * most destructive write the console has. A read-only member could have
+   * replaced a locked note they were shared with by plaintext of their own
+   * choosing, destroying ciphertext nobody — not the owner, not us — can
+   * reconstruct.
+   *
+   * It gets its own test rather than a tenth entry in the loop above because
+   * the loop's notes are all `# Shared\n`, and this door refuses an unencrypted
+   * note (`NOTE_NOT_ENCRYPTED`) before its role gate would ever matter: a row
+   * there would assert the wrong refusal and stay green with the bar on the
+   * floor. Here the note really is encrypted, so a lowered bar lands the write
+   * and both halves of the assertion fail — the refusal and the bytes.
+   */
+  test("a read-only member cannot remove a locked note's encryption", async () => {
+    const f = await fixture();
+    await share(f);
+    const locked = [
+      "---",
+      "context_encryption: v1",
+      "---",
+      "",
+      "> [!NOTE] This note is encrypted.",
+      "",
+      "```context-encrypted",
+      '{"v":1,"alg":"A256GCM","iv":"AAAAAAAAAAAAAAAA","ct":"AAAA",' +
+        '"aad":"context-note-v1:ws_x","recipients":[{"kind":"passphrase","id":"p1",' +
+        '"alg":"A256GCM","iv":"BBBBBBBBBBBBBBBB","wrapped":"CCCC"}]}',
+      "```",
+      "",
+    ].join("\n");
+    f.backend.seed("1-projects/locked.md", locked);
+
+    const error = await captureError(() =>
+      asUser(f.t, f.reader).action(api.functions.files.removeNoteEncryption, {
+        workspaceId: f.workspaceId,
+        path: "1-projects/locked.md",
+        text: "# I took the lock off a note I can only read\n",
+      }),
+    );
+
+    expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
+    expect(f.backend.snapshot()["1-projects/locked.md"]).toBe(locked);
+  });
+
   test("an editor cannot rewrite the access map — the action's own bar, not the module's", async () => {
     // `resetPrivacy` is guarded twice on purpose: `minimum: "owner"` at the
     // action, and `scope !== "private"` inside `resetPrivacyManifest`. Dropping

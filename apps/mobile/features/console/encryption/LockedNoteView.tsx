@@ -275,7 +275,24 @@ export function LockedNoteView({
       <TextInput
         style={styles.body}
         value={draft}
-        onChangeText={setDraft}
+        /*
+          Typing is what "idle" is measured against.
+
+          Without the `touch`, the five minutes ran from the unlock (or the
+          last save) whatever the person was doing, so an editing session
+          longer than the window locked itself mid-sentence — and because
+          locking clears this component's `draft` (the effect above, and
+          deliberately: a plaintext editor with no key behind it is the state
+          this feature must not have) and there is no autosave and no offline
+          queue for an unlocked note by design, everything typed since the
+          last save went with it, unrecoverably. `controller.touch` renews the
+          window *after* sweeping it, so this cannot be used to hold a note
+          open past a timeout that has already expired.
+        */
+        onChangeText={(next) => {
+          setDraft(next);
+          controller.touch(path);
+        }}
         editable={editable}
         multiline
         textAlignVertical="top"

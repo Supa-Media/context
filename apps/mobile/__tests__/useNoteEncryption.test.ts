@@ -57,7 +57,11 @@ jest.mock("convex/react", () => {
 
 // Imported after the mock, which `jest.mock` hoists above it anyway.
 import type { KdfDescriptor } from "../features/console/encryption/kdf";
-import { useNoteEncryption, type NoteEncryptionController } from "../features/console/encryption/useNoteEncryption";
+import {
+  DEFAULT_IDLE_MS,
+  useNoteEncryption,
+  type NoteEncryptionController,
+} from "../features/console/encryption/useNoteEncryption";
 
 function name(fn: string): string {
   return `functions/files:${fn}`;
@@ -277,5 +281,76 @@ describe("useNoteEncryption", () => {
     act(() => controller.lock());
 
     expect(controller.isUnlocked(PATH)).toBe(false);
+  });
+
+  /**
+   * THE IDLE WINDOW IS RENEWED BY AN INTERACTION AND CHECKED BY THE SAME ONE.
+   *
+   * `session.ts`'s fourth rule is that idle auto-lock is "time-based and
+   * checked, never trusted to a timer" — the sweep runs on a tick *and on
+   * every action*, so a suspended laptop and a hidden tab whose interval the
+   * browser throttled or froze lock on the next interaction rather than
+   * staying open because nothing fired. `touch` is the only action that
+   * reaches this session from a keystroke, so it is where both halves of that
+   * rule have to be true at once, and they pull in opposite directions:
+   * renewing without sweeping is the hole (an eight-hour sleep answered by one
+   * keypress), and sweeping without renewing is the five-minute editing
+   * session that locks mid-sentence and discards everything typed since the
+   * last save, which an unlocked note has no autosave and no offline queue to
+   * recover.
+   *
+   * Sabotage record (temporary local edits, reverted):
+   *   dropping the `sweep` dispatch from `touch`                        1
+   *   dropping the `touched` dispatch from `touch`                      1
+   *   `LockedNoteView` not calling `touch` on a keystroke  (1, in `lockedNoteView.test.ts`)
+   */
+  describe("the idle window", () => {
+    async function open(): Promise<void> {
+      await act(async () => {
+        await controller.protect({
+          path: PATH,
+          plaintext: "# a\n",
+          etag: null,
+          passphrase: "a very good passphrase",
+        });
+      });
+    }
+
+    /** Run `body` with `Date.now()` frozen at `at`. */
+    function at<T>(when: number, body: () => T): T {
+      const real = Date.now;
+      Date.now = () => when;
+      try {
+        return body();
+      } finally {
+        Date.now = real;
+      }
+    }
+
+    test("an interaction inside the window keeps the note open past the original deadline", async () => {
+      const opened = Date.now();
+      await open();
+
+      // Four minutes in: still open, and the deadline moves with the keystroke.
+      act(() => at(opened + 4 * 60_000, () => controller.touch(PATH)));
+      expect(controller.isUnlocked(PATH)).toBe(true);
+
+      // Eight minutes after the unlock, but only four after the last keystroke.
+      act(() => at(opened + 8 * 60_000, () => controller.touch(PATH)));
+      expect(controller.isUnlocked(PATH)).toBe(true);
+    });
+
+    test("an interaction after the window has expired locks the note rather than renewing it", async () => {
+      const opened = Date.now();
+      await open();
+      expect(controller.isUnlocked(PATH)).toBe(true);
+
+      // The tab was hidden, or the machine asleep: the sweep interval never
+      // ran, and the first keypress after the wake arrives past the timeout.
+      act(() => at(opened + DEFAULT_IDLE_MS + 1_000, () => controller.touch(PATH)));
+
+      expect(controller.isUnlocked(PATH)).toBe(false);
+      expect(controller.session.lastLock).toBe("idle");
+    });
   });
 });

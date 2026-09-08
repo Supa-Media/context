@@ -21,9 +21,17 @@
  *
  *   the control plane's copy answering `false` unconditionally            10
  *   the two marker constants differing by one character                   10
- *   `writeFile`'s refusal removed                                          3
+ *   `writeFile`'s refusal removed                                         15
+ *   `canReplaceEncryptedNote`'s skeleton comparison removed                 6
  *   the control plane's copy reading the body as well as the frontmatter    1
  *   `readFile` not forcing `readOnly` on an encrypted note                  1
+ *
+ * The refusal's row was `3` while the refusal was total. It is `15` now that
+ * the door admits an envelope for an envelope: every case in `fileOps.test.ts`'s
+ * "the widened door" and "removeNoteEncryption" suites is an assertion about
+ * what that refusal still says no to, so deleting it takes all of them with it.
+ * The skeleton row is the narrower one underneath it — the smuggling shapes
+ * alone, which is what makes it a useful number rather than a restatement.
  *
  * The two tens are the parity corpus doing its job: a copy that always answers
  * `false`, and a copy whose marker is `context_encrypted` rather than

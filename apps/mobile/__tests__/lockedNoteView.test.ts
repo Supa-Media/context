@@ -252,6 +252,48 @@ describe("editing and saving", () => {
     expect(reported).toEqual(["etag-2"]);
     unmount();
   });
+
+  /**
+   * TYPING IS AN INTERACTION, AND THE IDLE WINDOW IS MEASURED AGAINST IT.
+   *
+   * Without this, the five minutes ran from the unlock (or the last save)
+   * whatever the person was doing at the keyboard, so an editing session
+   * longer than the window locked itself mid-sentence — and locking clears
+   * this view's `draft` on purpose, while an unlocked note deliberately has
+   * no autosave and no offline queue behind it (`useNoteEncryption.ts`'s own
+   * header), so everything typed since the last save went with it and nothing
+   * could bring it back. `useNoteEncryption` sweeps before it renews, so this
+   * cannot be used to hold a note open past a window that already expired;
+   * that half is asserted in `useNoteEncryption.test.ts`.
+   *
+   * Sabotage record: dropping `controller.touch(path)` from `onChangeText` —
+   * 1 failure, here.
+   */
+  test("a keystroke renews the note's idle window", async () => {
+    const touched: string[] = [];
+    const controller = fakeController({
+      unlock: async () => ({ plaintext: "# a\n" }),
+      touch: (path) => touched.push(path),
+    });
+    const { container, unmount } = mount({ controller });
+
+    const passphraseField = container.querySelector('[aria-label="Passphrase"]')!;
+    await act(async () => {
+      typeInto(passphraseField, "a very good passphrase");
+      press(byTestId(container, "locked-note-unlock")!);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // Unlocking is not typing: nothing has renewed the window yet.
+    expect(touched).toEqual([]);
+
+    await act(async () => {
+      typeInto(byTestId(container, "locked-note-body")!, "# a\n\nstill working\n");
+    });
+
+    expect(touched).toEqual([PATH]);
+    unmount();
+  });
 });
 
 describe("locking from elsewhere in the session", () => {

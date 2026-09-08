@@ -311,7 +311,26 @@ export function useNoteEncryption(
       isUnlocked: (path) => isUnlocked(session, path),
       msUntilLock: (path, now) => msUntilLock(session, path, now),
       lock: () => dispatch({ type: "lock", reason: "manual" }),
-      touch: (path) => dispatch({ type: "touched", path, at: Date.now() }),
+      /*
+        Sweep, *then* touch, and never the other way round.
+
+        `session.ts`'s fourth rule is that the idle window is checked on a tick
+        **and on every action**, precisely so that a machine that slept, or a
+        tab whose timers a browser throttled or froze while it was hidden,
+        locks on the next interaction rather than staying open because the
+        interval never ran. Renewing first would invert that: the first
+        keystroke after an eight-hour sleep would push the deadline forward
+        from `Date.now()` and the note would never lock at all — the timer
+        having failed to fire is exactly the case the sweep exists to answer.
+        Sweeping first drops the expired entry, and the `touched` that follows
+        is a no-op on a note that is no longer open (see the reducer's own
+        note on why touching a closed note may never resurrect one).
+      */
+      touch: (path) => {
+        const at = Date.now();
+        dispatch({ type: "sweep", at });
+        dispatch({ type: "touched", path, at });
+      },
       protect,
       unlock,
       peek,

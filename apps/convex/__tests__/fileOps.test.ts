@@ -4567,6 +4567,22 @@ function passphraseNote(
   ].join("\n");
 }
 
+/**
+ * ## Sabotage record for this suite and the one below it
+ *
+ * Run as temporary local edits and reverted; counts are failing tests across
+ * the whole `apps/convex` run.
+ *
+ *   `canReplaceEncryptedNote`'s skeleton comparison removed                 6
+ *   `writeFile`'s encrypted-note refusal removed entirely                  15
+ *
+ * The six are the smuggling shapes: content around the fence in three
+ * positions, a second fenced block, a fence smuggled into the frontmatter, and
+ * a line-ending rewrite. The one shape that does *not* move is the hand-written
+ * multi-line JSON blob, and that is the point of having it — it is refused by
+ * the parse rather than by the skeleton, because both cut the blob at the same
+ * first `\n``` `, so it stays refused however the skeleton is broken.
+ */
 describe("writeFile's widened door: an envelope may replace an envelope", () => {
   test("the same recipient set, re-encrypted under a fresh IV, is accepted — an edit while unlocked", async () => {
     const store = bucket();
@@ -4787,6 +4803,186 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
     );
     expect(refused.code).toBe("NOTE_ENCRYPTED");
     expect(store.snapshot()["1-projects/locked.md"]).toBe(before);
+  });
+
+  /*
+   * THE REST OF THE SHAPES AN EDITOR WITHOUT THE PASSPHRASE CAN TYPE.
+   *
+   * The three above are the ones `envelopeSkeleton` was written for. These are
+   * the neighbouring shapes an adversarial reading of it turns up next — two
+   * fenced blocks, a fence smuggled into the frontmatter (where
+   * `parseEnvelopeRecipients` looks for the *first* fence in the document and
+   * `envelopeSkeleton` looks for the first one *after* the frontmatter, which
+   * is the one place those two could be made to disagree), a JSON blob carrying
+   * a real fence close inside itself, and a line-ending rewrite of an otherwise
+   * identical envelope. Each is refused, and each is here because "we thought
+   * about it" is not a check.
+   */
+  test("a second fenced block after the envelope is refused", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    const refused = await capture(() =>
+      writeFile(store, {
+        path: "1-projects/locked.md",
+        text: `${before}\n\`\`\`context-encrypted\nA co-editor put this here.\n\`\`\`\n`,
+        expectedEtag: read.etag,
+        scope: "private",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("NOTE_ENCRYPTED");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(before);
+  });
+
+  test("a fence smuggled into the frontmatter, with the real one still below it, is refused", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    // The envelope JSON appears twice: once inside the frontmatter, where
+    // `parseEnvelopeRecipients` finds it first, and once where it belongs. A
+    // check that read the recipients from one block and compared the skeleton
+    // around the *other* would wave the smuggled plaintext between them
+    // through; the skeleton is computed over everything outside one JSON blob,
+    // so the extra copy is part of what has to match and does not.
+    const json = before.split("```context-encrypted\n")[1]!.split("\n```")[0]!;
+    const smuggled = [
+      "---",
+      "context_encryption: v1",
+      "```context-encrypted",
+      json,
+      "```",
+      "A co-editor without the passphrase put this here.",
+      before.slice(before.indexOf("\n---") + 1),
+    ].join("\n");
+
+    const refused = await capture(() =>
+      writeFile(store, {
+        path: "1-projects/locked.md",
+        text: smuggled,
+        expectedEtag: read.etag,
+        scope: "private",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("NOTE_ENCRYPTED");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(before);
+  });
+
+  test("a hand-written multi-line JSON blob carrying its own fence close is refused", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    // No legitimate client produces this — `JSON.stringify` cannot emit a raw
+    // newline — so the only writer of a blob like this is somebody typing it.
+    // Both the parse and the skeleton cut at the *same* first `\n```, so the
+    // JSON they see is truncated and refused rather than being read one way
+    // for the recipients and another way for the skeleton.
+    const smuggled = before.replace(
+      /```context-encrypted\n[^\n]*\n```/,
+      '```context-encrypted\n{"v":1,\n"leak":"a co-editor put this here\n```\nand this too",\n"alg":"A256GCM"}\n```',
+    );
+    const refused = await capture(() =>
+      writeFile(store, {
+        path: "1-projects/locked.md",
+        text: smuggled,
+        expectedEtag: read.etag,
+        scope: "private",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("NOTE_ENCRYPTED");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(before);
+  });
+
+  test("the same envelope with its line endings rewritten is refused — the skeleton is bytes, not lines", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    const refused = await capture(() =>
+      writeFile(store, {
+        path: "1-projects/locked.md",
+        text: before.replace(/\n/g, "\r\n"),
+        expectedEtag: read.etag,
+        scope: "private",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("NOTE_ENCRYPTED");
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(before);
+  });
+
+  /*
+   * WHAT THIS DOOR DOES **NOT** REFUSE, PINNED SO IT IS A DECISION.
+   *
+   * The skeleton and the recipient set are everything this runtime can check
+   * without a key, and they do not distinguish one locked note's ciphertext
+   * from another's: every passphrase note this console writes carries the same
+   * deterministic wrapper (`renderEncryptedNote`) and, for a first passphrase,
+   * the same `passphrase:p1` recipient identity. So a caller who already holds
+   * editor access can put another locked note's envelope, or an older envelope
+   * of this same note, at this path.
+   *
+   * That is **destruction, not disclosure**, and it is bounded by the write
+   * authority the caller already has rather than by encryption:
+   * `docs/decisions/encryption.md` opens by saying encryption "is not access
+   * control, deletion protection, or availability", and the same caller can
+   * delete this note outright through `deletePath`. What the door does refuse
+   * is the thing that would be a disclosure — a readable byte of anybody's
+   * plaintext landing at this path while it still answers as encrypted — and
+   * the thing that would be a downgrade: a recipient added, dropped or swapped.
+   * Neither substitution can reveal the note that was there, because nothing
+   * here holds the key that would decrypt either side.
+   *
+   * These two are asserted rather than merely argued so that a future change
+   * that makes them refusals has to come here and say so — and so that nobody
+   * reads the three smuggling tests above as a claim this door verifies the
+   * ciphertext, which it cannot.
+   */
+  test("another locked note's envelope is accepted — an editor can destroy what they cannot read", async () => {
+    const store = bucket();
+    const before = passphraseNote([{ id: "p1" }]);
+    store.seed("1-projects/locked.md", before);
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    const somebodyElses = passphraseNote([{ id: "p1" }], { ct: "AnotherNotesCiphertext" });
+    await writeFile(store, {
+      path: "1-projects/locked.md",
+      text: somebodyElses,
+      expectedEtag: read.etag,
+      scope: "private",
+      now: NOW,
+    });
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(somebodyElses);
+  });
+
+  test("an older envelope of this note is accepted — a rollback is a write, and this caller has writes", async () => {
+    const store = bucket();
+    const older = passphraseNote([{ id: "p1" }], { ct: "OlderCiphertext" });
+    const current = passphraseNote([{ id: "p1" }], { ct: "CurrentCiphertext" });
+    store.seed("1-projects/locked.md", current);
+    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+
+    // With the *current* etag, deliberately: a replay is not a way around the
+    // conflict check, it is an ordinary write of bytes the caller had a copy
+    // of, which is what every version-control-shaped worry about a bucket the
+    // customer owns comes down to.
+    await writeFile(store, {
+      path: "1-projects/locked.md",
+      text: older,
+      expectedEtag: read.etag,
+      scope: "private",
+      now: NOW,
+    });
+    expect(store.snapshot()["1-projects/locked.md"]).toBe(older);
   });
 });
 
