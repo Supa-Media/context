@@ -177,6 +177,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Silence is not a transcript, and the engine's own evidence is what says so
 - A session that captured nothing is not filed
 - A segment id names its own meeting, and both sides check it
+- The phone had one barrier where the desktop has four, and both halves are named
 - A refusal is shown with the reason the gateway gave for it
 
 ## [Communications](./communications.md)

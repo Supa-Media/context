@@ -9,6 +9,7 @@ import {
   createConvexGateway,
 } from "../features/meetings/convexGateway";
 import { drainMeetings } from "../features/meetings/sync";
+import { fakeSegment } from "../features/meetings/capture/fake";
 import { emptyAck, type MeetingRecord } from "../features/meetings/record";
 import { seedSession } from "../features/meetings/session";
 import { ERRORS, PROTOCOL_VERSION, type MeetingSession } from "../features/meetings/protocol";
@@ -466,6 +467,73 @@ describe("a meeting whose start time will not parse", () => {
       { gateway, now: () => 1 },
     );
     expect(records[0]!.rejection?.message).toBe(MEETING_WRITE_SENTENCES.noReadableDate);
+  });
+});
+
+describe("the one identity guard this door can have of its own", () => {
+  /**
+   * THE ASYMMETRY `docs/decisions/meetings.md` NAMES: THIS PATH HAS NO
+   * GATEWAY DOOR, SO THIS IS THE STRONGEST GUARD AVAILABLE ON IT.
+   *
+   * `files.writeNote` is the same generic write every note save uses; nothing
+   * server-side knows a meeting exists, so nothing server-side can refuse a
+   * transcript that names the wrong one the way `apps/mcp`'s `appendSegments`
+   * does for the desktop. `assertOwnTranscript` is the same check
+   * (`foreignSegmentSessions`) run once more, client-side, at the last moment
+   * before the words become a note.
+   */
+  test("a transcript carrying another meeting's words is refused, not written", async () => {
+    const foreignId = `mtg_${"z".repeat(20)}`;
+    const contaminated = session({
+      transcript: [
+        fakeSegment(`${session().id}-0`, 0, "mine"),
+        fakeSegment(`${foreignId}-0`, 20_000, "spoken in a different room"),
+      ],
+    });
+    const { gateway, calls } = writer();
+    const failure = await gateway.finalize(null, contaminated).catch((error: unknown) => error);
+
+    expect((failure as { code: string }).code).toBe(ERRORS.invalid);
+    expect((failure as { message: string }).message).toBe(
+      MEETING_WRITE_SENTENCES.contaminatedTranscript,
+    );
+    // Refused before anything reached the workspace resolver or the write.
+    expect(calls).toHaveLength(0);
+  });
+
+  test("...and the sentence never quotes the foreign meeting or the words", async () => {
+    const foreignId = `mtg_${"z".repeat(20)}`;
+    const contaminated = session({
+      transcript: [fakeSegment(`${foreignId}-0`, 0, "spoken in a different room")],
+    });
+    const { gateway } = writer();
+    const failure = await gateway.finalize(null, contaminated).catch((error: unknown) => error);
+    const message = (failure as { message: string }).message;
+    expect(message).not.toContain(foreignId);
+    expect(message).not.toContain("different room");
+  });
+
+  /**
+   * `foreignSegmentSessions` draws this line on purpose: an id that names no
+   * meeting at all is unaddressed, never misaddressed. Every meeting this app
+   * recorded before phone chunk ids named their own meeting is exactly this
+   * shape, and none of it should start being refused by a guard added after
+   * the fact.
+   */
+  test("a transcript whose ids name no meeting at all is not contamination", async () => {
+    const unaddressed = session({
+      transcript: [fakeSegment("1757260800000-0", 0, "an ordinary phone chunk id")],
+    });
+    const { gateway, calls } = writer();
+    await gateway.finalize(null, unaddressed);
+    expect(calls).toHaveLength(1);
+  });
+
+  test("a transcript that is entirely this meeting's own is unaffected", async () => {
+    const mine = session();
+    const { gateway, calls } = writer();
+    await gateway.finalize(null, mine);
+    expect(calls).toHaveLength(1);
   });
 });
 
