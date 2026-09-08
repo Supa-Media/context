@@ -584,8 +584,28 @@ export const applyGmailConnectionBinding = internalMutation({
       )
       .unique();
 
-    const products = new Set(existing?.products ?? []);
+    // AN EXPLICIT DISCONNECT ENDED EVERY PRODUCT ON THIS ACCOUNT — one grant,
+    // one revoke — and `products` is left behind only as a record of what the
+    // connection used to sync. So reviving this row for a Gmail connect
+    // revives Gmail and nothing else: the other products' settings objects
+    // and cursors are kept (they are somebody's folder names and sync
+    // positions, not consent), but they are off the live `products` set until
+    // the person reconnects them deliberately. Without this, "I disconnected
+    // my Google account, then reconnected Gmail" silently puts Chat and
+    // Calendar back on the row — a claim of consent out of a revocation.
+    // `chatProduct.ts`'s `applyChatConnectionBinding` states the same rule
+    // from the other side; this is its mirror, and the two must not diverge.
+    const revived = existing !== null && existing.disconnectedAt !== undefined;
+    const products = new Set(revived ? [] : (existing?.products ?? []));
     products.add("gmail");
+
+    // A grant NARROWER than the row's live products, same check and the same
+    // reason `applyChatConnectionBinding` gives: the slice is recorded
+    // honestly as `[]`, nothing anywhere reads a slice, so without this the
+    // row goes on reporting `backfilling` for a product whose sync can only
+    // ever take a refusal from Google. Every name in the message is one of
+    // this module's own literals, never a provider string.
+    const starved = [...products].filter((product) => grantedScopesFor(product, args.scopes).length === 0);
 
     const fields = {
       workspaceId: args.workspaceId,
@@ -644,9 +664,11 @@ export const applyGmailConnectionBinding = internalMutation({
       chat: existing?.chat
         ? { ...existing.chat, scopes: grantedScopesFor("chat", args.scopes) }
         : undefined,
-      health: "backfilling" as const,
-      lastError: undefined,
-      errorCode: undefined,
+      health: (starved.length ? "reconnect_required" : "backfilling") as "reconnect_required" | "backfilling",
+      lastError: starved.length
+        ? `This Google account's authorization no longer covers ${starved.join(", ")}. Reconnect to restore it.`
+        : undefined,
+      errorCode: starved.length ? "SCOPES_INCOMPLETE" : undefined,
       disconnectedAt: undefined,
       boundBy: args.boundBy,
       updatedAt: now,

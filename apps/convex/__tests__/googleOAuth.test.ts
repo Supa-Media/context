@@ -175,27 +175,31 @@ describe("the authorize URL", () => {
   });
 
   /**
-   * WITHOUT THIS, adding a second product to an account silently drops the
-   * first: Google grants exactly what one request asks for, so a
-   * Calendar-only "add Calendar" to an account that already granted Gmail
-   * comes back covering Calendar alone. This is the shared half of the fix —
-   * `googleConnect.ts`'s per-connection tests cover the app-side union that
-   * backs it up.
+   * WITHOUT THIS, ADDING A PRODUCT TO AN ALREADY-CONNECTED ACCOUNT SILENTLY
+   * DROPS EVERY OTHER ONE. Google grants exactly what one request asks for —
+   * a later "add Chat" naming only Chat's scopes gets back a refresh token
+   * that no longer covers Gmail, and `applyGoogleConnectionBinding` (correctly)
+   * recomputes Gmail's scope slice from that narrower grant, reporting it as
+   * empty. `include_granted_scopes=true` is what makes the NEW token carry
+   * forward every scope this client already held for the account, regardless
+   * of which existing connection (if any) the caller knew about when it built
+   * the request. See `docs/decisions/communications.md`, "Adding a product
+   * must not silently drop another one".
    *
-   * Sabotage, measured: commenting out the `include_granted_scopes` line in
-   * `googleAuthorizeUrl` fails this test and `calendarConnect.test.ts`'s
-   * "also carries include_granted_scopes" test — 2 failures across the two
-   * files, both landing on this exact line; every other test in both files
-   * stays green.
+   * Sabotage, measured (adversarial review of the Calendar PR, re-run after
+   * both products landed): commenting out the `include_granted_scopes` line
+   * fails this test and `calendarConnect.test.ts`'s own
+   * "also carries include_granted_scopes" — 2 failures across the two files,
+   * both landing on that one line, every other test in both files green.
    */
-  test("always requests the union of previously granted scopes, not just this request's", () => {
+  test("always requests every previously granted scope be carried forward — the fix for the union-of-products problem", () => {
     const url = new URL(
       googleAuthorizeUrl({
         clientId: FAKE_CLIENT_ID,
         redirectUri: FAKE_REDIRECT_URI,
         challenge: RFC7636_CHALLENGE,
         state: FAKE_STATE,
-        scopes: GMAIL_REQUEST_SCOPES,
+        scopes: scopesForProducts(["chat"]),
       }),
     );
     expect(url.searchParams.get("include_granted_scopes")).toBe("true");

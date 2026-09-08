@@ -769,6 +769,298 @@ leaving it as an omission: IMAP means holding a password or an app-specific
 credential for somebody's mail, which is a credential class this product does
 not have and does not want on the way to a scope it will get anyway.
 
+### Google Chat groups spaces, then threads, then messages
+
+The scoping note says a Google Chat day is *"grouped by space, direct message,
+and thread"*. Email and iMessage group messages into threads and nothing
+above that; Chat needs one more level, because a person's Chat activity spans
+several rooms and DMs in a single day and a flat list of threads across all of
+them reads as noise. So a Chat day note is `## <space>` → `### Thread — ` →
+`#### <message>` — one heading level deeper at every rung than the shape every
+other channel uses — selected by `day.channel === "google-chat"` alone, so an
+email or iMessage day is unaffected byte-for-byte whether or not this code
+path exists. `groupIntoSpaces` in `note.js` does the grouping; `spaceKey` in
+`anchors.js` is the hash it is keyed by, the same NUL-joined,
+hash-not-write construction `threadKey` and `messageAnchor` already use, for
+the same three reasons: a space's resource name (`spaces/AAAA1111`) means
+something to Google and nothing to the customer, and a folder-listing test in
+this suite proves it never reaches the file. A space with no display name
+(every direct message, always) is still labelled — `Direct message`, or
+`Direct message — <name>` when Chat gives one — because a room with no
+heading reads as a bug, not as "nothing to report."
+
+**Frontmatter stays a fixed list across every channel.** `FRONTMATTER_KEYS` is
+not extended with a chat-only field: the fixed list is deliberately uniform,
+and forking it per channel is the first step toward a schema that drifts by
+channel and a renderer that has to remember which fields which channel gets.
+History-unavailable, below, is recorded in the body for the same reason.
+
+The check is `an email or iMessage day never gains a space heading, whatever
+data would trigger one for Chat`.
+
+### An honest gap: history unavailable is written down, not smoothed over
+
+The scoping note is explicit: *"Never claim complete history where Workspace
+policy, membership, or disabled history prevents it."* Two situations make a
+space's history genuinely unreadable — Chat's own per-space history setting is
+off (`spaceHistoryState !== "HISTORY_ON"`), or this connection has lost access
+to list the space's messages at all (membership changed, or the grant is too
+narrow) — and both are facts about the *provider*, never a caller's string, so
+`renderChannelDayNote`'s `unavailableSpaces` takes a fixed two-value `reason`
+(`"history-off"` | `"no-access"`) and prints one of two fixed sentences,
+exactly the same "enum in, fixed prose out" shape the trust warning already
+uses. A silently-omitted space looks identical to "nothing happened here
+today," which is the false claim the scoping note forbids; the marker is
+`## <space> (history unavailable)` plus a `[!warning]` line, written once on
+part 1 of the day (a part is a byte-packing artifact of one day, not a place
+this fact needs repeating) and never in place of real messages that did
+arrive — a space with both real activity and an unavailable gap (history
+turned on partway through the day) renders both.
+
+The check is `a day with zero events but an unavailable space is still a
+well-formed note, never "(no messages)"`, and the sabotage that mattered here
+was in the test suite, not the code: a check that chains a `.find()` straight
+into a property access with nothing to catch `undefined` can crash the whole
+process, which looks exactly like the zero-failures a passing suite reports.
+Every check in `chat.test.mjs` that could fail that way now can't — a check
+nobody sees fail is not a check.
+
+### Chat's account field is per-message, not per-day
+
+Email gets a folder per mailbox because `privacy.md` rules are folder rules
+(above); Chat does not, because the scoping note draws one `0-inbox/google-chat/`
+regardless of how many Google accounts a person connects, and a per-account
+Chat folder was never asked for. So `channelFolder("google-chat", account)`
+refuses a truthy `account` exactly as it always has — but a `CommunicationEvent`
+still carries its own `account`, because `messageAnchor`, `threadKey` and
+`spaceKey` all need it: two Google accounts could otherwise sync a message
+into the same file with colliding hashes. The two are deliberately different
+fields at different levels — `day.account`/`day.address` decide the folder and
+the frontmatter's human label; `event.account` decides identity — and a Chat
+day is built by omitting the day-level `account` while every event keeps its
+own. Getting this backwards throws immediately (`channelDayNotePath` refuses a
+non-`email` channel with an account), which is the loud failure a silent
+folder collision would not have been.
+
+### Disconnecting Chat clears settings and cursors; the folder itself follows the mailbox rule
+
+"Deleting a mailbox deletes its folder" (above) assumes one folder per
+account, which Chat does not have — `0-inbox/google-chat/` is shared across
+however many Google accounts sync into it. So a Chat disconnect is two
+things, not one: the *connection's* per-space settings and cursors are
+always cleared (there is nothing left to resume), and what happens to
+`0-inbox/google-chat/` itself follows the same "disconnect and keep" /
+"disconnect and delete" choice email already offers, defaulting to keep, for
+the same reason — the notes are the customer's regardless of which
+connection wrote them. **Deleting the folder when a second Google account is
+still connected and included would delete that account's history along with
+the disconnected one's**, which is the one case this rule has to get right:
+the delete path checks whether any other Chat connection still has spaces
+included before it deletes anything, not merely whether the caller asked.
+
+### The Chat scopes, and where they sit on Google's own restricted list
+
+`google-verification-steps.md` records the classification and it is repeated
+here because it changes what phase 1 can promise: reading Chat messages needs
+`chat.messages.readonly`, which Google's own restricted-scopes list places in
+the **same class as `gmail.readonly`** — restricted, not merely sensitive —
+confirmed against
+[Google's restricted scopes list](https://support.google.com/cloud/answer/13464325)
+on 2026-09-07. `chat.spaces.readonly` (listing spaces and DMs to read from) is
+**sensitive**, one tier down, and is not on that restricted list as of the same
+check. Both are **user-authorized** scopes read against the connecting
+person's own account, and Google's Chat API configuration docs say directly
+that read-only user-authorized calls need no Chat app configuration (name,
+avatar, interactive features) at all — that page is for a bot that posts into
+spaces, which this product does not do and will not.
+
+Restricted means the same CASA security-assessment gate `docs/decisions/communications.md`
+already states for Gmail applies to Chat too — it is not a Gmail-only line
+item, and a plan that budgets CASA against Gmail alone under-budgets it. So
+**the Chat connect flow sits behind the same flag as Gmail's**, off until that
+verification lands, for the same reason: v1 runs on fixtures precisely because
+a restricted scope cannot reach real user data before Google grants it.
+
+### Chat sync is built against an injected client, and now attaches to the one shared row
+
+The account that authorizes Chat calls — one OAuth grant per Google account,
+sealed refresh token, per-product scopes, sync cursors — is the control
+plane's, and it is one shared row across Gmail, Calendar and Chat, never
+three parallel connection tables (`docs/decisions/storage-and-credentials.md`
+already argues why credentials get one seal and one owner, not three). The
+Chat sync module in `apps/mcp` is written *against that shape* without
+importing it: every function that needs a token, a cursor, or a per-space
+setting takes it as a parameter or an injected `{listSpaces, listMessages}`
+client, so the whole transform-and-render path is tested end to end on
+fixtures, independent of how the control plane happens to store the
+credential that will eventually be handed to it.
+
+**On the control-plane side, `functions/chatProduct.ts` attaches Chat to the
+same `googleConnections` row Gmail already writes** (2026-09-07) — no second
+table. A first draft of this file built exactly that: `chatConnections` and
+`chatConnectAttempts`, a full parallel copy of `googleConnect.ts`'s PKCE
+shape, on the reasoning that Chat's connect flow could not wait for the
+shared-row generalization Gmail's own review was still arguing out. Once that
+generalization landed — the schema already stating `products`, one token pair
+at the row's top level, one nested settings object per enabled product — the
+duplicate tables were dropped rather than migrated (nothing had synced through
+them yet) and `chatProduct.ts` was rewritten as thin sibling of
+`googleConnect.ts`: it reuses `disconnectGoogleConnection`,
+`revokeGoogleGrant`, `mintGoogleAccessToken` and the rotation walk verbatim
+(all already product-agnostic, operating only on the row's top-level token
+fields), and adds only what Chat actually needs beyond Gmail's own connect
+flow — `startChatConnect`/`completeChatConnect` requesting Chat's scopes,
+`applyChatConnectionBinding` writing the nested `chat` object
+(`spaceSettings`, `cursors`, `nonceSeed`), and the two mutations a console
+needs afterward, `setChatSpaceState` and `recordChatCursors`, which have no
+Gmail or Calendar analogue because neither product has a per-item sync policy
+the way Chat's per-space include/exclude/pause is. Building a second,
+competing connection table to unblock testing sooner was the wrong call even
+temporarily — two tables that both claim to own "the Google account's grant"
+is the exact drift the shared-row decision exists to prevent — and the
+correction is recorded here rather than only in the diff that made it, so a
+future reader who finds an old branch or a stale comment referencing
+`chatConnections` knows it was superseded, not merely renamed.
+
+### Adding a product must not silently drop another one
+
+The gap named above ("The second half is not closed here") when the shared
+`googleConnections` row was first generalized: Google's OAuth grants exactly
+what one authorization request asks for, so an "add Chat" request naming only
+Chat's scopes, sent to an account that already has Gmail connected, gets back
+a refresh token that no longer covers Gmail — and the row's own rule that a
+product's scope slice is *recomputed* from the verbatim grant on every
+connect, never carried forward (the previous section), means that narrower
+token then correctly, and disastrously, reports Gmail as having no scopes at
+all. Closed by Chat's own reconciliation (2026-09-07), two mechanisms
+together rather than either alone:
+
+1. **`googleAuthorizeUrl` always sets `include_granted_scopes=true`.** This is
+   Google's own mechanism for incremental authorization: the token a call gets
+   back carries every scope this OAuth client already held for the
+   account, unioned with whatever this request newly adds — regardless of
+   which existing connection, if any, the caller knew about when it built the
+   request. That "regardless" is what makes it the mechanism of record: an
+   ordinary connect screen does not know in advance which Google account the
+   person is about to pick in the browser, so it cannot always supply a
+   `connectionId` to union against.
+2. **`startChatConnect` additionally accepts an optional `connectionId`** and,
+   given one, folds that connection's own `products` into the scope request
+   before asking Google for anything — belt and suspenders for the one case
+   where the caller genuinely does know in advance which account it is
+   extending (a console screen showing "person@example.invalid (Gmail) — Add
+   Chat" next to a specific row), so the request itself already asks for the
+   union rather than relying solely on Google's behavior.
+
+`googleOAuth.test.ts` pins the first mechanism directly on the authorize-URL
+builder; `chatProduct.test.ts` pins the second at the call site, and proves
+the consequence at the row level twice — once showing that a grant built the
+way `include_granted_scopes=true` would produce (both products' scopes
+together) leaves Gmail's recorded scopes intact, and once, named as a
+sabotage case in the test itself, showing the grant Google would have
+returned *without* either fix — Chat's scopes alone — correctly and visibly
+empties `gmail.scopes`. The second test exists so a regression that
+reintroduces the bug is a known, named test going red, not a support ticket
+about mail sync stopping for no visible reason.
+
+Two things review found on top of that pair, both of which are the *same*
+question asked one step further out — "what does the row do when the grant it
+was handed is not the grant it asked for?" — and neither of which either
+mechanism above answers on its own.
+
+**A grant narrower than the row's own products is reported, not merely
+recorded.** Both fixes can be in place and Google can still hand back less
+than was asked for: the person unticks a product on the consent screen, or a
+Workspace admin policy refuses a restricted scope outright. The row is then
+exactly as honest as it was designed to be — `gmail.scopes: []` beside a
+`products` still listing `gmail` — and until this, **nothing anywhere read
+that empty slice.** `applyChatConnectionBinding` went on to write
+`health: "backfilling"`, `mintGoogleAccessToken` mints from the refresh token
+without consulting a product's scopes at all, and the first thing that would
+have noticed was a 403 from Google inside a Gmail sync that is not built yet.
+So the binding now compares the recomputed slice of **every product on the
+live row** against the grant it just wrote, and a product left with no scopes
+puts the row into `health: "reconnect_required"` with
+`errorCode: "SCOPES_INCOMPLETE"` and a message naming the products, built from
+this file's own literals and never from a provider string. The recomputation
+rule is unchanged and the record is as honest as before; what changed is that
+somebody is told. The check is `adding chat with a grant that dropped gmail
+marks the row reconnect_required`.
+
+**A disconnect is not undone by adding a different product.** `products` is
+deliberately left behind by `disconnectGoogleConnection` as a record of what
+the connection *used to* sync (above, "Disconnecting ends every product"), and
+that record is a trap for anything that reads it as intent. Unfixed, a console
+offering "Add Chat" against a disconnected row folds `["gmail"]` into the
+scope request — so the person who explicitly ended our access to their mail is
+shown a Google consent screen asking for `gmail.readonly` again, and the row
+comes back with Gmail enabled, **because they added Chat**. That is a
+restricted scope being re-requested on the strength of a revocation, which is
+the wrong direction for a revocation to point. Two halves, matching the two
+above: `productsForConnection` contributes nothing for a connection whose
+`disconnectedAt` is set, so the *request* never asks; and
+`applyChatConnectionBinding`, reviving a disconnected row, enables the product
+being connected and no other, so the *row* never re-lists one. What survives
+is each product's settings object — a `gmail.mailboxSlug` is a folder
+somebody's mail is already sitting in, and renaming it later is a migration
+nobody asked for — so a deliberate Gmail reconnect afterwards lands exactly
+where it did before. The checks are `a disconnected connection's products are
+never folded into a new scope request` and `reviving a disconnected row for
+chat enables chat alone`.
+
+**The mirror of that second rule, on Gmail's own binding, is now built** — by
+the Calendar review, the change that next touched that function, exactly as
+this paragraph predicted. `applyGmailConnectionBinding` revived a disconnected
+row the same way, so reconnecting Gmail on an account that used to sync Chat
+or Calendar put that product back on `products` with an empty scope slice: the
+lighter half of the same bug (Gmail's connect flow requests only `["gmail"]`,
+so nothing re-requested a restricted scope; what it produced was a dead
+product entry rather than a revived consent) and now closed with the same two
+lines. **All three bindings state the rule identically**, which is the point:
+a console reading a connection should not have to know which product's flow
+last wrote it. The checks are `reconnecting GMAIL on a disconnected account
+does not revive Calendar or Chat`, `a Calendar connect on a disconnected
+account never re-requests the mail scope`, and `binding Calendar onto it
+revives Calendar and nothing else`.
+
+**And the starved-scope report is on all three too.** Chat's binding marks a
+connection `reconnect_required` / `SCOPES_INCOMPLETE` when the grant just
+written does not cover every product still on the live set; Calendar's and
+Gmail's now do the same, spelled the same way and reaching the same error
+code, because the failure is a property of the row rather than of whichever
+flow noticed it. Gmail's own case is real and was open: a Gmail reconnect
+whose consent screen has Calendar unchecked leaves `calendar.scopes: []`
+beside a live `calendar` product, and before this the row went on reporting
+`backfilling`. The check is `a Gmail reconnect whose grant drops Calendar's
+scope while Calendar is still live says so`.
+
+**And `nonceSeed` is stored in the clear, deliberately, which is not what the
+sync module's comment claimed.** `sync.js` described the seed as "sealed
+alongside the connection's refresh token"; it is not, and the schema says so
+in the opposite direction. The seed is not a credential — it opens no account
+and reaches no message, and `defangFence` strips the fence marker out of every
+sender-written body regardless, so the fence survives a seed a sender somehow
+learned. What the seed buys is that the nonce is not derivable from the
+account handle and the date, both of which a sender can simply guess. The
+comment is corrected rather than the storage, and the paragraph to reverse if
+the seed ever becomes the only thing between a sender and a closed fence is
+that one.
+
+**A space key is bounded before it becomes a field name.**
+`setChatSpaceState`'s `spaceKey` is written as a key inside a `v.record`, which
+makes a caller-chosen string into a field name on a stored document: unbounded
+length is a row an owner can grow toward the document size limit one call at a
+time, a `$`-prefixed key or one carrying a control character is refused by
+Convex's own validation as an unhandled write failure with no error code, and
+`_` is the prefix Convex reserves for its own system fields — which the
+in-memory store the suite runs against does **not** enforce, so it is checked
+in our code rather than left to production to catch. Only the owner of the
+connection can reach any of it, which is why this is a bound and not an alarm.
+It is deliberately a bound rather than Chat's resource-name grammar: pinning
+`spaces/[A-Za-z0-9_-]+` would be this repository asserting a format Google owns
+and can extend, and what that buys is a space somebody can see in their console
+and cannot exclude.
+
 ### The five open decisions, and who settles them
 
 The scoping note lists five. Three are recommended and taken here; **two are
@@ -860,33 +1152,25 @@ replaced. The settings and the cursor on each product object are its own and
 survive; only the scopes are derived. The check is `a reconnect recomputes
 every product's scope slice from the one verbatim grant`.
 
-The second half was found here and closed by Calendar's own connect flow,
-the first sibling to actually add a product to an existing row: **Google
-returns a grant covering exactly what was requested.** An "add Calendar to my
-existing connection" flow that asked for `scopesForProducts(["calendar"])`
-alone would get back a refresh token that no longer covers Gmail, and —
-because the row's scopes are honestly recomputed — would record a
-`gmail.scopes` of `[]` beside a `products` still listing `gmail`. That would
-be the true state written down rather than hidden, which is the point, but it
-would still be a broken Gmail sync. Two independent defences, both cheap,
-neither load-bearing alone: `googleAuthorizeUrl` now sets
-`include_granted_scopes=true` unconditionally, so Google folds in whatever
-the account already granted this client regardless of which flow asks; and
-`startCalendarConnect` (`functions/calendarConnect.ts`) separately requests
-the **union** of every product on the one unambiguous existing
-`googleConnections` row for the workspace plus Calendar, not Calendar alone,
-when exactly one such row exists. ("Exactly one" matters: two Google accounts
-on one workspace is a real, supported shape, and a Calendar connect does not
-guess which one a person means to extend — `include_granted_scopes` is what
-still protects that ambiguous case, at Google's end.) Proven and sabotaged in
-`calendarConnect.test.ts` and `googleOAuth.test.ts`: dropping the
-request-side union fails 2 of 25 Calendar-connect tests; removing
-`include_granted_scopes` fails 2 tests spread across both files; reverting
-`applyCalendarConnectionBinding`'s Gmail-slice recompute back to a bare
-carry-forward (the same "two views of one fact" rule as the reconnect
-paragraph above, now proved in the Calendar-onto-Gmail direction too) fails a
-further 2 — each sabotage isolated to exactly the tests naming it, with every
-other test in the affected files staying green.
+The second half is closed twice over, once by each sibling that actually adds
+a product to an existing row: Chat's reconciliation (2026-09-07) — see
+"Adding a product must not silently drop another one" below for the two-part
+fix — and Calendar's own connect flow, which requests the **union** of every
+product on the one unambiguous existing `googleConnections` row for the
+workspace plus Calendar, not Calendar alone, when exactly one such row exists.
+("Exactly one" matters: two Google accounts on one workspace is a real,
+supported shape, and a Calendar connect does not guess which one a person
+means to extend — `include_granted_scopes` is what still protects that
+ambiguous case, at Google's end. Chat's flow takes a `connectionId` from a
+console screen that does know, which is the same fix reached from the other
+direction.) Proven and sabotaged in `calendarConnect.test.ts` and
+`googleOAuth.test.ts`: dropping the request-side union fails 2 Calendar-connect
+tests; removing `include_granted_scopes` fails 2 tests spread across both
+files; reverting `applyCalendarConnectionBinding`'s Gmail-slice recompute back
+to a bare carry-forward (the same "two views of one fact" rule as the reconnect
+paragraph above, now proved in the Calendar-onto-Gmail direction too) fails 3 —
+each sabotage isolated to exactly the tests naming it, with every other test in
+the affected files staying green.
 
 **Disconnecting ends every product on the account, because it is one
 grant.** There is no "disconnect just Gmail while keeping Calendar" — Google's
@@ -1309,24 +1593,33 @@ three naming the two zones by name, and every other calendar check stays green
 
 ### An attempt is for the products it parked, and one table serves every flow
 
-`googleConnectAttempts` is shared by every product's connect flow, and the two
-`complete*Connect` actions looked up an attempt by `hashedState` alone. So a
+`googleConnectAttempts` is shared by every product's connect flow, and all
+three `complete*` consumers looked up an attempt by `hashedState` alone. So a
 state parked by `startGmailConnect` could be answered on Calendar's callback —
 attaching `calendar` to the row out of a consent screen that never mentioned a
 calendar, with an empty scope slice beside it — and a Calendar attempt could be
 answered on Gmail's, binding a mailbox folder and a default 90-day backfill out
 of a consent screen that never mentioned mail. Neither is a cross-tenant hole
 (the state is the person's own secret, and the workspace still comes from the
-attempt, never from the caller), but both write a product onto the row that
+attempt, never from the caller), but each writes a product onto the row that
 nobody consented to, which is a lie about what was agreed rather than a sync
-that merely fails. Both directions now check `attempt.products`, and both
-refuse with the ordinary `CONNECT_ATTEMPT_INVALID`, which tells a caller
-nothing about which flow parked what. The checks are
-`a Gmail-only attempt cannot be completed as a Calendar connect` and its
-mirror; an attempt naming both products is still answerable by either flow,
-because that is the union case the scope fix exists to produce.
+that merely fails. **Whether a discriminator earns its cost is a question of
+how many consumers there are**, and Chat's review left it open at two on
+exactly that ground; at three it is a rule rather than a question, so all
+three now check `attempt.products` and all three refuse with the ordinary
+`CONNECT_ATTEMPT_INVALID`, which tells a caller nothing about which flow
+parked what. Three lines, one per consumer, and a fourth product inherits it
+by copying the file it starts from. The checks are
+`a Gmail-only attempt cannot be completed as a Calendar connect`, the same for
+Chat, and their mirrors; an attempt naming two products is still answerable by
+either of their flows, because that is the union case the scope fix exists to
+produce.
 
 ### A grant that lost a product's scope is not just recorded, it is reported
+
+(Chat's own reconciliation reached the same conclusion independently and
+landed first; the two implementations were reconciled on merge into one rule
+spelled the same way in all three bindings. What follows is the argument.)
 
 The row being *honest* about a downgraded consent — `gmail.scopes: []` beside
 a `products` still listing `gmail` — is the rule this file argues twice above,
@@ -1414,7 +1707,11 @@ communications-specific privacy tier or grant scope; a workspace or team
 inbox; reply, send, archive, delete or mark-read (v1 is read-only, and the
 mail client stays the mail client); a second inbox root; a search path that
 does not go through `searchIndexedNotes`; and any note in this tree that is
-not an ordinary note at an ordinary path.
+not an ordinary note at an ordinary path. For Chat specifically: a Chat *app*
+(bot identity, posting, interactive cards) — v1 reads with the person's own
+user-authorized grant and configures nothing in Google's Chat app console; and
+a per-Google-account Chat folder — one shared `0-inbox/google-chat/` regardless
+of how many accounts sync into it, argued above.
 
 ### iMessage reads `chat.db` in place, through the one binary every Mac already has
 

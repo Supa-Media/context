@@ -126,6 +126,14 @@ export const findSingleConnectionForWorkspace = internalQuery({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .collect();
     if (rows.length !== 1) return null;
+    // A DISCONNECTED row's `products` is a record of what it USED to sync,
+    // never a statement of consent — `disconnectGoogleConnection` revoked the
+    // whole grant and deliberately left the array behind. Folding it into a
+    // scope request would re-ask Google for `gmail.readonly` — a RESTRICTED
+    // scope — on the strength of a revocation, which is the opposite of what
+    // disconnecting meant. Same rule and the same reason as
+    // `chatProduct.ts`'s `productsForConnection`.
+    if (rows[0]!.disconnectedAt !== undefined) return { address: rows[0]!.address, products: [] };
     return { address: rows[0]!.address, products: rows[0]!.products };
   },
 });
@@ -395,10 +403,20 @@ export const applyCalendarConnectionBinding = internalMutation({
       )
       .unique();
 
-    const products = new Set(existing?.products ?? []);
+    // The revival rule, stated in `applyChatConnectionBinding` and mirrored in
+    // `applyGmailConnectionBinding`: a disconnect ended every product on this
+    // account, so reviving the row for a Calendar connect revives Calendar and
+    // nothing else. The other products' settings and cursors are kept — they
+    // are folder names and sync positions, not consent — but they are off the
+    // live `products` set until the person reconnects them deliberately.
+    const revived = existing !== null && existing.disconnectedAt !== undefined;
+    const products = new Set<GoogleProduct>(revived ? [] : ((existing?.products ?? []) as GoogleProduct[]));
     products.add("calendar");
 
-    // AN HONEST ROW IS NOT THE SAME AS A ROW ANYBODY WILL LOOK AT. Recording
+    // AN HONEST ROW IS NOT THE SAME AS A ROW ANYBODY WILL LOOK AT. The same
+    // check `applyChatConnectionBinding` makes, deliberately spelled the same
+    // way and reaching the same `SCOPES_INCOMPLETE`, so a console reading a
+    // connection does not have to know which product's flow last wrote it. Recording
     // an empty `gmail.scopes` beside a `products` that still lists `gmail` is
     // the true state (see the comment above), but nothing anywhere reads a
     // scope slice, so on its own it is a fact written into a table and then
@@ -410,7 +428,7 @@ export const applyCalendarConnectionBinding = internalMutation({
     // with all of its products approved this time. `reconnect_required` is
     // exactly the existing word for that (`markReconnectRequired`), and the
     // remedy is the same one.
-    const withoutScopes = [...products].filter((product) => grantedScopesFor(product, args.scopes).length === 0);
+    const starved = [...products].filter((product) => grantedScopesFor(product, args.scopes).length === 0);
 
     const fields = {
       workspaceId: args.workspaceId,
@@ -448,15 +466,15 @@ export const applyCalendarConnectionBinding = internalMutation({
       // set — while clearing the `disconnectedAt` that explained it — would
       // leave a working connection permanently showing a fault with no error
       // code and nothing to clear it but a Gmail reconnect it may not want.
-      health: withoutScopes.length
+      health: starved.length
         ? ("reconnect_required" as const)
-        : existing === null || existing.disconnectedAt !== undefined
+        : existing === null || revived
           ? ("active" as const)
           : existing.health,
-      lastError: withoutScopes.length
-        ? "This Google account no longer covers every product this connection syncs. Reconnect and approve all of them."
+      lastError: starved.length
+        ? `This Google account's authorization no longer covers ${starved.join(", ")}. Reconnect to restore it.`
         : undefined,
-      errorCode: withoutScopes.length ? "SCOPES_INCOMPLETE" : undefined,
+      errorCode: starved.length ? "SCOPES_INCOMPLETE" : undefined,
       disconnectedAt: undefined,
       boundBy: args.boundBy,
       updatedAt: now,

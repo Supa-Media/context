@@ -21,6 +21,7 @@
 import { readFileSync } from "node:fs";
 
 import { runAnchorChecks } from "./anchors.test.mjs";
+import { runChatChecks } from "./chat.test.mjs";
 import { runCalendarChecks } from "./calendar.test.mjs";
 import { runContactChecks } from "./contacts.test.mjs";
 import { runEstimateChecks } from "./estimate.test.mjs";
@@ -217,9 +218,11 @@ for (const name of [
   "isContactNotePath",
   "messageAnchor",
   "threadKey",
+  "spaceKey",
   "renderChannelDayNote",
   "parseChannelDayNote",
   "planChannelDay",
+  "groupIntoSpaces",
   "parseChannelDayPath",
   "renderContactNote",
   "parseContactNote",
@@ -240,6 +243,7 @@ check(
 runPathChecks(check);
 runAnchorChecks(check);
 runNoteChecks(check);
+runChatChecks(check);
 runContactChecks(check);
 runEstimateChecks(check);
 // Calendar carries its own contract, public-surface and purity checks — see

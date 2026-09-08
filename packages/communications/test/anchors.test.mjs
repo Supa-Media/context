@@ -9,8 +9,8 @@
 //   drop `account` from the anchor input                  -> 2 checks failed
 
 import { ANCHOR_HEX_LENGTH, ANCHOR_PREFIX } from "../src/protocol.js";
-import { fnv1a64, isMessageAnchor, messageAnchor, threadKey } from "../src/anchors.js";
-import { message } from "./fixtures.mjs";
+import { fnv1a64, isMessageAnchor, messageAnchor, spaceKey, threadKey } from "../src/anchors.js";
+import { chatMessage, message } from "./fixtures.mjs";
 
 export function runAnchorChecks(check) {
   const one = message();
@@ -102,4 +102,37 @@ export function runAnchorChecks(check) {
     fnv1a64("\u00e9") !== fnv1a64("e\u0301")
   );
   check("a not-an-anchor is not accepted", !isMessageAnchor("msg-0123") && !isMessageAnchor("0123456789abcdef"));
+
+  // -- spaceKey: the same NUL-joined, hash-not-write construction, one level
+  // -- up from a thread. Google Chat is the only caller today; the checks are
+  // -- written against the contract, not against Chat.
+  const chatOne = chatMessage();
+  check("a message with a space gets a stable, non-empty key", typeof spaceKey(chatOne) === "string" && spaceKey(chatOne).length > 0);
+  check("the same space twice is the same key", spaceKey(chatOne) === spaceKey(chatMessage()));
+  check(
+    "two threads in the same space share a space key",
+    spaceKey(chatOne) === spaceKey(chatMessage({ threadId: "spaces/AAAA1111/threads/thr-9", messageId: "spaces/AAAA1111/messages/m9" }))
+  );
+  check(
+    "a different space is a different key",
+    spaceKey(chatOne) !== spaceKey(chatMessage({ space: { key: "spaces/ZZZZ9999", displayName: "Other", type: "group_chat" } }))
+  );
+  check(
+    "the same space key on a different account is a different key",
+    spaceKey(chatOne) !== spaceKey(chatMessage({ account: "chat-connection-2" }))
+  );
+  check(
+    "...and on a different channel too",
+    spaceKey(chatOne) !== spaceKey(chatMessage({ channel: "other-chat-channel" }))
+  );
+  check(
+    "a message with no space at all groups under one shared key",
+    spaceKey(message()) === spaceKey(message({ messageId: "<other@mail.example.net>" }))
+  );
+  check("no raw space id survives into the key", !spaceKey(chatOne).includes("AAAA1111"));
+  check("a space key is not a thread key or a message anchor", spaceKey(chatOne) !== threadKey(chatOne) && spaceKey(chatOne) !== messageAnchor(chatOne));
+  check(
+    "the fields cannot be shifted across the separator",
+    spaceKey(chatMessage({ account: "a", space: { key: "b" } })) !== spaceKey(chatMessage({ account: "a b", space: { key: "" } }))
+  );
 }

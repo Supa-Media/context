@@ -922,24 +922,111 @@ describe("rotating the encryption key", () => {
   });
 
   /**
-   * THE SAME PROOF, FOR THE ROW A **CALENDAR** CONNECT ACTUALLY WRITES.
+   * THE SAME MISS, ASKED OF A ROW WITH NO `gmail` OBJECT ON IT AT ALL.
    *
-   * Added by the adversarial review of PR #344. The test above builds its row
-   * by hand, with a `gmail` object and `products: ["gmail"]`, and proves the
-   * walk visits `googleConnections`. What it cannot prove is that the row
-   * `applyCalendarConnectionBinding` writes — no `gmail` object at all, a
-   * nested `calendar` one instead — is the same shape as far as rotation is
-   * concerned. That is the entire claim behind keeping the token pair at the
-   * row's top level rather than nesting it per product, and a claim nobody
-   * has checked is not a guard: if a later refactor moved the token under
-   * `calendar`, the walk would go on reporting a clean pass over a
-   * credential it silently stopped visiting.
+   * The test above proves the walk visits `googleConnections`, but it seeds a
+   * Gmail row — so it would still pass if the walk (or a future "only rows we
+   * actually sync" optimisation of it) filtered on `products`, on the presence
+   * of `gmail`, or on a mailbox slug. A Chat-only connection is the row shape
+   * that has none of those, and it holds exactly the same refresh token: the
+   * token is top-level on the shared row precisely so rotation never has to
+   * know which products are enabled, and this is the test that says so.
+   *
+   * Sabotage: add `.filter((q) => q.neq(q.field("gmail"), undefined))` to
+   * `listGoogleConnectionRekeyCandidates` — the Gmail test above stays green
+   * and this one fails, with the chat row's token stranded on the old key.
+   */
+  test("a Chat-only connection's token is moved forward too", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    const originalKey = process.env.STORAGE_SECRET_ENCRYPTION_KEY!;
+    const context = { workspaceId: workspaceId as string };
+    const now = Date.now();
+    const refreshBefore = await encryptSecret("google-chat-refresh-abc", requireKeyset(), context);
+    expect(refreshBefore.startsWith("v2:k1:")).toBe(true);
+
+    const connectionId = await t.run((ctx) =>
+      ctx.db.insert("googleConnections", {
+        workspaceId,
+        provider: "google" as const,
+        address: "person@example.invalid",
+        encryptedRefreshToken: refreshBefore,
+        accessTokenExpiresAt: now + 3_600_000,
+        scopes: [
+          "https://www.googleapis.com/auth/chat.messages.readonly",
+          "https://www.googleapis.com/auth/chat.spaces.readonly",
+        ],
+        googleAccountId: "google-account-1",
+        products: ["chat"] as const,
+        chat: {
+          scopes: [
+            "https://www.googleapis.com/auth/chat.messages.readonly",
+            "https://www.googleapis.com/auth/chat.spaces.readonly",
+          ],
+          nonceSeed: "not-a-credential-just-a-seed",
+        },
+        health: "active" as const,
+        boundBy: owner,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: originalKey,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: "k1",
+      },
+      async () => {
+        expect(await t.action(internal.functions.storage.rekeyStorageBindings, {})).toMatchObject({
+          googleConnectionsRekeyed: 1, // refresh only — a chat row caches no access token yet
+          googleConnectionsSkipped: 0,
+          googleConnectionsUnreadable: 0,
+        });
+        expect((await t.run((ctx) => ctx.db.get(connectionId)))!.encryptedRefreshToken.startsWith("v2:k2:")).toBe(
+          true,
+        );
+      },
+    );
+
+    // And it still opens once the old key is gone from the environment
+    // entirely — the state a finished rotation leaves, which is the whole
+    // point of the walk having visited this row.
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: undefined,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: undefined,
+      },
+      async () => {
+        const row = await t.run((ctx) => ctx.db.get(connectionId));
+        expect(await decryptSecret(row!.encryptedRefreshToken, requireKeyset(), context)).toBe(
+          "google-chat-refresh-abc",
+        );
+        // The chat product's own state rode along untouched — rotation moves
+        // the envelope and nothing else.
+        expect(row!.chat?.nonceSeed).toBe("not-a-credential-just-a-seed");
+      },
+    );
+  });
+
+  /**
+   * AND THE THIRD ROW SHAPE, THE ONE A **CALENDAR** CONNECT ACTUALLY WRITES.
+   *
+   * Added by the adversarial review of the Calendar PR, for the reason the
+   * Chat test above gives and one more: this row is written by
+   * `applyCalendarConnectionBinding` itself rather than inserted by hand, so
+   * it also proves the mutation this product ships puts the token pair where
+   * the walk looks — top-level on the shared row — rather than somewhere a
+   * clean-looking rotation pass would report success without visiting.
    *
    * Sabotage, measured: adding `if (row.products.includes("calendar")) continue;`
    * to `listGoogleConnectionRekeyCandidates` — the shape of any "skip the
-   * rows this pass does not own" refactor — fails exactly this test (on the
-   * rekeyed count, the first assertion it reaches) and leaves the other 39
-   * in this file green, the Gmail-row rotation proof above included.
+   * rows this pass does not own" refactor — fails exactly this test, on the
+   * rekeyed count, and leaves every other test in this file green, both the
+   * Gmail and Chat rotation proofs above included.
    */
   test("a Calendar-only connection's token rotates too — the token is the account's, not the product's", async () => {
     const { t, owner, workspaceId } = await boundWorkspace();
@@ -959,6 +1046,7 @@ describe("rotating the encryption key", () => {
 
     const before = await t.run((ctx) => ctx.db.query("googleConnections").unique());
     expect(before!.gmail).toBeUndefined();
+    expect(before!.chat).toBeUndefined();
     expect(before!.products).toEqual(["calendar"]);
     expect(before!.encryptedRefreshToken.startsWith("v2:k1:")).toBe(true);
 
@@ -971,7 +1059,8 @@ describe("rotating the encryption key", () => {
       },
       async () => {
         expect(await t.action(internal.functions.storage.rekeyStorageBindings, {})).toMatchObject({
-          googleConnectionsRekeyed: 2,
+          googleConnectionsRekeyed: 2, // refresh AND the cached access token
+          googleConnectionsSkipped: 0,
           googleConnectionsUnreadable: 0,
         });
         const row = await t.run((ctx) => ctx.db.query("googleConnections").unique());
@@ -997,6 +1086,8 @@ describe("rotating the encryption key", () => {
         expect(await decryptSecret(row!.encryptedAccessToken!, requireKeyset(), context)).toBe(
           "calendar-access-xyz",
         );
+        // The calendar product's own cursor state rode along untouched.
+        expect(row!.calendar?.scopes).toEqual(["https://www.googleapis.com/auth/calendar.events.readonly"]);
       },
     );
   });

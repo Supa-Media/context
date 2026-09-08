@@ -84,6 +84,18 @@ node test/calendar.test.mjs
 runs the calendar suite alone; `node test/test.mjs` runs it as part of the
 whole package.
 
+Google Chat has one folder regardless of how many Google accounts sync into
+it — `channelFolder` refuses an account segment for any channel but
+`email` — and inside it a day is grouped one level deeper than email's:
+space (or direct message), then thread, then message. `groupIntoSpaces` in
+`note.js` is that grouping; `spaceKey` in `anchors.js` is the hash it is keyed
+by, built the same NUL-joined, hash-not-write way `threadKey` and
+`messageAnchor` are. A space whose history Chat has turned off, or whose
+membership this connection has lost, is named honestly in the note rather
+than silently missing — see
+[`docs/decisions/communications.md`](../../docs/decisions/communications.md),
+*Google Chat groups spaces, then threads, then messages*.
+
 ## Tests
 
 ```
