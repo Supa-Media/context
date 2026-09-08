@@ -107,6 +107,16 @@ const BY_CODE: Record<string, Omit<StorageFailure, "detail">> = {
     headline: "That Dropbox connection has expired",
     next: "A connection has to be finished within a few minutes of starting it, and each one works once. Start it again from your context's storage settings — nothing was changed.",
   },
+  /*
+    The same refusal, for a browser that told us locally it cannot keep the
+    value a connect needs. Not a different answer from the control plane —
+    which still cannot tell these apart — but different advice, because "start
+    it again" is false here: it will fail identically every time.
+  */
+  CONNECT_ATTEMPT_INVALID_NO_STORAGE: {
+    headline: "This browser can't finish a connection",
+    next: "Finishing a Dropbox connection needs this browser to remember one value between leaving for Dropbox and coming back, and site data appears to be blocked here. Allow site data for this site, or use another browser, and start again from your context's storage settings — nothing was changed.",
+  },
   NOT_OWNER: {
     headline: "Only an owner can connect this context's storage",
     next: "Ask an owner of this context to connect it.",

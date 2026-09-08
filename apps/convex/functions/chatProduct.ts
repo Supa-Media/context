@@ -212,6 +212,13 @@ export const productsForConnection = internalQuery({
 export const parkChatAttempt = internalMutation({
   args: {
     hashedState: v.string(),
+    /*
+      SHA-256 of the value that never travels through Google. Required here,
+      not optional: a park path that can omit it is a flow that can be started
+      unbound, and the schema field is optional only for rows parked before
+      the binding existed. See `dropboxConnect.ts` for the argument in full.
+    */
+    hashedCompletion: v.string(),
     encryptedVerifier: v.string(),
     workspaceId: v.id("workspaces"),
     startedBy: v.id("users"),
@@ -237,6 +244,7 @@ export const parkChatAttempt = internalMutation({
     // this row was parked under.
     await ctx.db.insert("googleConnectAttempts", {
       hashedState: args.hashedState,
+      hashedCompletion: args.hashedCompletion,
       encryptedVerifier: args.encryptedVerifier,
       workspaceId: args.workspaceId,
       startedBy: args.startedBy,
@@ -250,8 +258,9 @@ export const parkChatAttempt = internalMutation({
 });
 
 /**
- * Begin a Chat connect. Returns a URL to send the person to, and nothing
- * else — same shape and the same reason as `startGmailConnect`.
+ * Begin a Chat connect. Returns a URL to send the person to, and the one value
+ * the starting browser has to keep — same shape and the same reason as
+ * `startGmailConnect`.
  *
  * `connectionId`, when given, names the specific `googleConnections` row this
  * is adding Chat to — a console screen already showing that row is the only
@@ -265,8 +274,11 @@ export const startChatConnect = action({
     redirectUri: v.string(),
     connectionId: v.optional(v.id("googleConnections")),
   },
-  returns: v.object({ authorizeUrl: v.string() }),
-  handler: async (ctx, args): Promise<{ authorizeUrl: string }> => {
+  returns: v.object({ authorizeUrl: v.string(), completionSecret: v.string() }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ authorizeUrl: string; completionSecret: string }> => {
     requireGoogleConnectEnabled();
     const userId = await requireActor(ctx);
     const isPersonalOwner: boolean = await ctx.runQuery(internal.functions.googleConnect.requirePersonalOwner, {
@@ -299,6 +311,15 @@ export const startChatConnect = action({
     const clientId = requireGoogleClientId();
     const { verifier, challenge } = await createPkcePair();
     const state = randomOpaqueToken(STATE_BYTES);
+    /*
+      The value that never leaves this browser. `state` goes out in the
+      authorize URL and comes back in the callback, so whoever built that URL
+      knows it — including somebody who built it for a workspace they own and
+      sent it to another person to consent. PKCE does not see that case: the
+      attacker is the initiator, so the verifier is genuinely theirs.
+      `dropboxConnect.ts` carries the argument in full.
+    */
+    const completionSecret = randomOpaqueToken(STATE_BYTES);
 
     const encryptedVerifier = await encryptSecret(verifier, requireKeyset(), {
       workspaceId: args.workspaceId as string,
@@ -306,6 +327,7 @@ export const startChatConnect = action({
 
     await ctx.runMutation(internal.functions.chatProduct.parkChatAttempt, {
       hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(completionSecret),
       encryptedVerifier,
       workspaceId: args.workspaceId,
       startedBy: userId,
@@ -314,6 +336,7 @@ export const startChatConnect = action({
     });
 
     return {
+      completionSecret,
       authorizeUrl: googleAuthorizeUrl({
         clientId,
         redirectUri: args.redirectUri,
@@ -325,15 +348,36 @@ export const startChatConnect = action({
   },
 });
 
-/** Finish a Chat connect. No session required — see `completeGmailConnect` for the full argument. */
+/**
+ * Finish a Chat connect. **No session required, and that is still deliberate**
+ * — see `completeGmailConnect`, which now states both halves: a sign-in wall
+ * on a callback outlives a provider's single-use code, and PKCE is not what
+ * makes the rest safe. `completionSecret` is; it never travels through Google.
+ */
 export const completeChatConnect = action({
-  args: { state: v.string(), code: v.string() },
+  args: {
+    state: v.string(),
+    code: v.string(),
+    /*
+      Optional with an empty-string default, for the reason the sibling flows
+      give: a required arg makes a browser on yesterday's bundle fail with a
+      validator error instead of this flow's one refusal — a distinguishable
+      answer, for the length of a deploy, on a path whose whole point is that
+      its failures look identical. The empty string fails the comparison
+      exactly as a wrong secret does.
+    */
+    completionSecret: v.optional(v.string()),
+  },
   returns: v.object({ workspaceId: v.id("workspaces") }),
   handler: async (ctx, args): Promise<{ workspaceId: Id<"workspaces"> }> => {
     requireGoogleConnectEnabled();
     const consumed: { workspaceId: Id<"workspaces"> } | null = await ctx.runMutation(
       internal.functions.chatProduct.consumeChatAttemptAndExchange,
-      { hashedState: await hashToken(args.state), code: args.code },
+      {
+        hashedState: await hashToken(args.state),
+        code: args.code,
+        hashedCompletion: await hashToken(args.completionSecret ?? ""),
+      },
     );
     if (consumed === null) refuseAttempt();
     return consumed;
@@ -341,7 +385,7 @@ export const completeChatConnect = action({
 });
 
 export const consumeChatAttemptAndExchange = internalMutation({
-  args: { hashedState: v.string(), code: v.string() },
+  args: { hashedState: v.string(), code: v.string(), hashedCompletion: v.string() },
   returns: v.union(v.null(), v.object({ workspaceId: v.id("workspaces") })),
   handler: async (ctx, args) => {
     const attempt = await ctx.db
@@ -354,6 +398,21 @@ export const consumeChatAttemptAndExchange = internalMutation({
     // exchange has still spent its attempt.
     await ctx.db.delete(attempt._id);
     if (attempt.expiresAt < Date.now()) return null;
+    /*
+      THE BROWSER THAT STARTED THIS IS THE ONE THAT MAY FINISH IT, and it is a
+      different question from the product check below.
+
+      This flow was the fourth, and for one review it was the one left out:
+      the branch that bound Dropbox, Gmail and Calendar left Chat completing on
+      `{state, code}` alone, and a demonstration of the attack against
+      `startChatConnect` still bound a stranger's Google account — the one that
+      reads every space they are in — to the initiator's context. The product
+      check below does not reach it: a Chat attempt really is for Chat.
+
+      Checked after the delete, so a wrong secret spends the attempt. Refused
+      with the same `null` as every other failure here.
+    */
+    if (attempt.hashedCompletion !== args.hashedCompletion) return null;
     // AN ATTEMPT IS FOR THE PRODUCTS IT PARKED, and `googleConnectAttempts` is
     // one table shared by all three flows. Left open when Chat landed as "not
     // attacker-reachable" — true, the state is the person's own secret and the
