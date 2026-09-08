@@ -80,6 +80,14 @@ const { MEETING_RECORD_VERSION, emptyAck } =
   require("../features/meetings/record") as typeof import("../features/meetings/record");
 const { FINALIZE_TIMEOUT_MS } =
   require("../features/meetings/recovery") as typeof import("../features/meetings/recovery");
+const { saveMeeting } =
+  require("../features/meetings/local") as typeof import("../features/meetings/local");
+const { seedSession } =
+  require("../features/meetings/session") as typeof import("../features/meetings/session");
+const { PROTOCOL_VERSION: MEETING_PROTOCOL_VERSION } =
+  require("../features/meetings/protocol") as typeof import("../features/meetings/protocol");
+const { currentEpoch } =
+  require("../features/offline/epoch") as typeof import("../features/offline/epoch");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 /* -------------------------------------------------------------------------- */
@@ -832,6 +840,68 @@ describe("`saved` is said only when there is a path to print", () => {
     expect(mounted.container.textContent).toContain("This meeting has not left the device");
     expect(mounted.container.textContent).toContain("Connect it again");
     expect(mounted.container.textContent).not.toContain("Saved to your bucket");
+    mounted.unmount();
+  });
+
+  /*
+    `markSyncFailed`'s own backstop for a session with nothing captured that
+    still reached the retry-exhausted path — which, after the fix beside it,
+    `end()` and `recoverInterruptedRecordings` no longer let happen on their
+    own. Written directly to the store, the way "a record another version
+    wrote" is in `meetingsController.test.ts`, because nothing on the ordinary
+    path reaches this branch any more; the point of the test is that if it
+    ever is reached again, the screen still says the true, permanent thing
+    rather than "try again" or "This meeting has not left the device".
+  */
+  test("a parked meeting with nothing in it never says try again, even as a backstop", async () => {
+    const store = memoryStore();
+    const id = "mtg_nothingcapturedxxx1";
+    await saveMeeting(
+      store,
+      {
+        version: MEETING_RECORD_VERSION,
+        workspaceId: "ws-backstop",
+        session: seedSession({
+          id,
+          title: "Backstop case",
+          startedAt: "2026-09-05T18:00:00.000Z",
+          source: { kind: "in-person" },
+          device: { platform: "web" },
+          transcription: null,
+          version: MEETING_PROTOCOL_VERSION,
+        }),
+        destination: null,
+        acked: emptyAck(),
+        runningSince: null,
+        updatedAt: 0,
+        attempts: 6,
+        rejection: {
+          code: "NOTHING_CAPTURED",
+          message:
+            "Nothing was captured during this meeting, so there is nothing to send and nothing to copy out.",
+          noticedAt: 0,
+        },
+      },
+      currentEpoch(),
+    );
+
+    await act(async () => {
+      meetings.reset();
+      await meetings.configure({
+        workspaceId: "ws-backstop",
+        store,
+        gateway: fakeGateway(),
+        recorder: fakeRecorder(),
+        device: { platform: "web" },
+        persistDebounceMs: 0,
+      });
+    });
+
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(mounted.container.textContent).toContain("Nothing was captured");
+    expect(mounted.container.textContent).not.toContain("try again");
+    expect(mounted.container.textContent).not.toContain("several times");
+    expect(mounted.container.textContent).not.toContain("This meeting has not left the device");
     mounted.unmount();
   });
 

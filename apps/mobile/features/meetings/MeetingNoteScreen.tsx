@@ -452,7 +452,31 @@ function Landing({ record }: { record: MeetingRecord }) {
     sentence shows the person an HTTP status — `rejectionNotice` turns the
     gateway's own words into something a person can act on and keeps the
     gateway's sentence only as the last line of a fallback.
+
+    ## `NOTHING_CAPTURED` is not "has not left the device" either
+
+    This code (`markSyncFailed`, `record.ts`) is the backstop for a session
+    with nothing in it that still ended up cycling through sync failures
+    instead of being folded to `empty` before it ever reached this queue —
+    see that function's own header. "This meeting has not left the device"
+    would still be true in the narrow sense that nothing was sent, but it
+    reads as a meeting waiting to depart, which is exactly the retry-forever
+    framing this whole branch exists to avoid. Drawn like the `empty` block
+    above instead — same icon, same neutral tone, same absence of a Retry —
+    because the fact is the same fact.
   */
+  if (record.rejection?.code === "NOTHING_CAPTURED" && session.notePath === null) {
+    return (
+      <View style={styles.landing} testID="meeting-landing">
+        <Icon name="folder" size={18} color={colors.muted} />
+        <View style={styles.landingText}>
+          <Text variant="mini" testID="meeting-rejection">
+            {record.rejection.message}
+          </Text>
+        </View>
+      </View>
+    );
+  }
   if (record.rejection !== undefined && session.notePath === null) {
     return (
       <View style={[styles.landing, styles.landingCrit]} testID="meeting-landing">

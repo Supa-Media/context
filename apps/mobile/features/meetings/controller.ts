@@ -195,6 +195,20 @@ export const DEFAULT_EMPTY_REASON = "Nothing was recorded and no notes were type
 export const INTERRUPTED_RECORDING_REASON =
   "This device restarted while recording, so the rest of this meeting was not captured. What was recorded is kept below.";
 
+/**
+ * Shown on a session `recoverInterruptedRecordings` closed at launch that had
+ * captured nothing at all — no transcript, no typed notes — before the
+ * restart.
+ *
+ * `INTERRUPTED_RECORDING_REASON` says "what was recorded is kept below", which
+ * is only true when something was. A session `hasNothingCaptured` gets this
+ * sentence instead, for the same reason `end()`'s own `DEFAULT_EMPTY_REASON`
+ * exists: the permanent, correct fact is that there is nothing here, not that
+ * a retry might still find something.
+ */
+export const INTERRUPTED_EMPTY_REASON =
+  "This device restarted before anything was captured, so there is nothing to save from this one.";
+
 const NO_CAPTURE: MeetingRecorder["capability"] = {
   audio: false,
   systemAudio: false,
@@ -349,6 +363,26 @@ export class MeetingsController {
    * actually captured — the same recovery `recoverStaleFinalizes` beside this
    * gives a stuck finalize, composing rather than duplicating it.
    *
+   * **Unless nothing was captured at all, in which case `fail` is the wrong
+   * move and this method used to make it anyway.** `INTERRUPTED_RECORDING_REASON`
+   * says "the rest of this meeting was not captured — what was recorded is kept
+   * below", which is false about a session with no transcript and no typed
+   * notes: there is no "rest", and nothing is kept below. Worse, `failed` here
+   * reads as a *transient* outcome — Retry is right there — when a genuinely
+   * empty session cannot be filed no matter how many times it is retried; the
+   * gateway (and, for the ordinary end-of-meeting path, `end()` right above)
+   * both already treat that as `empty`, never `failed`. Recovery at launch is
+   * the one caller of `fail` that had not been taught the same check, so it
+   * was the one place a killed-in-the-first-few-seconds recording still ended
+   * up parked behind a message that assumed content it never had — and, once
+   * parked, a stuck `session` sync step for that record could still exhaust
+   * `MAX_SYNC_ATTEMPTS` and reach `markSyncFailed`'s own backstop for exactly
+   * this case. Folding straight to `empty` — the same two-event path `end()`
+   * takes, `end` then `empty`, since `MEETING_TRANSITIONS` only allows `empty`
+   * from `finalizing` — closes both: the honest reason is on the meeting from
+   * the moment the app relaunches, and there is no `failed` session left for
+   * anything downstream to mis-park.
+   *
    * Deliberately **not** run from `sync()`. A record legitimately `recording`
    * during this same process's lifetime is exactly what `sync()` runs beside
    * without touching, and the guarantee above holds only at the one moment a
@@ -364,9 +398,20 @@ export class MeetingsController {
 
     for (const record of this.snapshot.records) {
       if (!isLive(record.session.state)) continue;
+      const at_ = new Date(at).toISOString();
+
+      if (hasNothingCaptured(record.session)) {
+        // Mirrors `end()`: nothing here was ever going to be a note, whatever
+        // interrupted it, so it is `empty` rather than a `failed` this device
+        // will only ever offer a Retry that cannot succeed.
+        this.apply(record.session.id, { type: "end", at: at_ });
+        this.apply(record.session.id, { type: "empty", at: at_, reason: INTERRUPTED_EMPTY_REASON });
+        continue;
+      }
+
       this.apply(record.session.id, {
         type: "fail",
-        at: new Date(at).toISOString(),
+        at: at_,
         reason: INTERRUPTED_RECORDING_REASON,
       });
       const failed = this.find(record.session.id);

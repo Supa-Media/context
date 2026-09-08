@@ -323,15 +323,41 @@ describe("a refusal is parked, and an unknown one is parked too", () => {
     expect(gateway.calls).toEqual(["session"]);
   });
 
-  test("six failed reconnections park a meeting and say so", () => {
-    let entry = record();
+  test("six failed reconnections park a meeting and say so, carrying the real reason", () => {
+    // Real content, so this is testing the genuinely-transient case rather
+    // than one `hasNothingCaptured` would also catch — see the test below.
+    let entry = record({ notes: "typed on a train" });
     for (let attempt = 0; attempt < MAX_SYNC_ATTEMPTS; attempt += 1) {
-      entry = markSyncFailed(entry, "gone", now());
+      entry = markSyncFailed(entry, "Your context could not be reached.", now());
     }
     expect(entry.rejection?.code).toBe("RETRIES_EXHAUSTED");
     // Still on the device, with words a person can act on. Nothing is dropped.
     expect(entry.rejection?.message).toContain("still on this device");
+    // The refusal's own reason, not a bare count of attempts — instruction is
+    // "carry the refusal's own reason to the screen rather than a generic
+    // count of attempts".
+    expect(entry.rejection?.message).toContain("Your context could not be reached.");
     expect(entry.session.notes).toBe(entry.session.notes);
+  });
+
+  /*
+    THE LYING-INSTRUMENT CASE: a meeting with nothing in it — no transcript,
+    no typed notes — that also cannot reach the gateway. Six transient
+    failures are a fact about the connection, not about the meeting, and this
+    meeting has nothing a retry could ever send and nothing "copy your notes
+    out" could ever find. Ordinarily `end()` and `recoverInterruptedRecordings`
+    keep a session like this out of the sync queue entirely (folding it to
+    `empty` instead) — this is the backstop for whenever that does not happen.
+  */
+  test("six failed reconnections on a meeting with nothing in it never say 'try again'", () => {
+    let entry = record(); // seedSession(): state "idle", notes "", transcript [].
+    for (let attempt = 0; attempt < MAX_SYNC_ATTEMPTS; attempt += 1) {
+      entry = markSyncFailed(entry, "Your context could not be reached.", now());
+    }
+    expect(entry.rejection?.code).toBe("NOTHING_CAPTURED");
+    expect(entry.rejection?.message).not.toContain("try again");
+    expect(entry.rejection?.message).not.toContain("copy your notes out");
+    expect(entry.rejection?.message).not.toContain("several times");
   });
 
   test("a bug in this app parks rather than retrying", async () => {
