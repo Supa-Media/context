@@ -2726,6 +2726,148 @@ be empty and the recorder to hold exactly one subscriber; in
 `apps/desktop/test/outbox.test.mjs`, queue a foreign batch and expect nothing
 of it stored.
 
+## The phone had one barrier where the desktop has four, and both halves are named
+
+An adversarial review of the section above named an asymmetry the section
+itself did not: contamination is *impossible* on the desktop path — the
+gateway door at the bottom of it is one no client can talk past — and was
+merely *prevented, and not independently guarded,* on the phone's. Two
+separate reasons, and they get two separate answers.
+
+### Reason one: a phone chunk id named no meeting, so the identity check waved it through
+
+`capture/audio.ts` and `capture/audio.web.ts` keyed every chunk on
+`sessionKey = String(Date.now())`. That id is stable across a re-send of the
+same chunk — which is all `chunkIdFor`'s own idempotency test ever checked —
+but it names no meeting, so `segmentSessionId` read every phone segment as
+**unaddressed**, and `foreignSegmentSessions` built on it could never answer
+anything but "nothing foreign here", whatever the segment actually was. That
+is not a smaller guarantee than the desktop's check; it is the same check with
+nothing for it to check. Three places lean on that function and all three were
+therefore inert on this path, silently, for exactly the reason a wrong
+envelope defeated them on the desktop: the check only catches what an id
+*says*, and a phone id said nothing.
+
+- `apps/mcp/src/meetings/state.js`'s `assertSegmentsAddressed` — the gateway
+  door — never had a phone id to refuse, because this app's meetings never
+  reach it at all (reason two, below).
+- `apps/mobile/features/meetings/controller.ts`'s `apply` — the mobile
+  controller's own mirror of the same check, added in the same change that
+  fixed the desktop's leaked subscription — was live in the sense that it ran,
+  and inert in the sense that a phone id could never fail it: unaddressed is
+  accepted by design, and every phone id was unaddressed.
+- `apps/mobile/features/meetings/convexGateway.ts`'s finalize path had no
+  check at all until this change (see reason two).
+
+**Fixed by minting the id the same deterministic way the desktop already
+does.** `capture/audio.ts` and `capture/audio.web.ts` now take the meeting id
+from `CaptureOptions.sessionId` — the controller's own `newMeetingId()`,
+already threaded through every `recorder.start()` call — and build every
+chunk id as `${meetingId}-${index}` through the same `chunkIdFor` the desktop
+calls with its own session id. `segmentSessionId` now reads a phone segment's
+own meeting back out of it, so `foreignSegmentSessions` is live on `apply`
+exactly where it was inert, and would be live at the gateway door too on any
+future path that reached it.
+
+**A missing id is refused rather than answered with a clock reading.** Both
+recorders throw before opening the microphone if `CaptureOptions.sessionId` is
+absent — `desktop.ts`'s own `requireSessionId`, restated in each — because a
+generated fallback here is exactly how this guard goes back to being inert,
+quietly, the day some caller forgets to pass it. `controller.ts` always does;
+a caller that does not has a bug, and it is loud on the first press rather
+than found in the next contamination review.
+
+**What happens to a segment already stored under a timestamp-shaped id.**
+Nothing, and that is the safe answer rather than an oversight. `chunkId`
+minted before this change is not rewritten by it — an id is fixed the moment a
+chunk is minted, and nothing here revisits a chunk after the fact — so it
+stays exactly the shape `foreignSegmentSessions` already treats as
+**unaddressed, never misaddressed**: a client this contract has not met names
+none either, and the two are answered identically on purpose (see the
+section above). A device mid-recording when this ships keeps minting from
+whatever `sessionKey` its already-running capture opened with, which does not
+change until the next `start()`; the meeting after that mints addressed ids
+from its first chunk. A batch mixing old-shaped and new-shaped ids for the
+*same* meeting merges by id exactly as it always has and is refused by nothing
+new — the guard only ever fails in the direction of accepting what it cannot
+prove wrong, and an old id proves nothing wrong about itself. There is no
+migration to run and nothing to backfill: the fix changes what a client mints
+from here on, not what a contract remembers about a chunk already sent.
+
+### Reason two: the phone's note write passes no gateway door at all
+
+The desktop's fourth barrier is `apps/mcp`'s `appendSegments` and `foldLog` —
+a door no client can talk past, because the gateway is the only party that can
+put a note in the customer's bucket on that path. The phone has no such door.
+`convexGateway.ts`'s own header already says why: this app holds a
+control-plane session, not an MCP grant, so `finalize` renders the transcript
+itself and writes it with `files.writeNote` — the same generic action every
+note save uses, which has never heard of a meeting and could not refuse one on
+its own terms if it wanted to.
+
+**Two ways to close that, one of them a larger change than this one.**
+
+- **Route the phone's transcript through the same door the desktop uses.**
+  That means the phone acquiring an MCP grant — the OAuth client registration
+  flow `packages/hook` ships and the desktop already runs — instead of, or
+  alongside, its control-plane session. *The desktop is an OAuth client of the
+  gateway, and it asks for the tier its meetings are filed at* (above) argues
+  at length for why that credential shape is not one to hand a phone lightly:
+  a control-plane session already reaches every context its owner is a member
+  of, and a phone able to *also* mint a narrower, revocable grant is two
+  credentials doing one job with no clean story for which one a given
+  request used, which is exactly the two-credentials defect
+  `docs/decisions/desktop.md` had to close for the *desktop* shell before its
+  own meetings could be trusted. Building that story correctly for the phone —
+  deciding whether it replaces the control-plane path, when it is minted, how
+  it is revoked independently, what a phone with no grant yet does with a
+  meeting it already recorded — is a real project, not a guard, and this
+  document says so plainly rather than reaching for a shortcut that repeats a
+  mistake this repository has already paid to fix once.
+- **Add the identity check where the phone actually writes.** Chosen. It is
+  not the gateway's guard — nothing stops a rebuilt client from skipping a
+  function call the way nothing stops it from skipping any other client-side
+  check — but it is the strongest one available without the change above, and
+  it closes the gap the leaked-subscription bug actually demonstrated: a
+  transcript built from foreign words by an honest client with a bug in it,
+  not a hostile client rewritten to lie.
+
+**What was built.** `convexGateway.ts`'s `finalize` now calls
+`assertOwnTranscript` before it renders or writes anything:
+`foreignSegmentSessions(session.id, session.transcript)`, the same function
+the gateway and the controller's own `apply` already use, run once more
+against the *whole* transcript at the last moment before it becomes a note.
+`apply` already keeps a foreign segment out of `session.transcript` on the way
+in (reason one, now live); this is what catches one that reached
+`session.transcript` some other way — a record restored from disk, a future
+code path that folds a segment without going through `apply`. A transcript
+that fails it is refused with `meeting_invalid` and nothing is written; the
+refusal names no meeting and quotes no word of the transcript, the same
+restraint `assertSegmentsAddressed` and `apply` already hold to.
+
+**Stated exactly, because a reader should not have to infer it from the
+fix's shape:** contamination on the phone path is now **prevented by two
+independent guards** — the identity check on the way a segment is folded in
+(now live, per reason one) and the identity check on the way the transcript
+is written out — where the desktop has four, one of which is a boundary no
+client can cross. It is **not impossible** on the phone the way it is on the
+desktop, because both of the phone's guards are code the same binary that
+records the meeting also runs; a build that dropped one, or both, would drop
+them silently, the way `handleMeetings`'s test suite dropping `assertSegmentsAddressed`
+would not be silent — `apps/mcp/test/meetings.test.mjs` would fail on the next
+run against a real gateway, and nothing analogous exists that a phone build
+cannot simply not have. That gap is the honest cost of not making the larger
+change above, named here rather than left for the next adversarial review to
+find.
+
+**The checks are** `a phone chunk id names the meeting it was recorded for,
+and only that one` (`apps/mobile/__tests__/meetingsCapture.test.ts` and its
+`meetingsCaptureWeb.test.ts` sibling), `a recorder given no meeting id refuses
+to start, rather than inventing one` (same two files), `a transcript carrying
+another meeting's words is refused, not written` and `a transcript whose ids
+name no meeting at all is not contamination`
+(`apps/mobile/__tests__/meetingsConvexWriter.test.ts`).
+
 ## A refusal is shown with the reason the gateway gave for it
 
 `postEntry` read a `message` field off an error body. The gateway's meeting
