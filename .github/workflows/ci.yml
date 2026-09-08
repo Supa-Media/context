@@ -251,17 +251,21 @@ jobs:
   # 45-minute budget.
   #
   # So: on a pull request, this runs only when the diff touches
-  # `apps/desktop`, `packages/desktop-bridge` (the app's only runtime
-  # dependency outside the workspace root) or this file — the same
-  # change-detection-inside-the-job shape `editor-webkit` uses and for the
-  # same reason (a `paths:` filter on the trigger would leave an unrelated
-  # pull request with no report at all, pending forever on a required
-  # check). On a push to `main` it always runs, ungated — a merge is the
-  # moment this incident actually happened, pushes to `main` are one per
-  # merge rather than one per commit, and a change reaching `main` through
-  # something this path list did not anticipate (a shared package, a
-  # workspace-root dependency bump) still gets caught within minutes rather
-  # than at the next release dispatch.
+  # `apps/desktop` itself, or one of the four workspace packages it actually
+  # depends on at runtime — `packages/desktop-bridge`, `packages/hook`,
+  # `packages/communications`, `packages/meetings` (`apps/desktop/package.json`'s
+  # own `dependencies`, not `packages/**` wholesale: `packages/shared` is not
+  # one of them, and gating on all of `packages/**` would run this on every
+  # unrelated package change) — or this file. The same change-detection-
+  # inside-the-job shape `editor-webkit` uses and for the same reason (a
+  # `paths:` filter on the trigger would leave an unrelated pull request with
+  # no report at all, pending forever on a required check). On a push to
+  # `main` it always runs, ungated — a merge is the moment this incident
+  # actually happened, pushes to `main` are one per merge rather than one per
+  # commit, and a change reaching `main` through something this path list did
+  # not anticipate (a workspace-root dependency bump, a fifth package this
+  # app starts depending on) still gets caught within minutes rather than at
+  # the next release dispatch.
   #
   # ## What still is not covered
   #
@@ -283,7 +287,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Does this touch the desktop app or its bridge?
+      - name: Does this touch the desktop app or what it depends on?
         uses: dorny/paths-filter@v3
         id: changes
         with:
@@ -291,6 +295,9 @@ jobs:
             desktop:
               - "apps/desktop/**"
               - "packages/desktop-bridge/**"
+              - "packages/hook/**"
+              - "packages/communications/**"
+              - "packages/meetings/**"
               - ".github/workflows/ci.yml"
 
       # `github.event_name == 'push'` (to `main`, per this workflow's trigger)

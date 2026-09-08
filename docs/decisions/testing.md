@@ -34,15 +34,24 @@ it ran rather than *whether* it ran.
 
 **The fix: a `desktop-launch-smoke` job in `ci.yml`, running the same
 `--smoke` launch against the unpackaged dev bundle.** On a pull request it
-runs only when the diff touches `apps/desktop`, `packages/desktop-bridge` (the
-app's only runtime dependency outside the workspace root) or `ci.yml` itself —
-change-detection-inside-the-job, not a `paths:` filter on the trigger, for the
-reason `check-workflow-triggers.mjs` already enforces elsewhere in this file:
-a required check filtered out of the trigger never reports at all, and a pull
-request is left pending on it forever. On a push to `main` it always runs,
-ungated, as the backstop for a change that reaches the app through something
-the path list did not anticipate — a shared package, a workspace-root
-dependency bump.
+runs only when the diff touches `apps/desktop` itself, or one of the four
+workspace packages `apps/desktop/package.json` actually lists as a runtime
+dependency — `packages/desktop-bridge`, `packages/hook`,
+`packages/communications`, `packages/meetings` — or `ci.yml` itself. That list
+is read off the manifest rather than assumed: an earlier draft of this job
+said "`packages/desktop-bridge`, the app's only runtime dependency outside the
+workspace root," which was wrong the moment it was written — three more
+workspace packages were already in `dependencies`, so a pull request touching
+only `packages/hook` or `packages/meetings` would have skipped this job and
+waited for the push-to-`main` backstop to notice, exactly the kind of gap this
+section exists to close. This is change-detection-inside-the-job, not a
+`paths:` filter on the trigger, for the reason `check-workflow-triggers.mjs`
+already enforces elsewhere in this file: a required check filtered out of the
+trigger never reports at all, and a pull request is left pending on it
+forever. On a push to `main` it always runs, ungated, as the backstop for a
+change that reaches the app through something this path list did not
+anticipate — a workspace-root dependency bump, or a fifth package this app
+starts depending on before the list here is updated to match.
 
 **Why a macOS runner on every matching pull request is affordable, not just
 tolerable.** `context` is public and MIT-licensed, and GitHub does not meter
