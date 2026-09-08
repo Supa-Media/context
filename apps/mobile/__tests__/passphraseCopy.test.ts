@@ -41,8 +41,8 @@
  * `ACKNOWLEDGEMENT_POINTS` and checked each one was on the screen — which is a
  * loop over the thing under test, and passes exactly as happily when the list
  * is empty. Deleting the sentence that says a lost passphrase is permanent
- * failed nothing at all. The four claims are now spelled out here, and the loop
- * is kept beside them so a fifth point added later cannot live in the constant
+ * failed nothing at all. The two claims are now spelled out here, and the loop
+ * is kept beside them so a later point cannot live in the constant alone.
  * alone.
  */
 
@@ -134,7 +134,7 @@ describe("the screen that locks a note", () => {
     expect(ACKNOWLEDGEMENT_POINTS).toHaveLength(2);
     expect(text).not.toMatch(/keylogger|screenshot|search results|share.*passphrase/i);
 
-    // And whatever else the list holds is on the screen too, so a fifth point
+    // And whatever else the list holds is on the screen too, so a later point
     // added later cannot be added to the constant alone.
     for (const point of ACKNOWLEDGEMENT_POINTS) {
       expect(text).toContain(point.replace(/\s+/g, " "));
