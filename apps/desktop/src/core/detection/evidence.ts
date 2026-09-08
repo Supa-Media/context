@@ -41,6 +41,18 @@ export function summaryLine(result: Pick<DetectionResult, "reason">): string {
  * Shown *with* the evidence rather than instead of it: "a calendar we cannot
  * read" is a different statement from "no calendar events", and the second one
  * is the one a person would wrongly infer from a short evidence list.
+ *
+ * **The calendar case gets its own sentence, naming what to do about it.**
+ * The demonstrated failure on a real Mac was a write-only Calendars grant —
+ * Apple Events to Calendar allowed, the data itself refused — which
+ * `calendarScript` now reports as a refusal rather than an empty diary (see
+ * `platform/macos/calendar.ts`). A person reading "Cannot see your calendar"
+ * with no next step has no way to tell whether that is fixable, so the second
+ * sentence names the exact place to fix it and the one thing this document has
+ * to say honestly: **shipping the fuller permission request is not
+ * retroactive** — a grant already sitting at write-only stays there until the
+ * person re-grants it themselves; nothing this app does reaches into System
+ * Settings on their behalf.
  */
 export function degradedNotice(degraded: readonly string[]): string | null {
   if (degraded.length === 0) return null;
@@ -55,5 +67,14 @@ export function degradedNotice(degraded: readonly string[]): string | null {
     listed.length === 1
       ? listed[0]
       : `${listed.slice(0, -1).join(", ")} and ${listed[listed.length - 1]}`;
-  return `Cannot see ${joined} — detection is working with less than usual.`;
+  const notice = `Cannot see ${joined} — detection is working with less than usual.`;
+  if (!degraded.includes("calendar")) return notice;
+  return (
+    `${notice} Calendar access is often granted for adding events only, which ` +
+    `looks identical to a fully working grant in System Settings but hides ` +
+    `every event from this app. Open System Settings > Privacy & Security > ` +
+    `Calendars and switch Context to Full Access — re-granting it yourself is ` +
+    `required either way, since a fuller request from this app cannot upgrade ` +
+    `a permission you already gave.`
+  );
 }

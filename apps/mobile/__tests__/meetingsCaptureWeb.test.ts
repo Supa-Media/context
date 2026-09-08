@@ -897,3 +897,39 @@ describe("giving capture up is not undone by the verbs", () => {
     expect(instances).toHaveLength(opened);
   });
 });
+
+/**
+ * The browser recorder and the phone's send the same chunks to the same worker,
+ * so they say the same thing about a chunk nobody spoke in — and this is the
+ * check that keeps the two from drifting apart.
+ *
+ * The worker refuses the segments the engine's own evidence says are not
+ * speech, after ninety seconds of a quiet room produced 166 words and filed
+ * them into a bucket. A quiet chunk therefore comes back empty, which on the
+ * glass looks exactly like a transcriber that has stopped working, so the
+ * recorder says which. All three directions, because each wrong answer is a
+ * different lie: see `meetingsCapture.test.ts` for the argument in full.
+ */
+describe("a chunk nobody spoke in", () => {
+  test("is said out loud, in a sentence from the closed set", async () => {
+    const { recorder, transcriber, errors } = harness();
+    transcriber.refusedNextTime(2);
+    await recorder.start();
+    await advance(SEGMENT_MS);
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0].recoverable).toBe(true);
+    expect(errors[0].message).toMatch(/no speech was heard/i);
+    expect(CAPTURE_MESSAGES).toContain(errors[0].message);
+    await recorder.stop();
+  });
+
+  test("...but an empty answer with nothing refused says nothing", async () => {
+    const { recorder, errors } = harness();
+    await recorder.start();
+    await advance(SEGMENT_MS);
+
+    expect(errors).toHaveLength(0);
+    await recorder.stop();
+  });
+});

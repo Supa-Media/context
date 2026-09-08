@@ -259,6 +259,24 @@ const CHUNK_FAILED =
 const SEND_BACKLOG =
   "Transcription is running behind, so a few seconds of audio were dropped. Capture is still running.";
 
+/*
+  WHY THERE IS A SENTENCE FOR SILENCE AT ALL.
+
+  The transcription worker now refuses the segments the engine's own evidence
+  says are not speech — ninety seconds of a quiet room produced 166 words and
+  filed them into a bucket, so an engine handed silence answers with sentences.
+  The refusal is right, and it makes a quiet chunk come back with no words in
+  it, which on the glass is exactly what a transcriber that has stopped working
+  also looks like: a chip that never appears.
+
+  So the quiet one says so. It fires only when the WHOLE chunk came back empty
+  and the worker said why: a meeting with pauses in it refuses the odd segment
+  continuously, and a chip per pause is noise that teaches somebody to ignore
+  the chip that matters.
+*/
+const NO_SPEECH =
+  "No speech was heard in the last stretch of audio, so nothing was transcribed from it. Capture is still running.";
+
 /**
  * Everything a `RecorderError` from this module may say, and the whole of it.
  *
@@ -281,6 +299,7 @@ export const CAPTURE_MESSAGES: readonly string[] = Object.freeze([
   NO_TRANSCRIBER,
   CHUNK_FAILED,
   SEND_BACKLOG,
+  NO_SPEECH,
 ]);
 
 /** Where `expo-audio` writes: `<caches>/ExpoAudio/recording-<uuid>.m4a`. */
@@ -614,13 +633,17 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
     const transcriber = resolveTranscriber();
     if (transcriber === null) return;
 
-    const segments = await transcriber.transcribe({
+    const { segments, refusedSegments } = await transcriber.transcribe({
       audioBase64,
       mimeType: CHUNK_MIME,
       chunkId,
       offsetMs,
       durationMs,
     });
+    if (segments.length === 0 && refusedSegments > 0) {
+      report({ recoverable: true, message: NO_SPEECH });
+      return;
+    }
     for (const segment of segments) emit(segment);
   }
 

@@ -796,6 +796,10 @@ describe("transcribing a chunk", () => {
     expect(await response.json()).toEqual({
       text: "Morning.",
       segments: [{ startMs: 0, endMs: 1500, text: "Morning.", confidence: null }],
+      // Nothing was refused, and the field says so rather than being absent:
+      // `refused: 0` beside a full transcript and `refused: 3` beside an empty
+      // one are what let a caller tell a quiet room from a broken engine.
+      refused: 0,
     });
   });
 
@@ -808,6 +812,7 @@ describe("transcribing a chunk", () => {
     expect(await response.json()).toEqual({
       text: "hello there",
       segments: [{ startMs: 0, endMs: 12_000, text: "hello there", confidence: null }],
+      refused: 0,
     });
   });
 

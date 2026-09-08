@@ -3020,6 +3020,10 @@ export async function runMeetingChecks(check) {
   check("a speaker is never invented", words.every((word) => word.speaker === null));
   check("a confidence the engine did not give is null, not a number we chose", words[0]?.confidence === null);
   check("...and one it did give is passed through", words[1]?.confidence === 0.5);
+  check(
+    "a service that refused nothing says so, rather than saying nothing",
+    transcribed.body?.refusedSegments === 0
+  );
 
   const forwarded = transcribeCalls.at(-1);
   check("the audio went to the configured service", forwarded?.url === `${TRANSCRIBE_ORIGIN}/transcribe`);
@@ -3068,6 +3072,86 @@ export async function runMeetingChecks(check) {
   check(
     "...AND AN UPSERT OF A SESSION YOU HOLD DOES NOT RESET IT EITHER",
     afterUpsert.transcribedChunks === 1 && afterUpsert.title === "Re-opened to reset the meter"
+  );
+
+  /*
+    SILENCE IS A REAL ANSWER, AND IT ARRIVES WITH ITS REASON.
+
+    The transcription service now refuses the segments the engine's own evidence
+    says are not speech (`infra/transcribe-worker/src/transcribe.ts`, after
+    ninety seconds of a quiet room produced 166 words on the owner's Mac). So a
+    quiet room reaches this gateway as an empty `segments` array beside a
+    non-zero `refused`, and three things have to be true of that here.
+
+    It must not read as a broken service. An empty array falls through
+    `intoSegments` silently — but a payload with no readable `segments` at all
+    is still a 503, because those are different answers and collapsing them is
+    how "every meeting transcribed to nothing" ships with a green health check.
+
+    The count must reach the recorder, because the recorder is what puts a
+    sentence on somebody's screen. `segments: []` with `refused: 3` is "the room
+    was quiet"; with `refused: 0` it is "nothing is transcribing this". A client
+    that cannot tell them apart shows the wrong one, which is the shorter answer
+    with no explanation this repository keeps finding.
+
+    And a service one deploy behind must go on working: it is deployed by its
+    own workflow and answers with a bare array.
+
+    SABOTAGE, each one edit to `src/meetings/transcribe.js`:
+      drop `refusedSegments` from the answer                    3 FAIL
+      read `raw.segments` only, with no bare-array fallback     2 FAIL
+      treat an unreadable payload as an empty transcript        1 FAIL
+
+    What is deliberately NOT checked here is a judgement, because this gateway
+    makes none: it holds a base64 string it must not decode and a list of
+    sentences no filter can tell apart, so it carries the decision and does not
+    take one.
+  */
+  const quietBefore = transcribeCalls.length;
+  transcribeAnswer = () =>
+    new Response(JSON.stringify({ text: "", segments: [], refused: 3 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  const quiet = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk({ chunkId: `${SESSION_TRANSCRIBE}-mic-1` }) }
+  );
+  check("a chunk of silence is a 200, not a failure", quiet.status === 200);
+  check("...with no words in it", (quiet.body?.segments ?? []).length === 0);
+  check("...and the count that says why it is empty", quiet.body?.refusedSegments === 3);
+  check("...having really been forwarded", transcribeCalls.length === quietBefore + 1);
+
+  transcribeAnswer = () =>
+    new Response(JSON.stringify([{ startMs: 0, endMs: 500, text: "older" }]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  const legacy = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk({ chunkId: `${SESSION_TRANSCRIBE}-mic-2` }) }
+  );
+  check("a service that predates the refusal count still transcribes", legacy.status === 200);
+  check("...and reports nothing refused", legacy.body?.refusedSegments === 0);
+
+  transcribeAnswer = () =>
+    new Response(JSON.stringify({ result: { text: "reshaped" } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  const unreadable = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk({ chunkId: `${SESSION_TRANSCRIBE}-mic-3` }) }
+  );
+  check(
+    "an answer with no readable segments is a failure, not a quiet room",
+    unreadable.status === 503
   );
 
   const before = transcribeCalls.length;
@@ -3213,13 +3297,95 @@ export async function runMeetingChecks(check) {
   );
   check(
     "...but it is not told the microphone was the problem, because this gateway took the audio",
-    emptyAfterAudio.body?.emptyReason === "Audio was recorded, but none of it could be transcribed."
+    emptyAfterAudio.body?.emptyReason === "Audio was recorded, but no words came back from it."
+  );
+  check(
+    "...and the sentence names no fault, because there may not be one",
+    !/could not|failed|error/i.test(emptyAfterAudio.body?.emptyReason ?? "")
   );
   check(
     "...and nothing about the session was deleted on the way: the record is still there to read",
     JSON.parse(
       s3.bucketFor("meet-recorder").get(`${MEETING_PREFIX}${SESSION_TRANSCRIBED_TO_NOTHING}.json`)?.body ?? "{}"
     ).transcribedChunks === 1
+  );
+
+  /*
+    THE SHAPE THAT COULD NOT REACH `empty` AT ALL UNTIL TONIGHT.
+
+    A recording of a quiet room. `hasNothingCaptured` — no transcript, no typed
+    notes — is the one rule behind `finalizing -> empty`, and its transcript
+    half was unreachable for any session that opened a microphone: an engine
+    handed ninety seconds of silence answered with 166 words, so the transcript
+    was never empty and the guard merged as `2a120f5` was dead code in practice.
+    The implementation was right; the assumption under it was false.
+
+    Nothing here changed to fix that. What changed is upstream: the
+    transcription service refuses the segments the engine's own evidence says
+    are not speech, so a quiet chunk really does produce no words, and the
+    existing rule reaches the existing state on its own. This is the check that
+    says so end to end — chunks forwarded, no words back, and no note in the
+    bucket.
+
+    SABOTAGE: make the transcription answer carry one invented segment —
+    `{ segments: [{ startMs: 0, endMs: 900, text: "Thank you." }], refused: 3 }`,
+    which is what the engine really did — and 2 checks go RED, including "no
+    note is written for a room nobody spoke in". That is exactly the defect: one
+    hallucinated line is the whole difference between an empty session and a
+    meeting note full of sentences nobody said.
+  */
+  const SESSION_QUIET_ROOM = `mtg_${"z8".repeat(10)}`;
+  await meetingRequest(transcribing, TOKEN_OWNER, "/meetings/sessions", {
+    body: {
+      id: SESSION_QUIET_ROOM,
+      title: "Ninety seconds of nobody talking",
+      startedAt: "2026-09-06T11:00:00.000Z",
+      transcription: "cloud",
+    },
+  });
+  transcribeAnswer = () =>
+    new Response(JSON.stringify({ text: "", segments: [], refused: 4 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  const quietChunks = [];
+  for (let index = 0; index < 3; index += 1) {
+    quietChunks.push(
+      await meetingRequest(
+        transcribing,
+        TOKEN_OWNER,
+        `/meetings/sessions/${SESSION_QUIET_ROOM}/transcribe`,
+        { body: chunk({ chunkId: `${SESSION_QUIET_ROOM}-mic-${index}`, offsetMs: index * 20_000 }) }
+      )
+    );
+  }
+  transcribeAnswer = null;
+  check(
+    "ninety seconds of a quiet room transcribes to nothing, three chunks running",
+    quietChunks.every((answer) => answer.status === 200 && (answer.body?.segments ?? []).length === 0)
+  );
+  check(
+    "...and every one of them says why it is empty",
+    quietChunks.every((answer) => answer.body?.refusedSegments === 4)
+  );
+  const notesBefore = [...s3.bucketFor("meet-recorder").keys()].length;
+  const quietFinal = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_QUIET_ROOM}/finalize`,
+    { body: {} }
+  );
+  check(
+    "A SESSION THAT CAPTURED ONLY SILENCE REACHES `empty`",
+    quietFinal.status === 200 && quietFinal.body?.state === "empty"
+  );
+  check(
+    "no note is written for a room nobody spoke in",
+    [...s3.bucketFor("meet-recorder").keys()].length === notesBefore && !quietFinal.body?.path
+  );
+  check(
+    "...and the session record is still there, with its reason",
+    typeof quietFinal.body?.emptyReason === "string" && quietFinal.body.emptyReason.length > 0
   );
 
   /* ----------------- M1: a moved meeting note is still reachable ---------- */
