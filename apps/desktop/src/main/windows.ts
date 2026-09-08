@@ -34,6 +34,7 @@
 import { BrowserWindow, screen, shell } from "electron";
 import { join } from "node:path";
 import { mayNavigateConsoleWindow } from "../core/shell/approval.ts";
+import { mayGrantConsolePermission } from "../core/shell/console.ts";
 
 export interface WindowSet {
   panel: BrowserWindow;
@@ -282,9 +283,27 @@ export function createConsoleWindow(
     the main process after `core/consent/gate.ts` has said yes. So even a fully
     compromised page cannot open one directly — the most it can do is ask the
     bridge, and the bridge asks the gate.
+
+    This used to deny *everything*, and that was too wide by exactly one
+    permission. Chromium routes `navigator.clipboard.writeText` through a
+    `clipboard-sanitized-write` request, so "Copy note" on the meeting screen
+    was refused here and did nothing at all — the one way a finished meeting
+    gets off this machine when the queue has not landed it. The rule and the
+    whole argument are in `mayGrantConsolePermission`, out in `core/` where the
+    suite can reach them; the default is still deny, and `media` is still on the
+    wrong side of it.
+
+    Both handlers, because Chromium asks two different questions. `request` is
+    "may I", which a press raises; `check` is "would you", which
+    `navigator.permissions.query` and Chromium's own pre-flight ask, and a
+    default-denying request handler with no check handler beside it answers the
+    two inconsistently.
   */
-  win.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) =>
-    callback(false),
+  win.webContents.session.setPermissionRequestHandler((_contents, permission, callback) =>
+    callback(mayGrantConsolePermission(permission)),
+  );
+  win.webContents.session.setPermissionCheckHandler((_contents, permission) =>
+    mayGrantConsolePermission(permission),
   );
 
   void win.loadURL(url);

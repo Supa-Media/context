@@ -3197,13 +3197,95 @@ export async function runMeetingChecks(check) {
   );
   check(
     "...but it is not told the microphone was the problem, because this gateway took the audio",
-    emptyAfterAudio.body?.emptyReason === "Audio was recorded, but none of it could be transcribed."
+    emptyAfterAudio.body?.emptyReason === "Audio was recorded, but no words came back from it."
+  );
+  check(
+    "...and the sentence names no fault, because there may not be one",
+    !/could not|failed|error/i.test(emptyAfterAudio.body?.emptyReason ?? "")
   );
   check(
     "...and nothing about the session was deleted on the way: the record is still there to read",
     JSON.parse(
       s3.bucketFor("meet-recorder").get(`${MEETING_PREFIX}${SESSION_TRANSCRIBED_TO_NOTHING}.json`)?.body ?? "{}"
     ).transcribedChunks === 1
+  );
+
+  /*
+    THE SHAPE THAT COULD NOT REACH `empty` AT ALL UNTIL TONIGHT.
+
+    A recording of a quiet room. `hasNothingCaptured` — no transcript, no typed
+    notes — is the one rule behind `finalizing -> empty`, and its transcript
+    half was unreachable for any session that opened a microphone: an engine
+    handed ninety seconds of silence answered with 166 words, so the transcript
+    was never empty and the guard merged as `2a120f5` was dead code in practice.
+    The implementation was right; the assumption under it was false.
+
+    Nothing here changed to fix that. What changed is upstream: the
+    transcription service refuses the segments the engine's own evidence says
+    are not speech, so a quiet chunk really does produce no words, and the
+    existing rule reaches the existing state on its own. This is the check that
+    says so end to end — chunks forwarded, no words back, and no note in the
+    bucket.
+
+    SABOTAGE: make the transcription answer carry one invented segment —
+    `{ segments: [{ startMs: 0, endMs: 900, text: "Thank you." }], refused: 3 }`,
+    which is what the engine really did — and 2 checks go RED, including "no
+    note is written for a room nobody spoke in". That is exactly the defect: one
+    hallucinated line is the whole difference between an empty session and a
+    meeting note full of sentences nobody said.
+  */
+  const SESSION_QUIET_ROOM = `mtg_${"z8".repeat(10)}`;
+  await meetingRequest(transcribing, TOKEN_OWNER, "/meetings/sessions", {
+    body: {
+      id: SESSION_QUIET_ROOM,
+      title: "Ninety seconds of nobody talking",
+      startedAt: "2026-09-06T11:00:00.000Z",
+      transcription: "cloud",
+    },
+  });
+  transcribeAnswer = () =>
+    new Response(JSON.stringify({ text: "", segments: [], refused: 4 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  const quietChunks = [];
+  for (let index = 0; index < 3; index += 1) {
+    quietChunks.push(
+      await meetingRequest(
+        transcribing,
+        TOKEN_OWNER,
+        `/meetings/sessions/${SESSION_QUIET_ROOM}/transcribe`,
+        { body: chunk({ chunkId: `${SESSION_QUIET_ROOM}-mic-${index}`, offsetMs: index * 20_000 }) }
+      )
+    );
+  }
+  transcribeAnswer = null;
+  check(
+    "ninety seconds of a quiet room transcribes to nothing, three chunks running",
+    quietChunks.every((answer) => answer.status === 200 && (answer.body?.segments ?? []).length === 0)
+  );
+  check(
+    "...and every one of them says why it is empty",
+    quietChunks.every((answer) => answer.body?.refusedSegments === 4)
+  );
+  const notesBefore = [...s3.bucketFor("meet-recorder").keys()].length;
+  const quietFinal = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_QUIET_ROOM}/finalize`,
+    { body: {} }
+  );
+  check(
+    "A SESSION THAT CAPTURED ONLY SILENCE REACHES `empty`",
+    quietFinal.status === 200 && quietFinal.body?.state === "empty"
+  );
+  check(
+    "no note is written for a room nobody spoke in",
+    [...s3.bucketFor("meet-recorder").keys()].length === notesBefore && !quietFinal.body?.path
+  );
+  check(
+    "...and the session record is still there, with its reason",
+    typeof quietFinal.body?.emptyReason === "string" && quietFinal.body.emptyReason.length > 0
   );
 
   /* ----------------- M1: a moved meeting note is still reachable ---------- */
