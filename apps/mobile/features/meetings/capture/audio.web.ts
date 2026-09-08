@@ -83,6 +83,15 @@ const NO_TRANSCRIBER =
 const NO_SESSION_ID =
   "This meeting had no id to record against, so nothing was captured. Start the meeting again.";
 
+/**
+ * Same rule and same words as `audio.ts`, which carries the argument: one
+ * device records one meeting, a second `start()` for the *same* meeting is
+ * still one start, and a second meeting is refused out loud rather than by
+ * returning and going on minting the first meeting's chunk ids.
+ */
+const ALREADY_RECORDING =
+  "This device is already recording another meeting. End that one first — your notes here are still kept.";
+
 const CHUNK_FAILED =
   "A few seconds of audio could not be transcribed. Capture is still running.";
 
@@ -126,6 +135,7 @@ export const CAPTURE_MESSAGES: readonly string[] = Object.freeze([
   SEND_BACKLOG,
   NO_SPEECH,
   NO_SESSION_ID,
+  ALREADY_RECORDING,
 ]);
 
 /**
@@ -519,8 +529,12 @@ function mediaRecorderRecorder(): MeetingRecorder {
     },
 
     async start(options?: CaptureOptions) {
-      if (state === "recording") return;
+      // The id before the state: see `ALREADY_RECORDING`, and `audio.ts`.
       const meetingId = requireSessionId(options);
+      if (state === "recording") {
+        if (meetingId === sessionKey) return;
+        throw new Error(ALREADY_RECORDING);
+      }
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch {

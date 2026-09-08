@@ -2871,6 +2871,131 @@ another meeting's words is refused, not written` and `a transcript whose ids
 name no meeting at all is not contamination`
 (`apps/mobile/__tests__/meetingsConvexWriter.test.ts`).
 
+## The count is a kind, not a number, and every one of these guards reads an id
+
+A post-merge adversarial review of the section above accepted its argument and
+corrected two of its sentences. Both corrections are about the same thing:
+what these guards are actually made of.
+
+### Three client-side barriers on the phone, not two, and that is not the point
+
+The section above counts **two** for the phone against the desktop's four. On
+like-for-like terms it is three, because the desktop's four include one the
+phone has had all along: `applyMeetingEvent`'s `acceptsTranscript` check, which
+refuses transcript folded into a terminal session whatever sends it, is one of
+the four *A segment id names its own meeting* lists, and it is in
+`features/meetings/session.ts` — the phone's own reducer. So the phone has
+`acceptsTranscript`, `apply`'s identity check and `assertOwnTranscript`, and
+the desktop has those three plus `queueWrite`'s strip in the shell's outbox and
+the gateway's `assertSegmentsAddressed`.
+
+Counting it correctly makes the real asymmetry easier to see rather than
+harder, which is why it is worth correcting: **the difference between the two
+paths was never the count.** Every guard on the phone's list is enforced by the
+binary asking to be trusted. Exactly one guard on the desktop's list is not.
+Adding a fourth and a fifth client-side check to the phone would not move it
+one step toward the desktop's position, and the section above is right that the
+only thing that would is the OAuth-grant project it declines. A number invites
+the reading that the gap is three guards wide; it is one *kind* wide.
+
+### An id that says nothing is accepted at every door, the gateway's included
+
+`segmentSessionId` answers `null` for an id whose first token is not a meeting
+id, and every check built on it — `apply`, `assertOwnTranscript`,
+`queueWrite`, and `assertSegmentsAddressed` at the gateway — treats `null` as
+*addressed correctly*. That is deliberate and argued above. What follows from
+it, and is not said above, is that **a client is not stopped by any of these
+guards if it simply stops naming meetings in its ids.** It does not need to lie
+about whose words it is holding; it only needs to stop saying. The desktop's
+gateway door refuses the same batch a client sends with a foreign name on it,
+and accepts it with no name on it.
+
+So *"a boundary no client can talk past"* is exact about **misaddressed** words
+and not about **unaddressed** ones, and "contamination is impossible on the
+desktop path" should be read as: impossible for a client that names its
+meetings at all. Every client in this repository does, and the guard is what
+catches the bug this repository has actually had — a leaked subscription
+inside an honest client, which goes on minting correct ids while routing them
+to the wrong session. Against a client rewritten to lie the guard was never the
+defence, and against one rewritten to say nothing it is not either.
+
+**And the acceptance stays.** The tempting narrowing is to refuse an
+unaddressed transcript once a client is known to address its ids — by the
+record's own version, or by refusing a transcript that mixes addressed and
+unaddressed rows. Neither is worth what it costs:
+
+- The marker that would separate genuinely old data from a client that stopped
+  addressing has to be written by the same binary whose honesty is in question.
+  A build that drops `assertOwnTranscript` drops a version stamp just as
+  easily, so it buys nothing at all against the case it is aimed at.
+- Against the case that is *not* aimed at — an honest client whose transcriber
+  stops deriving segment ids from the chunk id, which is a change somebody
+  could make in `capture/transcriber.ts` without ever thinking about meetings
+  — it would refuse to write real meetings that are nobody's but their own.
+  That is a refusal in the one direction this contract says a guard on a
+  transcript may not fail in: *refuse what is provably somebody else's, wave
+  through what you cannot know*.
+
+The narrowing that would genuinely close it is the one already named and
+declined: a party other than the client deciding what a meeting's words are.
+Until that exists, "prevented, not impossible" is the honest description of the
+phone — and of the desktop too, one degree further out.
+
+### One device records one meeting, said out loud
+
+The same review found the one place the phone's new ids changed a silent
+failure into a different silent failure. `MeetingsListScreen` hides its record
+button while a meeting is live; the console's own Record key
+(`ConsoleBottomBar`, in `app/(app)/console/_layout.tsx`) is drawn whether or
+not one is, so `controller.start()` really can be called for a second meeting
+while the first is still recording. Both phone recorders answered that by
+returning silently — right for the *same* meeting twice, since a double press
+is one start — and went on minting chunk ids for the meeting they opened with.
+Before the ids named a meeting that was contamination with no name on it: the
+first meeting's audio landed in the second meeting's transcript, at the first
+meeting's offsets. Now that they name one, `apply` refuses every one of those
+segments, correctly, and the second meeting records **nothing at all** and says
+nothing about it.
+
+So the recorder refuses instead: a `start()` for a meeting other than the one
+it is recording throws `ALREADY_RECORDING`, which `controller.start` already
+handles the way it handles a denied microphone — the session stays, the notepad
+keeps working, and the sentence goes on the live screen. A `start()` for the
+meeting already running is still one start, unchanged. The recorder is the only
+place that knows both meetings' names, which is why the guard is there rather
+than in the screen that drew the button; a screen that also stopped offering it
+would be an improvement to the same situation and not a substitute for this.
+
+### A refusal is a sentence somebody's log file keeps
+
+The same review looked again at `describeEventType`, added above to stop
+`foldLog` echoing an unrecognised `event.type` back unbounded. The bound was on
+the length and not on the shape, and the reason the bound exists is that this
+sentence is written to a customer's log by `apps/desktop` as the *tail of one
+line*: `meeting_write_refused session=… kind=… status=… code=…: <sentence>`. A
+newline forges a second line in that file in one character, and an escape
+sequence rewrites the line already printed in four — neither of which forty
+characters is any defence against.
+
+So the shape is checked before the length: an event type in this contract is an
+identifier, so one that is not is described (`non-identifier`) rather than
+quoted, and one that is keeps being named and truncated as before, because
+naming it is the one thing a client author can act on. This is
+`assertSafeEtag`'s rule in `src/store/index.js` — a value about to be
+interpolated into a line with structure gets its charset checked, not its
+length — applied to the one refusal in this file that carries a client's own
+text.
+
+**The checks are** `a second meeting is refused rather than recorded under the
+first one's name` and `...and starting the meeting that is already running is
+still a no-op` (`apps/mobile/__tests__/meetingsCapture.test.ts` and its
+`meetingsCaptureWeb.test.ts` sibling), `acceptsTranscript reads the table,
+rather than agreeing with today's copy of it`
+(`apps/mobile/__tests__/meetingsSession.test.ts` — the zero-failure sabotage
+row above, made to fail), `the terminal states ingest.js names by hand are
+exactly the table's own` and `an event type carrying a newline is described
+rather than echoed into a log line` (`apps/mcp/test/meetings.test.mjs`).
+
 ## A refusal is shown with the reason the gateway gave for it
 
 `postEntry` read a `message` field off an error body. The gateway's meeting

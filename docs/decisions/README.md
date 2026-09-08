@@ -178,6 +178,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A session that captured nothing is not filed
 - A segment id names its own meeting, and both sides check it
 - The phone had one barrier where the desktop has four, and both halves are named
+- The count is a kind, not a number, and every one of these guards reads an id
 - A refusal is shown with the reason the gateway gave for it
 
 ## [Communications](./communications.md)

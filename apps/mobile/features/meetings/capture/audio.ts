@@ -280,6 +280,31 @@ const NO_TRANSCRIBER =
 const NO_SESSION_ID =
   "This meeting had no id to record against, so nothing was captured. Start the meeting again.";
 
+/**
+ * ONE DEVICE, ONE MEETING — SAID OUT LOUD RATHER THAN BY RETURNING.
+ *
+ * `start()` used to return silently when this recorder was already recording,
+ * which is right for the same meeting twice (a double press is one start) and
+ * was quietly wrong for a *different* one. The console's own Record key is
+ * drawn whether or not a meeting is live — `MeetingsListScreen` hides its
+ * button and `ConsoleBottomBar` does not — so a second meeting really can be
+ * started from a device that is already recording one, and the recorder went
+ * on minting chunk ids for the meeting it opened with. Before phone ids named
+ * their meeting that was silent contamination: the first meeting's audio was
+ * folded into the second one's transcript, with the first meeting's offsets.
+ * Since they name it, `controller.apply` refuses every one of those segments
+ * — which is correct, and turns the same press into a meeting that records
+ * *nothing at all* and says nothing about it.
+ *
+ * Neither is an outcome to leave a person in, and the recorder is the only
+ * place that knows both meetings' names, so it refuses. `controller.start`
+ * catches a refused start, keeps the session, and puts this sentence on the
+ * live screen beside the notepad — the same handling a denied microphone gets,
+ * for the same reason: the notes are the product and they keep working.
+ */
+const ALREADY_RECORDING =
+  "This device is already recording another meeting. End that one first — your notes here are still kept.";
+
 const CHUNK_FAILED =
   "A few seconds of audio could not be transcribed. Capture is still running.";
 
@@ -328,6 +353,7 @@ export const CAPTURE_MESSAGES: readonly string[] = Object.freeze([
   SEND_BACKLOG,
   NO_SPEECH,
   NO_SESSION_ID,
+  ALREADY_RECORDING,
 ]);
 
 /** Where `expo-audio` writes: `<caches>/ExpoAudio/recording-<uuid>.m4a`. */
@@ -796,8 +822,16 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
     },
 
     async start(options?: CaptureOptions) {
-      if (state === "recording") return;
+      /*
+        The id is read before the state, because what "already recording"
+        means depends on it: the same meeting twice is one start, and a second
+        meeting is a refusal. See `ALREADY_RECORDING`.
+      */
       const meetingId = requireSessionId(options);
+      if (state === "recording") {
+        if (meetingId === sessionKey) return;
+        throw new Error(ALREADY_RECORDING);
+      }
       if (!(await ensurePermission())) throw new Error(MIC_DENIED);
       await configureAudioSession(platform);
 
