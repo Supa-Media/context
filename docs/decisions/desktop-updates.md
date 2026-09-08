@@ -29,13 +29,18 @@ disagree, the installed app is the fact, because it is the one people have.
 **The recommendation, up front.** Do all three stages, in the order the owner
 proposed, and treat the middle one as the only one with a deadline. Stage 1
 (publish a release) is an afternoon and immediately ends hand-installed DMGs.
-Stage 2 (widen entitlements, usage strings and a URL scheme) is the one-way
-door: those keys can never be added to a binary that is already on somebody's
-Mac, and three of the four meeting collectors are dead in the shipped build for
-want of one entitlement. Stage 3 (a signed remote main bundle) is genuinely
-worth building — but it is a security system with an update channel attached,
-not an update channel with a signature attached, and if it is built in the
-other order it should not be built at all.
+Stage 2 (widen usage strings and a URL scheme) is the one-way door: those keys
+can never be added to a binary that is already on somebody's Mac — a claim
+this section used to extend to an entitlement as well, on the reasoning that
+three of the four meeting collectors were dead in the shipped build for want
+of it. **That reasoning was wrong, and the section on entitlements below
+corrects it in place**: the collectors shell out to `osascript`, a separate
+signed process that sends the Apple Event on this app's behalf, so the
+entitlement was never gating them and is not part of this stage's deadline
+today. Stage 3 (a signed remote main bundle) is genuinely worth building —
+but it is a security system with an update channel attached, not an update
+channel with a signature attached, and if it is built in the other order it
+should not be built at all.
 
 ---
 
@@ -191,46 +196,71 @@ later.
 
 | Key | Why | Cost |
 | --- | --- | --- |
-| `com.apple.security.automation.apple-events` | **Three of the four meeting collectors are dead without it, in principle.** `src/platform/macos/windows.ts` drives `System Events` over JXA for window titles and browser tab URLs; `src/platform/macos/calendar.ts` drives `Calendar.app` over JXA for events. Both go through `osascript` in `src/platform/exec.ts`. **The next paragraph corrects the sentence that used to sit here.** | None. It gates *asking*; the per-target consent dialog still happens per app, per person. |
+| `com.apple.security.automation.apple-events` | **Corrected below — not required by the design this app currently ships.** `src/platform/macos/windows.ts` and `src/platform/macos/calendar.ts` drive `System Events` and `Calendar.app` over JXA, but neither sends the Apple Event itself: both go through `osascript()` in `src/platform/exec.ts`, which runs `/usr/bin/osascript` — a separate, Apple-signed binary — via `execFile`. The entitlement governs the process that *sends* the event, and that process is `osascript`, not this app. Required the moment that stops being true. | None today, and none for as long as the collectors shell out. A collector moved in-process — a native module, or the framework's own APIs calling an Apple Events or Accessibility API directly — pays it in full: TCC refuses before any dialog is drawn. |
 | `com.apple.security.device.camera` | Deliberately **not** added. See below. | — |
 
-**The sentence this row used to carry was wrong, and a Mac is what found
-that.** It said: *"Under the hardened runtime, sending an Apple Event without
-this entitlement fails outright. Only `processes()` and `microphoneInUse()`
-work in the shipped build."* Read against the actually-shipped, signed,
-notarised bundle identifier this app ships as, on the owner's Mac: **three
-Apple Events rows already show as granted** — Automation entries for the
-targets `windows.ts` and `calendar.ts` drive — despite `git log --follow` on
-both `build/entitlements.mac.plist` and this file's own history showing the
-entitlement has never once been present in a commit that reached this tree.
-That is two facts that cannot both be true of the same build, and the honest
-resolution is that **one of them is not about the same build**: either the
-grants are stale, kept across a reinstall that shares the same code-signing
-identity — the finding below, "a same-identity reinstall preserves grants,"
-is exactly the mechanism that would let an *older* test build's grants survive
-into a *newer* one that never asked for them again — or they were made by an
-unsigned development run (`electron .`), which carries none of the hardened
-runtime's restrictions at all and sends Apple Events the classic way, gated
-by nothing but the per-target consent dialog every pre-hardened-runtime Mac
-app has always shown. Both are consistent with the evidence; neither is
-confirmed. What the general claim about hardened Apple Events is not wrong
-about, and what a citable, independent source backs up in the strongest terms
-available without a Mac to test on: **a hardened, non-sandboxed app that
-lacks this entitlement gets no dialog at all when it sends an Apple Event —
-the call silently fails, full stop** (Jeff Johnson, "Hardened Runtime and
+**This row asserted a genuine, unresolved discrepancy for a while, and there
+turns out to be no discrepancy — the earlier session was reasoning about the
+wrong process.** Two claims stood side by side: `git log --follow` on
+`build/entitlements.mac.plist` shows the automation entitlement has never once
+been present in a commit that reached this tree, and yet three Apple Events
+rows already show as granted, on the owner's Mac, for the targets
+`windows.ts` and `calendar.ts` drive. A citable source backs the general rule
+in the strongest terms available (Jeff Johnson, "Hardened Runtime and
 Sandboxing," lapcatsoftware.com — *"apps with the hardened runtime are not
 allowed to send Apple Events to other apps... this will silently fail with no
-permission dialog," and with the entitlement, "the first Apple Event sent
-will trigger a permission dialog"*). So a *signed, hardened, freshly-granted*
-run of today's tree, with no entitlement, should show **no** Automation
-prompt and no granted row at all — which is precisely why the three granted
-rows found are evidence of something this session could not reproduce or
-explain from the code alone, rather than evidence the general rule is false.
-**What needs a Mac:** `codesign -d --entitlements - /Applications/Context.app`
-on the exact installed bundle the TCC rows were read against, compared against
-`build/entitlements.mac.plist` in this tree at the commit that built it — if
-they disagree, the installed app is not what this tree currently produces, and
-the three rows explain themselves.
+permission dialog"* without the entitlement) — which is exactly why this
+looked like a contradiction rather than an explanation, and why the row
+before this one wrote up two competing guesses (a stale grant surviving a
+same-identity reinstall; an unsigned dev run using the classic, non-hardened
+path) with no way to tell them apart.
+
+**Both guesses were wrong, and the rule cited for them was never in question —
+only which process it applies to.** The Jeff Johnson citation is about the
+process that *sends* the Apple Event. Read literally rather than assumed:
+`src/platform/macos/windows.ts` and `src/platform/macos/calendar.ts` never
+call an Apple Events API themselves. Both hand a script to `osascript()` in
+`src/platform/exec.ts`, which runs it through `execFile("/usr/bin/osascript",
+...)` — so it is `osascript`, a separate Apple-signed process, that sends the
+Apple Event to Calendar, to Chrome, to System Events, gated by
+*`osascript`'s* entitlements, never this app's. This app has genuinely never
+carried the automation entitlement, and that was never what let the three
+targets respond — TCC's permission store attributes the grant to this app
+only because it names this app as the *responsible* process that asked
+`osascript` to act, which is exactly why the three rows are filed under this
+app's bundle identifier while its entitlements file has never carried the
+entitlement. Both facts are true and were never in tension.
+
+**Confirmed on the installed, signed, notarised app, not reasoned from the
+plist.** `codesign -d --entitlements -` on `/Applications/Context.app`
+returns exactly four entitlements — `allow-jit`,
+`allow-unsigned-executable-memory`, `disable-library-validation`,
+`device.audio-input` — and no automation entitlement, matching this tree's
+`build/entitlements.mac.plist` exactly: the installed binary is what this
+tree produces, not a stale build and not an unsigned dev run. And the three
+granted Apple Events rows name exactly the three applications the collectors
+drive, six seconds apart, in collector order — the detection loop's own poll
+walking its collectors in sequence, each `osascript` call raising its own
+per-target consent dialog once. Not a discrepancy; the exact fingerprint of
+this design working as built.
+
+**What this means for the table above, stated as a correction rather than a
+quiet edit.** The automation entitlement is not required by the shell-out
+design this app ships today, and the earlier "three of the four collectors
+are dead without it" claim was wrong in the same session that first wrote it
+down — corrected here rather than silently, because a decision record that
+quietly drops its own wrong claim is worse than one that names it.
+`NSAppleEventsUsageDescription` stays, regardless: it is the sentence the
+*prompt* shows, which `osascript` does not control the wording of, and a
+missing usage string is a crash risk the moment anything in this app ever
+sends an Apple Event in-process — cheap insurance, per this file's own
+argument on over-declaring above. **What flips this from "not required" to
+"required immediately" is moving a collector in-process** — a native module
+linked into this app, or the framework's own APIs reaching Accessibility or
+Apple Events directly instead of shelling out to `osascript`. The day this
+app's own process sends the event instead of asking a separate signed binary
+to send it on its behalf, this app's own entitlements gate that call, and TCC
+refuses before any dialog is drawn without it.
 
 `allow-jit`, `allow-unsigned-executable-memory`, `disable-library-validation`
 and `device.audio-input` stay exactly as they are; the entitlements plist
@@ -256,9 +286,10 @@ request that names full access and, if they say yes, receives it. **It is not
 retroactive.** Apple's own UI does not silently upgrade an existing write-only
 grant when an app's Info.plist changes underneath it; a person who already
 granted the old, narrower request keeps exactly what they granted; and
-per `docs/decisions/desktop.md`'s own finding on TCC and re-signing, **a
-same-identity signed reinstall preserves whatever grant is already
-recorded** — so shipping this key changes nothing for somebody already at
+per this file's own finding on TCC and bundle identity — "TCC binds a grant to
+bundle id *plus* signing identity" — **a same-identity signed reinstall
+preserves whatever grant is already recorded** — so shipping this key
+changes nothing for somebody already at
 write-only until they open System Settings and re-grant Calendars themselves,
 or revoke and re-grant it. That sentence belongs in release notes for this
 build, not only here.
@@ -274,26 +305,43 @@ write access"). Verified, from a real-world report of the same shape: an app
 declaring only the legacy `NSCalendarsUsageDescription` on iOS 17/macOS 14+
 is granted the write-only tier rather than full access
 (nc-software.com's account of exactly this regression: *"Apple made a change
-in iOS 17 that downgraded permissions... became ADD ONLY"*). **Not verified,
-because it needs a Mac**: whether `calendarScript`'s silent per-calendar
-`catch` actually swallows a write-only refusal into an empty array rather than
-an exception `collectSignals` would catch and report as `degraded` — this
-repository has no way to construct a `write-only`-authorized `Calendar`
-JXA target to test against, and no EventKit call anywhere in this codebase to
-ask `authorizationStatus(for:)` directly instead of inferring it from
-behaviour. The acceptance step for the Mac session that picks this up: grant
-full Calendars access, confirm `collectCalendarEvents` returns real events;
-then, in System Settings, set Calendars back to write-only for this app and
-watch whether the same call returns `[]` silently or throws. If it throws,
-nothing further is needed — `collectSignals`'s existing `degraded` path
-already turns that into an honest "the app cannot see your calendar" rather
-than a false "you have no meetings," per this file's own header. If it
-returns `[]` silently, `calendarScript` needs a positive check — enumerable
-calendars with zero readable events is ambiguous, but zero *enumerable*
-calendars at all, when the person is known to have at least one from a
-different signal, is not — and that fix is not in this pull request, because
-writing it without being able to watch it run against the real authorization
-tier would be guessing at JXA's exact failure shape rather than fixing it.
+in iOS 17 that downgraded permissions... became ADD ONLY"*).
+
+**This was left as "not verified, because it needs a Mac," and a Mac session
+has now closed it — read out of the system's own permission store rather than
+reasoned from the plist.** The owner's own TCC database, on the shipped
+bundle identifier:
+
+```
+service                 indirect_object          auth  reason  when
+kTCCServiceAppleEvents  com.apple.iCal              2       3   17:59:55
+kTCCServiceCalendar     UNUSED                      4       2   17:59:56
+```
+
+Apple Events to Calendar is granted (`auth` 2), so `cal.calendars()` —
+enumerating the calendars themselves — succeeds; the Calendars data gate sits
+at the write-only tier (`auth` 4), so every per-calendar
+`c.events.whose(...)` call fails. `calendarScript`'s `try { ... } catch (e) {
+continue }` swallowed exactly that per calendar, and the loop finished with
+`out = []` and exit 0 — never reaching the `throw` path, so `collectSignals`
+never saw a rejection and never reported `calendar` as `degraded`. **The app
+reported "no meetings" when it meant "not allowed to look," on this exact
+machine, at this exact moment** — not a hypothetical this file was leaving
+open, a defect this session watched happen.
+
+**Fixed, rather than left for a future Mac session.** `calendarScript` now
+counts calendars and per-calendar refusals and reports both; `parseCalendarEvents`
+throws when there is at least one calendar and every one of them refused to
+enumerate — the shape a total Calendars-data denial produces, since an
+authorized call that is merely idle returns an empty event list without
+throwing at all — and stays silent, an ordinary result, whenever at least one
+calendar answered or there were none to ask. `collectSignals`'s existing
+`degraded` path picks the throw up unchanged, so the panel now says "cannot
+see your calendar" with a next step (`core/detection/evidence.ts`), rather
+than reading a write-only grant as a quiet hour. `apps/desktop/src/platform/macos/windows.ts`
+had the identical swallow — per-process window-title reads refusing exactly
+like "no windows open" — under the same Accessibility gate, and got the same
+fix for the same reason.
 
 **One thing the measurement turned up that nobody wrote:**
 `NSCameraUsageDescription` is in the shipped Info.plist and is declared nowhere
@@ -676,24 +724,31 @@ on quit; and the two `No published versions on GitHub` lines are gone from a
 launch's stderr. *Cost*: one dispatch. *Buys*: the end of hand-installed DMGs,
 and the out-of-band recovery channel that Stage 3 depends on.
 
-**Stage 2 — widen the envelope. This is the one-way door.** Add
-`com.apple.security.automation.apple-events` to
-`build/entitlements.mac.plist`; add the seven usage strings and
-`CFBundleURLTypes` to `extendInfo` in `electron-builder.yml`; override the
-inherited `NSCameraUsageDescription` with a true sentence or delete the
-entitlements plist's claim that no camera string exists. Ship it as a normal
-signed release through Stage 1's channel.
-*Accepted when*: `codesign -d --entitlements -` on the built app lists five
-entitlements; `plutil -p` on the built `Info.plist` lists every key in the table
-above; `packaging.test.mjs` asserts each by name against the **built app**
-rather than the YAML, extending its existing sabotage record (which already
-learned that reading a config as text passes when the value is only discussed in
-a comment); the window and calendar collectors return signals on a Mac that has
-granted Automation, rather than reporting `degraded`; and `open
-context://safe-mode` launches the app.
-*Cost*: one release. *Buys*: browser-tab meeting detection — the majority of
-real meetings, and the Granola-parity ask — which is impossible in the shipped
-binary, plus every future permission this product plausibly needs.
+**Stage 2 — widen the envelope. This is the one-way door.** Add the seven
+usage strings and `CFBundleURLTypes` to `extendInfo` in
+`electron-builder.yml`; override the inherited `NSCameraUsageDescription`
+with a true sentence or delete the entitlements plist's claim that no camera
+string exists. Ship it as a normal signed release through Stage 1's channel.
+**This step used to also add `com.apple.security.automation.apple-events` to
+`build/entitlements.mac.plist`, and does not any more** — see the entitlement
+row above: the collectors shell out to `osascript`, a separate signed process
+that sends the Apple Event on this app's behalf, so the entitlement was never
+gating them, browser-tab and calendar detection are not "impossible in the
+shipped binary" the way this paragraph used to say, and adding an entitlement
+this design does not use would be a claim about the app that is not true.
+*Accepted when*: `codesign -d --entitlements -` on the built app still lists
+exactly the four entitlements it lists today; `plutil -p` on the built
+`Info.plist` lists every key in the table above; `packaging.test.mjs` asserts
+each by name against the **built app** rather than the YAML, extending its
+existing sabotage record (which already learned that reading a config as text
+passes when the value is only discussed in a comment); the window and
+calendar collectors return signals on a Mac that has granted Automation and
+full Calendars access, and report `degraded` — with the reason the panel now
+gives — on one that has granted Automation but only write-only Calendars; and
+`open context://safe-mode` launches the app.
+*Cost*: one release. *Buys*: the full-access Calendars ask for a fresh grant,
+insurance against a missing-usage-string crash on every collector this app
+already ships, and every future permission this product plausibly needs.
 
 **Stage 3 — the remote main bundle.** Split `src/main/index.ts` into a loader
 (the binary's entry point; verification, selection, crash counting, and nothing
@@ -802,5 +857,11 @@ security one.
   "*.node"` returns nothing, and that is a property worth defending on purpose
   rather than enjoying by accident. The EventKit helper that
   `src/platform/macos/calendar.ts` names as "the right implementation" is the
-  first thing that would break it — and Stage 2's Apple Events entitlement is
-  what makes the JXA path work well enough that the helper can wait.
+  first thing that would break it. **This bullet used to credit Stage 2's
+  automation entitlement with making the JXA path work well enough that the
+  helper can wait — there is no such entitlement any more, and it was never
+  what did that.** What makes the JXA path viable is that `osascript` sends
+  the Apple Event and gets its own per-target consent dialog, granted or
+  refused independently of anything this app declares; a native EventKit
+  helper would trade that away for something faster and change-notified, at
+  the cost of exactly the portability this bullet exists to defend.

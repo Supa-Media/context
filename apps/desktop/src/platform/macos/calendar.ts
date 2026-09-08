@@ -32,17 +32,28 @@
  * "The one-way door", for the citations and what shipping the full-access key
  * does and does not fix for somebody already at that tier.
  *
- * **What this file cannot yet tell apart, and why.** `calendarScript`'s
- * per-calendar `try { ... } catch (e) { continue }` treats a calendar that
- * refuses to enumerate exactly like a calendar with nothing on it right now —
- * both produce the same empty result, and `collectSignals` in
+ * **A calendar that refuses is not a calendar with nothing on it, and the
+ * script now says which happened.** This used to be indistinguishable:
+ * `calendarScript`'s per-calendar `try { ... } catch (e) { continue }` treated
+ * a calendar that refuses to enumerate exactly like a calendar with nothing on
+ * it right now, both producing the same empty array, and `collectSignals` in
  * `core/detection/collectors.ts` only marks a collector `degraded` when it
- * *throws*. So a write-only grant that makes every calendar refuse to
- * enumerate is indistinguishable, from out here, from a quiet hour with no
- * meetings — the same shape as `capture/permissions.ts`'s own lesson that a
- * status answer is not evidence a permission actually works. Closing that gap
- * needs watching what a real write-only-authorized JXA call actually returns —
- * throws, or a silent `[]` — which needs a Mac and is not guessed at here.
+ * *throws* — so a write-only Calendars grant, which makes every calendar
+ * refuse to enumerate while Automation itself stays granted (the two-door
+ * split above), read as a quiet hour with no meetings. Confirmed on a real
+ * Mac's own TCC store, not reasoned from the plist: Apple Events to Calendar
+ * granted, Calendars data at the write-only tier, and the app reported no
+ * meetings rather than reporting that it could not see any.
+ *
+ * The script now counts calendars and refusals rather than only calendars and
+ * events. `parseCalendarEvents` throws when every calendar that exists
+ * refused to enumerate — the shape a total data-access denial produces, since
+ * a call that is merely idle returns an empty event list without throwing at
+ * all — and stays silent (an ordinary, possibly-empty result) whenever at
+ * least one calendar enumerated successfully, or there were no calendars to
+ * ask in the first place. That second case is not evidence of a refusal; it
+ * is evidence of nothing, which is the collector's honest answer when there is
+ * nothing to correlate it against.
  *
  * It is also, separately, slow — enumerating a busy calendar can take
  * seconds, which is why it runs behind the shared timeout and is the collector
@@ -71,11 +82,14 @@ export function calendarScript(from: Date, to: Date): string {
     const from = new Date(${from.getTime()});
     const to = new Date(${to.getTime()});
     const out = [];
-    for (const c of cal.calendars()) {
+    const calendars = cal.calendars();
+    const calendarCount = calendars.length;
+    let refusedCount = 0;
+    for (const c of calendars) {
       let events = [];
       try {
         events = c.events.whose({ _and: [{ startDate: { _lessThan: to } }, { endDate: { _greaterThan: from } }] })();
-      } catch (e) { continue; }
+      } catch (e) { refusedCount += 1; continue; }
       for (const e of events) {
         try {
           out.push({
@@ -88,7 +102,7 @@ export function calendarScript(from: Date, to: Date): string {
         } catch (err) {}
       }
     }
-    JSON.stringify(out);
+    JSON.stringify({ events: out, calendarCount, refusedCount });
   `;
 }
 
@@ -100,6 +114,16 @@ export function calendarScript(from: Date, to: Date): string {
  * could do. `detect()` may suggest attendees when it has them, and the note
  * gets them from the gateway's own calendar connection where one exists.
  * Returning `[]` is honest; inventing names from an event title would not be.
+ *
+ * **A total refusal throws instead of returning `[]`.** `calendarCount` and
+ * `refusedCount` come from the script, not from this function guessing at
+ * JXA's failure shape: when there is at least one calendar and every single
+ * one of them refused to enumerate its events, that is Calendars data access
+ * denied — write-only, or revoked outright — never an empty diary, because an
+ * authorized call that is merely idle returns an empty event list without
+ * throwing. `collectSignals` turns this throw into `degraded`, the same as
+ * any other collector failure. Zero calendars at all is left alone: it is not
+ * evidence of a refusal, it is evidence of nothing to ask.
  */
 export function parseCalendarEvents(stdout: string): CalendarEvent[] {
   let raw: unknown;
@@ -108,10 +132,21 @@ export function parseCalendarEvents(stdout: string): CalendarEvent[] {
   } catch {
     throw new Error("calendar collector returned something that is not JSON");
   }
-  if (!Array.isArray(raw)) throw new Error("calendar collector returned the wrong shape");
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new Error("calendar collector returned the wrong shape");
+  }
+  const payload = raw as Record<string, unknown>;
+  const items = payload["events"];
+  if (!Array.isArray(items)) throw new Error("calendar collector returned the wrong shape");
+
+  const calendarCount = typeof payload["calendarCount"] === "number" ? payload["calendarCount"] : 0;
+  const refusedCount = typeof payload["refusedCount"] === "number" ? payload["refusedCount"] : 0;
+  if (calendarCount > 0 && refusedCount === calendarCount) {
+    throw new Error("calendar access refused: every calendar failed to enumerate its events");
+  }
 
   const events: CalendarEvent[] = [];
-  for (const item of raw) {
+  for (const item of items) {
     if (typeof item !== "object" || item === null) continue;
     const record = item as Record<string, unknown>;
     const id = typeof record["id"] === "string" ? record["id"] : "";
