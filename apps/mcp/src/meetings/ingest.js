@@ -58,6 +58,7 @@ import {
   LIMITS,
   MeetingRefusal,
   assertEventWithinLimits,
+  assertSegmentsAddressed,
   assertSegmentsWithinLimits,
   assertSessionWithinLimits,
   completionReceipt,
@@ -481,6 +482,13 @@ async function appendSegments(request, store, id, tier) {
   const segments = Array.isArray(body.segments) ? body.segments : null;
   if (!segments) throw invalid("segments must be an array");
   assertSegmentsWithinLimits(segments);
+  /*
+    Before the session is even read: a batch minted for another meeting is
+    refused on its own contents, so the answer cannot vary with what exists.
+    See `assertSegmentsAddressed` for what this is protecting and what it cost
+    the evening it was not there.
+  */
+  assertSegmentsAddressed(id, segments);
   const unusable = countUnusable(segments);
 
   const result = await updateSession(store, id, (current) => {

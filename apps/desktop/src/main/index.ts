@@ -47,7 +47,14 @@ import type { AudioRecorder } from "../core/capture/recorder.ts";
 import { DesktopCaptureRecorder } from "./capture.ts";
 import { electronPermissionBroker } from "./permissions.ts";
 import { DesktopStore } from "./store.ts";
-import { emptyOutbox, queueWrite, reconcileDrain, recoverStaleFinalize } from "../core/sync/outbox.ts";
+import {
+  dropMisaddressed,
+  emptyOutbox,
+  misaddressedSegments,
+  queueWrite,
+  reconcileDrain,
+  recoverStaleFinalize,
+} from "../core/sync/outbox.ts";
 import type { Outbox } from "../core/sync/outbox.ts";
 import { DRAIN_INTERVAL_MS, drainOnce, drainUrgency } from "../core/sync/drain.ts";
 import { memoryTokenStore } from "../core/sync/tokenStore.ts";
@@ -574,6 +581,21 @@ async function main(): Promise<void> {
     nobody watching the tray between a crash and the next launch.
   */
   outbox = recoverStaleFinalize(outbox, Date.now());
+  /*
+    And any words this queue is holding for the wrong meeting go here, once,
+    on the way in. `queueWrite` refuses them on every enqueue from now on, but
+    a parked entry never gets another enqueue — parking is terminal — so an
+    entry written by an earlier build would hold another meeting's transcript
+    for the life of the machine. See `dropMisaddressed` for why dropping those
+    rows is not the same act as dropping a transcript.
+  */
+  {
+    const purged = dropMisaddressed(outbox);
+    if (purged.dropped > 0) {
+      console.warn(`meeting_segments_misaddressed_dropped rows=${purged.dropped}`);
+    }
+    outbox = purged.outbox;
+  }
   void store.writeOutbox(outbox);
 
   /*
@@ -1261,6 +1283,29 @@ async function main(): Promise<void> {
       () => Date.now(),
     );
     outbox = reconcileDrain(before, report.outbox, outbox);
+    /*
+      WHAT THE GATEWAY REFUSED, IN THE LOG, WITH THE REASON IT GAVE.
+
+      Nothing logged this. A refused write recorded `lastError` on its own queue
+      entry and stopped there, so the only way to find out why a meeting had not
+      landed was to open the queue file on somebody's disk — which is how an
+      evening of meetings was actually diagnosed. The status alone was useless
+      as well: `postEntry` read the gateway's `message` field and this gateway
+      sends `error_description`, so every refusal in this app's history read
+      "gateway answered 400" and nothing more.
+
+      Session id, kind, status, contract code and the gateway's own sentence.
+      **No content**: not a segment, not a note, not a title, and never the
+      credential — `docs/decisions/` calls that out and `client.ts` composes
+      these strings so a `fetch` failure's URL can never reach one.
+    */
+    for (const refusal of report.refusals) {
+      console.warn(
+        `meeting_write_refused session=${refusal.sessionId} kind=${refusal.kind} ` +
+          `status=${refusal.status ?? "none"} code=${refusal.code} ` +
+          `${refusal.parked ? "parked" : "retrying"}: ${refusal.message}`,
+      );
+    }
     for (const landed of report.written) notePaths.set(landed.sessionId, landed.notePath);
     await store.writeOutbox(outbox);
     push();
@@ -1468,6 +1513,22 @@ async function main(): Promise<void> {
    *    complete session is answered with the note that already exists.
    */
   async function writeMeetingFromConsole(write: MeetingWrite): Promise<MeetingWriteAck> {
+    /*
+      A batch carrying another meeting's words is dropped by `queueWrite` — the
+      rule lives in the reducer so no enqueue can skip it — and named here,
+      because the reducer has nowhere to say anything.
+
+      This is the shape of the defect that made an evening of meetings unusable:
+      the page's controller kept a `onSegment` subscription per meeting and
+      detached none, so it handed this function meeting N's transcript addressed
+      to meeting N-1. Two ids and a count; no text.
+    */
+    const foreign = misaddressedSegments(write.sessionId, write.body);
+    if (foreign.length > 0) {
+      console.warn(
+        `meeting_segment_misaddressed to=${write.sessionId} from=${foreign.join(",")} kind=${write.kind}`,
+      );
+    }
     outbox = queueWrite(outbox, {
       sessionId: write.sessionId,
       kind: write.kind,

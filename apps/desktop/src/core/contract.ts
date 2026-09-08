@@ -39,6 +39,8 @@ export {
   TRANSCRIPT_CHANNELS,
   DEVICE_PLATFORMS,
   isMeetingId,
+  segmentSessionId,
+  foreignSegmentSessions,
   ROUTES,
   ERRORS,
   DETECTOR_THRESHOLDS,

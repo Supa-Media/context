@@ -40,6 +40,8 @@ export {
   TRANSCRIPTION_ENGINES,
   WATCH_FLAG_LABEL_MAX,
   isMeetingId,
+  segmentSessionId,
+  foreignSegmentSessions,
 } from "@context/meetings/protocol";
 
 export type {

@@ -2131,8 +2131,17 @@ const CONTEXT_ARGUMENT = {
  */
 const FOREIGN_CONTRACT_TOOLS = new Set(["search", "fetch"]);
 
-/** Every tool, with the addressing argument folded in. */
-function toolDefinitions() {
+/**
+ * Every tool, with the addressing argument folded in.
+ *
+ * Exported so a **client's** own suite can check what it sends against what is
+ * advertised. `apps/desktop/test/toolContract.test.mjs` does exactly that: the
+ * gateway holds every call to this schema now (#346), and a first-party client
+ * that sends a property the schema does not name gets a uniform refusal on
+ * every call of that kind, which is the failure shape an evening of meetings
+ * was mistakenly attributed to. Cheaper to assert than to diagnose.
+ */
+export function toolDefinitions() {
   return baseToolDefinitions().map((tool) => {
     if (FOREIGN_CONTRACT_TOOLS.has(tool.name)) return tool;
     const schema = tool.inputSchema || { type: "object" };

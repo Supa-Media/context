@@ -684,6 +684,106 @@ export async function runMeetingChecks(check) {
   });
   check("segments must be an array", notAnArray.status === 400 && notAnArray.body?.error === "meeting_invalid");
 
+  /* --------------- 3b. a batch minted for a different meeting --------------- */
+
+  /*
+    THE ONE REFUSAL HERE THAT PROTECTS A NOTE RATHER THAN A BUCKET.
+
+    A recorder's segment id carries, in its own first token, the meeting it was
+    minted for. The console app kept an `onSegment` subscription per meeting and
+    detached none, so every finished meeting of an evening was handed a batch of
+    a *later* meeting's words addressed to it — eight of eight on the owner's
+    Mac. Those were refused only because the sessions they named happened to be
+    `complete` by then; a session still open — two meetings close together, a
+    finalize that had not drained — would have taken them, and the note in
+    somebody's bucket would have held a conversation from another room. Nothing
+    downstream could tell: by the time it is a turn under `## Transcript` there
+    is no id left to check.
+
+    So the check is at the door, on the one fact a wrong envelope cannot
+    overwrite, and it is asserted against a session that is very much **open**
+    — the whole point is that the refusal must not depend on the coincidence
+    that saved the owner's notes.
+  */
+  const foreignBatch = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_MAIN}/segments`, {
+    body: { segments: [segment(`${SESSION_TEAM}-mic-0-s000`, 40_000, "spoken in another meeting")] },
+  });
+  check(
+    "a segment minted for another meeting is refused",
+    foreignBatch.status === 400 && foreignBatch.body?.error === "meeting_invalid"
+  );
+  check(
+    "and the refusal names the meeting the words belong to",
+    (foreignBatch.body?.error_description ?? "").includes(SESSION_TEAM)
+  );
+  check("and nothing of it reaches the transcript", rawRecord().transcript.length === 3);
+
+  const mixedBatch = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_MAIN}/segments`, {
+    body: {
+      segments: [
+        segment(`${SESSION_MAIN}-mic-9-s000`, 41_000, "mine"),
+        segment(`${SESSION_TEAM}-mic-9-s000`, 42_000, "not mine"),
+      ],
+    },
+  });
+  /*
+    The whole batch, not the offending row. `countUnusable`'s "store
+    forty-nine of fifty" is right for a row the merge cannot read and wrong
+    here: a batch with somebody else's words in it was addressed by something
+    that does not know whose words it is holding, and the rest of it is no more
+    trustworthy than the part that gave it away.
+  */
+  check("a batch mixing two meetings is refused whole", mixedBatch.status === 400);
+  check("including the rows that were addressed correctly", rawRecord().transcript.length === 3);
+
+  /*
+    The phone's recorders key their chunks on `String(Date.now())`, so their
+    segment ids name no meeting at all. Unaddressed is not misaddressed: a guard
+    on somebody's transcript may only fail in the direction of accepting what it
+    cannot prove wrong, or it silently stops taking words the day a recorder
+    changes how it mints ids.
+  */
+  /*
+    Its own session, because this is the one check in the block that must
+    *land* something and every count the rest of this file asserts is about
+    `SESSION_MAIN`. `idOf` is exhausted — every character of the id alphabet is
+    already bound to a fixture — so this id is spelled out rather than drawn
+    from that family.
+  */
+  const SESSION_UNADDRESSED = `mtg_${"a".repeat(19)}b`;
+  await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: { id: SESSION_UNADDRESSED, title: "Recorded on a phone", startedAt: "2026-09-01T11:00:00.000Z" },
+  });
+  const unaddressed = await meetingRequest(
+    env,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_UNADDRESSED}/segments`,
+    { body: { segments: [segment("1757280000000-0-s000", 43_000, "from a phone")] } }
+  );
+  check(
+    "a segment id that names no meeting is still taken",
+    unaddressed.status === 200 && unaddressed.body?.segmentCount === 1
+  );
+
+  /*
+    The replay door, not the append door. A client's own log carries
+    `{type: "segments"}` through `POST /meetings/sessions`, so a guard on one of
+    the two is not a guard.
+  */
+  const foreignReplay = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: {
+      id: SESSION_MAIN,
+      events: [
+        {
+          type: "segments",
+          segments: [segment(`${SESSION_TEAM}-mic-1-s000`, 44_000, "replayed from another meeting")],
+        },
+      ],
+    },
+  });
+  check("a replayed log carrying another meeting's words is refused too", foreignReplay.status === 400);
+  check("and that transcript is untouched as well", rawRecord().transcript.length === 3);
+
   /* ---------------------------- 4. the human's notes ----------------------- */
 
   const notes = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_MAIN}/notes`, {
