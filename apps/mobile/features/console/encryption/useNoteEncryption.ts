@@ -170,6 +170,16 @@ export function useNoteEncryption(
    * Never passed by the console itself, which always wants the real KDF.
    */
   derive?: (passphrase: string, kdf: KdfDescriptor) => Uint8Array,
+  /**
+   * Where a write actually lands, when it is not `writeNote`/
+   * `removeNoteEncryption` over Convex. The one caller is
+   * `ConsoleData.encryptionWriters` — see its own comment for why: the
+   * WebKit e2e fixture needs these writes to really persist with no Convex
+   * backend behind them. `useAction` below still runs unconditionally either
+   * way (React's rules of hooks leave no other option), it is simply never
+   * called when this is present.
+   */
+  writers?: { write: NoteWriter; removeEncryption: NoteWriter },
 ): NoteEncryptionController {
   const [session, dispatch] = useReducer(sessionReducer, initialSessionState);
 
@@ -198,14 +208,15 @@ export function useNoteEncryption(
   // `removal` is the one door that writes plaintext, and it is a different
   // Convex action precisely because `writeFile` refuses plaintext over an
   // encrypted note unconditionally. See `docs/decisions/encryption.md` and
-  // `fileOps.ts`'s own comments on both doors.
+  // `fileOps.ts`'s own comments on both doors. `writers`, when given,
+  // replaces both — see this function's own parameter comment.
   const ordinaryWriter = useMemo(
-    () => actionWriter(writeNoteAction, workspaceIdRef),
-    [writeNoteAction],
+    () => writers?.write ?? actionWriter(writeNoteAction, workspaceIdRef),
+    [writers?.write, writeNoteAction],
   );
   const removalWriter = useMemo(
-    () => actionWriter(removeEncryptionAction, workspaceIdRef),
-    [removeEncryptionAction],
+    () => writers?.removeEncryption ?? actionWriter(removeEncryptionAction, workspaceIdRef),
+    [writers?.removeEncryption, removeEncryptionAction],
   );
 
   const ordinaryContext = useCallback(

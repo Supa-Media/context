@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+import { installE2EEncryptionFixture } from "./e2eEncryptionFixture";
 import { useDemoConsoleData } from "./useDemoConsoleData";
 import type { ConsoleData } from "./types";
 
@@ -17,11 +19,21 @@ import type { ConsoleData } from "./types";
  *
  * Nothing here is reachable from the product. See `app/e2e-fixture.tsx` for
  * the gate.
+ *
+ * `encryptionWriters` is the one exception to "touches nothing else,
+ * persistence included" — see `e2eEncryptionFixture.ts`'s own header for why
+ * the passphrase flows need a write path that actually persists, and why that
+ * does not weaken the rule for everything else here.
  */
 export function useE2EFixtureConsoleData(): ConsoleData {
   const demo = useDemoConsoleData();
+  // Once per mount — a real `page.reload()` is a fresh mount and re-seeds
+  // from `localStorage`; nothing within one page load needs a second call.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const encryptionWriters = useMemo(() => installE2EEncryptionFixture(), []);
   return {
     ...demo,
     files: { ...demo.files, canEdit: true, canShare: true, canSetVisibility: true },
+    encryptionWriters,
   };
 }

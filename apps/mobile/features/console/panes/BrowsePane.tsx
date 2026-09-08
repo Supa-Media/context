@@ -171,7 +171,11 @@ export function BrowsePane({
    * hook exposes refuses cleanly rather than acting against the wrong
    * context's actions.
    */
-  const noteEncryption = useNoteEncryption(settled ? (current?.id ?? null) : null);
+  const noteEncryption = useNoteEncryption(
+    settled ? (current?.id ?? null) : null,
+    undefined,
+    data.encryptionWriters,
+  );
 
   /**
    * The one error the "Password-encrypt content" dialog shows, if the write
