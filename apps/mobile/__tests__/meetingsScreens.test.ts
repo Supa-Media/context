@@ -751,6 +751,57 @@ describe("`saved` is said only when there is a path to print", () => {
     mounted.unmount();
   });
 
+  test("a saved meeting with words still on the device says so, and a finished one does not", async () => {
+    /*
+      THE THIRD LINE, WHICH NOTHING ELSE CHECKS.
+
+      A tick and a path are said the instant finalize lands, and the writes
+      that come *after* it — the transcript tail, typing somebody did while the
+      note was being written — can still be sitting in the queue. This screen
+      may not imply the file is finished while they are, which is
+      `app-and-console.md`'s rule about never claiming a write nobody has seen
+      land, applied one write later than usual.
+
+      It is also the line most likely to be wrong in the crying-wolf
+      direction: a `session` step is pending on **every** finished meeting the
+      instant its note lands, because folding the gateway's `written` answer
+      changes the metadata fingerprint. So the negative half is asserted first,
+      on a meeting that is genuinely finished, and it is the half that fails if
+      `stillSending` ever stops filtering to content steps.
+    */
+    const { gateway } = await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Saved, then typed into" });
+      meetings.setNotes(id, "the decision");
+      await meetings.end();
+    });
+
+    const settled = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(settled.container.textContent).toContain("Saved to your bucket");
+    expect(settled.container.textContent).not.toContain("still being sent");
+    settled.unmount();
+
+    /*
+      Offline rather than refused: `unavailable` is retryable, so the step
+      stays queued and `record.rejection` stays absent — which is exactly the
+      state this line exists for, and is distinct from the refusal case above.
+    */
+    await act(async () => {
+      gateway.offlineFor(50);
+      meetings.setNotes(id, "the decision, expanded");
+      await meetings.sync();
+    });
+
+    const sending = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(sending.container.textContent).toContain("Saved to your bucket");
+    expect(sending.container.textContent).toContain(
+      "The rest of this meeting is still being sent from this device",
+    );
+    expect(sending.container.textContent).not.toContain("This meeting has not left the device");
+    sending.unmount();
+  });
+
   test("a meeting with nothing in the bucket and a refusal still says it has not left", async () => {
     /*
       The other half, unchanged and still needed: with no path, nothing has
