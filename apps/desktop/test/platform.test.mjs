@@ -21,18 +21,22 @@
  *   `parseWindows`'s refusal comparison loosened to "at least one"            1
  *   `calendar.ts`'s total-refusal throw downgraded to a bare `Error`          1
  *   `parseTabUrlRefusals` hard-coded to return 0                              3
+ *   `parseCalendarCounts` hard-coded to return zero and zero                  4
  *
  * The first number is high because the redaction is asserted in three places —
  * the window parser, the calendar parser, and "no passcode reaches the
  * signals" — which is the right amount for the one thing in this folder that
- * would leak a meeting passcode into a log. The next two guard the defect this
- * app actually shipped: a write-only Calendars grant (Apple Events to
- * Calendar allowed, the data refused) read as a quiet hour rather than a
- * refusal, because the per-item `catch` swallowed the refusal into the same
- * empty result an idle collector produces. Both parsers now count attempts and
- * refusals and throw only on a *total* refusal, which is why each sabotage is
- * one line — removing the whole check, not narrowing a condition — and one
- * FAILURE, on the fixture built for exactly that shape.
+ * would leak a meeting passcode into a log. The next two guard the shape a
+ * write-only Calendars grant *would* produce if it degrades this collector at
+ * all (Apple Events to Calendar allowed, the data refused reading as a quiet
+ * hour) — a per-item `catch` swallowing a refusal into the same empty result
+ * an idle collector produces. Whether that shape has ever actually occurred on
+ * a real machine is a separate, currently open question — see
+ * `docs/decisions/desktop-updates.md`, "The one-way door" — and is exactly why
+ * the counts below exist. Both parsers now count attempts and refusals and
+ * throw only on a *total* refusal, which is why each sabotage is one line —
+ * removing the whole check, not narrowing a condition — and one FAILURE, on
+ * the fixture built for exactly that shape.
  *
  * **The fifth guards a gap the first four left open.** `items.length === 0 &&
  * titleRefusals === titleAttempts` had one fixture with a non-empty `windows`
@@ -57,12 +61,25 @@
  * cannot be confused with discarding the evidence it was measured beside),
  * and the two-refusal case, which a `return 0` fails identically to the
  * one-refusal case.
+ *
+ * **The eighth is four, for `parseCalendarCounts` — the calendar's own
+ * `calendarCount`/`refusedCount` pair, read independently of whether
+ * `parseCalendarEvents` throws on the same `stdout`.** One check for a clean
+ * poll, one for a partial refusal, one for a total refusal (a hard-coded
+ * zero-and-zero fails all three identically, since none of them is actually
+ * zero), and one alongside a real parsed event so the counts cannot be
+ * confused with the events they were read beside — the malformed-input case
+ * already reads as zero-and-zero on a genuine parse, so hard-coding the same
+ * answer does not fail it, and it is not counted here for that reason. This
+ * is the pair `collectCalendarEvents` now carries onto `CollectedSignals` and
+ * `DetectionUpdate` so a partial or total refusal is visible from outside the
+ * app without ever naming a calendar or an event.
  */
 
 import { parseProcessList } from "../src/platform/macos/processes.ts";
 import { parseTabUrlRefusals, parseWindows, redactUrl } from "../src/platform/macos/windows.ts";
 import { parseEngineState, readingToSignal } from "../src/platform/macos/microphone.ts";
-import { calendarWindow, parseCalendarEvents } from "../src/platform/macos/calendar.ts";
+import { calendarWindow, parseCalendarCounts, parseCalendarEvents } from "../src/platform/macos/calendar.ts";
 import { PermissionRefusedError } from "../src/core/detection/collectors.ts";
 import { DETECTOR_THRESHOLDS } from "@context/meetings/protocol";
 
@@ -317,6 +334,59 @@ export function runPlatformChecks(check) {
     check(
       "one calendar refusing while another answers is not a total refusal",
       partialRefusal.length === 0,
+    );
+
+    // The two counts, read independently of `parseCalendarEvents` — the
+    // question this app could not previously answer from outside: did a poll
+    // see calendars refuse at all, whether or not that refusal was total.
+    check(
+      "a poll with no refusals reads as zero calendars refused",
+      (() => {
+        const counts = parseCalendarCounts(JSON.stringify({ events: [], calendarCount: 2, refusedCount: 0 }));
+        return counts.calendarCount === 2 && counts.refusedCount === 0;
+      })(),
+    );
+    check(
+      "a partial refusal is counted, not rounded away",
+      (() => {
+        const counts = parseCalendarCounts(JSON.stringify({ events: [], calendarCount: 3, refusedCount: 1 }));
+        return counts.calendarCount === 3 && counts.refusedCount === 1;
+      })(),
+    );
+    check(
+      "a total refusal is counted the same way as a partial one",
+      (() => {
+        const counts = parseCalendarCounts(JSON.stringify({ events: [], calendarCount: 2, refusedCount: 2 }));
+        return counts.calendarCount === 2 && counts.refusedCount === 2;
+      })(),
+    );
+    check(
+      "malformed input reads as zero and zero rather than throwing",
+      (() => {
+        const counts = parseCalendarCounts("execution error: Not authorized to send Apple events");
+        return counts.calendarCount === 0 && counts.refusedCount === 0;
+      })(),
+    );
+    check(
+      "the counts found alongside real events are not discarded",
+      (() => {
+        const stdout = JSON.stringify({
+          events: [
+            {
+              id: "evt-1",
+              title: "Design review",
+              startsAt: "2026-09-05T08:23:00.000Z",
+              endsAt: "2026-09-05T09:00:00.000Z",
+            },
+          ],
+          calendarCount: 2,
+          refusedCount: 1,
+        });
+        const counts = parseCalendarCounts(stdout);
+        return (
+          parseCalendarEvents(stdout).length === 1 && counts.calendarCount === 2 && counts.refusedCount === 1
+        );
+      })(),
     );
   }
 }

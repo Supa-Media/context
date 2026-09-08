@@ -311,7 +311,13 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     // fixtures have no draft, so it always does.
     select: () => true,
     deselect: () => true,
-    search: async () => ({ hits: [], indexMissing: false, indexIncomplete: false }),
+    search: async () => ({
+      hits: [],
+      indexMissing: false,
+      indexIncomplete: false,
+      reducedRecall: false,
+      reducedRecallNotes: [],
+    }),
     editor: emptyEditor,
     setDraft: noop,
     save: noop,

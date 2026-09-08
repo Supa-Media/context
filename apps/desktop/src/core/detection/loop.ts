@@ -52,6 +52,17 @@ export interface DetectionUpdate {
   summary: string;
   degraded: string[];
   degradedNotice: string | null;
+  /**
+   * How many calendars this poll saw and how many refused to enumerate their
+   * events — counts only, carried straight from `CollectedSignals`. Not part
+   * of `degradedNotice` and not meant for a person: it is what settles,
+   * across enough polls, whether a partial or total calendar refusal is
+   * actually happening on this machine, which an empty `evidence` list
+   * cannot say on its own. See `core/detection/collectors.ts`'s
+   * `CollectedCalendar`.
+   */
+  calendarCount: number;
+  calendarRefusedCount: number;
 }
 
 export interface DetectionLoopOptions {
@@ -135,6 +146,8 @@ export function createDetectionLoop(options: DetectionLoopOptions): DetectionLoo
         summary: summaryLine(result),
         degraded: collected.degraded,
         degradedNotice: degradedNotice(collected.degraded, collected.degradedReasons, collected.tabUrlRefusals),
+        calendarCount: collected.calendarCount,
+        calendarRefusedCount: collected.calendarRefusedCount,
       };
       options.onUpdate?.(update);
       return update;
