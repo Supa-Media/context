@@ -35,6 +35,19 @@
  *     empty set, so both its own self-tests and this file's cascade test
  *     fail together)
  *
+ * Re-measured on review, with three more rows and one correction — the
+ * Google-connection row is now 5, because this file grew three tests that
+ * depend on that sweep and `cascadeCoverage.test.ts` catches it as an
+ * unaccounted-for credential table:
+ *
+ *   the Google connection sweep deleted from the cascade                   5
+ *     (4 here + 1 in `cascadeCoverage.test.ts`)
+ *   the `searchIndexes` release deleted from the cascade                   2
+ *   the Google sweep left unscoped (`query(...).collect()`, no index)      1
+ *     — the two-workspace isolation test, specifically
+ *   `workspaceDataKeys` deleted by the cascade (the kept half)             1
+ *   the failed-revoke log line removed from `revokeGoogleGrant`            1
+ *
  * The encryption tables are the one place this file asserts an *asymmetry*
  * rather than an emptiness — the rotation rows go, the key generations stay.
  * Both directions are asserted, because the second is an open product
@@ -43,7 +56,7 @@
  * decision that gets taken by accident.
  */
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import {
@@ -53,6 +66,7 @@ import {
   captureError,
   createUser,
   createWorkspace,
+  drainScheduled,
   errorCode,
   seedGoogleConnection,
   seedGrant,
@@ -377,6 +391,178 @@ describe("deleteAccount", () => {
       expect(args).not.toContain("refresh-token-one");
       expect(args).not.toContain("refresh-token-two");
     }
+  });
+
+  /**
+   * REVOCATION IS BEST-EFFORT, AND THE ROW GOES EITHER WAY. Both directions
+   * are asserted because only the pair says what actually happens to somebody
+   * else's Google account when we forget our copy of the credential.
+   *
+   * The success direction proves the scheduled job really reaches Google's
+   * revoke endpoint carrying the token it opened out of the envelope the
+   * cascade put in its args — that the row's deletion is not what ends the
+   * grant, the call is.
+   */
+  test("the scheduled revoke reaches Google with the token, after the row is gone", async () => {
+    const { t, owner, workspaceId } = await onboardedAccount();
+    await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      refreshToken: "refresh-token-to-revoke",
+    });
+
+    const calls: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
+      calls.push({ url: String(input), body: String(init?.body ?? "") });
+      return new Response("", { status: 200 });
+    });
+
+    await asUser(t, owner).mutation(api.functions.account.deleteAccount, {});
+    // The row is already gone when the revoke runs — the envelope travelled in
+    // the scheduler args precisely so it does not need the row.
+    expect(await t.run((ctx) => ctx.db.query("googleConnections").collect())).toHaveLength(0);
+    await drainScheduled(t);
+
+    // Matched on THIS test's token rather than on a call count: convex-test's
+    // scheduler runs on real timers, so a job another test in this file left
+    // pending can fire against the stub while this one is installed.
+    const revokes = calls.filter(
+      (call) =>
+        call.url.includes("oauth2.googleapis.com/revoke") &&
+        call.body.includes(encodeURIComponent("refresh-token-to-revoke")),
+    );
+    expect(revokes).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * The failure direction: Google unreachable. Nothing may be resurrected,
+   * nothing else in the cascade may be abandoned — the revoke is scheduled
+   * *after* the transaction commits, so it structurally cannot roll anything
+   * back — and the failure has to be recorded somewhere, because the audit
+   * trail this would otherwise be written to was deleted by this very
+   * cascade. Today that record is the structured log line
+   * `mail.grant_revoke_skipped`, and this pins it: silently swallowing a
+   * failed revoke would leave a live grant on somebody's Google account with
+   * no trace anywhere that we stopped being able to end it.
+   */
+  test("a revoke that cannot reach Google is recorded, and the cascade still completes", async () => {
+    const { t, owner, workspaceId } = await onboardedAccount();
+    await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      refreshToken: "refresh-token-never-revoked",
+    });
+    await seedGrant(t, workspaceId, owner, "client-claude", "fake-hash-unreachable");
+
+    vi.stubGlobal("fetch", () => Promise.reject(new Error("ECONNREFUSED")));
+    const logged: string[] = [];
+    const logSpy = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      logged.push(args.map(String).join(" "));
+    });
+
+    await asUser(t, owner).mutation(api.functions.account.deleteAccount, {});
+    await drainScheduled(t);
+
+    logSpy.mockRestore();
+    vi.unstubAllGlobals();
+
+    // Recorded, with the workspace it belonged to and no credential in it.
+    // `toBeGreaterThanOrEqual` rather than an exact count, deliberately:
+    // convex-test schedules on real timers, so a revoke another test in this
+    // file left pending can also fire — and fail — while this stub is up.
+    // What this asserts is that a revoke that could not reach Google leaves a
+    // trace at all, which is the property, and that the trace is safe.
+    const skipped = logged.filter((line) => line.includes("mail.grant_revoke_skipped"));
+    expect(skipped.length).toBeGreaterThanOrEqual(1);
+    expect(skipped.some((line) => line.includes(workspaceId))).toBe(true);
+    for (const line of skipped) {
+      expect(line).not.toContain("refresh-token-never-revoked");
+    }
+
+    // And the rest of the teardown happened regardless: an unreachable
+    // provider must never leave a half-deleted workspace behind.
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(workspaceId)).toBeNull();
+      expect(await ctx.db.get(owner)).toBeNull();
+      expect(await ctx.db.query("googleConnections").collect()).toHaveLength(0);
+      expect(await ctx.db.query("oauthGrants").collect()).toHaveLength(0);
+      expect(await ctx.db.query("names").collect()).toHaveLength(0);
+    });
+  });
+
+  /**
+   * THE SEARCH INDEX IS RELEASED, NOT DELETED, AND NOT LEFT EITHER.
+   *
+   * A `searchIndexes` row with a `databaseId` names a live Cloudflare D1
+   * database holding a projection of this context's notes — body chunks
+   * included. Deleting the row strands it with nothing pointing at it;
+   * leaving the row `ready` strands it too, because after this transaction
+   * there is no owner left to press "turn it off". So the cascade presses it:
+   * the row goes to `releasing` and `releaseIndex` is scheduled, which is the
+   * only path that actually deletes the remote database.
+   */
+  test("a live fast-search index is marked releasing and its release is scheduled", async () => {
+    const { t, owner, workspaceId } = await onboardedAccount();
+    await t.run((ctx) =>
+      ctx.db.insert("searchIndexes", {
+        workspaceId,
+        optedIn: true,
+        optedInBy: owner,
+        optedInAt: Date.now(),
+        status: "ready" as const,
+        databaseId: "fake-d1-database-id-not-real",
+        databaseName: "fake-d1-database-name",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+
+    await asUser(t, owner).mutation(api.functions.account.deleteAccount, {});
+
+    const rows = await t.run((ctx) => ctx.db.query("searchIndexes").collect());
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.optedIn).toBe(false);
+    expect(rows[0]!.status).toBe("releasing");
+    // Still holding the id the release needs: a row that loses this before
+    // the remote database is gone is a database nothing will ever clean up.
+    expect(rows[0]!.databaseId).toBe("fake-d1-database-id-not-real");
+
+    const scheduled = await t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    expect(scheduled.filter((job) => job.name.includes("releaseIndex"))).toHaveLength(1);
+
+    // And the release, run with no Cloudflare credential configured in this
+    // deployment, leaves the row exactly where a retry can find it rather
+    // than forgetting a database it never deleted.
+    await drainScheduled(t);
+    const after = await t.run((ctx) => ctx.db.query("searchIndexes").collect());
+    expect(after).toHaveLength(1);
+    expect(after[0]!.status).toBe("releasing");
+  });
+
+  test("an index row that never got a database is deleted outright, with no release scheduled", async () => {
+    const { t, owner, workspaceId } = await onboardedAccount();
+    await t.run((ctx) =>
+      ctx.db.insert("searchIndexes", {
+        workspaceId,
+        optedIn: true,
+        optedInBy: owner,
+        optedInAt: Date.now(),
+        status: "failed" as const,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+
+    await asUser(t, owner).mutation(api.functions.account.deleteAccount, {});
+
+    expect(await t.run((ctx) => ctx.db.query("searchIndexes").collect())).toHaveLength(0);
+    const scheduled = await t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    expect(scheduled.filter((job) => job.name.includes("releaseIndex"))).toHaveLength(0);
   });
 
   test("a member's deletion removes only their own membership, never the workspace", async () => {

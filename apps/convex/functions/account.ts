@@ -18,7 +18,9 @@
  *    forget our copy of each credential), every in-flight connect attempt for
  *    every provider, ingestion policy and tickets, invitations, grants, the
  *    audit trail, every membership, the slug's row in `names`, and the
- *    workspace row itself. Freeing the slug is the point, not a nicety: the
+ *    workspace row itself — plus, released rather than deleted, the
+ *    fast-search index, because after this there is nobody left to press
+ *    "turn it off" on a database still holding a projection of the notes. Freeing the slug is the point, not a nicety: the
  *    shared namespace has no other release path, and a deleted account must
  *    not squat a name forever — the person may well re-onboard under it.
  *  - **Somebody else also owns it, or I am not an owner at all** → the context
@@ -250,6 +252,10 @@ export const deleteAccount = mutation({
  * alongside it, and what happens to each:
  *
  *  - **`storageBindings`** — swept below. Dropbox's grant is revoked first.
+ *  - **`searchIndexes`** — RELEASED below rather than deleted: marked
+ *    `releasing` with `fastSearchProvision.releaseIndex` scheduled, which is
+ *    the only path that deletes the remote D1 database holding this context's
+ *    projected notes.
  *  - **`googleConnections`** — swept below, the same way. One workspace can
  *    have several (one per connected address); each still-live one has its
  *    grant revoked before its row goes.
@@ -267,17 +273,18 @@ export const deleteAccount = mutation({
  *    notes in their own bucket, and deleting it on a metadata teardown is an
  *    open product decision, not an oversight. `docs/decisions/encryption.md`,
  *    "What a teardown deletes, and what it keeps".
- *  - **`searchIndexes`** — deliberately NOT swept here, and for a different
- *    reason than the key above: a row with a `databaseId` names a real,
- *    billed Cloudflare D1 database, and deleting the row is not the same as
- *    releasing it — `functions/fastSearch.ts`'s `disable` mutation reaches it
- *    only by leaving the row as `releasing` and scheduling
- *    `fastSearchProvision.releaseIndex`, which reads the row *by workspaceId*
- *    to do the delete and then removes it itself. Deleting the row here first
- *    would hand that action nothing to read and strand the database with no
- *    reference left to it anywhere. Fixing this needs the same
- *    schedule-then-release path, not a `ctx.db.delete` in a loop — tracked
- *    as a known gap rather than folded into this pass.
+ *  - **`searchIndexes`** — RELEASED below rather than deleted, which is the
+ *    one sweep here that is not a `ctx.db.delete`. A row with a `databaseId`
+ *    names a real, billed Cloudflare D1 database holding a projection of this
+ *    context's notes — titles, headings, tags and body chunks — so deleting
+ *    the row is the opposite of releasing it: `fastSearchProvision.releaseIndex`
+ *    reads that row *by workspaceId* to delete the remote database and then
+ *    removes it itself, and a cascade that deleted the row first would leave
+ *    the customer's note text in our infrastructure with nothing left
+ *    pointing at it. So this does exactly what `fastSearch.ts`'s `disable`
+ *    does — mark the row `releasing`, schedule the release — because after
+ *    this transaction there is no owner left who could ever press that
+ *    switch.
  *  - **`oauthAuthorizations`** — swept for the *deleting user's own* approvals
  *    by `deleteAccount` above (by `userId`, not `workspaceId`, since the table
  *    has no workspace index). An authorization approved by a co-owner or
@@ -412,6 +419,50 @@ async function deleteWorkspaceCascade(
     .collect();
   for (const row of provisioningRows) {
     await ctx.db.delete(row._id);
+  }
+
+  // The fast-search index, RELEASED rather than deleted — the one row here
+  // that a `ctx.db.delete` would make worse. Its `databaseId` names a live
+  // Cloudflare D1 database holding a projection of this context's notes (see
+  // `apps/mcp/src/search/d1/project.js`: path, title, headings, tags, body),
+  // and that database is reachable only through this row. Deleting it would
+  // strand the customer's note text in our infrastructure permanently, which
+  // is the opposite of what a teardown is for.
+  //
+  // So this is `fastSearch.ts`'s own `disable`, minus the person: mark the
+  // row `optedIn: false` / `releasing` — which serves nothing from that
+  // moment, `fastSearchOptedIn` reads `optedIn` — and schedule
+  // `releaseIndex`, which deletes the remote database and then removes the
+  // row itself via `forgetIndex`. Scheduled, not called, for the same reason
+  // the two revokes above are: that action decrypts the platform's D1 token.
+  //
+  // Nobody is left to press the switch after this transaction, which is why
+  // the cascade has to press it. If the release fails (the token is
+  // unconfigured, Cloudflare is down) the row stays `releasing` and no cron
+  // retries it today — a known residual, but a strictly smaller one than a
+  // `ready` row nobody will ever look at again: the row is exactly the handle
+  // a retry needs, and it is now marked as owing one.
+  const searchIndex = await ctx.db
+    .query("searchIndexes")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  if (searchIndex !== null) {
+    if (searchIndex.databaseId === undefined) {
+      // Nothing was ever created — a failed provision, or an opt-in reversed
+      // before it got that far. Same branch `disable` takes: the row goes now.
+      await ctx.db.delete(searchIndex._id);
+    } else {
+      await ctx.db.patch(searchIndex._id, {
+        optedIn: false,
+        status: "releasing",
+        updatedAt: Date.now(),
+      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.fastSearchProvision.releaseIndex,
+        { workspaceId },
+      );
+    }
   }
 
   /*

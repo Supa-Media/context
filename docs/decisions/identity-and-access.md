@@ -232,19 +232,20 @@ one call for the workspace.
 **What a full audit of the cascade found and left alone, deliberately.**
 `workspaceDataKeys` stays for the reason `docs/decisions/encryption.md`
 already gives — it opens the customer's own notes, and deleting it is an open
-product decision, not a sweep to add. `searchIndexes` stays for a different
-reason: a row there names a real, billed Cloudflare D1 database, and
-`fastSearch.ts`'s own release path reads that row *by workspaceId* to delete
-the remote database before removing it — deleting the row from the cascade
-first would stand up nothing to read and strand the database with no
-reference left anywhere, which is a worse outcome than the row surviving.
-Fixing that needs the same schedule-then-release shape, not a delete in a
-loop, and is tracked rather than folded into this pass. `oauthAuthorizations`
+product decision, not a sweep to add. `oauthAuthorizations`
 has no `workspaceId` index, so an authorization a co-owner approved for a
 workspace somebody else just deleted is reached by neither sweep — bounded
 the same way `dropboxConnectAttempts` always was before this change, by a
 ten-minute expiry and an hourly sweep, and left open for the same reason:
-closing it needs a schema change, not a sweep addition. `usageDaily` and
+closing it needs a schema change, not a sweep addition. What makes that
+bound sound rather than merely short is one line further down the path:
+redeeming such a code *does* mint a grant (`consumeAuthorizationCode` checks
+the code, the client and the clock, never the workspace), but the grant
+cannot then authenticate anything, because `resolveLiveGrant` re-reads both
+the membership row and the workspace row on **every** request and returns
+`null` when either is gone — and the cascade deleted both. The residue is an
+inert `oauthGrants` row for a workspace that no longer exists, not reach into
+one. `usageDaily` and
 `usageActiveDaily` hold no credential and no customer content by construction
 (`docs/decisions/storage-and-credentials.md`, "Usage is counted, never
 logged"), so a stale `workspaceId` in a count is not a capability anyone can
@@ -252,6 +253,41 @@ use — deleting them would only falsify a day that genuinely happened. All of
 this is spelled out where an operator reading the cascade will actually find
 it: the enumerated list in `deleteWorkspaceCascade`'s own doc comment in
 `apps/convex/functions/account.ts`.
+
+**`searchIndexes` is the one row a teardown must press a switch on rather than
+delete.** A row with a `databaseId` names a live, billed Cloudflare D1
+database holding a projection of that context's notes — path, title, headings,
+tags and body chunks (`apps/mcp/src/search/d1/project.js`) — and that database
+is reachable only through this row. So deleting the row is not a teardown of
+the index, it is the permanent abandonment of it: the customer's note text
+left in our infrastructure with nothing pointing at it. Leaving the row alone
+has the same ending by a slower road, because the only path that deletes the
+remote database is `fastSearch.ts`'s `disable`, and after a cascade there is
+no owner left who can press it. The cascade therefore does what `disable`
+does — mark the row `optedIn: false` / `releasing`, which serves nothing from
+that moment, and schedule `fastSearchProvision.releaseIndex`, which deletes
+the database and then removes the row through `forgetIndex`. Scheduled, not
+called, for the same reason the two revokes are: that action opens the
+platform's D1 token. **The residual, stated rather than papered over:** if the
+release fails (token unconfigured, Cloudflare down) the row stays `releasing`
+and nothing retries it today — `sweepStalledBackfills` only picks up
+`backfilling` rows. That is strictly better than the `ready` row it replaces,
+because the row is the handle a retry needs and it is now marked as owing one,
+but a `releasing` sweep is the honest next step.
+
+**What still escapes the derivation, and the second guard that catches it.**
+`connectAttemptTables` matches one field pair, so a connect attempt that
+spells its verifier `encryptedCodeVerifier`, one scoped by `userId`, or one
+that nests the envelope inside an object field is invisible to it — and a
+live *connection* table for a new provider (the `googleConnections` shape) was
+never in its scope at all, which is exactly how that miss happened. So
+`__tests__/cascadeCoverage.test.ts` asks the wider question directly: every
+table in the schema that declares a `workspaceId` **and** any `encrypted…`
+field must be swept by the cascade or listed there as a deliberate exception
+with its reason. A new provider's connections table fails that test the day
+it is declared. Two shapes still get past both, and neither is claimed: a
+sealed field that does not begin with `encrypted`, and one nested inside an
+object field.
 
 ### A first-party signed shell may have its own grant approved by the session hosting it
 
