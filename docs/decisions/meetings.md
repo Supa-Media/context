@@ -2851,17 +2851,20 @@ independent guards** — the identity check on the way a segment is folded in
 (now live, per reason one) and the identity check on the way the transcript
 is written out — where the desktop has four, one of which is a boundary no
 client can cross. It is **not impossible** on the phone the way it is on the
-desktop, because both of the phone's guards are code the same binary that
-records the meeting also runs; a build that dropped one, or both, would drop
-them silently, the way `handleMeetings`'s test suite dropping `assertSegmentsAddressed`
-would not be silent — `apps/mcp/test/meetings.test.mjs` would fail on the next
-run against a real gateway, and nothing analogous exists that a phone build
-cannot simply not have. That gap is the honest cost of not making the larger
-change above, named here rather than left for the next adversarial review to
-find.
+desktop, and the difference is *who* enforces each guard. `appendSegments` on
+the gateway is enforced by a party other than the client making the
+request — the customer's own credential reaches a Worker this repository
+operates, and no rewrite of the client's own code changes what that Worker
+checks before it writes. Both of the phone's guards, `apply`'s and
+`assertOwnTranscript`'s, are enforced by the same binary that is asking to be
+trusted: a build of this app that dropped either call would still hold a
+valid session, `files.writeNote` would still take whatever it was handed, and
+nothing on the far end would know a check was ever supposed to run. That is
+the honest cost of not making the larger change above, named here rather than
+left for the next adversarial review to find.
 
-**The checks are** `a phone chunk id names the meeting it was recorded for,
-and only that one` (`apps/mobile/__tests__/meetingsCapture.test.ts` and its
+**The checks are** `a chunk's id names the meeting it was recorded for, and
+only that one` (`apps/mobile/__tests__/meetingsCapture.test.ts` and its
 `meetingsCaptureWeb.test.ts` sibling), `a recorder given no meeting id refuses
 to start, rather than inventing one` (same two files), `a transcript carrying
 another meeting's words is refused, not written` and `a transcript whose ids

@@ -435,10 +435,11 @@ function closed(projection: MeetingProjection, at: string): number {
  * will ever write out: there is no move left that reaches `finalizing`, so
  * words folded in now can never leave this session either. A denylist naming
  * the two states current terminal happens to be would keep agreeing with the
- * table right up until a third terminal state joined it — `docs/decisions/
- * meetings.md` already argues the table only grows that way — and then would
- * silently start accepting transcript into a meeting nothing could ever write
- * out, in this file and in `ingest.js`'s own mirror of it, on the same day.
+ * table right up until a third terminal state joined it (which
+ * `docs/decisions/meetings.md` already argues the table only grows toward)
+ * and would then silently start accepting transcript into a meeting nothing
+ * could ever write out, in this file and in `ingest.js`'s own mirror of it,
+ * on the same day.
  */
 export function acceptsTranscript(state: MeetingState): boolean {
   return MEETING_TRANSITIONS[state].length > 0;
