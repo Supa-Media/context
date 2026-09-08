@@ -83,11 +83,24 @@ pull request, the other is meant to prove the exact bits about to ship.
 job, or narrowing its `if:` so a pull request that touches `apps/desktop`
 skips it, restores the exact window this section closes — a defect that
 passes every check on the pull request that introduces it and is discovered
-only at the next release dispatch. Reproduced directly against a real macOS
-Actions runner: the job went red against the still-unfixed dead zone on `main`
-before the ordering fix landed, and is expected to go green once it does —
-the live incident stood in for a synthetic sabotage commit, since the defect
-this job exists to catch was, at the time this was written, still open.
+only at the next release dispatch.
+
+**Proved red, then green, on real macOS Actions runners — the live incident
+stood in for a synthetic sabotage commit, since the defect this job exists to
+catch was still open on `main` while this was written.** The pull request that
+added this job ran it against unmodified `main` and got exactly the bisected
+failure back: `ReferenceError: Cannot access 'controller' before
+initialization`. A throwaway verification branch then applied an ordering fix
+on top and re-ran the same job — which caught a *second* defect the first
+report never saw: moving `imessage.reconfigure()` to just after `const
+controller` was not enough, because `push()` also reads `tray`, declared far
+later in `main()`, so the job failed again with `ReferenceError: Cannot
+access 'tray' before initialization` before it ever reached green. Only once
+the call moved past *both* declarations did the job report `ALL PASS`. That
+second failure is itself evidence for this section's opening claim: a fix
+that clears the one identifier a bug report names is not the same as a fix
+that clears every identifier the broken call path actually reads, and only
+running the real launch — not reading the diff — told the two apart.
 
 ### A hand-scan is not a fix for something that has already recurred
 
@@ -151,7 +164,10 @@ because nothing in this repository's CI, and nothing in the sandbox an agent
 here runs in, had ever executed the editor inside one. `.github/workflows/ci.yml`'s
 `Editor in WebKit` job and `apps/mobile/e2e/webkit` close that gap, on
 `ubuntu-latest` with `playwright install --with-deps webkit` — the cheap path,
-chosen over a `macos-latest` runner this repository does not otherwise use.
+chosen over a `macos-latest` runner. (This job predates `desktop-launch-smoke`
+above, which does now put a `macos-latest` runner in `ci.yml` — for the app's
+own launch, which needs a real macOS process; a Linux-hosted WebKit engine is
+still the right trade for the editor's DOM event handling, and remains one.)
 
 **What a green run there proves:** the app's own touch-event handling — the
 long-press timer, the `touchcancel` interpretation, the checkbox toggle, the
