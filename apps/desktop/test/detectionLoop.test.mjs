@@ -26,19 +26,43 @@
  *   `transition` computed from `state.active` alone, without `previous`     4
  *   the `inFlight` guard removed, with two overlapping ticks                1
  *   a collector failure allowed to propagate out of `collectSignals`        5
- *   the calendar's actionable System-Settings sentence removed              3
+ *   the calendar's actionable System-Settings sentence removed always       3
+ *   ...and removed entirely, with no reason check to relax                  5
+ *   `attempt()` classifies every throw as "unknown", not just untyped ones  2
+ *   `calendar.ts` throws a bare `Error` instead of `PermissionRefusedError` 1
+ *   `parseWindows`'s refusal comparison loosened to "at least one"         1
+ *   `parseTabUrlRefusals` hard-coded to return 0                            3
+ *   `loop.ts` drops `tabUrlRefusals` from the `degradedNotice` call         1
+ *   `degradedNotice`'s tab-URL-refusal sentence removed entirely            5
  *
- * The last one is the reason `attempt()` exists: without it, a machine where
- * the person never granted Accessibility throws on every poll, `tick` rejects,
- * and the app silently stops watching for meetings entirely.
+ * The first of those five is the reason `attempt()` exists: without it, a
+ * machine where the person never granted Accessibility throws on every poll,
+ * `tick` rejects, and the app silently stops watching for meetings entirely.
  *
- * Both of the last two are also a note about *this file* rather than about the
- * source. Each of them, on the first attempt, threw out of a bare `await` and
- * killed the rest of the suite — zero FAIL lines, which reads like coverage if
- * you count failures. The collector check now catches and names the escape,
- * and the overlapping-poll check races the second tick against a resolved
- * promise so a missing guard fails instead of hanging. A sabotage is only
- * worth the care taken that it *failed* rather than crashed.
+ * The next six guard the precision fix on top of it: `attempt()` used to mark
+ * the calendar degraded on *any* throw, and `degradedNotice` used to append
+ * the write-only guidance whenever it was, so a timeout told the person to go
+ * change a permission that was already fine. Two rows are the same mistake
+ * measured two ways — always showing the guidance regardless of reason (3,
+ * the historical count) versus deleting the reason check *and* the guidance
+ * together (5, since more now depends on it) — and the type check on
+ * `calendar.ts`'s own throw exists because "it throws" was already covered
+ * and "it throws the *right kind*" was not: a bare `Error` there passed every
+ * existing check and failed only once this one was added.
+ *
+ * The last four guard the browser tab-URL count: the window-title refusal
+ * comparison (a different guard, sharing the same shape as the calendar's),
+ * the count itself hard-coded away, the wiring that carries it from
+ * `collectSignals` through `tick()` into the update a person actually sees,
+ * and the sentence that turns a nonzero count into something they read.
+ *
+ * Both of the two originals are also a note about *this file* rather than
+ * about the source. Each of them, on the first attempt, threw out of a bare
+ * `await` and killed the rest of the suite — zero FAIL lines, which reads
+ * like coverage if you count failures. The collector check now catches and
+ * names the escape, and the overlapping-poll check races the second tick
+ * against a resolved promise so a missing guard fails instead of hanging. A
+ * sabotage is only worth the care taken that it *failed* rather than crashed.
  */
 
 import { DETECTOR_THRESHOLDS } from "@context/meetings/protocol";
@@ -203,6 +227,22 @@ export async function runDetectionLoopChecks(check) {
       withTabRefusal.tabUrlRefusals,
     );
     check("...so the person still learns about it", (tabRefusalNotice ?? "").length > 0);
+
+    // The wiring, not just the two functions in isolation: `tick()` is what a
+    // real poll calls, and it is the one place `collected.tabUrlRefusals`
+    // actually reaches `degradedNotice`. A test that only calls
+    // `collectSignals` and `degradedNotice` separately, as above, would not
+    // notice `loop.ts` forgetting to pass the count through — measured: it
+    // did not, until this check was added.
+    const { loop, updates } = loopOver([false], {
+      collectors: fixedCollectors({ tabUrlRefusals: 1 }),
+    });
+    await run(loop, 1);
+    check(
+      "the running loop's own update carries the tab URL refusal notice",
+      (updates[0].degradedNotice ?? "").length > 0,
+    );
+    check("...and reports no collector as degraded for it", updates[0].degraded.length === 0);
   }
 
   // -- the edges -----------------------------------------------------------
