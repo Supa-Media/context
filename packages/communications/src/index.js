@@ -19,7 +19,7 @@ export {
   parseChannelDayPath,
   slugifyAddress,
 } from "./paths.js";
-export { fnv1a64, isMessageAnchor, messageAnchor, threadKey } from "./anchors.js";
+export { fnv1a64, isMessageAnchor, messageAnchor, spaceKey, threadKey } from "./anchors.js";
 export {
   AVERAGE_MESSAGE_BYTES_HIGH,
   AVERAGE_MESSAGE_BYTES_LOW,
@@ -32,6 +32,7 @@ export {
   defangFence,
   defangLinks,
   defangOutsideFence,
+  groupIntoSpaces,
   groupIntoThreads,
   parseChannelDayMessages,
   parseChannelDayNote,

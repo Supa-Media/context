@@ -174,6 +174,31 @@ describe("the authorize URL", () => {
     expect(url.searchParams.get("scope")).toBe(GMAIL_REQUEST_SCOPES.join(" "));
   });
 
+  /**
+   * WITHOUT THIS, ADDING A PRODUCT TO AN ALREADY-CONNECTED ACCOUNT SILENTLY
+   * DROPS EVERY OTHER ONE. Google grants exactly what one request asks for —
+   * a later "add Chat" naming only Chat's scopes gets back a refresh token
+   * that no longer covers Gmail, and `applyGoogleConnectionBinding` (correctly)
+   * recomputes Gmail's scope slice from that narrower grant, reporting it as
+   * empty. `include_granted_scopes=true` is what makes the NEW token carry
+   * forward every scope this client already held for the account, regardless
+   * of which existing connection (if any) the caller knew about when it built
+   * the request. See `docs/decisions/communications.md`, "Adding a product
+   * must not silently drop another one".
+   */
+  test("always requests every previously granted scope be carried forward — the fix for the union-of-products problem", () => {
+    const url = new URL(
+      googleAuthorizeUrl({
+        clientId: FAKE_CLIENT_ID,
+        redirectUri: FAKE_REDIRECT_URI,
+        challenge: RFC7636_CHALLENGE,
+        state: FAKE_STATE,
+        scopes: scopesForProducts(["chat"]),
+      }),
+    );
+    expect(url.searchParams.get("include_granted_scopes")).toBe("true");
+  });
+
   test("refuses a URL with no state — an optional CSRF token is one that gets omitted", () => {
     expect(() =>
       googleAuthorizeUrl({

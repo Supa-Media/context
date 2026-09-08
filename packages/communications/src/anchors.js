@@ -114,6 +114,29 @@ export function threadKey(event) {
   return `thr-${fnv1a64(`${channel}\u0000${account}\u0000thread\u0000${threadId}`)}`;
 }
 
+/**
+ * The key a Google Chat space (or DM) is grouped by inside a day.
+ *
+ * Same NUL-joined construction as anchorInput, for the same reason: a
+ * separator a caller can write is a separator a caller can forge, and NUL
+ * cannot appear in any of these fields. The literal "space" segment keeps
+ * this out of the collision space of both the message anchor and the thread
+ * key. A message with no space groups under one shared "no-space" key, the
+ * same solo-fallback pattern threadKey uses for a message with no thread --
+ * the caller decides whether that ever happens for a given channel.
+ *
+ * @param {import("./protocol.js").CommunicationEvent} event
+ * @returns {string}
+ */
+export function spaceKey(event) {
+  const channel = String(event?.channel ?? "");
+  const account = String(event?.account ?? "");
+  const space = event?.space && typeof event.space === "object" ? event.space : null;
+  const id = space && space.key ? String(space.key) : "";
+  if (!id) return "no-space";
+  return `spc-${fnv1a64(`${channel}\u0000${account}\u0000space\u0000${id}`)}`;
+}
+
 /** Is this string one `messageAnchor` produced? */
 export function isMessageAnchor(value) {
   return (
