@@ -217,6 +217,164 @@ jobs:
           node scripts/check-gateway-imports.mjs --self-test
           node scripts/check-gateway-imports.mjs apps/mcp/src
 
+  # ── THE APP HAS TO START, NOT JUST TYPECHECK AND PACKAGE ─────────────────
+  #
+  # #329 merged with 24 green checks and a temporal dead zone in
+  # `apps/desktop/src/main/index.ts`: an `onChange` handler wired above
+  # `const controller` called a function that reads `controller`, so every
+  # launch threw `ReferenceError: Cannot access 'controller' before
+  # initialization` — through a promise, so it surfaced as an unhandled
+  # rejection rather than a stack trace at the call site. Nothing in THIS
+  # file would have caught it; `apps/desktop`'s own `test.mjs` and `tsc
+  # --noEmit` both stayed green, because neither one starts the process.
+  # `test/launch.smoke.mjs` does — see docs/decisions/desktop.md, "A release
+  # is a build that started" — and it already existed, wired into
+  # `deploy-desktop.yml`. The defect still reached `main`, because that
+  # workflow is `workflow_dispatch` only: the gate spoke hours later, on a
+  # release dispatch, against a commit two pull requests removed from the one
+  # that broke it. This job is the fix for THAT gap — the same check, run
+  # where a defect can still be stopped rather than merely dated.
+  #
+  # ## Why a macOS runner, on pull requests, and this is affordable
+  #
+  # `context` is public (CLAUDE.md, "This repository is public and MIT
+  # licensed"), and GitHub does not meter Actions minutes on a public
+  # repository's hosted runners by OS or otherwise — a macOS runner here
+  # costs no more in billing than `ubuntu-latest` costs `desktop-bridge`
+  # above. What a macOS runner actually spends is queue time against a
+  # smaller concurrency pool than Linux gets, and the way to keep that cheap
+  # is to run it only where it can find something: gated by path, exactly
+  # like `editor-webkit` below gates on `apps/mobile/**`. A run that does
+  # apply is short — `pnpm install --filter "./apps/desktop..."`, a build,
+  # then the same `--smoke` launch `deploy-desktop.yml` runs, with no
+  # certificate, no notarisation and no `.dmg` — nothing like that job's
+  # 45-minute budget.
+  #
+  # So: on a pull request, this runs only when the diff touches
+  # `apps/desktop` itself, or one of the four workspace packages it actually
+  # depends on at runtime — `packages/desktop-bridge`, `packages/hook`,
+  # `packages/communications`, `packages/meetings` (`apps/desktop/package.json`'s
+  # own `dependencies`, not `packages/**` wholesale: `packages/shared` is not
+  # one of them, and gating on all of `packages/**` would run this on every
+  # unrelated package change) — or this file. The same change-detection-
+  # inside-the-job shape `editor-webkit` uses and for the same reason (a
+  # `paths:` filter on the trigger would leave an unrelated pull request with
+  # no report at all, pending forever on a required check). On a push to
+  # `main` it always runs, ungated — a merge is the moment this incident
+  # actually happened, pushes to `main` are one per merge rather than one per
+  # commit, and a change reaching `main` through something this path list did
+  # not anticipate (a workspace-root dependency bump, a fifth package this
+  # app starts depending on) still gets caught within minutes rather than at
+  # the next release dispatch.
+  #
+  # ## What still is not covered
+  #
+  # `deploy-desktop.yml`'s own launch step is untouched — signed, notarised,
+  # packaged, Gatekeeper-checked, and still the only thing that gates a
+  # published release. This job runs the *unpackaged* dev bundle
+  # (`dist/main/index.cjs`, `pnpm --filter @context/desktop smoke` with no
+  # `--app`), so it cannot see a packaging-only defect (an asar path, an
+  # Info.plist icon, code signing) — only a defect in the module graph or
+  # `main()` itself, which is exactly what #329's was and exactly what nothing
+  # before this job ran on a pull request at all. The two gates are
+  # deliberately not merged into one: this one is meant to be cheap and fast
+  # enough to run on every relevant pull request, and the release gate is
+  # meant to prove the exact bits about to ship. Neither replaces the other.
+  desktop-launch-smoke:
+    name: The desktop app launches
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Does this touch the desktop app or what it depends on?
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            desktop:
+              - "apps/desktop/**"
+              - "packages/desktop-bridge/**"
+              - "packages/hook/**"
+              - "packages/communications/**"
+              - "packages/meetings/**"
+              - ".github/workflows/ci.yml"
+
+      # `github.event_name == 'push'` (to `main`, per this workflow's trigger)
+      # always runs, ungated — see the comment above this job for why a merge
+      # gets no path filter and a pull request does.
+      - uses: pnpm/action-setup@v4
+        if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
+
+      - uses: actions/setup-node@v5
+        if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Scoped to the app and what it depends on, same as `deploy-desktop.yml`'s
+      # own install — the rest of the workspace is not this job's business.
+      - name: Install
+        if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
+        run: pnpm install --filter "./apps/desktop..." --frozen-lockfile
+
+      - name: Build
+        if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
+        working-directory: apps/desktop
+        run: pnpm run build
+
+      # The same check `deploy-desktop.yml` runs against the packaged app,
+      # here against the unpackaged dev bundle it builds above — see the
+      # header comment for what that does and does not cover.
+      #
+      # The failure has to name the app's own error, not just an exit code:
+      # that is the entire lesson of tonight's incident, where the gate that
+      # did exist spoke only "the release build failed" hours after the fact
+      # and pointed at a commit two pull requests removed from the one that
+      # broke it. `test/launch.smoke.mjs` already prints a PASS/FAIL line per
+      # check and the app's full captured output on any failure (both reach
+      # this step's own log); the `::error::` annotation below additionally
+      # pulls out one line for the job summary and the check-run title, so the
+      # reason is visible without opening the log at all.
+      #
+      # Ordered on purpose, most specific first — proven against a real run of
+      # this exact job (#329's dead zone, still open on `main` as this was
+      # written): `main/index.ts`'s own `uncaughtException`/`unhandledRejection`
+      # handlers print `[smoke] uncaught exception: <message>` or
+      # `[smoke] unhandled rejection: <message>` before exiting, and that
+      # message — e.g. `ReferenceError: Cannot access 'controller' before
+      # initialization` — is the one sentence an on-call person actually needs.
+      # The first attempt at this grepped `FAIL |Error:|Exception` with no
+      # ordering and surfaced `FAIL  IT EXITS ZERO — exit code 1` instead on
+      # that exact run, because the checker's own FAIL line for that symptom
+      # sits earlier in the output than the JS error it was caused by — true,
+      # but not the answer. Falling back to a `FAIL` line, then to the crash
+      # strings `launch.smoke.mjs` itself greps for, only reads as "nothing
+      # more specific was in the log" when none of the app's own error text
+      # was captured at all.
+      - name: Launch the app it just built (smoke test)
+        id: smoke
+        if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
+        working-directory: apps/desktop
+        run: |
+          set +e
+          pnpm run smoke 2>&1 | tee "$RUNNER_TEMP/desktop-smoke.log"
+          status="${PIPESTATUS[0]}"
+          if [ "$status" -ne 0 ]; then
+            reason="$(grep -m1 -E 'uncaught exception:|unhandled rejection:' "$RUNNER_TEMP/desktop-smoke.log" || true)"
+            if [ -z "$reason" ]; then
+              reason="$(grep -m1 -E 'Dynamic require of|Uncaught Exception|A JavaScript error occurred|App threw an error during load' "$RUNNER_TEMP/desktop-smoke.log" || true)"
+            fi
+            if [ -z "$reason" ]; then
+              reason="$(grep -m1 -E '^FAIL ' "$RUNNER_TEMP/desktop-smoke.log" || true)"
+            fi
+            if [ -z "$reason" ]; then
+              reason="exited $status with no recognisable error line — see the full log above"
+            fi
+            echo "::error::apps/desktop failed to launch: ${reason}"
+          fi
+          exit "$status"
+
   # ── NO WEBKIT IN CI OR IN AN AGENT SANDBOX, UNTIL NOW ─────────────────────
   #
   # Every iOS-only editor bug in `docs/decisions/app-and-console.md`'s "A long
