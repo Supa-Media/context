@@ -587,22 +587,191 @@ whole error payload, not on its code — to the one an invented token gets.
    envelopes carry a key id, and the re-encrypt pass moves rows forward. The
    WDK envelope is another row of that shape and rides the same pass. **No note
    is touched, and no bucket is written.**
-2. **The workspace data key.** A new WDK is generated and every encrypted note's
-   `workspace` recipient is re-wrapped. **The body is not re-encrypted** — only
-   the recipient's `wrapped` field changes, which is a small write per note, and
-   the pass is resumable because each note's frontmatter names the generation
-   (`context_encryption_key: ws:k1`) so what is left to do is a `list` away. Not
-   built in Phase 1; what *is* built is the id that makes it possible without a
-   format change, and a decrypt path that accepts a generation it did not write
-   with.
-3. **A passphrase** (Phase 2). Re-wraps that one recipient and nothing else.
-   This is precisely what the product note bought when it decided to "wrap the
-   data key so a password change does not require re-encrypting note content
-   and attachments", and it is why the recipient list is the format.
+2. **The workspace data key.** Built in Phase 2a. A new WDK generation is
+   minted and every encrypted note's `workspace` recipient is re-wrapped toward
+   it. **The body is not re-encrypted** — only the recipient's `wrapped` field
+   changes (`rewrapWorkspaceRecipient` in `apps/mcp/src/encryption.js`), which
+   is a small write per note.
+3. **A passphrase** (Phase 2, not this one). Re-wraps that one recipient and
+   nothing else. This is precisely what the product note bought when it
+   decided to "wrap the data key so a password change does not require
+   re-encrypting note content and attachments", and it is why the recipient
+   list is the format.
 
 **What a simplification would cost.** Leaving the generation id out of the
-envelope makes the first WDK rotation a re-encrypt of every encrypted note in a
+envelope makes a WDK rotation a re-encrypt of every encrypted note in a
 customer's bucket, with no way to tell which ones are already done.
+
+**Two tables, one durable and one that lives in the customer's own bucket, and
+which is which is a decision.**
+
+- `workspaceDataKeys` (control plane) grew `retiredAt: v.optional(v.number())`.
+  Undefined on the workspace's current generation, a timestamp on every one a
+  rotation has moved past. **A retired row is never deleted by this codebase**
+  — see "The grace period is a policy, not a sweep" below.
+- `workspaceKeyRotations` (control plane) holds exactly one fact per
+  workspace at a time: whether a rotation is `in_progress`, and its
+  `fromGeneration`/`toGeneration`. This is **the whole of what makes "refused
+  while a walk is in progress" true**: `startWorkspaceKeyRotation` re-reads
+  under its own mutation before minting a new generation — the identical
+  race-safety shape `insertDataKeyIfAbsent` already uses for a workspace's
+  very first key — so two concurrent callers converge on one target instead of
+  minting a second generation each. Calling `rotate_encryption_keys` while a
+  rotation is already active does not start a second one; it continues the
+  one that exists, because there is only ever one shape a rotation can be in.
+- **The re-wrap walk's own progress is *not* persisted anywhere.** No cursor,
+  no row of "notes done so far". `toolRotateEncryptionKeys` in `apps/mcp/src/index.js`
+  lists the whole bucket on every call and re-wraps a bounded batch
+  (`ROTATION_BATCH_CAP`) of whatever is still on `fromGeneration`, skipping
+  anything already on the target generation. That is what makes the walk
+  **idempotent by construction rather than by careful bookkeeping**: calling
+  it again after a partial pass, a crash, or a conflicting concurrent write
+  finds exactly the notes still left and nothing else, because "already done"
+  is read off the note's own frontmatter rather than off a second piece of
+  state that could itself go stale. The cost is the one
+  `docs/decisions/storage-and-credentials.md` already names for bulk moves and
+  accepts for the same reason: a very large bucket's completed pass still has
+  to re-list and re-inspect every already-migrated note on its way to finding
+  none are left. A persisted cursor would remove that cost and add a second
+  piece of state that can itself drift from the truth; this trades efficiency
+  for having one less thing that can be wrong.
+
+  **What it costs, measured rather than asserted.** One object read per note
+  the walk *examines*, plus one conditional write per note it moves. Over a
+  600-note bucket, three calls at a batch cap of 200: 1,205 reads and 603
+  writes in total, and — the number that matters — **202 reads in the first
+  call rather than 601**, because the walk stops at the first note it finds
+  still on the outgoing generation once its batch is spent, instead of reading
+  to the end of the bucket to count the remainder. It never needed that count:
+  the report has always said "at least *n* left", and one is enough to mean
+  "call again". Without the stop, the reads a single call issues scale with the
+  size of the bucket rather than with the size of the batch, which is the wrong
+  quantity to hand a Worker invocation with a subrequest budget — and on an
+  S3-backed store, where every read is a subrequest, it is the difference
+  between a rotation that finishes and one that cannot.
+
+  **The residue is a ceiling, not an overhead, and it is on the call that
+  finishes.** The batch cap bounds the *first* call. It cannot bound the
+  *last* one: before the walk may say "complete" it has to prove nothing is
+  left, and with no cursor the only proof available is reading every note in
+  the bucket again. So the completing call always costs one read per note in
+  the bucket, whatever the batch cap is. Measured end to end, driving the tool
+  to completion at a batch cap of 200:
+
+  | notes | calls | total reads | reads in the largest call |
+  | ---: | ---: | ---: | ---: |
+  | 200 | 1 | 201 | 201 |
+  | 600 | 3 | 1,205 | 601 |
+  | 1,000 | 5 | 3,009 | 1,001 |
+  | 2,000 | 10 | 11,019 | 2,001 |
+  | 4,000 | 20 | 42,039 | 4,001 |
+
+  Total reads grow as `notes x calls / 2`. The last column is the one that
+  decides whether a rotation can happen at all: a 4,000-note context ends its
+  rotation with a single invocation issuing 4,001 reads, and above whatever
+  the deployment's real subrequest budget is, that call cannot run. What that
+  looks like is not a slow rotation — it is a walk that re-wraps every note
+  and then never reports itself complete, leaving `workspaceKeyRotations`
+  `in_progress` forever and the *next* rotation unable to start. Nothing is
+  lost when this happens (every note opens under both generations throughout),
+  but the operation does not finish.
+
+  **So: honest at the size a personal brain is, and a persisted cursor before
+  this is offered to a context of several thousand notes.** Hundreds to about
+  a thousand is fine. Four thousand — a size this gateway's own literal scan
+  already budgets for (`apps/mcp/src/index.js`, "a 4,000-note" walk) — is not.
+  `apps/mcp/test/encryptionRotation.test.mjs` fails if one call's reads start
+  scaling with the bucket again, and separately pins the completing call's
+  cost at the size of the bucket, so the ceiling is a measured number in the
+  suite rather than an estimate here.
+
+**The grace period is a policy, not a sweep.** A retired generation is kept —
+not deleted, not archived elsewhere, simply left as a row with `retiredAt` set
+— indefinitely, by this codebase, on purpose. Three reasons a note can still
+name a generation the workspace has moved past: a note restored from the
+bucket's own object versioning, a client (Obsidian's sync plugin, `rclone`)
+that writes the bucket directly and raced the rotation, or a walk that has not
+yet reached that note. All three are real and none of them is bounded by a
+timer this control plane can see. So there is **no automatic purge** — nothing
+in this codebase ever deletes a `workspaceDataKeys` row — and the operator
+sequence for actually discarding a retired generation's material is,
+deliberately, not automated: confirm (by re-running the walk to completion, or
+by a bucket-wide search for the retired generation's id in `context_encryption_key`
+frontmatter) that nothing still names it, wait long enough that every client
+that syncs the bucket directly has had a chance to, and only then delete the
+row by hand. **A generation is safe to keep forever and unsafe to delete
+speculatively**, which is the direction every default in this section leans:
+an envelope wrapped under a retired generation opens exactly as it did before
+the rotation, today and after any amount of time has passed, because nothing
+here is watching a clock to decide when to make it stop.
+
+**What a simplification would cost.** An automatic purge on a timer is one
+`internalMutation` and a cron trigger, and it is exactly the feature that
+turns "a restored note from three months ago" into "a restored note this
+control plane can no longer open" — silently, on a schedule nobody watching
+that one note would think to check.
+
+**The tests that fail if this is reversed.** Two concurrent
+`startWorkspaceKeyRotation` calls mint exactly one new generation between
+them, sabotage-tested by removing the mutation's re-read
+(`apps/convex/__tests__/encryptionKeys.test.ts`); a re-wrap walk interrupted by
+a simulated write conflict leaves every note openable and a later call
+finishes exactly what was left, sabotage-tested by miscounting a conflict as
+done (`apps/mcp/test/encryptionRotation.test.mjs`); and a note wrapped under a
+generation retired long enough ago that a real deployment would consider
+purging it still opens, because nothing purges it.
+
+And one more, which belongs to the *other* rotation in this file's list of
+three: `STORAGE_SECRET_ENCRYPTION_KEY`'s pass must move **every** generation
+forward, not only the current one. A retired row left behind on the outgoing
+envelope key becomes unreadable the moment an operator completes step 4 of
+that sequence and unsets the PREVIOUS variables — and the notes it strands are
+exactly the ones the grace period above exists to protect. `workspaceDataKeys`
+held one row per workspace until this shipped, so nothing had ever asked;
+`storage.test.ts` asks now, with a rotated workspace, both rows, and the old
+envelope key gone from the environment.
+
+### What a teardown deletes, and what it keeps — OPEN
+
+`deleteWorkspaceCascade` in `apps/convex/functions/account.ts` is the largest
+destructive operation this product has, and its own header states the promise
+it keeps: "the customer's bucket is never touched: what is deleted here is our
+metadata about it, **credential included**". Two encryption tables part company
+there, and only one of them parts company on purpose:
+
+- **`workspaceKeyRotations` is swept.** It is a workspace id, two generation
+  labels and two timestamps — a fact about a workspace that is ceasing to
+  exist, with no key material in it. Added to the cascade in adversarial
+  review, because a new table nobody swept is how the next teardown census
+  goes stale.
+- **`workspaceDataKeys` is not**, and that is the open question. Every
+  generation survives the deletion of the workspace it belongs to.
+
+Both readings are defensible and neither has been decided:
+
+*Keep it* is what the grace period above says everywhere else. The customer's
+encrypted notes are still in the customer's own bucket — the cascade
+deliberately does not touch a byte of them — and a sweep here would make every
+one of them permanently unopenable, silently, for anybody who deleted their
+account without exporting first. That is the same "a purge looks exactly like
+a fix" argument that keeps a retired generation forever.
+
+*Delete it* is what the cascade's own sentence promises. A workspace data key
+is a credential by every definition this repository uses (`schema.ts` calls the
+material radioactive; `structure.test.ts` guards it as one), and after a
+teardown there is no longer any *product* path to it — no binding, no
+workspace, no gateway route — so keeping the row buys the former customer
+nothing while leaving Supa Media holding the one key that turns their bucket
+back into plaintext. "We deleted your account" and "we kept the key to your
+notes" are hard to say in the same paragraph.
+
+**What decides it is a console flow, not a line in a sweep.** The two readings
+converge the moment deletion makes an owner export first: export, confirm,
+then delete both the workspace and its generations. Until that flow exists,
+this codebase keeps the rows, and
+`apps/convex/__tests__/account.test.ts` asserts *both* halves — the rotation
+rows gone, the two generations still there — so whichever way this is settled,
+it is settled by somebody changing a test that says why.
 
 ---
 
@@ -616,53 +785,204 @@ into "your notes, in your bucket, hostage to our database".
 So the export is part of the feature and not a follow-up.
 
 **`export_encryption_keys`** — owner-only, available in the console and over
-MCP, returns for the acting workspace:
+MCP, returns for the acting workspace every *live* key generation, in the
+clear, in one versioned document:
 
-- the workspace data key **in the clear**, base64, to the owner who
-  authenticated, over TLS, in a response that is never logged and never written
-  to the bucket;
-- the envelope version and algorithm identifiers it opens;
-- a pointer to this spec.
+```json
+{
+  "v": 1,
+  "workspace_id": "kg2c...",
+  "exported_at": "2026-09-07T20:00:00.000Z",
+  "current": "k2",
+  "keys": [
+    { "generation": "k1", "alg": "A256GCM", "key": "<base64 AES-256>" },
+    { "generation": "k2", "alg": "A256GCM", "key": "<base64 AES-256>" }
+  ],
+  "envelope": { "version": 1, "alg": "A256GCM", "spec": "docs/decisions/encryption.md" }
+}
+```
+
+Five fields, and each is load-bearing rather than convenient:
+
+- **`v`** — the export format's own version, independent of `envelope.version`
+  (the note-envelope format's version). An export bundles zero or more
+  note-envelope-openers; it is not itself a note envelope, and the two have no
+  reason to change together. A future `v2` export is refused rather than
+  guessed at, the same discipline `assertEnvelopeShape` already applies to a
+  note.
+- **`keys` is an array of every live generation, not only `current`.** A
+  bucket can hold notes from before the workspace's most recent rotation —
+  that is the entire point of a generation surviving retirement rather than
+  being deleted — and an export that carried only the current key would be an
+  export that cannot open them. `current` is named separately so a decryptor
+  (or a human) knows which one a freshly-encrypted note would use; every entry
+  is independently sufficient to open the notes wrapped under it.
+- **`key` is `alg`-qualified per entry**, not assumed from the top-level
+  `envelope.alg`, so a future mixed-algorithm export (a hypothetical A256GCM
+  generation beside a hypothetical successor) is representable without a
+  format break — mirroring why a note's own recipients each carry their own
+  `alg` rather than inheriting the envelope's.
+- **`envelope`** is a pointer, not a duplicate of the spec: version, algorithm,
+  and where the rest of the contract lives, so a decryptor reading this file
+  cold knows what it is looking at before it opens `docs/decisions/encryption.md`.
+- **No `iv`, no `ct`, nothing content-shaped.** This document opens notes; it
+  does not contain one. The distinction matters because this file is handed to
+  operating systems, clipboard managers and password vaults that a note's own
+  ciphertext should never reach.
+- **And no passphrase recipient, ever.** The format can *describe* one — a
+  note's envelope carries the `passphrase` kind and its KDF descriptor, and
+  `packages/encryption-decryptor` reads both — but an export carries workspace
+  generations and nothing else, because a passphrase is not a thing this
+  control plane holds, and a "recovery" field that looked like it might be is
+  worse than an absent one. The consequence is stated where it is met rather
+  than left to be discovered: the export's own text names it, and the
+  decryptor refuses a passphrase-locked note **by name** — "no key export
+  opens it, only the passphrase does" — instead of reporting a generation
+  missing from the bundle, which would send somebody hunting for a key that
+  was never written down.
 
 **In the clear, and not "wrapped so they can unwrap it later"**, because the
 customer has nothing to unwrap it with: a wrapped key handed to somebody who
 does not hold the wrapping key is a rock. The entire purpose of the export is
-that afterwards, the customer's bucket plus one string is a complete context,
+that afterwards, the customer's bucket plus one file is a complete context,
 with or without us. That is the promise, so the artifact has to be able to keep
 it.
 
+**`packages/encryption-decryptor`** is the reference implementation that reads
+this document: a zero-npm-dependency Node CLI, `context-decrypt <keys.json>
+<note-or-bucket-dir> [output]`, built independently of
+`apps/mcp/src/encryption.js` rather than importing it — the whole point of a
+written spec is that a third party can implement it without the original
+code, and `packages/encryption-decryptor/test/decrypt.test.mjs` proves the
+independence is real by encrypting with the gateway's own module and opening
+the result with the decryptor's. It decrypts one note or walks a whole
+exported bucket, copying everything that is not an encrypted note through
+byte-for-byte and leaving a note it cannot open out of the output tree rather
+than passing ciphertext through under a plaintext-looking name.
+
+**That rule is the same rule for one note as for a tree**, which it was not at
+first: single-file mode fell through to "write back what was read", so
+`context-decrypt keys.json note.md out.md` on a corrupted envelope wrote the
+envelope to `out.md` and announced it as "copied (already plaintext)", and
+`... note.md > note.txt` piped base64 into a file that looks like a recovered
+note. The exit code was 2 in both cases and the bytes were still wrong, which
+is the failure mode worth naming: the person running this has already revoked
+our credential, so a file that looks recovered and is not is a loss they find
+out about later. Nothing is written and nothing is printed for a note this key
+file does not open — only the reason.
+
 Five consequences, each a decision:
 
-- **Exporting widens the blast radius, one way, and the console says so at the
+- **Exporting widens the blast radius, one way, and both surfaces say so at the
   moment of the press.** After the export the key is wherever the owner put it.
   There is no un-export.
-- **Owner-only**, on the explicit role — write access to every note in a context
-  is not the authority to decide where the key that opens them lives. Same
-  reasoning as the search opt-in being owner-only.
-- **Audited**, as a row in `.audit/` in the customer's own bucket, naming the
-  acting identity, because "audit records the acting identity, not just the
-  scope".
+- **Owner-only, on the explicit role** — write access to every note in a
+  context is not the authority to decide where the key that opens them lives.
+  Same reasoning as the search opt-in being owner-only. Over MCP a team-tier
+  caller does not even learn the tool exists: `export_encryption_keys` is
+  refused with the byte-identical `unknown tool: export_encryption_keys` a
+  caller gets for a name it invented, the same idiom `canSee` already applies
+  to a path ("byte-identical to a path that never existed"), now applied to a
+  capability rather than a note.
+
+  **That claim is two halves, and it was one for a while.** The refusal is in
+  `callTool`; the listing is in `toolsForSession`, and until
+  `PRIVATE_TIER_ONLY_TOOLS` existed the second half was missing — `tools/list`
+  handed a team-tier connection the name, the description and the sentence
+  "export this context's workspace data key(s) in the clear", and then the
+  call said the tool was unknown. A masked refusal about a capability the same
+  connection has just been advertised masks nothing, and the mechanism that
+  fixes it already existed for `list_plugins`, which is the shape this should
+  have been copied from. Both `export_encryption_keys` and
+  `rotate_encryption_keys` are now filtered out of the listing for a
+  connection that reads at the private tier in no context it covers, and the
+  listing half is asserted beside the call half — either alone passes for a
+  gateway that gets the other one wrong.
+- **Rate limited**, independently on each surface because the two share no
+  state to spend a round trip reaching: the console's `authorizeEncryptionExport`
+  counts against `apps/convex/functions/lib/rateLimit.ts`'s table, five per
+  rolling day; the gateway's tool counts against a small JSON counter at
+  `.context/encryption-export-rate.json` in the customer's own bucket, the same
+  policy, best-effort under a genuine race — an acceptable gap for a limit
+  defending an owner's own repeated access to their own key, where the harm
+  being defended against is a compromised session harvesting the key by
+  retrying, not a race with itself.
+- **Audited on both surfaces, by their own existing audit trail.** The gateway
+  tool writes to `.audit/` in the customer's own bucket, naming the acting
+  identity and the OAuth client, through the same `recordChange` every other
+  audited gateway write uses. The console action writes to the control plane's
+  own `auditEvents` table, naming the acting user, through the same
+  `recordAudit` `storage.rekeyed` already uses — a different audit trail
+  because the two surfaces have different unavoidable state (an OAuth client
+  id exists only on the gateway path; a control-plane user session exists only
+  on the console path), not two shapes for the same fact. Neither ever
+  carries the exported key material.
 - **There is no import.** No endpoint accepts a key from a caller, ever. One
   would be a decryption oracle: hand the gateway a key and a ciphertext and ask
   whether they match.
 - **It is offered when encryption is first turned on, not only at the exit.**
   A customer who revokes our credential having never exported has ciphertext
   they cannot open. The same reasoning puts the bucket-versioning advice in the
-  setup guide rather than in the delete dialog.
+  setup guide rather than in the delete dialog. **Not yet wired into the
+  console's own settings screen** — `exportEncryptionKeys` in
+  `apps/convex/functions/encryptionKeys.ts` is built, tested, and owner-gated,
+  but the button that calls it from `SettingsPane.tsx` is deliberately left for
+  a follow-up pass: the console's action-wiring (`ConsoleData` /
+  `StorageActions`) reaches further than this change's tested surface, and a
+  rushed UI change to it is a worse trade than a documented gap.
 
-**And the decryptor is a file, not a promise.** The envelope module in
-`apps/mcp/src` is dependency-free Web Crypto in an MIT-licensed public
-repository, and the table above is a complete spec. "You can still read your
-notes" is something somebody can run.
+**The console's export reaches the same barrier the gateway's does, and
+neither is a second cryptosystem.** `exportWorkspaceDataKeys` — a
+`CREDENTIAL_BARRIER`, `__tests__/structure.test.ts` — is the one function that
+decrypts every generation and hands the plaintext back; the console's public
+`exportEncryptionKeys` action calls it only after `authorizeEncryptionExport`
+has spent the rate limit and written the audit row in the same transaction,
+and the gateway's `export_encryption_keys` tool reaches the same material
+because `/gateway/binding` already decrypts every live generation for
+ordinary decrypt — export is a formatting step over what that route already
+returns, not a new credential path.
+
+**And the decryptor is a file, not a promise.** `packages/encryption-decryptor`
+is dependency-free Web Crypto in an MIT-licensed public repository, and the
+table above is a complete spec.
+
+**Its suite runs in CI, which it did not at first** — `Test Offline Decryptor`
+in `.github/workflows/mcp.yml`, beside `Test Meetings Core`, whose own comment
+records the identical failure one package earlier: the reusable pipeline
+filters on `apps/mobile`, `apps/convex` and `packages/shared`, and nothing
+invoked this package's tests, so its 23 checks were local-only. That matters
+more here than for most packages, because this suite is also the only thing
+that checks the gateway's envelope *writer* against an independent *reader*.
+It encrypts with `apps/mcp/src/encryption.js` and opens the result with its
+own parser, so it catches exactly the class of bug a single implementation
+cannot: one both halves would have shared. It runs on every pull request,
+including one that touches only the gateway's envelope module. "You can still read your notes" is something
+somebody can run — `npx @supa-media/context-encryption-decryptor keys.json
+./my-bucket ./out`.
 
 **What a simplification would cost.** Skipping the export ships a feature that
 breaks the first non-negotiable — the one thing this file is not allowed to do.
 
 **The tests that fail if this is reversed.** An exported key decrypts a note
 taken straight out of the bucket, through the pure module, with no gateway and
-no control plane in the path; a non-owner is refused; and `structure.test.ts`
-counts the export as an enumerated barrier rather than letting a public function
-quietly reach a key.
+no control plane in the path; a non-owner is refused — an editor, a `member`,
+and a signed-in owner of a *different* context naming this one's id, which is
+the only id the console's export lets a caller choose; the rate limit is spent
+per context rather than per session, so two owners of one context share one
+window and a second client does not get five more; and `structure.test.ts`
+counts the export as an enumerated barrier rather than letting a public
+function quietly reach a key.
+
+**And the credential-field guard names the field the key actually travels
+under.** `PLAINTEXT_CREDENTIAL_FIELDS` listed `datakey`, which was the name on
+`/gateway/binding` until rotation made a context's keys a set; the export
+returns `material`. Nothing was called `dataKey` any more, so for a while a
+public Convex function could have returned a workspace data key and passed the
+guard — measured, by adding one: 0 failures. `material` is listed now, with
+`DELIBERATE_KEY_DISCLOSURES` enumerating the two functions allowed to declare
+it, so a third fails CI loudly. That is the same shape, and the same stated
+residual risk, as `CREDENTIAL_BARRIERS`: the enumeration is the mitigation,
+because it forces the conversation.
 
 ---
 
@@ -911,6 +1231,52 @@ over a note it cannot open. It does **not** build: recipient keys for other
 people or any way to share a passphrase; unlocking on a phone; encrypted
 attachments; a passphrase on a note that also keeps a workspace recipient; or
 any recovery path whatsoever, which is the point rather than an omission.
+
+### What Phase 2a adds
+
+**Builds:** workspace-key rotation end to end — `startWorkspaceKeyRotation`
+and `completeWorkspaceKeyRotation` in the control plane, both reached only
+through `/gateway/binding`'s existing two proofs rather than a third
+credential-bearing HTTP route (`CREDENTIAL_HTTP_ROUTES` stays at two members);
+`rotate_encryption_keys`, the owner-only, resumable, idempotent gateway tool
+that walks the bucket and re-wraps; the `workspaceDataKeys.retiredAt` field and
+`workspaceKeyRotations` table; and the grace-period *policy* (retired
+generations are never purged automatically). `export_encryption_keys` moves
+from a single-generation shape to the versioned, multi-generation bundle this
+file specifies above, and gains a matching offline decryptor,
+`packages/encryption-decryptor` — an independent reimplementation of the
+format, not an import of the gateway's own module, so the two can be checked
+against each other. `exportWorkspaceDataKeys` is the second member of
+`CREDENTIAL_BARRIERS` (`__tests__/structure.test.ts`) — the first time a
+Convex function has been allowed to hand a credential's plaintext back to its
+own caller on purpose, because this is the one case in the whole system where
+that is the point rather than a bug.
+
+**Does not build:** the console button that calls `exportEncryptionKeys` —
+the action is built, owner-gated, rate-limited and audited, but nothing in
+`apps/mobile` references it, so **the console cannot export a key at all**; a
+persisted rotation-walk cursor (see "the whole of what makes 'refused while a
+walk is in progress' true" above for why the walk is idempotent without one,
+and the measured table for the ceiling that costs); and any operator tool to
+purge a retired generation, which is deliberately a manual, documented
+decision rather than code, at least until an owner using this in anger asks
+for one.
+
+**So what can somebody actually reach on the day this merges?** The two MCP
+tools, on an owner-tier personal connection, from any client they have
+connected — that is the whole of it, and it is enough for the non-negotiable:
+an owner can ask their assistant to export their keys and get the bundle back
+in the response. The console is not a second door yet, it is no door.
+
+**And the decryptor is reachable by `git clone`, not by `npx`, until somebody
+dispatches `publish-decryptor.yml`.** The package's README used to open with
+three `npx @supa-media/context-encryption-decryptor` lines against a name that
+has never been published; it now says so and gives the clone-and-run form
+first, and the workflow that would make the `npx` form true exists and is
+`workflow_dispatch` only, for the same reason `publish-hook.yml` is. Handing a
+tarball to a public registry stays a decision somebody takes. What is not
+acceptable is a promise with a broken link in it, which is what the README
+was.
 
 **The one question only the owner can answer** is the first of the product
 note's own open decisions, restated with what has since been learned: **is a

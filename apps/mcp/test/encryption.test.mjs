@@ -74,6 +74,7 @@ import { fileURLToPath } from "node:url";
 import {
   CONTENT_ALG,
   ENVELOPE_VERSION,
+  KEY_EXPORT_VERSION,
   NoteCryptoError,
   contentAad,
   decryptNote,
@@ -83,7 +84,10 @@ import {
   generatedNoteBytes,
   isEncryptedNote,
   parseEncryptedNote,
+  parseKeyExport,
   renderEncryptedNote,
+  renderKeyExport,
+  rewrapWorkspaceRecipient,
   wrapAad,
 } from "../src/encryption.js";
 
@@ -601,5 +605,167 @@ export async function runEncryptionChecks(check) {
     "a generated workspace key is 32 bytes of base64",
     /^[A-Za-z0-9+/]{43}=$/.test(generateWorkspaceKey()) &&
       generateWorkspaceKey() !== generateWorkspaceKey(),
+  );
+
+  // -- rotation: re-wrap moves the key, never the body ---------------------
+
+  const keyA2 = generateWorkspaceKey();
+  const rewrapped = await value(() =>
+    rewrapWorkspaceRecipient(stored, {
+      workspaceId: WORKSPACE_A,
+      keys: { k1: keyA },
+      newGeneration: "k2",
+      newKeyMaterial: keyA2,
+    }),
+  );
+  check(
+    "rewrapping produces a document, not a thrown error",
+    typeof rewrapped === "string",
+  );
+  check(
+    "the re-wrapped note still opens to exactly the same plaintext",
+    (await value(() =>
+      decryptNote(rewrapped, { workspaceId: WORKSPACE_A, keys: { k2: keyA2 } }),
+    )) === PLAINTEXT,
+  );
+  check(
+    "...and the OLD generation's key no longer opens it",
+    (await threw(() =>
+      decryptNote(rewrapped, { workspaceId: WORKSPACE_A, keys: { k1: keyA } }),
+    )) instanceof NoteCryptoError,
+  );
+  check(
+    "the frontmatter now names the new generation",
+    encryptedNoteKeyId(rewrapped) === "k2",
+  );
+  {
+    const before = parseEncryptedNote(stored);
+    const after = parseEncryptedNote(rewrapped);
+    check(
+      "the body ciphertext is byte-for-byte unchanged by a re-wrap",
+      after.ct === before.ct && after.iv === before.iv && after.aad === before.aad,
+    );
+    check(
+      "only the wrap changed — new bytes, not a coincidence",
+      after.recipients[0].wrapped !== before.recipients[0].wrapped,
+    );
+  }
+
+  // Idempotent: re-wrapping a note already on the target generation is safe,
+  // because the walk that drives rotation may see the same note twice across
+  // a resumed, partial pass.
+  const rewrappedAgain = await value(() =>
+    rewrapWorkspaceRecipient(rewrapped, {
+      workspaceId: WORKSPACE_A,
+      keys: { k1: keyA, k2: keyA2 },
+      newGeneration: "k2",
+      newKeyMaterial: keyA2,
+    }),
+  );
+  check(
+    "re-wrapping a note already on the target generation is a safe no-op in effect",
+    typeof rewrappedAgain === "string" &&
+      (await value(() =>
+        decryptNote(rewrappedAgain, { workspaceId: WORKSPACE_A, keys: { k2: keyA2 } }),
+      )) === PLAINTEXT,
+  );
+
+  // A note several generations behind still moves straight to the current
+  // one in a single call, given every generation in between.
+  const keyA3 = generateWorkspaceKey();
+  const skippedForward = await value(() =>
+    rewrapWorkspaceRecipient(stored, {
+      workspaceId: WORKSPACE_A,
+      keys: { k1: keyA, k2: keyA2 },
+      newGeneration: "k3",
+      newKeyMaterial: keyA3,
+    }),
+  );
+  check(
+    "a note can be re-wrapped straight from k1 to k3 in one call",
+    encryptedNoteKeyId(skippedForward) === "k3" &&
+      (await value(() =>
+        decryptNote(skippedForward, { workspaceId: WORKSPACE_A, keys: { k3: keyA3 } }),
+      )) === PLAINTEXT,
+  );
+
+  check(
+    "re-wrapping is refused with no key for the note's current generation",
+    (await threw(() =>
+      rewrapWorkspaceRecipient(stored, {
+        workspaceId: WORKSPACE_A,
+        keys: { k9: keyA },
+        newGeneration: "k2",
+        newKeyMaterial: keyA2,
+      }),
+    )) instanceof NoteCryptoError,
+  );
+  check(
+    "re-wrapping refuses a note from a different workspace",
+    (await threw(() =>
+      rewrapWorkspaceRecipient(storedB, {
+        workspaceId: WORKSPACE_A,
+        keys: { k1: keyB },
+        newGeneration: "k2",
+        newKeyMaterial: keyA2,
+      }),
+    )) instanceof NoteCryptoError,
+  );
+  check(
+    "re-wrapping an ordinary (unencrypted) note throws rather than fabricating one",
+    (await threw(() =>
+      rewrapWorkspaceRecipient(ordinary, {
+        workspaceId: WORKSPACE_A,
+        keys: { k1: keyA },
+        newGeneration: "k2",
+        newKeyMaterial: keyA2,
+      }),
+    )) instanceof NoteCryptoError,
+  );
+
+  // -- key export: versioned, language-neutral, enough to open the bucket --
+
+  const exportDoc = renderKeyExport({
+    workspaceId: WORKSPACE_A,
+    current: "k2",
+    keys: [
+      { generation: "k1", material: keyA },
+      { generation: "k2", material: keyA2 },
+    ],
+  });
+  check("an export names its version", exportDoc.v === KEY_EXPORT_VERSION);
+  check("an export names the workspace it opens", exportDoc.workspace_id === WORKSPACE_A);
+  check("an export carries every live generation, not only the current one", exportDoc.keys.length === 2);
+  check(
+    "an export can be serialized to JSON and read back",
+    JSON.stringify(JSON.parse(JSON.stringify(exportDoc))) === JSON.stringify(exportDoc),
+  );
+
+  const roundTripped = parseKeyExport(JSON.parse(JSON.stringify(exportDoc)));
+  check(
+    "a parsed export opens a note encrypted under its OLD generation",
+    (await value(() =>
+      decryptNote(stored, { workspaceId: roundTripped.workspaceId, keys: roundTripped.keys }),
+    )) === PLAINTEXT,
+  );
+  check(
+    "...and one encrypted under its current generation",
+    (await value(() =>
+      decryptNote(rewrapped, { workspaceId: roundTripped.workspaceId, keys: roundTripped.keys }),
+    )) === PLAINTEXT,
+  );
+
+  const exportFailures = [
+    await threw(async () => renderKeyExport({ workspaceId: WORKSPACE_A, current: "k9", keys: [{ generation: "k1", material: keyA }] })),
+    await threw(async () => renderKeyExport({ workspaceId: WORKSPACE_A, current: "k1", keys: [] })),
+    await threw(async () => renderKeyExport({ workspaceId: "", current: "k1", keys: [{ generation: "k1", material: keyA }] })),
+    await threw(async () => parseKeyExport({ v: 2, workspace_id: WORKSPACE_A, current: "k1", keys: [{ generation: "k1", key: keyA, alg: CONTENT_ALG }] })),
+    await threw(async () => parseKeyExport({ v: KEY_EXPORT_VERSION, workspace_id: WORKSPACE_A, current: "k9", keys: [{ generation: "k1", key: keyA, alg: CONTENT_ALG }] })),
+    await threw(async () => parseKeyExport("not an object")),
+  ];
+  check(
+    "a malformed export is refused rather than silently accepted, and names no key material",
+    exportFailures.every((error) => error instanceof NoteCryptoError) &&
+      !exportFailures.some((error) => error.message.includes(keyA.slice(0, 12))),
   );
 }

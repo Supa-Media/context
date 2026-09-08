@@ -295,11 +295,25 @@ export const gatewayBinding = gatewayRoute(async (ctx, body) => {
   // the gateway secret which of its two proofs was the bad one.
   if (accessToken === null || !expected.ok) return json({ binding: null });
 
+  // Both optional, both absent on every ordinary request. `rotate_encryption_keys`
+  // is the only tool that ever sets either, and it does so only for a grant
+  // the gateway has already checked is owner-scoped — the same discipline
+  // `set_encryption` uses. A malformed value here is treated as absent rather
+  // than a 400, for the same reason the two fields above are: this route
+  // never distinguishes a bad request from an ordinary one.
+  const startEncryptionRotation = body?.startEncryptionRotation === true;
+  const completeEncryptionRotation =
+    typeof body?.completeEncryptionRotation === "string" && body.completeEncryptionRotation.length > 0
+      ? body.completeEncryptionRotation
+      : undefined;
+
   const opened = await ctx.runAction(
     internal.functions.controlPlane.openStorageBinding,
     {
       hashedAccessToken: await hashToken(accessToken),
       expectedWorkspaceId: expected.value,
+      startEncryptionRotation,
+      completeEncryptionRotation,
     },
   );
   if (opened === null) return json({ binding: null });
@@ -318,6 +332,10 @@ export const gatewayBinding = gatewayRoute(async (ctx, body) => {
     binding: opened.binding,
     searchIndex: opened.searchIndex,
     encryptionKey: opened.encryptionKey,
+    // Fourth sibling, same terms: absent unless a rotation is in progress,
+    // which is every context that has never rotated (all of them, before
+    // this shipped) and every one whose last rotation finished.
+    rotation: opened.rotation,
   });
 });
 
