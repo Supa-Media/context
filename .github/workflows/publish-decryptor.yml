@@ -1,0 +1,140 @@
+# Publish `@supa-media/context-encryption-decryptor` to npmjs.com (public).
+#
+# ## Why this file exists, and why it is not optional
+#
+# `packages/encryption-decryptor` is the artifact that keeps non-negotiable 1
+# true once a note is encrypted: "a customer can revoke our credential and keep
+# a complete, usable context". Notes encrypted with a workspace data key are
+# ciphertext without something that opens them, and this package is that
+# something. Its own README tells the person in that situation to run
+# `npx @supa-media/context-encryption-decryptor keys.json ./my-bucket` — and
+# until a dispatch of this workflow succeeds, that command 404s, because the
+# name has never been published. An offline decryptor nobody can fetch is a
+# promise with a broken link in it.
+#
+# The fallback still works and is documented in the README (clone the repo, run
+# `node packages/encryption-decryptor/bin/decrypt.js`), but "clone a git
+# repository" is a different instruction from "run one command", and it is the
+# wrong one to hand somebody who has just revoked our credential.
+#
+# ## Shape: identical to `publish-hook.yml`, deliberately
+#
+# `workflow_dispatch` only. Merging to `main` deploys the gateway, the Convex
+# functions and an OTA update; it does not hand a tarball to a public registry.
+# That is the same line `deploy-mobile-native.yml` and `publish-hook.yml` draw,
+# for the same reason — publishing a package people run unattended is a
+# decision somebody takes, not a side effect of a merge.
+#
+# Auth, the `NPMJS_SECRET` setup, and why this is not token-less trusted
+# publishing yet: see the header of `.github/workflows/publish-hook.yml`. This
+# package publishes under the same `@supa-media` scope with the same token and
+# has nothing to add to that account.
+#
+# ## What the pack step checks that the hook's does not
+#
+# Zero dependencies is a *promise this package makes to a customer with no
+# network*, not just a build preference, so the tarball is inspected for a
+# dependency field of any kind before it is published. `mcp.yml`'s "Test
+# Offline Decryptor" job already runs the suite with bare node on every pull
+# request; this re-runs it here because a publish must not trust a green run
+# from a different commit.
+
+name: Publish Offline Decryptor
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack and verify only — do not publish"
+        type: boolean
+        default: false
+
+# npm refuses a re-publish of a version that already exists, so a second
+# dispatch while one is in flight is a failed run at best. Queue rather than
+# run in parallel, and never cancel one already talking to the registry.
+concurrency:
+  group: publish-decryptor
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # Lets `npm publish --provenance` mint a Sigstore attestation from this run's
+  # own OIDC token — worth more here than almost anywhere else in this repo: a
+  # person running this package has already stopped trusting us with their
+  # notes, and provenance is what lets them check the tarball came from this
+  # commit in this repository.
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish @supa-media/context-encryption-decryptor
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: packages/encryption-decryptor
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          # Bare node, no pnpm install — the package has zero dependencies in
+          # any field, which the pack step below re-checks rather than assumes.
+          package-manager-cache: false
+          registry-url: "https://registry.npmjs.org"
+          scope: "@supa-media"
+
+      - name: Run test suite
+        run: node test/decrypt.test.mjs
+
+      - name: Pack and inspect the tarball
+        run: |
+          set -euo pipefail
+          npm pack --dry-run
+          echo ""
+          node -e '
+            const pkg = require("./package.json");
+            const fs = require("node:fs");
+            for (const field of ["dependencies", "peerDependencies", "optionalDependencies"]) {
+              if (pkg[field] !== undefined) {
+                console.error(`ERROR: ${field} is present — this package promises zero dependencies.`);
+                process.exit(1);
+              }
+            }
+            console.log("  no dependency field of any kind: ok");
+            for (const [name, rel] of Object.entries(pkg.bin || {})) {
+              const stat = fs.statSync(rel);
+              const executable = (stat.mode & 0o111) !== 0;
+              console.log(`  ${name} -> ${rel} (${executable ? "executable" : "NOT EXECUTABLE"})`);
+              if (!executable) process.exit(1);
+            }
+          '
+
+      - name: Publish
+        if: ${{ inputs.dry_run != true }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPMJS_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "ERROR: missing required secret 'NPMJS_SECRET' in the 'production' environment."
+            echo "It is in scripts/secrets-allowlist.json; see publish-hook.yml's header for the one-time setup."
+            exit 1
+          fi
+          npm publish --provenance --access public
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Offline decryptor publish"
+            echo ""
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              echo "Dry run only — nothing was published."
+            else
+              echo "Published \`$(node -p "require('./package.json').name")@$(node -p "require('./package.json').version")\`."
+            fi
+            echo ""
+            echo "- **Commit:** \`${GITHUB_SHA::7}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

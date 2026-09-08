@@ -676,21 +676,40 @@ export function createControlPlane(env, options = {}) {
      * `undefined` for every context that never opted in, `JSON.stringify` drops
      * it, and demanding it would refuse every binding in the product.
      *
-     * @returns {Promise<{binding: object|null, searchIndex: object|null}>}
+     * `rotation` is a fourth sibling on the same request. `rotate_encryption_keys`
+     * passes `{start: true}` to mint (or continue) a workspace-key rotation, or
+     * `{complete: "<generation>"}` to report a bucket-side walk finished —
+     * both spend the same two proofs this call already carries rather than a
+     * separate route, exactly as `searchIndex` and `encryptionKey` do. Every
+     * other caller passes nothing, and the control plane still reports whether
+     * a rotation is outstanding, because starting one is optional but knowing
+     * about one is not.
+     *
+     * @param {{start?: true, complete?: string}} [rotationRequest]
+     * @returns {Promise<{binding: object|null, searchIndex: object|null, encryptionKey: object|null, rotation: object|null}>}
      */
-    async getStorageBinding(accessToken, expectedWorkspaceId) {
-      const parsed = await post("/gateway/binding", { accessToken, expectedWorkspaceId });
-      // Three siblings on the response, not one shape with the other two
-      // nested inside it. `binding` is required; `searchIndex` and
-      // `encryptionKey` are absent in the ordinary case — no index opted in, no
-      // note ever encrypted — and absent again when the control plane could not
-      // open one. Reading either out of the binding instead of off the response
-      // is the bug that left fast search dead in production for a year, so both
-      // are read here, beside each other, where the shape is visible.
+    async getStorageBinding(accessToken, expectedWorkspaceId, rotationRequest) {
+      const parsed = await post("/gateway/binding", {
+        accessToken,
+        expectedWorkspaceId,
+        ...(rotationRequest?.start === true ? { startEncryptionRotation: true } : {}),
+        ...(typeof rotationRequest?.complete === "string"
+          ? { completeEncryptionRotation: rotationRequest.complete }
+          : {}),
+      });
+      // Four siblings on the response, not one shape with the other three
+      // nested inside it. `binding` is required; `searchIndex`, `encryptionKey`
+      // and `rotation` are absent in the ordinary case — no index opted in, no
+      // note ever encrypted, no rotation ever started — and absent again when
+      // the control plane could not open or resolve one. Reading any of them
+      // out of the binding instead of off the response is the bug that left
+      // fast search dead in production for a year, so all four are read here,
+      // beside each other, where the shape is visible.
       return {
         binding: required(parsed, "binding"),
         searchIndex: parsed.searchIndex ?? null,
         encryptionKey: parsed.encryptionKey ?? null,
+        rotation: parsed.rotation ?? null,
       };
     },
 

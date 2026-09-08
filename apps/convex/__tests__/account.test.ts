@@ -14,6 +14,20 @@
  * "is empty afterwards" assertion over a table the fixture never populated is
  * vacuously green, and a cascade that silently stopped touching a table would
  * sail through it.
+ *
+ * ## Sabotage record
+ *
+ * Run as temporary local edits and reverted. Counts are failing vitest tests
+ * in this file.
+ *
+ *   the `workspaceKeyRotations` sweep removed from the cascade             1
+ *
+ * The encryption tables are the one place this file asserts an *asymmetry*
+ * rather than an emptiness — the rotation rows go, the key generations stay.
+ * Both directions are asserted, because the second is an open product
+ * decision (`docs/decisions/encryption.md`, "What a teardown deletes, and
+ * what it keeps") and an open decision with no test in front of it is a
+ * decision that gets taken by accident.
  */
 
 import { describe, expect, test } from "vitest";
@@ -136,6 +150,30 @@ describe("deleteAccount", () => {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
+      // A rotated workspace: one retired generation, one live one, and the
+      // rotation row that recorded the move. Asserted on BOTH sides below —
+      // see "the two encryption tables part company at a teardown".
+      await ctx.db.insert("workspaceDataKeys", {
+        workspaceId,
+        generation: "k1",
+        encryptedDataKey: "v2:current:FAKE:RETIRED-GENERATION",
+        retiredAt: Date.now() - 1_000,
+        createdAt: Date.now() - 2_000,
+      });
+      await ctx.db.insert("workspaceDataKeys", {
+        workspaceId,
+        generation: "k2",
+        encryptedDataKey: "v2:current:FAKE:LIVE-GENERATION",
+        createdAt: Date.now() - 1_000,
+      });
+      await ctx.db.insert("workspaceKeyRotations", {
+        workspaceId,
+        fromGeneration: "k1",
+        toGeneration: "k2",
+        status: "done",
+        startedAt: Date.now() - 2_000,
+        completedAt: Date.now() - 1_000,
+      });
     });
 
     // The pre-state: every table the cascade claims to touch really has a row
@@ -150,6 +188,8 @@ describe("deleteAccount", () => {
       expect(await ctx.db.query("oauthGrants").collect()).toHaveLength(1);
       expect(await ctx.db.query("authAccounts").collect()).toHaveLength(1);
       expect(await ctx.db.query("authSessions").collect()).toHaveLength(1);
+      expect(await ctx.db.query("workspaceDataKeys").collect()).toHaveLength(2);
+      expect(await ctx.db.query("workspaceKeyRotations").collect()).toHaveLength(1);
     });
 
     const result = await asUser(t, owner).mutation(
@@ -177,6 +217,37 @@ describe("deleteAccount", () => {
       expect(await ctx.db.query("ingestionTickets").collect()).toHaveLength(0);
       expect(await ctx.db.query("cloudflareProvisioning").collect()).toHaveLength(0);
       expect(await ctx.db.query("oauthGrants").collect()).toHaveLength(0);
+
+      /*
+        THE TWO ENCRYPTION TABLES PART COMPANY AT A TEARDOWN, DELIBERATELY.
+
+        `workspaceKeyRotations` goes: it is a boolean about a workspace that no
+        longer exists, and it holds no key material.
+
+        `workspaceDataKeys` STAYS, both generations of it, and this assertion
+        is here to make that visible rather than to bless it. Two things are
+        true at once and neither is an oversight:
+
+          - Nothing in this codebase deletes a generation. That is the
+            grace-period policy in `docs/decisions/encryption.md`, and this is
+            the strongest test of it available — the largest destructive
+            operation the product has, run over a workspace with a retired
+            generation, and the row survives. Notes wrapped under `k1` in a
+            bucket the customer still owns are still openable with an export.
+          - It is also the one place we keep a credential for a context we
+            have just finished deleting everything else about. `deleteAccount`
+            is where a person is told our copy of their data is gone; the key
+            that opens their notes is our copy of something.
+
+        Which way that resolves is a product decision — it turns on whether
+        the console makes an owner export before it lets them delete — and it
+        is written up as open in `docs/decisions/encryption.md` under "What a
+        teardown deletes, and what it keeps". Whichever way it goes, it goes
+        deliberately: this line fails on the day somebody changes it.
+      */
+      expect(await ctx.db.query("workspaceKeyRotations").collect()).toHaveLength(0);
+      const survivingKeys = await ctx.db.query("workspaceDataKeys").collect();
+      expect(survivingKeys.map((row) => row.generation).sort()).toEqual(["k1", "k2"]);
 
       // The slug: no row left in the shared namespace. This is the point of
       // the cascade — deletion must not squat the name forever.
