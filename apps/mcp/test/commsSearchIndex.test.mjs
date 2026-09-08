@@ -60,6 +60,7 @@
 
 import {
   channelDaySubDocuments,
+  indexVolumeOf,
   isChannelDayIndexPath,
   messageSegmentFor,
   subDocumentsFor,
@@ -1367,6 +1368,43 @@ async function runShardSizingChecks(check) {
     "two notes carrying eight shards' worth of documents buy eight shards, which counting them never could",
     chooseShardCount(2, 8 * 300 * NOTE_INDEX_CHAR_CAP) === 8
   );
+  /*
+    The calibration those two checks rest on, at the other end of it. The
+    volume term can only be safe over ordinary notes because `indexVolumeOf`
+    caps an ordinary note at one per-note window however large the file is —
+    that is what the note rule was already assuming, and dropping the cap
+    would re-shard every existing index of large notes on the day this
+    deploys. A bundled note is the exception on purpose: its documents are a
+    set, so it is worth its bytes.
+  */
+  check(
+    "an ordinary note is worth one per-note window however large the file is; a bundled note is worth its bytes",
+    indexVolumeOf("1-projects/plan.md", 5_000_000) === NOTE_INDEX_CHAR_CAP &&
+      indexVolumeOf("1-projects/plan.md", 10) === 10 &&
+      indexVolumeOf("0-inbox/email/name-at-example-com/2026-09-07.md", 1_000) === 1_250 &&
+      // A backend that reports no size falls back to one per-note window of
+      // bytes, which is exactly the assumption counting notes was already
+      // making — never "this note is free".
+      indexVolumeOf("1-projects/plan.md", null) === NOTE_INDEX_CHAR_CAP &&
+      indexVolumeOf("0-inbox/email/name-at-example-com/2026-09-07.md", undefined) ===
+        Math.ceil(NOTE_INDEX_CHAR_CAP * 1.25)
+  );
+
+  {
+    // ...and the same thing end to end, because the unit above is only a
+    // guard if something drives it: a vault of notes each far past the
+    // per-note window is one shard, the count it already had.
+    const bigPlain = createBucket();
+    const filler = "prose ".repeat(6_000);
+    for (let i = 0; i < 24; i += 1) {
+      bigPlain.seed(`1-projects/long-${String(i).padStart(2, "0")}.md`, `# Long ${i}\n\n${filler}`);
+    }
+    const sized = await converge(bigPlain);
+    check(
+      "a vault of notes far larger than the per-note window is still one shard, so nothing existing is re-sharded",
+      sized.manifest.shardCount === 1 && sized.pending === 0
+    );
+  }
 
   /* -- 2. the review's scenario, at suite speed -------------------------- */
 
@@ -1410,6 +1448,47 @@ async function runShardSizingChecks(check) {
   check(
     "...as a deep link into the day that holds it",
     lastDay.hits[0].key.startsWith(days[13].path + "#")
+  );
+
+  /* -- 2b. a bundled note is placed by load, never by hash --------------- */
+
+  /*
+    Sizing spreads a corpus evenly **on average**; hashing places it with the
+    variance of a hash, and a channel-day note is indivisible. Eight days
+    hashed into eight shards collide with probability 99.8%, and a collision
+    is two indivisible days in one shard, which is past the cap however well
+    the index was sized — the arithmetic fixed and the failure kept.
+
+    So the fixture is built to make that the only thing on trial: the cap is
+    chosen so one day's volume is more than half a shard and less than a whole
+    one, which means the sizing buys a shard per day and only the *placement*
+    decides whether each day gets one. Measured: replacing the load rule with
+    `shardOf` for bundled notes reddens this and nothing else.
+  */
+  const spread = createBucket();
+  const spreadDays = mailboxDays({ days: 8, perDay: 20 });
+  for (const note of spreadDays) spread.seed(note.path, note.text);
+  for (const note of plainNotes(4)) spread.seed(note.path, note.text);
+  const placedRun = await converge(spread, 2000, { shardByteCap: 26_000 });
+  const shardHolding = (path) => {
+    for (let id = 0; id < placedRun.manifest.shardCount; id += 1) {
+      if (placedRun.manifest.docsByShard[id].has(path)) return id;
+    }
+    return -1;
+  };
+  const dayShards = spreadDays.map((note) => shardHolding(note.path));
+  check(
+    "eight days that each need most of a shard get eight different shards, which hashing them would not",
+    placedRun.manifest.shardCount >= spreadDays.length &&
+      !dayShards.includes(-1) &&
+      new Set(dayShards).size === spreadDays.length
+  );
+  check(
+    "...so nothing has to be shed, and the ordinary notes beside them are indexed too",
+    placedRun.manifest.stats.reduce((total, entry) => total + entry.shed, 0) === 0 &&
+      placedRun.oversizedShards === 0 &&
+      placedRun.pending === 0 &&
+      plainNotes(4).every((note) => shardHolding(note.path) !== -1)
   );
 
   /* -- 3. the mixed case: the ordinary notes still answer ---------------- */
