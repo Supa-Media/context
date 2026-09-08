@@ -26,6 +26,7 @@
  *   `transition` computed from `state.active` alone, without `previous`     4
  *   the `inFlight` guard removed, with two overlapping ticks                1
  *   a collector failure allowed to propagate out of `collectSignals`        5
+ *   the calendar's actionable System-Settings sentence removed              3
  *
  * The last one is the reason `attempt()` exists: without it, a machine where
  * the person never granted Accessibility throws on every poll, `tick` rejects,
@@ -96,6 +97,21 @@ export async function runDetectionLoopChecks(check) {
   check("a failing microphone collector reads as no evidence, not as a negative", broken?.signals.microphoneInUse === false);
   check("the degraded notice names the calendar", (degradedNotice(broken?.degraded ?? []) ?? "").includes("your calendar"));
   check("nothing degraded means no notice", degradedNotice([]) === null);
+
+  // A refused Calendars grant is not just "we cannot see it" — the notice has
+  // to say what the person can do, and that a fresh ask from this app cannot
+  // fix a permission already sitting at write-only.
+  const calendarNotice = degradedNotice(["calendar"]) ?? "";
+  check("the calendar notice names System Settings", calendarNotice.includes("System Settings"));
+  check("the calendar notice names Full Access", calendarNotice.includes("Full Access"));
+  check(
+    "the calendar notice says a fresh request cannot upgrade an existing grant",
+    calendarNotice.toLowerCase().includes("cannot upgrade"),
+  );
+  check(
+    "a collector with no calendar problem gets no System Settings guidance",
+    !(degradedNotice(["windows"]) ?? "").includes("System Settings"),
+  );
 
   // -- the edges -----------------------------------------------------------
   {

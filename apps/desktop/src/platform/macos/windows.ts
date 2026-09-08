@@ -23,6 +23,25 @@
  * (tab URLs). Both are asked for by the system the first time this runs, and
  * both can be refused without breaking the app: the collector throws, the loop
  * marks it degraded, and `detect()` works from processes and the calendar.
+ *
+ * **That last sentence used to be an intention rather than a fact, the same
+ * gap `calendar.ts` had.** `proc.windows.name()` sits behind its own
+ * `try { ... } catch (e) {}`, per process, exactly like the calendar's
+ * per-calendar swallow — so if Accessibility is refused, every process's
+ * title read fails the same way, `titles` stays `[]` for all of them, and the
+ * poll ends with nothing to show for it, indistinguishable from a moment with
+ * no windows open anywhere. The script now counts how many of those reads
+ * were attempted and how many refused, and `parseWindows` throws when the
+ * poll produced nothing *and* every title read that was attempted refused —
+ * the shape a systemwide Accessibility denial produces, since a process that
+ * legitimately has no windows returns `[]` without throwing at all. The
+ * per-browser tab-URL swallow (`catch (e) {}` around `browser.windows()`) is
+ * left alone on purpose: it is gated per browser rather than systemwide, so
+ * one browser's Automation refusal does not mean the same as Accessibility
+ * being off, and the window titles for that same browser were already
+ * collected by the read above — throwing the whole collector away over a
+ * missing tab URL would discard evidence the poll already has for the sake of
+ * evidence it does not.
  */
 
 import type { WindowSignal } from "../../core/contract.ts";
@@ -64,13 +83,16 @@ export const WINDOW_SCRIPT = `
   const browsers = ${JSON.stringify(BROWSERS)};
   const out = [];
   const procs = se.processes.whose({ backgroundOnly: false })();
+  let titleAttempts = 0;
+  let titleRefusals = 0;
   for (const proc of procs) {
     let app;
     try { app = proc.name(); } catch (e) { continue; }
     let frontmost = false;
     try { frontmost = proc.frontmost(); } catch (e) {}
     let titles = [];
-    try { titles = proc.windows.name(); } catch (e) {}
+    titleAttempts += 1;
+    try { titles = proc.windows.name(); } catch (e) { titleRefusals += 1; }
     for (const title of titles) {
       if (title === null || title === undefined) continue;
       out.push({ app, title: String(title), focused: frontmost });
@@ -90,10 +112,22 @@ export const WINDOW_SCRIPT = `
       } catch (e) {}
     }
   }
-  JSON.stringify(out);
+  JSON.stringify({ windows: out, titleAttempts, titleRefusals });
 `;
 
-/** Parse and redact the script's output. Exported so the suite runs it on fixtures. */
+/**
+ * Parse and redact the script's output. Exported so the suite runs it on
+ * fixtures.
+ *
+ * **Throws when the poll found nothing and every title read that was
+ * attempted refused.** `titleAttempts` and `titleRefusals` come from the
+ * script's own per-process count, not from this function guessing at JXA's
+ * failure shape: a systemwide Accessibility denial fails every process's
+ * title read identically, while a process that legitimately has no windows
+ * returns `[]` without throwing. An empty `windows` list with at least one
+ * successful title read, or with nothing attempted at all, is left alone —
+ * both are "no evidence", not "evidence of a refusal".
+ */
 export function parseWindows(stdout: string): WindowSignal[] {
   let raw: unknown;
   try {
@@ -101,10 +135,21 @@ export function parseWindows(stdout: string): WindowSignal[] {
   } catch {
     throw new Error("window collector returned something that is not JSON");
   }
-  if (!Array.isArray(raw)) throw new Error("window collector returned the wrong shape");
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new Error("window collector returned the wrong shape");
+  }
+  const payload = raw as Record<string, unknown>;
+  const items = payload["windows"];
+  if (!Array.isArray(items)) throw new Error("window collector returned the wrong shape");
+
+  const titleAttempts = typeof payload["titleAttempts"] === "number" ? payload["titleAttempts"] : 0;
+  const titleRefusals = typeof payload["titleRefusals"] === "number" ? payload["titleRefusals"] : 0;
+  if (items.length === 0 && titleAttempts > 0 && titleRefusals === titleAttempts) {
+    throw new Error("window collector refused: accessibility access denied for every process");
+  }
 
   const windows: WindowSignal[] = [];
-  for (const item of raw) {
+  for (const item of items) {
     if (typeof item !== "object" || item === null) continue;
     const record = item as Record<string, unknown>;
     const app = typeof record["app"] === "string" ? record["app"] : "";
