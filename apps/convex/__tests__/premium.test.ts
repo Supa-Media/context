@@ -438,6 +438,22 @@ describe("what is read off an event, and what is not", () => {
     expect(Object.keys(facts ?? {})).not.toContain("workspaceId");
   });
 
+  test("a session's own words are not read as a subscription's", () => {
+    // `complete`/`open`/`expired` against `active`/`past_due`/`canceled`: two
+    // vocabularies about two objects. Reading one as the other mapped a paid
+    // checkout onto a status this build has never heard of, which is how a
+    // person who had just paid saw nothing happen. Caught by
+    // `billing.test.ts`; pinned here at the level it went wrong.
+    const facts = stripeEventFacts(checkoutCompleted);
+    expect(facts?.rawStatus).toBeUndefined();
+    expect(facts?.sessionStatus).toBe("complete");
+    expect(facts?.paymentStatus).toBe("paid");
+
+    const subscription = stripeEventFacts(subscriptionUpdated);
+    expect(subscription?.sessionStatus).toBeUndefined();
+    expect(subscription?.paymentStatus).toBeUndefined();
+  });
+
   test("a subscription event is its own object", () => {
     const facts = stripeEventFacts(subscriptionUpdated);
     expect(facts?.subscriptionId).toBe("sub_FAKE");

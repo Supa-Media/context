@@ -202,8 +202,20 @@ export interface StripeEventFacts {
    * an identifier that arrives from outside may veto, and may never select.
    */
   checkoutRef?: string;
-  /** Stripe's subscription status word, unmapped. */
+  /**
+   * Stripe's **subscription** status word, unmapped, and present only on a
+   * subscription event.
+   *
+   * Deliberately not filled in from a checkout session's own `status`, which
+   * is a different vocabulary about a different object — `complete`, `open`,
+   * `expired` — and reading one as the other is how a paid checkout gets
+   * mapped to a status this build has never heard of. That was written the
+   * wrong way round first and `billing.test.ts` caught it.
+   */
   rawStatus?: string;
+  /** A checkout session's own `status` and `payment_status`. */
+  sessionStatus?: string;
+  paymentStatus?: string;
   /** Seconds; the end of the period already paid for. */
   currentPeriodEndSeconds?: number;
   /** True where Stripe says the subscription stops at the period end. */
@@ -271,12 +283,13 @@ export function stripeEventFacts(body: unknown): StripeEventFacts | null {
   }
 
   const object = (body as { data?: { object?: unknown } }).data?.object;
+  const isSubscriptionEvent = type.startsWith("customer.subscription.");
 
   const customerId =
     stringAt(object, "customer") ?? stringAt(object, "customer", "id");
   const subscriptionId =
     // On a subscription event the object *is* the subscription.
-    (type.startsWith("customer.subscription.") ? stringAt(object, "id") : undefined) ??
+    (isSubscriptionEvent ? stringAt(object, "id") : undefined) ??
     stringAt(object, "subscription") ??
     stringAt(object, "subscription", "id");
 
@@ -287,13 +300,11 @@ export function stripeEventFacts(body: unknown): StripeEventFacts | null {
     customerId,
     subscriptionId,
     checkoutRef: stringAt(object, "client_reference_id"),
-    rawStatus:
-      stringAt(object, "status") ??
-      // A completed checkout session has no subscription status of its own.
-      // Treated as active only where the session actually completed and was
-      // paid: `status: "complete"` on the session object is read below by the
-      // caller, never here, so this stays a reader rather than a judge.
-      undefined,
+    rawStatus: isSubscriptionEvent ? stringAt(object, "status") : undefined,
+    sessionStatus: isSubscriptionEvent ? undefined : stringAt(object, "status"),
+    paymentStatus: isSubscriptionEvent
+      ? undefined
+      : stringAt(object, "payment_status"),
     currentPeriodEndSeconds: numberAt(object, "current_period_end"),
     cancelAtPeriodEnd:
       typeof (object as { cancel_at_period_end?: unknown } | undefined)

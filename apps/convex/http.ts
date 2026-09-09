@@ -1173,6 +1173,8 @@ export const stripeWebhook = stripeWebhookRoute(async (ctx, body) => {
       subscriptionId: facts.subscriptionId,
       checkoutRef: facts.checkoutRef,
       rawStatus: facts.rawStatus,
+      sessionStatus: facts.sessionStatus,
+      paymentStatus: facts.paymentStatus,
       currentPeriodEndSeconds: facts.currentPeriodEndSeconds,
       cancelAtPeriodEnd: facts.cancelAtPeriodEnd,
     });

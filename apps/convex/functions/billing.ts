@@ -520,6 +520,8 @@ export const applyStripeEvent = internalMutation({
     subscriptionId: v.optional(v.string()),
     checkoutRef: v.optional(v.string()),
     rawStatus: v.optional(v.string()),
+    sessionStatus: v.optional(v.string()),
+    paymentStatus: v.optional(v.string()),
     currentPeriodEndSeconds: v.optional(v.number()),
     cancelAtPeriodEnd: v.optional(v.boolean()),
   },
@@ -539,16 +541,32 @@ export const applyStripeEvent = internalMutation({
       return { applied: false, reason: "out_of_order" };
     }
 
-    const status: PlanStatus =
-      args.type === "customer.subscription.deleted"
-        ? "canceled"
-        : args.rawStatus !== undefined
-          ? planStatusFromStripe(args.rawStatus)
-          : // A completed checkout session has no subscription status of its
-            // own. It is only reached here because Stripe said the session
-            // completed, and the subscription events that follow correct it
-            // within seconds if it did not.
-            "active";
+    /*
+      A checkout session and a subscription have different vocabularies about
+      different objects — `complete`/`open`/`expired` against
+      `active`/`past_due`/`canceled` — and reading one as the other maps a paid
+      checkout to a status this build has never heard of. Written the wrong way
+      round first; `billing.test.ts` caught it.
+
+      So a session is judged on its own words: it turns the plan on only where
+      Stripe says it completed **and** was paid for. `no_payment_required` is a
+      100%-discount coupon or a trial and is as paid as it is going to get.
+      Anything else is left alone, and the subscription events that follow say
+      what actually happened.
+    */
+    let status: PlanStatus;
+    if (args.type === "customer.subscription.deleted") {
+      status = "canceled";
+    } else if (args.rawStatus !== undefined) {
+      status = planStatusFromStripe(args.rawStatus);
+    } else if (
+      args.sessionStatus === "complete" &&
+      (args.paymentStatus === "paid" || args.paymentStatus === "no_payment_required")
+    ) {
+      status = "active";
+    } else {
+      return { applied: false, reason: "not_paid" };
+    }
 
     await ctx.db.patch(plan._id, {
       status,
