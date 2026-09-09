@@ -2,6 +2,10 @@ import ActivityKit
 import SwiftUI
 import WidgetKit
 
+// v1 controls are authenticated deep links: tapping opens Context (and may
+// require unlock) before the app verifies the meeting id and acts; the widget
+// extension never controls the recorder cross-process.
+
 @available(iOSApplicationExtension 16.1, *)
 struct ContextMeetingLiveActivity: Widget {
   var body: some WidgetConfiguration {

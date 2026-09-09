@@ -73,6 +73,12 @@ function validateIpa(path, options = {}) {
   if (extension.CFBundleIdentifier !== EXTENSION_BUNDLE_ID || extension.NSExtension?.NSExtensionPointIdentifier !== "com.apple.widgetkit-extension") {
     throw new Error("ContextWidgets extension has the wrong bundle id or extension point");
   }
+  if (
+    extension.CFBundleVersion !== host.info.CFBundleVersion ||
+    extension.CFBundleShortVersionString !== host.info.CFBundleShortVersionString
+  ) {
+    throw new Error("ContextWidgets extension version must exactly match its host app");
+  }
   if (options.verifySignatures !== false) verifySignedPayload(path, appRoot);
   return { version: host.version, audio: host.audio, extension: EXTENSION_BUNDLE_ID };
 }

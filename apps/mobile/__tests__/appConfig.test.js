@@ -63,6 +63,11 @@ describe("app.config.js reads EAS_PROJECT_ID from the environment", () => {
     process.env.EAS_PROJECT_ID = "11111111-2222-3333-4444-555555555555";
     expect(() => require("../app.config.js")({ config: {} })).not.toThrow();
   });
+
+  test("preserves the build number resolved by EAS remote versioning", () => {
+    const config = require("../app.config.js")({ config: { ios: { buildNumber: "42" } } });
+    expect(config.ios.buildNumber).toBe("42");
+  });
 });
 
 /**

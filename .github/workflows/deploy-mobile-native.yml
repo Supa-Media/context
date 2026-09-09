@@ -109,7 +109,8 @@ permissions:
 jobs:
   build:
     name: Build ${{ inputs.platform }} (${{ inputs.profile }})
-    runs-on: ubuntu-latest
+    # IPA validation uses Apple's `codesign`, `security` and `plutil`.
+    runs-on: macos-latest
     environment: production
     env:
       # `eas build`/`eas submit` resolve the project locally (in this runner)

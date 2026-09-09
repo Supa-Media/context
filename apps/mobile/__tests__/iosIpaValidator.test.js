@@ -7,12 +7,14 @@ const { hasExactAppGroup, validateInfoPlistXml, validateIpa, validateZipEntries 
 
 const hostPlist = ({ bundle = "lc.context.mobile", audio = true, live = true } = {}) =>
   `<plist><dict><key>CFBundleShortVersionString</key><string>1.0.0</string>` +
+  `<key>CFBundleVersion</key><string>42</string>` +
   `<key>CFBundleIdentifier</key><string>${bundle}</string>` +
   `<key>UIBackgroundModes</key><array>${audio ? "<string>audio</string>" : ""}</array>` +
   `<key>NSSupportsLiveActivities</key><${live ? "true" : "false"}/></dict></plist>`;
 
-const extensionPlist = ({ bundle = "lc.context.mobile.widgets", point = "com.apple.widgetkit-extension" } = {}) =>
-  `<plist><dict><key>CFBundleIdentifier</key><string>${bundle}</string><key>NSExtension</key>` +
+const extensionPlist = ({ bundle = "lc.context.mobile.widgets", point = "com.apple.widgetkit-extension", build = "42", version = "1.0.0" } = {}) =>
+  `<plist><dict><key>CFBundleIdentifier</key><string>${bundle}</string>` +
+  `<key>CFBundleVersion</key><string>${build}</string><key>CFBundleShortVersionString</key><string>${version}</string><key>NSExtension</key>` +
   `<dict><key>NSExtensionPointIdentifier</key><string>${point}</string></dict></dict></plist>`;
 
 function ipaFixture(options = {}) {
@@ -49,6 +51,11 @@ describe("iOS Live Activity IPA validator", () => {
   ])("rejects an invalid widget contract", (extension, message) => {
     expect(() => validateIpa(ipaFixture({ extension }), { verifySignatures: false })).toThrow(message);
   });
+
+  test.each([{ build: "41" }, { version: "1.0.1" }])(
+    "rejects widget version drift %#",
+    (extension) => expect(() => validateIpa(ipaFixture({ extension }), { verifySignatures: false })).toThrow(/version must exactly match/),
+  );
 
   test("rejects missing and duplicate embedded widget extensions", () => {
     const missing = ipaFixture();

@@ -64,6 +64,8 @@ module.exports = ({ config }) => {
     userInterfaceStyle: "automatic",
     assetBundlePatterns: ["**/*"],
     ios: {
+      // Preserve the build number EAS remote versioning resolves.
+      ...(config.ios ?? {}),
       supportsTablet: true,
       bundleIdentifier:
         process.env.APP_ENV === "staging"
