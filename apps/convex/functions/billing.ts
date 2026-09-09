@@ -1,0 +1,628 @@
+/**
+ * Premium, in the control plane.
+ *
+ * What Premium *is* — the price, the ceiling, the two entitlements and the AND
+ * that decides what a context actually gets — is `lib/premium.ts`. What Stripe
+ * *sends* is `lib/stripe.ts`. This file is the surface: one query the settings
+ * screen reads, three mutations an **owner** calls, and the internal functions
+ * the webhook and the Stripe actions run through.
+ *
+ * ## The shape, and why it is not simpler
+ *
+ * Opening Stripe's hosted checkout needs the payment key. Only an action may
+ * open a credential, and `__tests__/structure.test.ts` refuses any public
+ * function whose call graph reaches `decryptSecret` — so a public action that
+ * returned a checkout URL would be exactly the violation that guard exists to
+ * catch. The way through is the one the connect flow already uses:
+ * **scheduling is not calling**. `startCheckout` writes a `billingSessions`
+ * row, schedules the minting action in `functions/billingStripe.ts`, and
+ * returns the row's id; the action mints the URL and patches the row; the
+ * console watches the row.
+ *
+ * (That sentence names the module rather than the function reference on
+ * purpose: `structure.test.ts` reads a module's unattributed text for
+ * `internal.…` references and attributes them to *every* export, so a fully
+ * qualified name in a header comment is a real call edge as far as the
+ * credential graph is concerned — and would taint this whole file with a
+ * decrypt it does not perform.)
+ *
+ * ## Owner-only, and why that is not the same as write access
+ *
+ * `requireWorkspaceRole(..., "owner")` on all three mutations. An editor may
+ * write every note in a context; committing somebody's card to $20 a month, or
+ * changing what the context is paying for, is a different authority — the same
+ * argument `fastSearch.ts` makes about deciding where a copy of the notes is
+ * kept.
+ *
+ * ## What this file may never grow
+ *
+ * A function that consults the plan to decide whether somebody may export,
+ * download, or hand over their bucket. The exit is free, identical on both
+ * plans, and works after a cancellation (non-negotiable #1). Cancelling makes
+ * a context read-only and exportable; it never deletes, and there is no
+ * deletion path here at all.
+ */
+
+import { ConvexError, v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
+import { internal } from "../_generated/api";
+import type { Doc, Id } from "../_generated/dataModel";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from "../_generated/server";
+import { recordAudit } from "./lib/audit";
+import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAuth";
+import {
+  MANAGED_STORAGE_CEILING_BYTES,
+  PREMIUM_CURRENCY,
+  PREMIUM_INTERVAL,
+  PREMIUM_PRICE_CENTS,
+  activeEntitlements,
+  hasAnyEntitlement,
+  planIsPaying,
+  planStatusFromStripe,
+  stripePriceId,
+  type Entitlements,
+  type PlanStatus,
+} from "./lib/premium";
+import { MANAGED_BUCKET_PREFIX } from "./lib/managedStorage";
+import { isHandledEventType, type StripeEventFacts } from "./lib/stripe";
+
+/** How long a minted checkout or portal URL stays usable from our side. */
+const SESSION_TTL_MS = 15 * 60 * 1000;
+
+async function requireUserId(ctx: QueryCtx): Promise<Id<"users">> {
+  const userId = await getAuthUserId(ctx);
+  if (userId === null) {
+    throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Sign in first." });
+  }
+  return userId;
+}
+
+async function planFor(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<Doc<"workspacePlans"> | null> {
+  return await ctx.db
+    .query("workspacePlans")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+}
+
+/** No row is the ordinary state: free, nothing selected, nobody paying. */
+function selectionOf(plan: Doc<"workspacePlans"> | null): Entitlements {
+  return {
+    managedStorage: plan?.managedStorage ?? false,
+    fastSearch: plan?.fastSearch ?? false,
+  };
+}
+
+function statusOf(plan: Doc<"workspacePlans"> | null): PlanStatus {
+  return plan?.status ?? "none";
+}
+
+/**
+ * Is this context's storage a bucket we run?
+ *
+ * Derived from the bucket's name rather than stored as a flag, because the
+ * name is already derived from the workspace id and cannot be anything else:
+ * `managedBucketName` is deterministic and total, so one comparison answers it
+ * with nothing to keep in sync. A flag would be a second copy of a fact, and
+ * the direction that copy drifts is a customer's own bucket being treated as
+ * ours.
+ *
+ * `bindStorage` refuses an endpoint addressing the managed account, so a
+ * customer cannot get a BYO binding that answers true here by naming their own
+ * bucket after a workspace id: the name alone would collide only inside our own
+ * account, which they cannot reach.
+ */
+function bindingIsManaged(
+  binding: Doc<"storageBindings"> | null,
+  workspaceId: Id<"workspaces">,
+): boolean {
+  if (binding === null) return false;
+  return binding.bucket === `${MANAGED_BUCKET_PREFIX}${String(workspaceId)}`;
+}
+
+const statusValidator = v.union(
+  v.literal("none"),
+  v.literal("active"),
+  v.literal("past_due"),
+  v.literal("canceled"),
+  v.literal("unknown"),
+);
+
+const entitlementsValidator = v.object({
+  managedStorage: v.boolean(),
+  fastSearch: v.boolean(),
+});
+
+/**
+ * What the Premium section draws.
+ *
+ * Readable by any member: knowing whether the context they are in is on a paid
+ * plan is not privileged, and a member who cannot see it would be told nothing
+ * about why fast search is or is not available to this context.
+ *
+ * **The money is owner-only.** `stripeCustomerId`, the renewal date and the
+ * note census are absent for anyone but an owner — the same gate, and the same
+ * reasoning, `fastSearch.status` applies to its backfill counters: a member may
+ * read only the `team` tier, so a total that includes private notes lets them
+ * derive how much they are not being shown.
+ *
+ * `configured` says whether this deployment sells anything at all. A
+ * self-hoster has no price id and no payment key, and must be told "this
+ * deployment does not offer Premium" rather than shown a button that fails.
+ */
+export const status = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({
+    status: statusValidator,
+    selected: entitlementsValidator,
+    active: entitlementsValidator,
+    canManage: v.boolean(),
+    configured: v.boolean(),
+    priceCents: v.number(),
+    currency: v.string(),
+    interval: v.string(),
+    ceilingBytes: v.number(),
+    /** Owner only. */
+    currentPeriodEnd: v.optional(v.number()),
+    cancelAtPeriodEnd: v.optional(v.boolean()),
+    hasStripeCustomer: v.optional(v.boolean()),
+    /**
+     * Owner only, and it is a note count rather than a byte figure because a
+     * byte figure is not measured anywhere yet — see the panel's copy, which
+     * says so rather than implying a meter exists.
+     */
+    notes: v.optional(v.number()),
+    notesTruncated: v.optional(v.boolean()),
+    notesCountedAt: v.optional(v.number()),
+    /** Whether this context's storage is a bucket we run. */
+    storageIsManaged: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const { membership } = await requireWorkspaceAccess(ctx, args.workspaceId, userId);
+    const isOwner = membership.role === "owner";
+
+    const plan = await planFor(ctx, args.workspaceId);
+    const planStatus = statusOf(plan);
+    const selected = selectionOf(plan);
+
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+
+    return {
+      status: planStatus,
+      selected,
+      active: activeEntitlements(selected, planStatus),
+      canManage: isOwner,
+      // Reading the env var, never the key: whether this deployment can sell
+      // is a configuration fact, and a public function may not reach the key
+      // that would make the answer complete. A deployment with a price id and
+      // no payment key fails at the checkout with our own sentence.
+      configured: stripePriceId() !== null,
+      priceCents: PREMIUM_PRICE_CENTS,
+      currency: PREMIUM_CURRENCY,
+      interval: PREMIUM_INTERVAL,
+      ceilingBytes: MANAGED_STORAGE_CEILING_BYTES,
+      currentPeriodEnd: isOwner ? plan?.currentPeriodEnd : undefined,
+      cancelAtPeriodEnd: isOwner ? plan?.cancelAtPeriodEnd : undefined,
+      // The id itself is never returned — only whether one exists, which is
+      // what decides whether "Manage billing" is drawn.
+      hasStripeCustomer: isOwner ? plan?.stripeCustomerId !== undefined : undefined,
+      notes: isOwner ? binding?.noteCount : undefined,
+      notesTruncated: isOwner ? binding?.noteCountTruncated : undefined,
+      notesCountedAt: isOwner ? binding?.noteCountedAt : undefined,
+      storageIsManaged: bindingIsManaged(binding, args.workspaceId),
+    };
+  },
+});
+
+/**
+ * Choose what this context is paying for.
+ *
+ * Stored whether or not anybody is paying, so the choice survives a lapse and
+ * resuming is a payment rather than a re-selection. It reaches Stripe on the
+ * next checkout and never on its own: turning a toggle here does not change a
+ * price, because there is only one.
+ *
+ * **Both off is refused while a subscription is live**, and the refusal names
+ * the alternative. Silently keeping a $20 subscription that entitles nothing
+ * is the worst of the three possible behaviours; cancelling on somebody's
+ * behalf because they moved a switch is the second worst. Cancelling is the
+ * portal's, deliberately — it is where the card and the invoices already are.
+ */
+export const setEntitlements = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    managedStorage: v.boolean(),
+    fastSearch: v.boolean(),
+  },
+  returns: v.object({ selected: entitlementsValidator }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
+
+    const selected: Entitlements = {
+      managedStorage: args.managedStorage,
+      fastSearch: args.fastSearch,
+    };
+    const plan = await planFor(ctx, args.workspaceId);
+    const planStatus = statusOf(plan);
+
+    if (!hasAnyEntitlement(selected) && planIsPaying(planStatus)) {
+      throw new ConvexError({
+        code: "ENTITLEMENTS_EMPTY",
+        message:
+          "A Premium context includes at least one of managed storage and fast search. " +
+          "To stop paying, cancel through Manage billing — your notes stay where they are.",
+      });
+    }
+
+    const now = Date.now();
+    if (plan === null) {
+      await ctx.db.insert("workspacePlans", {
+        workspaceId: args.workspaceId,
+        managedStorage: selected.managedStorage,
+        fastSearch: selected.fastSearch,
+        status: "none",
+        createdAt: now,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.patch(plan._id, {
+        managedStorage: selected.managedStorage,
+        fastSearch: selected.fastSearch,
+        updatedAt: now,
+      });
+    }
+
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: userId,
+      action: "billing.entitlements_set",
+      details: {
+        managedStorage: selected.managedStorage,
+        fastSearch: selected.fastSearch,
+      },
+    });
+
+    return { selected };
+  },
+});
+
+/**
+ * Ask for a Stripe Checkout URL.
+ *
+ * Returns the id of a row, not a URL — see the header. The row is the console's
+ * handle on an attempt it cannot otherwise watch, and the id is meaningless to
+ * anybody but its owner.
+ */
+export const startCheckout = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ sessionId: v.id("billingSessions") }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
+
+    const plan = await planFor(ctx, args.workspaceId);
+    if (!hasAnyEntitlement(selectionOf(plan))) {
+      throw new ConvexError({
+        code: "ENTITLEMENTS_EMPTY",
+        message: "Choose managed storage, fast search, or both before upgrading.",
+      });
+    }
+    if (planIsPaying(statusOf(plan))) {
+      throw new ConvexError({
+        code: "ALREADY_PREMIUM",
+        message: "This context is already on Premium.",
+      });
+    }
+
+    const sessionId = await openSession(ctx, {
+      workspaceId: args.workspaceId,
+      userId,
+      kind: "checkout",
+    });
+
+    await ctx.scheduler.runAfter(
+      0,
+      internal.functions.billingStripe.createCheckoutSession,
+      { sessionId },
+    );
+    return { sessionId };
+  },
+});
+
+/**
+ * Ask for a Stripe customer-portal URL.
+ *
+ * The payment UI deliberately leaves the app: the card, the invoices and the
+ * cancellation live at Stripe, and re-implementing any of them here would mean
+ * holding card data we have no business holding.
+ */
+export const startPortal = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ sessionId: v.id("billingSessions") }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
+
+    const plan = await planFor(ctx, args.workspaceId);
+    if (plan?.stripeCustomerId === undefined) {
+      throw new ConvexError({
+        code: "NO_CUSTOMER",
+        message: "There is nothing to manage yet for this context.",
+      });
+    }
+
+    const sessionId = await openSession(ctx, {
+      workspaceId: args.workspaceId,
+      userId,
+      kind: "portal",
+    });
+
+    await ctx.scheduler.runAfter(
+      0,
+      internal.functions.billingStripe.createPortalSession,
+      { sessionId },
+    );
+    return { sessionId };
+  },
+});
+
+async function openSession(
+  ctx: MutationCtx,
+  input: {
+    workspaceId: Id<"workspaces">;
+    userId: Id<"users">;
+    kind: "checkout" | "portal";
+  },
+): Promise<Id<"billingSessions">> {
+  const now = Date.now();
+  return await ctx.db.insert("billingSessions", {
+    workspaceId: input.workspaceId,
+    startedBy: input.userId,
+    kind: input.kind,
+    status: "pending",
+    expiresAt: now + SESSION_TTL_MS,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+/**
+ * Watch one attempt.
+ *
+ * **Readable only by the person who started it**, and not merely by an owner
+ * of the workspace: a Stripe checkout URL is a capability — anybody holding it
+ * can put a card against this context — so it goes back to the browser that
+ * asked and nowhere else. An expired row hands back no URL, whatever it holds.
+ */
+export const billingSession = query({
+  args: { sessionId: v.id("billingSessions") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      status: v.union(v.literal("pending"), v.literal("ready"), v.literal("failed")),
+      kind: v.union(v.literal("checkout"), v.literal("portal")),
+      url: v.optional(v.string()),
+      errorCode: v.optional(v.string()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const row = await ctx.db.get(args.sessionId);
+    // One answer for "no such row" and "not yours": a caller cannot act on the
+    // difference and an attacker could.
+    if (row === null || row.startedBy !== userId) return null;
+    const expired = row.expiresAt <= Date.now();
+    return {
+      status: row.status,
+      kind: row.kind,
+      url: expired ? undefined : row.url,
+      errorCode: row.errorCode,
+    };
+  },
+});
+
+/* ------------------------------------------------------------------------ *
+ * Internal — the webhook's and the Stripe actions' side.
+ * ------------------------------------------------------------------------ */
+
+/** The attempt an action is working on, plus what it needs to mint a URL. */
+export const sessionForAction = internalQuery({
+  args: { sessionId: v.id("billingSessions") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      workspaceId: v.id("workspaces"),
+      kind: v.union(v.literal("checkout"), v.literal("portal")),
+      status: v.union(v.literal("pending"), v.literal("ready"), v.literal("failed")),
+      stripeCustomerId: v.optional(v.string()),
+      selected: entitlementsValidator,
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.sessionId);
+    if (row === null) return null;
+    const plan = await planFor(ctx, row.workspaceId);
+    return {
+      workspaceId: row.workspaceId,
+      kind: row.kind,
+      status: row.status,
+      stripeCustomerId: plan?.stripeCustomerId,
+      selected: selectionOf(plan),
+    };
+  },
+});
+
+/** What the minting action learned: a URL, or our own reason it failed. */
+export const recordSessionResult = internalMutation({
+  args: {
+    sessionId: v.id("billingSessions"),
+    url: v.optional(v.string()),
+    errorCode: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.sessionId);
+    if (row === null) return null;
+    await ctx.db.patch(args.sessionId, {
+      status: args.url === undefined ? "failed" : "ready",
+      url: args.url,
+      errorCode: args.errorCode,
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+/**
+ * Apply one signed Stripe event.
+ *
+ * The route has already proved the body came from Stripe. What is left is the
+ * part a signature cannot help with: **which context does this event belong
+ * to, and is it still news?**
+ *
+ * ## The workspace is never read out of the event
+ *
+ * A completed checkout carries `client_reference_id`, which is the id of the
+ * `billingSessions` row *we* wrote when the owner pressed Upgrade. The
+ * workspace is read off that row. Every later event is matched by
+ * `stripeSubscriptionId`, which we stored from the checkout. So an identifier
+ * arriving from outside can only ever select a row we created — the same rule
+ * `expectedWorkspaceId` follows at the gateway, for the same reason.
+ *
+ * ## Delivery is at-least-once and out of order
+ *
+ * The same event id twice is a no-op. An event created before the last one
+ * applied is a no-op too: without that, a retried `subscription.updated` from
+ * before a cancellation quietly re-activates a cancelled plan. Equal
+ * timestamps are applied rather than dropped — Stripe stamps at second
+ * granularity and two real events routinely share one.
+ */
+export const applyStripeEvent = internalMutation({
+  args: {
+    id: v.string(),
+    type: v.string(),
+    createdSeconds: v.number(),
+    customerId: v.optional(v.string()),
+    subscriptionId: v.optional(v.string()),
+    checkoutRef: v.optional(v.string()),
+    rawStatus: v.optional(v.string()),
+    currentPeriodEndSeconds: v.optional(v.number()),
+    cancelAtPeriodEnd: v.optional(v.boolean()),
+  },
+  returns: v.object({ applied: v.boolean(), reason: v.string() }),
+  handler: async (ctx, args) => {
+    if (!isHandledEventType(args.type)) {
+      return { applied: false, reason: "unhandled_type" };
+    }
+
+    const plan = await resolvePlan(ctx, args);
+    if (plan === null) return { applied: false, reason: "no_context" };
+
+    if (plan.lastEventId === args.id) {
+      return { applied: false, reason: "already_applied" };
+    }
+    if (plan.lastEventAt !== undefined && args.createdSeconds < plan.lastEventAt) {
+      return { applied: false, reason: "out_of_order" };
+    }
+
+    const status: PlanStatus =
+      args.type === "customer.subscription.deleted"
+        ? "canceled"
+        : args.rawStatus !== undefined
+          ? planStatusFromStripe(args.rawStatus)
+          : // A completed checkout session has no subscription status of its
+            // own. It is only reached here because Stripe said the session
+            // completed, and the subscription events that follow correct it
+            // within seconds if it did not.
+            "active";
+
+    await ctx.db.patch(plan._id, {
+      status,
+      stripeCustomerId: args.customerId ?? plan.stripeCustomerId,
+      stripeSubscriptionId: args.subscriptionId ?? plan.stripeSubscriptionId,
+      currentPeriodEnd: args.currentPeriodEndSeconds ?? plan.currentPeriodEnd,
+      cancelAtPeriodEnd: args.cancelAtPeriodEnd ?? plan.cancelAtPeriodEnd,
+      lastEventId: args.id,
+      lastEventAt: args.createdSeconds,
+      updatedAt: Date.now(),
+    });
+
+    await recordAudit(ctx, {
+      workspaceId: plan.workspaceId,
+      // No actor: Stripe is not a person and not a member. The event type is
+      // the record of what happened, and the owner's own act is already
+      // audited by `setEntitlements` and `startCheckout`.
+      action: "billing.plan_updated",
+      details: { status, eventType: args.type },
+    });
+
+    return { applied: true, reason: status };
+  },
+});
+
+/**
+ * Which plan row this event is about, or `null`.
+ *
+ * Two ways in, in order of trust: our own checkout row, then a subscription id
+ * we stored ourselves. There is deliberately no third — no lookup by customer
+ * id, and none by anything in the event's `metadata`, because both would let a
+ * field written outside this codebase choose a row.
+ */
+async function resolvePlan(
+  ctx: MutationCtx,
+  facts: { checkoutRef?: string; subscriptionId?: string },
+): Promise<Doc<"workspacePlans"> | null> {
+  if (facts.checkoutRef !== undefined) {
+    const sessionId = ctx.db.normalizeId("billingSessions", facts.checkoutRef);
+    if (sessionId !== null) {
+      const session = await ctx.db.get(sessionId);
+      if (session !== null) {
+        const existing = await planFor(ctx, session.workspaceId);
+        if (existing !== null) return existing;
+        // A context that pressed Upgrade always has a row — `startCheckout`
+        // refuses an empty selection, and an empty selection is the only way
+        // to get here without one. Handled anyway rather than thrown: a
+        // webhook that raises on an unexpected shape is a webhook Stripe
+        // retries forever.
+        const now = Date.now();
+        const planId = await ctx.db.insert("workspacePlans", {
+          workspaceId: session.workspaceId,
+          managedStorage: false,
+          fastSearch: false,
+          status: "none",
+          createdAt: now,
+          updatedAt: now,
+        });
+        return await ctx.db.get(planId);
+      }
+    }
+  }
+
+  if (facts.subscriptionId !== undefined) {
+    return await ctx.db
+      .query("workspacePlans")
+      .withIndex("by_subscription", (q) =>
+        q.eq("stripeSubscriptionId", facts.subscriptionId),
+      )
+      .unique();
+  }
+
+  return null;
+}
+
+/** The shape `http.ts` hands to `applyStripeEvent`. Declared once, here. */
+export type StripeEventArgs = StripeEventFacts;

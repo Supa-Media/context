@@ -115,6 +115,12 @@ import {
   tokenHashField,
   unauthorized,
 } from "./functions/lib/gatewayAuth";
+import { STRIPE_WEBHOOK_SECRET_ENV_VAR } from "./functions/lib/premium";
+import {
+  STRIPE_SIGNATURE_HEADER,
+  stripeEventFacts,
+  stripeSignatureIsValid,
+} from "./functions/lib/stripe";
 
 const http = httpRouter();
 
@@ -189,6 +195,56 @@ function emailWorkerRoute(
     const body = await readJsonBody(request);
     if (body === null) {
       logIngest({ event: "bad_request", reason: "body_not_a_json_object" });
+      return badRequest();
+    }
+    return await handler(ctx, body);
+  });
+}
+
+/**
+ * The third door, and the only one whose key is a signature rather than a
+ * bearer secret.
+ *
+ * Stripe posts to this endpoint from an address nobody here controls, with no
+ * Authorization header, because that is how webhooks work — so the two
+ * factories above cannot be reused and this is not a shortcut around them. What
+ * replaces the bearer check is strictly more than one: the body carries an
+ * HMAC-SHA256 over `<timestamp>.<raw body>`, computed with a secret only Stripe
+ * and this deployment hold, and the timestamp is both *inside* the MAC and
+ * checked against the clock, so a captured delivery is not a standing key.
+ *
+ * `STRIPE_WEBHOOK_SECRET` is an environment variable and not an `appSecrets`
+ * row, deliberately: this check has to happen before anything in the request is
+ * trusted, and reading it out of the database would make this route the fourth
+ * HTTP route able to reach a decrypted credential — a list
+ * `__tests__/structure.test.ts` pins at three, each argued for. Same reasoning
+ * `RESERVED_SECRET_NAMES` gives about `GATEWAY_SECRET`, and it is in that
+ * refusal list for the same reason.
+ *
+ * **A deployment with no signing secret refuses every delivery.** Not "allows",
+ * which would be a free upgrade for anybody who can find this URL, and is
+ * exactly the shape of mistake that ships because it makes a staging
+ * environment work.
+ *
+ * The raw body is read once, verified, and only then parsed. Re-serialising a
+ * parsed object and hashing that verifies a different document from the one
+ * Stripe signed.
+ */
+function stripeWebhookRoute(
+  handler: (ctx: ActionCtx, body: unknown) => Promise<Response>,
+) {
+  return httpAction(async (ctx, request) => {
+    const payload = await request.text();
+    const signed = await stripeSignatureIsValid({
+      payload,
+      header: request.headers.get(STRIPE_SIGNATURE_HEADER),
+      secret: process.env[STRIPE_WEBHOOK_SECRET_ENV_VAR],
+    });
+    if (!signed) return unauthorized();
+    let body: unknown;
+    try {
+      body = JSON.parse(payload);
+    } catch {
       return badRequest();
     }
     return await handler(ctx, body);
@@ -1079,6 +1135,55 @@ export const shareNotePreview = httpAction(async (ctx, request) => {
 });
 
 http.route({ path: "/share/note", method: "POST", handler: shareNotePreview });
+
+/* -------------------------------------------------------------------------- */
+/* POST /stripe/webhook — a signed subscription event                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What Stripe tells us about a subscription.
+ *
+ * The signature is checked by the factory; everything here runs on a body that
+ * has been proved to come from Stripe. What is left is deliberately thin: read
+ * the handful of fields `stripeEventFacts` names and hand them to one internal
+ * mutation, which decides which context the event is about and whether it is
+ * still news.
+ *
+ * **It answers 200 to everything it understood, including work it chose not to
+ * do.** A type nobody handles, an event for a context that no longer exists, a
+ * redelivery of an event already applied — all 200, because a non-2xx tells
+ * Stripe to retry, and retrying will not change any of those answers. A 4xx is
+ * reserved for a body that is not an event at all, and a 5xx for our own
+ * failure, which is the one case a retry can fix.
+ *
+ * The response body says nothing about which context, which subscription, or
+ * whether anything changed. The caller is Stripe and does not need it, and this
+ * endpoint is reachable by anybody who can construct a signed request — which
+ * during a secret leak is more people than we would like.
+ */
+export const stripeWebhook = stripeWebhookRoute(async (ctx, body) => {
+  const facts = stripeEventFacts(body);
+  if (facts === null) return badRequest();
+  try {
+    await ctx.runMutation(internal.functions.billing.applyStripeEvent, {
+      id: facts.id,
+      type: facts.type,
+      createdSeconds: facts.createdSeconds,
+      customerId: facts.customerId,
+      subscriptionId: facts.subscriptionId,
+      checkoutRef: facts.checkoutRef,
+      rawStatus: facts.rawStatus,
+      currentPeriodEndSeconds: facts.currentPeriodEndSeconds,
+      cancelAtPeriodEnd: facts.cancelAtPeriodEnd,
+    });
+  } catch {
+    // Ours, so Stripe should retry. Nothing about the failure goes back.
+    return serverError();
+  }
+  return json({ received: true });
+});
+
+http.route({ path: "/stripe/webhook", method: "POST", handler: stripeWebhook });
 
 /**
  * `POST /gateway/usage` — the gateway telling the control plane that some
