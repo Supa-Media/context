@@ -75,6 +75,34 @@ export type GoogleSyncServices = {
   chat: boolean;
 };
 
+export type GoogleBackfillWindow = "90" | "365" | "all";
+
+export type GoogleBackfillDays = 90 | 365 | 36500;
+
+export function googleBackfillDays(window: GoogleBackfillWindow): GoogleBackfillDays {
+  switch (window) {
+    case "365":
+      return 365;
+    case "all":
+      return 36500;
+    case "90":
+      return 90;
+  }
+}
+
+export function googleBackfillWindowLabel(days: number): string {
+  switch (days) {
+    case 90:
+      return "90-day";
+    case 365:
+      return "1-year";
+    case 36500:
+      return "all-mail";
+    default:
+      return `${days}-day`;
+  }
+}
+
 export type GoogleStartState =
   | { kind: "idle" }
   | { kind: "starting" }

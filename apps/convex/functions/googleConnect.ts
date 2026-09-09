@@ -699,6 +699,31 @@ export const listGoogleConnections = query({
       syncStatus: v.string(),
       lastSyncStartedAt: v.optional(v.number()),
       lastSyncCompletedAt: v.optional(v.number()),
+      errorCode: v.optional(v.string()),
+      lastError: v.optional(v.string()),
+      gmail: v.optional(
+        v.object({
+          backfillDays: v.number(),
+          folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
+          destinationPath: v.string(),
+          historyCursorReady: v.boolean(),
+          lastSyncedAt: v.optional(v.number()),
+        }),
+      ),
+      calendar: v.optional(
+        v.object({
+          destinationPath: v.string(),
+          syncCursorReady: v.boolean(),
+          lastSyncedAt: v.optional(v.number()),
+        }),
+      ),
+      chat: v.optional(
+        v.object({
+          destinationPath: v.string(),
+          cursorCount: v.number(),
+          lastSyncedAt: v.optional(v.number()),
+        }),
+      ),
       disconnectedAt: v.optional(v.number()),
     }),
   ),
@@ -720,21 +745,49 @@ export const listGoogleConnections = query({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .collect();
     return rows.map((row) => {
+      const gmail = row.products.includes("gmail") ? row.gmail : undefined;
+      const calendar = row.products.includes("calendar") ? row.calendar : undefined;
+      const chat = row.products.includes("chat") ? row.chat : undefined;
       const lastSyncCompletedAt = Math.max(
-        row.gmail?.lastSyncedAt ?? 0,
-        row.calendar?.lastSyncedAt ?? 0,
-        row.chat?.lastSyncedAt ?? 0,
+        gmail?.lastSyncedAt ?? 0,
+        calendar?.lastSyncedAt ?? 0,
+        chat?.lastSyncedAt ?? 0,
       );
       return {
         connectionId: row._id,
         email: row.address,
         syncServices: {
-          gmail: row.products.includes("gmail") && row.gmail !== undefined,
-          calendar: row.products.includes("calendar") && row.calendar !== undefined,
-          chat: row.products.includes("chat") && row.chat !== undefined,
+          gmail: gmail !== undefined,
+          calendar: calendar !== undefined,
+          chat: chat !== undefined,
         },
         syncStatus: row.disconnectedAt !== undefined ? "disconnected" : row.health,
         lastSyncCompletedAt: lastSyncCompletedAt === 0 ? undefined : lastSyncCompletedAt,
+        errorCode: row.errorCode,
+        lastError: row.lastError,
+        gmail: gmail
+          ? {
+              backfillDays: gmail.backfillDays,
+              folders: gmail.folders,
+              destinationPath: `0-inbox/email/${gmail.mailboxSlug}/YYYY-MM-DD.md`,
+              historyCursorReady: gmail.historyId !== undefined,
+              lastSyncedAt: gmail.lastSyncedAt,
+            }
+          : undefined,
+        calendar: calendar
+          ? {
+              destinationPath: "0-inbox/calendar/YYYY-MM-DD.md",
+              syncCursorReady: calendar.syncToken !== undefined,
+              lastSyncedAt: calendar.lastSyncedAt,
+            }
+          : undefined,
+        chat: chat
+          ? {
+              destinationPath: "0-inbox/google-chat/YYYY-MM-DD.md",
+              cursorCount: Object.keys(chat.cursors ?? {}).length,
+              lastSyncedAt: chat.lastSyncedAt,
+            }
+          : undefined,
         disconnectedAt: row.disconnectedAt,
       };
     });

@@ -65,7 +65,7 @@ export function GoogleCallbackScreen() {
     callback.kind === "cancelled"
       ? "No account was added. Your context is unchanged."
       : status === "done"
-        ? "The account is saved and queued for sync. You can close this and check settings."
+        ? "Google accepted the connection. We are finishing the account setup in the background, then sync status will appear in settings."
         : status === "working"
           ? "The connection is finishing on our side."
           : "This Google connection expired, failed, or was opened in a different browser. Start it again from settings.";
