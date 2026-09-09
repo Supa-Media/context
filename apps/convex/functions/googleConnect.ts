@@ -55,6 +55,7 @@ import {
   internalMutation,
   internalQuery,
   mutation,
+  query,
 } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -74,6 +75,7 @@ import {
   revokeGoogleToken,
   scopesForProducts,
   GoogleOAuthError,
+  type GoogleProduct,
 } from "./lib/googleOAuth";
 // `chooseMailboxSlug` is the single implementation of "how a connected
 // mailbox's folder is named" (`docs/decisions/communications.md`, "An address
@@ -143,6 +145,7 @@ export const DEFAULT_ATTACHMENT_RETENTION_DAYS = 90;
 
 type AttachmentMode = "metadata-only" | "store";
 type AttachmentRetention = number | "forever";
+type GoogleSyncServices = { gmail: boolean; calendar: boolean; chat: boolean };
 
 // The four helpers below are exported for `calendarConnect.ts` (and Chat's
 // sibling module): one OAuth client id, one client secret, one "who is
@@ -231,6 +234,37 @@ function validateAttachmentRetentionDays(value: AttachmentRetention | undefined)
   return retention;
 }
 
+function validateGoogleSyncServices(value: GoogleSyncServices): GoogleProduct[] {
+  const products: GoogleProduct[] = [];
+  if (value.gmail) products.push("gmail");
+  if (value.calendar) products.push("calendar");
+  if (value.chat) products.push("chat");
+  if (products.length === 0) {
+    throw new ConvexError({
+      code: "GOOGLE_PRODUCTS_REQUIRED",
+      message: "Choose at least one Google service to sync.",
+    });
+  }
+  return products;
+}
+
+function requireGoogleProductsEnabled(products: readonly GoogleProduct[]): void {
+  if ((products.includes("gmail") || products.includes("chat")) && !mailConnectEnabled()) {
+    throw new ConvexError({
+      code: "MAIL_CONNECT_DISABLED",
+      message: "Connecting Google mail or chat is not enabled on this deployment.",
+    });
+  }
+  if (products.includes("calendar") && process.env.CALENDAR_CONNECT_ENABLED !== "true") {
+    throw new ConvexError({
+      code: "CALENDAR_CONNECT_DISABLED",
+      message: "Connecting Calendar is not enabled on this deployment.",
+    });
+  }
+}
+
+type GoogleConnectFlow = "gmail" | "calendar" | "chat" | "google";
+
 /**
  * Owner of the workspace, AND the workspace is a personal context. Both, in
  * one query, so a caller cannot connect a Google account into a shared
@@ -261,6 +295,9 @@ export const parkAttempt = internalMutation({
     workspaceId: v.id("workspaces"),
     startedBy: v.id("users"),
     redirectUri: v.string(),
+    flow: v.optional(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"), v.literal("google")),
+    ),
     products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
     backfillDays: v.number(),
     folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
@@ -283,6 +320,7 @@ export const parkAttempt = internalMutation({
       workspaceId: args.workspaceId,
       startedBy: args.startedBy,
       redirectUri: args.redirectUri,
+      flow: args.flow,
       products: args.products,
       backfillDays: args.backfillDays,
       folders: args.folders,
@@ -376,6 +414,7 @@ export const startGmailConnect = action({
       workspaceId: args.workspaceId,
       startedBy: userId,
       redirectUri: args.redirectUri,
+      flow: "gmail",
       products: ["gmail"],
       backfillDays,
       folders,
@@ -391,6 +430,93 @@ export const startGmailConnect = action({
         challenge,
         state,
         scopes: scopesForProducts(["gmail"]),
+      }),
+    };
+  },
+});
+
+/**
+ * Begin a product-aware Google connect from the console.
+ *
+ * The older public actions stay product-specific because they are useful for
+ * extending one product at a time. This action is the browser-facing "connect
+ * this Google account for Gmail, Calendar and/or Chat" path: one OAuth consent
+ * screen, one single-use Google code, then one callback that binds every
+ * product selected before leaving the app.
+ */
+export const startGoogleConnect = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    redirectUri: v.string(),
+    syncServices: v.object({ gmail: v.boolean(), calendar: v.boolean(), chat: v.boolean() }),
+    backfillDays: v.optional(v.number()),
+    folders: v.optional(v.array(v.union(v.literal("inbox"), v.literal("sent")))),
+    attachmentMode: v.optional(v.union(v.literal("metadata-only"), v.literal("store"))),
+    attachmentRetentionDays: v.optional(v.union(v.number(), v.literal("forever"))),
+  },
+  returns: v.object({ authorizeUrl: v.string(), completionSecret: v.string() }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ authorizeUrl: string; completionSecret: string }> => {
+    const products = validateGoogleSyncServices(args.syncServices);
+    requireGoogleProductsEnabled(products);
+    const userId = await requireActor(ctx);
+    const isPersonalOwner: boolean = await ctx.runQuery(
+      internal.functions.googleConnect.requirePersonalOwner,
+      { workspaceId: args.workspaceId, userId },
+    );
+    if (!isPersonalOwner) {
+      throw new ConvexError({
+        code: "NOT_PERSONAL_OWNER",
+        message: "Only the owner of your own personal context can connect a Google account to it.",
+      });
+    }
+
+    if (!googleRedirectAllowed(args.redirectUri)) {
+      throw new ConvexError({
+        code: "REDIRECT_URI_NOT_ALLOWED",
+        message: "That redirect URI is not one this deployment answers on.",
+      });
+    }
+
+    const backfillDays = validateBackfillDays(args.backfillDays);
+    const folders = validateFolders(args.folders);
+    const attachmentMode = validateAttachmentMode(args.attachmentMode);
+    const attachmentRetentionDays = validateAttachmentRetentionDays(args.attachmentRetentionDays);
+
+    const clientId = requireGoogleClientId();
+    const { verifier, challenge } = await createPkcePair();
+    const state = randomOpaqueToken(STATE_BYTES);
+    const completionSecret = randomOpaqueToken(STATE_BYTES);
+
+    const encryptedVerifier = await encryptSecret(verifier, requireKeyset(), {
+      workspaceId: args.workspaceId as string,
+    });
+
+    await ctx.runMutation(internal.functions.googleConnect.parkAttempt, {
+      hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(completionSecret),
+      encryptedVerifier,
+      workspaceId: args.workspaceId,
+      startedBy: userId,
+      redirectUri: args.redirectUri,
+      flow: "google",
+      products,
+      backfillDays,
+      folders,
+      attachmentMode,
+      attachmentRetentionDays,
+    });
+
+    return {
+      completionSecret,
+      authorizeUrl: googleAuthorizeUrl({
+        clientId,
+        redirectUri: args.redirectUri,
+        challenge,
+        state,
+        scopes: scopesForProducts(products),
       }),
     };
   },
@@ -429,6 +555,27 @@ export const completeGmailConnect = action({
     requireMailConnectEnabled();
     const consumed: { workspaceId: Id<"workspaces"> } | null = await ctx.runMutation(
       internal.functions.googleConnect.consumeAttemptAndExchange,
+      {
+        hashedState: await hashToken(args.state),
+        code: args.code,
+        hashedCompletion: await hashToken(args.completionSecret ?? ""),
+      },
+    );
+    if (consumed === null) refuseAttempt();
+    return consumed;
+  },
+});
+
+export const completeGoogleConnect = action({
+  args: {
+    state: v.string(),
+    code: v.string(),
+    completionSecret: v.optional(v.string()),
+  },
+  returns: v.object({ workspaceId: v.id("workspaces") }),
+  handler: async (ctx, args): Promise<{ workspaceId: Id<"workspaces"> }> => {
+    const consumed: { workspaceId: Id<"workspaces"> } | null = await ctx.runMutation(
+      internal.functions.googleConnect.consumeGoogleAttemptAndExchange,
       {
         hashedState: await hashToken(args.state),
         code: args.code,
@@ -486,6 +633,40 @@ export const consumeAttemptAndExchange = internalMutation({
   },
 });
 
+export const consumeGoogleAttemptAndExchange = internalMutation({
+  args: { hashedState: v.string(), code: v.string(), hashedCompletion: v.string() },
+  returns: v.union(v.null(), v.object({ workspaceId: v.id("workspaces") })),
+  handler: async (ctx, args) => {
+    const attempt = await ctx.db
+      .query("googleConnectAttempts")
+      .withIndex("by_hashed_state", (q) => q.eq("hashedState", args.hashedState))
+      .unique();
+    if (attempt === null) return null;
+
+    if ((attempt.flow as GoogleConnectFlow | undefined) !== "google") return null;
+    requireGoogleProductsEnabled(attempt.products as GoogleProduct[]);
+    await ctx.db.delete(attempt._id);
+    if (attempt.expiresAt < Date.now()) return null;
+    if (attempt.hashedCompletion !== args.hashedCompletion) return null;
+
+    await ctx.scheduler.runAfter(0, internal.functions.googleConnect.exchangeAndBindGoogle, {
+      workspaceId: attempt.workspaceId,
+      boundBy: attempt.startedBy,
+      encryptedVerifier: attempt.encryptedVerifier,
+      code: args.code,
+      redirectUri: attempt.redirectUri,
+      products: attempt.products,
+      backfillDays: attempt.backfillDays ?? BACKFILL_DAYS_DEFAULT,
+      folders: attempt.folders ?? (["inbox", "sent"] as const),
+      attachmentMode: attempt.attachmentMode ?? "store",
+      attachmentRetentionDays: attempt.attachmentRetentionForever
+        ? "forever"
+        : (attempt.attachmentRetentionDays ?? DEFAULT_ATTACHMENT_RETENTION_DAYS),
+    });
+    return { workspaceId: attempt.workspaceId };
+  },
+});
+
 /**
  * Every mailbox slug already used in this workspace, so a newly connected
  * one can be disambiguated at the moment it is chosen rather than colliding
@@ -505,6 +686,58 @@ export const listMailboxSlugs = internalQuery({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .collect();
     return rows.flatMap((row) => (row.gmail ? [row.gmail.mailboxSlug] : []));
+  },
+});
+
+export const listGoogleConnections = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.array(
+    v.object({
+      connectionId: v.id("googleConnections"),
+      email: v.string(),
+      syncServices: v.object({ gmail: v.boolean(), calendar: v.boolean(), chat: v.boolean() }),
+      syncStatus: v.string(),
+      lastSyncStartedAt: v.optional(v.number()),
+      lastSyncCompletedAt: v.optional(v.number()),
+      disconnectedAt: v.optional(v.number()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return [];
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (workspace === null || workspace.kind !== "personal") return [];
+    const membership = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace_user", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("userId", userId),
+      )
+      .unique();
+    if (membership?.role !== "owner") return [];
+
+    const rows = await ctx.db
+      .query("googleConnections")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    return rows.map((row) => {
+      const lastSyncCompletedAt = Math.max(
+        row.gmail?.lastSyncedAt ?? 0,
+        row.calendar?.lastSyncedAt ?? 0,
+        row.chat?.lastSyncedAt ?? 0,
+      );
+      return {
+        connectionId: row._id,
+        email: row.address,
+        syncServices: {
+          gmail: row.products.includes("gmail") && row.gmail !== undefined,
+          calendar: row.products.includes("calendar") && row.calendar !== undefined,
+          chat: row.products.includes("chat") && row.chat !== undefined,
+        },
+        syncStatus: row.disconnectedAt !== undefined ? "disconnected" : row.health,
+        lastSyncCompletedAt: lastSyncCompletedAt === 0 ? undefined : lastSyncCompletedAt,
+        disconnectedAt: row.disconnectedAt,
+      };
+    });
   },
 });
 
@@ -573,6 +806,102 @@ export const exchangeAndBind = internalAction({
       encryptedAccessToken: await encryptSecret(tokens.accessToken, keyset, context),
       accessTokenExpiresAt: tokens.expiresAt,
     });
+    return null;
+  },
+});
+
+export const exchangeAndBindGoogle = internalAction({
+  args: {
+    workspaceId: v.id("workspaces"),
+    boundBy: v.id("users"),
+    encryptedVerifier: v.string(),
+    code: v.string(),
+    redirectUri: v.string(),
+    products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+    backfillDays: v.number(),
+    folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
+    attachmentMode: v.union(v.literal("metadata-only"), v.literal("store")),
+    attachmentRetentionDays: v.union(v.number(), v.literal("forever")),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const clientId = requireGoogleClientId();
+    const clientSecret = readGoogleClientSecret();
+    const keyset = requireKeyset();
+    const context = { workspaceId: args.workspaceId as string };
+    const verifier = await decryptSecret(args.encryptedVerifier, keyset, context);
+
+    let tokens;
+    try {
+      tokens = await exchangeGoogleCode({
+        clientId,
+        clientSecret,
+        code: args.code,
+        verifier,
+        redirectUri: args.redirectUri,
+      });
+    } catch (error) {
+      await ctx.runMutation(internal.functions.googleConnect.recordConnectFailure, {
+        workspaceId: args.workspaceId,
+        errorCode: isGoogleReconnectRequired(error) ? "GOOGLE_CODE_EXPIRED" : "GOOGLE_EXCHANGE_FAILED",
+        message:
+          error instanceof GoogleOAuthError
+            ? error.message
+            : "Google did not complete the connection.",
+      });
+      return null;
+    }
+
+    const encryptedRefreshToken = await encryptSecret(tokens.refreshToken, keyset, context);
+    const encryptedAccessToken = await encryptSecret(tokens.accessToken, keyset, context);
+
+    if (args.products.includes("gmail")) {
+      const taken: string[] = await ctx.runQuery(internal.functions.googleConnect.listMailboxSlugs, {
+        workspaceId: args.workspaceId,
+      });
+      await ctx.runMutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+        workspaceId: args.workspaceId,
+        boundBy: args.boundBy,
+        address: tokens.address,
+        mailboxSlug: chooseMailboxSlug(tokens.address, taken),
+        googleAccountId: tokens.googleAccountId,
+        scopes: tokens.scopes,
+        backfillDays: args.backfillDays,
+        folders: args.folders,
+        attachmentMode: args.attachmentMode,
+        attachmentRetentionDays: args.attachmentRetentionDays,
+        encryptedRefreshToken,
+        encryptedAccessToken,
+        accessTokenExpiresAt: tokens.expiresAt,
+      });
+    }
+
+    if (args.products.includes("calendar")) {
+      await ctx.runMutation(internal.functions.calendarConnect.applyCalendarConnectionBinding, {
+        workspaceId: args.workspaceId,
+        boundBy: args.boundBy,
+        address: tokens.address,
+        googleAccountId: tokens.googleAccountId,
+        scopes: tokens.scopes,
+        encryptedRefreshToken,
+        encryptedAccessToken,
+        accessTokenExpiresAt: tokens.expiresAt,
+      });
+    }
+
+    if (args.products.includes("chat")) {
+      await ctx.runMutation(internal.functions.chatProduct.applyChatConnectionBinding, {
+        workspaceId: args.workspaceId,
+        boundBy: args.boundBy,
+        address: tokens.address,
+        googleAccountId: tokens.googleAccountId,
+        scopes: tokens.scopes,
+        encryptedRefreshToken,
+        encryptedAccessToken,
+        accessTokenExpiresAt: tokens.expiresAt,
+      });
+    }
+
     return null;
   },
 });

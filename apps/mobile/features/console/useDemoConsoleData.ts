@@ -216,6 +216,8 @@ export function useDemoConsoleData(): ConsoleData {
     // and Disconnect all act on a real credential, and a demo console must
     // never offer a control that pretends to act.
     storageActions: undefined,
+    googleConnections: [],
+    googleActions: undefined,
     endpoint: MCP_ENDPOINT,
     ingestionAddress: ingestionSettings?.address ?? `${selected?.slug ?? "you"}@context.lc`,
     ingestion: {

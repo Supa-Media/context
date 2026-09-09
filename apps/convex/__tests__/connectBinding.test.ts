@@ -137,6 +137,7 @@ describe("every third-party connect carries the browser binding", () => {
       "chatProduct.completeChatConnect",
       "dropboxConnect.completeDropboxConnect",
       "googleConnect.completeGmailConnect",
+      "googleConnect.completeGoogleConnect",
     ]);
     expect(attemptMutations.map((f) => f.where)).toEqual([
       "calendarConnect.consumeCalendarAttemptAndExchange",
@@ -146,6 +147,7 @@ describe("every third-party connect carries the browser binding", () => {
       "dropboxConnect.consumeAttemptAndExchange",
       "dropboxConnect.parkAttempt",
       "googleConnect.consumeAttemptAndExchange",
+      "googleConnect.consumeGoogleAttemptAndExchange",
       "googleConnect.parkAttempt",
     ]);
   });
@@ -294,6 +296,21 @@ const FLOWS: Flow[] = [
         redirectUri: `${APP}/mail/google/callback`,
       }),
     complete: (t, args) => t.action(api.functions.googleConnect.completeGmailConnect, args),
+  },
+  {
+    name: "google",
+    enable: () => {
+      vi.stubEnv("MAIL_CONNECT_ENABLED", "true");
+      vi.stubEnv("CALENDAR_CONNECT_ENABLED", "true");
+      vi.stubEnv("GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id.apps.googleusercontent.com");
+    },
+    start: (t, owner, workspaceId) =>
+      asUser(t, owner).action(api.functions.googleConnect.startGoogleConnect, {
+        workspaceId,
+        redirectUri: `${APP}/connect/google`,
+        syncServices: { gmail: true, calendar: true, chat: true },
+      }),
+    complete: (t, args) => t.action(api.functions.googleConnect.completeGoogleConnect, args),
   },
   {
     name: "calendar",

@@ -442,6 +442,7 @@ describe("every route is reachable, or says why not", () => {
       "/admin",
       "/authorize",
       "/connect/dropbox",
+      "/connect/google",
       "/e2e-fixture",
       "/invite/[token]",
       "/note/[...address]",

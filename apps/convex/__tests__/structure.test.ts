@@ -1061,17 +1061,17 @@ describe("no public function can reach a storage secret", () => {
       // invisible here and are not any more. See `unattributed` in `analyze`.
       "functions.fastSearchProvision.provisionIndex",
       "functions.fastSearchProvision.releaseIndex",
-      // THE GOOGLE CONNECT FLOW'S THREE, THE SAME SHAPE AS DROPBOX'S TWO PLUS
-      // ONE. See the `functions/googleConnect.ts` entry in `DECRYPT_IMPORTERS`
-      // for why a third OAuth-connect module exists rather than folding into
-      // one of the first two, and why the third function here — minting an
-      // access token for the sync job — has no Dropbox analogue at all: a
-      // Dropbox binding hands the gateway a cached access token straight off
-      // the row (`storage.ts`'s own `S3`/`Dropbox` credential path), while a
-      // Google connection is read-only *from the gateway's side* and
-      // refreshes through the control plane instead, so it needs a function
-      // of its own — reused for every product on the grant, not only Gmail.
+      // THE GOOGLE CONNECT FLOW'S FOUR, THE SAME SHAPE AS DROPBOX'S TWO PLUS
+      // product-specific and combined binders. See the `functions/googleConnect.ts`
+      // entry in `DECRYPT_IMPORTERS` for why OAuth-connect modules exist rather
+      // than folding into each other, and why minting an access token for the
+      // sync job has no Dropbox analogue at all: a Dropbox binding hands the
+      // gateway a cached access token straight off the row (`storage.ts`'s own
+      // `S3`/`Dropbox` credential path), while a Google connection is read-only
+      // *from the gateway's side* and refreshes through the control plane instead,
+      // so it needs a function of its own — reused for every product on the grant.
       "functions.googleConnect.exchangeAndBind",
+      "functions.googleConnect.exchangeAndBindGoogle",
       "functions.googleConnect.mintGoogleAccessToken",
       "functions.googleConnect.revokeGoogleGrant",
       // CHAT'S OWN CONNECT ROUND TRIP — the same PKCE-verifier decrypt

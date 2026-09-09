@@ -223,6 +223,9 @@ export const parkChatAttempt = internalMutation({
     workspaceId: v.id("workspaces"),
     startedBy: v.id("users"),
     redirectUri: v.string(),
+    flow: v.optional(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"), v.literal("google")),
+    ),
     products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
   },
   returns: v.null(),
@@ -249,6 +252,7 @@ export const parkChatAttempt = internalMutation({
       workspaceId: args.workspaceId,
       startedBy: args.startedBy,
       redirectUri: args.redirectUri,
+      flow: args.flow,
       products: args.products,
       expiresAt: now + ATTEMPT_TTL_MS,
       createdAt: now,
@@ -332,6 +336,7 @@ export const startChatConnect = action({
       workspaceId: args.workspaceId,
       startedBy: userId,
       redirectUri: args.redirectUri,
+      flow: "chat",
       products,
     });
 

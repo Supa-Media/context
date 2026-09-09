@@ -105,7 +105,7 @@ const { StyleSheet } = require("react-native") as {
   StyleSheet: { getSheet(): { textContent: string } };
 };
 const { useColors } = require("../features/design/theme") as typeof import("../features/design/theme");
-const { ShellTitleBand } = require("../features/app/ShellTitleBand.tsx") as typeof import("../features/app/ShellTitleBand.tsx");
+const { ShellTitleBand } = require("../features/app/ShellTitleBandView") as typeof import("../features/app/ShellTitleBandView");
 const LoginScreen = (
   require("../features/auth/LoginScreen") as { LoginScreen: () => unknown }
 ).LoginScreen;

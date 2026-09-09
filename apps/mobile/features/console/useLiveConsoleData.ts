@@ -37,6 +37,7 @@ import {
   type ConsoleStorage,
   type StorageActions,
 } from "./types";
+import type { GoogleConnection } from "./google/GoogleConnectionsCard";
 
 /**
  * The live console.
@@ -130,6 +131,15 @@ interface GrantSummary {
    */
   isMine: boolean;
   lastUsedAt?: number;
+}
+
+interface GoogleConnectionSummary {
+  connectionId: Id<"googleConnections">;
+  email: string;
+  syncServices: { gmail: boolean; calendar: boolean; chat: boolean };
+  syncStatus: string;
+  lastSyncStartedAt?: number;
+  lastSyncCompletedAt?: number;
 }
 
 /**
@@ -233,6 +243,10 @@ export function useLiveConsoleData(): ConsoleData {
         query: api.functions.storage.getStorageBinding,
         args: { workspaceId: workspace.workspaceId },
       };
+      spec[`google:${workspace.workspaceId}`] = {
+        query: api.functions.googleConnect.listGoogleConnections,
+        args: { workspaceId: workspace.workspaceId },
+      };
     }
     return spec;
   }, [workspaces]);
@@ -242,6 +256,9 @@ export function useLiveConsoleData(): ConsoleData {
   const bindStorage = useAction(api.functions.storage.bindStorage);
   const reverifyStorage = useMutation(api.functions.storage.reverifyStorage);
   const disconnectStorage = useMutation(api.functions.storage.disconnectStorage);
+  const disconnectGoogle = useMutation(
+    api.functions.googleConnect.disconnectGoogleConnection,
+  );
   const leaveWorkspace = useMutation(api.functions.workspaces.leaveWorkspace);
   const deleteAccountMutation = useMutation(api.functions.account.deleteAccount);
   // Not destructured: the context is undefined in test harnesses that
@@ -382,6 +399,21 @@ export function useLiveConsoleData(): ConsoleData {
         };
 
   const selected = contexts.find((c) => c.id === selectedContextId) ?? null;
+  const googleConnections: GoogleConnection[] =
+    selectedContextId === null
+      ? []
+      : (
+          usable<GoogleConnectionSummary[]>(
+            results[`google:${selectedContextId}`],
+          ) ?? []
+        ).map((connection) => ({
+          connectionId: connection.connectionId,
+          email: connection.email,
+          syncServices: connection.syncServices,
+          syncStatus: connection.syncStatus,
+          lastSyncStartedAt: connection.lastSyncStartedAt,
+          lastSyncCompletedAt: connection.lastSyncCompletedAt,
+        }));
 
   // Read access and write access are different grants (CLAUDE.md, "The
   // workspace model"), so a `member` gets a console with no Save button rather
@@ -554,6 +586,18 @@ export function useLiveConsoleData(): ConsoleData {
     clients,
     storage,
     storageActions,
+    googleConnections,
+    googleActions:
+      selectedContextId === null || !isOwner
+        ? undefined
+        : {
+            workspaceId: selectedContextId,
+            disconnect: (connectionId: string) =>
+              disconnectGoogle({
+                workspaceId: selectedContextId,
+                connectionId: connectionId as Id<"googleConnections">,
+              }),
+          },
     endpoint: MCP_ENDPOINT,
     ingestionAddress:
       ingestion.settings?.address ?? placeholderIngestionAddress(selected?.slug ?? "you"),
