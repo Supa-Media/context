@@ -225,7 +225,18 @@ export function premiumControl(view: PremiumView): PremiumControl {
 export interface EntitlementRow {
   value: "managedStorage" | "fastSearch";
   label: string;
-  hint: string;
+  /**
+   * The line under the label, and the field is called `detail` because that is
+   * what `ToggleOption` calls it.
+   *
+   * Named `hint` at first, which type-checked — `ToggleGroup` takes
+   * `ReadonlyArray<ToggleOption>` and an object with an extra property
+   * satisfies it — and silently dropped every one of these lines on the
+   * owner's screen, taking the 50 GB ceiling with it. Green suite, two words
+   * of copy where three sentences should have been, and visible only by
+   * looking at the rendered page.
+   */
+  detail: string;
   on: boolean;
 }
 
@@ -247,18 +258,43 @@ export function entitlementRows(status: PremiumStatus): EntitlementRow[] {
     {
       value: "managedStorage",
       label: "Managed storage",
-      hint: `A bucket we create and pay for, up to ${formatBytes(status.ceilingBytes)}. Yours to take away at any time.`,
+      detail: `A bucket we create and pay for, up to ${formatBytes(status.ceilingBytes)}. Yours to take away at any time.`,
       on: status.selected.managedStorage,
     },
     {
       value: "fastSearch",
       label: "Fast search",
-      hint:
+      detail:
         "An index of this context's notes, kept in a database we run, so search " +
         "answers in milliseconds. Your Markdown never moves.",
       on: status.selected.fastSearch,
     },
   ];
+}
+
+/**
+ * The line above the two tick boxes.
+ *
+ * It says the price does not move — the à-la-carte question people actually
+ * have. It grows a second sentence in exactly one situation, and that sentence
+ * exists because of something visible only on the rendered screen: on
+ * `past_due` and `canceled` the boxes are **ticked**, because they show what
+ * was chosen, while the card above says what Premium adds is off. Ticked and
+ * off, side by side, with nothing saying which is which. So the group says it.
+ */
+export function entitlementsHint(status: PremiumStatus): string {
+  const price = `Pick either or both — the price is ${formatPrice(status)} whichever you choose.`;
+  const chosenNotActive =
+    !planIsPayingStatus(status.status) &&
+    (status.selected.managedStorage || status.selected.fastSearch);
+  return chosenNotActive
+    ? `${price} What is ticked is what you have chosen; it turns on when the subscription is active.`
+    : price;
+}
+
+/** `planIsPaying` for the wire's own string, without importing the server's. */
+function planIsPayingStatus(raw: string): boolean {
+  return premiumStateOf(raw) === "premium";
 }
 
 /** "$20 a month" — the price, in the words on the row. */

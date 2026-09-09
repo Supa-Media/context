@@ -34,6 +34,7 @@ import {
   describePremium,
   describeSessionFailure,
   entitlementRows,
+  entitlementsHint,
   formatBytes,
   formatPrice,
   premiumControl,
@@ -235,9 +236,36 @@ describe("the two entitlements", () => {
 
   test("the ceiling is named on the row that has one", () => {
     const rows = entitlementRows(status());
-    expect(rows[0]!.hint).toContain("50 GB");
+    expect(rows[0]!.detail).toContain("50 GB");
     // Fast search has no storage ceiling and must not borrow one.
-    expect(rows[1]!.hint).not.toContain("50 GB");
+    expect(rows[1]!.detail).not.toContain("50 GB");
+  });
+
+  test("the price does not move, and the group says so", () => {
+    expect(entitlementsHint(status())).toContain("$20 a month whichever you choose");
+  });
+
+  test("a ticked box on a lapsed plan is labelled as a choice, not a state", () => {
+    /*
+      Only visible by rendering it: on `past_due` and `canceled` the boxes are
+      ticked, because they show what was chosen, while the card above says what
+      Premium adds is off. Ticked and off, side by side, with nothing saying
+      which is which.
+    */
+    for (const raw of ["past_due", "canceled"]) {
+      expect(
+        entitlementsHint(
+          status({ status: raw, selected: { managedStorage: true, fastSearch: false } }),
+        ),
+      ).toMatch(/turns on when the subscription is active/);
+    }
+    // Not said where it would be noise: nothing chosen, or already paying.
+    expect(entitlementsHint(status({ status: "past_due" }))).not.toMatch(/turns on/);
+    expect(
+      entitlementsHint(
+        status({ status: "active", selected: { managedStorage: true, fastSearch: true } }),
+      ),
+    ).not.toMatch(/turns on/);
   });
 
   test("the rows show what was chosen, not what is active", () => {

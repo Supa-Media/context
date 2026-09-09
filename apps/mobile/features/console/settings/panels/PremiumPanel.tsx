@@ -5,7 +5,7 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { Button } from "../../../design/components/Button";
 import { Card, Row } from "../../../design/components/Card";
 import { Dot } from "../../../design/components/Dot";
-import { Check, Hint } from "../../../design/components/Field";
+import { Hint } from "../../../design/components/Field";
 import { FormError, Notice, ToggleGroup } from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
@@ -19,6 +19,7 @@ import {
   describePremium,
   describeSessionFailure,
   entitlementRows,
+  entitlementsHint,
   formatPrice,
   premiumControl,
   premiumPill,
@@ -216,7 +217,9 @@ export function PremiumBody({
           </Row>
 
           {renewalLine(status) === null ? null : (
-            <Hint style={styles.hint}>{renewalLine(status)}</Hint>
+            <Hint style={styles.hint}>
+              <Text variant="rowSub">{renewalLine(status)}</Text>
+            </Hint>
           )}
           {usageLine(status) === null ? null : (
             <Notice style={styles.notice} testID="premium-usage">
@@ -238,9 +241,22 @@ export function PremiumBody({
               <Text variant="eyebrow">What Premium includes</Text>
               {entitlementRows(status).map((row) => (
                 <View key={row.value} style={styles.readOnlyRow}>
-                  <Check tone={row.on ? "ok" : "warn"}>{row.label}</Check>
+                  <View style={styles.readOnlyHead}>
+                    <Text variant="rowTitle">{row.label}</Text>
+                    {/*
+                      A pill saying which it is, rather than a tick-or-warning
+                      pair. The first drawing of this used `Check`, whose "off"
+                      tone is an exclamation mark — so a free context, which is
+                      most of them, was shown two warning glyphs for two things
+                      that are simply not switched on. Nothing is wrong on that
+                      screen and nothing should look as though it is.
+                    */}
+                    <Pill tone={row.on ? "ok" : "neutral"}>
+                      {row.on ? "Included" : "Not included"}
+                    </Pill>
+                  </View>
                   <Text variant="rowSub" style={styles.blurb}>
-                    {row.hint}
+                    {row.detail}
                   </Text>
                 </View>
               ))}
@@ -248,7 +264,7 @@ export function PremiumBody({
           ) : (
             <ToggleGroup
               label="What Premium includes"
-              hint={`Pick either or both — the price is ${formatPrice(status)} whichever you choose.`}
+              hint={entitlementsHint(status)}
               options={entitlementRows(status)}
               onToggle={toggle}
               disabled={working}
@@ -272,7 +288,9 @@ export function PremiumBody({
         <></>
       ) : control === "choose" ? (
         <Hint style={styles.hint}>
-          Tick managed storage, fast search, or both to continue.
+          <Text variant="rowSub">
+            Tick managed storage, fast search, or both to continue.
+          </Text>
         </Hint>
       ) : session?.status === "ready" && session.url !== undefined ? (
         <Row style={styles.actions}>
@@ -349,7 +367,13 @@ const makeStyles = (colors: Colors) =>
     },
     hint: { marginTop: 12 },
     notice: { marginTop: 12 },
-    readOnlyRow: { marginTop: 10 },
+    readOnlyRow: { marginTop: 14 },
+    readOnlyHead: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+    },
     actions: { marginTop: 12, gap: 8 },
     loadingRow: {
       flexDirection: "row",
