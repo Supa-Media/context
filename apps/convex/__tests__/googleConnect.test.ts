@@ -660,6 +660,79 @@ describe("the row shape: products and the nested gmail object", () => {
     expect(row?.gmail?.scopes).toEqual(["https://www.googleapis.com/auth/gmail.readonly"]);
   });
 
+  test("the owner-facing connection list includes observable sync details", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+
+    const [row] = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+      workspaceId,
+    });
+
+    expect(row).toMatchObject({
+      email: "person@example.invalid",
+      syncServices: { gmail: true, calendar: false, chat: false },
+      syncStatus: "backfilling",
+      gmail: {
+        backfillDays: 90,
+        folders: ["inbox", "sent"],
+        destinationPath: "0-inbox/email/person-at-example-invalid/YYYY-MM-DD.md",
+        historyCursorReady: false,
+      },
+    });
+    expect(row?.lastSyncCompletedAt).toBeUndefined();
+  });
+
+  test("the owner-facing connection list hides stale details for products no longer enabled", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({
+        scopes: [
+          "https://www.googleapis.com/auth/gmail.readonly",
+          "https://www.googleapis.com/auth/calendar.events.readonly",
+        ],
+      }),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+    await t.run(async (ctx) => {
+      const stored = await ctx.db
+        .query("googleConnections")
+        .withIndex("by_workspace_address", (q) =>
+          q.eq("workspaceId", workspaceId).eq("address", "person@example.invalid"),
+        )
+        .unique();
+      await ctx.db.patch(stored!._id, {
+        products: ["gmail"],
+        calendar: {
+          scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
+          syncToken: "stale-calendar-token",
+          lastSyncedAt: 42,
+        },
+      });
+    });
+
+    const [row] = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+      workspaceId,
+    });
+
+    expect(row?.syncServices).toEqual({ gmail: true, calendar: false, chat: false });
+    expect(row?.gmail).toBeDefined();
+    expect(row?.calendar).toBeUndefined();
+    expect(row?.lastSyncCompletedAt).toBeUndefined();
+  });
+
   /**
    * Sabotage: change `existing?.gmail?.mailboxSlug ?? args.mailboxSlug` to
    * `args.mailboxSlug ?? existing?.gmail?.mailboxSlug`. A folder name that

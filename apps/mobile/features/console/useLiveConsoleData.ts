@@ -140,6 +140,25 @@ interface GoogleConnectionSummary {
   syncStatus: string;
   lastSyncStartedAt?: number;
   lastSyncCompletedAt?: number;
+  errorCode?: string;
+  lastError?: string;
+  gmail?: {
+    backfillDays: number;
+    folders: Array<"inbox" | "sent">;
+    destinationPath: string;
+    historyCursorReady: boolean;
+    lastSyncedAt?: number;
+  };
+  calendar?: {
+    destinationPath: string;
+    syncCursorReady: boolean;
+    lastSyncedAt?: number;
+  };
+  chat?: {
+    destinationPath: string;
+    cursorCount: number;
+    lastSyncedAt?: number;
+  };
 }
 
 /**
@@ -413,6 +432,11 @@ export function useLiveConsoleData(): ConsoleData {
           syncStatus: connection.syncStatus,
           lastSyncStartedAt: connection.lastSyncStartedAt,
           lastSyncCompletedAt: connection.lastSyncCompletedAt,
+          errorCode: connection.errorCode,
+          lastError: connection.lastError,
+          gmail: connection.gmail,
+          calendar: connection.calendar,
+          chat: connection.chat,
         }));
 
   // Read access and write access are different grants (CLAUDE.md, "The
