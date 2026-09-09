@@ -24,6 +24,7 @@ import { GoogleConnectionsCard } from "../google/GoogleConnectionsCard";
 */
 import { ThisMachineCard } from "../../meetings/components/ThisMachineCard";
 import { FastSearchCard } from "../search/FastSearchCard";
+import { PremiumPanel } from "../settings/panels/PremiumPanel";
 import { MembersSection } from "../members/MembersSection";
 import { shareBackSuggestions } from "../members/members";
 import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
@@ -261,6 +262,8 @@ export function SettingsPane({
       </Card>
       </>
       ) : null}
+
+      {show("premium") ? <PremiumPanel data={data} section={section} /> : null}
 
       {show("people") ? (
       <>
