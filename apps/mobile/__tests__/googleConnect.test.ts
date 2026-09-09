@@ -1,5 +1,6 @@
 import { describe, expect, test } from "@jest/globals";
 import {
+  describeGoogleStartFailure,
   GOOGLE_CALLBACK_PATH,
   googleRedirectUri,
   isGoogleAuthorizeUrl,
@@ -8,6 +9,7 @@ import {
   stateFromGoogleAuthorizeUrl,
   takeGoogleCompletionSecret,
 } from "../features/console/google/google";
+import { ConvexError } from "convex/values";
 
 describe("Google connect helpers", () => {
   test("the callback path matches the registered web origins", () => {
@@ -53,6 +55,26 @@ describe("Google connect helpers", () => {
     expect(parseGoogleCallback({ code: "code" })).toEqual({ kind: "incomplete" });
     expect(parseGoogleCallback({ error: "access_denied", state: "state" })).toEqual({
       kind: "cancelled",
+    });
+  });
+
+  test("start failures keep deployment misconfiguration visible", () => {
+    expect(
+      describeGoogleStartFailure(
+        new ConvexError({
+          code: "MAIL_CONNECT_NOT_CONFIGURED",
+          message: "Google connect is not configured on this deployment.",
+        }),
+      ),
+    ).toEqual({
+      kind: "failed",
+      headline: "Google OAuth is not set up here",
+      message: "Google connect is not configured on this deployment.",
+    });
+    expect(describeGoogleStartFailure(new Error("network"))).toEqual({
+      kind: "failed",
+      headline: "Could not start Google",
+      message: "Google did not start the connection. Try again.",
     });
   });
 });

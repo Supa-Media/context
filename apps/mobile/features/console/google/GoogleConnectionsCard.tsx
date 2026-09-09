@@ -110,7 +110,7 @@ function GoogleConnectControls({ actions }: { actions: GoogleActions }) {
         </Text>
       ) : null}
       {google.state.kind === "failed" ? (
-        <FormError headline="Could not start Google" next={google.state.message} />
+        <FormError headline={google.state.headline} next={google.state.message} />
       ) : null}
     </View>
   );

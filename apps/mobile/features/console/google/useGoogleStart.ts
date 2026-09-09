@@ -4,6 +4,7 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import {
   browserOrigin,
+  describeGoogleStartFailure,
   googleRedirectUri,
   rememberGoogleCompletionSecret,
   stateFromGoogleAuthorizeUrl,
@@ -36,16 +37,14 @@ export function useGoogleStart(workspaceId: string | null): {
           if (oauthState === null || !rememberGoogleCompletionSecret(oauthState, completionSecret)) {
             setState({
               kind: "failed",
+              headline: "Could not start Google",
               message: "This browser could not keep the Google connection secret. Try again.",
             });
             return;
           }
           leaveForGoogle(authorizeUrl);
-        } catch {
-          setState({
-            kind: "failed",
-            message: "Google did not start the connection. Try again.",
-          });
+        } catch (error) {
+          setState(describeGoogleStartFailure(error));
         }
       })();
     },
