@@ -446,7 +446,7 @@ describe("the row shape: products and the nested calendar object", () => {
     expect(row?.gmail?.mailboxSlug).toBe("person-at-example-invalid");
   });
 
-  test("reconnecting Calendar keeps its own cursor across the reconnect", async () => {
+  test("reconnecting Calendar keeps its own cursor and destination across the reconnect", async () => {
     const { t, owner, workspaceId } = await personalScenario();
     await bindCalendar(t, workspaceId, owner);
     await t.run(async (ctx) => {
@@ -454,13 +454,20 @@ describe("the row shape: products and the nested calendar object", () => {
         .query("googleConnections")
         .withIndex("by_workspace_address", (q) => q.eq("workspaceId", workspaceId).eq("address", "person@example.invalid"))
         .unique();
-      await ctx.db.patch(row!._id, { calendar: { ...row!.calendar!, syncToken: "cal-token-abc" } });
+      await ctx.db.patch(row!._id, {
+        calendar: {
+          ...row!.calendar!,
+          syncToken: "cal-token-abc",
+          destinationFolder: "2-areas/communications/daily",
+        },
+      });
     });
 
     await bindCalendar(t, workspaceId, owner);
 
     const row = await connectionRow(t, workspaceId, "person@example.invalid");
     expect(row?.calendar?.syncToken).toBe("cal-token-abc");
+    expect(row?.calendar?.destinationFolder).toBe("2-areas/communications/daily");
   });
 
   test("reconnecting Calendar never touches Gmail's own settings, folder slug included", async () => {

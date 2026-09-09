@@ -107,6 +107,20 @@ export function mailConnectEnabled(env: Record<string, string | undefined> = pro
   return env[MAIL_CONNECT_ENABLED_ENV_VAR] === "true";
 }
 
+async function readCurrentGmailHistoryId(accessToken: string, scopes: string[]): Promise<string | undefined> {
+  if (grantedScopesFor("gmail", scopes).length === 0) return undefined;
+  try {
+    const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) return undefined;
+    const json = (await response.json()) as { historyId?: unknown };
+    return typeof json.historyId === "string" && json.historyId.length > 0 ? json.historyId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function requireMailConnectEnabled(): void {
   if (!mailConnectEnabled()) {
     throw new ConvexError({
@@ -120,7 +134,7 @@ function requireMailConnectEnabled(): void {
 export const MAIL_FOLDERS = ["inbox", "sent"] as const;
 export type MailFolder = (typeof MAIL_FOLDERS)[number];
 
-/** The two backfill presets the connect screen offers, plus "all mail" as a deliberate second action. */
+/** Legacy Gmail history windows kept for old rows; new message sync is forward-only. */
 export const BACKFILL_DAYS_DEFAULT = 90;
 const BACKFILL_DAYS_YEAR = 365;
 /** "All mail": no fixed window, capped generously so a corrupt value cannot mean "forever" literally. */
@@ -851,6 +865,8 @@ export const listGoogleConnections = query({
         .withIndex("by_connection_created", (q) => q.eq("connectionId", row._id))
         .order("desc")
         .first();
+      const visibleLatestRun =
+        latestRun?.errorCode === "GOOGLE_GMAIL_BACKFILL_DISABLED" ? null : latestRun;
       out.push({
         connectionId: row._id,
         email: row.address,
@@ -863,7 +879,8 @@ export const listGoogleConnections = query({
           row.disconnectedAt !== undefined
             ? "disconnected"
             : row.health === "backfilling" &&
-                (latestRun === null || (latestRun.status !== "queued" && latestRun.status !== "running"))
+                (visibleLatestRun === null ||
+                  (visibleLatestRun.status !== "queued" && visibleLatestRun.status !== "running"))
               ? "connected"
               : row.health,
         lastSyncCompletedAt: lastSyncCompletedAt === 0 ? undefined : lastSyncCompletedAt,
@@ -895,24 +912,24 @@ export const listGoogleConnections = query({
               lastSyncedAt: chat.lastSyncedAt,
             }
           : undefined,
-        syncRun: latestRun
+        syncRun: visibleLatestRun
           ? {
-              runId: latestRun._id,
-              mode: latestRun.mode,
-              services: latestRun.services,
-              status: latestRun.status,
-              requestedBackfillDays: latestRun.requestedBackfillDays,
-              totalUnits: latestRun.totalUnits,
-              completedUnits: latestRun.completedUnits,
-              itemsFound: latestRun.itemsFound,
-              daysWithMail: latestRun.daysWithMail,
-              bytesWritten: latestRun.bytesWritten,
-              currentService: latestRun.currentService,
-              currentUnit: latestRun.currentUnit,
-              startedAt: latestRun.startedAt,
-              completedAt: latestRun.completedAt,
-              errorCode: latestRun.errorCode,
-              lastError: latestRun.lastError,
+              runId: visibleLatestRun._id,
+              mode: visibleLatestRun.mode,
+              services: visibleLatestRun.services,
+              status: visibleLatestRun.status,
+              requestedBackfillDays: visibleLatestRun.requestedBackfillDays,
+              totalUnits: visibleLatestRun.totalUnits,
+              completedUnits: visibleLatestRun.completedUnits,
+              itemsFound: visibleLatestRun.itemsFound,
+              daysWithMail: visibleLatestRun.daysWithMail,
+              bytesWritten: visibleLatestRun.bytesWritten,
+              currentService: visibleLatestRun.currentService,
+              currentUnit: visibleLatestRun.currentUnit,
+              startedAt: visibleLatestRun.startedAt,
+              completedAt: visibleLatestRun.completedAt,
+              errorCode: visibleLatestRun.errorCode,
+              lastError: visibleLatestRun.lastError,
             }
           : undefined,
         disconnectedAt: row.disconnectedAt,
@@ -986,6 +1003,7 @@ export const exchangeAndBind = internalAction({
       encryptedRefreshToken: await encryptSecret(tokens.refreshToken, keyset, context),
       encryptedAccessToken: await encryptSecret(tokens.accessToken, keyset, context),
       accessTokenExpiresAt: tokens.expiresAt,
+      historyId: await readCurrentGmailHistoryId(tokens.accessToken, tokens.scopes),
     });
     return null;
   },
@@ -1054,6 +1072,7 @@ export const exchangeAndBindGoogle = internalAction({
         encryptedRefreshToken,
         encryptedAccessToken,
         accessTokenExpiresAt: tokens.expiresAt,
+        historyId: await readCurrentGmailHistoryId(tokens.accessToken, tokens.scopes),
       });
     }
 
@@ -1131,6 +1150,7 @@ export const applyGmailConnectionBinding = internalMutation({
     encryptedRefreshToken: v.string(),
     encryptedAccessToken: v.string(),
     accessTokenExpiresAt: v.number(),
+    historyId: v.optional(v.string()),
   },
   returns: v.id("googleConnections"),
   handler: async (ctx, args) => {
@@ -1164,6 +1184,7 @@ export const applyGmailConnectionBinding = internalMutation({
     // ever take a refusal from Google. Every name in the message is one of
     // this module's own literals, never a provider string.
     const starved = [...products].filter((product) => grantedScopesFor(product, args.scopes).length === 0);
+    const gmailHistoryId = existing?.gmail?.historyId ?? args.historyId;
 
     const fields = {
       workspaceId: args.workspaceId,
@@ -1191,7 +1212,7 @@ export const applyGmailConnectionBinding = internalMutation({
           existing?.gmail?.destinationFolder ??
           defaultGoogleDestinationFolder("gmail", existing?.gmail?.mailboxSlug ?? args.mailboxSlug),
         quotaBytes: existing?.gmail?.quotaBytes ?? DEFAULT_MAIL_QUOTA_BYTES,
-        historyId: existing?.gmail?.historyId,
+        historyId: gmailHistoryId,
         lastSyncedAt: existing?.gmail?.lastSyncedAt,
       },
       // EVERY product's scope slice is recomputed from the ONE verbatim grant
@@ -1225,7 +1246,9 @@ export const applyGmailConnectionBinding = internalMutation({
       chat: existing?.chat
         ? { ...existing.chat, scopes: grantedScopesFor("chat", args.scopes) }
         : undefined,
-      health: (starved.length ? "reconnect_required" : "backfilling") as "reconnect_required" | "backfilling",
+      health: (
+        starved.length ? "reconnect_required" : gmailHistoryId ? "active" : "backfilling"
+      ) as "reconnect_required" | "active" | "backfilling",
       lastError: starved.length
         ? `This Google account's authorization no longer covers ${starved.join(", ")}. Reconnect to restore it.`
         : undefined,
@@ -1432,91 +1455,55 @@ export const startGoogleSyncRun = mutation({
 
     const requested = validateGoogleSyncServices(args.services);
     requireGoogleProductsEnabled(requested);
-    if (!requested.includes("gmail") || requested.some((service) => service !== "gmail")) {
-      throw new ConvexError({
-        code: "GOOGLE_SYNC_SERVICE_NOT_READY",
-        message: "Gmail backfill can start now. Calendar and Chat sync controls are next.",
-      });
-    }
+    throw new ConvexError({
+      code: "GOOGLE_SYNC_FORWARD_ONLY",
+      message: "Google Mail, Calendar and Chat sync forward from their current cursors; historical backfill is disabled.",
+    });
+  },
+});
 
-    const connection = await ctx.db.get(args.connectionId);
+export const stopGoogleGmailBackfillRun = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    runId: v.id("googleSyncRuns"),
+    errorCode: v.string(),
+    message: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId);
     if (
-      connection === null ||
-      connection.workspaceId !== args.workspaceId ||
-      connection.disconnectedAt !== undefined ||
-      !connection.products.includes("gmail") ||
-      !connection.gmail
+      run === null ||
+      run.workspaceId !== args.workspaceId ||
+      run.mode !== "backfill" ||
+      !run.services.includes("gmail") ||
+      (run.status !== "queued" && run.status !== "running")
     ) {
-      throw new ConvexError({
-        code: "GOOGLE_CONNECTION_NOT_FOUND",
-        message: "That Google account is not connected to this context.",
-      });
+      return null;
     }
-    const backfillDays = validateBackfillDays(args.backfillDays ?? connection.gmail.backfillDays);
-    const storageBinding = await ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (storageBinding?.status !== "connected") {
-      const hasBinding = storageBinding !== null;
-      throw new ConvexError({
-        code: hasBinding ? "GOOGLE_SYNC_BUCKET_UNUSABLE" : "GOOGLE_SYNC_BUCKET_NOT_CONNECTED",
-        message: hasBinding
-          ? "Reconnect storage before starting a Gmail backfill."
-          : "Connect storage before starting a Gmail backfill.",
-      });
-    }
-
-    for (const status of ["queued", "running"] as const) {
-      const existing = await ctx.db
-        .query("googleSyncRuns")
-        .withIndex("by_connection_status", (q) =>
-          q.eq("connectionId", args.connectionId).eq("status", status),
-        )
-        .first();
-      if (existing !== null) return { runId: existing._id, status };
-    }
-
     const now = Date.now();
-    const destinationFolder =
-      connection.gmail.destinationFolder ??
-      defaultGoogleDestinationFolder("gmail", connection.gmail.mailboxSlug);
-    const runId = await ctx.db.insert("googleSyncRuns", {
-      workspaceId: args.workspaceId,
-      connectionId: args.connectionId,
-      requestedBy: userId,
-      mode: "backfill" as const,
-      services: ["gmail"] as GoogleSyncService[],
-      status: "queued" as const,
-      requestedBackfillDays: backfillDays,
-      totalUnits: backfillDays,
-      completedUnits: 0,
-      itemsFound: 0,
-      daysWithMail: 0,
-      bytesWritten: 0,
-      destinationFolder,
+    await ctx.db.patch(args.runId, {
+      status: "failed" as const,
       currentService: "gmail" as const,
-      createdAt: now,
+      completedAt: now,
+      lastError: args.message.slice(0, 240),
+      errorCode: args.errorCode,
       updatedAt: now,
     });
-    await ctx.db.patch(args.connectionId, {
-      health: "backfilling" as const,
-      lastError: undefined,
-      errorCode: undefined,
-      updatedAt: now,
-    });
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: userId,
-      action: "google_sync_started",
-      details: { connectionId: args.connectionId, service: "gmail", backfillDays },
-    });
-    await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope: "private" as const,
-      operation: { kind: "googleGmailBackfill" as const, runId },
-    });
-    return { runId, status: "queued" as const };
+    const connection = await ctx.db.get(run.connectionId);
+    if (
+      connection !== null &&
+      connection.workspaceId === args.workspaceId &&
+      connection.disconnectedAt === undefined
+    ) {
+      await ctx.db.patch(connection._id, {
+        health: connection.gmail?.historyId ? ("active" as const) : ("backfilling" as const),
+        lastError: undefined,
+        errorCode: undefined,
+        updatedAt: now,
+      });
+    }
+    return null;
   },
 });
 

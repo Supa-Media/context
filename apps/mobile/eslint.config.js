@@ -166,6 +166,6 @@ module.exports = [
   },
 
   {
-    ignores: ["metro.config.js", "babel.config.js"],
+    ignores: ["metro.config.js", "babel.config.js", "web-build/**"],
   },
 ];

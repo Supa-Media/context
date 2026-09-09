@@ -299,7 +299,6 @@ export function useLiveConsoleData(): ConsoleData {
   const disconnectGoogle = useMutation(
     api.functions.googleConnect.disconnectGoogleConnection,
   );
-  const startGoogleSyncRun = useMutation(api.functions.googleConnect.startGoogleSyncRun);
   const updateGoogleSyncDestination = useMutation(
     api.functions.googleConnect.updateGoogleSyncDestination,
   );
@@ -646,13 +645,6 @@ export function useLiveConsoleData(): ConsoleData {
               disconnectGoogle({
                 workspaceId: selectedContextId,
                 connectionId: connectionId as Id<"googleConnections">,
-              }),
-            startBackfill: (connectionId: string, backfillDays: number) =>
-              startGoogleSyncRun({
-                workspaceId: selectedContextId,
-                connectionId: connectionId as Id<"googleConnections">,
-                services: { gmail: true, calendar: false, chat: false },
-                backfillDays,
               }),
             saveDestination: (connectionId, service, destinationPath) =>
               updateGoogleSyncDestination({

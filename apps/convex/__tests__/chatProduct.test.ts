@@ -375,7 +375,7 @@ describe("the row shape: attaching chat to the shared googleConnections row", ()
     expect(row?.chat?.scopes.sort()).toEqual([CHAT_MESSAGES_SCOPE, CHAT_SPACES_SCOPE].sort());
   });
 
-  test("reconnecting preserves spaceSettings, cursors and the nonce seed", async () => {
+  test("reconnecting preserves spaceSettings, cursors, the destination, and the nonce seed", async () => {
     const { t, owner, workspaceId } = await personalScenario();
     const keyset = requireKeyset();
     const context = { workspaceId: workspaceId as string };
@@ -399,6 +399,7 @@ describe("the row shape: attaching chat to the shared googleConnections row", ()
           ...first!.chat!,
           spaceSettings: { "spaces/noisy": "excluded" },
           cursors: { "spaces/general": "2026-09-01T00:00:00Z" },
+          destinationFolder: "2-areas/communications/daily",
         },
       });
     });
@@ -420,6 +421,7 @@ describe("the row shape: attaching chat to the shared googleConnections row", ()
     );
     expect(row?.chat?.spaceSettings).toEqual({ "spaces/noisy": "excluded" });
     expect(row?.chat?.cursors).toEqual({ "spaces/general": "2026-09-01T00:00:00Z" });
+    expect(row?.chat?.destinationFolder).toBe("2-areas/communications/daily");
     // Sabotage: change `existing?.chat?.nonceSeed ?? generateNonceSeed()` to
     // regenerate unconditionally, and this assertion fails — every future
     // day's fence nonce for spaces already synced would silently change.

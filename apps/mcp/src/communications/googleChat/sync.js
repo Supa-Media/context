@@ -17,7 +17,7 @@
 import { planChannelDay } from "../../../../../packages/communications/src/note.js";
 import { fnv1a64 } from "../../../../../packages/communications/src/anchors.js";
 import { chatMessageToEvent, fallbackSpaceLabel, isHistoryOn, spaceDisplayName } from "./transform.js";
-import { DAY_MS, DEFAULT_BACKFILL_DAYS, REGEN_LOOKBACK_DAYS } from "./protocol.js";
+import { DAY_MS, REGEN_LOOKBACK_DAYS } from "./protocol.js";
 
 function calendarDate(iso) {
   const t = Date.parse(String(iso ?? ""));
@@ -91,9 +91,9 @@ async function readSpaceMessages({ listMessages, space, account, sinceMs }) {
  * (`packages/communications`, "the same message rendered twice gets the same
  * anchor").
  *
- * **Bounded.** A space with no cursor yet is read from `now - backfillDays`
- * forward, never earlier — `DEFAULT_BACKFILL_DAYS` unless the connection
- * says otherwise.
+ * **Forward-only.** A space with no cursor yet is baselined at `now`, so the
+ * first pass records where future sync should begin without importing old
+ * messages.
  *
  * **Resilient.** One space's failure (network, an unexpected error) is
  * recorded in `errors` and does not stop any other space's sync, nor does it
@@ -113,9 +113,7 @@ async function readSpaceMessages({ listMessages, space, account, sinceMs }) {
 export async function syncGoogleChat({ listSpaces, listMessages, connection, now = new Date().toISOString(), root }) {
   const account = String(connection?.account ?? "");
   const nonceSeed = String(connection?.nonceSeed ?? "");
-  const backfillDays = Number.isFinite(connection?.backfillDays) ? connection.backfillDays : DEFAULT_BACKFILL_DAYS;
   const nowMs = Date.parse(now);
-  const backfillFloorMs = nowMs - backfillDays * DAY_MS;
   const today = calendarDate(now);
 
   const spaces = [];
@@ -144,10 +142,10 @@ export async function syncGoogleChat({ listSpaces, listMessages, connection, now
     if (state !== "included") continue;
 
     const existingCursorMs = Date.parse(cursors[spaceName] ?? "");
-    const sinceMs = Math.max(
-      backfillFloorMs,
-      Number.isFinite(existingCursorMs) ? existingCursorMs - REGEN_LOOKBACK_DAYS * DAY_MS : backfillFloorMs
-    );
+    const hasCursor = Number.isFinite(existingCursorMs);
+    const sinceMs = hasCursor
+      ? existingCursorMs - REGEN_LOOKBACK_DAYS * DAY_MS
+      : nowMs;
     const historyOn = isHistoryOn(space);
 
     try {
@@ -160,7 +158,7 @@ export async function syncGoogleChat({ listSpaces, listMessages, connection, now
         if (!eventsByDay.has(date)) eventsByDay.set(date, []);
         eventsByDay.get(date).push(event);
       }
-      cursors[spaceName] = new Date(Math.max(latestMs, existingCursorMs || 0)).toISOString();
+      cursors[spaceName] = new Date(Math.max(latestMs, hasCursor ? existingCursorMs : nowMs)).toISOString();
       if (!historyOn) {
         unavailableToday.set(spaceName, { label: spaceDisplayName(space) || fallbackSpaceLabel(space), reason: "history-off" });
       }
