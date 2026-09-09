@@ -243,6 +243,7 @@ export async function runImessageSyncChecks(check) {
   ]);
   const r9 = await syncImessage(deps7, EMPTY_CURSOR);
   const dayPath = "0-inbox/imessage/2026-09-07.md";
+  const deletionNonce = existingNonce(deps7.notes.get(dayPath).content);
   check("both messages land in the day first", deps7.notes.get(dayPath).content.includes("the one that gets deleted"));
 
   // The Mac's own Messages app deleted it: the row is simply not there any
@@ -261,6 +262,12 @@ export async function runImessageSyncChecks(check) {
     deps7.notes.get(dayPath).content.includes("the one that gets deleted"),
   );
 
+  const r10b = await syncImessage(deps7, r9.cursor, { refreshDates: ["2026-09-07"] });
+  const afterRefreshDeletion = deps7.notes.get(dayPath).content;
+  check("a watcher-triggered refresh re-renders a deletion-only day", r10b.newRows === 0 && r10b.days[0].status === "written");
+  check("...so the deleted message is removed without waiting for another row", !afterRefreshDeletion.includes("the one that gets deleted"));
+  check("...and the deletion refresh keeps the day's original fence nonce", existingNonce(afterRefreshDeletion) === deletionNonce);
+
   // Now something else lands on that same day, and the whole day is re-derived.
   deps7.rows.push(messageRow({ rowid: "3", guid: "new-1", date_ns: NS_2026_09_07, text: "a later message" }));
   const r11 = await syncImessage(deps7, r10.cursor);
@@ -268,7 +275,7 @@ export async function runImessageSyncChecks(check) {
   check("the re-read day is REGENERATED, not appended to", r11.days[0].status === "written");
   check("...so the deleted message is gone from the note entirely", !afterDeletion.includes("the one that gets deleted"));
   check("...and the surviving messages are both still there", afterDeletion.includes("the one that stays") && afterDeletion.includes("a later message"));
-  check("...and the day kept its original fence nonce through the regeneration", existingNonce(afterDeletion) === existingNonce(deps7.notes.get(dayPath).content));
+  check("...and the day kept its original fence nonce through the regeneration", existingNonce(afterDeletion) === deletionNonce);
 
   // -- a row that arrives LATER but belongs to an EARLIER day ----------------
   //

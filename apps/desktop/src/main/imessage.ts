@@ -21,7 +21,7 @@ import type { DesktopSettings } from "../core/settings.ts";
 import type { GatewayConnection } from "../core/sync/connection.ts";
 import { gatewayBaseFrom } from "../core/sync/connection.ts";
 import { attemptChatDbRead, detectFullDiskAccess, type FullDiskAccessStatus } from "../core/imessage/permission.ts";
-import { defaultChatDbPath } from "../core/imessage/paths.ts";
+import { defaultChatDbPath, isAllowedChatDbPath } from "../core/imessage/paths.ts";
 import { queryChatDb } from "../core/imessage/sqlite.ts";
 import { readNote, writeNote } from "../core/imessage/gatewayNotes.ts";
 import { syncImessage, type ImessageSyncDeps } from "../core/imessage/sync.ts";
@@ -39,6 +39,8 @@ export interface ImessageCursorStore {
 export const IMESSAGE_SYNC_INTERVAL_MS = 5 * 60_000;
 /** How long to let SQLite's WAL writes settle before reading the database. */
 export const IMESSAGE_CHANGE_DEBOUNCE_MS = 2_000;
+/** Bounded deletion repair window for native watcher-triggered passes. */
+export const IMESSAGE_WATCH_REFRESH_DAYS = 14;
 
 export interface ImessageWatcher {
   close(): void;
@@ -82,6 +84,10 @@ export class ImessageSyncService {
   #watcher: ImessageWatcher | null = null;
   #changeTimer: ReturnType<typeof setTimeout> | null = null;
   #syncing: Promise<void> | null = null;
+  #armed = false;
+  #generation = 0;
+  #syncRequestedAgain = false;
+  #syncRequestedRefreshDates = new Set<string>();
 
   constructor(deps: ImessageSyncServiceDeps) {
     this.#deps = deps;
@@ -108,12 +114,19 @@ export class ImessageSyncService {
   }
 
   #arm(): void {
+    if (!this.#armed) {
+      this.#armed = true;
+      this.#generation += 1;
+    }
     if (this.#timer === null) {
       this.#timer = setInterval(() => void this.syncNow(), IMESSAGE_SYNC_INTERVAL_MS);
     }
     if (this.#watcher !== null) return;
     try {
-      this.#watcher = (this.#deps.observeChatDb ?? observeChatDb)(this.#chatDbPath(), () => this.#syncSoon());
+      const chatDbPath = this.#chatDbPath();
+      if (!isAllowedChatDbPath(chatDbPath)) return;
+      const generation = this.#generation;
+      this.#watcher = (this.#deps.observeChatDb ?? observeChatDb)(chatDbPath, () => this.#syncSoon(generation));
     } catch {
       // The foreground pass will classify the missing database or permission
       // state. A failed watcher must not turn the feature into "off".
@@ -121,6 +134,8 @@ export class ImessageSyncService {
   }
 
   #disarm(): void {
+    this.#armed = false;
+    this.#generation += 1;
     if (this.#timer !== null) {
       clearInterval(this.#timer);
       this.#timer = null;
@@ -133,12 +148,12 @@ export class ImessageSyncService {
     this.#watcher = null;
   }
 
-  #syncSoon(): void {
-    if (!this.#deps.settings().imessageEnabled) return;
+  #syncSoon(generation: number): void {
+    if (!this.#armed || !this.#isCurrent(generation)) return;
     if (this.#changeTimer !== null) clearTimeout(this.#changeTimer);
     this.#changeTimer = setTimeout(() => {
       this.#changeTimer = null;
-      void this.syncNow();
+      if (this.#armed && this.#isCurrent(generation)) void this.syncNow({ refreshDates: recentUtcDates(this.#now(), IMESSAGE_WATCH_REFRESH_DAYS) });
     }, this.#deps.changeDebounceMs ?? IMESSAGE_CHANGE_DEBOUNCE_MS);
   }
 
@@ -150,27 +165,56 @@ export class ImessageSyncService {
     return this.#deps.chatDbPath?.() ?? defaultChatDbPath();
   }
 
+  #now(): number {
+    return (this.#deps.now ?? (() => Date.now()))();
+  }
+
+  #isCurrent(generation: number): boolean {
+    return generation === this.#generation && this.#deps.settings().imessageEnabled;
+  }
+
+  #assertCurrent(generation: number): void {
+    if (!this.#isCurrent(generation)) throw new StaleImessageSync();
+  }
+
   /**
    * One attempt: check the permission, and if it holds, run one incremental
    * pass. Safe to call while a previous call is still in flight — the second
    * caller waits on the first rather than racing it, which is what a manual
    * "sync now" pressed while the timer also just fired needs.
    */
-  async syncNow(): Promise<void> {
-    if (this.#syncing !== null) return this.#syncing;
-    this.#syncing = this.#run().finally(() => {
+  async syncNow(options: { refreshDates?: readonly string[] } = {}): Promise<void> {
+    if (this.#syncing !== null) {
+      this.#syncRequestedAgain = true;
+      for (const date of options.refreshDates ?? []) this.#syncRequestedRefreshDates.add(date);
+      return this.#syncing;
+    }
+    const generation = this.#generation;
+    this.#syncing = this.#drain(generation, options).finally(() => {
       this.#syncing = null;
     });
     return this.#syncing;
   }
 
-  async #run(): Promise<void> {
-    if (!this.#deps.settings().imessageEnabled) return;
+  async #drain(generation: number, options: { refreshDates?: readonly string[] }): Promise<void> {
+    let nextOptions = options;
+    do {
+      this.#syncRequestedAgain = false;
+      this.#syncRequestedRefreshDates.clear();
+      await this.#run(generation, nextOptions);
+      nextOptions = { refreshDates: [...this.#syncRequestedRefreshDates].sort() };
+    } while (this.#syncRequestedAgain && this.#isCurrent(generation));
+  }
+
+  async #run(generation: number, options: { refreshDates?: readonly string[] }): Promise<void> {
+    if (!this.#isCurrent(generation)) return;
 
     const path = this.#chatDbPath();
     const permission: FullDiskAccessStatus = await detectFullDiskAccess(() => attemptChatDbRead(path));
+    if (!this.#isCurrent(generation)) return;
+    const previousPermission = this.#status.permission;
     this.#status = { ...this.#status, permission };
-    this.#emit();
+    if (previousPermission !== permission) this.#emit();
     if (permission !== "granted") return;
 
     const gatewayBaseUrl = this.#deps.connection.baseUrl();
@@ -188,15 +232,25 @@ export class ImessageSyncService {
     };
 
     const cursor = await this.#deps.store.readImessageCursor();
-    const now = this.#deps.now ?? (() => Date.now());
+    this.#assertCurrent(generation);
 
     const syncDeps: ImessageSyncDeps = {
       queryMessages: (window: MessageWindow) => queryChatDb(path, selectMessagesSql(window)) as ReturnType<ImessageSyncDeps["queryMessages"]>,
       queryAttachments: (window: MessageWindow) => queryChatDb(path, selectAttachmentsSql(window)) as ReturnType<ImessageSyncDeps["queryAttachments"]>,
       queryParticipants: () => queryChatDb(path, selectParticipantsSql()) as ReturnType<ImessageSyncDeps["queryParticipants"]>,
-      readNote: (notePath) => readNote(notesConfig, notePath),
-      writeNote: (notePath, content, expectedEtag) => writeNote(notesConfig, notePath, content, expectedEtag),
-      now: () => new Date(now()).toISOString(),
+      readNote: async (notePath) => {
+        this.#assertCurrent(generation);
+        const result = await readNote(notesConfig, notePath);
+        this.#assertCurrent(generation);
+        return result;
+      },
+      writeNote: async (notePath, content, expectedEtag) => {
+        this.#assertCurrent(generation);
+        const result = await writeNote(notesConfig, notePath, content, expectedEtag);
+        this.#assertCurrent(generation);
+        return result;
+      },
+      now: () => new Date(this.#now()).toISOString(),
       mintNonce: () => mintNonce(),
       // No `selfAddresses`: `chat.db` does not reliably carry which handle is
       // this Mac's own — see `docs/decisions/communications.md`. The only
@@ -205,15 +259,21 @@ export class ImessageSyncService {
     };
 
     try {
-      const report = await syncImessage(syncDeps, cursor);
+      const report = await syncImessage(syncDeps, cursor, { refreshDates: options.refreshDates });
+      this.#assertCurrent(generation);
       await this.#deps.store.writeImessageCursor(report.cursor);
-      const failed = report.days.find((day) => day.status === "error");
-      this.#status = {
-        ...this.#status,
-        lastSyncedAt: now(),
-        lastError: failed?.message ?? null,
-      };
+      this.#assertCurrent(generation);
+      if (report.newRows > 0 || report.days.some((day) => day.status === "written" || day.status === "error")) {
+        const failed = report.days.find((day) => day.status === "error");
+        this.#status = {
+          ...this.#status,
+          lastSyncedAt: this.#now(),
+          lastError: failed?.message ?? null,
+        };
+        this.#emit();
+      }
     } catch (error) {
+      if (error instanceof StaleImessageSync) return;
       // Never the raw error text: it can carry a fragment of a query or a
       // gateway response, and this sentence is the one thing that ever
       // reaches a screen. `sqlite.ts` and `gatewayNotes.ts` already redact
@@ -221,14 +281,16 @@ export class ImessageSyncService {
       // threw past them.
       this.#status = {
         ...this.#status,
-        lastSyncedAt: now(),
+        lastSyncedAt: this.#now(),
         lastError: "iMessage import could not complete a sync pass",
       };
       void error;
+      this.#emit();
     }
-    this.#emit();
   }
 }
+
+class StaleImessageSync extends Error {}
 
 /**
  * A fresh, unguessable fence nonce for a channel-day note that has never been
@@ -254,4 +316,15 @@ export function isChatDbChange(chatDbPath: string, changed: string | Buffer | nu
   const file = basename(chatDbPath);
   const name = changed === null ? "" : String(changed);
   return name === "" || name === file || name === `${file}-wal` || name === `${file}-shm`;
+}
+
+function recentUtcDates(now: number, days: number): string[] {
+  const dates: string[] = [];
+  const date = new Date(now);
+  date.setUTCHours(0, 0, 0, 0);
+  for (let index = 0; index < days; index += 1) {
+    dates.push(date.toISOString().slice(0, 10));
+    date.setUTCDate(date.getUTCDate() - 1);
+  }
+  return dates;
 }

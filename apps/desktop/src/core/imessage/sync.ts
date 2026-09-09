@@ -76,6 +76,15 @@ export interface SyncReport {
   days: DayOutcome[];
 }
 
+export interface ImessageSyncOptions {
+  /**
+   * Days to re-render even when no new ROWID landed. Used by the native
+   * watcher: deletions in Messages.app can change `chat.db` without creating a
+   * new message row, so the incremental cursor alone cannot discover them.
+   */
+  refreshDates?: readonly string[];
+}
+
 /** The exact line `renderChannelDayNote` writes for the fence's begin marker, with the nonce captured. */
 const FENCE_BEGIN = /<!-- context:untrusted-communication begin (\S+) -->/;
 
@@ -264,15 +273,15 @@ async function retireOrphanParts(
 }
 
 /** One incremental sync pass. See the header for the shape. */
-export async function syncImessage(deps: ImessageSyncDeps, cursor: ImessageCursor): Promise<SyncReport> {
+export async function syncImessage(deps: ImessageSyncDeps, cursor: ImessageCursor, options: ImessageSyncOptions = {}): Promise<SyncReport> {
   const newRowsWindow: MessageWindow = { kind: "since", afterRowId: cursor.lastRowId };
   const newRows = await deps.queryMessages(newRowsWindow);
+  const dates = [...new Set([...affectedDates(newRows), ...(options.refreshDates ?? [])])].sort();
 
-  if (!hasAnyRow(newRows)) {
+  if (!hasAnyRow(newRows) && dates.length === 0) {
     return { cursor, newRows: 0, days: [] };
   }
 
-  const dates = affectedDates(newRows);
   const participants = await deps.queryParticipants();
 
   const days: DayOutcome[] = [];

@@ -129,7 +129,15 @@ function fakeStore() {
  * A `fetch` that speaks just enough MCP to answer `read_note` and `write_note`,
  * recording every request body so a test can say what actually crossed.
  */
-function stubFetch({ failWrites = false } = {}) {
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function stubFetch({ beforeRequest = null, failWrites = false } = {}) {
   const requests = [];
   const notes = new Map();
   const impl = async (url, init) => {
@@ -137,6 +145,7 @@ function stubFetch({ failWrites = false } = {}) {
     requests.push(body);
     const name = body?.params?.name;
     const args = body?.params?.arguments ?? {};
+    await beforeRequest?.(name, args);
     const answer = (text, isError = false) =>
       new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { isError, content: [{ type: "text", text }] } }), {
         status: 200,
@@ -235,7 +244,6 @@ export async function runImessageServiceChecks(check, skip) {
     enabled = true;
     service.reconfigure();
     await service.syncNow();
-    service.stop();
     const wroteNote = offGateway.requests.find((request) => request?.params?.name === "write_note");
     check("turned on, the pass runs and a channel-day note is written", wroteNote !== undefined);
     check(
@@ -278,16 +286,96 @@ export async function runImessageServiceChecks(check, skip) {
     const changedPassRan = await waitUntil(() => offStore.written.at(-1)?.lastRowId === 2);
     check("A CHAT.DB CHANGE TRIGGERS AN IMMEDIATE SYNC PASS", changedPassRan && offGateway.requests.length > requestsAfterFirstPass);
     check("...and that pass advances the cursor through the new row", offStore.written.at(-1)?.lastRowId === 2);
+    const statusesAfterChangedPass = offStatuses.length;
+    observedChange();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    check("a watcher pass with nothing to write does not emit a realtime activity heartbeat", offStatuses.length === statusesAfterChangedPass);
 
     // -- TURNED BACK OFF: it stops --------------------------------------------
     enabled = false;
     service.reconfigure();
     const requestsAtOff = offGateway.requests.length;
     await service.syncNow();
+    observedChange();
+    await new Promise((resolve) => setTimeout(resolve, 20));
     check("TURNED BACK OFF, A SYNC DOES NOTHING — the toggle is read every pass, not once at launch", offGateway.requests.length === requestsAtOff);
+    check("...and a stale watcher callback captured before stop/disable cannot schedule another pass", offGateway.requests.length === requestsAtOff);
     check("...and the status says so", service.status().enabled === false);
     check("...and the Messages watcher was closed", watcherCloses === 1);
     service.stop();
+
+    // -- A CHANGE DURING AN ACTIVE PASS GETS ONE FOLLOW-UP PASS -------------
+    let replayEnabled = true;
+    let replayObservedChange = null;
+    let replayBlocked = false;
+    const replayGate = deferred();
+    const replayGateway = stubFetch({
+      beforeRequest: async (name) => {
+        if (name === "read_note" && !replayBlocked) {
+          replayBlocked = true;
+          await replayGate.promise;
+        }
+      },
+    });
+    globalThis.fetch = replayGateway.impl;
+    const replayStore = fakeStore();
+    service = new ImessageSyncService({
+      store: replayStore,
+      connection: fakeConnection(),
+      settings: () => ({ imessageEnabled: replayEnabled }),
+      onChange: () => {},
+      chatDbPath: () => dbPath,
+      changeDebounceMs: 0,
+      observeChatDb: (_path, onChange) => {
+        replayObservedChange = onChange;
+        return { close() {} };
+      },
+    });
+    service.reconfigure();
+    const replayPass = service.syncNow();
+    await waitUntil(() => replayBlocked);
+    execFileSync(SQLITE3_BINARY, [
+      dbPath,
+      `
+      INSERT INTO message (ROWID, guid, text, handle_id, date, is_from_me)
+        VALUES (3, 'msg-service-3', 'third message during an active sync', 1, 810432960000000000, 0);
+      INSERT INTO chat_message_join (chat_id, message_id) VALUES (1, 3);
+    `,
+    ]);
+    replayObservedChange();
+    replayGate.resolve();
+    await replayPass;
+    check("A CHAT.DB CHANGE DURING AN ACTIVE PASS GETS A FOLLOW-UP PASS", replayStore.written.at(-1)?.lastRowId === 3);
+    service.stop();
+
+    // -- TURNING OFF MID-PASS CANCELS WRITES AND CURSOR ADVANCE -------------
+    let cancelEnabled = true;
+    let cancelBlocked = false;
+    const cancelGate = deferred();
+    const cancelGateway = stubFetch({
+      beforeRequest: async (name) => {
+        if (name === "read_note" && !cancelBlocked) {
+          cancelBlocked = true;
+          await cancelGate.promise;
+        }
+      },
+    });
+    globalThis.fetch = cancelGateway.impl;
+    const cancelStore = fakeStore();
+    service = new ImessageSyncService({
+      store: cancelStore,
+      connection: fakeConnection(),
+      settings: () => ({ imessageEnabled: cancelEnabled }),
+      chatDbPath: () => dbPath,
+    });
+    const cancelPass = service.syncNow();
+    await waitUntil(() => cancelBlocked);
+    cancelEnabled = false;
+    service.reconfigure();
+    cancelGate.resolve();
+    await cancelPass;
+    check("TURNING OFF IMESSAGE IMPORT MID-PASS PREVENTS NOTE WRITES", !cancelGateway.requests.some((request) => request?.params?.name === "write_note"));
+    check("...and prevents cursor advance from the stale pass", cancelStore.written.length === 0);
 
     // -- A FAILING GATEWAY: lastError is set, and carries none of it ---------
     const failing = stubFetch({ failWrites: true });
@@ -363,18 +451,25 @@ export async function runImessageServiceChecks(check, skip) {
     const decoyGateway = stubFetch();
     globalThis.fetch = decoyGateway.impl;
     const decoyStore = fakeStore();
+    let decoyWatcherInstalled = false;
     service = new ImessageSyncService({
       store: decoyStore,
       connection: fakeConnection(),
       settings: () => ({ imessageEnabled: true }),
       chatDbPath: () => decoyDb,
+      observeChatDb: () => {
+        decoyWatcherInstalled = true;
+        return { close() {} };
+      },
     });
+    service.reconfigure();
     await service.syncNow();
     service.stop();
     check(
       "A `chatDbPath` NAMING A READABLE DATABASE OUTSIDE ~/Library/Messages READS NOTHING FROM IT",
       decoyGateway.requests.length === 0,
     );
+    check("...and reconfigure refuses to install a watcher on that outside path", decoyWatcherInstalled === false);
     check("...and says only that the pass could not complete, never which file or why", service.status().lastError === "iMessage import could not complete a sync pass");
     check("...and no cursor is written at all, so nothing about that file is remembered", decoyStore.written.length === 0);
   } finally {
