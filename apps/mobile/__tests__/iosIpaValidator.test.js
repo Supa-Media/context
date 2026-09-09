@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
-const { validateInfoPlistXml, validateIpa } = require("../../../scripts/validate-ios-ipa.cjs");
+const { validateInfoPlistXml, validateIpa, validateZipEntries } = require("../../../scripts/validate-ios-ipa.cjs");
 
 const plist = (version, modes) => `<plist><dict><key>CFBundleShortVersionString</key><string>${version}</string><key>UIBackgroundModes</key><array>${modes.map((mode) => `<string>${mode}</string>`).join("")}</array></dict></plist>`;
 
@@ -47,5 +47,22 @@ describe("iOS capable IPA validator", () => {
     const ipa = path.join(root, "multiple.ipa");
     execFileSync("zip", ["-q", "-r", ipa, "Payload"], { cwd: root });
     expect(() => validateIpa(ipa)).toThrow(/exactly one/);
+  });
+
+  test.each(["0.9.9", "1.0.0", "1.0.0.0", "1.evil", "", "1.2.3.4"]) ("rejects downgrade or malformed version %s", (version) => {
+    expect(() => validateInfoPlistXml(plist(version, ["audio"]))).toThrow();
+  });
+
+  test.each(["2.0.0", "10.1", "999999999999999999999999.2.3", "1.000000000000000000000000.1"]) ("accepts future numeric version %s", (version) => {
+    expect(validateInfoPlistXml(plist(version, ["audio"])).audio).toBe(true);
+  });
+
+  test.each([null, 1, ["1.0.1"]])("rejects non-string version %#", (version) => {
+    const value = `<plist><dict><key>CFBundleShortVersionString</key><${version === null ? "null" : "integer"}>${version ?? ""}</${version === null ? "null" : "integer"}></dict></plist>`;
+    expect(() => validateInfoPlistXml(value)).toThrow();
+  });
+
+  test.each(["Payload/../evil", "/Payload/Context.app/Info.plist", "Payload\\Context.app\\Info.plist", "Payload/./Context.app/Info.plist", "Payload/Context.app/Info\0.plist"]) ("rejects unsafe ZIP path %s", (entry) => {
+    expect(() => validateZipEntries([entry])).toThrow(/unsafe/);
   });
 });

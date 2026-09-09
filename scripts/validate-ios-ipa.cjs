@@ -32,13 +32,7 @@ function validateIpa(path) {
   } catch {
     throw new Error("IPA is not a valid ZIP archive");
   }
-  for (const entry of entries) {
-    if (entry.includes("\\") || entry.includes("\0") || entry.startsWith("/") || entry.split("/").includes("..") || entry.split("/").includes(".")) {
-      throw new Error("IPA contains an unsafe ZIP entry path");
-    }
-  }
-  const appRoots = new Set(entries.map((entry) => entry.match(/^Payload\/([^/]+\.app)(?:\/|$)/)?.[1]).filter(Boolean));
-  if (appRoots.size !== 1) throw new Error("IPA must contain exactly one top-level Payload app");
+  validateZipEntries(entries);
   const plistEntries = entries.filter((entry) => /^Payload\/[^/]+\.app\/Info\.plist$/.test(entry));
   if (plistEntries.length !== 1) throw new Error("IPA must contain exactly one Payload app Info.plist");
   const archive = require("node:fs").readFileSync(path);
@@ -69,9 +63,15 @@ function validateIpa(path) {
   return validateInfoPlistXml(xml);
 }
 
+function validateZipEntries(entries) {
+  for (const entry of entries) if (entry.includes("\\") || entry.includes("\0") || entry.startsWith("/") || entry.split("/").includes("..") || entry.split("/").includes(".")) throw new Error("IPA contains an unsafe ZIP entry path");
+  const appRoots = new Set(entries.map((entry) => entry.match(/^Payload\/([^/]+\.app)(?:\/|$)/)?.[1]).filter(Boolean));
+  if (appRoots.size !== 1) throw new Error("IPA must contain exactly one top-level Payload app");
+}
+
 if (require.main === module) {
   const result = validateIpa(process.argv[2]);
   console.log(`iOS IPA validated: CFBundleShortVersionString=${result.version}, UIBackgroundModes includes audio`);
 }
 
-module.exports = { validateInfoPlistXml, validateIpa };
+module.exports = { validateInfoPlistXml, validateIpa, validateZipEntries };

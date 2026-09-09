@@ -37,10 +37,10 @@ async function downloadArtifact(value, destination) {
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     let parsed;
     try { parsed = new URL(current); } catch { throw new Error("EAS artifact URL is invalid"); }
-    if (parsed.protocol !== "https:") throw new Error("EAS artifact URL must use HTTPS");
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password) throw new Error("EAS artifact URL must be HTTPS without credentials");
     if (seen.has(current)) throw new Error("EAS artifact redirect loop");
     seen.add(current);
-    response = await fetch(current, { redirect: "manual" });
+    try { response = await fetch(current, { redirect: "manual" }); } catch { throw new Error("EAS artifact download failed"); }
     if (![301, 302, 303, 307, 308].includes(response.status)) break;
     const location = response.headers.get("location");
     if (!location || hop === MAX_REDIRECTS) throw new Error("EAS artifact redirect limit exceeded");
