@@ -27,7 +27,8 @@ function validateIpa(path) {
   let entries;
   try {
     execFileSync("unzip", ["-t", path], { stdio: "ignore" });
-    entries = execFileSync("unzip", ["-Z1", path], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+    const listing = execFileSync("unzip", ["-Z1", path], { encoding: "utf8" }).trim();
+    entries = listing ? listing.split("\n") : [];
   } catch {
     throw new Error("IPA is not a valid ZIP archive");
   }
@@ -40,9 +41,26 @@ function validateIpa(path) {
   if (appRoots.size !== 1) throw new Error("IPA must contain exactly one top-level Payload app");
   const plistEntries = entries.filter((entry) => /^Payload\/[^/]+\.app\/Info\.plist$/.test(entry));
   if (plistEntries.length !== 1) throw new Error("IPA must contain exactly one Payload app Info.plist");
-  const listing = execFileSync("zipinfo", ["-l", path], { encoding: "utf8" });
-  const plistLine = listing.split("\n").find((line) => line.endsWith(` ${plistEntries[0]}`));
-  if (plistLine?.startsWith("l")) throw new Error("IPA Info.plist must be a regular file");
+  const archive = require("node:fs").readFileSync(path);
+  const eocd = archive.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  if (eocd < 0) throw new Error("IPA ZIP central directory is missing");
+  const count = archive.readUInt16LE(eocd + 10);
+  const centralOffset = archive.readUInt32LE(eocd + 16);
+  let cursor = centralOffset;
+  const records = [];
+  for (let i = 0; i < count; i++) {
+    if (archive.readUInt32LE(cursor) !== 0x02014b50) throw new Error("IPA ZIP central directory is malformed");
+    const nameLength = archive.readUInt16LE(cursor + 28);
+    const extraLength = archive.readUInt16LE(cursor + 30);
+    const commentLength = archive.readUInt16LE(cursor + 32);
+    const name = archive.subarray(cursor + 46, cursor + 46 + nameLength).toString("utf8");
+    const madeBy = archive.readUInt8(cursor + 5);
+    const mode = archive.readUInt32LE(cursor + 38) >>> 16;
+    records.push({ name, regular: madeBy === 0 ? (archive.readUInt8(cursor + 38) & 0x10) === 0 : (mode & 0xf000) === 0x8000 });
+    cursor += 46 + nameLength + extraLength + commentLength;
+  }
+  const plistRecord = records.filter((record) => record.name === plistEntries[0]);
+  if (plistRecord.length !== 1 || !plistRecord[0].regular) throw new Error("IPA Info.plist must be exactly one regular file");
   const binary = execFileSync("unzip", ["-p", path, plistEntries[0]]);
   const xml = execFileSync("plutil", ["-convert", "xml1", "-o", "-", "-"], {
     input: binary,
