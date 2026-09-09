@@ -238,7 +238,7 @@ index a0de043..e10de01 100644
    const body = await obj.arrayBuffer();
    if (destinationVisibility === "private") {
      await persistExactVisibility(store, dest, "private", rules);
-@@ -4274,6 +4337,13 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
+@@ -7279,6 +7342,13 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
      sourceVisibility === "private" || visibilityOf(destination, rules) === "private"
        ? "private"
        : "team";
@@ -250,8 +250,8 @@ index a0de043..e10de01 100644
 +    return toolError(FOLDED_TWIN_REFUSAL);
 +  }
    if (destinationVisibility === "private") {
-     await persistExactVisibility(store, destination, "private", rules);
-   }
+     try {
+       await persistExactVisibility(store, destination, "private", rules);
 @@ -4346,6 +4416,13 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
        sourceVisibility === "private" || destinationFolderVisibility === "private"
          ? "private"
@@ -266,20 +266,7 @@ index a0de043..e10de01 100644
      const fastArchiveCandidate =
        move.source.startsWith("4-archive/") &&
        move.destination.startsWith("4-archive/") &&
-@@ -4408,10 +4485,8 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
-         // can throw. The other order makes the one destination whose persist
-         // failed the one destination the rollback below cannot see — so the
-         // abort message says "aborted before deleting sources" over a copy that
--        // is still there. Only a CAS exhaustion reaches it — a folded-twin
--        // backstop briefly made it caller-reachable, and that backstop is not
--        // in this change. The ordering is kept anyway: it is correct either
--        // way, and it is what the refusals will need when they return.
-+        // is still there. Only a CAS exhaustion could reach that before the
-+        // folded-twin backstop existed; it is caller-reachable now.
-         copied.push(move.destination);
-       }
-       if (!fastArchiveRelocation && move.visibility === "team") {
-@@ -4520,6 +4595,19 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
+@@ -7728,6 +7803,19 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
    if (scope === "team" && moves.some(({ destination: path }) => hasOverride(overrides, path))) {
      return writePermissionError("folder move destination");
    }
@@ -296,9 +283,9 @@ index a0de043..e10de01 100644
 +    foldedTwinBlocks(move.destination, move.visibility, rules, overrides)
 +  );
 +  if (foldBlocked) return toolError(FOLDED_TWIN_REFUSAL);
-   for (const move of moves) {
-     if (await store.get(move.destination)) {
-       return toolError(`conflict: destination already exists: ${move.destination}`);
+   if (!dryRun) {
+     const unsafeMove = moveSafetyRefusal(store);
+     if (unsafeMove) return toolError(unsafeMove);
 diff --git a/apps/mcp/test/test.mjs b/apps/mcp/test/test.mjs
 index 0462cd7..68d473b 100644
 --- a/apps/mcp/test/test.mjs
