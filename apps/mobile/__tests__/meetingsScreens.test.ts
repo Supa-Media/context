@@ -438,20 +438,15 @@ describe("the live screen is a notepad with a recorder attached", () => {
     const warning =
       "Recording works while Context stays open, but locking your phone will stop the audio.";
     const originalStart = recorder.start.bind(recorder);
-    const originalOnError = recorder.onError.bind(recorder);
-    let startWarning: Parameters<Parameters<typeof recorder.onError>[0]>[0] | null = null;
     recorder.start = async (options) => {
       await originalStart(options);
-      startWarning = {
+      // The controller subscribes before start so it cannot miss a synchronous
+      // runtime downgrade reported while the native recorder is opening.
+      recorder.fail({
         recoverable: true,
         kind: "background-unavailable",
         message: warning,
-      };
-    };
-    recorder.onError = (listener) => {
-      const off = originalOnError(listener);
-      if (startWarning !== null) listener(startWarning);
-      return off;
+      });
     };
     await configure({ recorder });
     let id = "";
@@ -630,8 +625,14 @@ describe("the persistent bar", () => {
     const mounted = mount(createElement(RecordingBar));
 
     press(mounted.container, "recording-bar-pause");
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(meetings.getSnapshot().live?.session.state).toBe("paused");
     press(mounted.container, "recording-bar-pause");
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(meetings.getSnapshot().live?.session.state).toBe("recording");
     mounted.unmount();
   });
