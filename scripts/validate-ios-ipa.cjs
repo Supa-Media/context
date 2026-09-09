@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const { execFileSync } = require("node:child_process");
+const { Buffer } = require("node:buffer");
 const fs = require("node:fs");
 const os = require("node:os");
 const pathModule = require("node:path");
@@ -11,12 +12,7 @@ const EXTENSION_BUNDLE_ID = `${HOST_BUNDLE_ID}.widgets`;
 const APP_GROUP = `group.${HOST_BUNDLE_ID}`;
 
 function validateInfoPlistXml(xml) {
-  let info;
-  try {
-    info = plist.parse(xml);
-  } catch {
-    throw new Error("IPA Info.plist is malformed");
-  }
+  const info = parsePlistXml(xml, "IPA Info.plist is malformed");
   const version = info.CFBundleShortVersionString;
   const modes = info.UIBackgroundModes;
   const audio = Array.isArray(modes) && modes.includes("audio");
@@ -63,13 +59,11 @@ function validateIpa(path, options = {}) {
     const record = records.filter((candidate) => candidate.name === wanted);
     if (record.length !== 1 || !record[0].regular) throw new Error("IPA plist must be exactly one regular file");
   }
-  const readPlist = (entry) => {
-    const binary = execFileSync("unzip", ["-p", path, entry]);
-    const xml = execFileSync("plutil", ["-convert", "xml1", "-o", "-", "-"], { input: binary, encoding: "utf8" });
-    return plist.parse(xml);
-  };
   const host = validateInfoPlistXml(readPlistXml(path, plistEntries[0]));
-  const extension = readPlist(extensionPlists[0]);
+  const extension = parsePlistXml(
+    readPlistXml(path, extensionPlists[0]),
+    "ContextWidgets Info.plist is malformed",
+  );
   if (extension.CFBundleIdentifier !== EXTENSION_BUNDLE_ID || extension.NSExtension?.NSExtensionPointIdentifier !== "com.apple.widgetkit-extension") {
     throw new Error("ContextWidgets extension has the wrong bundle id or extension point");
   }
@@ -85,31 +79,62 @@ function validateIpa(path, options = {}) {
 
 function readPlistXml(archivePath, entry) {
   const binary = execFileSync("unzip", ["-p", archivePath, entry]);
-  return execFileSync("plutil", ["-convert", "xml1", "-o", "-", "-"], { input: binary, encoding: "utf8" });
+  const source = binary.toString("utf8").trimStart();
+  if (source.startsWith("<")) return source;
+  if (process.platform !== "darwin") {
+    throw new Error("binary IPA plist validation requires macOS");
+  }
+  try {
+    return execFileSync("plutil", ["-convert", "xml1", "-o", "-", "-"], {
+      input: binary,
+      encoding: "utf8",
+    });
+  } catch {
+    throw new Error("IPA plist could not be converted");
+  }
+}
+
+function parsePlistXml(xml, message) {
+  try {
+    return plist.parse(xml);
+  } catch {
+    throw new Error(message);
+  }
 }
 
 function verifySignedPayload(ipaPath, appRoot) {
+  if (process.platform !== "darwin") {
+    throw new Error("IPA signature validation requires macOS");
+  }
   const root = fs.mkdtempSync(pathModule.join(os.tmpdir(), "context-ipa-"));
   try {
     execFileSync("unzip", ["-q", ipaPath, "-d", root]);
     const app = pathModule.join(root, appRoot);
     const extension = pathModule.join(app, "PlugIns", "ContextWidgets.appex");
-    execFileSync("codesign", ["--verify", "--deep", "--strict", app], { stdio: "ignore" });
+    runAppleTool("codesign", ["--verify", "--deep", "--strict", app], { stdio: "ignore" });
     const signedGroups = [app, extension].map((target) => {
-      const xml = execFileSync("codesign", ["-d", "--entitlements", ":-", target], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-      const entitlements = plist.parse(xml);
+      const xml = runAppleTool("codesign", ["-d", "--entitlements", ":-", target], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      const entitlements = parsePlistXml(xml, "IPA signed entitlements are malformed");
       return entitlements["com.apple.security.application-groups"];
     });
     const provisionedGroups = [app, extension].map((target) => {
       const profile = pathModule.join(target, "embedded.mobileprovision");
-      const xml = execFileSync("security", ["cms", "-D", "-i", profile], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-      return plist.parse(xml).Entitlements?.["com.apple.security.application-groups"];
+      const xml = runAppleTool("security", ["cms", "-D", "-i", profile], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      return parsePlistXml(xml, "IPA provisioning profile is malformed").Entitlements?.["com.apple.security.application-groups"];
     });
     if (![...signedGroups, ...provisionedGroups].every(hasExactAppGroup)) {
       throw new Error("host and ContextWidgets signatures must share exactly the Context App Group");
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function runAppleTool(command, args, options) {
+  try {
+    return execFileSync(command, args, options);
+  } catch {
+    throw new Error("IPA code signature or provisioning profile is invalid");
   }
 }
 

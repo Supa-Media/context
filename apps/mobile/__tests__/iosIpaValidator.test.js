@@ -37,6 +37,11 @@ describe("iOS Live Activity IPA validator", () => {
     });
   });
 
+  test("keeps signature validation macOS-only without leaking child-process errors", () => {
+    if (process.platform === "darwin") return;
+    expect(() => validateIpa(ipaFixture())).toThrow("IPA signature validation requires macOS");
+  });
+
   test.each([
     [{ audio: false }, /background|audio/i],
     [{ live: false }, /Live Activity capable/i],

@@ -1,4 +1,5 @@
 const { describe, expect, test } = require("@jest/globals");
+const { Buffer } = require("node:buffer");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
