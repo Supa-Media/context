@@ -2,6 +2,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -9,13 +10,17 @@ import { useState } from "react";
 import { Overlay } from "../../design/components/Overlay";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
+
 import { layout, radii, space } from "../../design/tokens";
-import { useThemedStyles, type Colors } from "../../design/theme";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { SettingsPane, StatusPill } from "../panes/SettingsPane";
+import { AccountSection } from "./AccountSections";
 import { atName } from "../format";
 import type { AppSectionKey } from "../nav";
 import { selectedContext, type ConsoleData } from "../types";
 import {
+  isAccountSection,
+  matchSettingsSections,
   settingsSectionsFor,
   type SettingsSectionKey,
   type SettingsSectionSpec,
@@ -59,6 +64,7 @@ export function SettingsOverlay({
   onDismiss: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   const current = selectedContext(data);
   /*
     A phone shows the list, then the section, rather than both at once. It
@@ -68,6 +74,7 @@ export function SettingsOverlay({
   */
   const compact = useWindowDimensions().width < layout.narrowBreakpoint;
   const [listing, setListing] = useState(false);
+  const [query, setQuery] = useState("");
   const sections = settingsSectionsFor(
     current?.kind === "personal" || current?.kind === "shared" ? current.kind : null,
   );
@@ -78,10 +85,39 @@ export function SettingsOverlay({
     ? section
     : (sections[0]?.key ?? "storage");
 
-  let lastGroup: SettingsSectionSpec["group"] = null;
+  const shown = matchSettingsSections(sections, query);
+  let lastGroup: SettingsSectionSpec["group"] | undefined = undefined;
   const list = (
-    <ScrollView contentContainerStyle={styles.side} testID="settings-sections">
-      {sections.map((entry) => {
+    <View style={styles.sideWrap}>
+      {/*
+        The box is here because a list only works when our name for a thing is
+        the reader's. Somebody looking for Gmail does not know it is under
+        "Mail, calendar & chats", and somebody who wants to cancel does not
+        think "account" — so every section carries the words people actually
+        type, and this matches against those as well as the label.
+      */}
+      <TextInput
+        value={query}
+        onChangeText={setQuery}
+        placeholder="Search settings"
+        placeholderTextColor={colors.muted}
+        accessibilityLabel="Search settings"
+        style={styles.search}
+        testID="settings-search"
+        autoCorrect={false}
+        autoCapitalize="none"
+      />
+      <ScrollView
+        contentContainerStyle={styles.side}
+        keyboardShouldPersistTaps="handled"
+        testID="settings-sections"
+      >
+      {shown.length === 0 ? (
+        <Text variant="rowSub" style={styles.empty}>
+          {`Nothing matches “${query.trim()}”.`}
+        </Text>
+      ) : null}
+      {shown.map((entry) => {
         const heading = entry.group !== lastGroup ? entry.group : null;
         lastGroup = entry.group;
         const on = entry.key === active;
@@ -120,7 +156,8 @@ export function SettingsOverlay({
           </View>
         );
       })}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 
   const chosen = sections.find((entry) => entry.key === active);
@@ -132,12 +169,30 @@ export function SettingsOverlay({
   */
   const health = data.storage ? <StatusPill storage={data.storage} /> : null;
 
+  /*
+    An account section is about the person, so it carries neither the context
+    badge nor the binding's health — both would be naming a scope the section
+    is not in, which is the mistake `ConnectionsPane`'s own head comment
+    records about wearing a context chip on an app-level pane.
+  */
+  const account = isAccountSection(active);
+  const body = account ? (
+    <AccountSection section={active} data={data} />
+  ) : (
+    <SettingsPane
+      data={data}
+      onClose={onDismiss}
+      section={active}
+      onOpenSection={onOpenSection}
+    />
+  );
+
   if (compact) {
     return (
       <Overlay
         title={listing ? "Settings" : (chosen?.label ?? "Settings")}
-        badge={current ? <Pill tone="neutral">{atName(current.slug)}</Pill> : null}
-        trailing={listing ? null : health}
+        badge={account || !current ? null : <Pill tone="neutral">{atName(current.slug)}</Pill>}
+        trailing={listing || account ? null : health}
         closeLabel="Close settings"
         onBack={listing ? undefined : () => setListing(true)}
         onDismiss={onDismiss}
@@ -146,13 +201,11 @@ export function SettingsOverlay({
         {listing ? (
           list
         ) : (
-          <ScrollView contentContainerStyle={styles.body}>
-            <SettingsPane
-              data={data}
-              onClose={onDismiss}
-              section={active}
-              onOpenSection={onOpenSection}
-            />
+          <ScrollView
+            contentContainerStyle={styles.body}
+            keyboardShouldPersistTaps="handled"
+          >
+            {body}
           </ScrollView>
         )}
       </Overlay>
@@ -162,20 +215,15 @@ export function SettingsOverlay({
   return (
     <Overlay
       title="Settings"
-      badge={current ? <Pill tone="neutral">{atName(current.slug)}</Pill> : null}
-      trailing={health}
+      badge={account || !current ? null : <Pill tone="neutral">{atName(current.slug)}</Pill>}
+      trailing={account ? null : health}
       closeLabel="Close settings"
       sidebar={list}
       onDismiss={onDismiss}
       testID="settings-overlay"
     >
-      <ScrollView contentContainerStyle={styles.body}>
-        <SettingsPane
-          data={data}
-          onClose={onDismiss}
-          section={active}
-          onOpenSection={onOpenSection}
-        />
+      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+        {body}
       </ScrollView>
     </Overlay>
   );
@@ -183,7 +231,21 @@ export function SettingsOverlay({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    side: { paddingVertical: space.x4, paddingHorizontal: space.x3 },
+    sideWrap: { flex: 1, minHeight: 0 },
+    search: {
+      margin: space.x3,
+      marginBottom: space.x2,
+      minHeight: layout.minTouchTarget,
+      paddingHorizontal: space.x3,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: colors.line,
+      backgroundColor: colors.well,
+      color: colors.text,
+      fontSize: 13,
+    },
+    side: { paddingBottom: space.x4, paddingHorizontal: space.x3 },
+    empty: { paddingHorizontal: space.x2, paddingVertical: space.x3 },
     group: { marginTop: space.x4, marginBottom: space.x2, paddingHorizontal: space.x2 },
     row: {
       paddingVertical: 7,

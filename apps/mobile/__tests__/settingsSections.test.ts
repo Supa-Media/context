@@ -21,6 +21,8 @@ import { describe, expect, test } from "@jest/globals";
 import {
   DEFAULT_SETTINGS_SECTION,
   isSettingsSection,
+  isAccountSection,
+  matchSettingsSections,
   settingsSectionsFor,
   SETTINGS_SECTIONS,
 } from "../features/console/settings/sections";
@@ -55,9 +57,13 @@ describe("the order and the grouping", () => {
     for (const section of SETTINGS_SECTIONS) {
       // `null` is the ungrouped head of the list — Overview, which answers
       // "which context is this" before any of the three questions below it.
-      expect([null, "What comes in", "Who can see it", "Your notes"]).toContain(
-        section.group,
-      );
+      expect([
+        null,
+        "Your account",
+        "What comes in",
+        "Who can see it",
+        "Your notes",
+      ]).toContain(section.group);
     }
   });
 
@@ -66,6 +72,49 @@ describe("the order and the grouping", () => {
     expect(settingsSectionsFor("shared").map((s) => s.key)).toContain(
       DEFAULT_SETTINGS_SECTION,
     );
+  });
+});
+
+describe("two scopes in one list", () => {
+  test("account sections survive whichever context is open", () => {
+    // They are about the person, not the context — so a shared workspace, a
+    // personal brain and a context still loading all keep them.
+    for (const kind of ["personal", "shared", null] as const) {
+      const keys = settingsSectionsFor(kind).map((section) => section.key);
+      expect(keys).toContain("apps");
+      expect(keys).toContain("account");
+    }
+  });
+
+  test("and are recognisable without knowing the list", () => {
+    expect(isAccountSection("apps")).toBe(true);
+    expect(isAccountSection("storage")).toBe(false);
+  });
+
+  test("keys are unique across both scopes, so a URL needs no prefix", () => {
+    const keys = SETTINGS_SECTIONS.map((section) => section.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe("searching the list", () => {
+  test("finds a section by a word that is not on its row", () => {
+    // The whole point: nobody types "sources" looking for Gmail, and nobody
+    // types "account" meaning cancel.
+    const all = settingsSectionsFor("personal");
+    expect(matchSettingsSections(all, "gmail").map((s) => s.key)).toContain("sources");
+    expect(matchSettingsSections(all, "bucket").map((s) => s.key)).toContain("storage");
+    expect(matchSettingsSections(all, "cursor").map((s) => s.key)).toContain("apps");
+  });
+
+  test("every word has to match, so two words narrow", () => {
+    const all = settingsSectionsFor("personal");
+    expect(matchSettingsSections(all, "gmail bucket")).toHaveLength(0);
+  });
+
+  test("an empty query is not a search", () => {
+    const all = settingsSectionsFor("personal");
+    expect(matchSettingsSections(all, "   ")).toHaveLength(all.length);
   });
 });
 

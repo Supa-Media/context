@@ -141,6 +141,47 @@ describe("a phone reaches the settings, not just a menu", () => {
   });
 });
 
+describe("the account's own settings have a home", () => {
+  test("AI apps is reachable and is about apps, not this context", () => {
+    const text = overlay("apps").textContent ?? "";
+    expect(text).toContain("AI apps");
+    // No context badge and no binding health: an account section wearing a
+    // context chip would be naming a scope it is not in.
+    expect(text).not.toContain("Your bucket, your credentials");
+  });
+
+  test("deleting the account is not filed under a context any more", () => {
+    expect(overlay("account").textContent ?? "").toContain("Delete account");
+  });
+
+  test("profile states the name and does not pretend it can be changed", () => {
+    expect(overlay("profile").textContent ?? "").toContain("Profile");
+  });
+});
+
+describe("the search box", () => {
+  test("narrows the list to what somebody typed", () => {
+    const host = overlay("overview");
+    act(() => {
+      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
+    });
+    const field = host.querySelector('[data-testid="settings-search"]') as HTMLInputElement;
+    expect(field).not.toBeNull();
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(field, "gmail");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const text = host.textContent ?? "";
+    // "Mail, calendar & chats" is where Gmail lives, and nobody types that.
+    expect(text).toContain("Mail, calendar & chats");
+    expect(text).not.toContain("Delete account");
+  });
+});
+
 describe("the list is one press away, and it navigates", () => {
   test("back reveals every section", () => {
     const host = overlay("storage");
