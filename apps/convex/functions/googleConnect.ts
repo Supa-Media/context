@@ -209,7 +209,7 @@ function defaultGoogleDestinationFolder(
 ): string {
   if (service === "gmail") return `0-inbox/email/${mailboxSlug ?? "mailbox"}`;
   if (service === "calendar") return "0-inbox/calendar";
-  return "0-inbox/google-chat";
+  return "2-areas/communications/daily";
 }
 
 function destinationPattern(folder: string): string {
@@ -1532,6 +1532,7 @@ export const googleGmailBackfillForRun = internalQuery({
       totalUnits: v.number(),
       completedUnits: v.number(),
       bytesWritten: v.number(),
+      transientFailures: v.number(),
       address: v.string(),
       mailboxSlug: v.string(),
       destinationFolder: v.string(),
@@ -1571,6 +1572,7 @@ export const googleGmailBackfillForRun = internalQuery({
       totalUnits: run.totalUnits,
       completedUnits: run.completedUnits,
       bytesWritten: run.bytesWritten ?? 0,
+      transientFailures: run.transientFailures ?? 0,
       address: connection.address,
       mailboxSlug: connection.gmail.mailboxSlug,
       destinationFolder:
@@ -1600,6 +1602,7 @@ export const recordGoogleGmailBackfillPass = internalMutation({
     historyId: v.optional(v.string()),
     errorCode: v.optional(v.string()),
     error: v.optional(v.string()),
+    transientFailures: v.optional(v.number()),
   },
   returns: v.object({ accepted: v.boolean(), complete: v.boolean() }),
   handler: async (ctx, args) => {
@@ -1638,6 +1641,7 @@ export const recordGoogleGmailBackfillPass = internalMutation({
         completedAt: now,
         lastError: error ?? "Gmail backfill stopped before it finished.",
         errorCode: args.errorCode ?? "GOOGLE_SYNC_FAILED",
+        transientFailures: args.transientFailures,
         updatedAt: now,
       });
       await ctx.db.patch(args.connectionId, {
@@ -1667,6 +1671,9 @@ export const recordGoogleGmailBackfillPass = internalMutation({
         currentService: undefined,
         currentUnit: undefined,
         completedAt: now,
+        lastError: undefined,
+        errorCode: undefined,
+        transientFailures: undefined,
         updatedAt: now,
       });
       await ctx.db.patch(args.connectionId, {
@@ -1689,6 +1696,9 @@ export const recordGoogleGmailBackfillPass = internalMutation({
       bytesWritten,
       currentService: "gmail" as const,
       currentUnit: args.currentUnit,
+      lastError: error,
+      errorCode: args.errorCode,
+      transientFailures: error ? args.transientFailures : undefined,
       updatedAt: now,
     });
     return { accepted: true, complete: false };

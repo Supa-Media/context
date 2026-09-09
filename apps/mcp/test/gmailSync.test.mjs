@@ -1212,6 +1212,30 @@ export async function runGmailSyncChecks(check) {
       !(messageGetError instanceof GmailHistoryExpiredError) &&
       messageGetError.status === 404,
   );
+  const rateLimitedFetch = async () =>
+    jsonResponse(
+      {
+        error: {
+          code: 403,
+          status: "RESOURCE_EXHAUSTED",
+          errors: [{ reason: "userRateLimitExceeded" }],
+        },
+      },
+      403,
+    );
+  let rateLimitError = null;
+  try {
+    await getMessage({ fetchImpl: rateLimitedFetch, accessToken: "tok", id: "stopped" });
+  } catch (error) {
+    rateLimitError = error;
+  }
+  check(
+    "a structured Gmail 403 keeps Google's safe reason so the worker can tell quota from auth refusal",
+    rateLimitError instanceof GmailApiError &&
+      rateLimitError.status === 403 &&
+      rateLimitError.reason === "userRateLimitExceeded" &&
+      rateLimitError.googleStatus === "RESOURCE_EXHAUSTED",
+  );
   let historyPageError = null;
   try {
     await listAllHistory({ fetchImpl: notFoundFetch, accessToken: "tok", startHistoryId: "1" });

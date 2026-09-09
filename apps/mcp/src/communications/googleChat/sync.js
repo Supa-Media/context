@@ -105,7 +105,7 @@ async function readSpaceMessages({ listMessages, space, account, sinceMs }) {
  *   connection: {
  *     account: string, nonceSeed: string,
  *     cursors?: Record<string, string>, spaceSettings?: Record<string, "included"|"excluded"|"paused">,
- *     backfillDays?: number,
+ *     backfillDays?: number, destinationFolder?: string,
  *   },
  *   now?: string, root?: string,
  * }} args
@@ -197,7 +197,7 @@ export async function syncGoogleChat({ listSpaces, listMessages, connection, now
         now,
         origin: "google-chat-sync",
       },
-      { root }
+      { root, folder: connection?.destinationFolder }
     );
     for (const part of parts) notes.push(part);
   }
