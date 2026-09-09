@@ -78,7 +78,7 @@ export type GoogleSyncServices = {
 export type GoogleStartState =
   | { kind: "idle" }
   | { kind: "starting" }
-  | { kind: "failed"; message: string };
+  | { kind: "failed"; headline: string; message?: string };
 
 export type GoogleCallback =
   | { kind: "ready"; code: string; state: string }
@@ -101,4 +101,65 @@ export function parseGoogleCallback(params: {
   const state = firstParam(params.state);
   if (code === null || state === null) return { kind: "incomplete" };
   return { kind: "ready", code, state };
+}
+
+function errorCodeOf(error: unknown): string | undefined {
+  const data = (error as { data?: unknown } | null)?.data;
+  if (typeof data !== "object" || data === null || !("code" in data)) return undefined;
+  const code = (data as { code: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
+
+function errorMessageOf(error: unknown): string | undefined {
+  const data = (error as { data?: unknown } | null)?.data;
+  if (typeof data !== "object" || data === null || !("message" in data)) return undefined;
+  const message = (data as { message: unknown }).message;
+  return typeof message === "string" && message.length > 0 ? message : undefined;
+}
+
+export function describeGoogleStartFailure(error: unknown): Extract<GoogleStartState, { kind: "failed" }> {
+  switch (errorCodeOf(error)) {
+    case "GOOGLE_PRODUCTS_REQUIRED":
+      return {
+        kind: "failed",
+        headline: "Choose something to sync",
+        message: "Pick Gmail, Calendar, Chat, or any combination of them.",
+      };
+    case "MAIL_CONNECT_DISABLED":
+      return {
+        kind: "failed",
+        headline: "Google mail and chat are not enabled here",
+        message: errorMessageOf(error) ?? "This deployment has not enabled Gmail or Chat connect yet.",
+      };
+    case "CALENDAR_CONNECT_DISABLED":
+      return {
+        kind: "failed",
+        headline: "Google Calendar is not enabled here",
+        message: errorMessageOf(error) ?? "This deployment has not enabled Calendar connect yet.",
+      };
+    case "MAIL_CONNECT_NOT_CONFIGURED":
+      return {
+        kind: "failed",
+        headline: "Google OAuth is not set up here",
+        message: errorMessageOf(error) ?? "This deployment is missing its Google OAuth client.",
+      };
+    case "REDIRECT_URI_NOT_ALLOWED":
+      return {
+        kind: "failed",
+        headline: "This address cannot finish Google connect",
+        message: "Open this from context.lc or the local development URL and try again.",
+      };
+    case "NOT_OWNER":
+      return {
+        kind: "failed",
+        headline: "Only an owner can connect Google",
+        message: "Ask an owner of this context to connect the Google account.",
+      };
+    default:
+      return {
+        kind: "failed",
+        headline: "Could not start Google",
+        message: "Google did not start the connection. Try again.",
+      };
+  }
 }
