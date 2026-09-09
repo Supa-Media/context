@@ -173,7 +173,7 @@ export async function runOrientationChecks(check) {
       controlPlane.addWorkspace(workspace, slug, {
         provider: "r2-binding",
         bindingName: binding,
-        capabilities: { conditionalWrite: true },
+        capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
         status: "active",
       });
     }
@@ -689,7 +689,7 @@ export async function runOrientationChecks(check) {
     controlPlane.addWorkspace("ws_recency", "recency", {
       provider: "r2-binding",
       bindingName: "RECENCY_BUCKET",
-      capabilities: { conditionalWrite: true },
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       status: "active",
     });
     const RECENCY_OWNER = `cat_orientation_recency_owner_${"0".repeat(6)}`;
@@ -918,7 +918,7 @@ export async function runOrientationChecks(check) {
     await controlPlane.addWorkspace("ws_shed", "shed", {
       provider: "r2-binding",
       bindingName: "SHED_BUCKET",
-      capabilities: { conditionalWrite: true },
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       status: "active",
     });
     const SHED_OWNER = `cat_orientation_shed_owner_${"0".repeat(9)}`;

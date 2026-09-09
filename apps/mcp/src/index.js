@@ -306,6 +306,12 @@ const FALLBACK_SCAN_CAP = 30;
 /** Pages the fallback's own listing may spend per folder. */
 const FALLBACK_LIST_PAGE_CAP = 2;
 const FOLDER_MOVE_CAP = 500;
+const LOGICAL_FOLDER_MOVE_THRESHOLD = FOLDER_MOVE_CAP;
+const MOVE_JOB_PREFIX = ".context/moves/";
+const MOVE_SENTINEL_KEY = ".context/moves/active";
+const MOVE_JOB_VERSION = 1;
+const MOVE_MATERIALIZE_BATCH = 100;
+const LOGICAL_MOVE_WORKSPACES = new Set();
 const BATCH_MOVE_CAP = 100;
 const PROPOSAL_PENDING_CAP = 100;
 const PROPOSAL_CONTENT_BYTE_CAP = 500_000;
@@ -773,7 +779,10 @@ async function route(request, env, ctx) {
       // `worker.fetch(request, env)` calls, a self-host shim — and every caller
       // therefore treats deferral as an optimisation it may not get, never as
       // where the work happens.
-      store.defer = ctx && typeof ctx.waitUntil === "function" ? (work) => ctx.waitUntil(work) : null;
+      store.defer =
+        ctx && typeof ctx.waitUntil === "function"
+          ? (work) => ctx.waitUntil(deferredWork(work))
+          : null;
 
       /**
        * Count a thing that happened, behind the response and never in front of
@@ -1748,6 +1757,7 @@ const PRIVATE_TIER_ONLY_TOOLS = new Set([
   "list_plugins",
   "export_encryption_keys",
   "rotate_encryption_keys",
+  "materialize_move",
 ]);
 
 /**
@@ -1765,7 +1775,11 @@ const PRIVATE_TIER_ONLY_TOOLS = new Set([
  * told the tool does not exist, is an existence oracle built out of the guard
  * that was supposed to close one. Two readers, one list, no drift.
  */
-const EXISTENCE_MASKED_TOOLS = new Set(["export_encryption_keys", "rotate_encryption_keys"]);
+const EXISTENCE_MASKED_TOOLS = new Set([
+  "export_encryption_keys",
+  "rotate_encryption_keys",
+  "materialize_move",
+]);
 
 /** Is this tool's existence hidden from a caller at this visibility tier? */
 function toolExistenceMasked(name, scope) {
@@ -1787,7 +1801,7 @@ const TOOL_NAME_ALIASES = new Map([["archive_chat", "save_context"]]);
 /**
  * The advertised `inputSchema` for a tool name, alias resolved.
  *
- * Built once per isolate. `toolDefinitions()` rebuilds twenty-nine objects
+ * Built once per isolate. `toolDefinitions()` rebuilds the advertised objects
  * from constants on every call and is already called twice per tool call; a
  * third rebuild to answer "what did we advertise for this name" would be pure
  * waste on the hot path. Nothing mutates the result, and every input to it is
@@ -1923,6 +1937,89 @@ async function callToolForSession(params, store, session) {
     }
   }
 
+  if (
+    params?.name === "move_note" &&
+    (args.source_context !== undefined || args.destination_context !== undefined)
+  ) {
+    if (
+      (args.source_context !== undefined && !isUsableContextName(args.source_context)) ||
+      (args.destination_context !== undefined && !isUsableContextName(args.destination_context))
+    ) {
+      return toolError("this connection has no access to that context");
+    }
+    const openNamedContext = async (name) => {
+      if (!isUsableContextName(name)) return { session: target, store: targetStore };
+      if (typeof store.openContext !== "function") {
+        throw new SessionRefusal(403, "insufficient_scope", "This connection cannot address another context.");
+      }
+      return store.openContext(name);
+    };
+    let sourceTarget;
+    let destinationTarget;
+    try {
+      sourceTarget = await openNamedContext(args.source_context);
+      destinationTarget = await openNamedContext(args.destination_context);
+    } catch (error) {
+      if (error instanceof SessionRefusal) {
+        return toolError("this connection has no access to that context");
+      }
+      if (error instanceof StorageUnavailable) {
+        return toolError(
+          "one of those contexts has no reachable storage right now; its owner can reconnect it from their dashboard.",
+        );
+      }
+      throw error;
+    }
+    const crossArgs = { ...args };
+    delete crossArgs.source_context;
+    delete crossArgs.destination_context;
+    const badArguments = toolArgumentRefusal(params?.name, supplied, target.scope);
+    if (badArguments) return toolError(badArguments);
+    if (!hasScope(sourceTarget.session, SCOPE_WRITE)) {
+      return toolError(
+        writesAnywhere(session)
+          ? `permission denied: you have read-only access to @${sourceTarget.session.workspaceSlug}.`
+          : "permission denied: this connection holds a read-only grant. " +
+              "Reconnect the client with write access from the Context dashboard."
+      );
+    }
+    if (!hasScope(destinationTarget.session, SCOPE_WRITE)) {
+      return toolError(
+        writesAnywhere(session)
+          ? `permission denied: you have read-only access to @${destinationTarget.session.workspaceSlug}.`
+          : "permission denied: this connection holds a read-only grant. " +
+              "Reconnect the client with write access from the Context dashboard."
+      );
+    }
+    if (
+      sourceTarget.session.workspaceId !== destinationTarget.session.workspaceId &&
+      destinationTarget.session.scope === "private" &&
+      sourceTarget.session.scope !== "private"
+    ) {
+      return toolError(
+        "permission denied: moving a note into a private owner workspace from another workspace requires owner access to both contexts."
+      );
+    }
+    if (sourceTarget.session.workspaceId === destinationTarget.session.workspaceId) {
+      const result = await (callTool)(params?.name, crossArgs, sourceTarget.store, sourceTarget.session.scope);
+      reportToolUsage(store, params?.name, sourceTarget.session.workspaceId);
+      return result;
+    }
+    const result = await toolMoveNoteAcrossContexts(
+      sourceTarget.store,
+      sourceTarget.session,
+      destinationTarget.store,
+      destinationTarget.session,
+      crossArgs.source,
+      crossArgs.destination,
+      crossArgs.expected_source_etag,
+      crossArgs.confirm_team_publish === true
+    );
+    reportToolUsage(store, params?.name, sourceTarget.session.workspaceId);
+    reportToolUsage(store, params?.name, destinationTarget.session.workspaceId);
+    return result;
+  }
+
   // Enforced here as well as filtered in `toolsForSession`: the listing is a
   // courtesy, this is the control. A client that remembers a tool name from a
   // wider grant, or simply guesses one, gets refused.
@@ -2032,6 +2129,15 @@ function reportToolUsage(store, toolName, workspaceId) {
     // synchronous throw from a host that refuses deferral in an unexpected
     // way. A counter must not be able to fail a tool call by any route.
   }
+}
+
+function deferredWork(work) {
+  if (typeof work !== "function") return work;
+  return {
+    then(resolve, reject) {
+      return Promise.resolve().then(work).then(resolve, reject);
+    },
+  };
 }
 
 /** Something that could name a context: a non-empty string, and nothing else. */
@@ -2564,9 +2670,24 @@ function baseToolDefinitions() {
         properties: {
           source: { type: "string", description: "Existing markdown note path" },
           destination: { type: "string", description: "New markdown note path" },
+          source_context: {
+            type: "string",
+            description:
+              'Optional source context, as "@name". Use with destination_context to move a note between workspaces.',
+          },
+          destination_context: {
+            type: "string",
+            description:
+              'Optional destination context, as "@name". Cross-context moves require write access in both contexts.',
+          },
           expected_source_etag: {
             type: "string",
             description: "Optional etag from read_note for conflict-safe moves",
+          },
+          confirm_team_publish: {
+            type: "boolean",
+            description:
+              "Required when a cross-context move publishes a private source note into team-visible destination scope.",
           },
         },
         required: ["source", "destination"],
@@ -2606,7 +2727,7 @@ function baseToolDefinitions() {
     {
       name: "move_folder",
       description:
-        "Move or rename a folder tree after preflighting every destination. Links into the folder are rewritten to follow it, and relative links inside it are recomputed for its new depth. Maximum 500 objects. Private overrides are preserved and privacy is never implicitly reduced.",
+        "Move or rename a folder tree after preflighting every destination. Links into the folder are rewritten to follow it, and relative links inside it are recomputed for its new depth. Folders above 500 visible objects are moved logically immediately and physically synced by a resumable materialization job. Private overrides are preserved and privacy is never implicitly reduced.",
       inputSchema: {
         type: "object",
         properties: {
@@ -2615,6 +2736,26 @@ function baseToolDefinitions() {
           dry_run: { type: "boolean", description: "When true, validate and return the move plan only" },
         },
         required: ["source", "destination"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    {
+      name: "materialize_move",
+      description:
+        "Owner-only maintenance command for a logical folder move created by move_folder. Copies and verifies a bounded batch of objects, then deletes sources only after every destination is present. Safe to retry until it reports complete.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Logical move id returned by move_folder" },
+          batch_size: {
+            type: "integer",
+            minimum: 1,
+            maximum: MOVE_MATERIALIZE_BATCH,
+            description: `Maximum objects to copy or delete this pass; default ${MOVE_MATERIALIZE_BATCH}`,
+          },
+        },
+        required: ["id"],
         additionalProperties: false,
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
@@ -2773,6 +2914,10 @@ async function callTool(name, args, store, scope) {
       return toolMoveNotes(store, scope, rules, overrides, args.moves, args.dry_run === true);
     case "move_folder":
       return toolMoveFolder(store, scope, rules, overrides, args.source, args.destination, args.dry_run === true);
+    case "materialize_move":
+      if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
+      if (scope !== "private") return toolError("permission denied: move materialization requires owner access.");
+      return toolMaterializeMove(store, scope, args.id, args.batch_size);
     // `archive_chat` is the name this tool shipped under, and a client holding
     // a cached tool list is still calling it. It is no longer *listed* — the
     // rename is the point — but refusing it would drop sessions on the floor
@@ -2884,7 +3029,9 @@ async function listAllKeys(store, prefix) {
   let cursor;
   do {
     const page = await store.list({ prefix: prefix || undefined, cursor, limit: 1000 });
-    for (const o of page.objects) keys.push({ key: o.key, size: o.size, uploaded: o.uploaded });
+    for (const o of page.objects) {
+      keys.push({ key: o.key, size: o.size, uploaded: o.uploaded, etag: o.etag });
+    }
     cursor = nextListCursor(page, seen);
   } while (cursor);
   return keys;
@@ -2927,6 +3074,403 @@ async function listAllNoteKeys(store) {
   return [...root.objects, ...nested.flat()].filter(
     ({ key }) => key.endsWith(".md") && !isPlumbing(key)
   );
+}
+
+function moveJobKey(id) {
+  if (typeof id !== "string" || !/^[a-z0-9][a-z0-9-]{12,80}$/i.test(id)) return null;
+  return `${MOVE_JOB_PREFIX}${id}.json`;
+}
+
+function noteUnderPrefix(path, prefix) {
+  if (!prefix) return true;
+  return path === prefix || path.startsWith(`${prefix}/`);
+}
+
+function movedDestinationFor(job, sourceKey) {
+  const item = (job.objects || []).find((entry) => entry.source === sourceKey);
+  return item?.destination || null;
+}
+
+function movedSourceFor(job, destinationKey) {
+  const item = (job.objects || []).find((entry) => entry.destination === destinationKey);
+  return item?.source || null;
+}
+
+function moveJobActive(job) {
+  return (
+    job &&
+    job.version === MOVE_JOB_VERSION &&
+    typeof job.id === "string" &&
+    typeof job.source === "string" &&
+    typeof job.destination === "string" &&
+    Array.isArray(job.objects) &&
+    ["logical_active", "copying", "deleting", "needs_cleanup"].includes(job.status)
+  );
+}
+
+async function loadMoveJobs(store) {
+  const jobs = [];
+  let objects;
+  try {
+    objects = await listAllKeys(store, MOVE_JOB_PREFIX);
+  } catch {
+    return jobs;
+  }
+  for (const { key } of objects) {
+    if (!key.endsWith(".json")) continue;
+    try {
+      const object = await store.get(key);
+      if (!object) continue;
+      const parsed = JSON.parse(await object.text());
+      if (moveJobActive(parsed)) jobs.push(parsed);
+    } catch {
+      // A damaged move marker is not allowed to break ordinary reads. The
+      // materializer will report the real failure when asked for that id.
+    }
+  }
+  return jobs.sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+}
+
+async function moveSentinelActive(store, budget = null) {
+  try {
+    const reader = budget ? budgetedStore(store, budget, 0) : store;
+    return (await reader.get(MOVE_SENTINEL_KEY)) !== null;
+  } catch {
+    return false;
+  }
+}
+
+async function writeMoveSentinel(store) {
+  markLogicalMovesMaybeActive(store);
+  await store.put(
+    MOVE_SENTINEL_KEY,
+    JSON.stringify({ version: MOVE_JOB_VERSION, active: true, updated_at: new Date().toISOString() })
+  );
+}
+
+async function refreshMoveSentinel(store) {
+  const jobs = await loadMoveJobs(store);
+  if (jobs.length) {
+    await writeMoveSentinel(store);
+  } else {
+    await store.delete(MOVE_SENTINEL_KEY).catch(() => {});
+    clearLogicalMovesMaybeActive(store);
+  }
+  return jobs;
+}
+
+function logicalMoveWorkspaceKey(store) {
+  return store?.actor?.workspaceId || null;
+}
+
+function markLogicalMovesMaybeActive(store) {
+  const key = logicalMoveWorkspaceKey(store);
+  if (key) LOGICAL_MOVE_WORKSPACES.add(key);
+}
+
+function clearLogicalMovesMaybeActive(store) {
+  const key = logicalMoveWorkspaceKey(store);
+  if (key) LOGICAL_MOVE_WORKSPACES.delete(key);
+}
+
+async function searchMoveJobs(store, prefix, budget = null) {
+  if (prefix) return loadMoveJobs(store);
+  const key = logicalMoveWorkspaceKey(store);
+  if (!key || (!LOGICAL_MOVE_WORKSPACES.has(key) && !(await moveSentinelActive(store, budget)))) return [];
+  const jobs = await loadMoveJobs(store);
+  if (!jobs.length) await refreshMoveSentinel(store);
+  return jobs;
+}
+
+async function fallbackMoveJobs(store, prefix, budget = null) {
+  return searchMoveJobs(store, prefix, budget);
+}
+
+function applyMoveOverlay(keys, jobs) {
+  if (!jobs.length) return keys;
+  const out = new Map();
+  for (const object of keys) {
+    let hidden = false;
+    for (const job of jobs) {
+      const destination = movedDestinationFor(job, object.key);
+      if (destination !== null) {
+        hidden = true;
+        out.set(destination, { ...object, key: destination, logicalSource: object.key });
+        break;
+      }
+    }
+    if (!hidden && !out.has(object.key)) out.set(object.key, object);
+  }
+  return [...out.values()];
+}
+
+async function pathUnderActiveMovedSource(store, path) {
+  const jobs = await loadMoveJobs(store);
+  return jobs.some((job) => noteUnderPrefix(path, job.source));
+}
+
+async function listVisibleNoteKeysWithMoves(store, scope, rules, overrides, prefix) {
+  const jobs = await loadMoveJobs(store);
+  const raw = prefix ? await listAllKeys(store, prefix) : await listAllNoteKeys(store);
+  let keys = raw;
+  if (prefix && jobs.some((job) => noteUnderPrefix(job.destination, prefix) || noteUnderPrefix(prefix, job.destination))) {
+    const movedSources = await Promise.all(
+      jobs
+        .filter((job) => noteUnderPrefix(job.destination, prefix) || noteUnderPrefix(prefix, job.destination))
+        .map((job) => listAllKeys(store, `${job.source}/`).catch(() => []))
+    );
+    keys = [...keys, ...movedSources.flat()];
+  }
+  return applyMoveOverlay(keys, jobs).filter(
+    ({ key, logicalSource }) =>
+      (!prefix || noteUnderPrefix(key, prefix)) &&
+      key.endsWith(".md") &&
+      !isPlumbing(key) &&
+      canSee(key, scope, rules, overrides) &&
+      (!logicalSource || canSee(logicalSource, scope, rules, overrides))
+  );
+}
+
+async function getVisibleMovedNote(store, scope, rules, overrides, path) {
+  const jobs = await loadMoveJobs(store);
+  if (jobs.some((job) => path.startsWith(`${job.source}/`))) {
+    return { object: null, physicalPath: path };
+  }
+  for (let index = jobs.length - 1; index >= 0; index -= 1) {
+    const job = jobs[index];
+    const source = movedSourceFor(job, path);
+    if (!source) continue;
+    if (!canSee(source, scope, rules, overrides)) return { object: null, physicalPath: path };
+    const destinationObject = await store.get(path);
+    if (destinationObject) return { object: destinationObject, physicalPath: path };
+    const sourceObject = await store.get(source);
+    if (sourceObject) return { object: sourceObject, physicalPath: source };
+  }
+  return { object: await store.get(path), physicalPath: path };
+}
+
+async function persistPrivacyFolderMove(store, source, destination) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const state = await loadPrivacyState(store);
+    if (state.error) throw new Error(`privacy manifest invalid: ${state.error}`);
+    if (state.legacy) {
+      throw new Error("large folder moves require a current privacy.md manifest");
+    }
+    const movePrefix = (path) => {
+      if (path === source) return destination;
+      if (path.startsWith(`${source}/`)) return `${destination}/${path.slice(source.length + 1)}`;
+      return path;
+    };
+    const rules = state.rules.filter(
+      (rule) => !(rule.prefix === destination || rule.prefix.startsWith(`${destination}/`))
+    );
+    for (const rule of state.rules) {
+      if (rule.prefix === source || rule.prefix.startsWith(`${source}/`)) {
+        rules.push({ ...rule, prefix: movePrefix(rule.prefix) });
+      }
+    }
+    const overrides = new PrivacyOverrides();
+    for (const [path, visibility] of state.overrides.entries()) {
+      if (path === destination || path.startsWith(`${destination}/`)) continue;
+      overrides.set(path, visibility);
+      if (path === source || path.startsWith(`${source}/`)) {
+        overrides.set(movePrefix(path), visibility);
+      }
+    }
+    const next = replacePrivacyRulesBlock(state.text, rules, overrides);
+    const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
+    if (put) return;
+  }
+  throw new Error("privacy manifest changed concurrently; retry the operation");
+}
+
+async function cleanupPrivacySourceAfterMove(store, job) {
+  const removableSources = new Set((job.objects || []).map((item) => item.source).filter(Boolean));
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const state = await loadPrivacyState(store);
+    if (state.error || state.legacy) return;
+    const rules = state.rules;
+    const overrides = new PrivacyOverrides();
+    for (const [path, visibility] of state.overrides.entries()) {
+      if (!removableSources.has(path)) overrides.set(path, visibility);
+    }
+    const next = replacePrivacyRulesBlock(state.text, rules, overrides);
+    const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
+    if (put) return;
+  }
+}
+
+async function createLogicalFolderMove(store, scope, source, destination, objects) {
+  if (scope !== "private") {
+    return toolError(
+      `folder has more than ${LOGICAL_FOLDER_MOVE_THRESHOLD} visible objects; large logical folder moves require owner access`
+    );
+  }
+  const unsafeMove = moveSafetyRefusal(store);
+  if (unsafeMove) return toolError(unsafeMove);
+  const destinationPrefix = `${destination}/`;
+  const destinationObjects = await listAllKeys(store, destinationPrefix);
+  const visibleConflicts = destinationObjects.filter(({ key }) => !isPlumbing(key));
+  if (visibleConflicts.length) {
+    return toolError(`conflict: destination already contains objects: ${destination}/`);
+  }
+  await persistPrivacyFolderMove(store, source, destination);
+  const now = new Date().toISOString();
+  const id = `move-${crypto.randomUUID()}`;
+  const job = {
+    version: MOVE_JOB_VERSION,
+    id,
+    status: "logical_active",
+    source,
+    destination,
+    created_at: now,
+    updated_at: now,
+    total_objects: objects.length,
+    copied_objects: 0,
+    deleted_objects: 0,
+    copied: [],
+    objects: objects.map(({ key, etag, size }) => ({
+      source: key,
+      destination: `${destination}/${key.slice(source.length + 1)}`,
+      etag,
+      size,
+    })),
+    error: null,
+  };
+  await store.put(moveJobKey(id), JSON.stringify(job, null, 2));
+  await writeMoveSentinel(store);
+  if (typeof store.defer === "function") {
+    try {
+      store.defer(() => materializeMoveInBackground(store, scope, id));
+    } catch {
+      // The logical marker is the durable handoff. A host that cannot keep
+      // background work alive leaves the move resumable by `materialize_move`.
+    }
+  }
+  await recordChange(store, "move_folder", scope, [source, destination], {
+    count: objects.length,
+    logical_move: id,
+    status: "logical_active",
+    references: "pending",
+  });
+  return toolText(
+    `logical move active: ${source}/ → ${destination}/ (${objects.length} objects)\n` +
+      `move_id: ${id}\nphysical storage sync: pending\nreferences: pending`
+  );
+}
+
+async function materializeMoveInBackground(store, scope, id) {
+  for (let pass = 0; pass < 20; pass += 1) {
+    const result = await toolMaterializeMove(store, scope, id, MOVE_MATERIALIZE_BATCH);
+    const text = result?.content?.[0]?.text || "";
+    if (result?.isError || text.includes("complete") || text.includes("no active work")) return;
+  }
+}
+
+function buffersEqual(a, b) {
+  if (a.byteLength !== b.byteLength) return false;
+  const left = new Uint8Array(a);
+  const right = new Uint8Array(b);
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function objectMatchesMoveItem(object, item) {
+  if (!object) return false;
+  if (item.etag && object.etag && item.etag !== object.etag) return false;
+  return true;
+}
+
+async function copyObjectForMove(store, item) {
+  if (item.etag && store?.capabilities?.serverSideCopy === "same-store" && typeof store.copy === "function") {
+    const copied = await store.copy(item.source, item.destination, {
+      onlyIf: { absent: true },
+      sourceOnlyIf: item.etag ? { etagMatches: item.etag } : undefined,
+    });
+    if (copied) return copied;
+  }
+  const object = await store.get(item.source);
+  if (!object) throw new Error(`source missing during materialization: ${item.source}`);
+  if (!objectMatchesMoveItem(object, item)) {
+    throw new Error(`source changed during materialization: ${item.source}`);
+  }
+  if (!store?.capabilities?.conditionalCreate) {
+    throw new Error(`store cannot safely create destination only-if-absent: ${item.destination}`);
+  }
+  const written = await store.put(item.destination, await object.arrayBuffer(), {
+    onlyIf: { absent: true },
+  });
+  if (!written) throw new Error(`destination changed during materialization: ${item.destination}`);
+  return written;
+}
+
+async function deleteObjectForMove(store, item) {
+  if (!store?.capabilities?.conditionalDelete) {
+    throw new Error(`store cannot safely delete copied source by etag: ${item.source}`);
+  }
+  if (!item.etag) {
+    throw new Error(`source has no captured etag for safe cleanup: ${item.source}`);
+  }
+  const deleted = await store.delete(item.source, {
+    onlyIf: { etagMatches: item.etag },
+  });
+  if (deleted === null) throw new Error(`source changed before cleanup: ${item.source}`);
+}
+
+function moveSafetyRefusal(store) {
+  if (!store?.capabilities?.conditionalCreate) {
+    return "move requires a storage provider that supports conditional create";
+  }
+  if (!store?.capabilities?.conditionalDelete) {
+    return "move requires a storage provider that supports conditional delete";
+  }
+  return null;
+}
+
+async function deleteCreatedDestination(store, path, etag) {
+  if (!etag) return false;
+  try {
+    const deleted = await store.delete(path, { onlyIf: { etagMatches: etag } });
+    if (deleted === null) return false;
+    await clearExactVisibilityIfAbsent(store, path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function clearExactVisibilityIfAbsent(store, path) {
+  // There is no compare-and-delete primitive for an ACL entry keyed to an
+  // absent object. A separate "object is absent" check followed by a privacy
+  // edit can race a writer that recreates the path, and exposing that writer's
+  // private note is worse than leaving a stale exact rule behind.
+  return false;
+}
+
+async function readBytes(store, key) {
+  const object = await store.get(key);
+  return object ? await object.arrayBuffer() : null;
+}
+
+function canVerifyMoveByEtag(store, pair) {
+  return store?.capabilities?.serverSideCopy === "same-store" && typeof pair.etag === "string" && pair.etag;
+}
+
+async function destinationMatchesMoveSource(store, pair) {
+  const destination = await store.get(pair.destination);
+  if (!destination) return false;
+  if (canVerifyMoveByEtag(store, pair) && destination.etag === pair.etag) return true;
+  const sourceBytes = await readBytes(store, pair.source);
+  if (sourceBytes === null) return false;
+  const destinationBytes = await destination.arrayBuffer();
+  return buffersEqual(sourceBytes, destinationBytes);
+}
+
+async function persistMoveJob(store, job) {
+  job.updated_at = new Date().toISOString();
+  await store.put(moveJobKey(job.id), JSON.stringify(job, null, 2));
 }
 
 /**
@@ -3773,10 +4317,7 @@ async function toolScopeInfo(store, scope, rules, overrides, pathArg) {
 async function toolListNotes(store, scope, rules, overrides, prefixArg) {
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
   if (prefixArg && prefix === null) return toolError("invalid prefix");
-  const keys = prefix ? await listAllKeys(store, prefix) : await listAllNoteKeys(store);
-  const visible = keys.filter(
-    ({ key }) => key.endsWith(".md") && canSee(key, scope, rules, overrides)
-  );
+  const visible = await listVisibleNoteKeysWithMoves(store, scope, rules, overrides, prefix);
   if (!visible.length) return toolText("(no visible notes under that prefix)");
   const lines = visible
     .sort((a, b) => a.key.localeCompare(b.key))
@@ -3796,7 +4337,7 @@ async function toolReadNote(store, scope, rules, overrides, pathArg) {
   const path = splitMessageAnchor(named).path;
   if (!path) return toolError("invalid path");
   if (!canSee(path, scope, rules, overrides)) return toolError("not found");
-  const obj = await store.get(path);
+  const { object: obj } = await getVisibleMovedNote(store, scope, rules, overrides, path);
   if (!obj) return toolError("not found");
   const stored = await obj.text();
   // Decrypted here, at request time, and nowhere else. The caller is handed the
@@ -4026,6 +4567,9 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   if (!path || !path.endsWith(".md")) return toolError("invalid path (must end in .md)");
   if (typeof content !== "string") return toolError("content must be a string");
   if (isPlumbing(path)) return toolError("that path is reserved");
+  if (await pathUnderActiveMovedSource(store, path)) {
+    return toolError("conflict: that folder is being moved; write to the destination path instead");
+  }
   if (scope === "team" && overrideFor(overrides, path) === "private") {
     return writePermissionError("write destination");
   }
@@ -5598,7 +6142,15 @@ function budgetedStore(store, budget, reserve = 0) {
 async function scanVisibleNotes(store, scope, rules, overrides, query, prefix, budget, reserve = 0) {
   const needle = query.toLowerCase();
   const bounded = budget ? budgetedStore(store, budget, reserve) : store;
-  const listed = await listScannableNoteKeys(bounded, prefix);
+  const moveJobs = prefix
+    ? await searchMoveJobs(store, prefix)
+    : await fallbackMoveJobs(store, prefix, budget);
+  const listed = moveJobs.length
+    ? {
+        keys: await listVisibleNoteKeysWithMoves(store, scope, rules, overrides, prefix),
+        truncated: false,
+      }
+    : await listScannableNoteKeys(bounded, prefix);
   // `isPlumbing` explicitly, not as a side effect of which lister ran.
   // `canSee` answers *true* for `privacy.md` at private scope — deliberately,
   // because the manifest is the owner's to read — so the manifest reached a
@@ -5622,7 +6174,9 @@ async function scanVisibleNotes(store, scope, rules, overrides, query, prefix, b
     const matches = await mapInBatches(batch, 32, async ({ key }) => {
       let obj;
       try {
-        obj = await bounded.get(key);
+        obj = moveJobs.length
+          ? (await getVisibleMovedNote(store, scope, rules, overrides, key)).object
+          : await bounded.get(key);
       } catch (error) {
         if (!error?.[BUDGET_EXHAUSTED]) throw error;
         refused += 1;
@@ -5812,6 +6366,14 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
   trace.set("provider", store.provider);
   trace.set("budget", budget.remaining);
   trace.set("prefixed", Boolean(prefix));
+  const activeLogicalMoves = await searchMoveJobs(store, prefix, budget);
+  const hasActiveLogicalMoves = activeLogicalMoves.some(
+    (job) =>
+      noteUnderPrefix(job.source, prefix) ||
+      noteUnderPrefix(prefix, job.source) ||
+      noteUnderPrefix(job.destination, prefix) ||
+      noteUnderPrefix(prefix, job.destination)
+  );
 
   /*
    * The projection first, where this context has a complete one.
@@ -5821,7 +6383,9 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
    * R2 search below was going to need. See `fastSearchAnswer`.
    */
   const fastSpan = trace.span("fast");
-  const fast = await fastSearchAnswer(store, scope, rules, overrides, query, prefix, budget, trace);
+  const fast = hasActiveLogicalMoves
+    ? null
+    : await fastSearchAnswer(store, scope, rules, overrides, query, prefix, budget, trace);
   fastSpan();
   if (fast) {
     /*
@@ -5883,6 +6447,32 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
       reducedRecall: false,
       reducedRecallNotes: [],
       degraded: false,
+    };
+  }
+
+  if (hasActiveLogicalMoves) {
+    const scanned = trace.span("scan");
+    const scan = await scanVisibleNotes(store, scope, rules, overrides, query, prefix, budget, 0);
+    scanned();
+    trace.set("indexed", false);
+    trace.set("logicalMoves", true);
+    trace.set("hits", scan.hits.length);
+    trace.set("scannedCount", scan.scannedCount);
+    trace.set("totalCount", scan.totalCount);
+    trace.set("spent", budget.spent);
+    trace.set("maintain", "none");
+    logSearchTrace(trace);
+    return {
+      hits: scan.hits,
+      matchCount: scan.hits.length,
+      matchCountIsFloor: scan.totalCount > scan.scannedCount,
+      indexIncomplete: false,
+      reducedRecall: false,
+      reducedRecallNotes: [],
+      degraded: true,
+      scannedCount: scan.scannedCount,
+      totalCount: scan.totalCount,
+      totalIsFloor: scan.totalIsFloor,
     };
   }
 
@@ -6455,7 +7045,7 @@ async function toolOpenAiFetch(store, scope, rules, overrides, idArg) {
   if (!path || !path.endsWith(".md")) return toolError("invalid id");
   if (isPlumbing(path)) return toolError("not found");
   if (!canSee(path, scope, rules, overrides)) return toolError("not found");
-  const obj = await store.get(path);
+  const { object: obj } = await getVisibleMovedNote(store, scope, rules, overrides, path);
   if (!obj) return toolError("not found");
   const stored = await obj.text();
   // The same decrypt `read_note` does, because this is `read_note` wearing
@@ -6685,22 +7275,40 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
       `conflict: source changed since you read it (current etag ${sourceObject.etag}); re-read and retry`
     );
   }
+  const unsafeMove = moveSafetyRefusal(store);
+  if (unsafeMove) return toolError(unsafeMove);
   if (await store.get(destination)) return toolError("conflict: destination already exists");
 
   const body = await sourceObject.arrayBuffer();
+  const sourceEtag = sourceObject.etag;
   const sourceVisibility = effectiveVisibility(source, rules, overrides);
   const destinationVisibility =
     sourceVisibility === "private" || visibilityOf(destination, rules) === "private"
       ? "private"
       : "team";
   if (destinationVisibility === "private") {
-    await persistExactVisibility(store, destination, "private", rules);
+    try {
+      await persistExactVisibility(store, destination, "private", rules);
+    } catch (error) {
+      return toolError(`move aborted before creating private destination: ${error.message}`);
+    }
   }
-  const put = await store.put(destination, body);
-  if (destinationVisibility === "team") {
-    await persistExactVisibility(store, destination, "team", rules);
+  const put = await store.put(destination, body, { onlyIf: { absent: true } });
+  if (!put && destinationVisibility === "private") await clearExactVisibilityIfAbsent(store, destination);
+  if (!put) return toolError("conflict: destination already exists");
+  try {
+    if (destinationVisibility === "team") {
+      await persistExactVisibility(store, destination, "team", rules);
+    }
+  } catch (error) {
+    await deleteCreatedDestination(store, destination, put.etag);
+    return toolError(`move aborted before deleting source: ${error.message}`);
   }
-  await store.delete(source);
+  const deleted = await store.delete(source, { onlyIf: { etagMatches: sourceEtag } });
+  if (deleted === null) {
+    await deleteCreatedDestination(store, destination, put.etag);
+    return toolError("conflict: source changed since it was copied");
+  }
   await clearExactVisibility(store, source);
   const references = await rewriteReferences(
     store,
@@ -6718,6 +7326,144 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
   return toolText(
     `moved: ${source} → ${destination} (etag ${put.etag})\nvisibility: ${destinationVisibility}` +
       referencesLine(references)
+  );
+}
+
+function contextNameFor(session) {
+  return `@${session?.workspaceSlug || session?.workspaceId || "context"}`;
+}
+
+async function toolMoveNoteAcrossContexts(
+  sourceStore,
+  sourceSession,
+  destinationStore,
+  destinationSession,
+  sourceArg,
+  destinationArg,
+  expectedSourceEtag,
+  confirmTeamPublish
+) {
+  const source = normalizePath(sourceArg);
+  const destination = normalizePath(destinationArg);
+  if (!source || !destination || !source.endsWith(".md") || !destination.endsWith(".md")) {
+    return toolError("invalid path (source and destination must end in .md)");
+  }
+  if (isPlumbing(source) || isPlumbing(destination)) return toolError("that path is reserved");
+
+  const sourcePrivacy = await loadPrivacyState(sourceStore);
+  if (sourcePrivacy.error) {
+    return toolError(
+      `source privacy manifest invalid; access failed closed without exposing content: ${sourcePrivacy.error}`
+    );
+  }
+  const destinationPrivacy = await loadPrivacyState(destinationStore);
+  if (destinationPrivacy.error) {
+    return toolError(
+      `destination privacy manifest invalid; access failed closed without exposing content: ${destinationPrivacy.error}`
+    );
+  }
+
+  const sourceScope = sourceSession.scope;
+  const destinationScope = destinationSession.scope;
+  if (!canSee(source, sourceScope, sourcePrivacy.rules, sourcePrivacy.overrides)) {
+    return toolError("not found");
+  }
+  if (destinationScope !== "private" && visibilityOf(destination, destinationPrivacy.rules) !== "team") {
+    return writePermissionError("move destination");
+  }
+  if (destinationScope === "team" && hasOverride(destinationPrivacy.overrides, destination)) {
+    return writePermissionError("move destination");
+  }
+
+  const sourceObject = await sourceStore.get(source);
+  if (!sourceObject) return toolError("not found");
+  if (expectedSourceEtag && sourceObject.etag !== expectedSourceEtag) {
+    return toolError(
+      `conflict: source changed since you read it (current etag ${sourceObject.etag}); re-read and retry`
+    );
+  }
+  if (!sourceStore?.capabilities?.conditionalDelete) {
+    return toolError("move requires a source storage provider that supports conditional delete");
+  }
+  if (!destinationStore?.capabilities?.conditionalCreate) {
+    return toolError("move requires a destination storage provider that supports conditional create");
+  }
+  if (!destinationStore?.capabilities?.conditionalDelete) {
+    return toolError("move requires a destination storage provider that supports conditional delete");
+  }
+  if (await destinationStore.get(destination)) {
+    return toolError("conflict: destination already exists");
+  }
+
+  const sourceVisibility = effectiveVisibility(source, sourcePrivacy.rules, sourcePrivacy.overrides);
+  const destinationFolderVisibility = visibilityOf(destination, destinationPrivacy.rules);
+  const publishesPrivateToTeam =
+    sourceVisibility === "private" && destinationFolderVisibility === "team";
+  if (publishesPrivateToTeam && !confirmTeamPublish) {
+    return toolError(
+      "confirm_team_publish=true is required to move a private note into team-visible destination scope"
+    );
+  }
+  const destinationVisibility =
+    publishesPrivateToTeam || (sourceVisibility === "team" && destinationFolderVisibility === "team")
+      ? "team"
+      : "private";
+
+  const body = await sourceObject.arrayBuffer();
+  const sourceEtag = sourceObject.etag;
+  let put;
+  if (destinationVisibility === "private") {
+    try {
+      await persistExactVisibility(destinationStore, destination, "private", destinationPrivacy.rules);
+    } catch (error) {
+      return toolError(`move aborted before creating private destination: ${error.message}`);
+    }
+  }
+  try {
+    put = await destinationStore.put(destination, body, { onlyIf: { absent: true } });
+    if (!put) {
+      if (destinationVisibility === "private") await clearExactVisibilityIfAbsent(destinationStore, destination);
+      return toolError("conflict: destination already exists");
+    }
+    if (destinationVisibility === "team") {
+      await persistExactVisibility(destinationStore, destination, "team", destinationPrivacy.rules);
+    }
+  } catch (error) {
+    if (put?.etag && destinationStore?.capabilities?.conditionalDelete) {
+      await deleteCreatedDestination(destinationStore, destination, put.etag);
+    }
+    return toolError(`move aborted before deleting source: ${error.message}`);
+  }
+
+  try {
+    const deleted = await sourceStore.delete(source, { onlyIf: { etagMatches: sourceEtag } });
+    if (deleted === null) throw new Error("source changed since it was copied");
+  } catch (error) {
+    if (put?.etag) {
+      await deleteCreatedDestination(destinationStore, destination, put.etag);
+    }
+    return toolError(`move rolled back after source-delete failure: ${error.message}`);
+  }
+  await clearExactVisibility(sourceStore, source).catch(() => {});
+
+  const sourceContext = contextNameFor(sourceSession);
+  const destinationContext = contextNameFor(destinationSession);
+  await recordChange(sourceStore, "move_note", sourceScope, [source], {
+    moved_to_context: destinationContext,
+    destination,
+    source_visibility: sourceVisibility,
+  });
+  await recordChange(destinationStore, "move_note", destinationScope, [destination], {
+    moved_from_context: sourceContext,
+    source,
+    etag: put.etag,
+    visibility: destinationVisibility,
+    team_visible: destinationVisibility === "team",
+  });
+  return toolText(
+    `moved: ${sourceContext}/${source} → ${destinationContext}/${destination} (etag ${put.etag})\n` +
+      `visibility: ${destinationVisibility}\n` +
+      "references: not rewritten across workspace boundaries"
   );
 }
 
@@ -6750,6 +7496,10 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
     return toolError(
       "expected_source_etag is required for every applied batch move. Run with dry_run=true to obtain current etags."
     );
+  }
+  if (!dryRun) {
+    const unsafeMove = moveSafetyRefusal(store);
+    if (unsafeMove) return toolError(unsafeMove);
   }
 
   const preflight = [];
@@ -6826,12 +7576,19 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
   const preparedAcls = [];
   try {
     for (const move of preflight) {
-      if (!fastArchiveRelocation && move.visibility === "private") {
+      const preinstalledPrivateAcl =
+        !fastArchiveRelocation && !move.destinationExists && move.visibility === "private";
+      if (preinstalledPrivateAcl) {
         await persistExactVisibility(store, move.destination, "private", rules);
         preparedAcls.push(move.destination);
       }
       if (!move.destinationExists) {
-        await store.put(move.destination, move.body);
+        const put = await store.put(move.destination, move.body, { onlyIf: { absent: true } });
+        if (!put) {
+          if (preinstalledPrivateAcl) await clearExactVisibilityIfAbsent(store, move.destination);
+          throw new Error(`destination already exists: ${move.destination}`);
+        }
+        move.destinationEtag = put.etag;
         // Recorded the moment it exists, and BEFORE the visibility write that
         // can throw. The other order makes the one destination whose persist
         // failed the one destination the rollback below cannot see — so the
@@ -6842,33 +7599,32 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
         // way, and it is what the refusals will need when they return.
         copied.push(move.destination);
       }
+      if (!fastArchiveRelocation && move.visibility === "private" && !preinstalledPrivateAcl) {
+        await persistExactVisibility(store, move.destination, "private", rules);
+        preparedAcls.push(move.destination);
+      }
       if (!fastArchiveRelocation && move.visibility === "team") {
         await persistExactVisibility(store, move.destination, "team", rules);
+        preparedAcls.push(move.destination);
       }
     }
   } catch (error) {
-    for (const key of copied) {
-      await store.delete(key).catch(() => {});
-      await clearExactVisibility(store, key).catch(() => {});
+    for (const move of preflight.filter((entry) => entry.destinationEtag)) {
+      await deleteCreatedDestination(store, move.destination, move.destinationEtag);
     }
-    for (const key of preparedAcls) await clearExactVisibility(store, key).catch(() => {});
+    for (const key of preparedAcls) await clearExactVisibilityIfAbsent(store, key);
     return toolError(`batch move aborted before deleting sources: ${error.message}`);
   }
 
   try {
-    for (const move of preflight) await store.delete(move.source);
-  } catch (error) {
-    for (const move of preflight) await store.put(move.source, move.body).catch(() => {});
-    for (const key of copied) {
-      await store.delete(key).catch(() => {});
-      await clearExactVisibility(store, key).catch(() => {});
+    for (const move of preflight) {
+      const deleted = await store.delete(move.source, { onlyIf: { etagMatches: move.etag } });
+      if (deleted === null) throw new Error(`source changed during cleanup: ${move.source}`);
     }
-    // `copied` holds only destinations this batch CREATED. A destination that
-    // already existed got a private ACL written for it and is not in that list,
-    // so without this loop a "rolled back" move leaves a pre-existing team note
-    // un-shared, silently. The catch above already did this; this one did not.
-    for (const key of preparedAcls) await clearExactVisibility(store, key).catch(() => {});
-    return toolError(`batch move rolled back after a source-delete failure: ${error.message}`);
+  } catch (error) {
+    return toolError(
+      `batch move partially applied; source cleanup stopped before all sources were deleted: ${error.message}`
+    );
   }
 
   if (!fastArchiveRelocation) {
@@ -6934,8 +7690,23 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
   // A folder holding nothing this caller can see is "not found" — byte-identical
   // to a folder that was never there.
   if (!allObjects.length) return toolError("not found");
-  if (allObjects.length > FOLDER_MOVE_CAP) {
-    return toolError(`folder has more than ${FOLDER_MOVE_CAP} objects; split it into smaller moves`);
+  if (allObjects.length > LOGICAL_FOLDER_MOVE_THRESHOLD) {
+    if (scope !== "private") {
+      return toolError(
+        `folder has more than ${LOGICAL_FOLDER_MOVE_THRESHOLD} visible objects; large logical folder moves require owner access`
+      );
+    }
+    const destinationObjects = await listAllKeys(store, destinationPrefix);
+    if (destinationObjects.some(({ key }) => !isPlumbing(key))) {
+      return toolError(`conflict: destination already contains objects: ${destination}/`);
+    }
+    if (dryRun) {
+      return toolText(
+        `preflight ok: large folder ${source}/ → ${destination}/ (${allObjects.length} objects)\n` +
+          "apply will create a logical move immediately; physical storage sync remains pending"
+      );
+    }
+    return createLogicalFolderMove(store, scope, source, destination, allObjects);
   }
 
   const moves = allObjects.map(({ key }) => {
@@ -6955,6 +7726,10 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
   }
   if (scope === "team" && moves.some(({ destination: path }) => hasOverride(overrides, path))) {
     return writePermissionError("folder move destination");
+  }
+  if (!dryRun) {
+    const unsafeMove = moveSafetyRefusal(store);
+    if (unsafeMove) return toolError(unsafeMove);
   }
   for (const move of moves) {
     if (await store.get(move.destination)) {
@@ -6982,28 +7757,42 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
     for (const move of moves) {
       const obj = await store.get(move.source);
       if (!obj) throw new Error(`source changed during move: ${move.source}`);
+      move.etag = obj.etag;
       const body = await obj.arrayBuffer();
-      if (move.visibility === "private") {
+      const preinstalledPrivateAcl = move.visibility === "private";
+      if (preinstalledPrivateAcl) {
         await persistExactVisibility(store, move.destination, "private", rules);
         preparedAcls.push(move.destination);
       }
-      await store.put(move.destination, body);
+      const put = await store.put(move.destination, body, { onlyIf: { absent: true } });
+      if (!put) {
+        if (preinstalledPrivateAcl) await clearExactVisibilityIfAbsent(store, move.destination);
+        throw new Error(`destination already exists: ${move.destination}`);
+      }
+      move.destinationEtag = put.etag;
       // Before the visibility write that can throw — see `move_notes` above.
       copied.push(move.destination);
       if (move.visibility === "team") {
         await persistExactVisibility(store, move.destination, "team", rules);
+        preparedAcls.push(move.destination);
       }
     }
   } catch (error) {
-    for (const key of copied) {
-      await store.delete(key).catch(() => {});
-      await clearExactVisibility(store, key).catch(() => {});
+    for (const move of moves.filter((entry) => entry.destinationEtag)) {
+      await deleteCreatedDestination(store, move.destination, move.destinationEtag);
     }
-    for (const key of preparedAcls) await clearExactVisibility(store, key).catch(() => {});
+    for (const key of preparedAcls) await clearExactVisibilityIfAbsent(store, key);
     return toolError(`move aborted before deleting sources: ${error.message}`);
   }
 
-  for (const { source: path } of moves) await store.delete(path);
+  for (const move of moves) {
+    const deleted = await store.delete(move.source, { onlyIf: { etagMatches: move.etag } });
+    if (deleted === null) {
+      return toolError(
+        `folder move partially applied; source cleanup stopped before all sources were deleted: ${move.source}`
+      );
+    }
+  }
   for (const { source: path } of moves) await clearExactVisibility(store, path).catch(() => {});
   const references = await rewriteReferences(
     store,
@@ -7022,6 +7811,148 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
     `moved folder: ${source}/ → ${destination}/ (${moves.length} objects)` +
       referencesLine(references)
   );
+}
+
+async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
+  const key = moveJobKey(idArg);
+  if (!key) return toolError("invalid move id");
+  const marker = await store.get(key);
+  if (!marker) {
+    await refreshMoveSentinel(store);
+    return toolError("not found");
+  }
+
+  let job;
+  try {
+    job = JSON.parse(await marker.text());
+  } catch {
+    return toolError("move marker is invalid");
+  }
+  if (!moveJobActive(job)) {
+    await refreshMoveSentinel(store);
+    return toolText(
+      `move ${job?.id || idArg}: ${job?.status || "unknown"}\nphysical storage sync: no active work`
+    );
+  }
+  const batchSize =
+    Number.isInteger(batchSizeArg) && batchSizeArg > 0
+      ? Math.min(batchSizeArg, MOVE_MATERIALIZE_BATCH)
+      : MOVE_MATERIALIZE_BATCH;
+  const sourcePrefix = `${job.source}/`;
+  const sources = job.objects.filter(
+    (item) =>
+      typeof item.source === "string" &&
+      typeof item.destination === "string" &&
+      item.source.startsWith(sourcePrefix) &&
+      item.destination.startsWith(`${job.destination}/`) &&
+      !isPlumbing(item.source) &&
+      !isPlumbing(item.destination)
+  );
+
+  let copiedThisPass = 0;
+  try {
+    const copied = new Set(Array.isArray(job.copied) ? job.copied : []);
+    job.status = "copying";
+    for (const pair of sources) {
+      if (copied.has(pair.source)) continue;
+      const sourceObject = await store.get(pair.source);
+      if (!sourceObject) throw new Error(`source missing during materialization: ${pair.source}`);
+      if (!objectMatchesMoveItem(sourceObject, pair)) {
+        throw new Error(`source changed during materialization: ${pair.source}`);
+      }
+      if (await destinationMatchesMoveSource(store, pair)) {
+        copied.add(pair.source);
+        continue;
+      }
+      if ((await store.get(pair.destination)) !== null) {
+        throw new Error(`destination changed during materialization: ${pair.destination}`);
+      }
+      await copyObjectForMove(store, pair);
+      if (!(await destinationMatchesMoveSource(store, pair))) {
+        throw new Error(`destination verification failed: ${pair.destination}`);
+      }
+      copied.add(pair.source);
+      copiedThisPass += 1;
+      if (copiedThisPass >= batchSize) break;
+    }
+
+    for (const pair of sources) {
+      if (copied.has(pair.source)) continue;
+      if (await destinationMatchesMoveSource(store, pair)) copied.add(pair.source);
+    }
+    job.copied = [...copied].sort();
+    job.copied_objects = copied.size;
+    job.total_objects = sources.length;
+    if (copied.size < sources.length) {
+      await persistMoveJob(store, job);
+      return toolText(
+        `move ${job.id}: copying\ncopied: ${copied.size}/${sources.length}\nthis_pass: ${copiedThisPass}`
+      );
+    }
+
+    job.status = "deleting";
+    let deletedThisPass = 0;
+    for (const pair of sources) {
+      const sourceObject = await store.get(pair.source);
+      if (sourceObject === null) continue;
+      if (!objectMatchesMoveItem(sourceObject, pair)) {
+        throw new Error(`source changed before cleanup: ${pair.source}`);
+      }
+      if (!(await destinationMatchesMoveSource(store, pair))) {
+        throw new Error(`destination changed before source cleanup: ${pair.destination}`);
+      }
+      await deleteObjectForMove(store, pair);
+      deletedThisPass += 1;
+      if (deletedThisPass >= batchSize) break;
+    }
+    const remainingSources = [];
+    for (const pair of sources) {
+      if ((await store.get(pair.source)) !== null) remainingSources.push(pair.source);
+    }
+    job.deleted_objects = sources.length - remainingSources.length;
+    if (remainingSources.length > 0) {
+      job.status = "needs_cleanup";
+      await persistMoveJob(store, job);
+      return toolText(
+        `move ${job.id}: needs_cleanup\ndeleted: ${job.deleted_objects}/${sources.length}\nthis_pass: ${deletedThisPass}`
+      );
+    }
+
+    job.status = "complete";
+    job.deleted_objects = sources.length;
+    await persistMoveJob(store, job);
+    await cleanupPrivacySourceAfterMove(store, job).catch(() => {});
+    let references = { links: 0, capped: true };
+    try {
+      const state = await loadPrivacyState(store);
+      if (!state.error && !state.legacy) {
+        references = await rewriteReferences(
+          store,
+          scope,
+          state.rules,
+          state.overrides,
+          new Map(sources.map((item) => [item.source, item.destination]))
+        );
+      }
+    } catch {
+      // The storage move has completed. Reference rewrite failures are surfaced
+      // in the response instead of keeping a completed move marker alive.
+    }
+    await store.delete(key);
+    await refreshMoveSentinel(store);
+    await recordChange(store, "materialize_move", scope, [job.source, job.destination], {
+      logical_move: job.id,
+      status: "complete",
+      count: sources.length,
+      references: references.capped ? "not-rewritten" : references.links,
+    });
+    return toolText(`move ${job.id}: complete\nphysical storage sync: complete` + referencesLine(references));
+  } catch (error) {
+    job.status = job.status === "deleting" ? "needs_cleanup" : "copying";
+    job.error = error.message;
+    await persistMoveJob(store, job).catch(() => {});
+    return toolError(`move ${job.id} materialization paused: ${error.message}`);
+  }
 }
 
 /* -------------------------------- inbox ---------------------------------- */

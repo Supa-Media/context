@@ -64,7 +64,12 @@ const S3_BINDING = {
   accessKeyId: "AKIAEXAMPLEEXAMPLE00",
   secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
   forcePathStyle: true,
-  capabilities: { conditionalWrite: true },
+  capabilities: {
+    conditionalWrite: true,
+    conditionalCreate: true,
+    conditionalDelete: true,
+    serverSideCopy: "same-store",
+  },
   status: "active",
 };
 
@@ -73,7 +78,7 @@ const DROPBOX_BINDING = {
   provider: "dropbox",
   accessToken: "sl.FAKE-not-a-real-token",
   rootPrefix: "context/",
-  capabilities: { conditionalWrite: true },
+  capabilities: { conditionalWrite: true, conditionalCreate: true },
   status: "active",
 };
 
@@ -83,7 +88,7 @@ const NATIVE_BINDING = {
   workspaceId: "ws_example",
   provider: "r2-binding",
   bindingName: "CONTEXT_BUCKET",
-  capabilities: { conditionalWrite: true },
+  capabilities: { conditionalWrite: true, conditionalCreate: true },
   status: "active",
 };
 
@@ -179,6 +184,26 @@ export function runStoreFactoryChecks(check) {
         ?.conditionalWrite === false
     );
   }
+  check(
+    "an s3 binding only enables conditional delete when the probe said delete preconditions work",
+    attempt(S3_BINDING).store?.capabilities?.conditionalDelete === true &&
+      attempt({ ...S3_BINDING, capabilities: { conditionalWrite: true, conditionalCreate: true } }).store?.capabilities
+        ?.conditionalDelete === false
+  );
+  check(
+    "an s3 binding only enables conditional create when the probe said create-only writes work",
+    attempt(S3_BINDING).store?.capabilities?.conditionalCreate === true &&
+      attempt({ ...S3_BINDING, capabilities: { conditionalWrite: true } }).store?.capabilities
+        ?.conditionalCreate === false
+  );
+  check(
+    "an s3 binding only enables server-side copy when the probe said copy preconditions work",
+    attempt(S3_BINDING).store?.capabilities?.serverSideCopy === "same-store" &&
+      attempt({
+        ...S3_BINDING,
+        capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+      }).store?.capabilities?.serverSideCopy === false
+  );
   check(
     "a binding with no probed answer at all is treated as not conflict-safe",
     ["capabilitiesMissing", "capabilitiesEmpty", "capabilitiesNotAnObject"].every((shape) => {

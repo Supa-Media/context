@@ -550,6 +550,25 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
 
     if (method === "PUT") {
       const ifMatch = init.headers?.["if-match"];
+      const ifNoneMatch = init.headers?.["if-none-match"];
+      if (ifNoneMatch === "*" && objects.has(key)) return new Response("", { status: 412 });
+      const copySource = init.headers?.["x-amz-copy-source"];
+      if (copySource) {
+        const copyPath = String(copySource).replace(/^\/+/, "");
+        const [sourceBucketName, ...sourceKeyParts] = copyPath.split("/");
+        const sourceKey = sourceKeyParts.map(decodeURIComponent).join("/");
+        const sourceObjects = bucketFor(decodeURIComponent(sourceBucketName || ""));
+        const source = sourceObjects.get(sourceKey);
+        const sourceIfMatch = init.headers?.["x-amz-copy-source-if-match"]?.replace(/^"|"$/g, "");
+        if (!source) return new Response("", { status: 404 });
+        if (sourceIfMatch && source.etag !== sourceIfMatch) return new Response("", { status: 412 });
+        const etag = `s${++etagCounter}`;
+        objects.set(key, { body: source.body, etag });
+        return new Response(
+          `<CopyObjectResult><ETag>&quot;${etag}&quot;</ETag></CopyObjectResult>`,
+          { status: 200 }
+        );
+      }
       if (ifMatch) {
         const expected = ifMatch.replace(/^"|"$/g, "");
         const current = objects.get(key);
@@ -567,8 +586,14 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
     }
 
     if (method === "DELETE") {
+      const ifMatch = init.headers?.["if-match"];
+      if (ifMatch) {
+        const expected = ifMatch.replace(/^"|"$/g, "");
+        const current = objects.get(key);
+        if (!current || current.etag !== expected) return new Response("", { status: 412 });
+      }
       objects.delete(key);
-      return new Response("", { status: 204 });
+      return new Response(null, { status: 204 });
     }
 
     return new Response("", { status: 405 });
@@ -578,7 +603,7 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
     const previous = globalThis.fetch;
     globalThis.fetch = async (input, init) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.startsWith(endpointOrigin)) return handle(url, init);
+      if (url.startsWith(endpointOrigin)) return api.handle(url, init);
       return previous ? previous(input, init) : new Response("", { status: 404 });
     };
     return () => {
@@ -586,7 +611,8 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
     };
   }
 
-  return { endpoint: endpointOrigin, buckets, bucketFor, handle, install };
+  const api = { endpoint: endpointOrigin, buckets, bucketFor, handle, install };
+  return api;
 }
 
 function escapeXml(value) {

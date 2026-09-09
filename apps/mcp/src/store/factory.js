@@ -178,9 +178,21 @@ export function storeForBinding(binding, env, options = {}) {
  * silently lost write.
  */
 function withProbedCapabilities(store, binding) {
-  const declared = store?.capabilities?.conditionalWrite === true;
-  const probed = binding.capabilities?.conditionalWrite === true;
-  store.capabilities = { ...store.capabilities, conditionalWrite: declared && probed };
+  const declaredWrite = store?.capabilities?.conditionalWrite === true;
+  const probedWrite = binding.capabilities?.conditionalWrite === true;
+  const declaredCreate = store?.capabilities?.conditionalCreate === true;
+  const probedCreate = binding.capabilities?.conditionalCreate === true;
+  const declaredDelete = store?.capabilities?.conditionalDelete === true;
+  const probedDelete = binding.capabilities?.conditionalDelete === true;
+  const declaredCopy = store?.capabilities?.serverSideCopy === "same-store";
+  const probedCopy = binding.capabilities?.serverSideCopy === "same-store";
+  store.capabilities = {
+    ...store.capabilities,
+    conditionalWrite: declaredWrite && probedWrite,
+    conditionalCreate: declaredCreate && probedCreate,
+    conditionalDelete: declaredDelete && probedDelete,
+    serverSideCopy: declaredCopy && probedCopy && probedCreate ? "same-store" : false,
+  };
   return store;
 }
 

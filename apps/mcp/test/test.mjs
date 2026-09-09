@@ -68,6 +68,7 @@ const bucket = {
   async put(key, value, options = {}) {
     const expected = options?.onlyIf?.etagMatches;
     if (expected && objects.get(key)?.etag !== expected) return null;
+    if (options?.onlyIf?.etagDoesNotMatch === "*" && objects.has(key)) return null;
     const bytes =
       typeof value === "string"
         ? encoder.encode(value)
@@ -133,7 +134,7 @@ const WORKSPACE_ID = "ws_primary";
 controlPlane.addWorkspace(WORKSPACE_ID, "primary", {
   provider: "r2-binding",
   bindingName: "CONTEXT_BUCKET",
-  capabilities: { conditionalWrite: true },
+  capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
   status: "active",
 });
 
@@ -430,7 +431,7 @@ const tools = await rpc("priv-token", "tools/list");
 // one and that a model has to ask for them. 27 with `set_encryption`, which is
 // a write over one note's own bytes and, like `set_visibility` beside it, a
 // personal connection's.
-check("29 tools listed", tools.result?.tools.length === 29);
+check("30 tools listed", tools.result?.tools.length === 30);
 
 // -- list_plugins through the worker
 //
@@ -1209,7 +1210,7 @@ check(
 );
 
 const modernList = await modernFetch({ method: "tools/list" });
-check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 29);
+check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 30);
 check(
   "modern tools/list carries the required freshness hints",
   typeof modernList.body.result?.ttlMs === "number" &&
@@ -1435,7 +1436,7 @@ for (const verb of ["GET", "DELETE"]) {
 // --- and now the half that must not have moved: legacy clients ---
 check(
   "a legacy client sending no version header still works",
-  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 29
+  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 30
 );
 async function legacyWithVersionHeader(version) {
   return worker.fetch(
@@ -2644,6 +2645,231 @@ check(
     folderDryRun.content[0].text.includes("preflight ok") &&
     objects.has("1-projects/portable-moved/batch-a.md")
 );
+const forgedMoveId = "move-forged-private-leak";
+await contextStore.put(
+  `.context/moves/${forgedMoveId}.json`,
+  JSON.stringify({
+    version: 1,
+    id: forgedMoveId,
+    status: "logical_active",
+    source: "1-projects/secret-thing",
+    destination: "1-projects/leak",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    total_objects: 1,
+    copied_objects: 0,
+    deleted_objects: 0,
+    objects: [{
+      source: "1-projects/secret-thing/status.md",
+      destination: "1-projects/leak/status.md",
+      etag: objects.get("1-projects/secret-thing/status.md")?.etag,
+      size: objects.get("1-projects/secret-thing/status.md")?.bytes.length,
+    }],
+  })
+);
+check(
+  "a forged logical move marker cannot publish a private source through a team destination",
+  (await call("pub-token", "read_note", { path: "1-projects/leak/status.md" })).isError &&
+    !(await call("pub-token", "list_notes", { prefix: "1-projects/leak" })).content[0].text.includes(
+      "1-projects/leak/status.md"
+    )
+);
+await contextStore.delete(`.context/moves/${forgedMoveId}.json`);
+for (let i = 0; i < 502; i += 1) {
+  const suffix = String(i).padStart(3, "0");
+  await contextStore.put(`1-projects/big-move/note-${suffix}.md`, `big ${suffix}`);
+}
+const bigSecretPath = "1-projects/big-move/note-501.md";
+const bigSecretEtag = (await call("priv-token", "read_note", { path: bigSecretPath })).content[0].text.match(/etag: (\S+)/)?.[1];
+await call("priv-token", "set_visibility", {
+  path: bigSecretPath,
+  visibility: "private",
+  expected_etag: bigSecretEtag,
+});
+const teamBigMove = await call("pub-token", "move_folder", {
+  source: "1-projects/big-move",
+  destination: "1-projects/big-moved",
+});
+check(
+  "team move_folder still refuses too-large trees instead of logically moving hidden content",
+  teamBigMove.isError && teamBigMove.content[0].text.includes("large logical folder moves require owner access")
+);
+const bigDryRun = await call("priv-token", "move_folder", {
+  source: "1-projects/big-move",
+  destination: "1-projects/big-moved",
+  dry_run: true,
+});
+check(
+  "owner move_folder dry-run reports a large logical move without changing storage",
+  !bigDryRun.isError &&
+    bigDryRun.content[0].text.includes("large folder") &&
+    objects.has("1-projects/big-move/note-000.md") &&
+    !objects.has("1-projects/big-moved/note-000.md")
+);
+const bigMove = await call("priv-token", "move_folder", {
+  source: "1-projects/big-move",
+  destination: "1-projects/big-moved",
+});
+const bigMoveId = bigMove.content[0].text.match(/move_id: (\S+)/)?.[1];
+check(
+  "owner move_folder creates a logical move for a too-large tree",
+  !bigMove.isError &&
+    bigMoveId &&
+    objects.has(`.context/moves/${bigMoveId}.json`) &&
+    objects.has("1-projects/big-move/note-000.md") &&
+    !objects.has("1-projects/big-moved/note-000.md")
+);
+check(
+  "logical folder move makes destination readable before physical copy",
+  succeeded(await call("priv-token", "read_note", { path: "1-projects/big-moved/note-000.md" })) &&
+    (await call("priv-token", "read_note", { path: "1-projects/big-move/note-000.md" })).isError
+);
+check(
+  "logical folder move preserves exact private overrides at the destination",
+  (await call("pub-token", "read_note", { path: "1-projects/big-moved/note-501.md" })).isError
+);
+check(
+  "logical folder move refuses writes under the moved-away source prefix",
+  (await call("priv-token", "write_note", {
+    path: "1-projects/big-move/new-private.md",
+    content: "post-cutover write",
+    visibility: "private",
+  })).isError &&
+    !objects.has("1-projects/big-move/new-private.md")
+);
+const bigList = (await call("priv-token", "list_notes", { prefix: "1-projects/big-moved" })).content[0].text;
+const oldBigList = (await call("priv-token", "list_notes", { prefix: "1-projects/big-move" })).content[0].text;
+const bigSearchDestination = (await call("priv-token", "search_notes", {
+  query: "big 000",
+  prefix: "1-projects/big-moved",
+})).content[0].text;
+const bigSearchSource = (await call("priv-token", "search_notes", {
+  query: "big 000",
+  prefix: "1-projects/big-move",
+})).content[0].text;
+const bigSearchUnprefixed = (await call("priv-token", "search_notes", {
+  query: "big 000",
+})).content[0].text;
+check(
+  "logical folder move lists destination keys from the source prefix",
+  bigList.includes("1-projects/big-moved/note-000.md") &&
+    !bigList.includes("1-projects/big-move/note-000.md") &&
+    oldBigList === "(no visible notes under that prefix)"
+);
+check(
+  "logical folder move makes fallback search destination-aware",
+  bigSearchDestination.includes("1-projects/big-moved/note-000.md") &&
+    !bigSearchDestination.includes("1-projects/big-move/note-000.md") &&
+    !bigSearchSource.includes("1-projects/big-move/note-000.md") &&
+    bigSearchUnprefixed.includes("1-projects/big-moved/note-000.md") &&
+    !bigSearchUnprefixed.includes("1-projects/big-move/note-000.md")
+);
+await contextStore.put("1-projects/big-moved/note-000.md", "user edit during pending move");
+let materialized = await call("priv-token", "materialize_move", { id: bigMoveId, batch_size: 100 });
+check(
+  "materialize_move pauses rather than clobbering a destination edit",
+  materialized.isError &&
+    storedText("1-projects/big-moved/note-000.md") === "user edit during pending move" &&
+    objects.has(`.context/moves/${bigMoveId}.json`)
+);
+await contextStore.delete("1-projects/big-moved/note-000.md");
+materialized = await call("priv-token", "materialize_move", { id: bigMoveId, batch_size: 100 });
+check(
+  "materialize_move copies a bounded batch without deleting sources early",
+  !materialized.isError &&
+    materialized.content[0].text.includes("copying") &&
+    objects.has("1-projects/big-moved/note-000.md") &&
+    objects.has("1-projects/big-move/note-000.md")
+);
+await contextStore.put("1-projects/big-move/note-000.md", "post cutover source edit");
+for (let i = 0; i < 20 && objects.has(`.context/moves/${bigMoveId}.json`); i += 1) {
+  materialized = await call("priv-token", "materialize_move", { id: bigMoveId, batch_size: 100 });
+}
+check(
+  "materialize_move preserves post-cutover source edits instead of deleting them",
+  materialized.isError &&
+    objects.has(`.context/moves/${bigMoveId}.json`) &&
+    objects.has("1-projects/big-moved/note-501.md") &&
+    storedText("1-projects/big-move/note-000.md") === "post cutover source edit"
+);
+const teamMaterializeTools =
+  (await rpc("pub-token", "tools/list"))?.result?.tools?.map((tool) => tool.name) ?? [];
+check(
+  "materialize_move is not advertised outside owner scope",
+  !teamMaterializeTools.includes("materialize_move")
+);
+check(
+  "materialize_move direct calls are masked outside owner scope",
+  (await call("pub-token", "materialize_move", { id: bigMoveId })).isError
+);
+await contextStore.delete(`.context/moves/${bigMoveId}.json`);
+await call("priv-token", "materialize_move", { id: bigMoveId });
+for (let i = 0; i < 501; i += 1) {
+  const suffix = String(i).padStart(3, "0");
+  await contextStore.put(`1-projects/big-missing/note-${suffix}.md`, `missing ${suffix}`);
+}
+const missingMove = await call("priv-token", "move_folder", {
+  source: "1-projects/big-missing",
+  destination: "1-projects/big-missing-moved",
+});
+const missingMoveId = missingMove.content[0].text.match(/move_id: (\S+)/)?.[1];
+await contextStore.delete("1-projects/big-missing/note-000.md");
+const missingMaterialize = await call("priv-token", "materialize_move", {
+  id: missingMoveId,
+  batch_size: 100,
+});
+check(
+  "materialize_move pauses honestly when a captured source disappears before copy",
+    missingMaterialize.isError &&
+    objects.has(`.context/moves/${missingMoveId}.json`) &&
+    !objects.has("1-projects/big-missing-moved/note-000.md")
+);
+await contextStore.delete(`.context/moves/${missingMoveId}.json`);
+for (let i = 0; i < 501; i += 1) {
+  const suffix = String(i).padStart(3, "0");
+  await contextStore.put(`1-projects/big-complete/note-${suffix}.md`, `complete ${suffix}`);
+}
+await contextStore.put("1-projects/big-complete-link.md", "[[1-projects/big-complete/note-000]]");
+await contextStore.put("1-projects/big-complete/note-001.md", "[[../big-complete-link]]");
+const completeMove = await call("priv-token", "move_folder", {
+  source: "1-projects/big-complete",
+  destination: "2-areas/deep/big-complete-moved",
+});
+const completeMoveId = completeMove.content[0].text.match(/move_id: (\S+)/)?.[1];
+let completeMaterialize = completeMove;
+for (let i = 0; i < 20 && objects.has(`.context/moves/${completeMoveId}.json`); i += 1) {
+  completeMaterialize = await call("priv-token", "materialize_move", {
+    id: completeMoveId,
+    batch_size: 100,
+  });
+}
+check(
+  "materialize_move completes a logical move and removes the source objects",
+  !completeMaterialize.isError &&
+    completeMaterialize.content[0].text.includes("complete") &&
+    !objects.has(`.context/moves/${completeMoveId}.json`) &&
+    !objects.has("1-projects/big-complete/note-000.md") &&
+    objects.has("2-areas/deep/big-complete-moved/note-000.md")
+);
+check(
+  "logical folder move rewrites references when the move is activated",
+  storedText("1-projects/big-complete-link.md") === "[[2-areas/deep/big-complete-moved/note-000]]" &&
+    storedText("2-areas/deep/big-complete-moved/note-001.md") ===
+      "[[../../../1-projects/big-complete-link]]"
+);
+for (let i = 0; i < 502; i += 1) {
+  const suffix = String(i).padStart(3, "0");
+  await contextStore.delete(`1-projects/big-move/note-${suffix}.md`);
+  await contextStore.delete(`1-projects/big-moved/note-${suffix}.md`);
+}
+for (let i = 0; i < 501; i += 1) {
+  const suffix = String(i).padStart(3, "0");
+  await contextStore.delete(`1-projects/big-missing/note-${suffix}.md`);
+  await contextStore.delete(`1-projects/big-missing-moved/note-${suffix}.md`);
+  await contextStore.delete(`1-projects/big-complete/note-${suffix}.md`);
+  await contextStore.delete(`2-areas/deep/big-complete-moved/note-${suffix}.md`);
+}
+await contextStore.delete("1-projects/big-complete-link.md");
 
 // Archive-to-archive relocations already retain a recoverable destination, so
 // they avoid creating a redundant history copy when visibility is unchanged.

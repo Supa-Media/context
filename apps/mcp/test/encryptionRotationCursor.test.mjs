@@ -69,7 +69,7 @@ async function fixture(id) {
   controlPlane.addWorkspace(`ws_${id}`, id, {
     provider: "r2-binding",
     bindingName: "BUCKET_ADV",
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
     encryptionKey: { current: "k1", keys: { k1: KEY_1 } },
   });

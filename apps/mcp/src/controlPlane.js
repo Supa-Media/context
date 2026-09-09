@@ -261,9 +261,11 @@
  * `status` must be `"active"` for the gateway to build a store. Any other value
  * — `"pending"`, `"failed"`, `"disconnected"` — is treated exactly like `null`.
  *
- * `capabilities.conditionalWrite` is the *probed* capability, not an
- * aspiration. B2 and Wasabi accept `If-Match` and ignore it, so the control
- * plane starts a binding at `false` and only a real probe may turn it on.
+ * `capabilities.conditionalWrite`, `capabilities.conditionalCreate`,
+ * `capabilities.conditionalDelete`, and `capabilities.serverSideCopy` are
+ * *probed* capabilities, not aspirations. B2 and Wasabi accept conditional
+ * headers and ignore some of them, so the control plane starts a binding at
+ * `false` and only a real probe may turn it on.
  *
  * **This response contains a decrypted secret. It is fetched per request and
  * never cached.** See `session.js` for why.

@@ -380,7 +380,7 @@ async function runWiredChecks(check) {
   controlPlane.addWorkspace("ws_links", "links", {
     provider: "r2-binding",
     bindingName: "CONTEXT_BUCKET",
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
   });
   const OWNER = "cat_test_links_owner_0000000000000000";

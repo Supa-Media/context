@@ -253,6 +253,38 @@ export async function runStoreChecks(check, gateway) {
       bodyStore.fetchImpl.calls[0].headers["x-amz-content-sha256"] !==
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   );
+  const copyStore = s3(() =>
+    new Response("<CopyObjectResult><ETag>&quot;copy-etag&quot;</ETag></CopyObjectResult>")
+  );
+  const copied = await copyStore.copy("1-projects/a note.md", "1-projects/copied.md");
+  check(
+    "S3 same-store copy uses CopyObject without reading note bytes",
+    copied?.etag === "copy-etag" &&
+      copyStore.fetchImpl.calls[0].method === "PUT" &&
+      copyStore.fetchImpl.calls[0].headers["x-amz-copy-source"] ===
+        "/example-bucket/1-projects/a%20note.md" &&
+      copyStore.fetchImpl.calls[0].headers["x-amz-metadata-directive"] === "COPY" &&
+      /SignedHeaders=[a-z0-9;-]*x-amz-copy-source/.test(
+        copyStore.fetchImpl.calls[0].headers.Authorization
+      )
+  );
+  const conditionalDeleteStore = s3((call) =>
+    call.headers["if-match"] === '"old-etag"'
+      ? new Response("", { status: 412 })
+      : new Response("", { status: 204 })
+  );
+  const deleteConflict = await conditionalDeleteStore.delete("1-projects/copied.md", {
+    onlyIf: { etagMatches: "old-etag" },
+  });
+  check(
+    "S3 conditional delete signs If-Match and returns null on precondition failure",
+    deleteConflict === null &&
+      conditionalDeleteStore.fetchImpl.calls[0].method === "DELETE" &&
+      conditionalDeleteStore.fetchImpl.calls[0].headers["if-match"] === '"old-etag"' &&
+      /SignedHeaders=[a-z0-9;-]*if-match/.test(
+        conditionalDeleteStore.fetchImpl.calls[0].headers.Authorization
+      )
+  );
 
   /* ---------------------------------- list --------------------------------- */
 
@@ -783,6 +815,69 @@ export async function runStoreChecks(check, gateway) {
     honestProbe.cleanedUp === true &&
       ![...honestBucket.objects.keys()].some((key) => key.startsWith(PROBE_PREFIX))
   );
+  {
+    const objects = new Map();
+    let counter = 0;
+    const probe = await probeStore(
+      s3((call) => {
+        const key = decodeURIComponent(call.url.pathname.split("/").slice(2).join("/"));
+        if (call.method === "GET" && call.url.searchParams.get("list-type") === "2") {
+          return new Response(listXml());
+        }
+        if (call.method === "GET") {
+          const object = objects.get(key);
+          if (!object) return new Response("", { status: 404 });
+          return new Response(object.body, { status: 200, headers: { etag: `"${object.etag}"` } });
+        }
+        if (call.method === "PUT") {
+          const ifMatch = call.headers["if-match"]?.replace(/^"|"$/g, "");
+          if (call.headers["if-none-match"] === "*" && objects.has(key)) {
+            return new Response("", { status: 412 });
+          }
+          const copySource = call.headers["x-amz-copy-source"];
+          if (copySource) {
+            const sourceKey = decodeURIComponent(String(copySource).split("/").slice(2).join("/"));
+            const source = objects.get(sourceKey);
+            const sourceIfMatch = call.headers["x-amz-copy-source-if-match"]?.replace(/^"|"$/g, "");
+            if (!source) return new Response("", { status: 404 });
+            if (sourceIfMatch && source.etag !== sourceIfMatch) return new Response("", { status: 412 });
+            const etag = `s3-probe-${++counter}`;
+            objects.set(key, { body: source.body, etag });
+            return new Response(
+              `<CopyObjectResult><ETag>&quot;${etag}&quot;</ETag></CopyObjectResult>`,
+              { status: 200 }
+            );
+          }
+          if (ifMatch && objects.get(key)?.etag !== ifMatch) return new Response("", { status: 412 });
+          const etag = `s3-probe-${++counter}`;
+          objects.set(key, { body: call.body, etag });
+          return new Response("", { status: 200, headers: { etag: `"${etag}"` } });
+        }
+        if (call.method === "DELETE") {
+          const ifMatch = call.headers["if-match"]?.replace(/^"|"$/g, "");
+          if (ifMatch && objects.get(key)?.etag !== ifMatch) return new Response("", { status: 412 });
+          objects.delete(key);
+          return new Response(null, { status: 204 });
+        }
+        return new Response("", { status: 405 });
+      })
+    );
+    check(
+      "probe confirms S3 conditional delete when If-Match delete is enforced",
+      probe.ok === true &&
+        probe.capabilities.conditionalWrite === true &&
+        probe.capabilities.conditionalCreate === true &&
+        probe.capabilities.conditionalDelete === true &&
+        probe.capabilities.serverSideCopy === "same-store" &&
+        probe.conditionalCreate.verified === true &&
+        probe.conditionalDelete.verified === true &&
+        probe.conditionalDelete.rejectsWrong === true &&
+        probe.conditionalDelete.acceptsCorrect === true &&
+        probe.serverSideCopy.verified === true &&
+        probe.serverSideCopy.rejectsDestinationConflict === true &&
+        probe.serverSideCopy.rejectsSourceMismatch === true
+    );
+  }
 
   // Rejecting the impossible probe etag is not evidence of conflict detection.
   // This backend 412s anything that does not look like one of its own etags and
