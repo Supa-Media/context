@@ -129,24 +129,21 @@ const SERVICE_TITLES: Record<GoogleService, string> = {
  */
 const SERVICE_COPY: Record<
   GoogleService,
-  { title: string; sub: string; empty: string; next: string; connect: string }
+  { sub: string; empty: string; next: string; connect: string }
 > = {
   gmail: {
-    title: "Google accounts",
     sub: "Each Google account whose mailbox this context reads.",
     empty: "No Google mailbox connected yet.",
     next: "Connect one and it appears here with its sync state and the daily note it writes to, which you can change.",
     connect: "Connect a Gmail account",
   },
   calendar: {
-    title: "Google accounts",
     sub: "Each Google account whose calendar this context reads.",
     empty: "No Google calendar connected yet.",
     next: "Connect one and it appears here with its sync state and the daily note it writes to, which you can change.",
     connect: "Connect a Google Calendar",
   },
   chat: {
-    title: "Google accounts",
     sub: "Each Google account whose Chat spaces this context reads.",
     empty: "No Google Chat account connected yet.",
     next: "Connect one and it appears here with the number of spaces it follows and the daily note it writes to, which you can change.",
@@ -196,7 +193,15 @@ export function GoogleConnectionsCard({
     <Card>
       <Row style={styles.head}>
         <Grow>
-          <Text variant="rowTitle">{copy?.title ?? "Google accounts"}</Text>
+          {/*
+            The card is named after its unit, and the unit is a Google
+            *account* on every panel — which is not decoration: Disconnect
+            removes the account, so a card titled "Google calendars" over a
+            button that stops Gmail too would be the narrower name doing the
+            misleading. The sub below says which of the account's services
+            this panel is about.
+          */}
+          <Text variant="rowTitle">Google accounts</Text>
           <Text variant="rowSub" style={styles.rowSub}>
             {copy?.sub ?? "Connect each Google account this context should sync."}
           </Text>
@@ -325,11 +330,9 @@ function ConnectedGoogleRow({
     if (actions === undefined) return;
     void actions.disconnect(connection.connectionId);
   });
-  const serviceNames = [
-    connection.syncServices.gmail ? "Email" : null,
-    connection.syncServices.calendar ? "Calendar" : null,
-    connection.syncServices.chat ? "Chat" : null,
-  ].filter(Boolean);
+  const serviceNames = (["gmail", "calendar", "chat"] as const)
+    .filter((key) => connection.syncServices[key])
+    .map((key) => SERVICE_TITLES[key]);
   const inlineError = connection.lastError ?? connection.syncRun?.lastError;
   const inlineErrorCode = connection.errorCode ?? connection.syncRun?.errorCode;
   const showAccountError = inlineError && connection.syncRun?.status !== "failed";
@@ -354,7 +357,7 @@ function ConnectedGoogleRow({
             <GoogleServiceBlock
               connectionId={connection.connectionId}
               service="gmail"
-              title="Email"
+              title={SERVICE_TITLES.gmail}
               status={
                 gmailRunDetail(connection) ??
                 (connection.gmail.historyCursorReady
@@ -371,7 +374,7 @@ function ConnectedGoogleRow({
             <GoogleServiceBlock
               connectionId={connection.connectionId}
               service="calendar"
-              title="Calendar"
+              title={SERVICE_TITLES.calendar}
               status={
                 connection.calendar.syncCursorReady
                   ? `Ready for calendar changes${formatSyncTime(connection.calendar.lastSyncedAt) ? ` · ${formatSyncTime(connection.calendar.lastSyncedAt)}` : ""}`
@@ -386,7 +389,7 @@ function ConnectedGoogleRow({
             <GoogleServiceBlock
               connectionId={connection.connectionId}
               service="chat"
-              title="Chat"
+              title={SERVICE_TITLES.chat}
               status={
                 connection.chat.cursorCount > 0
                   ? `Ready for ${connection.chat.cursorCount} Chat space${connection.chat.cursorCount === 1 ? "" : "s"}${formatSyncTime(connection.chat.lastSyncedAt) ? ` · ${formatSyncTime(connection.chat.lastSyncedAt)}` : ""}`
