@@ -231,7 +231,7 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
           </Pressable>
 
           <Pressable
-            onPress={paused ? () => meetings.resume() : () => meetings.pause()}
+            onPress={paused ? () => void meetings.resume() : () => void meetings.pause()}
             accessibilityRole="button"
             accessibilityLabel={paused ? "Resume recording" : "Pause recording"}
             style={({ pressed }) => [

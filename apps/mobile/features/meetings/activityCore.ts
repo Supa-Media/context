@@ -8,6 +8,13 @@ export interface MeetingActivityPayload {
 
 export type MeetingActivityAction = "pause" | "resume" | "end";
 
+export interface MeetingActivityController {
+  available(): boolean;
+  update(payload: MeetingActivityPayload): void;
+  end(meetingId: string): void;
+  reconcile(activeMeetingId: string | null): void;
+}
+
 export function activityActionFor(
   value: string | string[] | undefined,
   routeMeetingId: string,

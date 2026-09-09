@@ -49,13 +49,18 @@ function declareEasExtension(config, ids) {
   return config;
 }
 
-function addWidgetTarget(project, ids) {
+function addWidgetTarget(project, ids, versions = {}) {
   const targets = project.pbxNativeTargetSection();
   const existingEntry = Object.entries(targets).find(
     ([key, target]) => !key.endsWith("_comment") && String(target?.name).replaceAll('"', "") === TARGET_NAME,
   );
   if (existingEntry) return existingEntry[0];
 
+  // node-xcode silently skips the dependency when Expo's generated project has
+  // not created these optional sections yet; initialize them before addTarget.
+  const objects = project.hash.project.objects;
+  objects.PBXTargetDependency ??= {};
+  objects.PBXContainerItemProxy ??= {};
   const target = project.addTarget(
     TARGET_NAME,
     "app_extension",
@@ -77,11 +82,11 @@ function addWidgetTarget(project, ids) {
     settings.APPLICATION_EXTENSION_API_ONLY = "YES";
     settings.CODE_SIGN_ENTITLEMENTS = `"${IOS_DIRECTORY}/${TARGET_NAME}.entitlements"`;
     settings.CONTEXT_APP_GROUP = `"${ids.appGroup}"`;
-    settings.CURRENT_PROJECT_VERSION = "$(CURRENT_PROJECT_VERSION)";
+    settings.CURRENT_PROJECT_VERSION = String(versions.buildNumber ?? "1");
     settings.GENERATE_INFOPLIST_FILE = "NO";
     settings.INFOPLIST_FILE = `"${IOS_DIRECTORY}/${TARGET_NAME}-Info.plist"`;
     settings.IPHONEOS_DEPLOYMENT_TARGET = "16.1";
-    settings.MARKETING_VERSION = "$(MARKETING_VERSION)";
+    settings.MARKETING_VERSION = `"${versions.version ?? "1.0.0"}"`;
     settings.PRODUCT_BUNDLE_IDENTIFIER = `"${ids.extensionBundleIdentifier}"`;
     settings.SKIP_INSTALL = "YES";
     settings.SWIFT_VERSION = "5.0";
@@ -117,7 +122,10 @@ function withContextWidgets(config) {
   }]);
 
   config = withXcodeProject(config, (result) => {
-    addWidgetTarget(result.modResults, ids);
+    addWidgetTarget(result.modResults, ids, {
+      version: config.version,
+      buildNumber: config.ios?.buildNumber,
+    });
     return result;
   });
 

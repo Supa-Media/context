@@ -42,8 +42,8 @@ export default function MeetingRoute() {
 
     // The link wakes the app; the extension never controls audio cross-process.
     // Stale or forged links are inert unless they name this device's live meeting.
-    if (action === "pause") meetings.pause();
-    else if (action === "resume") meetings.resume();
+    if (action === "pause") void meetings.pause();
+    else if (action === "resume") void meetings.resume();
     else if (action === "end") void meetings.end();
   }, [activityAction, meetingId, snapshot.live?.session.id, snapshot.status]);
 

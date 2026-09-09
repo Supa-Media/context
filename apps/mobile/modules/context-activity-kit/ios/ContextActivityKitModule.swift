@@ -4,6 +4,7 @@ import Foundation
 import WidgetKit
 
 public final class ContextActivityKitModule: Module {
+  private let coordinator = ContextActivityCoordinator()
   public func definition() -> ModuleDefinition {
     Name("ContextActivityKit")
 
@@ -17,40 +18,23 @@ public final class ContextActivityKitModule: Module {
       guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
       let state = try Self.contentState(payload)
       let meetingId = try Self.string(payload, "meetingId")
+      let generation = try Self.number(payload, "generation")
       let url = Self.stringOrNil(payload["url"])
-
-      if let existing = Activity<ContextMeetingActivityAttributes>.activities.first(where: {
-        $0.attributes.meetingId == meetingId
-      }) {
-        await existing.update(using: state)
-      } else {
-        _ = try Activity<ContextMeetingActivityAttributes>.request(
-          attributes: ContextMeetingActivityAttributes(meetingId: meetingId),
-          contentState: state,
-          pushType: nil
-        )
-      }
-
-      Self.writeWidgetSnapshot(payload: payload, url: url)
+      let applied = try await self.coordinator.upsert(
+        meetingId: meetingId, state: state, generation: generation
+      )
+      if applied { Self.writeWidgetSnapshot(payload: payload, url: url) }
     }
 
-    AsyncFunction("end") { (meetingId: String) async in
+    AsyncFunction("end") { (meetingId: String, generation: Double) async in
       guard #available(iOS 16.1, *) else { return }
-      for activity in Activity<ContextMeetingActivityAttributes>.activities where
-        activity.attributes.meetingId == meetingId
-      {
-        await activity.end(dismissalPolicy: .immediate)
-      }
+      await self.coordinator.end(meetingId: meetingId, generation: generation)
       Self.clearWidgetRecording(meetingId: meetingId)
     }
 
-    AsyncFunction("reconcile") { (activeMeetingId: String?) async in
+    AsyncFunction("reconcile") { (activeMeetingId: String?, generation: Double) async in
       guard #available(iOS 16.1, *) else { return }
-      for activity in Activity<ContextMeetingActivityAttributes>.activities where
-        activity.attributes.meetingId != activeMeetingId
-      {
-        await activity.end(dismissalPolicy: .immediate)
-      }
+      await self.coordinator.reconcile(activeMeetingId: activeMeetingId, generation: generation)
     }
   }
 
@@ -67,6 +51,13 @@ public final class ContextActivityKitModule: Module {
 
   private static func string(_ payload: [String: Any], _ key: String) throws -> String {
     guard let value = payload[key] as? String, !value.isEmpty else {
+      throw Exception(name: "ERR_CONTEXT_ACTIVITY_PAYLOAD", description: "Missing \(key)")
+    }
+    return value
+  }
+
+  private static func number(_ payload: [String: Any], _ key: String) throws -> Double {
+    guard let value = payload[key] as? Double, value.isFinite, value >= 0 else {
       throw Exception(name: "ERR_CONTEXT_ACTIVITY_PAYLOAD", description: "Missing \(key)")
     }
     return value
@@ -107,5 +98,57 @@ public final class ContextActivityKitModule: Module {
       defaults.set(next, forKey: "context.widget.snapshot")
     }
     WidgetCenter.shared.reloadTimelines(ofKind: "ContextQuickCaptureWidget")
+  }
+}
+
+private actor ContextActivityCoordinator {
+  private var latestGeneration: Double = -1
+
+  @available(iOS 16.1, *)
+  func upsert(
+    meetingId: String,
+    state: ContextMeetingActivityAttributes.ContentState,
+    generation: Double
+  ) async throws -> Bool {
+    guard generation > latestGeneration else { return false }
+    latestGeneration = generation
+    let matching = Activity<ContextMeetingActivityAttributes>.activities.filter {
+      $0.attributes.meetingId == meetingId
+    }
+    if let keeper = matching.first {
+      await keeper.update(using: state)
+      for duplicate in matching.dropFirst() {
+        await duplicate.end(dismissalPolicy: .immediate)
+      }
+      return true
+    }
+    _ = try Activity<ContextMeetingActivityAttributes>.request(
+      attributes: ContextMeetingActivityAttributes(meetingId: meetingId),
+      contentState: state,
+      pushType: nil
+    )
+    return true
+  }
+
+  @available(iOS 16.1, *)
+  func end(meetingId: String, generation: Double) async {
+    guard generation > latestGeneration else { return }
+    latestGeneration = generation
+    for activity in Activity<ContextMeetingActivityAttributes>.activities where
+      activity.attributes.meetingId == meetingId
+    {
+      await activity.end(dismissalPolicy: .immediate)
+    }
+  }
+
+  @available(iOS 16.1, *)
+  func reconcile(activeMeetingId: String?, generation: Double) async {
+    guard generation > latestGeneration else { return }
+    latestGeneration = generation
+    for activity in Activity<ContextMeetingActivityAttributes>.activities where
+      activity.attributes.meetingId != activeMeetingId
+    {
+      await activity.end(dismissalPolicy: .immediate)
+    }
   }
 }

@@ -32,6 +32,7 @@ import {
 } from "./session";
 import { drainMeetings } from "./sync";
 import { meetingActivity } from "./activity";
+import type { MeetingActivityController } from "./activityCore";
 
 /**
  * The meetings feature's state, outside React.
@@ -220,6 +221,7 @@ const UNCONFIGURED: MeetingsSnapshot = Object.freeze({
 });
 
 export class MeetingsController {
+  constructor(private readonly activity: MeetingActivityController = meetingActivity) {}
   private listeners = new Set<() => void>();
   private snapshot: MeetingsSnapshot = UNCONFIGURED;
   private projections = new Map<string, MeetingProjection>();
@@ -311,7 +313,7 @@ export class MeetingsController {
     this.recoverInterruptedRecordings();
     // A previous process cannot own a recorder after launch; clear any stale
     // system surface left visible by an unclean termination.
-    meetingActivity.reconcile(null);
+    this.activity.reconcile(null);
 
     /*
       "On app launch, any `finalizing` session older than the bound is handled
@@ -463,8 +465,8 @@ export class MeetingsController {
     this.projections.clear();
     this.config = null;
     this.set(UNCONFIGURED);
-    if (activityMeetingId !== null) meetingActivity.end(activityMeetingId);
-    meetingActivity.reconcile(null);
+    if (activityMeetingId !== null) this.activity.end(activityMeetingId);
+    this.activity.reconcile(null);
   }
 
   /* ------------------------------- recording ------------------------------ */
@@ -530,6 +532,10 @@ export class MeetingsController {
       backgroundCaptureWarning: null,
     });
 
+    // Install failure reporting before opening the recorder: an audio backend
+    // may synchronously downgrade background capture during `start()`.
+    this.listenToRecorder(id);
+
     try {
       /*
         The meeting's own id goes to the recorder, and it is the only thing in
@@ -551,7 +557,11 @@ export class MeetingsController {
         systemAudio: input.systemAudio ?? config.recorder.capability.systemAudio,
       });
       // Show native recording chrome only after an audio recorder really opens.
-      if (config.recorder.capability.audio) this.updateMeetingActivity(id);
+      if (
+        config.recorder.capability.audio &&
+        config.recorder.state === "recording" &&
+        this.snapshot.backgroundCaptureWarning === null
+      ) this.updateMeetingActivity(id);
     } catch (error) {
       /*
         The session stays `recording` and the reason goes on the *snapshot*.
@@ -572,22 +582,33 @@ export class MeetingsController {
       });
     }
 
-    this.listenToRecorder(id);
     return id;
   }
 
-  pause(): void {
+  async pause(): Promise<void> {
     const live = this.snapshot.live;
     if (live === null || !can(live.session.state, "paused")) return;
-    void this.require().recorder.pause();
+    const recorder = this.require().recorder;
+    try {
+      await recorder.pause();
+    } catch {
+      return;
+    }
+    if (recorder.state !== "paused") return;
     this.apply(live.session.id, { type: "pause", at: this.nowIso() });
     this.updateMeetingActivity(live.session.id);
   }
 
-  resume(): void {
+  async resume(): Promise<void> {
     const live = this.snapshot.live;
     if (live === null || !can(live.session.state, "recording")) return;
-    void this.require().recorder.resume();
+    const recorder = this.require().recorder;
+    try {
+      await recorder.resume();
+    } catch {
+      return;
+    }
+    if (recorder.state !== "recording") return;
     this.apply(live.session.id, { type: "resume", at: this.nowIso() });
     this.updateMeetingActivity(live.session.id);
   }
@@ -624,7 +645,7 @@ export class MeetingsController {
       // A recorder that will not stop is not a reason to refuse to end a
       // meeting. It is reported through `onError`, which is already wired.
     });
-    if (activityMeetingId !== null) meetingActivity.end(activityMeetingId);
+    if (activityMeetingId !== null) this.activity.end(activityMeetingId);
     /*
       And stop listening for it, **after** the stop rather than before.
 
@@ -675,7 +696,7 @@ export class MeetingsController {
   private updateMeetingActivity(meetingId: string): void {
     const record = this.find(meetingId);
     if (record === undefined || !isLive(record.session.state)) return;
-    meetingActivity.update({
+    this.activity.update({
       meetingId,
       title: record.session.title,
       phase: record.session.state === "paused" ? "paused" : "recording",
@@ -956,9 +977,11 @@ export class MeetingsController {
         chip can say so while it lasts; the next successful `start` clears it.
       */
       if (error.kind === "background-unavailable") {
+        this.activity.end(meetingId);
         this.set({ ...this.snapshot, backgroundCaptureWarning: error.message });
         return;
       }
+      if (!error.recoverable) this.activity.end(meetingId);
       this.set({ ...this.snapshot, captureError: error.message });
     }));
   }

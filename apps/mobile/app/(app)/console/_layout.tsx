@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Slot, useRouter, usePathname } from "expo-router";
+import { Slot, useLocalSearchParams, useRouter, usePathname } from "expo-router";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { PressRow } from "../../../features/design/components/Button";
@@ -119,6 +119,8 @@ export default function ConsoleLayout() {
   const router = useRouter();
   const pathname = usePathname();
   const route = routeForPath(pathname);
+  const quickParams = useLocalSearchParams<{ quickAction?: string | string[] }>();
+  const handledQuickNote = useRef(false);
 
   const resolution = resolveContextRoute({
     route,
@@ -161,6 +163,16 @@ export default function ConsoleLayout() {
     either owning it".
   */
   const [barDialog, setBarDialog] = useState<Dialog>(null);
+  useEffect(() => {
+    if (
+      quickParams.quickAction !== "note" ||
+      handledQuickNote.current ||
+      data.loading ||
+      !data.files.canEdit
+    ) return;
+    handledQuickNote.current = true;
+    setBarDialog({ kind: "newNote", folder: "0-inbox" });
+  }, [data.files.canEdit, data.loading, quickParams.quickAction]);
   /*
     The tab whose close is waiting on a confirm.
 
