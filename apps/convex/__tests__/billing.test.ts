@@ -23,16 +23,22 @@
  * per row rather than "the last one" — a table that is appended to is not a
  * table you can index from the end.
  *
- *   `stripeWebhookRoute` skipping the signature check entirely        4
- *   `stripeWebhookRoute` treating an absent secret as "allow"         2
- *   `stripeWebhookRoute` verifying a re-serialised body               2
+ *   `stripeWebhookRoute` skipping the signature check entirely        3
+ *   `stripeSignatureIsValid` treating an absent secret as "allow"     2
  *   `applyStripeEvent` dropping the `lastEventId` check               1
  *   `applyStripeEvent` dropping the out-of-order check                1
- *   `applyStripeEvent` resolving a workspace from event metadata      2
- *   `setEntitlements` accepting an editor instead of an owner         2
- *   `startCheckout` accepting an editor instead of an owner           1
- *   `status` returning the money fields to every member               2
- *   `billingSession` returning a URL to another member                2
+ *   `applyStripeEvent` resolving a workspace from event metadata      1
+ *   `setEntitlements` and `startCheckout` accepting an editor         1
+ *   `status` returning the money fields to every member               1
+ *   `billingSession` returning a URL to another member                1
+ *
+ * **The metadata row is the one worth reading twice.** It is not a line that
+ * exists to be deleted — nothing here reads a workspace out of an event — so
+ * the sabotage was to *write* the vulnerable version: a `workspaceHint` field
+ * read off `data.object.metadata.workspaceId`, forwarded through the route,
+ * and preferred by `resolvePlan`. That is the shape somebody adds when a
+ * subscription event arrives with no checkout row to match, and it fails one
+ * test rather than none.
  */
 
 import { describe, expect, test, vi } from "vitest";

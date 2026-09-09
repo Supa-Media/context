@@ -17,16 +17,24 @@
  *
  * ## Sabotage record
  *
- * Run as temporary local edits and reverted; counts as measured.
+ * Run as temporary local edits and reverted; counts as measured, across this
+ * file, `billing.test.ts` and `structure.test.ts` together.
  *
- *   `planStatusFromStripe` defaulting to "active"                     3
- *   `activeEntitlements` ignoring the status                          3
- *   `stripePriceId` returning a malformed value instead of throwing   2
+ *   `planStatusFromStripe` defaulting to "active"                     1
+ *   `activeEntitlements` ignoring the status                          4
+ *   `stripePriceId` returning a malformed value instead of throwing   1
  *   `stripeSignatureIsValid` returning true for an absent secret      2
  *   `stripeSignatureIsValid` skipping the timestamp check             2
  *   `stripeSignatureIsValid` reading only the first v1 digest         1
  *   `parseStripeSignatureHeader` accepting a non-numeric `t`          1
  *   an exported `canExport` added to `lib/premium.ts`                 1
+ *
+ * **`planStatusFromStripe` defaulting to "active"** is one, and one is thin
+ * for the guard that decides whether an unrecognised word is a free upgrade.
+ * It is one because a single test walks every unknown input; splitting it into
+ * eight would raise the number and prove nothing more. What would genuinely
+ * widen it is a behavioural test at the webhook — an event carrying a status
+ * Stripe has not invented yet — and there is nowhere honest to get one.
  */
 
 import { describe, expect, test } from "vitest";
