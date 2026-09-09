@@ -1,10 +1,16 @@
 const fs = require("node:fs");
+const path = require("node:path");
+
+const MAX_ARTIFACT_BYTES = 200 * 1024 * 1024;
+const MAX_REDIRECTS = 5;
+const EAS_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function parseBuildResult(value) {
-  const build = Array.isArray(value) ? value[0] : value;
+  if (!Array.isArray(value) || value.length !== 1) throw new Error("EAS JSON must contain exactly one build");
+  const build = value[0];
   const id = build?.id;
   const url = build?.artifacts?.applicationArchiveUrl;
-  if (typeof id !== "string" || typeof url !== "string") {
+  if (typeof id !== "string" || !EAS_ID.test(id) || typeof url !== "string") {
     throw new Error("EAS JSON did not contain one build id and artifact URL");
   }
   return { id, url };
@@ -21,14 +27,49 @@ function parseDownloadResult(value) {
 
 async function downloadArtifact(value, destination) {
   const { id, url } = parseBuildResult(value);
-  if (!/^https:\/\//.test(url)) throw new Error("EAS artifact URL must use HTTPS");
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`EAS artifact download failed: HTTP ${response.status}`);
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length < 4 || bytes.readUInt32LE(0) !== 0x04034b50) {
-    throw new Error("EAS artifact is not an IPA ZIP archive");
+  const destinationDir = path.dirname(destination);
+  fs.mkdirSync(destinationDir, { recursive: true, mode: 0o700 });
+  try { if (fs.lstatSync(destination)) throw new Error("IPA destination already exists"); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  let current = url;
+  let response;
+  const seen = new Set();
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    if (new URL(current).protocol !== "https:") throw new Error("EAS artifact URL must use HTTPS");
+    if (seen.has(current)) throw new Error("EAS artifact redirect loop");
+    seen.add(current);
+    response = await fetch(current, { redirect: "manual" });
+    if (![301, 302, 303, 307, 308].includes(response.status)) break;
+    const location = response.headers.get("location");
+    if (!location || hop === MAX_REDIRECTS) throw new Error("EAS artifact redirect limit exceeded");
+    current = new URL(location, current).toString();
   }
-  fs.writeFileSync(destination, bytes, { mode: 0o600 });
+  if (!response?.ok) throw new Error(`EAS artifact download failed: HTTP ${response?.status ?? "unknown"}`);
+  const declared = Number(response.headers.get("content-length"));
+  if (!Number.isSafeInteger(declared) || declared <= 0 || declared > MAX_ARTIFACT_BYTES) throw new Error("EAS artifact has unacceptable Content-Length");
+  const temp = path.join(destinationDir, `.${path.basename(destination)}.${process.pid}.${Date.now()}.tmp`);
+  let handle;
+  try {
+    handle = await fs.promises.open(temp, "wx", 0o600);
+    let total = 0;
+    let magic = Buffer.alloc(0);
+    for await (const chunk of response.body) {
+      const bytes = Buffer.from(chunk);
+      total += bytes.length;
+      if (total > MAX_ARTIFACT_BYTES || total > declared) throw new Error("EAS artifact exceeds declared size");
+      if (magic.length < 4) magic = Buffer.concat([magic, bytes]).subarray(0, 4);
+      await handle.write(bytes);
+    }
+    if (total !== declared || magic.length < 4 || magic.readUInt32LE(0) !== 0x04034b50) throw new Error("EAS artifact is not a complete IPA ZIP archive");
+    await handle.sync();
+    await handle.close(); handle = undefined;
+    await fs.promises.link(temp, destination);
+    await fs.promises.unlink(temp);
+  } catch (error) {
+    if (handle) await handle.close().catch(() => {});
+    await fs.promises.unlink(temp).catch(() => {});
+    await fs.promises.unlink(destination).catch(() => {});
+    throw error;
+  }
   return { id, path: destination };
 }
 
