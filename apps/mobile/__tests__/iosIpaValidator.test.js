@@ -12,8 +12,9 @@ const hostPlist = ({ bundle = "lc.context.mobile", audio = true, live = true } =
   `<key>UIBackgroundModes</key><array>${audio ? "<string>audio</string>" : ""}</array>` +
   `<key>NSSupportsLiveActivities</key><${live ? "true" : "false"}/></dict></plist>`;
 
-const extensionPlist = ({ bundle = "lc.context.mobile.widgets", point = "com.apple.widgetkit-extension", build = "42", version = "1.0.0" } = {}) =>
-  `<plist><dict><key>CFBundleIdentifier</key><string>${bundle}</string>` +
+const extensionPlist = ({ name = "ContextWidgets", bundle = "lc.context.mobile.widgets", point = "com.apple.widgetkit-extension", build = "42", version = "1.0.0" } = {}) =>
+  `<plist><dict><key>CFBundleName</key><string>${name ?? ""}</string>` +
+  `<key>CFBundleIdentifier</key><string>${bundle}</string>` +
   `<key>CFBundleVersion</key><string>${build}</string><key>CFBundleShortVersionString</key><string>${version}</string><key>NSExtension</key>` +
   `<dict><key>NSExtensionPointIdentifier</key><string>${point}</string></dict></dict></plist>`;
 
@@ -51,6 +52,7 @@ describe("iOS Live Activity IPA validator", () => {
   });
 
   test.each([
+    [{ name: null }, /missing CFBundleName/],
     [{ bundle: "evil.widgets" }, /wrong bundle id/],
     [{ point: "evil.extension" }, /extension point/],
   ])("rejects an invalid widget contract", (extension, message) => {

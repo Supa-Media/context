@@ -64,6 +64,9 @@ function validateIpa(path, options = {}) {
     readPlistXml(path, extensionPlists[0]),
     "ContextWidgets Info.plist is malformed",
   );
+  if (!extension.CFBundleName) {
+    throw new Error("ContextWidgets extension is missing CFBundleName");
+  }
   if (extension.CFBundleIdentifier !== EXTENSION_BUNDLE_ID || extension.NSExtension?.NSExtensionPointIdentifier !== "com.apple.widgetkit-extension") {
     throw new Error("ContextWidgets extension has the wrong bundle id or extension point");
   }
