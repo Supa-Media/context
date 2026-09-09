@@ -26,14 +26,23 @@ export function useReducedMotion(): boolean {
         if (!cancelled) setReduced(false);
       });
 
-    const subscription = AccessibilityInfo.addEventListener(
-      "reduceMotionChanged",
-      (value) => setReduced(value),
-    );
+    /*
+      `addEventListener` is typed as always returning a subscription and does
+      not always return one: a host that stubs `AccessibilityInfo` — jsdom
+      under jest, and anything else providing only the promise half — hands
+      back `undefined`, and an unguarded `.remove()` then throws during
+      *unmount*, where it surfaces as an unrelated component failing to tear
+      down. Optional rather than a cast, because the honest shape is "there may
+      be nothing to unsubscribe from".
+    */
+    const subscription: { remove: () => void } | undefined =
+      AccessibilityInfo.addEventListener("reduceMotionChanged", (value) =>
+        setReduced(value),
+      );
 
     return () => {
       cancelled = true;
-      subscription.remove();
+      subscription?.remove();
     };
   }, []);
 

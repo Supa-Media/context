@@ -103,6 +103,9 @@ function baseView(over: Partial<BlendedSearchView> = {}): BlendedSearchView {
 }
 
 describe("zero eligible contexts", () => {
+  // `settings=search`, not the default section. This row exists to turn fast
+  // search on; landing on the bucket binding leaves the control it names a
+  // sidebar click away, and on a phone a back-to-the-list away.
   test("names an owned context and presses through to its settings", async () => {
     const { text, onOpen } = mount(
       baseView({
@@ -122,7 +125,7 @@ describe("zero eligible contexts", () => {
     expect(text()).toContain("Fast search is off for @my-brain");
 
     await press("search-nudge-open-my-brain");
-    expect(onOpen).toHaveBeenCalledWith("/console/@my-brain/settings");
+    expect(onOpen).toHaveBeenCalledWith("/console/@my-brain?settings=search");
   });
 
   test("names a shared context by its owner, with nothing to press", async () => {

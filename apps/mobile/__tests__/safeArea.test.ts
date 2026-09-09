@@ -364,7 +364,18 @@ const ROUTES: Record<string, Coverage> = {
   "(app)/console/search.tsx": { kind: "framed" },
   "(app)/console/connections.tsx": { kind: "framed" },
   "(app)/console/[slug]/index.tsx": { kind: "framed" },
-  "(app)/console/[slug]/settings.tsx": { kind: "framed" },
+  /*
+    A `<Redirect>` and nothing else since settings became an overlay — which
+    is this census's own definition of a gate. It was left as `framed` for one
+    commit, and a census entry that mounts an empty file is worse than none:
+    it reports coverage of a screen whose content moved into a `Modal` this
+    walk cannot see. `Overlay` pays the insets itself; `overlayInsets.test.ts`
+    is what actually holds that now.
+  */
+  "(app)/console/[slug]/settings.tsx": {
+    kind: "gate",
+    mount: () => createElement(requireRoute("(app)/console/[slug]/settings.tsx")),
+  },
 };
 
 const APP_DIR = join(__dirname, "..", "app");

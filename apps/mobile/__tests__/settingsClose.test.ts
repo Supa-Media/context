@@ -5,90 +5,75 @@
 /**
  * **Closing settings must not close the note behind it.**
  *
- * `/console/@slug/settings` is pushed *over* Browse and leaves it mounted, so
- * what dismissing it returns to is the note somebody had open. The route said
- * that with `router.replace(browseHref(slug))` — `/console/@slug`, no `?note=`
- * — and for as long as such a URL was read as stale, that was harmless: the
- * mirror re-addressed the open note and nobody noticed.
+ * This file used to guard a reconstruction. Settings was a *route* pushed over
+ * Browse, so dismissing it had to work out where to go back to — the context
+ * root, or the note somebody had open — and get it right, because a URL that
+ * has lost its `?note=` is an instruction to close that note rather than a
+ * stale address (`noteAddress.ts`). The route named both cases explicitly and
+ * this test stopped anybody tidying it back to a bare `browseHref`.
  *
- * A URL that loses its note is an instruction now (`noteAddress.ts`, the phone
- * pill's whole press), which turns that same href into "close the note". So the
- * route has to name where it is going, and this file is what stops it being
- * tidied back to the one-liner it was: a bare href here would shut somebody's
- * note as a side effect of dismissing a settings pane, and — on a phone —
- * file them at the root on the device on the way out.
+ * **There is nothing left to reconstruct.** The console renders one `<Slot />`,
+ * so a settings route replaced Browse rather than covering it — which is why
+ * the reconstruction existed at all. Settings is a parameter on the context's
+ * own page now (`?settings=<section>`), drawn as an overlay by the console
+ * layout, so the note keeps its own `?note=` throughout and closing drops one
+ * parameter and touches nothing else.
  *
- * It asserts the **href**, because that is the whole of what the route decides.
+ * What still needs guarding is the other half of that promise: the old path is
+ * in the wild — the Dropbox failure notice and the search nudge both link to
+ * it, and somebody has it in a chat — so it must keep landing on settings
+ * rather than on a dead page. That is what this file asserts now.
  */
 
 import { describe, expect, jest, test } from "@jest/globals";
-import { act, createElement, type ReactNode } from "react";
+import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import Route from "../app/(app)/console/[slug]/settings";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const NOTE = "1-projects/pilot.md";
-const replaced: string[] = [];
-let close: (() => void) | null = null;
+const redirected: string[] = [];
+let mockSlug: string | undefined = "@seyi";
 
 jest.mock("expo-router", () => ({
-  useRouter: () => ({ push: () => {}, replace: (href: string) => replaced.push(href) }),
-  useLocalSearchParams: () => ({ slug: "@seyi" }),
-}));
-
-jest.mock("../features/console/panes/SettingsPane", () => ({
-  SettingsPane: ({ onClose }: { onClose: () => void }) => {
-    close = onClose;
+  useRouter: () => ({ push: () => {}, replace: () => {} }),
+  useLocalSearchParams: () => ({ slug: mockSlug }),
+  Redirect: ({ href }: { href: string }) => {
+    redirected.push(href);
     return null;
   },
 }));
 
-const { ConsoleDataProvider } =
-  require("../features/console/ConsoleDataContext") as typeof import("../features/console/ConsoleDataContext");
+jest.mock("../features/console/ConsoleDataContext", () => ({
+  useConsoleData: () => ({ contexts: [{ id: "w1", slug: "seyi", role: "owner" }] }),
+}));
 
-const ContextSettingsRoute = (
-  require("../app/(app)/console/[slug]/settings") as { default: () => ReactNode }
-).default;
-
-function mount(selectedPath: string | null): void {
-  const container = document.createElement("div");
-  document.body.appendChild(container);
-  const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
-  const data = {
-    contexts: [{ id: "w1", slug: "seyi", role: "owner", kind: "personal", status: "ok" }],
-    selectedContextId: "w1",
-    files: { selectedPath },
-    loading: false,
-  } as never;
+function render(): void {
+  redirected.length = 0;
+  const host = document.createElement("div");
+  const root = createRoot(host);
   act(() => {
-    root.render(
-      createElement(ConsoleDataProvider, {
-        value: data,
-        children: createElement(ContextSettingsRoute),
-      }),
-    );
+    root.render(createElement(Route));
+  });
+  act(() => {
+    root.unmount();
   });
 }
 
-describe("dismissing a context's settings", () => {
-  /**
-   * SABOTAGE: `router.replace(browseHref(slug))`, which is what it said before
-   * a bare console URL meant anything. Fails here.
-   */
-  test("returns to the note that is still open behind it", () => {
-    replaced.length = 0;
-    mount(NOTE);
-    act(() => close?.());
-    expect(replaced).toEqual([`/console/@seyi?note=${encodeURIComponent(NOTE)}`]);
+describe("the settings path somebody already has", () => {
+  test("still lands on settings, as the parameter form", () => {
+    mockSlug = "@seyi";
+    render();
+    // Not `/console/@seyi` — that is Browse with settings closed, which is the
+    // dead page this redirect exists to avoid.
+    expect(redirected).toEqual(["/console/@seyi?settings=storage"]);
   });
 
-  test("and to the context's root when nothing is open", () => {
-    // The other direction, so the fix cannot be "always name a note" — there is
-    // not always one, and `?note=` naming nothing is a fragment of machinery in
-    // an address somebody may copy.
-    replaced.length = 0;
-    mount(null);
-    act(() => close?.());
-    expect(replaced).toEqual(["/console/@seyi"]);
+  test("does not invent a context when the URL names none", () => {
+    mockSlug = undefined;
+    render();
+    // The one case where there is no context to open settings for. It goes to
+    // a place rather than to `?settings=` on nothing.
+    expect(redirected).toEqual(["/console/@you"]);
   });
 });

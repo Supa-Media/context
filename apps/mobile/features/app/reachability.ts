@@ -421,8 +421,8 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         },
         navigation: [
           {
-            file: "app/(app)/console/[slug]/settings.tsx",
-            contains: ["router.push(appSectionHref(section))"],
+            file: CONSOLE_LAYOUT,
+            contains: ["onOpenSection={(key) => router.push(appSectionHref(key))}"],
           },
         ],
         region: "screen",
@@ -456,8 +456,8 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         },
         navigation: [
           {
-            file: "app/(app)/console/[slug]/settings.tsx",
-            contains: ["router.push(appSectionHref(section))"],
+            file: CONSOLE_LAYOUT,
+            contains: ["onOpenSection={(key) => router.push(appSectionHref(key))}"],
           },
         ],
         region: "screen",
@@ -503,8 +503,8 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         },
         navigation: [
           {
-            file: "app/(app)/console/[slug]/settings.tsx",
-            contains: ["router.push(appSectionHref(section))"],
+            file: CONSOLE_LAYOUT,
+            contains: ["onOpenSection={(key) => router.push(appSectionHref(key))}"],
           },
         ],
         region: "screen",
