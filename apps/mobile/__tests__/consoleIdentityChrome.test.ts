@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { describe, expect, jest, test } from "@jest/globals";
+import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -34,6 +34,8 @@ import { createRoot } from "react-dom/client";
 
 const mockInsets = { top: 0, bottom: 0, left: 0, right: 0 };
 const mockPushed: string[] = [];
+const mockReplaced: string[] = [];
+let mockQuickParams: { quickAction?: string } = {};
 let mockPathname = "/console/@seyi";
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -43,12 +45,16 @@ jest.mock("react-native-safe-area-context", () => ({
 jest.mock("expo-router", () => ({
   Slot: () => null,
   useRouter: () => ({
-    replace: () => {},
+    replace: (href: string) => {
+      mockReplaced.push(href);
+      mockQuickParams = {};
+    },
     push: (href: string) => {
       mockPushed.push(href);
     },
   }),
   usePathname: () => mockPathname,
+  useLocalSearchParams: () => mockQuickParams,
 }));
 
 jest.mock("@convex-dev/auth/react", () => ({
@@ -240,7 +246,27 @@ const DROPBOX_STORAGE: ConsoleStorage = {
   updatedAt: 0,
 };
 
+beforeEach(() => {
+  mockQuickParams = {};
+  mockReplaced.length = 0;
+});
+
 /* -------------------------------------------------------------------------- */
+
+describe("the widget note command is consumed", () => {
+  test("opens once, then a remount of the clean history entry stays idle", () => {
+    mockQuickParams = { quickAction: "note" };
+    const first = mountConsole();
+    expect(document.body.textContent).toContain("It will be created in 0-inbox as markdown.");
+    expect(mockReplaced).toEqual(["/console/@seyi"]);
+    first.unmount();
+
+    const returned = mountConsole();
+    expect(document.body.textContent).not.toContain("It will be created in 0-inbox as markdown.");
+    expect(mockReplaced).toEqual(["/console/@seyi"]);
+    returned.unmount();
+  });
+});
 
 describe("the storage pill on a Dropbox binding", () => {
   test("says Dropbox — never 'undefined' — with the folder when there is one", () => {

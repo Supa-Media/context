@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { ScreenScroll } from "../app/Screen";
+import { useOptionalLocalSearchParams } from "../app/useOptionalLocalSearchParams";
 import { layout, radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { Icon } from "../design/components/Icon";
@@ -11,7 +12,7 @@ import { meetings } from "./controller";
 import { groupMeetings, startsIn, type MeetingListSection } from "./format";
 import type { CalendarEvent } from "./protocol";
 import { CONSOLE_ROOT } from "../console/nav";
-import { meetingHref } from "./route";
+import { MEETINGS_ROUTE, meetingHref } from "./route";
 import { useMeetingsSnapshot, useTick } from "./useMeetings";
 
 /**
@@ -67,7 +68,7 @@ export function MeetingsListScreen({
   const router = useRouter();
   const styles = useThemedStyles(makeStyles);
   const now = useTick(upcoming.length > 0, 30_000);
-  const params = useLocalSearchParams<{ quickAction?: string | string[] }>();
+  const params = useOptionalLocalSearchParams<{ quickAction?: string | string[] }>();
   const handledQuickAction = useRef(false);
 
   const sections = useMemo(
@@ -100,6 +101,9 @@ export function MeetingsListScreen({
       router.replace(meetingHref(snapshot.live.session.id));
       return;
     }
+    // Consume the command in the current history entry before starting. Going
+    // back to, or remounting, the list must not open the microphone again.
+    router.replace(MEETINGS_ROUTE);
     void start("New meeting");
   }, [params.quickAction, router, snapshot.live, snapshot.status, start]);
 

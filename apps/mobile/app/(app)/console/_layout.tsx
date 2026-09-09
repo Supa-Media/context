@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Slot, useLocalSearchParams, useRouter, usePathname } from "expo-router";
+import { Slot, useRouter, usePathname } from "expo-router";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { PressRow } from "../../../features/design/components/Button";
@@ -12,6 +12,7 @@ import { ToastHost } from "../../../features/design/components/Toast";
 import { layout, radii } from "../../../features/design/tokens";
 import { useThemedStyles, type Colors } from "../../../features/design/theme";
 import { AppFrame, FrameIconButton, useFrame } from "../../../features/app/AppFrame";
+import { useOptionalLocalSearchParams } from "../../../features/app/useOptionalLocalSearchParams";
 import { densityFor } from "../../../features/app/frame";
 import { BottomBar } from "../../../features/console/BottomBar";
 import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
@@ -119,7 +120,7 @@ export default function ConsoleLayout() {
   const router = useRouter();
   const pathname = usePathname();
   const route = routeForPath(pathname);
-  const quickParams = useLocalSearchParams<{ quickAction?: string | string[] }>();
+  const quickParams = useOptionalLocalSearchParams<{ quickAction?: string | string[] }>();
   const handledQuickNote = useRef(false);
 
   const resolution = resolveContextRoute({
@@ -132,6 +133,8 @@ export default function ConsoleLayout() {
     // person to the map before their invitation has arrived.
     invitations: data.invitations,
   });
+  const cleanQuickNoteHref =
+    resolution.action === "redirect" ? resolution.href : pathname;
 
   const { selectContext } = data;
   useEffect(() => {
@@ -171,8 +174,17 @@ export default function ConsoleLayout() {
       !data.files.canEdit
     ) return;
     handledQuickNote.current = true;
+    // Remove the command from this history entry before opening the prompt, so
+    // a remount or a trip back through history cannot replay it.
+    router.replace(cleanQuickNoteHref);
     setBarDialog({ kind: "newNote", folder: "0-inbox" });
-  }, [data.files.canEdit, data.loading, quickParams.quickAction]);
+  }, [
+    data.files.canEdit,
+    data.loading,
+    cleanQuickNoteHref,
+    quickParams.quickAction,
+    router,
+  ]);
   /*
     The tab whose close is waiting on a confirm.
 
