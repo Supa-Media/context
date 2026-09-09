@@ -65,4 +65,17 @@ describe("iOS capable IPA validator", () => {
   test.each(["Payload/../evil", "/Payload/Context.app/Info.plist", "Payload\\Context.app\\Info.plist", "Payload/./Context.app/Info.plist", "Payload/Context.app/Info\0.plist"]) ("rejects unsafe ZIP path %s", (entry) => {
     expect(() => validateZipEntries([entry])).toThrow(/unsafe/);
   });
+
+  test.each([["multiple", ["Payload/One.app/Info.plist", "Payload/Two.app/Info.plist"]], ["single", ["Payload/One.app/Info.plist"]], ["empty", []]])("requires one app root %s", (kind, entries) => {
+    if (kind === "single") expect(() => validateZipEntries(entries)).not.toThrow();
+    else expect(() => validateZipEntries(entries)).toThrow(/exactly one/);
+  });
+
+  test("accepts a future binary-plist version", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "binary-ipa-")); const app = path.join(root, "Payload", "Context.app"); fs.mkdirSync(app, { recursive: true });
+    const xml = path.join(root, "Info.xml"); fs.writeFileSync(xml, plist("3.4.5", ["audio"]));
+    execFileSync("plutil", ["-convert", "binary1", "-o", path.join(app, "Info.plist"), xml]);
+    const ipa = path.join(root, "binary.ipa"); execFileSync("zip", ["-q", "-r", ipa, "Payload"], { cwd: root });
+    expect(validateIpa(ipa).version).toBe("3.4.5");
+  });
 });
