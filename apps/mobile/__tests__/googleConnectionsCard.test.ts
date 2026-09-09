@@ -113,11 +113,16 @@ describe("GoogleConnectionsCard", () => {
 
     const text = screen.container.textContent ?? "";
     expect(text).toContain("Gmail, Calendar, Chat · waiting for first sync");
-    expect(text).toContain("Gmail: 90-day backfill");
-    expect(text).toContain("waiting for first Gmail cursor");
-    expect(text).toContain("Destination: 0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md");
-    expect(text).toContain("Calendar: waiting for first Calendar cursor");
-    expect(text).toContain("Chat: 2 Chat space cursors");
+    expect(text).toContain("Gmail: seyi@supa.media · 90-day backfill");
+    expect(text).toContain("initial sync pending");
+    expect(text).toContain("Destination: Email inbox for seyi@supa.media");
+    expect(text).toContain("Calendar: seyi@supa.media · initial sync pending");
+    expect(text).toContain("Destination: Calendar inbox");
+    expect(text).toContain("Chat: seyi@supa.media · tracking 2 Chat spaces");
+    expect(text).toContain("Destination: Google Chat inbox");
+    expect(text).not.toContain("cursor");
+    expect(text).not.toContain("seyi-at-supa-media");
+    expect(text).not.toContain("YYYY-MM-DD.md");
     expect(text).toContain("SCOPES INCOMPLETE");
     expect(text).toContain("authorization no longer covers chat");
     screen.unmount();
@@ -149,7 +154,7 @@ describe("GoogleConnectionsCard", () => {
 
     const text = screen.container.textContent ?? "";
     expect(text).toContain("Gmail · active");
-    expect(text).toContain("Gmail: 1-year backfill");
+    expect(text).toContain("Gmail: seyi@supa.media · 1-year backfill");
     expect(text).not.toContain("Calendar:");
     expect(text).not.toContain("0-inbox/calendar/YYYY-MM-DD.md");
     screen.unmount();
