@@ -10,5 +10,10 @@ describe("native release workflow artifact safety", () => {
     expect(source).toMatch(/runs-on: macos-latest/);
     expect(source).not.toMatch(/runs-on: ubuntu-latest/);
   });
+  test("provides the Apple team ID while EAS provisions the iOS build", () => {
+    expect(source).toMatch(
+      /- name: Build iOS[\s\S]*?env:\s*\n\s*#.*\n(?:\s*#.*\n)*\s*EXPO_APPLE_TEAM_ID: \$\{\{ secrets\.APPLE_TEAM_ID \}\}[\s\S]*?eas build --platform ios/,
+    );
+  });
   test("cleans temporary build artifacts with a trap", () => expect(source).toMatch(/trap 'rm -f \/tmp\/context-build\.json/));
 });
