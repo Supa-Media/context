@@ -1044,6 +1044,49 @@ const schema = defineSchema({
     .index("by_workspace_address", ["workspaceId", "address"]),
 
   /**
+   * User-visible Google sync work.
+   *
+   * A connection row says which account and products are authorized. It is not
+   * a job ledger: calling an account "backfilling" because OAuth completed is
+   * the production confusion this table closes. A run row is the thing a person
+   * started, the unit a worker advances, and the progress the console renders.
+   *
+   * Counts are deliberately coarse. The actual message bodies live only in the
+   * customer's bucket; Convex records service, days, bytes and safe error
+   * codes, never mail subjects, chat text, calendar titles, or object paths.
+   */
+  googleSyncRuns: defineTable({
+    workspaceId: v.id("workspaces"),
+    connectionId: v.id("googleConnections"),
+    requestedBy: v.id("users"),
+    mode: v.literal("backfill"),
+    services: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("complete"),
+      v.literal("failed"),
+    ),
+    requestedBackfillDays: v.number(),
+    totalUnits: v.number(),
+    completedUnits: v.number(),
+    itemsFound: v.optional(v.number()),
+    daysWithMail: v.optional(v.number()),
+    bytesWritten: v.optional(v.number()),
+    currentService: v.optional(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+    currentUnit: v.optional(v.string()),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    errorCode: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_connection_created", ["connectionId", "createdAt"])
+    .index("by_connection_status", ["connectionId", "status"]),
+
+  /**
    * ONE IN-FLIGHT GOOGLE OAUTH ATTEMPT. Same shape and the same reasoning as
    * `dropboxConnectAttempts` — see that table's comment for the full argument;
    * this restates only what differs.

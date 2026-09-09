@@ -83,6 +83,7 @@ import { storeForBinding } from "../../mcp/src/store/factory.js";
 // which is Convex's runtime too. It holds the write token for the life of one
 // call and puts it in exactly one place, an `Authorization` header.
 import { createD1Client } from "../../mcp/src/search/d1/client.js";
+import { getProfileHistoryId, runBackfill } from "../../mcp/src/communications/gmailSync.js";
 import {
   D1_ACCOUNT_SECRET,
   D1_TOKEN_SECRET,
@@ -136,6 +137,7 @@ import type { GatewayCredential } from "./storage";
 
 /** Same deadline `functions/provisioning.ts` puts on the customer's endpoint. */
 const REQUEST_TIMEOUT_MS = 10_000;
+const GMAIL_BACKFILL_DAYS_PER_PASS = 5;
 
 /**
  * Maintenance passes that may chain behind one search's worth of work.
@@ -429,6 +431,18 @@ const indexProjectedValidator = v.object({
   failure: v.optional(v.string()),
 });
 
+const googleSyncRunValidator = v.object({
+  kind: v.literal("googleSyncRun"),
+  runId: v.id("googleSyncRuns"),
+  status: v.union(v.literal("running"), v.literal("complete"), v.literal("failed")),
+  totalUnits: v.number(),
+  completedUnits: v.number(),
+  itemsFound: v.number(),
+  daysWithMail: v.number(),
+  bytesWritten: v.number(),
+  continue: v.boolean(),
+});
+
 const operationResultValidator = v.union(
   listingValidator,
   fileValidator,
@@ -444,6 +458,7 @@ const operationResultValidator = v.union(
   notePathsValidator,
   indexMaintainedValidator,
   indexProjectedValidator,
+  googleSyncRunValidator,
 );
 
 const operationValidator = v.union(
@@ -493,6 +508,7 @@ const operationValidator = v.union(
    * stopped being `backfilling`, or a projection that reached `ready`.
    */
   v.object({ kind: v.literal("projectIndex"), passes: v.optional(v.number()) }),
+  v.object({ kind: v.literal("googleGmailBackfill"), runId: v.id("googleSyncRuns") }),
   v.object({
     kind: v.literal("write"),
     path: v.string(),
@@ -589,6 +605,17 @@ type OperationResult =
       oversizedShards: number;
     }
   | ({ kind: "indexProjected" } & Omit<ProjectionPass, "failure"> & { failure?: string })
+  | {
+      kind: "googleSyncRun";
+      runId: Id<"googleSyncRuns">;
+      status: "running" | "complete" | "failed";
+      totalUnits: number;
+      completedUnits: number;
+      itemsFound: number;
+      daysWithMail: number;
+      bytesWritten: number;
+      continue: boolean;
+    }
   | {
       kind: "listing";
       path: string;
@@ -845,11 +872,57 @@ export const runFileOperation = internalAction({
       }
     }
 
-    const credential: GatewayCredential | null = await ctx.runAction(
-      internal.functions.storage.getBindingForGateway,
-      { workspaceId: args.workspaceId },
-    );
+    let credential: GatewayCredential | null;
+    try {
+      credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
+        workspaceId: args.workspaceId,
+      });
+    } catch {
+      if (args.operation.kind === "googleGmailBackfill") {
+        await ctx.runMutation(internal.functions.googleConnect.failGoogleGmailBackfillRun, {
+          workspaceId: args.workspaceId,
+          runId: args.operation.runId,
+          errorCode: "STORAGE_UNUSABLE",
+          error: "This context's bucket configuration could not be used. Reconnect storage.",
+        });
+        return {
+          kind: "googleSyncRun",
+          runId: args.operation.runId,
+          status: "failed",
+          totalUnits: 0,
+          completedUnits: 0,
+          itemsFound: 0,
+          daysWithMail: 0,
+          bytesWritten: 0,
+          continue: false,
+        };
+      }
+      throw new ConvexError({
+        code: "STORAGE_UNUSABLE",
+        message:
+          "This context's bucket configuration could not be used. Reconnect storage.",
+      });
+    }
     if (credential === null) {
+      if (args.operation.kind === "googleGmailBackfill") {
+        await ctx.runMutation(internal.functions.googleConnect.failGoogleGmailBackfillRun, {
+          workspaceId: args.workspaceId,
+          runId: args.operation.runId,
+          errorCode: "STORAGE_NOT_CONNECTED",
+          error: "This context has no bucket connected yet. Connect storage before syncing Gmail.",
+        });
+        return {
+          kind: "googleSyncRun",
+          runId: args.operation.runId,
+          status: "failed",
+          totalUnits: 0,
+          completedUnits: 0,
+          itemsFound: 0,
+          daysWithMail: 0,
+          bytesWritten: 0,
+          continue: false,
+        };
+      }
       throw new ConvexError({
         code: "STORAGE_NOT_CONNECTED",
         message:
@@ -891,11 +964,48 @@ export const runFileOperation = internalAction({
       // The constructor's message can quote the endpoint the customer typed.
       // Nothing it says helps here, and re-throwing it would put provider text
       // in front of the user with no way to know what else is in it.
+      if (args.operation.kind === "googleGmailBackfill") {
+        await ctx.runMutation(internal.functions.googleConnect.failGoogleGmailBackfillRun, {
+          workspaceId: args.workspaceId,
+          runId: args.operation.runId,
+          errorCode: "STORAGE_UNUSABLE",
+          error: "This context's bucket configuration could not be used. Reconnect storage.",
+        });
+        return {
+          kind: "googleSyncRun",
+          runId: args.operation.runId,
+          status: "failed",
+          totalUnits: 0,
+          completedUnits: 0,
+          itemsFound: 0,
+          daysWithMail: 0,
+          bytesWritten: 0,
+          continue: false,
+        };
+      }
       throw new ConvexError({
         code: "STORAGE_UNUSABLE",
         message:
           "This context's bucket configuration could not be used. Reconnect storage.",
       });
+    }
+
+    if (args.operation.kind === "googleGmailBackfill") {
+      const result = await runGoogleGmailBackfill(
+        ctx,
+        store,
+        args.workspaceId,
+        args.operation.runId,
+        Date.now(),
+      );
+      if (result.continue) {
+        await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+          workspaceId: args.workspaceId,
+          scope: args.scope,
+          operation: args.operation,
+        });
+      }
+      return result;
     }
 
     const result = await executeOperation(
@@ -1004,6 +1114,204 @@ function timeoutFetch(
       ? AbortSignal.timeout(REQUEST_TIMEOUT_MS)
       : undefined;
   return globalThis.fetch(input, timeout ? { ...init, signal: timeout } : init);
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function dateKeyAt(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+function addDays(date: string, days: number): string {
+  const t = Date.parse(`${date}T00:00:00.000Z`);
+  return dateKeyAt(t + days * DAY_MS);
+}
+
+function gmailBackfillStartDate(days: number, now: number): string {
+  const window = Math.max(1, Math.floor(days));
+  return dateKeyAt(now - (window - 1) * DAY_MS);
+}
+
+async function runGoogleGmailBackfill(
+  ctx: ActionCtx,
+  store: FileStore,
+  workspaceId: Id<"workspaces">,
+  runId: Id<"googleSyncRuns">,
+  now: number,
+): Promise<Extract<OperationResult, { kind: "googleSyncRun" }>> {
+  const job = await ctx.runQuery(internal.functions.googleConnect.googleGmailBackfillForRun, {
+    workspaceId,
+    runId,
+  });
+  if (job === null) {
+    return {
+      kind: "googleSyncRun",
+      runId,
+      status: "complete",
+      totalUnits: 0,
+      completedUnits: 0,
+      itemsFound: 0,
+      daysWithMail: 0,
+      bytesWritten: 0,
+      continue: false,
+    };
+  }
+
+  const fromUnit = Math.min(job.completedUnits, job.totalUnits);
+  const remaining = Math.max(0, job.totalUnits - fromUnit);
+  if (remaining === 0) {
+    const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, {
+      connectionId: job.connectionId,
+    });
+    if (minted === null) {
+      await ctx.runMutation(internal.functions.googleConnect.recordGoogleGmailBackfillPass, {
+        runId,
+        connectionId: job.connectionId,
+        fromUnit,
+        toUnit: fromUnit,
+        totalUnits: job.totalUnits,
+        itemsFound: 0,
+        daysWithMail: 0,
+        bytesWritten: 0,
+        status: "failed",
+        errorCode: "GOOGLE_RECONNECT_REQUIRED",
+        error: "Google needs to be reconnected before Gmail can sync.",
+      });
+      return {
+        kind: "googleSyncRun",
+        runId,
+        status: "failed",
+        totalUnits: job.totalUnits,
+        completedUnits: fromUnit,
+        itemsFound: 0,
+        daysWithMail: 0,
+        bytesWritten: 0,
+        continue: false,
+      };
+    }
+    const historyId =
+      await getProfileHistoryId({ fetchImpl: timeoutFetch, accessToken: minted.accessToken });
+    await ctx.runMutation(internal.functions.googleConnect.recordGoogleGmailBackfillPass, {
+      runId,
+      connectionId: job.connectionId,
+      fromUnit,
+      toUnit: fromUnit,
+      totalUnits: job.totalUnits,
+      itemsFound: 0,
+      daysWithMail: 0,
+      bytesWritten: 0,
+      status: "complete",
+      historyId,
+    });
+    return {
+      kind: "googleSyncRun",
+      runId,
+      status: "complete",
+      totalUnits: job.totalUnits,
+      completedUnits: fromUnit,
+      itemsFound: 0,
+      daysWithMail: 0,
+      bytesWritten: 0,
+      continue: false,
+    };
+  }
+
+  const start = gmailBackfillStartDate(job.requestedBackfillDays, job.createdAt);
+  const passDays = Math.min(GMAIL_BACKFILL_DAYS_PER_PASS, remaining);
+  const startDate = addDays(start, fromUnit);
+  const endDate = addDays(startDate, passDays - 1);
+
+  try {
+    const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, {
+      connectionId: job.connectionId,
+    });
+    if (minted === null) {
+      throw new ConvexError({
+        code: "GOOGLE_RECONNECT_REQUIRED",
+        message: "Google needs to be reconnected before Gmail can sync.",
+      });
+    }
+
+    const result = await runBackfill({
+      store,
+      fetchImpl: timeoutFetch,
+      accessToken: minted.accessToken,
+      mailboxSlug: job.mailboxSlug,
+      address: job.address,
+      folders: job.folders,
+      startDate,
+      endDate,
+      nonce: `gmail:${job.connectionId}`,
+      now: new Date(now).toISOString(),
+      quotaBytes: job.quotaBytes,
+      bytesAlreadyUsed: job.bytesWritten,
+      attachmentMode: job.attachmentMode,
+      attachmentRetentionDays: job.attachmentRetentionDays,
+    });
+    const toUnit = Math.min(job.totalUnits, fromUnit + result.daysProcessed);
+    const complete = toUnit >= job.totalUnits && !result.quotaExceeded;
+    const historyId = complete
+      ? await getProfileHistoryId({ fetchImpl: timeoutFetch, accessToken: minted.accessToken })
+      : undefined;
+    await ctx.runMutation(internal.functions.googleConnect.recordGoogleGmailBackfillPass, {
+      runId,
+      connectionId: job.connectionId,
+      fromUnit,
+      toUnit,
+      totalUnits: job.totalUnits,
+      itemsFound: result.itemsFound,
+      daysWithMail: result.daysWithMail,
+      bytesWritten: result.bytesWritten,
+      currentUnit: complete ? undefined : endDate,
+      status: result.quotaExceeded ? "failed" : complete ? "complete" : "running",
+      historyId,
+      errorCode: result.quotaExceeded ? "MAIL_QUOTA_EXCEEDED" : undefined,
+      error: result.quotaExceeded
+        ? "Gmail backfill reached this connection's storage quota before it finished."
+        : undefined,
+    });
+    return {
+      kind: "googleSyncRun",
+      runId,
+      status: result.quotaExceeded ? "failed" : complete ? "complete" : "running",
+      totalUnits: job.totalUnits,
+      completedUnits: toUnit,
+      itemsFound: result.itemsFound,
+      daysWithMail: result.daysWithMail,
+      bytesWritten: result.bytesWritten,
+      continue: !complete && !result.quotaExceeded && result.daysProcessed > 0,
+    };
+  } catch (error) {
+    const code = error instanceof ConvexError ? "GOOGLE_RECONNECT_REQUIRED" : "GOOGLE_SYNC_FAILED";
+    await ctx.runMutation(internal.functions.googleConnect.recordGoogleGmailBackfillPass, {
+      runId,
+      connectionId: job.connectionId,
+      fromUnit,
+      toUnit: fromUnit,
+      totalUnits: job.totalUnits,
+      itemsFound: 0,
+      daysWithMail: 0,
+      bytesWritten: 0,
+      currentUnit: startDate,
+      status: "failed",
+      errorCode: code,
+      error:
+        code === "GOOGLE_RECONNECT_REQUIRED"
+          ? "Google needs to be reconnected before Gmail can sync."
+          : "Gmail backfill stopped before it finished.",
+    });
+    return {
+      kind: "googleSyncRun",
+      runId,
+      status: "failed",
+      totalUnits: job.totalUnits,
+      completedUnits: fromUnit,
+      itemsFound: 0,
+      daysWithMail: 0,
+      bytesWritten: 0,
+      continue: false,
+    };
+  }
 }
 
 /**

@@ -71,6 +71,29 @@ async function sharedScenario() {
   return { t, owner, workspaceId };
 }
 
+async function seedConnectedStorage(
+  t: TestConvex,
+  workspaceId: Id<"workspaces">,
+  boundBy: Id<"users">,
+) {
+  await t.run((ctx) =>
+    ctx.db.insert("storageBindings", {
+      workspaceId,
+      provider: "r2",
+      endpoint: "https://storage.example.invalid",
+      region: "auto",
+      bucket: "context-test",
+      accessKeyId: "access-key",
+      encryptedSecretAccessKey: "encrypted-secret",
+      capabilities: { conditionalWrite: true },
+      status: "connected",
+      boundBy,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }),
+  );
+}
+
 /** An attempt row, parked as `startGmailConnect` would park it. */
 /**
  * The secret a real starting browser keeps, and hands back at completion.
@@ -679,7 +702,7 @@ describe("the row shape: products and the nested gmail object", () => {
     expect(row).toMatchObject({
       email: "person@example.invalid",
       syncServices: { gmail: true, calendar: false, chat: false },
-      syncStatus: "backfilling",
+      syncStatus: "connected",
       gmail: {
         backfillDays: 90,
         folders: ["inbox", "sent"],
@@ -688,6 +711,169 @@ describe("the row shape: products and the nested gmail object", () => {
       },
     });
     expect(row?.lastSyncCompletedAt).toBeUndefined();
+  });
+
+  test("the owner starts an explicit Gmail backfill run", async () => {
+    enableMailConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    await seedConnectedStorage(t, workspaceId, owner);
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const connectionId = await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+
+    const started = await asUser(t, owner).mutation(api.functions.googleConnect.startGoogleSyncRun, {
+      workspaceId,
+      connectionId,
+      services: { gmail: true, calendar: false, chat: false },
+    });
+
+    const duplicate = await asUser(t, owner).mutation(api.functions.googleConnect.startGoogleSyncRun, {
+      workspaceId,
+      connectionId,
+      services: { gmail: true, calendar: false, chat: false },
+    });
+    expect(duplicate.runId).toBe(started.runId);
+
+    const runs = await t.run((ctx) => ctx.db.query("googleSyncRuns").collect());
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      workspaceId,
+      connectionId,
+      requestedBy: owner,
+      mode: "backfill",
+      services: ["gmail"],
+      status: "queued",
+      requestedBackfillDays: 90,
+      totalUnits: 90,
+      completedUnits: 0,
+      itemsFound: 0,
+    });
+    const scheduled = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    expect(scheduled.some((job) => String(job.name).includes("runFileOperation"))).toBe(true);
+
+    const [row] = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+      workspaceId,
+    });
+    expect(row?.syncStatus).toBe("backfilling");
+    expect(row?.syncRun).toMatchObject({
+      runId: started.runId,
+      status: "queued",
+      completedUnits: 0,
+      totalUnits: 90,
+    });
+  });
+
+  test("a deployment with Gmail disabled refuses to start an existing Gmail backfill", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    await seedConnectedStorage(t, workspaceId, owner);
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const connectionId = await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+
+    const error = await captureError(() =>
+      asUser(t, owner).mutation(api.functions.googleConnect.startGoogleSyncRun, {
+        workspaceId,
+        connectionId,
+        services: { gmail: true, calendar: false, chat: false },
+      }),
+    );
+
+    expect(errorCode(error)).toBe("MAIL_CONNECT_DISABLED");
+    expect(await t.run((ctx) => ctx.db.query("googleSyncRuns").collect())).toHaveLength(0);
+  });
+
+  test("a Gmail backfill start refuses before creating a run when storage is missing", async () => {
+    enableMailConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const connectionId = await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+
+    const error = await captureError(() =>
+      asUser(t, owner).mutation(api.functions.googleConnect.startGoogleSyncRun, {
+        workspaceId,
+        connectionId,
+        services: { gmail: true, calendar: false, chat: false },
+      }),
+    );
+
+    expect(errorCode(error)).toBe("GOOGLE_SYNC_BUCKET_NOT_CONNECTED");
+    expect(await t.run((ctx) => ctx.db.query("googleSyncRuns").collect())).toHaveLength(0);
+  });
+
+  test("a stale failed Gmail worker cannot overwrite a newer completed pass", async () => {
+    enableMailConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    await seedConnectedStorage(t, workspaceId, owner);
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const connectionId = await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+    const { runId } = await asUser(t, owner).mutation(api.functions.googleConnect.startGoogleSyncRun, {
+      workspaceId,
+      connectionId,
+      services: { gmail: true, calendar: false, chat: false },
+    });
+    await t.mutation(internal.functions.googleConnect.recordGoogleGmailBackfillPass, {
+      runId,
+      connectionId,
+      fromUnit: 0,
+      toUnit: 90,
+      totalUnits: 90,
+      itemsFound: 42,
+      daysWithMail: 10,
+      bytesWritten: 4096,
+      status: "complete",
+      historyId: "history-1",
+    });
+
+    const stale = await t.mutation(internal.functions.googleConnect.recordGoogleGmailBackfillPass, {
+      runId,
+      connectionId,
+      fromUnit: 0,
+      toUnit: 0,
+      totalUnits: 90,
+      itemsFound: 0,
+      daysWithMail: 0,
+      bytesWritten: 0,
+      status: "failed",
+      errorCode: "GOOGLE_SYNC_FAILED",
+      error: "A stale worker failed late.",
+    });
+
+    expect(stale.accepted).toBe(false);
+    const [row] = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+      workspaceId,
+    });
+    expect(row?.syncRun).toMatchObject({
+      status: "complete",
+      itemsFound: 42,
+      completedUnits: 90,
+    });
+    expect(row?.errorCode).toBeUndefined();
   });
 
   test("the owner-facing connection list hides stale details for products no longer enabled", async () => {

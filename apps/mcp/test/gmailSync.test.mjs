@@ -512,6 +512,7 @@ export async function runGmailSyncChecks(check) {
   });
   check("backfill processes every day in the window, active or not", backfillResult.daysProcessed === 3);
   check("...but only writes a note for the days that actually had mail", backfillResult.daysWithMail === 2);
+  check("...and reports the number of emails found", backfillResult.itemsFound === 2);
   check(
     "the inactive day in the middle really did not get a file",
     (await backfillStore.get("0-inbox/email/p-at-example-invalid/2026-09-02.md")) === null,
@@ -608,6 +609,7 @@ export async function runGmailSyncChecks(check) {
     quotaBytes: 1_000_000,
   });
   check("a full reconcile after a gap recovers every day in the window", reconcileResult.daysWithMail === 2);
+  check("...and reports the number of emails recovered", reconcileResult.itemsFound === 2);
 
   // -- attachments: fetched into the bucket, retained on a timer ----------------
   //

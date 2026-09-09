@@ -41,11 +41,30 @@ export interface GoogleConnection {
     cursorCount: number;
     lastSyncedAt?: number;
   };
+  syncRun?: {
+    runId: string;
+    mode: "backfill";
+    services: Array<"gmail" | "calendar" | "chat">;
+    status: "queued" | "running" | "complete" | "failed";
+    requestedBackfillDays: number;
+    totalUnits: number;
+    completedUnits: number;
+    itemsFound?: number;
+    daysWithMail?: number;
+    bytesWritten?: number;
+    currentService?: "gmail" | "calendar" | "chat";
+    currentUnit?: string;
+    startedAt?: number;
+    completedAt?: number;
+    errorCode?: string;
+    lastError?: string;
+  };
 }
 
 export interface GoogleActions {
   workspaceId: string;
   disconnect: (connectionId: string) => Promise<null>;
+  startBackfill: (connectionId: string, backfillDays: number) => Promise<unknown>;
 }
 
 export function GoogleConnectionsCard({
@@ -172,6 +191,8 @@ function ConnectedGoogleRow({
     connection.syncServices.chat ? "Chat" : null,
   ].filter(Boolean);
   const detailLines = googleConnectionDetailLines(connection);
+  const inlineError = connection.lastError ?? connection.syncRun?.lastError;
+  const inlineErrorCode = connection.errorCode ?? connection.syncRun?.errorCode;
 
   return (
     <Row divided style={styles.connectionRow}>
@@ -189,15 +210,26 @@ function ConnectedGoogleRow({
             ))}
           </View>
         ) : null}
-        {connection.lastError ? (
+        {inlineError ? (
           <FormError
-            headline={connection.errorCode ? statusLabel(connection.errorCode) : "Google needs attention"}
-            next={connection.lastError}
+            headline={inlineErrorCode ? statusLabel(inlineErrorCode) : "Google needs attention"}
+            next={inlineError}
             style={styles.inlineError}
           />
         ) : null}
       </Grow>
-      <View style={styles.disconnectAction}>
+      <View style={styles.connectionActions}>
+        {connection.gmail && shouldShowGmailBackfillAction(connection) ? (
+          <Button
+            label={gmailBackfillActionLabel(connection)}
+            disabled={actions === undefined || connection.syncRun?.status === "queued" || connection.syncRun?.status === "running"}
+            onPress={() => {
+              if (actions === undefined || !connection.gmail) return;
+              void actions.startBackfill(connection.connectionId, connection.gmail.backfillDays);
+            }}
+            testID={`start-google-backfill-${connection.connectionId}`}
+          />
+        ) : null}
         <Button
           label={disconnect.stage === "armed" ? "Press again" : "Disconnect"}
           variant="danger"
@@ -211,12 +243,16 @@ function ConnectedGoogleRow({
 
 function statusLabel(status: string): string {
   switch (status) {
+    case "connected":
+      return "connected, not synced yet";
     case "backfilling":
-      return "waiting for first sync";
+      return "syncing";
     case "active":
-      return "active";
+      return "watching for new changes";
+    case "error":
+      return "sync failed";
     case "reconnect_required":
-      return "reconnect required";
+      return "needs reconnect";
     default:
       return status.replace(/_/g, " ");
   }
@@ -233,14 +269,65 @@ function formatSyncTime(value: number | undefined): string | null {
   return `last synced ${text}`;
 }
 
+function formatBytes(value: number | undefined): string | null {
+  if (value === undefined || value <= 0) return null;
+  if (value < 1024 * 1024) return `${Math.ceil(value / 1024)} KB saved`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB saved`;
+}
+
+function shouldShowGmailBackfillAction(connection: GoogleConnection): boolean {
+  if (!connection.gmail) return false;
+  const status = connection.syncRun?.status;
+  if (status === "queued" || status === "running") return true;
+  return !connection.gmail.historyCursorReady || status === "failed";
+}
+
+function gmailBackfillActionLabel(connection: GoogleConnection): string {
+  const status = connection.syncRun?.status;
+  if (status === "queued") return "Backfill queued";
+  if (status === "running") return "Backfill running";
+  if (status === "failed") return "Retry Gmail backfill";
+  return "Start Gmail backfill";
+}
+
+function gmailRunDetail(connection: GoogleConnection): string | null {
+  const run = connection.syncRun;
+  if (!run || !run.services.includes("gmail")) return null;
+  const progress =
+    run.totalUnits > 0
+      ? `${Math.min(run.completedUnits, run.totalUnits)} of ${run.totalUnits} days scanned`
+      : null;
+  const daysWithMail =
+    run.daysWithMail === undefined
+      ? null
+      : `${run.daysWithMail} day${run.daysWithMail === 1 ? "" : "s"} had mail`;
+  const emailsFound =
+    run.itemsFound === undefined
+      ? null
+      : `${run.itemsFound} email${run.itemsFound === 1 ? "" : "s"} found`;
+  const bytes = formatBytes(run.bytesWritten);
+  const facts = [progress, emailsFound, daysWithMail, bytes].filter(Boolean);
+  switch (run.status) {
+    case "queued":
+      return "Backfill queued";
+    case "running":
+      return `Scanning Gmail${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
+    case "complete":
+      return `Backfill complete${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
+    case "failed":
+      return `Backfill stopped${run.lastError ? ` · ${run.lastError}` : ""}${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
+  }
+}
+
 function googleConnectionDetailLines(connection: GoogleConnection): string[] {
   const lines: string[] = [];
   if (connection.syncServices.gmail && connection.gmail) {
+    const runDetail = gmailRunDetail(connection);
     const parts = [
       connection.email,
       `${googleBackfillWindowLabel(connection.gmail.backfillDays)} backfill`,
       connection.gmail.folders.map((folder) => (folder === "inbox" ? "Inbox" : "Sent")).join(" + "),
-      connection.gmail.historyCursorReady ? "new mail tracking ready" : "initial sync pending",
+      runDetail ?? (connection.gmail.historyCursorReady ? "watching for new mail" : "ready to start"),
       formatSyncTime(connection.gmail.lastSyncedAt),
     ].filter(Boolean);
     lines.push(`Gmail: ${parts.join(" · ")}`);
@@ -249,7 +336,9 @@ function googleConnectionDetailLines(connection: GoogleConnection): string[] {
   if (connection.syncServices.calendar && connection.calendar) {
     const parts = [
       connection.email,
-      connection.calendar.syncCursorReady ? "calendar changes tracking ready" : "initial sync pending",
+      connection.calendar.syncCursorReady
+        ? "watching for calendar changes"
+        : "sync controls coming next",
       formatSyncTime(connection.calendar.lastSyncedAt),
     ].filter(Boolean);
     lines.push(`Calendar: ${parts.join(" · ")}`);
@@ -259,7 +348,7 @@ function googleConnectionDetailLines(connection: GoogleConnection): string[] {
     const parts = [
       connection.email,
       connection.chat.cursorCount === 0
-        ? "initial sync pending"
+        ? "sync controls coming next"
         : `tracking ${connection.chat.cursorCount} Chat space${connection.chat.cursorCount === 1 ? "" : "s"}`,
       formatSyncTime(connection.chat.lastSyncedAt),
     ].filter(Boolean);
@@ -279,6 +368,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   empty: { marginTop: 4 },
   connect: { marginTop: 14, gap: 12 },
   connectionBody: { flexBasis: 280 },
-  disconnectAction: { marginLeft: "auto" },
+  connectionActions: { marginLeft: "auto", gap: 8 },
   note: { marginTop: 2 },
 });

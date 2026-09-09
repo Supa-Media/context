@@ -14,6 +14,7 @@ import { GoogleConnectionsCard } from "../features/console/google/GoogleConnecti
 
 const mockStartCalls: unknown[] = [];
 const mockNavigations: string[] = [];
+const mockBackfillCalls: unknown[] = [];
 
 jest.mock("convex/react", () => ({
   useAction: () => (args: unknown) => {
@@ -60,7 +61,11 @@ describe("GoogleConnectionsCard", () => {
     mockNavigations.length = 0;
     const screen = render(
       createElement(GoogleConnectionsCard, {
-        actions: { workspaceId: "ws_1", disconnect: async () => null },
+        actions: {
+          workspaceId: "ws_1",
+          disconnect: async () => null,
+          startBackfill: async () => null,
+        },
       }),
     );
 
@@ -89,7 +94,7 @@ describe("GoogleConnectionsCard", () => {
             connectionId: "google_1",
             email: "seyi@supa.media",
             syncServices: { gmail: true, calendar: true, chat: true },
-            syncStatus: "backfilling",
+            syncStatus: "connected",
             errorCode: "SCOPES_INCOMPLETE",
             lastError: "This Google account's authorization no longer covers chat.",
             gmail: {
@@ -112,11 +117,12 @@ describe("GoogleConnectionsCard", () => {
     );
 
     const text = screen.container.textContent ?? "";
-    expect(text).toContain("Gmail, Calendar, Chat · waiting for first sync");
+    expect(text).toContain("Gmail, Calendar, Chat · connected, not synced yet");
     expect(text).toContain("Gmail: seyi@supa.media · 90-day backfill");
-    expect(text).toContain("initial sync pending");
+    expect(text).toContain("ready to start");
+    expect(text).toContain("Start Gmail backfill");
     expect(text).toContain("Destination: Email inbox for seyi@supa.media");
-    expect(text).toContain("Calendar: seyi@supa.media · initial sync pending");
+    expect(text).toContain("Calendar: seyi@supa.media · sync controls coming next");
     expect(text).toContain("Destination: Calendar inbox");
     expect(text).toContain("Chat: seyi@supa.media · tracking 2 Chat spaces");
     expect(text).toContain("Destination: Google Chat inbox");
@@ -125,6 +131,81 @@ describe("GoogleConnectionsCard", () => {
     expect(text).not.toContain("YYYY-MM-DD.md");
     expect(text).toContain("SCOPES INCOMPLETE");
     expect(text).toContain("authorization no longer covers chat");
+    screen.unmount();
+  });
+
+  test("the Gmail backfill button starts the account's recorded window", async () => {
+    mockBackfillCalls.length = 0;
+    const screen = render(
+      createElement(GoogleConnectionsCard, {
+        actions: {
+          workspaceId: "ws_1",
+          disconnect: async () => null,
+          startBackfill: async (connectionId: string, backfillDays: number) => {
+            mockBackfillCalls.push({ connectionId, backfillDays });
+            return null;
+          },
+        },
+        connections: [
+          {
+            connectionId: "google_1",
+            email: "seyi@supa.media",
+            syncServices: { gmail: true, calendar: false, chat: false },
+            syncStatus: "connected",
+            gmail: {
+              backfillDays: 365,
+              folders: ["inbox", "sent"],
+              destinationPath: "0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md",
+              historyCursorReady: false,
+            },
+          },
+        ],
+      }),
+    );
+
+    await screen.click("start-google-backfill-google_1");
+
+    expect(mockBackfillCalls).toEqual([{ connectionId: "google_1", backfillDays: 365 }]);
+    screen.unmount();
+  });
+
+  test("a running Gmail backfill shows day progress instead of cursor state", () => {
+    const screen = render(
+      createElement(GoogleConnectionsCard, {
+        connections: [
+          {
+            connectionId: "google_1",
+            email: "seyi@supa.media",
+            syncServices: { gmail: true, calendar: false, chat: false },
+            syncStatus: "backfilling",
+            gmail: {
+              backfillDays: 90,
+              folders: ["inbox", "sent"],
+              destinationPath: "0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md",
+              historyCursorReady: false,
+            },
+            syncRun: {
+              runId: "run_1",
+              mode: "backfill",
+              services: ["gmail"],
+              status: "running",
+              requestedBackfillDays: 90,
+              totalUnits: 90,
+              completedUnits: 15,
+              itemsFound: 237,
+              daysWithMail: 8,
+              bytesWritten: 2_100_000,
+            },
+          },
+        ],
+      }),
+    );
+
+    const text = screen.container.textContent ?? "";
+    expect(text).toContain("Gmail · syncing");
+    expect(text).toContain("Scanning Gmail · 15 of 90 days scanned · 237 emails found · 8 days had mail · 2.0 MB saved");
+    expect(text).toContain("Backfill running");
+    expect(text).not.toContain("cursor");
     screen.unmount();
   });
 
@@ -153,7 +234,7 @@ describe("GoogleConnectionsCard", () => {
     );
 
     const text = screen.container.textContent ?? "";
-    expect(text).toContain("Gmail · active");
+    expect(text).toContain("Gmail · watching for new changes");
     expect(text).toContain("Gmail: seyi@supa.media · 1-year backfill");
     expect(text).not.toContain("Calendar:");
     expect(text).not.toContain("0-inbox/calendar/YYYY-MM-DD.md");

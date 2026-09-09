@@ -963,7 +963,7 @@ export async function syncDayFromGmail(options) {
     if (message === null) continue;
     events.push(gmailMessageToEvent(message, { mailboxSlug: options.mailboxSlug }));
   }
-  return syncOneDay({
+  const result = await syncOneDay({
     store: options.store,
     mailboxSlug: options.mailboxSlug,
     address: options.address,
@@ -978,6 +978,7 @@ export async function syncDayFromGmail(options) {
     attachmentMode: options.attachmentMode,
     attachmentRetentionDays: options.attachmentRetentionDays,
   });
+  return { ...result, messageCount: events.length };
 }
 
 /**
@@ -990,13 +991,16 @@ export async function syncDayFromGmail(options) {
  *
  * @param {{store, fetchImpl, accessToken, mailboxSlug, address, folders,
  *          startDate: string, endDate: string, nonce: string, now?: string,
- *          root?: string, quotaBytes: number, bytesAlreadyUsed?: number}} options
- * @returns {Promise<{daysProcessed: number, daysWithMail: number, bytesWritten: number, quotaExceeded: boolean}>}
+ *          root?: string, quotaBytes: number, bytesAlreadyUsed?: number,
+ *          attachmentMode?: "metadata-only" | "store",
+ *          attachmentRetentionDays?: number | "forever"}} options
+ * @returns {Promise<{daysProcessed: number, daysWithMail: number, itemsFound: number, bytesWritten: number, quotaExceeded: boolean}>}
  */
 export async function runBackfill(options) {
   const dates = dateRange(options.startDate, options.endDate);
   let bytesWritten = 0;
   let daysWithMail = 0;
+  let itemsFound = 0;
   let daysProcessed = 0;
   let quotaExceeded = false;
   const used = options.bytesAlreadyUsed ?? 0;
@@ -1023,6 +1027,7 @@ export async function runBackfill(options) {
       attachmentRetentionDays: options.attachmentRetentionDays,
     });
     daysProcessed += 1;
+    itemsFound += result.messageCount;
     bytesWritten += result.bytesWritten;
     if (result.partsWritten > 0) daysWithMail += 1;
     if (result.quotaExceeded) {
@@ -1030,7 +1035,7 @@ export async function runBackfill(options) {
       break;
     }
   }
-  return { daysProcessed, daysWithMail, bytesWritten, quotaExceeded };
+  return { daysProcessed, daysWithMail, itemsFound, bytesWritten, quotaExceeded };
 }
 
 /**
