@@ -5,7 +5,7 @@
 import { describe, expect, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { DeleteAccountCard } from "../features/console/panes/ConnectionsPane";
+import { DeleteAccountCard } from "../features/console/settings/DeleteAccountCard";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

@@ -1,11 +1,13 @@
 import { StyleSheet, View } from "react-native";
 import { Card, Row, Grow } from "../../design/components/Card";
+import { CopyField } from "../../design/components/CopyField";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { ConnectClients } from "../clients/ConnectClients";
-import { ClientRow, DeleteAccountCard } from "../panes/ConnectionsPane";
+import { ClientRow } from "../clients/ClientRow";
+import { DeleteAccountCard } from "./DeleteAccountCard";
 import type { ConsoleData } from "../types";
 import type { SettingsSectionKey } from "./sections";
 
@@ -30,6 +32,14 @@ export function AccountSection({
   data: ConsoleData;
 }) {
   const styles = useThemedStyles(makeStyles);
+  /*
+    Whether this person has a brain of their own. An invited-only viewer is a
+    first-class state — `identity.ts` exists partly to handle it — and for one,
+    `viewer.name` is their sign-in email rather than a username.
+  */
+  const owned = data.contexts.some(
+    (context) => context.kind === "personal" && context.role === "owner",
+  );
 
   if (section === "apps") {
     return (
@@ -43,7 +53,28 @@ export function AccountSection({
           without touching the others.
         </Text>
 
-        <ConnectClients endpoint={data.endpoint} clients={data.clients} />
+        <Card>
+          <Text variant="eyebrow" style={styles.eyebrow}>
+            Your address
+          </Text>
+          <CopyField
+            value={data.endpoint}
+            label="Copy your address"
+            testID="settings-endpoint"
+          />
+        </Card>
+
+        {/*
+          The same endpoint the one-click rows install, so the sentence above
+          and the buttons below cannot disagree. `ConnectionsPane` computes a
+          per-context URL for these; this section is account-scoped, where the
+          bare address is the honest one — a connection reaches every context
+          its person is a live member of, and the named URLs only choose where
+          a client starts.
+        */}
+        <View style={styles.spaced}>
+          <ConnectClients endpoint={data.endpoint} clients={data.clients} />
+        </View>
 
         <Card style={styles.spaced}>
           <Row>
@@ -78,25 +109,32 @@ export function AccountSection({
           Profile
         </Text>
         <Text variant="paneSub" style={styles.sub}>
-          Your name here, and where mail can reach you. Both come from one global
-          namespace shared with workspace names — unique, stable, and reserved
-          against interception, which is why neither can be changed yet.
+          {owned
+            ? "Your username comes from one global namespace shared with workspace names — unique, stable, and reserved against interception, which is why it cannot be changed yet."
+            : "You are signed in, and you have not made a brain of your own yet. Until you do, this is the address you signed in with rather than a username."}
         </Text>
         <Card>
           <Row>
             <Grow>
-              <Text variant="rowTitle">Your name here</Text>
+              <Text variant="rowTitle">{owned ? "Username" : "Signed in as"}</Text>
             </Grow>
             <Text variant="mono">{data.viewer.name}</Text>
           </Row>
-          {data.viewer.detail === undefined ? null : (
+          {/*
+            Only where it is the address this person's own brain was issued.
+            `viewerIdentity` substitutes a derived one when the open context is
+            somebody else's, and a guess presented as a fact under the heading
+            "Profile" is a stronger claim than the rail's account block has
+            ever made.
+          */}
+          {owned && data.viewer.detail !== undefined ? (
             <Row divided>
               <Grow>
                 <Text variant="rowTitle">Mail sent here</Text>
               </Grow>
               <Text variant="mono">{data.viewer.detail}</Text>
             </Row>
-          )}
+          ) : null}
         </Card>
         <Text variant="foot" style={styles.foot}>
           Only a personal brain has an address mail can be sent to. A workspace has
@@ -137,6 +175,7 @@ export function AccountSection({
 const makeStyles = (_colors: Colors) =>
   StyleSheet.create({
     head: { marginBottom: 4 },
+    eyebrow: { marginBottom: space.x2 },
     sub: { marginBottom: space.x3, maxWidth: 546 },
     spaced: { marginTop: space.x3 },
     foot: { marginTop: space.x3 },

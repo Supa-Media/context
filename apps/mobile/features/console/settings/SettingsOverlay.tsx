@@ -8,6 +8,8 @@ import {
 } from "react-native";
 import { useState } from "react";
 import { Overlay } from "../../design/components/Overlay";
+import { Button } from "../../design/components/Button";
+import { Card, Grow, Row } from "../../design/components/Card";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 
@@ -16,9 +18,10 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { SettingsPane, StatusPill } from "../panes/SettingsPane";
 import { AccountSection } from "./AccountSections";
 import { atName } from "../format";
-import type { AppSectionKey } from "../nav";
+import { appSectionsFor, type AppSectionKey } from "../nav";
 import { selectedContext, type ConsoleData } from "../types";
 import {
+  DEFAULT_SETTINGS_SECTION,
   isAccountSection,
   matchSettingsSections,
   settingsSectionsFor,
@@ -79,11 +82,17 @@ export function SettingsOverlay({
     current?.kind === "personal" || current?.kind === "shared" ? current.kind : null,
   );
 
-  // A URL naming a section this context does not have — `?settings=email` on a
-  // shared workspace — lands on the first one it does rather than on nothing.
+  /*
+    A URL naming a section this context does not have — `?settings=sources` on
+    a shared workspace — lands on the default rather than on nothing.
+
+    The default by name, not `sections[0]`: the first row became an account
+    section the moment one was prepended, so a positional fallback silently
+    started answering "the section you asked for is gone" with AI apps.
+  */
   const active = sections.some((entry) => entry.key === section)
     ? section
-    : (sections[0]?.key ?? "storage");
+    : DEFAULT_SETTINGS_SECTION;
 
   const shown = matchSettingsSections(sections, query);
   let lastGroup: SettingsSectionSpec["group"] | undefined = undefined;
@@ -175,6 +184,40 @@ export function SettingsOverlay({
     is not in, which is the mistake `ConnectionsPane`'s own head comment
     records about wearing a context chip on an app-level pane.
   */
+  /*
+    Map and Connections, which are console destinations rather than settings.
+
+    Drawn here rather than inside `SettingsPane` because `features/app/
+    reachability.ts` registers this list as the **only** surface `/console/map`
+    is reachable from — and while it lived in the pane, opening an account
+    section took a different branch and Map disappeared from the product until
+    you clicked back to a context one. Chrome that flickers in and out with no
+    rule the reader can infer is worse than either state.
+  */
+  const elsewhere =
+    onOpenSection === undefined ? null : (
+      <View style={styles.elsewhere}>
+        <Text variant="railHead" style={styles.group}>
+          Elsewhere in the console
+        </Text>
+        <Card>
+          {appSectionsFor(data.searchableContexts).map((entry, index) => (
+            <Row key={entry.key} divided={index > 0}>
+              <Grow>
+                <Text variant="rowTitle">{entry.label}</Text>
+              </Grow>
+              <Button
+                label="Open"
+                accessibilityLabel={`Open ${entry.label}`}
+                onPress={() => onOpenSection(entry.key)}
+                testID={`settings-open-${entry.key}`}
+              />
+            </Row>
+          ))}
+        </Card>
+      </View>
+    );
+
   const account = isAccountSection(active);
   const body = account ? (
     <AccountSection section={active} data={data} />
@@ -206,6 +249,7 @@ export function SettingsOverlay({
             keyboardShouldPersistTaps="handled"
           >
             {body}
+            {elsewhere}
           </ScrollView>
         )}
       </Overlay>
@@ -224,6 +268,7 @@ export function SettingsOverlay({
     >
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         {body}
+        {elsewhere}
       </ScrollView>
     </Overlay>
   );
@@ -246,6 +291,7 @@ const makeStyles = (colors: Colors) =>
     },
     side: { paddingBottom: space.x4, paddingHorizontal: space.x3 },
     empty: { paddingHorizontal: space.x2, paddingVertical: space.x3 },
+    elsewhere: { marginTop: space.x7 },
     group: { marginTop: space.x4, marginBottom: space.x2, paddingHorizontal: space.x2 },
     row: {
       paddingVertical: 7,

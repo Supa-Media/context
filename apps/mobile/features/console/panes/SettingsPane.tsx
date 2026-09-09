@@ -408,40 +408,6 @@ export function SettingsPane({
       </>
       ) : null}
 
-      {onOpenSection === undefined ? null : (
-        <>
-          <Text variant="eyebrow" style={styles.sectionHeadLater}>
-            This context, from further out
-          </Text>
-          <Card>
-            {/*
-              Search is drawn only where something would answer it — see
-              `appSectionsFor`. `data.searchableContexts` is `undefined` until
-              the query behind it has landed, and `undefined` draws the row: a
-              navigation item that appears a beat after the screen does is one
-              people learn not to look for.
-            */}
-            {appSectionsFor(data.searchableContexts).map((section, index) => (
-              <Row key={section.key} divided={index > 0}>
-                <View style={styles.sectionRow}>
-                  <View style={styles.sectionRowText}>
-                    <Text variant="rowTitle">{section.label}</Text>
-                    <Text variant="rowSub" style={styles.rowSub}>
-                      {SECTION_BLURBS[section.key]}
-                    </Text>
-                  </View>
-                  <Button
-                    label="Open"
-                    accessibilityLabel={`Open ${section.label}`}
-                    onPress={() => onOpenSection(section.key)}
-                    testID={`settings-open-${section.key}`}
-                  />
-                </View>
-              </Row>
-            ))}
-          </Card>
-        </>
-      )}
     </View>
   );
 }

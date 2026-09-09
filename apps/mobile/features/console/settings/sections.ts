@@ -83,7 +83,14 @@ export const SETTINGS_SECTIONS = [
   },
   {
     key: "account",
-    keywords: "delete close account danger leave quit remove erase sign out log out logout",
+    /*
+      Deliberately no "sign out", "log out", "leave" or "quit". Every word has
+      to match, and `sign` appeared in exactly one haystack — so typing "sign
+      out" returned this one row, and tapping it landed somebody who wanted to
+      end a session on a screen whose only control deletes their account.
+      Leaving a workspace is a different, non-destructive action too.
+    */
+    keywords: "delete close account remove erase permanently",
     label: "Delete account",
     scope: "account",
     group: "Your account",

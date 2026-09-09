@@ -414,10 +414,10 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: true,
     from: [
       {
-        surface: "the app section list at the foot of a context's settings",
+        surface: "the \"Elsewhere in the console\" list at the foot of settings",
         control: {
-          file: "features/console/panes/SettingsPane.tsx",
-          contains: ["appSectionsFor", "onPress={() => onOpenSection(section.key)}"],
+          file: "features/console/settings/SettingsOverlay.tsx",
+          contains: ["appSectionsFor", "onPress={() => onOpenSection(entry.key)}"],
         },
         navigation: [
           {
@@ -449,10 +449,10 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: true,
     from: [
       {
-        surface: "the app section list at the foot of a context's settings",
+        surface: "the \"Elsewhere in the console\" list at the foot of settings",
         control: {
-          file: "features/console/panes/SettingsPane.tsx",
-          contains: ["appSectionsFor", "onPress={() => onOpenSection(section.key)}"],
+          file: "features/console/settings/SettingsOverlay.tsx",
+          contains: ["appSectionsFor", "onPress={() => onOpenSection(entry.key)}"],
         },
         navigation: [
           {
@@ -496,10 +496,10 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: true,
     from: [
       {
-        surface: "the app section list at the foot of a context's settings",
+        surface: "the \"Elsewhere in the console\" list at the foot of settings",
         control: {
-          file: "features/console/panes/SettingsPane.tsx",
-          contains: ["appSectionsFor", "onPress={() => onOpenSection(section.key)}"],
+          file: "features/console/settings/SettingsOverlay.tsx",
+          contains: ["appSectionsFor", "onPress={() => onOpenSection(entry.key)}"],
         },
         navigation: [
           {
