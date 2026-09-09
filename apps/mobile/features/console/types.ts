@@ -310,11 +310,13 @@ export interface ConsoleData {
   members: MembersView;
   /**
    * Every live link this context's owner has minted over one note, and the
-   * Revoke that takes each one back — see `docs/decisions/privacy-and-sharing.md`
-   * for why a share is a standing grant over one note and never a membership.
-   * `actions` is absent for anyone who is not the owner of this context, and
-   * in the demo — the same rule `StorageActions` states, because `listShares`
-   * and `revokeShare` are both owner-only on the backend.
+   * Revoke that takes each one back — see `apps/convex/functions/shares.ts`'s
+   * own module comment for why a share is a standing grant over one note and
+   * never a membership, and `docs/decisions/privacy-and-sharing.md` for the
+   * product argument behind it. `actions` is absent for anyone who is not the
+   * owner of this context, and in the demo — the same rule `StorageActions`
+   * states, because `listShares` and `revokeShare` are both owner-only on the
+   * backend.
    */
   shares: SharesView;
   /**
