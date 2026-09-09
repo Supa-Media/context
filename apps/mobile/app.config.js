@@ -188,6 +188,7 @@ module.exports = ({ config }) => {
      */
     plugins: [
       "expo-router",
+      "./plugins/with-context-widgets",
       [
         "expo-splash-screen",
         {

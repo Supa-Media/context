@@ -24,6 +24,7 @@
     "expo-local-authentication",
     "expo-localization",
     "expo-mail-composer",
+    "expo-modules-core",
     "expo-media-library",
     "expo-network",
     "expo-notifications",
@@ -53,5 +54,7 @@
     "react-native-webview",
     "react-native-worklets"
   ],
-  "gated": []
+  "gated": [
+    "context-activity-kit"
+  ]
 }

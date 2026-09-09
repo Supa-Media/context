@@ -31,6 +31,7 @@ import {
   type MeetingProjection,
 } from "./session";
 import { drainMeetings } from "./sync";
+import { meetingActivity } from "./activity";
 
 /**
  * The meetings feature's state, outside React.
@@ -308,6 +309,9 @@ export class MeetingsController {
       reads `live` off this snapshot and draws a timer for it.
     */
     this.recoverInterruptedRecordings();
+    // A previous process cannot own a recorder after launch; clear any stale
+    // system surface left visible by an unclean termination.
+    meetingActivity.reconcile(null);
 
     /*
       "On app launch, any `finalizing` session older than the bound is handled
@@ -450,6 +454,7 @@ export class MeetingsController {
 
   /** Forget the configuration, for a sign-out or a context switch. */
   reset(): void {
+    const activityMeetingId = this.snapshot.live?.session.id ?? null;
     this.detachRecorder();
     for (const timer of this.persistTimers.values()) clearTimeout(timer);
     this.persistTimers.clear();
@@ -458,6 +463,8 @@ export class MeetingsController {
     this.projections.clear();
     this.config = null;
     this.set(UNCONFIGURED);
+    if (activityMeetingId !== null) meetingActivity.end(activityMeetingId);
+    meetingActivity.reconcile(null);
   }
 
   /* ------------------------------- recording ------------------------------ */
@@ -543,6 +550,8 @@ export class MeetingsController {
         sessionId: id,
         systemAudio: input.systemAudio ?? config.recorder.capability.systemAudio,
       });
+      // Show native recording chrome only after an audio recorder really opens.
+      if (config.recorder.capability.audio) this.updateMeetingActivity(id);
     } catch (error) {
       /*
         The session stays `recording` and the reason goes on the *snapshot*.
@@ -572,6 +581,7 @@ export class MeetingsController {
     if (live === null || !can(live.session.state, "paused")) return;
     void this.require().recorder.pause();
     this.apply(live.session.id, { type: "pause", at: this.nowIso() });
+    this.updateMeetingActivity(live.session.id);
   }
 
   resume(): void {
@@ -579,6 +589,7 @@ export class MeetingsController {
     if (live === null || !can(live.session.state, "recording")) return;
     void this.require().recorder.resume();
     this.apply(live.session.id, { type: "resume", at: this.nowIso() });
+    this.updateMeetingActivity(live.session.id);
   }
 
   /**
@@ -608,10 +619,12 @@ export class MeetingsController {
    */
   async end(): Promise<void> {
     const config = this.require();
+    const activityMeetingId = this.snapshot.live?.session.id ?? null;
     await config.recorder.stop().catch(() => {
       // A recorder that will not stop is not a reason to refuse to end a
       // meeting. It is reported through `onError`, which is already wired.
     });
+    if (activityMeetingId !== null) meetingActivity.end(activityMeetingId);
     /*
       And stop listening for it, **after** the stop rather than before.
 
@@ -655,6 +668,25 @@ export class MeetingsController {
 
   setTitle(meetingId: string, title: string): void {
     this.apply(meetingId, { type: "title", title });
+    this.updateMeetingActivity(meetingId);
+  }
+
+  /** Mirror the controller's truth into optional native lock-screen chrome. */
+  private updateMeetingActivity(meetingId: string): void {
+    const record = this.find(meetingId);
+    if (record === undefined || !isLive(record.session.state)) return;
+    meetingActivity.update({
+      meetingId,
+      title: record.session.title,
+      phase: record.session.state === "paused" ? "paused" : "recording",
+      // `recordedMs` is the closed intervals; the native timer adds the open
+      // interval beginning at `runningSince` without double-counting it.
+      recordedMs: record.session.recordedMs,
+      recordingSince:
+        record.session.state === "recording" && record.runningSince !== null
+          ? Date.parse(record.runningSince)
+          : null,
+    });
   }
 
   /** Forget a meeting on this device. The only path that destroys a recording. */

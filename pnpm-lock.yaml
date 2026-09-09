@@ -174,6 +174,9 @@ importers:
       '@supa-media/core':
         specifier: ^1.0.2
         version: 1.0.2(y5enrkokfym65nrttkdt7mg5ny)
+      context-activity-kit:
+        specifier: file:./modules/context-activity-kit
+        version: file:apps/mobile/modules/context-activity-kit
       convex:
         specifier: ^1.31.3
         version: 1.45.0(react@19.1.0)
@@ -249,6 +252,9 @@ importers:
       expo-media-library:
         specifier: ~18.2.1
         version: 18.2.1(expo@54.0.37)(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))
+      expo-modules-core:
+        specifier: ~3.0.30
+        version: 3.0.30(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
       expo-network:
         specifier: ~8.0.8
         version: 8.0.8(expo@54.0.37)(react@19.1.0)
@@ -3620,6 +3626,9 @@ packages:
   content-type@2.1.0:
     resolution: {integrity: sha512-mj7UPXE0jaqaOsukNZRUEfEi2AcL7C/vwmwcHV0O97eO1E1pxBZuyjlZrx5seTaNBg1U6+o35wpa35Qfcc+7ag==}
     engines: {node: '>=18'}
+
+  context-activity-kit@file:apps/mobile/modules/context-activity-kit:
+    resolution: {directory: apps/mobile/modules/context-activity-kit, type: directory}
 
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
@@ -10724,6 +10733,8 @@ snapshots:
       - supports-color
 
   content-type@2.1.0: {}
+
+  context-activity-kit@file:apps/mobile/modules/context-activity-kit: {}
 
   convert-source-map@2.0.0: {}
 

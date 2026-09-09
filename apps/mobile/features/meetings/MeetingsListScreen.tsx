@@ -1,6 +1,6 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { ScreenScroll } from "../app/Screen";
 import { layout, radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
@@ -67,6 +67,8 @@ export function MeetingsListScreen({
   const router = useRouter();
   const styles = useThemedStyles(makeStyles);
   const now = useTick(upcoming.length > 0, 30_000);
+  const params = useLocalSearchParams<{ quickAction?: string | string[] }>();
+  const handledQuickAction = useRef(false);
 
   const sections = useMemo(
     () =>
@@ -86,6 +88,20 @@ export function MeetingsListScreen({
     },
     [router],
   );
+
+  useEffect(() => {
+    if (
+      params.quickAction !== "meeting" ||
+      handledQuickAction.current ||
+      snapshot.status !== "ready"
+    ) return;
+    handledQuickAction.current = true;
+    if (snapshot.live !== null) {
+      router.replace(meetingHref(snapshot.live.session.id));
+      return;
+    }
+    void start("New meeting");
+  }, [params.quickAction, router, snapshot.live, snapshot.status, start]);
 
   return (
     <>
