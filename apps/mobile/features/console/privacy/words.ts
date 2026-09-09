@@ -117,12 +117,21 @@ export function linkExceptionLine(): string {
   );
 }
 
-/** Where the rules actually live, and what that buys. */
+/**
+ * Where the rules actually live, and what that buys.
+ *
+ * **"This context's storage", never "your own bucket".** Two readers make that
+ * wrong: somebody on managed storage, whose bucket we create and pay for — the
+ * exit is identical on both plans, which is the promise worth stating, and
+ * ownership of the bucket is not — and a member reading somebody else's
+ * context, for whom none of it is "yours". The sentence that survives both is
+ * the one about the file and about leaving.
+ */
 export function manifestFootLine(): string {
   return (
-    "These rules are a file in your own bucket — privacy.md at its root — generated from what " +
-    "you set here and readable in any editor. It travels with your notes when you leave, and " +
-    "every AI client you connect reads through it."
+    "These rules are one file at the root of this context's storage — privacy.md — generated " +
+    "from what is set here and readable in any editor. It travels with the notes it governs, " +
+    "and every AI client connected to this context reads through it."
   );
 }
 

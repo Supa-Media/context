@@ -37,6 +37,7 @@ import {
   exceptionLine,
   folderDefaultLine,
   linkExceptionLine,
+  manifestFootLine,
   privateMeans,
   rootDefaultLine,
   teamMeans,
@@ -264,6 +265,18 @@ describe("the words", () => {
     // their co-lead.
     expect(privateMeans("shared")).toMatch(/owner/i);
     expect(privateMeans("shared")).not.toBe(privateMeans("personal"));
+    /*
+      **The roles it excludes, by name, and this is the half the first version
+      of this check missed.** Deleting the whole `shared` branch fell through
+      to the kind-unknown sentence — "Owners only. No role and no invitation
+      reaches it" — which is still true, still matches /owner/i, and still
+      differs from a brain's, so the mutation passed all 68 checks. What it
+      lost is the sentence a *member* needs: that being an editor here does
+      not carry it. That is the thing this line exists to say, so it is the
+      thing to assert.
+    */
+    expect(privateMeans("shared")).toMatch(/member/i);
+    expect(privateMeans("shared")).toMatch(/editor/i);
   });
 
   test("an exception is described by the direction it goes", () => {
@@ -273,6 +286,17 @@ describe("the words", () => {
     expect(
       exceptionLine({ path: "a/b.md", name: "b.md", visibility: "team", inherited: "private" }),
     ).toMatch(/shared/i);
+  });
+
+  test("the file is named without claiming whose bucket it is in", () => {
+    /*
+      Two readers make "your own bucket" false: somebody on managed storage,
+      whose bucket we create and pay for — the exit is identical on both plans
+      and *that* is the promise, not ownership of the bucket — and a member
+      reading somebody else's context, for whom none of it is theirs.
+    */
+    expect(manifestFootLine()).toContain("privacy.md");
+    expect(manifestFootLine()).not.toMatch(/your (own )?bucket/i);
   });
 
   test("the root is described as the root, not as a folder", () => {

@@ -235,7 +235,10 @@ describe("what a reader is told", () => {
 
   test("a workspace is told what private means there, which is not what it means in a brain", () => {
     const shared = panel({ role: "owner", kind: "shared" }).textContent ?? "";
-    expect(shared).toContain("Owners only");
+    // Naming the roles it excludes, not merely "owners only" — see the same
+    // check in `privacyMap.test.ts` for the mutation that got past the
+    // weaker version of this.
+    expect(shared).toContain("Not the members, not the editors");
     const brain = panel({ role: "owner", kind: "personal" }).textContent ?? "";
     expect(brain).toContain("Yours alone");
   });
