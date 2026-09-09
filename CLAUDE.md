@@ -41,10 +41,11 @@ breaking one, stop and say so rather than working around it.
    bucket holding one workspace can be handed over, and a shared bucket with a
    prefix per customer can only ever be exported from — so managed buckets are
    one per workspace, named from the immutable workspace id, in a Cloudflare
-   account that holds customer buckets and nothing else. A store's
-   per-account bucket ceiling is therefore a constraint on the product, not a
-   detail: R2 allows a million, and anything low forces prefix tenancy and
-   ends the exit promise with it.
+   account that holds customer data — those buckets, and the per-context
+   search databases — and nothing of ours. A store's per-account resource
+   ceiling is therefore a constraint on the product, not a detail: R2 allows a
+   million buckets, and anything low forces prefix tenancy and ends the exit
+   promise with it.
 3. **Plain files stay canonical.** Markdown stays portable and human-readable.
    Search indexes, caches and embeddings are **disposable derivatives**,
    rebuildable from the files, never the only copy of anything. The on-bucket

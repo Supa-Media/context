@@ -76,10 +76,18 @@ import type { Id } from "../../_generated/dataModel";
 import { bucketNameProblem, isPlausibleAccountId } from "./cloudflare";
 
 /**
- * The account that holds customer buckets, and deliberately **not** the
- * account this deployment's own infrastructure lives in — see the module
- * comment. Absent is an ordinary state: a deployment nobody has configured
- * simply does not offer managed storage, and the BYO path is untouched.
+ * The account that holds customer data — managed buckets today, and the
+ * per-context search databases once those move — and deliberately **not** the
+ * account this deployment's own infrastructure lives in. See the module
+ * comment.
+ *
+ * It will end up being the same value as `SEARCH_D1_ACCOUNT_ID`, which is one
+ * fact written down twice and therefore a thing that drifts; consolidating
+ * them is named as the follow-up in the decision doc. Do not add a test
+ * asserting the two differ — they are meant to be equal.
+ *
+ * Absent is an ordinary state: a deployment nobody has configured simply does
+ * not offer managed storage, and the BYO path is untouched.
  */
 export const MANAGED_R2_ACCOUNT_ID_ENV_VAR = "MANAGED_R2_ACCOUNT_ID";
 
@@ -167,7 +175,7 @@ const REFUSAL_CODE = "MANAGED_ACCOUNT_NOT_ALLOWED";
  *
  * Nobody can act on the managed account without the managed token, so this
  * blocks nothing an attacker could otherwise do. It exists so that "the
- * managed account holds customer buckets and nothing else" is a property the
+ * customer-data account holds nothing of ours" is a property the
  * code enforces rather than a sentence in a decision document — and so that a
  * support engineer pasting the wrong id into the BYO provisioning flow gets a
  * refusal instead of a bucket in the wrong account.

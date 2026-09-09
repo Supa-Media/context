@@ -332,13 +332,23 @@ aimed at, that account is the wall.
    derives the name from the workspace id — immutable, unique, and structurally
    incapable of colliding — rather than from a slug that can be reserved,
    renamed, or typed by somebody else.
-2. **A separate Cloudflare account, holding customer buckets and nothing
-   else.** R2 has a flat bucket namespace with no grouping, so the account
+2. **A separate Cloudflare account, holding customer data and nothing of
+   ours.** R2 has a flat bucket namespace with no grouping, so the account
    *is* the boundary: a blast radius, a billing line, and an API token that
-   cannot reach anything of ours. It costs nothing to create now and is a
-   multi-day migration with one cutover per tenant later, because R2 has no
+   cannot reach our own infrastructure. It costs nothing to create now and is
+   a multi-day migration with one cutover per tenant later, because R2 has no
    "move bucket between accounts" operation — only a copy (Super Slurper) and
    a repoint.
+
+   **"Customer data", deliberately, and not "buckets".** The per-context D1
+   search databases (`context-search-<workspaceId>`, `lib/d1.ts`) are the same
+   thing in a different Cloudflare product: one resource per workspace, built
+   from the customer's own files, disposable and rebuildable. They are
+   expected to move into this account too, and the rule is what the account is
+   *for* rather than which product it holds — one resource per workspace, all
+   of it derived from or holding one customer's content, none of it ours. What
+   must never join it is anything of ours: a Worker, a queue, a bucket holding
+   our own state.
 3. **Plain files, unchanged layout.** A managed bucket holds exactly what a
    BYO bucket holds: Markdown, PARA folders, `privacy.md`, attachments beside
    their notes. Nothing about the on-bucket format may become conditional on
@@ -373,9 +383,27 @@ dashboard stops being useful for browsing, and provisioning has to be code
 from the first bucket. That is the accepted cost of being able to hand
 somebody their storage.
 
-### One managed account per deployment, never shared
+### One account id, not one per product
 
-Bucket names are unique because Convex ids are — **within one deployment**.
+Once D1 lives there too, `SEARCH_D1_ACCOUNT_ID` and `MANAGED_R2_ACCOUNT_ID`
+are the same value written down twice, in two different places — one in
+`appSecrets`, one an environment variable. Two copies of one fact drift, and
+the failure when they drift is silent: provisioning writes into whichever
+account its own copy names. Consolidating them onto a single
+customer-data account id is the follow-up, and the reason it is not done in
+this change is that moving `SEARCH_D1_ACCOUNT_ID` out of `appSecrets` is a
+migration for a live feature rather than a rename.
+
+Until then, **they must be kept equal by hand**, and no test may assert they
+differ. That assertion looks obviously right — "our infrastructure account is
+not the customer-data account" — and it would be wrong here, because these two
+are both the customer-data account. The thing worth asserting is the opposite,
+once one id exists to assert it about.
+
+### One customer-data account per deployment, never shared
+
+Resource names are unique because Convex ids are — **within one deployment**,
+and this applies to a D1 database name exactly as it does to a bucket.
 The R2 bucket namespace is per *account*, so pointing a preview or dev
 deployment at the production managed account reintroduces exactly the
 collision this design exists to prevent, and the reuse path in
@@ -417,7 +445,7 @@ malformed throws.
 `bindStorage` also refuses an endpoint addressing the managed account, and the
 BYO provisioning path refuses its account id. A customer cannot reach that
 account without our token, so neither guard blocks an attack — they exist so
-that "the managed account holds customer buckets and nothing else" is enforced
+that "the customer-data account holds nothing of ours" is enforced
 in code rather than asserted in this file, and so that an operator or a support
 engineer pointing the wrong flow at it gets a refusal instead of a bucket.
 
