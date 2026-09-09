@@ -29,7 +29,7 @@
  *     when that text quotes the note it refused                         2 FAIL
  */
 
-import { access, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -93,6 +93,15 @@ async function dbFingerprint(dbPath) {
   return `${createHash("sha256").update(await readFile(dbPath)).digest("hex")}:${info.size}:${info.mtimeMs}`;
 }
 
+async function waitUntil(predicate, timeoutMs = 1_000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (predicate()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return predicate();
+}
+
 /** Everything the service is allowed to see of a gateway connection, and no more. */
 function fakeConnection() {
   return {
@@ -120,7 +129,15 @@ function fakeStore() {
  * A `fetch` that speaks just enough MCP to answer `read_note` and `write_note`,
  * recording every request body so a test can say what actually crossed.
  */
-function stubFetch({ failWrites = false } = {}) {
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function stubFetch({ beforeRequest = null, failWrites = false } = {}) {
   const requests = [];
   const notes = new Map();
   const impl = async (url, init) => {
@@ -128,6 +145,7 @@ function stubFetch({ failWrites = false } = {}) {
     requests.push(body);
     const name = body?.params?.name;
     const args = body?.params?.arguments ?? {};
+    await beforeRequest?.(name, args, init);
     const answer = (text, isError = false) =>
       new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { isError, content: [{ type: "text", text }] } }), {
         status: 200,
@@ -162,7 +180,7 @@ export async function runImessageServiceChecks(check, skip) {
     return;
   }
 
-  const { ImessageSyncService } = await import("../src/main/imessage.ts");
+  const { ImessageSyncService, isChatDbChange, observeChatDb } = await import("../src/main/imessage.ts");
 
   const tempHome = await mkdtemp(join(tmpdir(), "context-imessage-service-"));
   const messagesDir = join(tempHome, "Library", "Messages");
@@ -185,6 +203,9 @@ export async function runImessageServiceChecks(check, skip) {
     globalThis.fetch = offGateway.impl;
     const offStore = fakeStore();
     const offStatuses = [];
+    let observedChange = null;
+    let observedPath = null;
+    let watcherCloses = 0;
     let enabled = false;
     service = new ImessageSyncService({
       store: offStore,
@@ -192,6 +213,16 @@ export async function runImessageServiceChecks(check, skip) {
       settings: () => ({ imessageEnabled: enabled }),
       onChange: (status) => offStatuses.push(status),
       chatDbPath: () => dbPath,
+      changeDebounceMs: 0,
+      observeChatDb: (path, onChange) => {
+        observedPath = path;
+        observedChange = onChange;
+        return {
+          close() {
+            watcherCloses += 1;
+          },
+        };
+      },
     });
 
     const untouched = await dbFingerprint(dbPath);
@@ -213,7 +244,6 @@ export async function runImessageServiceChecks(check, skip) {
     enabled = true;
     service.reconfigure();
     await service.syncNow();
-    service.stop();
     const wroteNote = offGateway.requests.find((request) => request?.params?.name === "write_note");
     check("turned on, the pass runs and a channel-day note is written", wroteNote !== undefined);
     check(
@@ -225,15 +255,189 @@ export async function runImessageServiceChecks(check, skip) {
     check("...and the cursor advanced past the row it read", offStore.written.at(-1)?.lastRowId === 1);
     check("...and the database was still never written to", (await dbFingerprint(dbPath)) === untouched);
     check("...and the credential never crossed as anything but an Authorization header", !JSON.stringify(offGateway.requests).includes("not-a-real-token"));
+    check("...and the enabled service watches exactly this Mac's allowed chat.db", observedPath === dbPath);
+    check("the Messages watcher filter ignores named files unrelated to chat.db", !isChatDbChange(dbPath, "not-chat.db"));
+    check("...accepts chat.db itself", isChatDbChange(dbPath, "chat.db"));
+    check("...accepts chat.db's WAL sidecar", isChatDbChange(dbPath, "chat.db-wal"));
+    check("...accepts chat.db's shared-memory sidecar", isChatDbChange(dbPath, "chat.db-shm"));
+    check("...and treats unnamed fs.watch events conservatively", isChatDbChange(dbPath, null));
+
+    let nativeWatcherCalls = 0;
+    const nativeWatcher = observeChatDb(dbPath, () => {
+      nativeWatcherCalls += 1;
+    });
+    try {
+      await writeFile(join(messagesDir, "chat.db-wal"), "changed");
+      check("the native Messages watcher reacts to chat.db's WAL sidecar", await waitUntil(() => nativeWatcherCalls > 0));
+    } finally {
+      nativeWatcher.close();
+    }
+
+    const requestsAfterFirstPass = offGateway.requests.length;
+    execFileSync(SQLITE3_BINARY, [
+      dbPath,
+      `
+      INSERT INTO message (ROWID, guid, text, handle_id, date, is_from_me)
+        VALUES (2, 'msg-service-2', 'second message after a filesystem change', 1, 810432900000000000, 0);
+      INSERT INTO chat_message_join (chat_id, message_id) VALUES (1, 2);
+    `,
+    ]);
+    observedChange();
+    const changedPassRan = await waitUntil(() => offStore.written.at(-1)?.lastRowId === 2);
+    check("A CHAT.DB CHANGE TRIGGERS AN IMMEDIATE SYNC PASS", changedPassRan && offGateway.requests.length > requestsAfterFirstPass);
+    check("...and that pass advances the cursor through the new row", offStore.written.at(-1)?.lastRowId === 2);
+    const statusesAfterChangedPass = offStatuses.length;
+    observedChange();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    check("a watcher pass with nothing to write does not emit a realtime activity heartbeat", offStatuses.length === statusesAfterChangedPass);
+    const statusesBeforeInvisibleRow = offStatuses.length;
+    execFileSync(SQLITE3_BINARY, [
+      dbPath,
+      `
+      INSERT INTO message (ROWID, guid, text, handle_id, date, is_from_me, associated_message_type, associated_message_guid)
+        VALUES (3, 'msg-service-removed-tapback', NULL, 1, 810433020000000000, 0, 3000, 'bp:msg-service-2');
+      INSERT INTO chat_message_join (chat_id, message_id) VALUES (1, 3);
+    `,
+    ]);
+    observedChange();
+    const invisibleRowAdvanced = await waitUntil(() => offStore.written.at(-1)?.lastRowId === 3);
+    check("a watcher-triggered row that renders no note still advances the cursor", invisibleRowAdvanced);
+    check("...but does not emit a realtime status heartbeat", offStatuses.length === statusesBeforeInvisibleRow);
+    execFileSync(SQLITE3_BINARY, [
+      dbPath,
+      `
+      DELETE FROM chat_message_join WHERE message_id = 2;
+      DELETE FROM message WHERE ROWID = 2;
+    `,
+    ]);
+    observedChange();
+    const deletionRefreshRan = await waitUntil(() => {
+      const stored = offGateway.notes.get("0-inbox/imessage/2026-09-07.md");
+      return stored !== undefined && !stored.content.includes("second message after a filesystem change");
+    });
+    check("A WATCHER-TRIGGERED DELETION-ONLY CHANGE REWRITES THE DAY", deletionRefreshRan);
+    check("...and removes the deleted message body through the service path", !offGateway.notes.get("0-inbox/imessage/2026-09-07.md")?.content.includes("second message after a filesystem change"));
 
     // -- TURNED BACK OFF: it stops --------------------------------------------
     enabled = false;
     service.reconfigure();
     const requestsAtOff = offGateway.requests.length;
     await service.syncNow();
+    observedChange();
+    await new Promise((resolve) => setTimeout(resolve, 20));
     check("TURNED BACK OFF, A SYNC DOES NOTHING — the toggle is read every pass, not once at launch", offGateway.requests.length === requestsAtOff);
+    check("...and a stale watcher callback captured before stop/disable cannot schedule another pass", offGateway.requests.length === requestsAtOff);
     check("...and the status says so", service.status().enabled === false);
+    check("...and the Messages watcher was closed", watcherCloses === 1);
     service.stop();
+
+    // -- A CHANGE DURING AN ACTIVE PASS GETS ONE FOLLOW-UP PASS -------------
+    let replayEnabled = true;
+    let replayObservedChange = null;
+    let replayBlocked = false;
+    const replayGate = deferred();
+    const replayGateway = stubFetch({
+      beforeRequest: async (name) => {
+        if (name === "read_note" && !replayBlocked) {
+          replayBlocked = true;
+          await replayGate.promise;
+        }
+      },
+    });
+    globalThis.fetch = replayGateway.impl;
+    const replayStore = fakeStore();
+    service = new ImessageSyncService({
+      store: replayStore,
+      connection: fakeConnection(),
+      settings: () => ({ imessageEnabled: replayEnabled }),
+      onChange: () => {},
+      chatDbPath: () => dbPath,
+      changeDebounceMs: 0,
+      observeChatDb: (_path, onChange) => {
+        replayObservedChange = onChange;
+        return { close() {} };
+      },
+    });
+    service.reconfigure();
+    const replayPass = service.syncNow();
+    await waitUntil(() => replayBlocked);
+    execFileSync(SQLITE3_BINARY, [
+      dbPath,
+      `
+      INSERT INTO message (ROWID, guid, text, handle_id, date, is_from_me)
+        VALUES (4, 'msg-service-4', 'fourth message during an active sync', 1, 810432960000000000, 0);
+      INSERT INTO chat_message_join (chat_id, message_id) VALUES (1, 4);
+    `,
+    ]);
+    replayObservedChange();
+    replayGate.resolve();
+    await replayPass;
+    check("A CHAT.DB CHANGE DURING AN ACTIVE PASS GETS A FOLLOW-UP PASS", replayStore.written.at(-1)?.lastRowId === 4);
+    service.stop();
+
+    // -- TURNING OFF MID-PASS CANCELS WRITES AND CURSOR ADVANCE -------------
+    let cancelEnabled = true;
+    let cancelBlocked = false;
+    const cancelGate = deferred();
+    const cancelGateway = stubFetch({
+      beforeRequest: async (name) => {
+        if (name === "read_note" && !cancelBlocked) {
+          cancelBlocked = true;
+          await cancelGate.promise;
+        }
+      },
+    });
+    globalThis.fetch = cancelGateway.impl;
+    const cancelStore = fakeStore();
+    service = new ImessageSyncService({
+      store: cancelStore,
+      connection: fakeConnection(),
+      settings: () => ({ imessageEnabled: cancelEnabled }),
+      chatDbPath: () => dbPath,
+    });
+    const cancelPass = service.syncNow();
+    await waitUntil(() => cancelBlocked);
+    cancelEnabled = false;
+    service.reconfigure();
+    cancelGate.resolve();
+    await cancelPass;
+    check("TURNING OFF IMESSAGE IMPORT MID-PASS PREVENTS NOTE WRITES", !cancelGateway.requests.some((request) => request?.params?.name === "write_note"));
+    check("...and prevents cursor advance from the stale pass", cancelStore.written.length === 0);
+
+    let writeAbortEnabled = true;
+    let writeBlocked = false;
+    let writeAbortObserved = false;
+    const writeAbortGateway = stubFetch({
+      beforeRequest: async (name, _args, init) => {
+        if (name !== "write_note" || writeBlocked) return;
+        writeBlocked = true;
+        await new Promise((_resolve, reject) => {
+          const signal = init?.signal;
+          const abort = () => {
+            writeAbortObserved = true;
+            reject(new DOMException("aborted", "AbortError"));
+          };
+          if (signal?.aborted) abort();
+          else signal?.addEventListener("abort", abort, { once: true });
+        });
+      },
+    });
+    globalThis.fetch = writeAbortGateway.impl;
+    const writeAbortStore = fakeStore();
+    service = new ImessageSyncService({
+      store: writeAbortStore,
+      connection: fakeConnection(),
+      settings: () => ({ imessageEnabled: writeAbortEnabled }),
+      chatDbPath: () => dbPath,
+    });
+    const writeAbortPass = service.syncNow();
+    await waitUntil(() => writeBlocked);
+    writeAbortEnabled = false;
+    service.reconfigure();
+    await writeAbortPass;
+    check("TURNING OFF IMESSAGE IMPORT WHILE WRITE_NOTE IS IN FLIGHT ABORTS THE REQUEST", writeAbortObserved);
+    check("...so the already-issued write does not land a note", writeAbortGateway.notes.size === 0);
+    check("...and the aborted pass still cannot advance the cursor", writeAbortStore.written.length === 0);
 
     // -- A FAILING GATEWAY: lastError is set, and carries none of it ---------
     const failing = stubFetch({ failWrites: true });
@@ -309,18 +513,25 @@ export async function runImessageServiceChecks(check, skip) {
     const decoyGateway = stubFetch();
     globalThis.fetch = decoyGateway.impl;
     const decoyStore = fakeStore();
+    let decoyWatcherInstalled = false;
     service = new ImessageSyncService({
       store: decoyStore,
       connection: fakeConnection(),
       settings: () => ({ imessageEnabled: true }),
       chatDbPath: () => decoyDb,
+      observeChatDb: () => {
+        decoyWatcherInstalled = true;
+        return { close() {} };
+      },
     });
+    service.reconfigure();
     await service.syncNow();
     service.stop();
     check(
       "A `chatDbPath` NAMING A READABLE DATABASE OUTSIDE ~/Library/Messages READS NOTHING FROM IT",
       decoyGateway.requests.length === 0,
     );
+    check("...and reconfigure refuses to install a watcher on that outside path", decoyWatcherInstalled === false);
     check("...and says only that the pass could not complete, never which file or why", service.status().lastError === "iMessage import could not complete a sync pass");
     check("...and no cursor is written at all, so nothing about that file is remembered", decoyStore.written.length === 0);
   } finally {
