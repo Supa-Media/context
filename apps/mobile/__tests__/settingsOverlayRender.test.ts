@@ -43,6 +43,8 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { useDemoConsoleData } from "../features/console/useDemoConsoleData";
 import { SettingsOverlay } from "../features/console/settings/SettingsOverlay";
+import { SharedLinksPanel } from "../features/console/settings/panels/SharedLinksPanel";
+import { AdvancedPanel } from "../features/console/settings/panels/AdvancedPanel";
 import type { ConsoleData } from "../features/console/types";
 import type { SettingsSectionKey } from "../features/console/settings/sections";
 
@@ -422,5 +424,53 @@ describe("a section follows the context it belongs to, not the one beside it", (
     const text = host.textContent ?? "";
     expect(text).toContain("1-projects/roadmap.md");
     expect(text).not.toContain("1-projects/board-update.md");
+  });
+});
+
+/**
+ * `readOnlyReason` for a non-owner, on both panels directly.
+ *
+ * Neither the demo console nor any test above ever builds a `SharesView` or
+ * an `AuditView` with `actions`/rows absent and `readOnlyReason` set — the
+ * demo shows every section's content regardless of the viewed context's role,
+ * the same way `DEMO_MEMBERS` always renders. So the sentence a real
+ * non-owner is shown had nothing exercising it: dropping it silently renders
+ * an empty card with no explanation, and nothing above would have noticed.
+ */
+describe("what a non-owner is told instead of the controls", () => {
+  test("shared links: the reason stands in for the missing Revoke", () => {
+    const container = mount(() =>
+      createElement(SharedLinksPanel, {
+        view: {
+          shares: [],
+          actions: undefined,
+          loading: false,
+          failure: null,
+          readOnlyReason: "Only an owner of this context can see or revoke the links shared from it.",
+        },
+      }),
+    );
+    expect(container.textContent ?? "").toContain(
+      "Only an owner of this context can see or revoke the links shared from it.",
+    );
+  });
+
+  test("advanced: the reason stands in for the missing audit trail", () => {
+    const container = mount(() =>
+      createElement(AdvancedPanel, {
+        view: {
+          audit: {
+            events: [],
+            loading: false,
+            failure: null,
+            readOnlyReason: "Only an owner of this context can see its audit trail.",
+          },
+          keyExport: undefined,
+        },
+      }),
+    );
+    expect(container.textContent ?? "").toContain(
+      "Only an owner of this context can see its audit trail.",
+    );
   });
 });
