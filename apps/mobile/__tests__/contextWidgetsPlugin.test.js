@@ -37,6 +37,16 @@ describe("Context widgets config plugin", () => {
     expect(() => plugin.identifiers({ ios: {} })).toThrow(/bundleIdentifier/);
   });
 
+  test("widget extension plist declares its required bundle name", () => {
+    const plist = fs.readFileSync(
+      path.join(__dirname, "..", "targets", "context-widgets", "ContextWidgets-Info.plist"),
+      "utf8",
+    );
+    expect(plist).toMatch(
+      /<key>CFBundleName<\/key>\s*<string>\$\(PRODUCT_NAME\)<\/string>/,
+    );
+  });
+
   test("the native bridge remains eligible for the iOS 15.1 host and Expo autolinks it", () => {
     const podspec = fs.readFileSync(
       path.join(
