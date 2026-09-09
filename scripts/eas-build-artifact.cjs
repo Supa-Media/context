@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
 
 const MAX_ARTIFACT_BYTES = 200 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
@@ -46,7 +47,7 @@ async function downloadArtifact(value, destination) {
   if (!response?.ok) throw new Error(`EAS artifact download failed: HTTP ${response?.status ?? "unknown"}`);
   const declared = Number(response.headers.get("content-length"));
   if (!Number.isSafeInteger(declared) || declared <= 0 || declared > MAX_ARTIFACT_BYTES) throw new Error("EAS artifact has unacceptable Content-Length");
-  const temp = path.join(destinationDir, `.${path.basename(destination)}.${process.pid}.${Date.now()}.tmp`);
+  const temp = path.join(destinationDir, `.${path.basename(destination)}.${process.pid}.${crypto.randomUUID()}.tmp`);
   let handle;
   try {
     handle = await fs.promises.open(temp, "wx", 0o600);
@@ -67,7 +68,6 @@ async function downloadArtifact(value, destination) {
   } catch (error) {
     if (handle) await handle.close().catch(() => {});
     await fs.promises.unlink(temp).catch(() => {});
-    await fs.promises.unlink(destination).catch(() => {});
     throw error;
   }
   return { id, path: destination };
