@@ -503,6 +503,10 @@ function askSomething(
  * end a meeting": `window-all-closed` below refuses to quit, the tray stays,
  * and a recording in progress runs on in this process with no window at all.
  */
+let checkForUpdatesFromMenu = () => {
+  console.log("[update] manual check requested before updater startup finished.");
+};
+
 function installApplicationMenu(): void {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
@@ -510,6 +514,7 @@ function installApplicationMenu(): void {
         label: app.getName(),
         submenu: [
           { role: "about" },
+          { label: "Check for Updates...", click: () => checkForUpdatesFromMenu() },
           { type: "separator" },
           { role: "hide" },
           { role: "hideOthers" },
@@ -710,6 +715,9 @@ async function main(): Promise<void> {
     onStateChange: () => push(),
     log: (message) => console.log(message),
   });
+  checkForUpdatesFromMenu = () => {
+    if (!updater.checkNow()) push();
+  };
 
   const detector = await loadDetector();
   const loop = createDetectionLoop({

@@ -36,6 +36,7 @@ export class DesktopUpdater {
   #deps: DesktopUpdaterDeps;
   #state: UpdateState = "idle";
   #armed: boolean;
+  #started = false;
   #launchedAtMs: number;
   #lastCheckedAtMs: number | null = null;
   #timer: ReturnType<typeof setInterval> | null = null;
@@ -62,6 +63,7 @@ export class DesktopUpdater {
    */
   start(): void {
     if (!this.#armed) {
+      this.#started = true;
       this.#deps.log(
         "[update] not armed — this build is unpackaged or unsigned, and Squirrel.Mac has nothing to verify it against.",
       );
@@ -92,6 +94,7 @@ export class DesktopUpdater {
       this.#move({ type: "update-downloaded", capturing });
     });
 
+    this.#started = true;
     this.#maybeCheck();
     this.#timer = setInterval(() => this.#maybeCheck(), POLL_INTERVAL_MS);
   }
@@ -120,12 +123,47 @@ export class DesktopUpdater {
     return true;
   }
 
+  /**
+   * A human asked from the macOS application menu. This bypasses the six-hour
+   * scheduler, but not the arming rules or the install guard.
+   */
+  checkNow(): boolean {
+    if (!this.#started) {
+      this.#deps.log("[update] manual check refused — updater startup has not finished yet.");
+      return false;
+    }
+    if (!this.#armed) {
+      this.#deps.log(
+        "[update] manual check refused — this build is unpackaged or unsigned, and Squirrel.Mac has nothing to verify it against.",
+      );
+      return false;
+    }
+    if (this.#state === "checking" || this.#state === "available") {
+      this.#deps.log("[update] manual check ignored — an update check is already running.");
+      return true;
+    }
+    if (this.#state === "ready" || this.#state === "deferred-for-recording") {
+      this.#deps.log("[update] manual check ignored — an update is already downloaded.");
+      return true;
+    }
+    this.#lastCheckedAtMs = (this.#deps.now ?? Date.now)();
+    this.#move({ type: "check-started" });
+    autoUpdater.checkForUpdates().catch((error: unknown) => {
+      this.#deps.log(
+        `[update] manual checkForUpdates threw: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      this.#move({ type: "check-failed" });
+    });
+    return true;
+  }
+
   #move(event: UpdateEvent): void {
     this.#state = transition(this.#state, event);
     this.#deps.onStateChange?.(this.#state);
   }
 
   #maybeCheck(): void {
+    if (this.#state !== "idle") return;
     const now = (this.#deps.now ?? Date.now)();
     if (
       !shouldCheckForUpdate({
@@ -137,10 +175,12 @@ export class DesktopUpdater {
       return;
     }
     this.#lastCheckedAtMs = now;
+    this.#move({ type: "check-started" });
     autoUpdater.checkForUpdates().catch((error: unknown) => {
       this.#deps.log(
         `[update] checkForUpdates threw: ${error instanceof Error ? error.message : String(error)}`,
       );
+      this.#move({ type: "check-failed" });
     });
   }
 }
