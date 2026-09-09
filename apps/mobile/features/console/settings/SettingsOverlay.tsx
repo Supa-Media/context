@@ -473,7 +473,12 @@ const makeStyles = (colors: Colors) =>
     rowTouch: {
       minHeight: layout.minTouchTarget,
       paddingVertical: space.x3,
-      justifyContent: "center",
+      /*
+        No `justifyContent: "center"`. It was the vertical centring of a column
+        row and became *horizontal* centring the moment this row grew a dot and
+        a trailing label and turned into a flex row — which centred every label
+        in the phone's list. `row`'s `alignItems` does the vertical half.
+      */
     },
     rowOn: { backgroundColor: colors.accentDim },
     /*
