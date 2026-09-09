@@ -145,6 +145,23 @@ export const SETTINGS_SECTIONS = [
     group: "Who can see it",
     personalOnly: false,
   },
+  {
+    key: "privacy",
+    /*
+      What people type when they are worried, which is rarely the word on the
+      row. "public" and "secret" are in this haystack and in no copy anywhere
+      in the section, deliberately: somebody asking "is any of this public?"
+      is asking a real question, and the answer — that no setting here puts a
+      note in front of anybody the owner has not named — is exactly what this
+      section exists to give them. A word nobody can search for is an answer
+      nobody finds.
+    */
+    keywords: "private public who can see visible hide hidden secret share permissions access folder default privacy manifest",
+    scope: "context",
+    label: "Privacy",
+    group: "Who can see it",
+    personalOnly: false,
+  },
   { key: "storage", keywords: "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup", scope: "context", label: "Storage", group: "Your notes", personalOnly: false },
   { key: "search", keywords: "find index fast lookup rebuild", scope: "context", label: "Search", group: "Your notes", personalOnly: false },
 ] as const;

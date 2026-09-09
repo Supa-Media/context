@@ -25,6 +25,7 @@ import { GoogleConnectionsCard } from "../google/GoogleConnectionsCard";
 import { ThisMachineCard } from "../../meetings/components/ThisMachineCard";
 import { FastSearchCard } from "../search/FastSearchCard";
 import { MembersSection } from "../members/MembersSection";
+import { PrivacyPanel } from "../settings/panels/PrivacyPanel";
 import { shareBackSuggestions } from "../members/members";
 import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
 import { settingsSectionLabel, type SettingsSectionKey } from "../settings/sections";
@@ -298,6 +299,14 @@ export function SettingsPane({
       />
       </>
       ) : null}
+
+      {/*
+        Its own file, and its own module beneath that. Privacy is the section
+        whose every sentence is a claim about who can read somebody's notes, so
+        the rows, the words and the one control all come from pure modules a
+        test can drive — see `features/console/privacy/`.
+      */}
+      {show("privacy") ? <PrivacyPanel data={data} inline={section === undefined} /> : null}
 
       {show("sources") ? (
       <>
