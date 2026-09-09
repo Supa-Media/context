@@ -14,6 +14,8 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { watch, type FSWatcher } from "node:fs";
+import { basename, dirname } from "node:path";
 import type { ImessageStatus } from "@context/desktop-bridge";
 import type { DesktopSettings } from "../core/settings.ts";
 import type { GatewayConnection } from "../core/sync/connection.ts";
@@ -35,6 +37,12 @@ export interface ImessageCursorStore {
 
 /** How often a sync is attempted while import is on. Independent of the meetings drain timer. */
 export const IMESSAGE_SYNC_INTERVAL_MS = 5 * 60_000;
+/** How long to let SQLite's WAL writes settle before reading the database. */
+export const IMESSAGE_CHANGE_DEBOUNCE_MS = 2_000;
+
+export interface ImessageWatcher {
+  close(): void;
+}
 
 export interface ImessageSyncServiceDeps {
   store: ImessageCursorStore;
@@ -46,6 +54,10 @@ export interface ImessageSyncServiceDeps {
   onChange?: (status: ImessageStatus) => void;
   /** Overridable for the suite; production never passes this. */
   chatDbPath?: () => string;
+  /** Overridable for the suite; production watches ~/Library/Messages. */
+  observeChatDb?: (chatDbPath: string, onChange: () => void) => ImessageWatcher;
+  /** Overridable for the suite; production waits for SQLite's write burst to settle. */
+  changeDebounceMs?: number;
 }
 
 const INITIAL_STATUS: ImessageStatus = Object.freeze({
@@ -67,6 +79,8 @@ export class ImessageSyncService {
   #deps: ImessageSyncServiceDeps;
   #status: ImessageStatus = { ...INITIAL_STATUS };
   #timer: ReturnType<typeof setInterval> | null = null;
+  #watcher: ImessageWatcher | null = null;
+  #changeTimer: ReturnType<typeof setTimeout> | null = null;
   #syncing: Promise<void> | null = null;
 
   constructor(deps: ImessageSyncServiceDeps) {
@@ -94,14 +108,38 @@ export class ImessageSyncService {
   }
 
   #arm(): void {
-    if (this.#timer !== null) return;
-    this.#timer = setInterval(() => void this.syncNow(), IMESSAGE_SYNC_INTERVAL_MS);
+    if (this.#timer === null) {
+      this.#timer = setInterval(() => void this.syncNow(), IMESSAGE_SYNC_INTERVAL_MS);
+    }
+    if (this.#watcher !== null) return;
+    try {
+      this.#watcher = (this.#deps.observeChatDb ?? observeChatDb)(this.#chatDbPath(), () => this.#syncSoon());
+    } catch {
+      // The foreground pass will classify the missing database or permission
+      // state. A failed watcher must not turn the feature into "off".
+    }
   }
 
   #disarm(): void {
-    if (this.#timer === null) return;
-    clearInterval(this.#timer);
-    this.#timer = null;
+    if (this.#timer !== null) {
+      clearInterval(this.#timer);
+      this.#timer = null;
+    }
+    if (this.#changeTimer !== null) {
+      clearTimeout(this.#changeTimer);
+      this.#changeTimer = null;
+    }
+    this.#watcher?.close();
+    this.#watcher = null;
+  }
+
+  #syncSoon(): void {
+    if (!this.#deps.settings().imessageEnabled) return;
+    if (this.#changeTimer !== null) clearTimeout(this.#changeTimer);
+    this.#changeTimer = setTimeout(() => {
+      this.#changeTimer = null;
+      void this.syncNow();
+    }, this.#deps.changeDebounceMs ?? IMESSAGE_CHANGE_DEBOUNCE_MS);
   }
 
   #emit(): void {
@@ -201,4 +239,19 @@ export class ImessageSyncService {
  */
 function mintNonce(): string {
   return randomBytes(8).toString("hex");
+}
+
+export function observeChatDb(chatDbPath: string, onChange: () => void): ImessageWatcher {
+  const directory = dirname(chatDbPath);
+  const watcher: FSWatcher = watch(directory, { persistent: false }, (_event, changed) => {
+    if (isChatDbChange(chatDbPath, changed)) onChange();
+  });
+  watcher.on("error", () => onChange());
+  return watcher;
+}
+
+export function isChatDbChange(chatDbPath: string, changed: string | Buffer | null): boolean {
+  const file = basename(chatDbPath);
+  const name = changed === null ? "" : String(changed);
+  return name === "" || name === file || name === `${file}-wal` || name === `${file}-shm`;
 }
