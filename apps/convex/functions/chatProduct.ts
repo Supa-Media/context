@@ -581,6 +581,7 @@ export const applyChatConnectionBinding = internalMutation({
         spaceSettings: existing?.chat?.spaceSettings,
         cursors: existing?.chat?.cursors,
         nonceSeed: existing?.chat?.nonceSeed ?? generateNonceSeed(),
+        destinationFolder: existing?.chat?.destinationFolder,
         lastSyncedAt: existing?.chat?.lastSyncedAt,
       },
       health: (starved.length ? "reconnect_required" : "backfilling") as

@@ -6,7 +6,7 @@
 // an injected client" argues for.
 //
 // SABOTAGE RECORD
-//   drop the backfillDays floor, so a first sync reads all of history  -> 11 checks failed
+//   make first sync read history instead of baselining at now          -> 3 checks failed
 //   read messages with `create_time >= cursor` instead of `>`          -> 2 checks failed
 //   REGEN_LOOKBACK_DAYS = 0, so an edit soon after sync misses          -> 2 checks failed
 //   advance a denied space's cursor anyway                             -> 1 check failed
@@ -128,21 +128,21 @@ export async function runGoogleChatChecks(check) {
   check("a different seed gives a different nonce for the same account and date", dayNonce("seed-1", "acct", "2026-09-07") !== dayNonce("seed-2", "acct", "2026-09-07"));
   check("a different date gives a different nonce", dayNonce("seed-1", "acct", "2026-09-07") !== dayNonce("seed-1", "acct", "2026-09-08"));
 
-  // -- the sync: bounded backfill -------------------------------------------
-  await section("sync: bounded backfill", async () => {
+  // -- the sync: forward-only baseline --------------------------------------
+  await section("sync: first pass baselines without backfill", async () => {
     const space = fixtureSpace({ name: ENGINEERING });
     const old = fixtureMessage({ name: `${ENGINEERING}/messages/old`, createTime: "2026-01-01T00:00:00Z" });
     const recent = fixtureMessage({ name: `${ENGINEERING}/messages/recent`, createTime: "2026-09-06T12:00:00Z" });
     const fetchImpl = createChatFixture({ spaces: [space], messagesBySpace: { [ENGINEERING]: [old, recent] } });
     const result = await syncGoogleChat({
       ...clientFor(fetchImpl),
-      connection: { account: "acct", nonceSeed: "seed", backfillDays: 90 },
+      connection: { account: "acct", nonceSeed: "seed" },
       now: NOW,
     });
     const allEvents = result.notes.flatMap((part) => part.events);
-    check("a first sync never reads before the backfill floor", !allEvents.some((e) => e.sentAt.startsWith("2026-01-01")));
-    check("...and does read what is inside the window", allEvents.some((e) => e.sentAt.startsWith("2026-09-06")));
-    check("the cursor advances to the latest message actually seen", result.cursors[ENGINEERING] === "2026-09-06T12:00:00.000Z");
+    check("a first sync writes no old messages", allEvents.length === 0);
+    check("the cursor starts at the sync time", result.cursors[ENGINEERING] === NOW);
+    check("the default backfill window is zero days", DEFAULT_BACKFILL_DAYS === 0);
   });
   await section("sync: configured destination folder", async () => {
     const space = fixtureSpace({ name: ENGINEERING });
@@ -153,6 +153,7 @@ export async function runGoogleChatChecks(check) {
       connection: {
         account: "acct",
         nonceSeed: "seed",
+        cursors: { [ENGINEERING]: "2026-09-06T00:00:00.000Z" },
         destinationFolder: "2-areas/communications/daily",
       },
       now: NOW,
@@ -171,7 +172,12 @@ export async function runGoogleChatChecks(check) {
     const fetchImpl = createChatFixture({ spaces: [included, excluded], messagesBySpace: messages });
     const result = await syncGoogleChat({
       ...clientFor(fetchImpl),
-      connection: { account: "acct", nonceSeed: "seed", spaceSettings: { [DM]: "excluded" } },
+      connection: {
+        account: "acct",
+        nonceSeed: "seed",
+        cursors: { [ENGINEERING]: "2026-09-06T00:00:00.000Z" },
+        spaceSettings: { [DM]: "excluded" },
+      },
       now: NOW,
     });
     check("an excluded space contributes no events", !result.notes.some((part) => part.events.some((e) => e.space.key === DM)));
@@ -184,7 +190,11 @@ export async function runGoogleChatChecks(check) {
   await section("sync: HISTORY_OFF marker on today's note", async () => {
     const off = fixtureSpace({ name: ENGINEERING, spaceHistoryState: "HISTORY_OFF" });
     const fetchImpl = createChatFixture({ spaces: [off], messagesBySpace: { [ENGINEERING]: [] } });
-    const result = await syncGoogleChat({ ...clientFor(fetchImpl), connection: { account: "acct", nonceSeed: "seed" }, now: NOW });
+    const result = await syncGoogleChat({
+      ...clientFor(fetchImpl),
+      connection: { account: "acct", nonceSeed: "seed", cursors: { [ENGINEERING]: "2026-09-06T00:00:00.000Z" } },
+      now: NOW,
+    });
     const today = noteFor(result, "2026-09-07");
     check("a HISTORY_OFF space with zero messages still produces today's note", Boolean(today));
     check("...carrying the honest marker", today?.text.includes("history unavailable") && today?.text.includes("history is off"));
@@ -192,10 +202,17 @@ export async function runGoogleChatChecks(check) {
   await section("sync: no-access marker on today's note", async () => {
     const denied = fixtureSpace({ name: ENGINEERING });
     const fetchImpl = createChatFixture({ spaces: [denied], deniedSpaces: new Set([ENGINEERING]) });
-    const result = await syncGoogleChat({ ...clientFor(fetchImpl), connection: { account: "acct", nonceSeed: "seed" }, now: NOW });
+    const result = await syncGoogleChat({
+      ...clientFor(fetchImpl),
+      connection: { account: "acct", nonceSeed: "seed", cursors: { [ENGINEERING]: "2026-09-06T00:00:00.000Z" } },
+      now: NOW,
+    });
     const today = noteFor(result, "2026-09-07");
     check("a denied space also produces today's note, with the other reason", today?.text.includes("can no longer read this space's"));
-    check("...and its cursor is left untouched so the next sync retries from where it left off", result.cursors[ENGINEERING] === undefined);
+    check(
+      "...and its cursor is left untouched so the next sync retries from where it left off",
+      result.cursors[ENGINEERING] === "2026-09-06T00:00:00.000Z",
+    );
   });
 
   // -- resilience: one space's unexpected failure does not abort the sync ---
@@ -206,7 +223,11 @@ export async function runGoogleChatChecks(check) {
     // DM answers with a transient 500 -- the generic, retry-worthy error
     // path, distinct from the two provider-classified reasons above.
     const fetchImpl = createChatFixture({ spaces: [good, bad], messagesBySpace: messages, failingSpaces: new Set([DM]) });
-    const result = await syncGoogleChat({ ...clientFor(fetchImpl), connection: { account: "acct", nonceSeed: "seed" }, now: NOW });
+    const result = await syncGoogleChat({
+      ...clientFor(fetchImpl),
+      connection: { account: "acct", nonceSeed: "seed", cursors: { [ENGINEERING]: "2026-09-06T00:00:00.000Z" } },
+      now: NOW,
+    });
     check("the failing space is recorded in errors", result.errors.some((e) => e.space === DM));
     check("...and the healthy space still synced", result.notes.some((part) => part.events.some((e) => e.space.key === ENGINEERING)));
   });
@@ -216,7 +237,11 @@ export async function runGoogleChatChecks(check) {
     const space = fixtureSpace({ name: ENGINEERING });
     const msg = fixtureMessage({ name: `${ENGINEERING}/messages/edit-me`, createTime: "2026-09-06T09:00:00Z", text: "original text" });
     const world = { spaces: [space], messagesBySpace: { [ENGINEERING]: [msg] } };
-    const connection = { account: "acct", nonceSeed: "seed" };
+    const connection = {
+      account: "acct",
+      nonceSeed: "seed",
+      cursors: { [ENGINEERING]: "2026-09-06T00:00:00.000Z" },
+    };
 
     const first = await syncGoogleChat({ ...clientFor(createChatFixture(world)), connection, now: NOW });
     const firstDay = noteFor(first, "2026-09-06");
@@ -272,7 +297,15 @@ export async function runGoogleChatChecks(check) {
     const space = fixtureSpace({ name: ENGINEERING, displayName: "Legal & Ops" });
     const msg = fixtureMessage({ name: `${ENGINEERING}/messages/xyz`, createTime: "2026-09-06T09:00:00Z" });
     const fetchImpl = createChatFixture({ spaces: [space], messagesBySpace: { [ENGINEERING]: [msg] } });
-    const result = await syncGoogleChat({ ...clientFor(fetchImpl), connection: { account: "acct-secret-handle", nonceSeed: "seed" }, now: NOW });
+    const result = await syncGoogleChat({
+      ...clientFor(fetchImpl),
+      connection: {
+        account: "acct-secret-handle",
+        nonceSeed: "seed",
+        cursors: { [ENGINEERING]: "2026-09-06T00:00:00.000Z" },
+      },
+      now: NOW,
+    });
     const text = result.notes.map((p) => p.text).join("\n");
     check("no raw space resource name reaches the file", !text.includes(ENGINEERING));
     check("no raw message id reaches the file", !text.includes("messages/xyz"));
@@ -283,14 +316,13 @@ export async function runGoogleChatChecks(check) {
     check("the connection's account is recorded, the same way email's is", text.includes("acct-secret-handle"));
   });
 
-  // -- backfill estimate: bounded windows, never all-time --------------------
+  // -- legacy backfill estimates: bounded windows, never all-time ------------
   check("only 90 and 365 day windows are offered, never an unbounded one", BACKFILL_WINDOW_DAYS.length === 2 && BACKFILL_WINDOW_DAYS.includes(90) && BACKFILL_WINDOW_DAYS.includes(365));
   check("zero spaces estimates zero of everything", estimateChatBackfill({ spaceCount: 0, days: 90 }).estimatedMessages === 0);
   check("more spaces means a larger estimate for the same window", estimateChatBackfill({ spaceCount: 5, days: 90 }).estimatedMessages > estimateChatBackfill({ spaceCount: 1, days: 90 }).estimatedMessages);
   check("a longer window means a larger estimate for the same spaces", estimateChatBackfill({ spaceCount: 3, days: 365 }).estimatedMessages > estimateChatBackfill({ spaceCount: 3, days: 90 }).estimatedMessages);
   check("the byte range is low <= high", (() => { const e = estimateChatBackfill({ spaceCount: 3, days: 90 }); return e.estimatedBytesLow <= e.estimatedBytesHigh; })());
   check("the windows helper answers exactly the offered windows", Object.keys(estimateChatBackfillWindows({ spaceCount: 2 })).sort().join(",") === "365,90");
-  check("the default backfill matches the decision", DEFAULT_BACKFILL_DAYS === 90);
 
   // -- scopes recorded verbatim -----------------------------------------------
   check(

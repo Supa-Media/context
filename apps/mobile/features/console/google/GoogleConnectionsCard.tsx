@@ -2,16 +2,12 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
-import { ChoiceGroup, FormError, TextField, ToggleGroup } from "../../design/components/Input";
+import { FormError, TextField, ToggleGroup } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useArming } from "../useArming";
-import {
-  GOOGLE_REDIRECT_ORIGINS,
-  type GoogleBackfillWindow,
-  type GoogleSyncServices,
-} from "./google";
+import { GOOGLE_REDIRECT_ORIGINS, type GoogleSyncServices } from "./google";
 import { useGoogleStart } from "./useGoogleStart";
 
 export interface GoogleConnection {
@@ -66,7 +62,6 @@ export interface GoogleConnection {
 export interface GoogleActions {
   workspaceId: string;
   disconnect: (connectionId: string) => Promise<null>;
-  startBackfill: (connectionId: string, backfillDays: number) => Promise<unknown>;
   saveDestination: (
     connectionId: string,
     service: "gmail" | "calendar" | "chat",
@@ -130,7 +125,6 @@ function GoogleConnectControls({ actions }: { actions: GoogleActions }) {
     calendar: true,
     chat: true,
   });
-  const [backfillWindow, setBackfillWindow] = useState<GoogleBackfillWindow>("90");
   const google = useGoogleStart(actions.workspaceId);
   const selected = Object.values(services).some(Boolean);
   const starting = google.state.kind === "starting";
@@ -148,23 +142,10 @@ function GoogleConnectControls({ actions }: { actions: GoogleActions }) {
           setServices((current) => ({ ...current, [value]: next }))
         }
       />
-      <ChoiceGroup
-        label="Gmail Backfill"
-        hint="Choose the mail history window before leaving for Google."
-        options={[
-          { value: "90", label: "90 days", detail: "Start with recent mail history." },
-          { value: "365", label: "1 year", detail: "Bring in a fuller working archive." },
-          { value: "all", label: "All mail", detail: "Use only when this account needs a complete archive." },
-        ]}
-        value={backfillWindow}
-        onChange={setBackfillWindow}
-        disabled={starting || !services.gmail}
-        testID="google-backfill-window"
-      />
       <Button
         label={starting ? "Opening Google..." : "Connect Google account"}
         disabled={!selected || starting || google.redirectUri === null}
-        onPress={() => google.start(services, backfillWindow)}
+        onPress={() => google.start(services)}
         trailing={starting ? <ActivityIndicator color={colors.text} size="small" /> : null}
         testID="connect-google"
       />
@@ -214,26 +195,16 @@ function ConnectedGoogleRow({
               connectionId={connection.connectionId}
               service="gmail"
               title="Email"
-              status={gmailRunDetail(connection) ?? (connection.gmail.historyCursorReady ? "Watching for new mail" : "Ready to backfill")}
+              status={
+                gmailRunDetail(connection) ??
+                (connection.gmail.historyCursorReady
+                  ? "Ready for new mail"
+                  : "Connected; forward sync setup is pending")
+              }
               destinationPath={connection.gmail.destinationPath}
-              destinationHint="Daily email files use YYYY-MM-DD.md; attachments stay beside the mailbox."
+              destinationHint="Use a folder plus YYYY-MM-DD.md; custom filenames are not supported yet."
               error={connection.syncRun?.status === "failed" ? inlineError : undefined}
-              actionLabel={gmailBackfillActionLabel(connection)}
-              actionDisabled={
-                actions === undefined ||
-                connection.syncRun?.status === "queued" ||
-                connection.syncRun?.status === "running"
-              }
-              onAction={() => {
-                if (actions === undefined || !connection.gmail) return;
-                void actions.startBackfill(connection.connectionId, connection.gmail.backfillDays);
-              }}
-              saveDestination={
-                connection.syncRun?.status === "queued" || connection.syncRun?.status === "running"
-                  ? undefined
-                  : actions?.saveDestination
-              }
-              destinationReadOnly={connection.syncRun?.status === "queued" || connection.syncRun?.status === "running"}
+              saveDestination={actions?.saveDestination}
             />
           ) : null}
           {connection.syncServices.calendar && connection.calendar ? (
@@ -243,13 +214,11 @@ function ConnectedGoogleRow({
               title="Calendar"
               status={
                 connection.calendar.syncCursorReady
-                  ? `Watching calendar changes${formatSyncTime(connection.calendar.lastSyncedAt) ? ` · ${formatSyncTime(connection.calendar.lastSyncedAt)}` : ""}`
-                  : "Connected grant; calendar sync is not running yet"
+                  ? `Ready for calendar changes${formatSyncTime(connection.calendar.lastSyncedAt) ? ` · ${formatSyncTime(connection.calendar.lastSyncedAt)}` : ""}`
+                  : "Connected; upcoming event sync setup is pending"
               }
               destinationPath={connection.calendar.destinationPath}
-              destinationHint="Calendar events will land as daily context notes here."
-              actionLabel="Start Calendar sync"
-              actionDisabled
+              destinationHint="Use a folder plus YYYY-MM-DD.md for daily calendar notes."
               saveDestination={actions?.saveDestination}
             />
           ) : null}
@@ -260,13 +229,11 @@ function ConnectedGoogleRow({
               title="Chat"
               status={
                 connection.chat.cursorCount > 0
-                  ? `Tracking ${connection.chat.cursorCount} Chat space${connection.chat.cursorCount === 1 ? "" : "s"}${formatSyncTime(connection.chat.lastSyncedAt) ? ` · ${formatSyncTime(connection.chat.lastSyncedAt)}` : ""}`
-                  : "Connected grant; Chat sync is not running yet"
+                  ? `Ready for ${connection.chat.cursorCount} Chat space${connection.chat.cursorCount === 1 ? "" : "s"}${formatSyncTime(connection.chat.lastSyncedAt) ? ` · ${formatSyncTime(connection.chat.lastSyncedAt)}` : ""}`
+                  : "Connected; Chat sync setup is pending"
               }
               destinationPath={connection.chat.destinationPath}
-              destinationHint="Chat will use this folder when the Chat sync worker is enabled."
-              actionLabel="Start Chat sync"
-              actionDisabled
+              destinationHint="Use a folder plus YYYY-MM-DD.md for daily Chat notes."
               saveDestination={actions?.saveDestination}
             />
           ) : null}
@@ -311,7 +278,7 @@ function GoogleServiceBlock({
   status: string;
   destinationPath: string;
   destinationHint: string;
-  actionLabel: string;
+  actionLabel?: string;
   actionDisabled?: boolean;
   error?: string;
   onAction?: () => void;
@@ -339,16 +306,18 @@ function GoogleServiceBlock({
             {status}
           </Text>
         </View>
-        <Button
-          label={actionLabel}
-          disabled={actionDisabled}
-          onPress={onAction}
-          testID={`start-google-${service}-${connectionId}`}
-        />
+        {actionLabel ? (
+          <Button
+            label={actionLabel}
+            disabled={actionDisabled}
+            onPress={onAction}
+            testID={`start-google-${service}-${connectionId}`}
+          />
+        ) : null}
       </View>
       <View style={styles.destinationRow}>
         <TextField
-          label={`${title} destination`}
+          label={`${title} daily file pattern`}
           value={draft}
           editable={!destinationReadOnly}
           onChangeText={(value) => {
@@ -363,7 +332,7 @@ function GoogleServiceBlock({
           testID={`google-${service}-destination-${connectionId}`}
         />
         <Button
-          label={saving ? "Saving..." : "Save path"}
+          label={saving ? "Saving..." : "Save pattern"}
           disabled={!dirty || saving || destinationReadOnly || saveDestination === undefined}
           onPress={() => {
             if (saveDestination === undefined) return;
@@ -379,7 +348,7 @@ function GoogleServiceBlock({
           testID={`save-google-${service}-destination-${connectionId}`}
         />
       </View>
-      {saveError ? <FormError headline="Path was not saved" next={saveError} /> : null}
+      {saveError ? <FormError headline="Pattern was not saved" next={saveError} /> : null}
       {error ? <FormError headline="Sync stopped" next={error} /> : null}
     </View>
   );
@@ -419,14 +388,6 @@ function formatBytes(value: number | undefined): string | null {
   return `${(value / 1024 / 1024).toFixed(1)} MB saved`;
 }
 
-function gmailBackfillActionLabel(connection: GoogleConnection): string {
-  const status = connection.syncRun?.status;
-  if (status === "queued") return "Email queued";
-  if (status === "running") return "Email running";
-  if (status === "failed") return "Retry Email";
-  return "Start Email";
-}
-
 function gmailRunDetail(connection: GoogleConnection): string | null {
   const run = connection.syncRun;
   if (!run || !run.services.includes("gmail")) return null;
@@ -446,17 +407,17 @@ function gmailRunDetail(connection: GoogleConnection): string | null {
   const facts = [progress, emailsFound, daysWithMail, bytes].filter(Boolean);
   switch (run.status) {
     case "queued":
-      return "Backfill queued";
+      return "Stopping historical import";
     case "running":
       if (run.errorCode === "GOOGLE_RATE_LIMITED") {
-        return `Paused by Google; retrying automatically${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
+        return `Paused by Google; historical import is being stopped${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
       }
       if (run.lastError) {
-        return `Retrying automatically${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
+        return `Stopping historical import${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
       }
-      return `Scanning Gmail${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
+      return `Stopping historical import${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
     case "complete":
-      return `Backfill complete${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
+      return null;
     case "failed":
       return `Stopped${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
   }

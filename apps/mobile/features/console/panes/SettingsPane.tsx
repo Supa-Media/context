@@ -207,7 +207,7 @@ export function SettingsPane({
       </Text>
       <Text variant="paneSub" style={styles.sectionSub}>
         {current?.kind === "personal"
-          ? "Bring private communications into this personal brain: email, calendars, chats, and this Mac's iMessages."
+          ? "Bring private communications into this personal brain: email, calendars, and chats from Google. The desktop app also shows this Mac's iMessage setup here."
           : "Private communications import is only available on personal brains. Workspaces should not receive somebody's email, chats, calendar, or iMessages."}
       </Text>
       {current?.kind === "personal" ? (

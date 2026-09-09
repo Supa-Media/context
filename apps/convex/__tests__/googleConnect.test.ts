@@ -783,7 +783,7 @@ describe("the row shape: products and the nested gmail object", () => {
     expect(errorCode(error)).toBe("NOT_OWNER");
   });
 
-  test("the owner starts an explicit Gmail backfill run", async () => {
+  test("the owner cannot start a historical Gmail backfill run", async () => {
     enableMailConnect();
     const { t, owner, workspaceId } = await personalScenario();
     await seedConnectedStorage(t, workspaceId, owner);
@@ -797,58 +797,16 @@ describe("the row shape: products and the nested gmail object", () => {
       encryptedAccessToken: await encryptSecret("access-1", keyset, context),
     });
 
-    const started = await asUser(t, owner).mutation(api.functions.googleConnect.startGoogleSyncRun, {
-      workspaceId,
-      connectionId,
-      services: { gmail: true, calendar: false, chat: false },
-    });
+    const error = await captureError(() =>
+      asUser(t, owner).mutation(api.functions.googleConnect.startGoogleSyncRun, {
+        workspaceId,
+        connectionId,
+        services: { gmail: true, calendar: false, chat: false },
+      }),
+    );
 
-    const duplicate = await asUser(t, owner).mutation(api.functions.googleConnect.startGoogleSyncRun, {
-      workspaceId,
-      connectionId,
-      services: { gmail: true, calendar: false, chat: false },
-    });
-    expect(duplicate.runId).toBe(started.runId);
-
-    const runs = await t.run((ctx) => ctx.db.query("googleSyncRuns").collect());
-    expect(runs).toHaveLength(1);
-    expect(runs[0]).toMatchObject({
-      workspaceId,
-      connectionId,
-      requestedBy: owner,
-      mode: "backfill",
-      services: ["gmail"],
-      status: "queued",
-      requestedBackfillDays: 90,
-      totalUnits: 90,
-      completedUnits: 0,
-      itemsFound: 0,
-      destinationFolder: "0-inbox/email/person-at-example-invalid",
-    });
-    await asUser(t, owner).mutation(api.functions.googleConnect.updateGoogleSyncDestination, {
-      workspaceId,
-      connectionId,
-      service: "gmail",
-      destinationPath: "2-areas/communications/mail/YYYY-MM-DD.md",
-    });
-    const workerJob = await t.query(internal.functions.googleConnect.googleGmailBackfillForRun, {
-      workspaceId,
-      runId: started.runId,
-    });
-    expect(workerJob?.destinationFolder).toBe("0-inbox/email/person-at-example-invalid");
-    const scheduled = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
-    expect(scheduled.some((job) => String(job.name).includes("runFileOperation"))).toBe(true);
-
-    const [row] = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
-      workspaceId,
-    });
-    expect(row?.syncStatus).toBe("backfilling");
-    expect(row?.syncRun).toMatchObject({
-      runId: started.runId,
-      status: "queued",
-      completedUnits: 0,
-      totalUnits: 90,
-    });
+    expect(errorCode(error)).toBe("GOOGLE_SYNC_FORWARD_ONLY");
+    expect(await t.run((ctx) => ctx.db.query("googleSyncRuns").collect())).toHaveLength(0);
   });
 
   test("a deployment with Gmail disabled refuses to start an existing Gmail backfill", async () => {
@@ -876,7 +834,7 @@ describe("the row shape: products and the nested gmail object", () => {
     expect(await t.run((ctx) => ctx.db.query("googleSyncRuns").collect())).toHaveLength(0);
   });
 
-  test("a Gmail backfill start refuses before creating a run when storage is missing", async () => {
+  test("a Gmail backfill start refuses before checking storage", async () => {
     enableMailConnect();
     const { t, owner, workspaceId } = await personalScenario();
     const keyset = requireKeyset();
@@ -897,7 +855,7 @@ describe("the row shape: products and the nested gmail object", () => {
       }),
     );
 
-    expect(errorCode(error)).toBe("GOOGLE_SYNC_BUCKET_NOT_CONNECTED");
+    expect(errorCode(error)).toBe("GOOGLE_SYNC_FORWARD_ONLY");
     expect(await t.run((ctx) => ctx.db.query("googleSyncRuns").collect())).toHaveLength(0);
   });
 
@@ -952,11 +910,23 @@ describe("the row shape: products and the nested gmail object", () => {
       encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
       encryptedAccessToken: await encryptSecret("access-1", keyset, context),
     });
-    const { runId } = await asUser(t, owner).mutation(api.functions.googleConnect.startGoogleSyncRun, {
-      workspaceId,
-      connectionId,
-      services: { gmail: true, calendar: false, chat: false },
-    });
+    const now = Date.now();
+    const runId = await t.run((ctx) =>
+      ctx.db.insert("googleSyncRuns", {
+        workspaceId,
+        connectionId,
+        requestedBy: owner,
+        mode: "backfill",
+        services: ["gmail"],
+        status: "queued",
+        requestedBackfillDays: 90,
+        totalUnits: 90,
+        completedUnits: 0,
+        destinationFolder: "0-inbox/email/person-at-example-invalid",
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
     await t.mutation(internal.functions.googleConnect.recordGoogleGmailBackfillPass, {
       runId,
       connectionId,
@@ -1080,6 +1050,31 @@ describe("the row shape: products and the nested gmail object", () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]!.gmail?.mailboxSlug).toBe("person-at-example-invalid");
+  });
+
+  test("a new Gmail bind with a current history id is ready for forward sync immediately", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const address = "person@example.invalid";
+
+    await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({ address }),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+      historyId: "baseline-12345",
+    });
+
+    const row = await t.run((ctx) =>
+      ctx.db
+        .query("googleConnections")
+        .withIndex("by_workspace_address", (q) => q.eq("workspaceId", workspaceId).eq("address", address))
+        .unique(),
+    );
+    expect(row?.gmail?.historyId).toBe("baseline-12345");
+    expect(row?.health).toBe("active");
   });
 
   /** A reconnect keeps the sync cursor — resetting it would force a needless full reconcile. */

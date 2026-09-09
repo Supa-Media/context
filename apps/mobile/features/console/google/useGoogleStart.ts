@@ -5,11 +5,9 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import {
   browserOrigin,
   describeGoogleStartFailure,
-  googleBackfillDays,
   googleRedirectUri,
   rememberGoogleCompletionSecret,
   stateFromGoogleAuthorizeUrl,
-  type GoogleBackfillWindow,
   type GoogleStartState,
   type GoogleSyncServices,
 } from "./google";
@@ -18,14 +16,14 @@ import { leaveForGoogle } from "./leaveForGoogle";
 export function useGoogleStart(workspaceId: string | null): {
   redirectUri: string | null;
   state: GoogleStartState;
-  start: (syncServices: GoogleSyncServices, backfillWindow: GoogleBackfillWindow) => void;
+  start: (syncServices: GoogleSyncServices) => void;
 } {
   const startConnect = useAction(api.functions.googleConnect.startGoogleConnect);
   const [state, setState] = useState<GoogleStartState>({ kind: "idle" });
   const redirectUri = googleRedirectUri(browserOrigin());
 
   const start = useCallback(
-    (syncServices: GoogleSyncServices, backfillWindow: GoogleBackfillWindow) => {
+    (syncServices: GoogleSyncServices) => {
       if (workspaceId === null || redirectUri === null) return;
       setState({ kind: "starting" });
       void (async () => {
@@ -34,7 +32,6 @@ export function useGoogleStart(workspaceId: string | null): {
             workspaceId: workspaceId as Id<"workspaces">,
             redirectUri,
             syncServices,
-            backfillDays: googleBackfillDays(backfillWindow),
           });
           const oauthState = stateFromGoogleAuthorizeUrl(authorizeUrl);
           if (oauthState === null || !rememberGoogleCompletionSecret(oauthState, completionSecret)) {

@@ -25,8 +25,8 @@ import { defaultChatDbPath, isAllowedChatDbPath } from "../core/imessage/paths.t
 import { queryChatDb } from "../core/imessage/sqlite.ts";
 import { readNote, writeNote } from "../core/imessage/gatewayNotes.ts";
 import { syncImessage, type ImessageSyncDeps } from "../core/imessage/sync.ts";
-import type { ImessageCursor } from "../core/imessage/cursor.ts";
-import { selectAttachmentsSql, selectMessagesSql, selectParticipantsSql } from "../core/imessage/schema.ts";
+import { advanceCursor, type ImessageCursor } from "../core/imessage/cursor.ts";
+import { selectAttachmentsSql, selectMaxRowIdSql, selectMessagesSql, selectParticipantsSql } from "../core/imessage/schema.ts";
 import type { MessageWindow } from "../core/imessage/schema.ts";
 
 /** Where the cursor lives and where it is read back from. Kept small so a fake can implement it in a test. */
@@ -241,31 +241,41 @@ export class ImessageSyncService {
     const cursor = await this.#deps.store.readImessageCursor();
     this.#assertCurrent(generation);
 
-    const syncDeps: ImessageSyncDeps = {
-      queryMessages: (window: MessageWindow) => queryChatDb(path, selectMessagesSql(window)) as ReturnType<ImessageSyncDeps["queryMessages"]>,
-      queryAttachments: (window: MessageWindow) => queryChatDb(path, selectAttachmentsSql(window)) as ReturnType<ImessageSyncDeps["queryAttachments"]>,
-      queryParticipants: () => queryChatDb(path, selectParticipantsSql()) as ReturnType<ImessageSyncDeps["queryParticipants"]>,
-      readNote: async (notePath) => {
-        this.#assertCurrent(generation);
-        const result = await readNote(notesConfig, notePath);
-        this.#assertCurrent(generation);
-        return result;
-      },
-      writeNote: async (notePath, content, expectedEtag) => {
-        this.#assertCurrent(generation);
-        const result = await writeNote(notesConfig, notePath, content, expectedEtag);
-        this.#assertCurrent(generation);
-        return result;
-      },
-      now: () => new Date(this.#now()).toISOString(),
-      mintNonce: () => mintNonce(),
-      // No `selfAddresses`: `chat.db` does not reliably carry which handle is
-      // this Mac's own — see `docs/decisions/communications.md`. The only
-      // effect is cosmetic: an unnamed group's subject can list the owner's
-      // own address alongside everyone else's.
-    };
-
     try {
+      if (cursor.lastRowId === 0 && (options.refreshDates ?? []).length === 0) {
+        const baseline = await readCurrentMaxMessageRowId(path);
+        this.#assertCurrent(generation);
+        await this.#deps.store.writeImessageCursor(advanceCursor(cursor, baseline));
+        this.#assertCurrent(generation);
+        this.#status = { ...this.#status, lastSyncedAt: this.#now(), lastError: null };
+        this.#emit();
+        return;
+      }
+
+      const syncDeps: ImessageSyncDeps = {
+        queryMessages: (window: MessageWindow) => queryChatDb(path, selectMessagesSql(window)) as ReturnType<ImessageSyncDeps["queryMessages"]>,
+        queryAttachments: (window: MessageWindow) => queryChatDb(path, selectAttachmentsSql(window)) as ReturnType<ImessageSyncDeps["queryAttachments"]>,
+        queryParticipants: () => queryChatDb(path, selectParticipantsSql()) as ReturnType<ImessageSyncDeps["queryParticipants"]>,
+        readNote: async (notePath) => {
+          this.#assertCurrent(generation);
+          const result = await readNote(notesConfig, notePath);
+          this.#assertCurrent(generation);
+          return result;
+        },
+        writeNote: async (notePath, content, expectedEtag) => {
+          this.#assertCurrent(generation);
+          const result = await writeNote(notesConfig, notePath, content, expectedEtag);
+          this.#assertCurrent(generation);
+          return result;
+        },
+        now: () => new Date(this.#now()).toISOString(),
+        mintNonce: () => mintNonce(),
+        // No `selfAddresses`: `chat.db` does not reliably carry which handle is
+        // this Mac's own — see `docs/decisions/communications.md`. The only
+        // effect is cosmetic: an unnamed group's subject can list the owner's
+        // own address alongside everyone else's.
+      };
+
       const report = await syncImessage(syncDeps, cursor, { refreshDates: options.refreshDates });
       this.#assertCurrent(generation);
       await this.#deps.store.writeImessageCursor(report.cursor);
@@ -298,6 +308,14 @@ export class ImessageSyncService {
 }
 
 class StaleImessageSync extends Error {}
+
+async function readCurrentMaxMessageRowId(chatDbPath: string): Promise<number> {
+  const rows = (await queryChatDb(chatDbPath, selectMaxRowIdSql())) as Array<{ rowid?: unknown }>;
+  const value = rows[0]?.rowid;
+  if (typeof value !== "string") return 0;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
 
 /**
  * A fresh, unguessable fence nonce for a channel-day note that has never been

@@ -499,6 +499,7 @@ export const applyCalendarConnectionBinding = internalMutation({
         // A reconnect keeps the cursor: it is the same account, and
         // resetting it would force a needless full resync. Cleared only by
         // `disconnectGoogleConnection`, exactly like Gmail's `historyId`.
+        destinationFolder: existing?.calendar?.destinationFolder,
         syncToken: existing?.calendar?.syncToken,
         lastSyncedAt: existing?.calendar?.lastSyncedAt,
       },
