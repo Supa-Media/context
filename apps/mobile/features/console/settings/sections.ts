@@ -90,6 +90,29 @@ export const SETTINGS_SECTIONS = [
     personalOnly: false,
   },
   {
+    key: "devices",
+    /*
+      "This Mac, and what it's allowed to capture" was drawn inside
+      *workspace* settings, under `sources`, where a machine does not belong
+      — a device is the person's, not the context's, and every other member
+      of that workspace could see it too. Account-scoped, alongside the other
+      things that follow the person rather than whichever context is open.
+    */
+    keywords: "mac computer laptop machine device devices revoke capture desktop",
+    label: "Your devices",
+    scope: "account",
+    group: "Your account",
+    personalOnly: false,
+  },
+  {
+    key: "appearance",
+    keywords: "dark mode light theme night appearance display colour color scheme",
+    label: "Appearance",
+    scope: "account",
+    group: "Your account",
+    personalOnly: false,
+  },
+  {
     key: "account",
     /*
       "sign out" is back in this haystack, and it was right to take it out

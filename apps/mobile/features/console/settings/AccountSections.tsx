@@ -12,6 +12,8 @@ import { DeleteAccountCard } from "./DeleteAccountCard";
 import { atName } from "../format";
 import type { ConsoleData } from "../types";
 import { settingsSectionLabel, type SettingsSectionKey } from "./sections";
+import { AppearancePanel } from "./panels/AppearancePanel";
+import { DevicesPanel } from "./panels/DevicesPanel";
 
 /**
  * The settings that belong to the person rather than to one context.
@@ -204,6 +206,14 @@ export function AccountSection({
         </Card>
       </View>
     );
+  }
+
+  if (section === "devices") {
+    return <DevicesPanel />;
+  }
+
+  if (section === "appearance") {
+    return <AppearancePanel />;
   }
 
   return (

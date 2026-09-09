@@ -161,6 +161,10 @@ describe("searching the list", () => {
     ["public", "privacy"],
     ["hide", "privacy"],
     ["permissions", "privacy"],
+    ["mac", "devices"],
+    ["laptop", "devices"],
+    ["dark mode", "appearance"],
+    ["light", "appearance"],
   ])("%p opens %p", (query, key) => {
     const hits = matchSettingsSections(settingsSectionsFor("personal"), query).map(
       (section) => section.key,
