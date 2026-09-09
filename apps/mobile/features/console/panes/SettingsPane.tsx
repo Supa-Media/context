@@ -15,6 +15,7 @@ import { PaneHead } from "../ConsoleShell";
 import { atName } from "../format";
 import { loadedFolders } from "../files/browser";
 import { IngestionCard } from "../ingestion/IngestionCard";
+import { GoogleConnectionsCard } from "../google/GoogleConnectionsCard";
 /*
   The component's own path rather than the meetings barrel, deliberately: that
   barrel re-exports `useMeetingFlow`, which imports `expo-router`, and pulling a
@@ -200,6 +201,18 @@ export function SettingsPane({
           onRebind={() => setRebinding(true)}
         />
       )}
+
+      <Text variant="eyebrow" style={styles.sectionHeadLater}>
+        Google sync
+      </Text>
+      <Text variant="paneSub" style={styles.sectionSub}>
+        Add the Gmail, Calendar and Chat accounts this context should keep up with.
+      </Text>
+      <GoogleConnectionsCard
+        connections={data.googleConnections}
+        actions={data.googleActions}
+        loading={data.loading}
+      />
 
       {/*
         The blurb describes a setting, so it is shown only where there is one.

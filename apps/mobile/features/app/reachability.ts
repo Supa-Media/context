@@ -291,6 +291,17 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     marker: "the URL Dropbox redirects back to",
   },
   {
+    route: "/connect/google",
+    file: "app/connect/google.tsx",
+    reachable: false,
+    reason:
+      "The URL Google redirects back to, registered with Google Cloud and matched " +
+      "exactly. The app sends people out to Google and Google sends them here with " +
+      "a code and a state; opening it from inside the app would land on a callback " +
+      "without the browser-kept completion secret that started the flow.",
+    marker: "the URL Google redirects back to",
+  },
+  {
     route: "/console",
     file: "app/(app)/console/index.tsx",
     reachable: true,

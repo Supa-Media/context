@@ -46,7 +46,7 @@
  * alone.
  */
 
-import { describe, expect, it } from "@jest/globals";
+import { describe, expect, it, jest } from "@jest/globals";
 import { createElement } from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";

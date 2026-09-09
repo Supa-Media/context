@@ -26,10 +26,12 @@ import {
   createUser,
   createWorkspace,
   errorCode,
+  seedGoogleConnection,
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
 import { encryptSecret, hashToken, requireKeyset } from "../functions/lib/crypto";
+import { CALENDAR_SCOPES, CHAT_SCOPES, GMAIL_SCOPES } from "../functions/lib/googleOAuth";
 import type { Id } from "../_generated/dataModel";
 
 const APP = "https://app.context.invalid";
@@ -42,6 +44,16 @@ afterEach(() => {
 /** The flag on, and a client id configured — the state every non-flag test needs. */
 function enableMailConnect() {
   vi.stubEnv("MAIL_CONNECT_ENABLED", "true");
+  vi.stubEnv("GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id.apps.googleusercontent.com");
+}
+
+function enableAllGoogleConnect() {
+  enableMailConnect();
+  vi.stubEnv("CALENDAR_CONNECT_ENABLED", "true");
+}
+
+function enableCalendarOnlyGoogleConnect() {
+  vi.stubEnv("CALENDAR_CONNECT_ENABLED", "true");
   vi.stubEnv("GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id.apps.googleusercontent.com");
 }
 
@@ -340,6 +352,108 @@ describe("the backfill window and folder set", () => {
       });
       expect(result.authorizeUrl).toBeTruthy();
     }
+  });
+});
+
+describe("product-aware Google connect", () => {
+  test("an empty service set is refused before parking an attempt", async () => {
+    enableAllGoogleConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    const error = await captureError(() =>
+      asUser(t, owner).action(api.functions.googleConnect.startGoogleConnect, {
+        workspaceId,
+        redirectUri: REDIRECT,
+        syncServices: { gmail: false, calendar: false, chat: false },
+      }),
+    );
+    expect(errorCode(error)).toBe("GOOGLE_PRODUCTS_REQUIRED");
+    expect(await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect())).toHaveLength(0);
+  });
+
+  test("one console start can ask Google for Gmail, Calendar and Chat together", async () => {
+    enableAllGoogleConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    const result = await asUser(t, owner).action(api.functions.googleConnect.startGoogleConnect, {
+      workspaceId,
+      redirectUri: REDIRECT,
+      syncServices: { gmail: true, calendar: true, chat: true },
+    });
+    const params = new URL(result.authorizeUrl).searchParams;
+    const scopes = new Set(params.get("scope")?.split(" ") ?? []);
+    expect(scopes).toContain(GMAIL_SCOPES[0]);
+    expect(scopes).toContain(CALENDAR_SCOPES[0]);
+    expect(scopes).toContain(CHAT_SCOPES[0]);
+    expect(scopes).toContain(CHAT_SCOPES[1]);
+    expect(params.get("include_granted_scopes")).toBe("true");
+
+    const parked = await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect());
+    expect(parked).toHaveLength(1);
+    expect(parked[0]!.products.sort()).toEqual(["calendar", "chat", "gmail"]);
+    expect(parked[0]!.hashedCompletion).toBeTruthy();
+  });
+
+  test("a Calendar-only console start does not inherit restricted Gmail scopes from an existing grant", async () => {
+    enableCalendarOnlyGoogleConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      address: "context@supa.media",
+    });
+
+    const result = await asUser(t, owner).action(api.functions.googleConnect.startGoogleConnect, {
+      workspaceId,
+      redirectUri: REDIRECT,
+      syncServices: { gmail: false, calendar: true, chat: false },
+    });
+    const scopes = new Set(new URL(result.authorizeUrl).searchParams.get("scope")?.split(" ") ?? []);
+
+    expect(scopes).toContain(CALENDAR_SCOPES[0]);
+    expect(scopes).not.toContain(GMAIL_SCOPES[0]);
+    const parked = await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect());
+    expect(parked[0]!.products).toEqual(["calendar"]);
+  });
+
+  test("the generic callback spends a combined attempt exactly once", async () => {
+    enableAllGoogleConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    const state = await parkedAttempt(t, workspaceId, owner, {
+      flow: "google",
+      products: ["gmail", "calendar", "chat"],
+    });
+    const hashedState = await hashToken(state);
+    const consumed = await t.mutation(internal.functions.googleConnect.consumeGoogleAttemptAndExchange, {
+      hashedState,
+      hashedCompletion: await hashToken(COMPLETION),
+      code: "code-1",
+    });
+    expect(consumed?.workspaceId).toBe(workspaceId);
+    expect(await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect())).toHaveLength(0);
+
+    const replay = await t.mutation(internal.functions.googleConnect.consumeGoogleAttemptAndExchange, {
+      hashedState,
+      hashedCompletion: await hashToken(COMPLETION),
+      code: "code-1",
+    });
+    expect(replay).toBe(null);
+  });
+
+  test("the generic callback refuses product-specific attempts", async () => {
+    enableAllGoogleConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    const state = await parkedAttempt(t, workspaceId, owner, {
+      flow: "calendar",
+      products: ["gmail", "calendar"],
+    });
+
+    const consumed = await t.mutation(internal.functions.googleConnect.consumeGoogleAttemptAndExchange, {
+      hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(COMPLETION),
+      code: "code-1",
+    });
+
+    expect(consumed).toBe(null);
+    expect(await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect())).toHaveLength(1);
   });
 });
 

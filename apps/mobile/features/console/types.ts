@@ -1,6 +1,10 @@
 import type { ConsoleFailure } from "./failure";
 import type { NoteWriter } from "./encryption/passphraseOps";
 import type { FileBrowser } from "./files/browser";
+import type {
+  GoogleActions,
+  GoogleConnection,
+} from "./google/GoogleConnectionsCard";
 import type { ViewerIdentity } from "./identity";
 import type { IngestionState } from "./ingestion/settings";
 import type { MapGraph } from "./map/layout";
@@ -261,6 +265,8 @@ export interface ConsoleData {
   storage: ConsoleStorage | null | undefined;
   /** Absent in the demo and for non-owners. See `StorageActions`. */
   storageActions?: StorageActions;
+  googleConnections: GoogleConnection[];
+  googleActions?: GoogleActions;
   endpoint: string;
   /**
    * The ingestion alias to display when the backend cannot yet answer for it.
@@ -332,4 +338,3 @@ export function selectedContext(data: ConsoleData): ConsoleContext | null {
   if (data.selectedContextId === null) return null;
   return data.contexts.find((c) => c.id === data.selectedContextId) ?? null;
 }
-

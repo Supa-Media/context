@@ -146,6 +146,9 @@ export const parkCalendarAttempt = internalMutation({
     startedBy: v.id("users"),
     redirectUri: v.string(),
     hashedCompletion: v.string(),
+    flow: v.optional(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"), v.literal("google")),
+    ),
     products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
   },
   returns: v.null(),
@@ -167,6 +170,7 @@ export const parkCalendarAttempt = internalMutation({
       workspaceId: args.workspaceId,
       startedBy: args.startedBy,
       redirectUri: args.redirectUri,
+      flow: args.flow,
       products: args.products,
       // Gmail's own connect-time choices. Absent here, same as the schema
       // already allows — a Calendar attempt carries no Gmail fields because
@@ -242,6 +246,7 @@ export const startCalendarConnect = action({
       workspaceId: args.workspaceId,
       startedBy: userId,
       redirectUri: args.redirectUri,
+      flow: "calendar",
       products,
     });
 
