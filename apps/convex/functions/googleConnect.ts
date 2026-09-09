@@ -146,6 +146,7 @@ export const DEFAULT_ATTACHMENT_RETENTION_DAYS = 90;
 type AttachmentMode = "metadata-only" | "store";
 type AttachmentRetention = number | "forever";
 type GoogleSyncServices = { gmail: boolean; calendar: boolean; chat: boolean };
+type GoogleSyncService = "gmail" | "calendar" | "chat";
 
 // The four helpers below are exported for `calendarConnect.ts` (and Chat's
 // sibling module): one OAuth client id, one client secret, one "who is
@@ -724,6 +725,31 @@ export const listGoogleConnections = query({
           lastSyncedAt: v.optional(v.number()),
         }),
       ),
+      syncRun: v.optional(
+        v.object({
+          runId: v.id("googleSyncRuns"),
+          mode: v.literal("backfill"),
+          services: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+          status: v.union(
+            v.literal("queued"),
+            v.literal("running"),
+            v.literal("complete"),
+            v.literal("failed"),
+          ),
+          requestedBackfillDays: v.number(),
+          totalUnits: v.number(),
+          completedUnits: v.number(),
+          itemsFound: v.optional(v.number()),
+          daysWithMail: v.optional(v.number()),
+          bytesWritten: v.optional(v.number()),
+          currentService: v.optional(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+          currentUnit: v.optional(v.string()),
+          startedAt: v.optional(v.number()),
+          completedAt: v.optional(v.number()),
+          errorCode: v.optional(v.string()),
+          lastError: v.optional(v.string()),
+        }),
+      ),
       disconnectedAt: v.optional(v.number()),
     }),
   ),
@@ -744,7 +770,8 @@ export const listGoogleConnections = query({
       .query("googleConnections")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .collect();
-    return rows.map((row) => {
+    const out = [];
+    for (const row of rows) {
       const gmail = row.products.includes("gmail") ? row.gmail : undefined;
       const calendar = row.products.includes("calendar") ? row.calendar : undefined;
       const chat = row.products.includes("chat") ? row.chat : undefined;
@@ -753,7 +780,12 @@ export const listGoogleConnections = query({
         calendar?.lastSyncedAt ?? 0,
         chat?.lastSyncedAt ?? 0,
       );
-      return {
+      const latestRun = await ctx.db
+        .query("googleSyncRuns")
+        .withIndex("by_connection_created", (q) => q.eq("connectionId", row._id))
+        .order("desc")
+        .first();
+      out.push({
         connectionId: row._id,
         email: row.address,
         syncServices: {
@@ -761,7 +793,13 @@ export const listGoogleConnections = query({
           calendar: calendar !== undefined,
           chat: chat !== undefined,
         },
-        syncStatus: row.disconnectedAt !== undefined ? "disconnected" : row.health,
+        syncStatus:
+          row.disconnectedAt !== undefined
+            ? "disconnected"
+            : row.health === "backfilling" &&
+                (latestRun === null || (latestRun.status !== "queued" && latestRun.status !== "running"))
+              ? "connected"
+              : row.health,
         lastSyncCompletedAt: lastSyncCompletedAt === 0 ? undefined : lastSyncCompletedAt,
         errorCode: row.errorCode,
         lastError: row.lastError,
@@ -788,9 +826,30 @@ export const listGoogleConnections = query({
               lastSyncedAt: chat.lastSyncedAt,
             }
           : undefined,
+        syncRun: latestRun
+          ? {
+              runId: latestRun._id,
+              mode: latestRun.mode,
+              services: latestRun.services,
+              status: latestRun.status,
+              requestedBackfillDays: latestRun.requestedBackfillDays,
+              totalUnits: latestRun.totalUnits,
+              completedUnits: latestRun.completedUnits,
+              itemsFound: latestRun.itemsFound,
+              daysWithMail: latestRun.daysWithMail,
+              bytesWritten: latestRun.bytesWritten,
+              currentService: latestRun.currentService,
+              currentUnit: latestRun.currentUnit,
+              startedAt: latestRun.startedAt,
+              completedAt: latestRun.completedAt,
+              errorCode: latestRun.errorCode,
+              lastError: latestRun.lastError,
+            }
+          : undefined,
         disconnectedAt: row.disconnectedAt,
-      };
-    });
+      });
+    }
+    return out;
   },
 });
 
@@ -1178,6 +1237,330 @@ export const disconnectGoogleConnection = mutation({
       workspaceId: args.workspaceId,
       encryptedRefreshToken: refreshToken,
     });
+    return null;
+  },
+});
+
+export const startGoogleSyncRun = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    connectionId: v.id("googleConnections"),
+    services: v.object({ gmail: v.boolean(), calendar: v.boolean(), chat: v.boolean() }),
+    backfillDays: v.optional(v.number()),
+  },
+  returns: v.object({
+    runId: v.id("googleSyncRuns"),
+    status: v.union(v.literal("queued"), v.literal("running")),
+  }),
+  handler: async (ctx, args) => {
+    const userId = await requireActor(ctx);
+    const allowed = await ctx.runQuery(internal.functions.googleConnect.requirePersonalOwner, {
+      workspaceId: args.workspaceId,
+      userId,
+    });
+    if (!allowed) {
+      throw new ConvexError({
+        code: "NOT_OWNER",
+        message: "Only the owner can start a Google sync for this context.",
+      });
+    }
+
+    const requested = validateGoogleSyncServices(args.services);
+    requireGoogleProductsEnabled(requested);
+    if (!requested.includes("gmail") || requested.some((service) => service !== "gmail")) {
+      throw new ConvexError({
+        code: "GOOGLE_SYNC_SERVICE_NOT_READY",
+        message: "Gmail backfill can start now. Calendar and Chat sync controls are next.",
+      });
+    }
+
+    const connection = await ctx.db.get(args.connectionId);
+    if (
+      connection === null ||
+      connection.workspaceId !== args.workspaceId ||
+      connection.disconnectedAt !== undefined ||
+      !connection.products.includes("gmail") ||
+      !connection.gmail
+    ) {
+      throw new ConvexError({
+        code: "GOOGLE_CONNECTION_NOT_FOUND",
+        message: "That Google account is not connected to this context.",
+      });
+    }
+    const backfillDays = validateBackfillDays(args.backfillDays ?? connection.gmail.backfillDays);
+    const storageBinding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (storageBinding?.status !== "connected") {
+      const hasBinding = storageBinding !== null;
+      throw new ConvexError({
+        code: hasBinding ? "GOOGLE_SYNC_BUCKET_UNUSABLE" : "GOOGLE_SYNC_BUCKET_NOT_CONNECTED",
+        message: hasBinding
+          ? "Reconnect storage before starting a Gmail backfill."
+          : "Connect storage before starting a Gmail backfill.",
+      });
+    }
+
+    for (const status of ["queued", "running"] as const) {
+      const existing = await ctx.db
+        .query("googleSyncRuns")
+        .withIndex("by_connection_status", (q) =>
+          q.eq("connectionId", args.connectionId).eq("status", status),
+        )
+        .first();
+      if (existing !== null) return { runId: existing._id, status };
+    }
+
+    const now = Date.now();
+    const runId = await ctx.db.insert("googleSyncRuns", {
+      workspaceId: args.workspaceId,
+      connectionId: args.connectionId,
+      requestedBy: userId,
+      mode: "backfill" as const,
+      services: ["gmail"] as GoogleSyncService[],
+      status: "queued" as const,
+      requestedBackfillDays: backfillDays,
+      totalUnits: backfillDays,
+      completedUnits: 0,
+      itemsFound: 0,
+      daysWithMail: 0,
+      bytesWritten: 0,
+      currentService: "gmail" as const,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.patch(args.connectionId, {
+      health: "backfilling" as const,
+      lastError: undefined,
+      errorCode: undefined,
+      updatedAt: now,
+    });
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: userId,
+      action: "google_sync_started",
+      details: { connectionId: args.connectionId, service: "gmail", backfillDays },
+    });
+    await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope: "private" as const,
+      operation: { kind: "googleGmailBackfill" as const, runId },
+    });
+    return { runId, status: "queued" as const };
+  },
+});
+
+export const googleGmailBackfillForRun = internalQuery({
+  args: { workspaceId: v.id("workspaces"), runId: v.id("googleSyncRuns") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      runId: v.id("googleSyncRuns"),
+      connectionId: v.id("googleConnections"),
+      requestedBackfillDays: v.number(),
+      createdAt: v.number(),
+      totalUnits: v.number(),
+      completedUnits: v.number(),
+      bytesWritten: v.number(),
+      address: v.string(),
+      mailboxSlug: v.string(),
+      folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
+      quotaBytes: v.number(),
+      attachmentMode: v.union(v.literal("metadata-only"), v.literal("store")),
+      attachmentRetentionDays: v.optional(v.union(v.number(), v.literal("forever"))),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId);
+    if (
+      run === null ||
+      run.workspaceId !== args.workspaceId ||
+      run.mode !== "backfill" ||
+      !run.services.includes("gmail") ||
+      (run.status !== "queued" && run.status !== "running")
+    ) {
+      return null;
+    }
+    const connection = await ctx.db.get(run.connectionId);
+    if (
+      connection === null ||
+      connection.workspaceId !== args.workspaceId ||
+      connection.disconnectedAt !== undefined ||
+      !connection.gmail
+    ) {
+      return null;
+    }
+    return {
+      runId: run._id,
+      connectionId: connection._id,
+      requestedBackfillDays: run.requestedBackfillDays,
+      createdAt: run.createdAt,
+      totalUnits: run.totalUnits,
+      completedUnits: run.completedUnits,
+      bytesWritten: run.bytesWritten ?? 0,
+      address: connection.address,
+      mailboxSlug: connection.gmail.mailboxSlug,
+      folders: connection.gmail.folders,
+      quotaBytes: connection.gmail.quotaBytes,
+      attachmentMode: connection.gmail.attachmentMode,
+      attachmentRetentionDays: connection.gmail.attachmentRetentionDays,
+    };
+  },
+});
+
+export const recordGoogleGmailBackfillPass = internalMutation({
+  args: {
+    runId: v.id("googleSyncRuns"),
+    connectionId: v.id("googleConnections"),
+    fromUnit: v.number(),
+    toUnit: v.number(),
+    totalUnits: v.number(),
+    itemsFound: v.number(),
+    daysWithMail: v.number(),
+    bytesWritten: v.number(),
+    currentUnit: v.optional(v.string()),
+    status: v.union(v.literal("running"), v.literal("complete"), v.literal("failed")),
+    historyId: v.optional(v.string()),
+    errorCode: v.optional(v.string()),
+    error: v.optional(v.string()),
+  },
+  returns: v.object({ accepted: v.boolean(), complete: v.boolean() }),
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId);
+    if (run === null || run.connectionId !== args.connectionId) {
+      return { accepted: false, complete: false };
+    }
+    const connection = await ctx.db.get(args.connectionId);
+    if (connection === null || connection.disconnectedAt !== undefined || !connection.gmail) {
+      return { accepted: false, complete: false };
+    }
+    const now = Date.now();
+    if (run.status !== "queued" && run.status !== "running") {
+      return { accepted: false, complete: run.status === "complete" };
+    }
+    if (run.completedUnits !== args.fromUnit) {
+      return { accepted: false, complete: false };
+    }
+
+    const completedUnits = Math.min(args.totalUnits, Math.max(run.completedUnits, args.toUnit));
+    const itemsFound = (run.itemsFound ?? 0) + args.itemsFound;
+    const daysWithMail = (run.daysWithMail ?? 0) + args.daysWithMail;
+    const bytesWritten = (run.bytesWritten ?? 0) + args.bytesWritten;
+    const error = args.error?.slice(0, 240);
+
+    if (args.status === "failed") {
+      await ctx.db.patch(args.runId, {
+        status: "failed" as const,
+        completedUnits,
+        totalUnits: args.totalUnits,
+        itemsFound,
+        daysWithMail,
+        bytesWritten,
+        currentService: "gmail" as const,
+        currentUnit: args.currentUnit,
+        completedAt: now,
+        lastError: error ?? "Gmail backfill stopped before it finished.",
+        errorCode: args.errorCode ?? "GOOGLE_SYNC_FAILED",
+        updatedAt: now,
+      });
+      await ctx.db.patch(args.connectionId, {
+        health: "error" as const,
+        lastError: error ?? "Gmail backfill stopped before it finished.",
+        errorCode: args.errorCode ?? "GOOGLE_SYNC_FAILED",
+        updatedAt: now,
+      });
+      return { accepted: true, complete: false };
+    }
+
+    if (args.status === "complete") {
+      const gmail = {
+        ...connection.gmail,
+        historyId: args.historyId ?? connection.gmail.historyId,
+        lastSyncedAt: now,
+      };
+      const calendarReady = !connection.products.includes("calendar") || connection.calendar?.syncToken !== undefined;
+      const chatReady = !connection.products.includes("chat") || Object.keys(connection.chat?.cursors ?? {}).length > 0;
+      await ctx.db.patch(args.runId, {
+        status: "complete" as const,
+        completedUnits,
+        totalUnits: args.totalUnits,
+        itemsFound,
+        daysWithMail,
+        bytesWritten,
+        currentService: undefined,
+        currentUnit: undefined,
+        completedAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.patch(args.connectionId, {
+        gmail,
+        health: calendarReady && chatReady ? ("active" as const) : ("backfilling" as const),
+        lastError: undefined,
+        errorCode: undefined,
+        updatedAt: now,
+      });
+      return { accepted: true, complete: true };
+    }
+
+    await ctx.db.patch(args.runId, {
+      status: "running" as const,
+      startedAt: run.startedAt ?? now,
+      completedUnits,
+      totalUnits: args.totalUnits,
+      itemsFound,
+      daysWithMail,
+      bytesWritten,
+      currentService: "gmail" as const,
+      currentUnit: args.currentUnit,
+      updatedAt: now,
+    });
+    return { accepted: true, complete: false };
+  },
+});
+
+export const failGoogleGmailBackfillRun = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    runId: v.id("googleSyncRuns"),
+    errorCode: v.string(),
+    error: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId);
+    if (
+      run === null ||
+      run.workspaceId !== args.workspaceId ||
+      run.mode !== "backfill" ||
+      !run.services.includes("gmail") ||
+      (run.status !== "queued" && run.status !== "running")
+    ) {
+      return null;
+    }
+    const now = Date.now();
+    const error = args.error.slice(0, 240);
+    await ctx.db.patch(args.runId, {
+      status: "failed" as const,
+      currentService: "gmail" as const,
+      completedAt: now,
+      lastError: error,
+      errorCode: args.errorCode,
+      updatedAt: now,
+    });
+    const connection = await ctx.db.get(run.connectionId);
+    if (
+      connection !== null &&
+      connection.workspaceId === args.workspaceId &&
+      connection.disconnectedAt === undefined
+    ) {
+      await ctx.db.patch(connection._id, {
+        health: "error" as const,
+        lastError: error,
+        errorCode: args.errorCode,
+        updatedAt: now,
+      });
+    }
     return null;
   },
 });

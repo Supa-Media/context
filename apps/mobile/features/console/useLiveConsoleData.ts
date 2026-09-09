@@ -159,6 +159,24 @@ interface GoogleConnectionSummary {
     cursorCount: number;
     lastSyncedAt?: number;
   };
+  syncRun?: {
+    runId: Id<"googleSyncRuns">;
+    mode: "backfill";
+    services: Array<"gmail" | "calendar" | "chat">;
+    status: "queued" | "running" | "complete" | "failed";
+    requestedBackfillDays: number;
+    totalUnits: number;
+    completedUnits: number;
+    itemsFound?: number;
+    daysWithMail?: number;
+    bytesWritten?: number;
+    currentService?: "gmail" | "calendar" | "chat";
+    currentUnit?: string;
+    startedAt?: number;
+    completedAt?: number;
+    errorCode?: string;
+    lastError?: string;
+  };
 }
 
 /**
@@ -278,6 +296,7 @@ export function useLiveConsoleData(): ConsoleData {
   const disconnectGoogle = useMutation(
     api.functions.googleConnect.disconnectGoogleConnection,
   );
+  const startGoogleSyncRun = useMutation(api.functions.googleConnect.startGoogleSyncRun);
   const leaveWorkspace = useMutation(api.functions.workspaces.leaveWorkspace);
   const deleteAccountMutation = useMutation(api.functions.account.deleteAccount);
   // Not destructured: the context is undefined in test harnesses that
@@ -437,6 +456,7 @@ export function useLiveConsoleData(): ConsoleData {
           gmail: connection.gmail,
           calendar: connection.calendar,
           chat: connection.chat,
+          syncRun: connection.syncRun,
         }));
 
   // Read access and write access are different grants (CLAUDE.md, "The
@@ -620,6 +640,13 @@ export function useLiveConsoleData(): ConsoleData {
               disconnectGoogle({
                 workspaceId: selectedContextId,
                 connectionId: connectionId as Id<"googleConnections">,
+              }),
+            startBackfill: (connectionId: string, backfillDays: number) =>
+              startGoogleSyncRun({
+                workspaceId: selectedContextId,
+                connectionId: connectionId as Id<"googleConnections">,
+                services: { gmail: true, calendar: false, chat: false },
+                backfillDays,
               }),
           },
     endpoint: MCP_ENDPOINT,
