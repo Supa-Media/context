@@ -5,6 +5,7 @@ import Foundation
 struct ContextMeetingActivityAttributes: ActivityAttributes {
   struct ContentState: Codable, Hashable {
     let title: String
+    let controlToken: String
     let phase: String
     let recordedMilliseconds: Double
     let recordingSince: Date?

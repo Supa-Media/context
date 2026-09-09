@@ -1311,6 +1311,15 @@ Detection may *suggest*, and the suggestion is a prompt with a "not now" — a
 detector that silently starts recording would be the same product with the
 indicator removed.
 
+The first native release's Pause, Resume and End controls are authenticated
+deep links into the app, not commands executed by the widget extension: a tap
+opens Context and may require the phone to be unlocked before the JavaScript
+recorder can act. Each rendered state carries a fresh 256-bit, one-use control
+capability; the app requires the current live meeting and consumes that token
+before touching audio, so a guessed or replayed `context://` URL is inert.
+Direct locked-screen execution is deferred until recorder ownership can move
+out of JavaScript without making Resume unreliable.
+
 **"Wherever they are looking" is mounted once, at the root of the app — and so
 is everything the recording depends on.** The phone's bar lived inside the
 meetings navigator, which made it visible on the

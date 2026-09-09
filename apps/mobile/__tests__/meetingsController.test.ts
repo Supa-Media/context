@@ -87,9 +87,10 @@ async function harness(
     /** Where this launch's clock starts. Defaults to the fixture instant. */
     startAt?: number;
     activity?: MeetingActivityController;
+    activityToken?: () => string;
   } = {},
 ): Promise<Harness> {
-  const controller = new MeetingsController(options.activity);
+  const controller = new MeetingsController(options.activity, options.activityToken);
   const store = options.store ?? memoryStore();
   const gateway = options.gateway ?? fakeGateway();
   const recorder = options.recorder ?? fakeRecorder();
@@ -148,6 +149,26 @@ describe("starting a meeting", () => {
     expect(activity.update).toHaveBeenLastCalledWith(expect.objectContaining({ phase: "recording" }));
     await controller.end();
     expect(activity.end).toHaveBeenCalledWith(id);
+  });
+
+  test("lock-screen controls require the current one-use capability and rotate after state changes", async () => {
+    const activity = fakeActivity();
+    const first = "11".repeat(32);
+    const second = "22".repeat(32);
+    const tokens = [first, second];
+    const { controller } = await harness({ activity, activityToken: () => tokens.shift()! });
+    const id = await controller.start({ title: "Security review" });
+
+    expect(activity.update).toHaveBeenLastCalledWith(expect.objectContaining({ controlToken: first }));
+    expect(controller.consumeActivityControl(id, "ff".repeat(32))).toBe(false);
+    expect(controller.consumeActivityControl("mtg_someone_else", first)).toBe(false);
+    expect(controller.consumeActivityControl(id, first)).toBe(true);
+    expect(controller.consumeActivityControl(id, first)).toBe(false);
+
+    await controller.pause();
+    expect(activity.update).toHaveBeenLastCalledWith(expect.objectContaining({ controlToken: second }));
+    expect(controller.consumeActivityControl(id, first)).toBe(false);
+    expect(controller.consumeActivityControl(id, second)).toBe(true);
   });
 
   test("refused and background-downgraded capture never leaves a Live Activity", async () => {

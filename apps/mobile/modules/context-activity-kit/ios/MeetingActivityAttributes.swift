@@ -5,17 +5,20 @@ import Foundation
 public struct ContextMeetingActivityAttributes: ActivityAttributes {
   public struct ContentState: Codable, Hashable {
     public let title: String
+    public let controlToken: String
     public let phase: String
     public let recordedMilliseconds: Double
     public let recordingSince: Date?
 
     public init(
       title: String,
+      controlToken: String,
       phase: String,
       recordedMilliseconds: Double,
       recordingSince: Date?
     ) {
       self.title = title
+      self.controlToken = controlToken
       self.phase = phase
       self.recordedMilliseconds = recordedMilliseconds
       self.recordingSince = recordingSince

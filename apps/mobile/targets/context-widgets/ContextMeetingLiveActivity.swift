@@ -29,13 +29,13 @@ struct ContextMeetingLiveActivity: Widget {
         }
         DynamicIslandExpandedRegion(.bottom) {
           HStack(spacing: 18) {
-            Link(destination: actionURL(context.attributes.meetingId, action: context.state.phase == "paused" ? "resume" : "pause")) {
+            Link(destination: actionURL(context.attributes.meetingId, action: context.state.phase == "paused" ? "resume" : "pause", controlToken: context.state.controlToken)) {
               Label(context.state.phase == "paused" ? "Resume" : "Pause", systemImage: context.state.phase == "paused" ? "play.fill" : "pause.fill")
             }
             Link(destination: meetingURL(context.attributes.meetingId)) {
               Label("Open note", systemImage: "note.text")
             }
-            Link(destination: actionURL(context.attributes.meetingId, action: "end")) {
+            Link(destination: actionURL(context.attributes.meetingId, action: "end", controlToken: context.state.controlToken)) {
               Label("End", systemImage: "stop.fill")
             }
           }
@@ -71,14 +71,14 @@ private struct MeetingLockScreenView: View {
         .font(.headline)
         .lineLimit(1)
       HStack(spacing: 14) {
-        Link(destination: actionURL(context.attributes.meetingId, action: context.state.phase == "paused" ? "resume" : "pause")) {
+        Link(destination: actionURL(context.attributes.meetingId, action: context.state.phase == "paused" ? "resume" : "pause", controlToken: context.state.controlToken)) {
           Label(context.state.phase == "paused" ? "Resume" : "Pause", systemImage: context.state.phase == "paused" ? "play.fill" : "pause.fill")
         }
         Link(destination: meetingURL(context.attributes.meetingId)) {
           Label("Open note", systemImage: "note.text")
         }
         Spacer()
-        Link(destination: actionURL(context.attributes.meetingId, action: "end")) {
+        Link(destination: actionURL(context.attributes.meetingId, action: "end", controlToken: context.state.controlToken)) {
           Label("End", systemImage: "stop.fill")
             .foregroundStyle(.red)
         }
@@ -125,9 +125,12 @@ private func meetingURL(_ meetingId: String) -> URL {
   URL(string: "context://meetings/\(meetingId)")!
 }
 
-private func actionURL(_ meetingId: String, action: String) -> URL {
+private func actionURL(_ meetingId: String, action: String, controlToken: String) -> URL {
   var components = URLComponents(string: "context://meetings/\(meetingId)")!
-  components.queryItems = [URLQueryItem(name: "activityAction", value: action)]
+  components.queryItems = [
+    URLQueryItem(name: "activityAction", value: action),
+    URLQueryItem(name: "controlToken", value: controlToken),
+  ]
   return components.url!
 }
 

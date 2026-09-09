@@ -20,16 +20,15 @@ public final class ContextActivityKitModule: Module {
       let meetingId = try Self.string(payload, "meetingId")
       let generation = try Self.number(payload, "generation")
       let url = Self.stringOrNil(payload["url"])
-      let applied = try await self.coordinator.upsert(
-        meetingId: meetingId, state: state, generation: generation
+      await self.coordinator.upsert(
+        meetingId: meetingId, state: state, generation: generation,
+        snapshot: payload, url: url
       )
-      if applied { Self.writeWidgetSnapshot(payload: payload, url: url) }
     }
 
     AsyncFunction("end") { (meetingId: String, generation: Double) async in
       guard #available(iOS 16.1, *) else { return }
       await self.coordinator.end(meetingId: meetingId, generation: generation)
-      Self.clearWidgetRecording(meetingId: meetingId)
     }
 
     AsyncFunction("reconcile") { (activeMeetingId: String?, generation: Double) async in
@@ -43,6 +42,7 @@ public final class ContextActivityKitModule: Module {
     let sinceMilliseconds = payload["recordingSince"] as? Double
     return ContextMeetingActivityAttributes.ContentState(
       title: try string(payload, "title"),
+      controlToken: try string(payload, "controlToken"),
       phase: try string(payload, "phase"),
       recordedMilliseconds: payload["recordedMs"] as? Double ?? 0,
       recordingSince: sinceMilliseconds.map { Date(timeIntervalSince1970: $0 / 1_000) }
@@ -72,7 +72,7 @@ public final class ContextActivityKitModule: Module {
     Bundle.main.object(forInfoDictionaryKey: "ContextAppGroup") as? String
   }
 
-  private static func writeWidgetSnapshot(payload: [String: Any], url: String?) {
+  fileprivate static func writeWidgetSnapshot(payload: [String: Any], url: String?) {
     guard let appGroup, let defaults = UserDefaults(suiteName: appGroup) else { return }
     var snapshot = payload
     snapshot["url"] = url
@@ -83,7 +83,7 @@ public final class ContextActivityKitModule: Module {
     }
   }
 
-  private static func clearWidgetRecording(meetingId: String) {
+  fileprivate static func clearWidgetRecording(meetingId: String) {
     guard let appGroup, let defaults = UserDefaults(suiteName: appGroup),
       let data = defaults.data(forKey: "context.widget.snapshot"),
       var snapshot = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -103,52 +103,123 @@ public final class ContextActivityKitModule: Module {
 
 private actor ContextActivityCoordinator {
   private var latestGeneration: Double = -1
+  private var tail: Task<Void, Never>?
+
+  private func isCurrent(_ generation: Double) -> Bool {
+    generation == latestGeneration
+  }
 
   @available(iOS 16.1, *)
   func upsert(
     meetingId: String,
     state: ContextMeetingActivityAttributes.ContentState,
-    generation: Double
-  ) async throws -> Bool {
-    guard generation > latestGeneration else { return false }
+    generation: Double,
+    snapshot: [String: Any],
+    url: String?
+  ) async {
+    guard generation > latestGeneration else { return }
     latestGeneration = generation
+    let preceding = tail
+    let operation = Task { [self] in
+      await preceding?.value
+      guard isCurrent(generation) else { return }
+      await performUpsert(
+        meetingId: meetingId, state: state, generation: generation,
+        snapshot: snapshot, url: url
+      )
+      guard isCurrent(generation) else { return }
+    }
+    tail = operation
+    await operation.value
+    guard isCurrent(generation) else { return }
+  }
+
+  @available(iOS 16.1, *)
+  private func performUpsert(
+    meetingId: String,
+    state: ContextMeetingActivityAttributes.ContentState,
+    generation: Double,
+    snapshot: [String: Any],
+    url: String?
+  ) async {
     let matching = Activity<ContextMeetingActivityAttributes>.activities.filter {
       $0.attributes.meetingId == meetingId
     }
     if let keeper = matching.first {
       await keeper.update(using: state)
+      guard isCurrent(generation) else { return }
       for duplicate in matching.dropFirst() {
         await duplicate.end(dismissalPolicy: .immediate)
+        guard isCurrent(generation) else { return }
       }
-      return true
+      ContextActivityKitModule.writeWidgetSnapshot(payload: snapshot, url: url)
+      return
     }
-    _ = try Activity<ContextMeetingActivityAttributes>.request(
-      attributes: ContextMeetingActivityAttributes(meetingId: meetingId),
-      contentState: state,
-      pushType: nil
-    )
-    return true
+    do {
+      _ = try Activity<ContextMeetingActivityAttributes>.request(
+        attributes: ContextMeetingActivityAttributes(meetingId: meetingId),
+        contentState: state,
+        pushType: nil
+      )
+      guard isCurrent(generation) else { return }
+      ContextActivityKitModule.writeWidgetSnapshot(payload: snapshot, url: url)
+    } catch {
+      // Live Activity presentation is optional and must not affect capture.
+    }
   }
 
   @available(iOS 16.1, *)
   func end(meetingId: String, generation: Double) async {
     guard generation > latestGeneration else { return }
     latestGeneration = generation
+    let preceding = tail
+    let operation = Task { [self] in
+      await preceding?.value
+      guard isCurrent(generation) else { return }
+      await performEnd(meetingId: meetingId, generation: generation)
+      guard isCurrent(generation) else { return }
+    }
+    tail = operation
+    await operation.value
+    guard isCurrent(generation) else { return }
+  }
+
+  @available(iOS 16.1, *)
+  private func performEnd(meetingId: String, generation: Double) async {
     for activity in Activity<ContextMeetingActivityAttributes>.activities where
       activity.attributes.meetingId == meetingId
     {
       await activity.end(dismissalPolicy: .immediate)
+      guard isCurrent(generation) else { return }
     }
+    ContextActivityKitModule.clearWidgetRecording(meetingId: meetingId)
   }
 
   @available(iOS 16.1, *)
   func reconcile(activeMeetingId: String?, generation: Double) async {
     guard generation > latestGeneration else { return }
     latestGeneration = generation
+    let preceding = tail
+    let operation = Task { [self] in
+      await preceding?.value
+      guard isCurrent(generation) else { return }
+      await performReconcile(activeMeetingId: activeMeetingId, generation: generation)
+      guard isCurrent(generation) else { return }
+    }
+    tail = operation
+    await operation.value
+    guard isCurrent(generation) else { return }
+  }
+
+  @available(iOS 16.1, *)
+  private func performReconcile(activeMeetingId: String?, generation: Double) async {
     for activity in Activity<ContextMeetingActivityAttributes>.activities where
       activity.attributes.meetingId != activeMeetingId
     {
+      let staleMeetingId = activity.attributes.meetingId
       await activity.end(dismissalPolicy: .immediate)
+      guard isCurrent(generation) else { return }
+      ContextActivityKitModule.clearWidgetRecording(meetingId: staleMeetingId)
     }
   }
 }
