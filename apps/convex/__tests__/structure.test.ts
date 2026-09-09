@@ -368,7 +368,8 @@ const SCHEDULE_CALL = /\.scheduler\.run(?:After|At)\(\s*[^,]*,\s*([^,)\s]*)/g;
  * `exportEncryptionKeys` and the gateway's `export_encryption_keys` are both
  * `docs/decisions/encryption.md`'s "Revocation and export": the customer must
  * be able to get the key itself, not only decrypt with it through us, or the
- * first non-negotiable is false the moment they revoke our credential. That is
+ * first non-negotiable is false the moment they leave — by revoking our
+ * credential on their own bucket, or by exporting off managed storage. That is
  * a *deliberate* disclosure this codebase has never needed before — every
  * other barrier and every other decrypt-capable function returns something
  * *derived* from a credential (file content, a signed request); this is the

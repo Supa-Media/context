@@ -3,7 +3,8 @@
 **Free your context. Share your context.**
 
 Context is one MCP endpoint a person adds to every AI client, backed by a
-markdown bucket they own. Read `README.md` first for the product shape.
+markdown bucket — one they own, or one we run for them on the paid plan and
+they can take away at any time. Read `README.md` first for the product shape.
 
 This file is the part you read every session. The reasoning behind the rules —
 argued through once, not to be re-litigated — lives in
@@ -40,9 +41,10 @@ breaking one, stop and say so rather than working around it.
    bucket holding one workspace can be handed over, and a shared bucket with a
    prefix per customer can only ever be exported from — so managed buckets are
    one per workspace, named from the immutable workspace id, in a Cloudflare
-   account that holds customer buckets and nothing else. R2 allows a million
-   buckets per account, which is what makes this affordable; a store with a
-   low bucket ceiling cannot host this product.
+   account that holds customer buckets and nothing else. A store's
+   per-account bucket ceiling is therefore a constraint on the product, not a
+   detail: R2 allows a million, and anything low forces prefix tenancy and
+   ends the exit promise with it.
 3. **Plain files stay canonical.** Markdown stays portable and human-readable.
    Search indexes, caches and embeddings are **disposable derivatives**,
    rebuildable from the files, never the only copy of anything. The on-bucket
@@ -213,8 +215,9 @@ checked is not a guard.**
 - **Conflict-safe writes.** Reads return a version; writes pass it back. R2 and
   AWS S3 support conditional writes; **B2 and Wasabi do not reliably.** Probe
   capability at connect time and degrade honestly — never silently drop it.
-- **Never weaken** customer-owned storage, plain-file portability, privacy,
-  tenant isolation, or revocability to move faster. Raise it instead.
+- **Never weaken** the customer's ownership of their content, plain-file
+  portability, privacy, tenant isolation, revocability, or the export and
+  hand-off path that non-negotiable #1 rests on. Raise it instead.
 
 ## Working style
 

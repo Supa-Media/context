@@ -112,6 +112,13 @@ jobs:
           # silently transcribing nothing.
           TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
           TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
+          # The Cloudflare account that holds managed customer buckets, and
+          # nothing else of ours. An account identifier rather than a
+          # credential — the provisioning token lives in `appSecrets`, set in
+          # the staff console — but this repository is public, so it is synced
+          # like APPLE_TEAM_ID rather than committed. Absent is a working
+          # state: the deployment simply does not offer managed storage.
+          MANAGED_R2_ACCOUNT_ID: ${{ secrets.MANAGED_R2_ACCOUNT_ID }}
         run: |
           set -euo pipefail
           # Plain strings rather than arrays: an empty array under `set -u` is
@@ -125,7 +132,8 @@ jobs:
                      DROPBOX_APP_KEY DROPBOX_APP_SECRET \
                      GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET \
                      MAIL_CONNECT_ENABLED CALENDAR_CONNECT_ENABLED \
-                     TRANSCRIBE_WORKER_URL TRANSCRIBE_WORKER_SECRET; do
+                     TRANSCRIBE_WORKER_URL TRANSCRIBE_WORKER_SECRET \
+                     MANAGED_R2_ACCOUNT_ID; do
             value="${!var:-}"
             if [ -z "$value" ]; then
               # Never pushed as an empty string — see the header.

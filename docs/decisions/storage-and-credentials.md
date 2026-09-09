@@ -350,15 +350,22 @@ aimed at, that account is the wall.
 5. **Cancelling never deletes.** Read-only and exportable for a stated window,
    with the final removal an action the customer takes.
 
-### Why R2 specifically, and not S3
+### Why R2 specifically
 
-The whole design rests on being able to afford a bucket per workspace. AWS S3
-allows **100 buckets per account by default**, raisable into the low thousands
-— a ceiling this product would hit while still small, at which point the only
-remaining option is prefix tenancy and the exit promise dies with it. R2's
-limit is **1,000,000 buckets per account**, so the ceiling is not a design
-constraint. This is the fact that makes the architecture legal; if the store
-ever moves, it has to be re-checked first.
+The design rests on being able to afford a bucket per workspace, so the
+per-account bucket ceiling is the first thing to check in any store this ever
+moves to. R2 allows **1,000,000 buckets per account**, which is not a
+constraint at any size this product plausibly reaches.
+
+**It is no longer the differentiator it would have been before November 2024.**
+S3's default was 100 buckets per account for most of its life — a ceiling this
+product would have hit while still small — but it is now **10,000 by default
+and raisable to 1,000,000** through Service Quotas. The honest reasons to
+prefer R2 are therefore price and operations rather than capacity: no egress
+fee, which is what makes "download everything" and "move it to your own
+bucket" cost us nothing to offer and is the exit promise's economics; and no
+per-bucket monthly charge above a free allowance, where S3 bills for buckets
+beyond the first 2,000. Capacity is merely not in the way.
 
 The price is operational, and it is real: a five-figure bucket count means
 lifecycle rules, CORS and metrics can never be managed by hand, the Cloudflare
@@ -366,24 +373,62 @@ dashboard stops being useful for browsing, and provisioning has to be code
 from the first bucket. That is the accepted cost of being able to hand
 somebody their storage.
 
+### One managed account per deployment, never shared
+
+Bucket names are unique because Convex ids are — **within one deployment**.
+The R2 bucket namespace is per *account*, so pointing a preview or dev
+deployment at the production managed account reintroduces exactly the
+collision this design exists to prevent, and the reuse path in
+`provisionCloudflareStorage` would then *adopt* a production customer's bucket
+rather than fail. `MANAGED_R2_ACCOUNT_ID` copied between deployments is the
+obvious way to do it by accident. Provisioning must assert it is entitled to
+the account it is about to write into before it creates anything; until it
+does, the rule is operational and this paragraph is the whole of it.
+
 ### The credential, which is more dangerous than the BYO one
 
 The managed account's API token can create buckets and mint further
 credentials across *every* customer bucket, which makes it categorically worse
 than anything this codebase has held before: the BYO setup credential is one
 customer's, used for seconds, and never stored. This one is ours, standing,
-and long-lived. So it lives only in `MANAGED_R2_API_TOKEN`, is read only
-inside actions, is never written to any table, never returned by any function,
-never logged, and never reaches the gateway — the gateway continues to receive
-only the per-bucket S3 key that provisioning mints, exactly as it does for a
-BYO binding. A workspace's binding is indistinguishable downstream from one a
+and long-lived.
+
+**So the two values live in two different places, and that split is load-bearing
+rather than tidy.** The account id is an identifier: it decides nothing alone,
+and the guards below need it on the *public* bind path — which rules `appSecrets`
+out, because `__tests__/structure.test.ts` fails any public function whose call
+graph reaches `decryptSecret`. It is therefore an environment variable, synced
+like `APPLE_TEAM_ID` rather than committed. The token is a credential and goes
+to `appSecrets` — encrypted at rest, set in the staff console, fingerprinted,
+rotatable — exactly as `SEARCH_D1_API_TOKEN` does for the search provisioner,
+and it is opened only by the provisioning `internalAction`. It is never written
+to a binding row, never returned by any function, never logged, and never
+reaches the gateway, which continues to receive only the per-bucket S3 key that
+provisioning mints. A managed binding is indistinguishable downstream from one a
 customer pasted, which is the point: the adapter has no idea who is paying.
 
-`bindStorage` also refuses an endpoint pointing at the managed account. A
-customer cannot reach it without our token, so this guard blocks nothing an
-attacker could otherwise do — it exists so that "the managed account holds
-customer buckets and nothing else" is enforced in code rather than asserted in
-this file.
+A guard that needed *both* values would fail open the moment one of them was
+missing — during a token rotation, or on a deployment that had set only one —
+and it would do so silently, on precisely the deployment with an account worth
+protecting. Hence one value, read on its own, with "absent" and "malformed"
+kept as different answers: absent is a self-hoster and refuses nothing;
+malformed throws.
+
+`bindStorage` also refuses an endpoint addressing the managed account, and the
+BYO provisioning path refuses its account id. A customer cannot reach that
+account without our token, so neither guard blocks an attack — they exist so
+that "the managed account holds customer buckets and nothing else" is enforced
+in code rather than asserted in this file, and so that an operator or a support
+engineer pointing the wrong flow at it gets a refusal instead of a bucket.
+
+**They compare the endpoint as the URL parser sees it, never as it was typed.**
+A substring test over the raw string is not the same check as the one every
+consumer performs: `new URL()` percent-decodes and IDNA-maps the host, so
+`0123456789%61bcdef…` and a fullwidth-digit spelling both reach the managed
+account while reading as something else. Both were accepted by the first
+version of this guard and both are now regression tests. What the guards
+cannot see is a **custom domain**, which is a DNS fact rather than a string
+one — a known limit, not an oversight.
 
 ### What a "simplification" of this would cost
 
@@ -396,8 +441,22 @@ you export a zip. Deriving the bucket name from a slug instead of a workspace
 id saves nothing and buys a rename bug. Each of these is the cheap version of
 a promise that is the reason the product exists.
 
-**The test that fails if this is reversed.** `__tests__/managedStorage.test.ts`
-asserts that two workspaces can never derive the same bucket name, that a
-managed name is recognisably ours, that the managed account id is refused as a
-customer-supplied one, and that nothing in the module returns or embeds the
-managed token.
+**The tests that fail if this is reversed.** `__tests__/managedStorage.test.ts`
+asserts that two workspaces can never derive the same bucket name — including
+that a case-differing id *refuses* rather than folding onto an existing bucket
+— that a malformed account id throws instead of silently disabling the guards,
+and that the normalised endpoint forms are refused while a path or query
+merely containing the id is not.
+
+Those are unit tests, and unit tests alone would let both call sites be
+deleted with the suite still green — the exact failure `testing.md` names. So
+the wiring is pinned separately, against the real actions:
+`__tests__/storage.test.ts` drives `bindStorage` and asserts the refusal *and*
+that no row was written, and `__tests__/cloudflare.test.ts` drives
+`provisionCloudflareR2` and asserts Cloudflare was never called. Deleting
+either guard call fails one of those two, which was checked by deleting them.
+
+**Still unproven, and named here rather than implied:** nothing yet tests the
+export or hand-off path, because it is not built. Non-negotiable #1's promise
+that the exit is free, identical on both plans and works after cancellation is
+a commitment this decision makes and a later change has to keep.

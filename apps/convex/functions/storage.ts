@@ -62,7 +62,7 @@ import { recordAudit } from "./lib/audit";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { redactSigningArtifacts } from "./lib/verification";
 import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAuth";
-import { refuseManagedEndpoint } from "./lib/managedStorage";
+import { managedAccountId, refuseManagedEndpoint } from "./lib/managedStorage";
 
 const providerValidator = v.union(
   v.literal("r2"),
@@ -265,14 +265,14 @@ function isBlockedIpv6(hostname: string): boolean {
 /**
  * Reject an endpoint that would send the credential somewhere unencrypted, that
  * is not an absolute URL at all, that points back inside our own network, or
- * that aims at the account holding managed buckets.
+ * that addresses the account holding managed buckets.
  */
 function assertUsableEndpoint(endpoint: string): void {
-  // Before the URL parse, because it is a refusal about *which account* rather
-  // than about the shape of a URL, and a caller should get that answer even if
-  // the endpoint is otherwise fine. No-ops on a deployment with no managed
-  // account — see `refuseManagedEndpoint`.
-  refuseManagedEndpoint(endpoint);
+  // No-ops on a deployment with no managed account, which is most of them —
+  // see `managedAccountId`. Reads an environment variable and never a
+  // credential, which is what keeps this callable from a public function:
+  // `__tests__/structure.test.ts` fails any public path reaching `decryptSecret`.
+  refuseManagedEndpoint(endpoint, managedAccountId());
 
   let parsed: URL;
   try {

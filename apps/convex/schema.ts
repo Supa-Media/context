@@ -6,7 +6,7 @@ import { supaAuthTables } from "@supa-media/convex/schema";
  * Control-plane schema for Context.
  *
  * METADATA ONLY. Note content lives exclusively in the customer's own bucket
- * (see CLAUDE.md, "The customer owns the storage"). Nothing in this file may
+ * (see CLAUDE.md, "The customer owns the content, and can always leave with it"). Nothing in this file may
  * ever hold Markdown, note bodies, attachment bytes, or a second copy of
  * anyone's context. If a future table looks like it wants to cache note text,
  * that is the wrong table.

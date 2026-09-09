@@ -261,6 +261,77 @@ describe("bindStorage", () => {
     );
   });
 
+  /**
+   * The managed account is not somewhere a customer may bind.
+   *
+   * `refuseManagedEndpoint` is unit-tested in `managedStorage.test.ts`, and
+   * that is not enough: with only those tests, deleting the call from
+   * `assertUsableEndpoint` leaves the whole suite green, which is exactly the
+   * shape `docs/decisions/testing.md` refuses. These drive the real action.
+   *
+   * The last two forms are the ones that matter. A guard matching the string
+   * as typed accepted both — `new URL()` percent-decodes and IDNA-maps the
+   * host, so the row would have been written pointing at the managed account
+   * while the check read something else.
+   */
+  test("refuses an endpoint addressing the account that holds managed buckets", async () => {
+    const managed = "0123456789abcdef0123456789abcdef";
+    const previous = process.env.MANAGED_R2_ACCOUNT_ID;
+    process.env.MANAGED_R2_ACCOUNT_ID = managed;
+    try {
+      const t = setupTest();
+      const owner = await createUser(t, "owner@example.invalid");
+      const workspaceId = await createWorkspace(t, owner, "atlas");
+
+      for (const endpoint of [
+        `https://${managed}.r2.cloudflarestorage.com`,
+        `https://${managed}.eu.r2.cloudflarestorage.com/`,
+        `https://a-bucket.${managed}.r2.cloudflarestorage.com`,
+        "https://0123456789%61bcdef0123456789abcdef.r2.cloudflarestorage.com",
+        "https://\uff10123456789abcdef0123456789abcdef.r2.cloudflarestorage.com",
+      ]) {
+        expect(
+          errorCode(
+            await captureError(() =>
+              bindFakeStorage(t, owner, workspaceId, { endpoint }),
+            ),
+          ),
+          `${endpoint} was accepted`,
+        ).toBe("MANAGED_ACCOUNT_NOT_ALLOWED");
+      }
+
+      // And nothing reached the table by any of those routes.
+      expect(await t.run((ctx) => ctx.db.query("storageBindings").collect())).toEqual(
+        [],
+      );
+    } finally {
+      if (previous === undefined) delete process.env.MANAGED_R2_ACCOUNT_ID;
+      else process.env.MANAGED_R2_ACCOUNT_ID = previous;
+    }
+  });
+
+  /**
+   * A self-hoster has no managed account, and their own storage must bind
+   * exactly as it did before this guard existed.
+   */
+  test("refuses nothing when no managed account is configured", async () => {
+    const previous = process.env.MANAGED_R2_ACCOUNT_ID;
+    delete process.env.MANAGED_R2_ACCOUNT_ID;
+    try {
+      const t = setupTest();
+      const owner = await createUser(t, "owner@example.invalid");
+      const workspaceId = await createWorkspace(t, owner, "atlas");
+      await bindFakeStorage(t, owner, workspaceId, {
+        endpoint: "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com",
+      });
+      expect(
+        (await t.run((ctx) => ctx.db.query("storageBindings").collect())).length,
+      ).toBe(1);
+    } finally {
+      if (previous !== undefined) process.env.MANAGED_R2_ACCOUNT_ID = previous;
+    }
+  });
+
   test("still accepts an ordinary provider endpoint", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
