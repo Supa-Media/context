@@ -4,9 +4,10 @@
  * Two properties make this worth having:
  *  - It names the **acting identity**, not a scope. `actorScope: "team"` tells
  *    you nothing the moment "team" is four people.
- *  - It is **scoped to workspace members**. Paths are metadata, but a path can
- *    be as revealing as a note (`1-projects/acquisition-of-acme.md`), so the
- *    trail is readable exactly by the people who can already read the context.
+ *  - It is **scoped to workspace members**, and within that, to what the
+ *    reader's own clearance already reaches. A path can be as revealing as a
+ *    note (`1-projects/acquisition-of-acme.md`), so membership alone is not
+ *    the boundary — `listEvents` gates `paths` and `details` separately below.
  *
  * Writing is internal-only. A client-callable "record this event" is a way to
  * forge history, and an audit trail anyone can write to is not evidence.
@@ -108,7 +109,14 @@ export const recordEvent = internalMutation({
  *    codes. Both are owner-only through their own APIs, and a trail that
  *    republished them would be the hole rather than a second copy of the rule.
  *  - **Anything countable over what a member cannot see.** `privacy.reset`
- *    reports how many top-level folders the bucket really has, and
+ *    reports how many top-level folders the bucket really has;
+ *    `workspace.structure_applied` reports `{ template, folderCount }`, where
+ *    `folderCount === paths.length` exactly -- which cost nothing while
+ *    `paths` was published and is an exact census the moment `paths` is not,
+ *    because the scaffold's manifest is `default_visibility: private` and the
+ *    member can list none of those folders. It came off this list in the
+ *    commit that closed `paths`, which is the revisit its old entry asked
+ *    for; and
  *    `file.move`, `file.copy`, `file.duplicate` and `file.archive` report
  *    `{ files: result.paths.length }`, which `keysUnder` expands at the
  *    *actor's* clearance. An owner archiving a `team` folder holding three
@@ -154,13 +162,6 @@ const MEMBER_VISIBLE_DETAIL_ACTIONS: ReadonlySet<string> = new Set([
   "file.decrypt",
   "file.delete",
   "folder.create",
-  // `{ template, folderCount }`, where `folderCount === paths.length` exactly,
-  // so today it says nothing the row does not already say. **Revisit it in the
-  // same commit that ever withholds `paths`**: the scaffold's manifest is
-  // `default_visibility: private`, so on its own this is an exact count of the
-  // top-level folders of a context the member can list none of -- verbatim the
-  // criterion that keeps `privacy.reset` off this list.
-  "workspace.structure_applied",
   "visibility.note",
   "visibility.folder",
   "member.joined",
@@ -172,6 +173,67 @@ const MEMBER_VISIBLE_DETAIL_ACTIONS: ReadonlySet<string> = new Set([
   // is what a trail is for. Its two siblings are off the list below.
   "grant.revoked",
 ]);
+
+/**
+ * Whether this reader is shown a row's `paths`.
+ *
+ * **The rule: your own clearance, or your own hands.** A caller with `private`
+ * clearance -- which is exactly `role === "owner"`, the boundary
+ * `scopeForRole` in `functions/files.ts` already draws, pinned by a test in
+ * `__tests__/audit.test.ts` so the two cannot drift -- reads every path. Every
+ * other reader reads paths only on rows they are themselves the actor of.
+ *
+ * ## Why identity and not visibility
+ *
+ * The honest gate would be `canSee(path, scopeForRole(role), ...)`, the same
+ * one `listFiles` runs. It is **not reachable from here**, and not for want of
+ * trying: `canSee` needs the parsed `privacy.md`, `privacy.md` lives in the
+ * customer's bucket, and reaching the bucket needs the decrypted storage
+ * credential. `runFileOperation` is the sole member of `CREDENTIAL_BARRIERS`
+ * (`__tests__/structure.test.ts`) precisely so that decrypt path stays in one
+ * place, and a Convex `query` cannot call an action at all. The control plane
+ * also holds no shadow copy of a note's visibility to consult instead -- by
+ * design, non-negotiable #1 -- so there is nothing in this transaction that
+ * knows whether `2-areas/acquisition-of-acme.md` is private. Inventing a way
+ * through that barrier would trade a metadata leak for a credential one.
+ *
+ * What a query *can* know is who is asking and who acted. So the gate is the
+ * strongest sound under-approximation of `canSee`: **a path is released only
+ * when the reader demonstrably already had it.** The owner had it by
+ * clearance. The actor had it by having typed it -- and a row's `paths` are
+ * expanded by `keysUnder` at the *actor's* clearance, so a member's own row
+ * can only ever name what the member could already list.
+ *
+ * The three alternatives, and why not:
+ *
+ *  - **Make `listEvents` an action.** Correct filtering, and it costs the
+ *    console's reactivity plus a bucket read and a credential decrypt on every
+ *    trail load. Worth reopening if the trail ever moves behind an action for
+ *    other reasons; not worth widening the credential surface for a settings
+ *    panel.
+ *  - **Stamp each row's visibility at write time.** Cheap and wrong in the
+ *    unsafe direction: a note written at `team` and later made `private`
+ *    keeps a `team` stamp, so the leak survives exactly the act -- hiding
+ *    something -- that makes it matter.
+ *  - **Withhold `paths` from every non-owner including their own rows.**
+ *    Marginally simpler, strictly worse: it takes away the half of the trail
+ *    that answers "what did my client just do in my name", which is a
+ *    member's main reason to open it, and buys nothing, because the reader
+ *    supplied those paths themselves.
+ *
+ * ## What it costs
+ *
+ * A member no longer sees which note somebody else touched -- including
+ * `team` notes they can read perfectly well. That is a real loss and the
+ * reason this took a decision rather than a line: "who changed my shared
+ * note" now stops at "who, and when". The trade is that the gate is *sound*
+ * without a manifest, and the failure mode of getting it wrong is a member
+ * seeing less than they might have rather than a member seeing a note they
+ * were never shown. See `docs/decisions/privacy-and-sharing.md`.
+ */
+function readsEveryPath(role: string): boolean {
+  return role === "owner";
+}
 
 /**
  * Read a workspace's audit trail, newest first.
@@ -195,6 +257,23 @@ export const listEvents = query({
       actorClientId: v.optional(v.string()),
       action: v.string(),
       paths: v.array(v.string()),
+      /**
+       * Whether `paths` above was withheld from this reader.
+       *
+       * **Always present, and computed from the reader alone** -- their role
+       * and whether they are this row's actor -- never from what the row
+       * actually holds. So it is a fact the caller already knows about
+       * themselves, restated per row, and carries nothing about the note. In
+       * particular a withheld row with three paths and a withheld row with
+       * none are byte-identical here, which is what stops the marker itself
+       * from becoming the census that `paths` was.
+       *
+       * `paths: []` alone would have been the wrong shape: it says "this
+       * touched nothing", which is false, and a trail that lies is worse than
+       * one with holes. The flag makes the hole legible instead, so a console
+       * can render "a note you cannot see" rather than silently nothing.
+       */
+      pathsWithheld: v.boolean(),
       at: v.number(),
       details: v.optional(
         v.record(
@@ -223,32 +302,22 @@ export const listEvents = query({
     // exists to answer, and a member losing the row entirely would lose that.
     //
     // What that leaves visible on a withheld row: the action name, the actor
-    // and their email, the client id, the timestamp, and `paths`.
+    // and their email, the client id, and the timestamp.
     //
-    // **`paths` IS AN OPEN LEAK AND THIS COMMENT IS NOT A DEFENCE OF IT.** An
-    // earlier draft of this paragraph said "the folder is one a member can
-    // list", which is false in general and was the worst thing in this file:
-    // a reassurance a later reviewer would have trusted. Measured through the
-    // real actions and the real privacy engine, a read-only member whose
-    // `listFiles` on `1-projects` correctly returns **zero entries** gets the
-    // hidden note's full path out of `listEvents` three times over -- from
-    // `file.create`, from `visibility.note` (labelled `visibility: "private"`,
-    // so they learn it is a note they were not meant to have), and from
-    // `file.delete`, which records `keysUnder(...)` expanded at the *actor's*
-    // clearance and therefore lists every private sibling by name. That is the
-    // module header's own example -- "a path can be as revealing as a note
-    // (`1-projects/acquisition-of-acme.md`)" -- handed to a member.
-    //
-    // It predates the detail gate and is not fixed by it, and it is left open
-    // here deliberately rather than quietly: the fix is a design decision, not
-    // a line. `canSee` needs the privacy manifest, which lives in the
-    // customer's bucket, and a Convex `query` cannot reach storage -- so the
-    // three candidates are making this an action (losing reactivity, and
-    // spending a bucket read per trail load), stamping each row's visibility
-    // at write time (which a later visibility change then makes wrong), or
-    // withholding `paths` from non-owners entirely (which takes the trail's
-    // subject away from it). Each is its own change with its own review.
+    // **`paths` is gated separately, and by a different question** -- see
+    // `readsEveryPath` above for the whole argument. In one line: `details`
+    // are classified per action because an action's details are the same shape
+    // for everybody, while a path is classified per *note*, and the thing that
+    // classifies a note is a manifest this transaction cannot read. So paths
+    // are released on the two grounds a query can actually verify -- the
+    // reader has `private` clearance, or the reader is the actor who supplied
+    // them.
     const readsEveryDetail = membership.role === "owner";
+
+    // Deliberately NOT `readsEveryDetail`, even though both are `owner` today.
+    // They are two different rules that happen to agree, and folding them into
+    // one boolean is how a future change to either silently moves the other.
+    const everyPath = readsEveryPath(membership.role);
 
     const limit = requireLimit(args.limit);
 
@@ -267,13 +336,25 @@ export const listEvents = query({
         event.actorUserId === undefined
           ? null
           : await ctx.db.get(event.actorUserId);
+
+      // Note what this does NOT consult: `event.paths`, `event.action`, or
+      // anything else on the row. A reader who is neither the owner nor this
+      // row's actor gets the same answer whatever the row holds, which is the
+      // property that keeps the marker from being an oracle. A row with no
+      // actor -- ingestion, a scheduled job -- is nobody's own row, so it
+      // falls to the clearance leg, which is the closed direction.
+      const pathsWithheld =
+        !everyPath &&
+        !(event.actorUserId !== undefined && event.actorUserId === userId);
+
       rows.push({
         eventId: event._id,
         actorUserId: event.actorUserId,
         actorEmail: actor?.email,
         actorClientId: event.actorClientId,
         action: event.action,
-        paths: event.paths,
+        paths: pathsWithheld ? [] : event.paths,
+        pathsWithheld,
         at: event.at,
         details:
           readsEveryDetail || MEMBER_VISIBLE_DETAIL_ACTIONS.has(event.action)
