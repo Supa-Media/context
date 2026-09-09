@@ -624,6 +624,91 @@ describe("a team-scoped caller cannot read, list, or infer a private note", () =
 });
 
 /* -------------------------------------------------------------------------- */
+/*                    the audit trail is inside that boundary                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE ATTACK: RECOVER A HIDDEN NOTE'S PATH FROM THE AUDIT TRAIL.
+ *
+ * Everything above proves the file APIs hold the line — a `team`-scoped member
+ * cannot read, list, or infer a private note. `listEvents` is readable by every
+ * member of the same workspace and used to hand them the path anyway, three
+ * different ways, for a note whose folder listing correctly comes back empty.
+ *
+ * Attacker and victim share ONE database and ONE workspace on purpose. A
+ * fixture that puts them in separate ones proves nothing: the refusal would
+ * then come from the row not existing rather than from the gate.
+ */
+describe("a member cannot recover a hidden path out of the audit trail", () => {
+  const HIDDEN = "2-areas/acquisition-of-acme.md";
+  const SIBLING = "2-areas/acquisition-of-acme-terms.md";
+
+  /**
+   * A private folder holding two notes, touched by the owner in the ways that
+   * write a path onto the trail: created, and re-classified.
+   */
+  async function attackFixture() {
+    const f = await fixture();
+    await share(f);
+    const owner = asUser(f.t, f.owner);
+
+    await owner.action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: HIDDEN,
+      text: "# Acme\n",
+    });
+    await owner.action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: SIBLING,
+      text: "# Terms\n",
+    });
+    await owner.action(api.functions.files.setNoteVisibility, {
+      workspaceId: f.workspaceId,
+      path: HIDDEN,
+      visibility: "private",
+    });
+    return f;
+  }
+
+  async function memberSees(f: Fixture): Promise<string> {
+    const rows = await asUser(f.t, f.reader).query(
+      api.functions.audit.listEvents,
+      { workspaceId: f.workspaceId, limit: 100 },
+    );
+    return JSON.stringify(rows);
+  }
+
+  /**
+   * The premise. If the member could list the folder, nothing below is a leak.
+   */
+  test("the member's own listing of that folder is empty", async () => {
+    const f = await attackFixture();
+    const listing = await asUser(f.t, f.reader).action(
+      api.functions.files.listFiles,
+      { workspaceId: f.workspaceId, path: "2-areas" },
+    );
+    expect(listing.entries).toEqual([]);
+  });
+
+  test("DEMONSTRATION: the trail hands over the path anyway", async () => {
+    const f = await attackFixture();
+    const dump = await memberSees(f);
+    expect(dump).toContain(HIDDEN);
+  });
+
+  test("DEMONSTRATION: and a delete names every private sibling", async () => {
+    const f = await attackFixture();
+    await asUser(f.t, f.owner).action(api.functions.files.deleteEntry, {
+      workspaceId: f.workspaceId,
+      path: "2-areas",
+      confirmation: DELETE_CONFIRMATION,
+    });
+    const dump = await memberSees(f);
+    expect(dump).toContain(SIBLING);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /*                              tenant isolation                              */
 /* -------------------------------------------------------------------------- */
 
