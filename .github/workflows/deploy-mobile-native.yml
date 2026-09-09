@@ -73,9 +73,10 @@ name: Deploy Mobile Native (build + submit)
 # working copy — because those two are account identifiers this repository
 # does not commit (CLAUDE.md: "no internal hostnames, no account identifiers").
 #
-# `APPLE_TEAM_ID` IS an ordinary step env, because `eas submit` reads it
-# straight from `EXPO_APPLE_TEAM_ID` in its own process environment rather
-# than from a config file EAS evaluates remotely.
+# `APPLE_TEAM_ID` IS an ordinary step env, because both `eas build` (when it
+# provisions a newly-added target) and `eas submit` read it straight from
+# `EXPO_APPLE_TEAM_ID` in their own process environment rather than from a
+# config file EAS evaluates remotely.
 
 on:
   workflow_dispatch:
@@ -188,19 +189,19 @@ jobs:
             exit 1
           fi
 
+          if [ "${PLATFORM}" = "ios" ] || [ "${PLATFORM}" = "both" ]; then
+            if [ -z "${APPLE_TEAM_ID:-}" ]; then
+              echo "ERROR: missing 'APPLE_TEAM_ID' in the 'production' environment, needed by"
+              echo "'eas build --platform ios' to provision every target (read as"
+              echo "EXPO_APPLE_TEAM_ID). It is in scripts/secrets-allowlist.json; run the Sync"
+              echo "Secrets workflow."
+              exit 1
+            fi
+          fi
+
           if [ "${{ inputs.submit }}" != "true" ]; then
             echo "Submit not requested; skipping submit-profile checks."
             exit 0
-          fi
-
-          if [ "${PLATFORM}" = "ios" ] || [ "${PLATFORM}" = "both" ]; then
-            if [ -z "${APPLE_TEAM_ID:-}" ]; then
-              echo "ERROR: missing 'APPLE_TEAM_ID' in the 'production' environment, needed for"
-              echo "'eas submit --platform ios' (read as EXPO_APPLE_TEAM_ID). It is in"
-              echo "scripts/secrets-allowlist.json; run the Sync Secrets workflow, or re-run with"
-              echo "submit=false."
-              exit 1
-            fi
           fi
 
           node -e '
@@ -275,6 +276,11 @@ jobs:
       - name: Build iOS
         if: ${{ inputs.platform == 'ios' || inputs.platform == 'both' }}
         working-directory: apps/mobile
+        env:
+          # EAS needs the team identifier during the build too: adding a native
+          # extension creates a second target whose provisioning profile must
+          # be resolved before the remote build can be created.
+          EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           umask 077
           BUILD_JSON=/tmp/context-build.json
