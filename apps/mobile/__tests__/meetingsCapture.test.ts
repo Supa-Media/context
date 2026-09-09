@@ -1080,18 +1080,20 @@ describe("android", () => {
   });
 
   /**
-   * Same fallback shape as iOS, for the same defensive reason: if
-   * `setAudioModeAsync` ever throws for the background-capable request, a
-   * Android setup failures are fail-closed too, so the same safety contract
-   * applies even though Android's foreground service is supplied by
-   * expo-audio's native module.
+   * Both platforms fail closed if `setAudioModeAsync` refuses the
+   * background-capable request; silently continuing would risk losing audio.
    */
-  test("a session that refuses the background mode refuses capture", async () => {
-    mockRefuseBackgroundSession = true;
-    const { recorder } = harness({ platform: "android" });
-    await expect(recorder.start()).rejects.toThrow(/Update Context/);
-    expect(recorder.state).toBe("idle");
-  });
+  test.each(["ios", "android"] as const)(
+    "%s refuses capture when the background mode is refused",
+    async (platform) => {
+      mockRefuseBackgroundSession = true;
+      const { recorder } = harness({ platform });
+      await expect(recorder.start()).rejects.toThrow(
+        /Background audio could not be enabled; recording cannot safely continue/,
+      );
+      expect(recorder.state).toBe("idle");
+    },
+  );
 
   /**
    * The same code path end to end: rotation, offsets and chunk ids do not
