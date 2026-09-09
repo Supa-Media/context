@@ -84,6 +84,7 @@ export class ImessageSyncService {
   #watcher: ImessageWatcher | null = null;
   #changeTimer: ReturnType<typeof setTimeout> | null = null;
   #syncing: Promise<void> | null = null;
+  #abortController: AbortController | null = null;
   #armed = false;
   #generation = 0;
   #syncRequestedAgain = false;
@@ -144,6 +145,8 @@ export class ImessageSyncService {
       clearTimeout(this.#changeTimer);
       this.#changeTimer = null;
     }
+    this.#abortController?.abort();
+    this.#abortController = null;
     this.#watcher?.close();
     this.#watcher = null;
   }
@@ -190,23 +193,26 @@ export class ImessageSyncService {
       return this.#syncing;
     }
     const generation = this.#generation;
-    this.#syncing = this.#drain(generation, options).finally(() => {
+    const abortController = new AbortController();
+    this.#abortController = abortController;
+    this.#syncing = this.#drain(generation, options, abortController.signal).finally(() => {
+      if (this.#abortController === abortController) this.#abortController = null;
       this.#syncing = null;
     });
     return this.#syncing;
   }
 
-  async #drain(generation: number, options: { refreshDates?: readonly string[] }): Promise<void> {
+  async #drain(generation: number, options: { refreshDates?: readonly string[] }, signal: AbortSignal): Promise<void> {
     let nextOptions = options;
     do {
       this.#syncRequestedAgain = false;
       this.#syncRequestedRefreshDates.clear();
-      await this.#run(generation, nextOptions);
+      await this.#run(generation, nextOptions, signal);
       nextOptions = { refreshDates: [...this.#syncRequestedRefreshDates].sort() };
     } while (this.#syncRequestedAgain && this.#isCurrent(generation));
   }
 
-  async #run(generation: number, options: { refreshDates?: readonly string[] }): Promise<void> {
+  async #run(generation: number, options: { refreshDates?: readonly string[] }, signal: AbortSignal): Promise<void> {
     if (!this.#isCurrent(generation)) return;
 
     const path = this.#chatDbPath();
@@ -229,6 +235,7 @@ export class ImessageSyncService {
       mcpUrl: `${gatewayBaseFrom(gatewayBaseUrl)}/mcp`,
       token: () => this.#deps.connection.token(),
       scope: () => this.#deps.connection.scope(),
+      signal,
     };
 
     const cursor = await this.#deps.store.readImessageCursor();
@@ -263,7 +270,7 @@ export class ImessageSyncService {
       this.#assertCurrent(generation);
       await this.#deps.store.writeImessageCursor(report.cursor);
       this.#assertCurrent(generation);
-      if (report.newRows > 0 || report.days.some((day) => day.status === "written" || day.status === "error")) {
+      if (report.days.some((day) => day.status === "written" || day.status === "error")) {
         const failed = report.days.find((day) => day.status === "error");
         this.#status = {
           ...this.#status,
