@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAction } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { Button } from "../../design/components/Button";
 import { Card } from "../../design/components/Card";
 import { CenteredScroll } from "../../design/components/CenteredScroll";
+import { StageBackdrop } from "../../design/components/StageBackdrop";
 import { Text } from "../../design/components/Text";
+import { clamp, fonts, leading } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { CONSOLE_ROUTE } from "../../auth/redirect";
 import { parseGoogleCallback, takeGoogleCompletionSecret } from "./google";
@@ -25,6 +27,8 @@ export function GoogleCallbackScreen() {
   const complete = useAction(api.functions.googleConnect.completeGoogleConnect);
   const router = useRouter();
   const colors = useColors();
+  const { width } = useWindowDimensions();
+  const titleSize = clamp(26, 2.9, 36, width);
   const started = useRef(false);
   const [status, setStatus] = useState<"working" | "done" | "failed">(
     callback.kind === "ready" ? "working" : "failed",
@@ -67,20 +71,81 @@ export function GoogleCallbackScreen() {
           : "This Google connection expired, failed, or was opened in a different browser. Start it again from settings.";
 
   return (
-    <CenteredScroll>
-      <Card style={styles.card}>
-        <View style={styles.stack}>
-          {status === "working" ? <ActivityIndicator color={colors.text2} /> : null}
-          <Text variant="paneTitle">{headline}</Text>
-          <Text variant="rowSub">{detail}</Text>
-          <Button label="Back to console" onPress={() => router.replace(CONSOLE_ROUTE)} />
+    <View style={styles.ground}>
+      <StageBackdrop />
+      <CenteredScroll testID="google-callback-page">
+        <View style={styles.wrap}>
+          <Text variant="mark" style={styles.mark}>
+            Context
+            <Text variant="mark" style={styles.markSuffix}>
+              .lc
+            </Text>
+          </Text>
+          {status === "working" ? (
+            <Card style={styles.card}>
+              <View style={styles.loadingRow}>
+                <ActivityIndicator color={colors.text2} size="small" />
+                <Text variant="rowSub" role="status" style={styles.loadingBody}>
+                  {detail}
+                </Text>
+              </View>
+            </Card>
+          ) : (
+            <View style={styles.stack}>
+              <Text
+                role="heading"
+                aria-level={1}
+                style={[
+                  styles.title,
+                  {
+                    fontSize: titleSize,
+                    lineHeight: leading(titleSize, 1.08),
+                    letterSpacing: 0,
+                  },
+                ]}
+              >
+                {headline}
+              </Text>
+              <Text variant="heroSub" role={status === "done" ? "status" : undefined} style={styles.sub}>
+                {detail}
+              </Text>
+              <View style={styles.actions}>
+                <Button
+                  label="Back to console"
+                  variant="decision"
+                  onPress={() => router.replace(CONSOLE_ROUTE)}
+                />
+              </View>
+            </View>
+          )}
         </View>
-      </Card>
-    </CenteredScroll>
+      </CenteredScroll>
+    </View>
   );
 }
 
-const makeStyles = (_colors: Colors) => StyleSheet.create({
-  card: { width: "100%", maxWidth: 520 },
-  stack: { gap: 12 },
+const makeStyles = (colors: Colors) => StyleSheet.create({
+  ground: { flex: 1, backgroundColor: colors.ground, overflow: "hidden" },
+  wrap: {
+    width: "100%",
+    maxWidth: 560,
+    marginHorizontal: "auto",
+    paddingHorizontal: 28,
+    paddingVertical: 48,
+  },
+  mark: { alignSelf: "flex-start", marginBottom: 30 },
+  markSuffix: { color: colors.muted },
+  title: { fontFamily: fonts.display, fontWeight: "500", color: colors.text },
+  sub: { marginTop: 14, fontSize: 15.5, lineHeight: leading(15.5, 1.55) },
+  stack: { width: "100%" },
+  card: { width: "100%" },
+  loadingRow: { flexDirection: "row", alignItems: "center", gap: 11 },
+  loadingBody: { flex: 1, minWidth: 0 },
+  actions: {
+    marginTop: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+    flexWrap: "wrap",
+  },
 });
