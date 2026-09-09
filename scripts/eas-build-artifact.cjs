@@ -35,14 +35,16 @@ async function downloadArtifact(value, destination) {
   let response;
   const seen = new Set();
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    if (new URL(current).protocol !== "https:") throw new Error("EAS artifact URL must use HTTPS");
+    let parsed;
+    try { parsed = new URL(current); } catch { throw new Error("EAS artifact URL is invalid"); }
+    if (parsed.protocol !== "https:") throw new Error("EAS artifact URL must use HTTPS");
     if (seen.has(current)) throw new Error("EAS artifact redirect loop");
     seen.add(current);
     response = await fetch(current, { redirect: "manual" });
     if (![301, 302, 303, 307, 308].includes(response.status)) break;
     const location = response.headers.get("location");
     if (!location || hop === MAX_REDIRECTS) throw new Error("EAS artifact redirect limit exceeded");
-    current = new URL(location, current).toString();
+    try { current = new URL(location, current).toString(); } catch { throw new Error("EAS artifact redirect is invalid"); }
   }
   if (!response?.ok) throw new Error(`EAS artifact download failed: HTTP ${response?.status ?? "unknown"}`);
   const declared = Number(response.headers.get("content-length"));
@@ -58,7 +60,12 @@ async function downloadArtifact(value, destination) {
       total += bytes.length;
       if (total > MAX_ARTIFACT_BYTES || total > declared) throw new Error("EAS artifact exceeds declared size");
       if (magic.length < 4) magic = Buffer.concat([magic, bytes]).subarray(0, 4);
-      await handle.write(bytes);
+      let written = 0;
+      while (written < bytes.length) {
+        const result = await handle.write(bytes, written, bytes.length - written);
+        if (!result || result.bytesWritten <= 0) throw new Error("EAS artifact write made no progress");
+        written += result.bytesWritten;
+      }
     }
     if (total !== declared || magic.length < 4 || magic.readUInt32LE(0) !== 0x04034b50) throw new Error("EAS artifact is not a complete IPA ZIP archive");
     await handle.sync();
