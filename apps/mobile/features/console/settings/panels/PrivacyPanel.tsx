@@ -409,10 +409,19 @@ function FolderBlock({
                     ? "Press again to share"
                     : "Share with team"
               }
+              /*
+                The armed state is in the spoken label too, and that is not
+                decoration. The visible label changes on the first press and
+                the announced one used not to, so a screen reader heard the
+                same words before and after arming — which is the whole signal
+                that the press did something and that the next one publishes.
+              */
               accessibilityLabel={
-                control.arm
-                  ? `Share ${row.name} with everyone on People`
-                  : `Make ${row.name} private`
+                !control.arm
+                  ? `Make ${row.name} private`
+                  : arming.stage === "armed"
+                    ? `Press again to share ${row.name} with everyone on People`
+                    : `Share ${row.name} with everyone on People`
               }
               onPress={control.arm ? arming.press : apply}
               testID={`privacy-set-${row.path}`}
@@ -422,7 +431,10 @@ function FolderBlock({
       </Row>
       {control !== null && control.arm && arming.stage === "armed" ? (
         <Hint style={StyleSheet.flatten([styles.hint, depth > 0 ? styles.nested : null])}>
-          <Text variant="hint">{widenWarning(row.name)}</Text>
+          {/* Announced when it appears, not only drawn — it is the warning. */}
+          <Text variant="hint" role="status">
+            {widenWarning(row.name)}
+          </Text>
         </Hint>
       ) : null}
       {isOpen ? (

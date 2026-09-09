@@ -290,6 +290,22 @@ describe("the control, and who is offered one", () => {
     expect(wrote).toEqual(["folder 2-areas team"]);
   });
 
+  test("a screen reader is told the press armed, not just shown it", () => {
+    // The visible label changes on the first press; the announced one used
+    // not to, so somebody who cannot see the button heard the same words
+    // before and after arming — which is the whole signal that the next
+    // press publishes.
+    const host = panel({ role: "owner", kind: "personal", canSetVisibility: true });
+    const button = host.querySelector('[data-testid="privacy-set-2-areas"]');
+    expect(button?.getAttribute("aria-label")).toBe(
+      "Share 2-areas with everyone on People",
+    );
+    press(host, "privacy-set-2-areas");
+    expect(
+      host.querySelector('[data-testid="privacy-set-2-areas"]')?.getAttribute("aria-label"),
+    ).toBe("Press again to share 2-areas with everyone on People");
+  });
+
   test("closing one back takes one press, because that is the cheap direction", () => {
     const wrote: string[] = [];
     const host = panel({
