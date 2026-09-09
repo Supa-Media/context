@@ -11,7 +11,7 @@ import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
-import { SettingsPane } from "../panes/SettingsPane";
+import { SettingsPane, StatusPill } from "../panes/SettingsPane";
 import { atName } from "../format";
 import type { AppSectionKey } from "../nav";
 import { selectedContext, type ConsoleData } from "../types";
@@ -93,17 +93,27 @@ export function SettingsOverlay({
               </Text>
             )}
             <Pressable
-              accessibilityRole="tab"
-              aria-selected={on}
+              /*
+                A `button` with a selected state, not a `tab`: ARIA requires a
+                `tab` to be owned by a `tablist`, `aria-selected` is web-only,
+                and iOS maps the role to no trait at all — so an orphan tab
+                announces its label with no position and no state. This is what
+                `ConsoleRail`'s rows do, for the same reason.
+              */
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
               accessibilityLabel={entry.label}
               onPress={() => {
                 onSelect(entry.key);
                 setListing(false);
               }}
-              style={[styles.row, on ? styles.rowOn : null]}
+              style={[styles.row, compact ? styles.rowTouch : null, on ? styles.rowOn : null]}
               testID={`settings-section-${entry.key}`}
             >
-              <Text variant="rail" style={on ? styles.labelOn : undefined}>
+              <Text
+                variant={compact ? "railTouch" : "rail"}
+                style={on ? styles.labelOn : undefined}
+              >
                 {entry.label}
               </Text>
             </Pressable>
@@ -114,12 +124,21 @@ export function SettingsOverlay({
   );
 
   const chosen = sections.find((entry) => entry.key === active);
+  /*
+    The binding's health, which the pane's own head used to carry ahead of
+    everything because it qualifies every control below it. Sectioning skips
+    that head, and the top bar's storage chip is pointer-only — so without this
+    a phone states the health of the bucket nowhere at all.
+  */
+  const health = data.storage ? <StatusPill storage={data.storage} /> : null;
 
   if (compact) {
     return (
       <Overlay
         title={listing ? "Settings" : (chosen?.label ?? "Settings")}
         badge={current ? <Pill tone="neutral">{atName(current.slug)}</Pill> : null}
+        trailing={listing ? null : health}
+        closeLabel="Close settings"
         onBack={listing ? undefined : () => setListing(true)}
         onDismiss={onDismiss}
         testID="settings-overlay"
@@ -144,6 +163,8 @@ export function SettingsOverlay({
     <Overlay
       title="Settings"
       badge={current ? <Pill tone="neutral">{atName(current.slug)}</Pill> : null}
+      trailing={health}
+      closeLabel="Close settings"
       sidebar={list}
       onDismiss={onDismiss}
       testID="settings-overlay"
@@ -168,6 +189,16 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: 7,
       paddingHorizontal: 9,
       borderRadius: radii.md,
+    },
+    /*
+      7pt around a ~21pt line is 35 — right there and wrong under a thumb, in
+      the arithmetic `ConsoleRail` already wrote down. On a phone this list is
+      the only way to another section, so it takes the touch minimum.
+    */
+    rowTouch: {
+      minHeight: layout.minTouchTarget,
+      paddingVertical: space.x3,
+      justifyContent: "center",
     },
     rowOn: { backgroundColor: colors.accentDim },
     labelOn: { color: colors.accentText },

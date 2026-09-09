@@ -64,6 +64,7 @@ import {
   sameRoute,
   searchHref,
   appSectionHref,
+  settingsHref,
   settingsFromQuery,
   type ConsoleRoute,
 } from "../../../features/console/nav";
@@ -594,7 +595,18 @@ export default function ConsoleLayout() {
                 onOpenSettings={
                   current === null
                     ? undefined
-                    : () => router.setParams({ settings: DEFAULT_SETTINGS_SECTION })
+                    : /*
+                        `setParams` only where the overlay can actually draw.
+                        The chip states the binding on *every* route — Map,
+                        Connections, Search — and `selectedContext` is non-null
+                        on all of them, but the overlay renders only over a
+                        context. Adding a parameter to `/console/connections`
+                        would leave a stated fact you cannot act on, which is
+                        the defect this control's own comment exists about.
+                      */
+                      insideContext
+                      ? () => router.setParams({ settings: DEFAULT_SETTINGS_SECTION })
+                      : () => router.push(settingsHref(current.slug))
                 }
               />
             </>
@@ -679,7 +691,7 @@ export default function ConsoleLayout() {
           onCloseTab={closeTab}
           onDialog={setBarDialog}
           onSearch={() => setPaletteOpen(true)}
-          paletteOpen={paletteOpen || treeOverlay || switcherOpen}
+          paletteOpen={paletteOpen || treeOverlay || switcherOpen || openSettingsSection !== null}
         />
         {/*
           The contexts, built here and drawn inside whatever scroller the
@@ -745,6 +757,23 @@ export default function ConsoleLayout() {
                 */
                 onOpen={(slug) => router.replace(contextHrefFrom(slug))}
                 onSelect={(next) => {
+                  /*
+                    Settings on the context you are already in is a parameter,
+                    not a navigation: `hrefFor` emits the legacy path for a
+                    settings route, and replacing with it drops the `?note=`
+                    beside it — closing somebody's note as a side effect of
+                    opening settings, which is the whole defect the overlay
+                    exists to fix.
+                  */
+                  if (
+                    next.kind === "context" &&
+                    next.view === "settings" &&
+                    route.kind === "context" &&
+                    next.slug === route.slug
+                  ) {
+                    router.setParams({ settings: DEFAULT_SETTINGS_SECTION });
+                    return;
+                  }
                   if (!sameRoute(next, route)) router.replace(hrefFor(next));
                 }}
                 onLeaveContext={(id) => {

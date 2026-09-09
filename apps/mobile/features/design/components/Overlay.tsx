@@ -1,8 +1,20 @@
 import type { ReactNode } from "react";
-import { Modal, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useReducedMotion } from "../useReducedMotion";
+import { Icon } from "./Icon";
 import { Text } from "./Text";
 import { layout, radii, space } from "../tokens";
-import { useThemedStyles, type Colors } from "../theme";
+
+import { useThemedStyles, type Colors, type Shadows } from "../theme";
 
 /**
  * A panel over the page, rather than a page you went to.
@@ -17,7 +29,8 @@ import { useThemedStyles, type Colors } from "../theme";
  *
  * Above `layout.narrowBreakpoint` this is a centred panel with a sidebar
  * beside its content. Below it there is no centred panel and no bottom sheet:
- * it fills the screen. That is not a shrunken desktop — a sheet capped at some
+ * it fills the screen, showing whichever of `sidebar`/`children` the caller
+ * hands it — never both, because there is no room for both. That is not a shrunken desktop — a sheet capped at some
  * fraction of the viewport is eaten by the keyboard the moment a settings
  * field takes focus, which is exactly the case `Palette` already answers this
  * way. The window answers "is this a thumb", the same test `Menu.web` makes.
@@ -34,6 +47,7 @@ import { useThemedStyles, type Colors } from "../theme";
 export function Overlay({
   title,
   badge,
+  closeLabel = "Close",
   trailing,
   sidebar,
   children,
@@ -44,9 +58,23 @@ export function Overlay({
   title: string;
   /** A short mark beside the title — which context this is, or a role. */
   badge?: ReactNode;
+  /**
+   * What the close button announces. A generic primitive must not tell every
+   * screen reader "settings" for whatever it is ever wrapped around.
+   */
+  closeLabel?: string;
   /** Anything before the close button. */
   trailing?: ReactNode;
-  /** The section list. Absent on a phone's second level, which is a push. */
+  /**
+   * The section list, drawn beside the content at pointer widths.
+   *
+   * **Compact is not a two-level push in here.** Below the breakpoint this
+   * renders `sidebar` when given one and `children` otherwise, so a caller
+   * that wants list-then-content owns that step and passes one at a time —
+   * which is what `SettingsOverlay` does, with `onBack` for the way back. An
+   * earlier version of this comment described a push the component did not
+   * implement, which would have left the next caller's content unreachable.
+   */
   sidebar?: ReactNode;
   children: ReactNode;
   /**
@@ -61,21 +89,30 @@ export function Overlay({
 }) {
   const styles = useThemedStyles(makeStyles);
   const compact = useWindowDimensions().width < layout.narrowBreakpoint;
+  /*
+    A `Modal` is its own root view, so nothing above it pays the notch — the
+    defect `__tests__/safeArea.test.ts` exists for, whose header records the
+    settings screen drawing its title on the same line as the clock. `Palette`
+    pays these in its own sheet for the same reason.
+  */
+  const insets = useSafeAreaInsets();
+  // Starts `true`, so nothing moves before the preference has resolved.
+  const reduced = useReducedMotion();
 
   const head = (
     <View style={styles.head}>
       {onBack === undefined ? null : (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Back to all settings"
+          accessibilityLabel="Back"
           onPress={onBack}
           style={styles.close}
           testID={testID ? `${testID}-back` : undefined}
         >
-          <Text variant="rowSub">‹</Text>
+          <Icon name="chevronLeft" size={16} />
         </Pressable>
       )}
-      <Text variant="noteTitle" role="heading" aria-level={2}>
+      <Text variant="noteTitle" role="heading" aria-level={2} numberOfLines={1} style={styles.title}>
         {title}
       </Text>
       {badge}
@@ -83,12 +120,12 @@ export function Overlay({
       {trailing}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Close settings"
+        accessibilityLabel={closeLabel}
         onPress={onDismiss}
         style={styles.close}
         testID={testID ? `${testID}-close` : undefined}
       >
-        <Text variant="rowSub">✕</Text>
+        <Icon name="close" size={16} />
       </Pressable>
     </View>
   );
@@ -105,30 +142,63 @@ export function Overlay({
     return (
       <Modal
         visible
-        animationType="slide"
+        animationType={reduced ? "none" : "slide"}
         onRequestClose={onBack ?? onDismiss}
         testID={testID}
       >
-        <View style={styles.phone}>
+        {/*
+          `padding` on iOS shortens the sheet by the keyboard's height so the
+          bottom of a form stays reachable; Android resizes the window and
+          `height` cooperates with that. This pane holds the connect form —
+          endpoint, bucket, access key, secret — so a keyboard covering its
+          submit is not hypothetical. Taken from `Palette`, which argues it.
+        */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={[
+            styles.phone,
+            { paddingTop: insets.top, paddingBottom: insets.bottom },
+          ]}
+        >
           {head}
           <View style={styles.phoneBody}>{sidebar ?? children}</View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     );
   }
 
   return (
-    <Modal transparent animationType="fade" onRequestClose={onDismiss} visible testID={testID}>
+    <Modal
+      transparent
+      animationType={reduced ? "none" : "fade"}
+      onRequestClose={onDismiss}
+      visible
+      testID={testID}
+    >
       {/*
         The scrim closes; the panel swallows its own presses so a click inside
         does not dismiss. The same construction `Dialogs.Shell` uses.
       */}
-      <Pressable style={styles.scrim} accessibilityLabel="Close settings" onPress={onDismiss}>
-        <Pressable
-          style={styles.panel}
-          accessibilityRole={undefined}
-          onPress={(event) => event.stopPropagation()}
-        >
+      {/*
+        `accessible={false}` on both, and it is not cosmetic. `Pressable`
+        defaults to `accessible`, and an accessible View on iOS collapses into
+        a single element whose descendants VoiceOver cannot reach — which for a
+        wrapper around an entire settings surface means the section list, the
+        binding card and the connect form all disappear behind one "Close"
+        button. The dialogs this pattern comes from wrap a title and two
+        buttons, where that cost does not arise.
+
+        The inner handler is `() => {}` rather than a `stopPropagation` call:
+        nested responders mean the outer never fires anyway, and a handler that
+        dereferences its argument throws the day something invokes it bare.
+      */}
+      <Pressable
+        style={styles.scrim}
+        accessible={false}
+        accessibilityLabel={closeLabel}
+        onPress={onDismiss}
+      >
+        <Pressable style={styles.panel} accessible={false} onPress={() => {}}>
           {head}
           <View style={styles.body}>
             {sidebar === undefined ? null : <View style={styles.side}>{sidebar}</View>}
@@ -140,7 +210,7 @@ export function Overlay({
   );
 }
 
-const makeStyles = (colors: Colors) =>
+const makeStyles = (colors: Colors, shadows: Shadows) =>
   StyleSheet.create({
     scrim: {
       flex: 1,
@@ -159,7 +229,9 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.lineStrong,
       backgroundColor: colors.surface,
       overflow: "hidden",
-      boxShadow: "0 40px 100px -30px rgba(0,0,0,1)",
+      // The token rather than a fourth copy of the same literal: `Palette`,
+      // `Dialogs` and `TabSwitcher` each hardcode this string today.
+      boxShadow: shadows.rising,
     },
     head: {
       minHeight: layout.topBarHeight,
@@ -172,6 +244,7 @@ const makeStyles = (colors: Colors) =>
       borderBottomColor: colors.line,
       backgroundColor: colors.surface2,
     },
+    title: { flexShrink: 1 },
     grow: { flexGrow: 1 },
     close: {
       width: layout.minTouchTarget,

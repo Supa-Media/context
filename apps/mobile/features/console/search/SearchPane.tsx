@@ -110,7 +110,7 @@ export function SearchPane({
     contexts could this page also search" is the question they just asked by
     opening it.
   */
-  const nudge = useMemo(() => nudgeRows(notEligible, settingsHref), [notEligible]);
+  const nudge = useMemo(() => nudgeRows(notEligible, (slug) => settingsHref(slug, "search")), [notEligible]);
   const showNudgeInPicker = eligible.length === 0 || ownsAnUnsearchableContext(notEligible);
 
   const open = useCallback(

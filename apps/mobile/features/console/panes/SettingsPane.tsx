@@ -230,7 +230,7 @@ export function SettingsPane({
       </>
       ) : null}
 
-      {show("email") ? (
+      {show("sources") ? (
       <>
       <Text variant="eyebrow" style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}>
         Integrations
@@ -396,7 +396,16 @@ const SECTION_BLURBS: Record<AppSectionKey, string> = {
   connections: "The MCP endpoint, and the clients holding a grant. Revoke one without disturbing the others.",
 };
 
-function StatusPill({ storage }: { storage: ConsoleStorage }) {
+/**
+ * Exported because the overlay draws it, not the pane.
+ *
+ * Sectioning skips `PaneHead`, and this pill is the one thing in it that
+ * qualifies everything below — "you cannot connect a bucket here" is said by
+ * this chip and two absent controls. The overlay carries it in its header
+ * instead, which is also the only place a phone can see it: the top bar's
+ * storage chip is pointer-only.
+ */
+export function StatusPill({ storage }: { storage: ConsoleStorage }) {
   if (storage.connected) {
     return (
       <Pill tone="ok" leading={<Dot tone="ok" />}>

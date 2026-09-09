@@ -6,10 +6,11 @@
  * order here is how often a thing is actually touched, and the grouping is the
  * question a person is asking rather than the subsystem that answers it:
  *
- *  - **What comes in** — Email today, and whatever else fills a brain later.
- *    Named after the thing, not the connector. Somebody fixing their mail does
- *    not know that Gmail is an "integration", that an integration belongs to a
- *    Google account, and that the account has an Email sub-card.
+ *  - **What comes in** — everything that fills a brain without being typed
+ *    into it: the mailboxes and calendars we read, this Mac, and the address
+ *    mail can be forwarded to. It is one section because it is one question,
+ *    and the nesting people used to have to learn — a Google *account*, which
+ *    has an Email *sub-card* — is our plumbing rather than their question.
 
  *  - **Your notes** — where they live and how they are found. Storage is here,
  *    near the bottom, because it is touched at setup and at a key rotation and
@@ -34,7 +35,21 @@ export interface SettingsSectionSpec {
 }
 
 export const SETTINGS_SECTIONS = [
-  { key: "email", label: "Email", group: "What comes in", personalOnly: true },
+  {
+    key: "sources",
+    label: "Mail, calendar & chats",
+    group: "What comes in",
+    /*
+      Shown on a shared workspace too, and deliberately. The *capture address*
+      is personal-only (`CLAUDE.md`: only a personal context has an ingestion
+      alias) and the pane gates that card itself — but the card explaining
+      **why** a workspace cannot connect Gmail lives in this same block, and
+      hiding the section takes the explanation with it. "Absent, not disabled"
+      is right for a control that would be refused; it is wrong for the
+      sentence that says why.
+    */
+    personalOnly: false,
+  },
   { key: "storage", label: "Storage", group: "Your notes", personalOnly: false },
   { key: "search", label: "Search", group: "Your notes", personalOnly: false },
 ] as const;

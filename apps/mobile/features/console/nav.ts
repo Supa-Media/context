@@ -380,19 +380,6 @@ export function settingsHref(slug: string, section?: SettingsSectionKey): string
 }
 
 /**
- * A settings section on a note that is already open, so opening settings from
- * a note does not close the note behind it.
- */
-export function settingsOnNoteHref(
-  slug: string,
-  notePath: string,
-  section?: SettingsSectionKey,
-): string {
-  const key = section ?? DEFAULT_SETTINGS_SECTION;
-  return `${noteHref(slug, notePath)}&settings=${encodeURIComponent(key)}`;
-}
-
-/**
  * Which settings section a URL is showing, or `null` for "settings is closed".
  *
  * Fail-closed on anything unrecognised, the same shape as `safeNotePath`: a

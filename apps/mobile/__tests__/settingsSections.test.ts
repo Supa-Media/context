@@ -26,33 +26,26 @@ import {
 } from "../features/console/settings/sections";
 
 describe("which sections a context has", () => {
-  test("a personal brain can be sent mail, so it has an Email section", () => {
-    const keys = settingsSectionsFor("personal").map((section) => section.key);
-    expect(keys).toContain("email");
+  test("both kinds get the sources section", () => {
+    // The capture *address* is personal-only and the pane gates that card, but
+    // the card explaining why a workspace cannot connect Gmail is in the same
+    // block — hiding the section would take the explanation with it.
+    for (const kind of ["personal", "shared"] as const) {
+      expect(settingsSectionsFor(kind).map((section) => section.key)).toContain("sources");
+    }
   });
 
-  test("a shared workspace has no capture address, so the section is absent", () => {
-    const keys = settingsSectionsFor("shared").map((section) => section.key);
-    // Absent, not present-and-disabled. A workspace should not receive
-    // somebody's email, and a row saying so is a control that lies.
-    expect(keys).not.toContain("email");
-    expect(keys).toContain("storage");
-  });
-
-  test("an unknown kind gets only what every context has", () => {
-    // `null` is the list still loading. It must not guess "personal" and offer
-    // a section that will vanish a moment later.
-    expect(settingsSectionsFor(null).map((section) => section.key)).not.toContain("email");
-    expect(settingsSectionsFor(undefined).map((section) => section.key)).not.toContain(
-      "email",
-    );
+  test("a loading context still gets a usable list", () => {
+    // `null` is the list not landed yet. It must not produce an empty panel.
+    expect(settingsSectionsFor(null).length).toBeGreaterThan(0);
+    expect(settingsSectionsFor(undefined).map((s) => s.key)).toContain("storage");
   });
 });
 
 describe("the order and the grouping", () => {
   test("what comes in is asked before where it is kept", () => {
     const keys = SETTINGS_SECTIONS.map((section) => section.key);
-    expect(keys.indexOf("email")).toBeLessThan(keys.indexOf("storage"));
+    expect(keys.indexOf("sources")).toBeLessThan(keys.indexOf("storage"));
   });
 
   test("every section sits under a heading somebody can answer", () => {
@@ -75,7 +68,7 @@ describe("the order and the grouping", () => {
 describe("reading a section out of a URL", () => {
   test("only names we have", () => {
     expect(isSettingsSection("storage")).toBe(true);
-    expect(isSettingsSection("email")).toBe(true);
+    expect(isSettingsSection("sources")).toBe(true);
     expect(isSettingsSection("../../etc")).toBe(false);
     expect(isSettingsSection("")).toBe(false);
   });
