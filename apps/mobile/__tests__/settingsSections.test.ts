@@ -53,7 +53,11 @@ describe("the order and the grouping", () => {
     // not know what a bucket is can still tell which third of the list their
     // question is in.
     for (const section of SETTINGS_SECTIONS) {
-      expect(["What comes in", "Your notes"]).toContain(section.group);
+      // `null` is the ungrouped head of the list — Overview, which answers
+      // "which context is this" before any of the three questions below it.
+      expect([null, "What comes in", "Who can see it", "Your notes"]).toContain(
+        section.group,
+      );
     }
   });
 

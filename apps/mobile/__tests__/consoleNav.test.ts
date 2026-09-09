@@ -156,7 +156,7 @@ describe("the route table", () => {
     // closing it had to guess whether to return to the context root or to
     // whatever note was open. As a parameter there is nothing to guess.
     expect(settingsHref("public-worship")).toBe(
-      "/console/@public-worship?settings=storage",
+      "/console/@public-worship?settings=overview",
     );
     expect(settingsHref("public-worship", "sources")).toBe(
       "/console/@public-worship?settings=sources",

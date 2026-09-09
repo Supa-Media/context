@@ -12,6 +12,8 @@
  *    and the nesting people used to have to learn — a Google *account*, which
  *    has an Email *sub-card* — is our plumbing rather than their question.
 
+ *  - **Who can see it** — the people in this context. Previously three clicks
+ *    away on an app-level pane that was not about this context at all.
  *  - **Your notes** — where they live and how they are found. Storage is here,
  *    near the bottom, because it is touched at setup and at a key rotation and
  *    then never again; a broken bucket still announces itself on the storage
@@ -24,7 +26,7 @@
  * no answer at all is better still where the concept does not exist.
  */
 
-export type SettingsGroup = "What comes in" | "Your notes";
+export type SettingsGroup = "What comes in" | "Who can see it" | "Your notes";
 
 export interface SettingsSectionSpec {
   key: SettingsSectionKey;
@@ -35,6 +37,22 @@ export interface SettingsSectionSpec {
 }
 
 export const SETTINGS_SECTIONS = [
+  {
+    key: "overview",
+    label: "Overview",
+    /*
+      Ungrouped and first: it answers "which context am I in, what am I in it,
+      and is it working" before any of the three questions the groups ask.
+    */
+    group: null,
+    personalOnly: false,
+  },
+  {
+    key: "people",
+    label: "People",
+    group: "Who can see it",
+    personalOnly: false,
+  },
   {
     key: "sources",
     label: "Mail, calendar & chats",
@@ -57,7 +75,7 @@ export const SETTINGS_SECTIONS = [
 export type SettingsSectionKey = (typeof SETTINGS_SECTIONS)[number]["key"];
 
 /** The section a URL with no `?settings=` value, or an unknown one, opens. */
-export const DEFAULT_SETTINGS_SECTION: SettingsSectionKey = "storage";
+export const DEFAULT_SETTINGS_SECTION: SettingsSectionKey = "overview";
 
 /**
  * The sections this context actually has.

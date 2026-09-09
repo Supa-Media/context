@@ -123,6 +123,16 @@ describe("a phone reaches the settings, not just a menu", () => {
     expect(text).not.toContain("Where this context");
   });
 
+  test("overview answers which context this is before anything else", () => {
+    const text = overlay("overview").textContent ?? "";
+    expect(text).toContain("Overview");
+    expect(text).toContain("Personal brain");
+  });
+
+  test("people is in the context's own settings, not an app-level pane", () => {
+    expect(overlay("people").textContent ?? "").toContain("People");
+  });
+
   test("the binding's health is stated, since no storage chip exists here", () => {
     // `PaneHead` is skipped when a section is given, and the top bar's chip is
     // pointer-only — so without the overlay carrying this, a phone states the
@@ -140,7 +150,7 @@ describe("the list is one press away, and it navigates", () => {
       (back as HTMLElement).click();
     });
     const text = host.textContent ?? "";
-    for (const label of ["Storage", "Search", "Mail, calendar & chats"]) {
+    for (const label of ["Overview", "People", "Storage", "Search", "Mail, calendar & chats"]) {
       expect(text).toContain(label);
     }
   });

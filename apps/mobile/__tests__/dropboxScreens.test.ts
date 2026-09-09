@@ -376,7 +376,18 @@ function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
     ingestionAddress: "seyi@context.lc",
     ingestion: { settings: null, loading: false },
     files: { listings: {} },
-    members: { members: [], loading: false },
+    /*
+      A whole members view, not the two fields this file's own subject needs:
+      the settings pane renders People now, so a stub missing `invitations`
+      crashes a section this test is not about. Complete rather than tolerated.
+    */
+    members: {
+      members: [],
+      invitations: [],
+      loading: false,
+      failure: null,
+      canInvite: false,
+    },
     fastSearch: { status: { state: "off", canChange: false }, loading: false },
     loading: false,
     failure: null,

@@ -572,6 +572,7 @@ export function AccountBlock({
   detail,
   initial,
   onSignOut,
+  onOpenSettings,
   compact = false,
   touch = false,
 }: {
@@ -579,6 +580,15 @@ export function AccountBlock({
   detail?: string;
   initial: string;
   onSignOut: () => void;
+  /**
+   * Settings, from the one place that is on screen at every density.
+   *
+   * It was reachable only from the storage chip — which is pointer-only and
+   * reads as a status, not a control — and from a long press on a context row,
+   * which nobody discovers. A person looking for settings looks near their own
+   * name, so it is here, beside the sign-out it has always sat next to.
+   */
+  onOpenSettings?: () => void;
   compact?: boolean;
   /** Phone sizing: sign-out clears `layout.minTouchTarget` on both axes. */
   touch?: boolean;
@@ -586,16 +596,30 @@ export function AccountBlock({
   const styles = useThemedStyles(makeStyles);
   if (compact) {
     return (
-      <PressRow
-        accessibilityLabel={`${name} — sign out`}
-        onPress={onSignOut}
-        radius={radii.pill}
-        style={styles.avatarOnly}
-        hoverStyle={styles.entryHover}
-        testID="account-sign-out"
-      >
-        <Avatar initial={initial} />
-      </PressRow>
+      <View style={styles.accountPinned}>
+        {onOpenSettings === undefined ? null : (
+          <PressRow
+            accessibilityLabel="Settings"
+            onPress={onOpenSettings}
+            radius={radii.pill}
+            style={styles.avatarOnly}
+            hoverStyle={styles.entryHover}
+            testID="account-settings"
+          >
+            <Icon name="gear" size={17} />
+          </PressRow>
+        )}
+        <PressRow
+          accessibilityLabel={`${name} — sign out`}
+          onPress={onSignOut}
+          radius={radii.pill}
+          style={styles.avatarOnly}
+          hoverStyle={styles.entryHover}
+          testID="account-sign-out"
+        >
+          <Avatar initial={initial} />
+        </PressRow>
+      </View>
     );
   }
 
@@ -612,6 +636,18 @@ export function AccountBlock({
           </Text>
         ) : null}
       </View>
+      {onOpenSettings === undefined ? null : (
+        <PressRow
+          accessibilityLabel="Settings"
+          onPress={onOpenSettings}
+          radius={radii.md}
+          style={touch ? styles.signOutTouch : styles.signOut}
+          hoverStyle={styles.signOutHover}
+          testID="rail-settings"
+        >
+          <Icon name="gear" size={15} />
+        </PressRow>
+      )}
       <PressRow
         accessibilityLabel="Sign out"
         onPress={onSignOut}
@@ -755,6 +791,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * the wrong side of. Square on both axes so the pill radius reads as a
    * circle rather than as a stadium.
    */
+  accountPinned: { flexDirection: "row", alignItems: "center", gap: space.x1 },
   avatarOnly: {
     width: layout.minTouchTarget,
     height: layout.minTouchTarget,
