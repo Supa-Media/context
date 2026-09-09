@@ -150,6 +150,18 @@ describe("searching the list", () => {
     ["dropbox", "storage"],
     ["rebuild index", "search"],
     ["who can see", "people"],
+    /*
+      Nobody types "premium" — they type what they are trying to do, and none
+      of these words are on the row. "storage limit" is the one worth keeping:
+      the 50 GB ceiling is a Premium fact and the Storage section cannot answer
+      it, so a person hunting for it must not be sent to the bucket screen.
+    */
+    ["cancel subscription", "premium"],
+    ["invoice", "premium"],
+    ["card", "premium"],
+    ["payment", "premium"],
+    ["storage limit", "premium"],
+    ["upgrade", "premium"],
   ])("%p opens %p", (query, key) => {
     const hits = matchSettingsSections(settingsSectionsFor("personal"), query).map(
       (section) => section.key,

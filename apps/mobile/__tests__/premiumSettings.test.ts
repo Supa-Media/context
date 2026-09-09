@@ -20,16 +20,10 @@
  *
  * ## Sabotage record
  *
- * Run as temporary local edits and reverted; counts as measured over
- * `apps/mobile`'s suite.
- *
- *   `premiumStateOf` reading an unknown status as "free"              2
- *   `premiumControl` re-deriving ownership instead of reading it      2
- *   `premiumControl` offering upgrade with nothing selected           1
- *   `premiumControl` drawing a control the demo has no action for     2
- *   `EXPORT_PROMISE` taking a state and shortening on the free plan   3
- *   `usageLine` inventing a byte figure from the note count           1
- *   `describeSessionFailure` rendering an unknown code raw            1
+ * The measurements live in `premiumPanelRender.test.ts`, which is where the
+ * same mutations were run against this file and that one together — a rule
+ * broken only in the pure module is not worth counting twice, and the
+ * interesting number for every one of them is how many checks fail in total.
  */
 
 import { describe, expect, test } from "@jest/globals";
