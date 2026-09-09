@@ -1331,9 +1331,14 @@ be slower still.
    CryptoKit for AES-256-GCM. It consumes the recipient's existing KDF
    descriptor (`v`, `m`, `t`, `p`, `salt`), NFC-normalises the passphrase, and
    returns the same 32 bytes as the browser and standalone decryptor. It
-   changes no envelope byte, requests no
-   permission, and retains no passphrase beyond the bridge call. Never a
-   quieter, weaker KDF: where the module is absent, the UI says this build
+   changes no envelope byte and requests no permission. Mutable native and
+   JavaScript byte buffers are cleared on both
+   success and failure paths once ownership ends, but that is lifetime hygiene,
+   not a zeroization guarantee: JavaScript and Swift strings are immutable,
+   bridge serialization creates copies the app cannot erase, and CryptoKit may
+   keep internal copies for an operation. The implementation does not
+   intentionally persist or log those values. Never a quieter, weaker KDF:
+   where the module is absent, the UI says this build
    cannot open the note and points to an update or a computer.
 3. **The recipient carries `{id, v, m, t, p, salt}`**, so every one of these
    numbers is a parameter rather than a build constant, and a decryptor five
@@ -1393,9 +1398,13 @@ the two inputs this product never uses; RFC 7693's vectors for the BLAKE2b
 underneath; a pinned passphrase deriving a pinned key that opens a pinned note,
 with the two halves asserted in the two suites that run them; a KDF id or an
 argon2 version this build does not implement refused rather than substituted;
-the vendored iOS C source independently deriving that same pinned key;
-`kdfSupport` accepting Hermes only when the optional module is present; and an
-old binary refusing rather than answering with a weaker lock.
+the vendored iOS C source independently deriving that same pinned key; a Swift
+executable calling the exact CryptoKit/Argon2 core behind the Expo bridge and
+pinning NFC normalization, fixed AES key/nonce/AAD/plaintext bytes,
+`ciphertext || tag`, decryption, tamper rejection and wrong-key rejection; a
+SHA-256 manifest covering every vendored source file; `kdfSupport` accepting
+Hermes only when the optional module is present; and an old binary refusing
+rather than answering with a weaker lock.
 
 ---
 
@@ -1413,6 +1422,13 @@ the console, with the same numbers: 8 KiB to 2 GiB of memory, 1 to 16 passes, 1
 to 16 lanes, an 8- to 64-byte salt, and Argon2's own floor of 8 KiB per lane.
 The ceilings are far above anything shipped so that raising the parameters later
 is a parameter change and not a format change.
+
+The iOS bridge applies a second, device-local ceiling of **64 MiB** before the
+native call, and the Swift core repeats it defensively. This is not an envelope
+format limit: a larger valid descriptor remains openable by desktop and the
+standalone decryptor. It is an honest mobile resource refusal that prevents an
+untrusted bucket object from asking iOS to reserve anything near the format's
+2 GiB interoperability ceiling.
 
 **A note whose envelope fails these bounds stays an encrypted note.** It is
 refused at parse, it is still recognised by the marker, nothing indexes it, and

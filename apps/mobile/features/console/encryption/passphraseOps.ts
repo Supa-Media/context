@@ -81,21 +81,24 @@ export async function protectNote(
   requirePassphrase(input.passphrase);
   const kdf = newKdfDescriptor();
   const key = await deriveWith(context, input.passphrase, kdf);
-  const document = await encryptForPassphrase(input.plaintext, {
-    workspaceId: context.workspaceId,
-    kek: key,
-    kdf,
-  });
-  const { etag } = await context.writer.write({
-    path: input.path,
-    content: document,
-    expectedEtag: input.etag,
-  });
-  // `stored` is what a caller needs to keep locally in step with the bucket
-  // without a second read: the next operation on this note (a save, a
-  // passphrase change) reads its KDF descriptor and its recipient straight out
-  // of it, via `passphraseKdfOf`/`parseEncryptedNote`.
-  return { etag, key, stored: document };
+  let transferred = false;
+  try {
+    const document = await encryptForPassphrase(input.plaintext, {
+      workspaceId: context.workspaceId,
+      kek: key,
+      kdf,
+    });
+    const { etag } = await context.writer.write({
+      path: input.path,
+      content: document,
+      expectedEtag: input.etag,
+    });
+    // `stored` is what a caller needs to keep locally in step with the bucket.
+    transferred = true;
+    return { etag, key, stored: document };
+  } finally {
+    if (!transferred) key.fill(0);
+  }
 }
 
 /**
@@ -114,14 +117,19 @@ export async function unlockNote(
   const kdf = passphraseKdfOf(input.stored);
   if (kdf === null) throw new NoteCryptoError("this note is not protected by a passphrase");
   const key = await deriveWith(context, input.passphrase, kdf);
-  // One failure for a wrong passphrase, a corrupted envelope and a note carried
-  // in from another context, decided inside `envelope.ts`. Catching and
-  // relabelling here would rebuild the oracle that file exists to avoid.
-  const plaintext = await decryptWithPassphrase(input.stored, {
-    workspaceId: context.workspaceId,
-    kek: key,
-  });
-  return { key, plaintext };
+  let transferred = false;
+  try {
+    // One failure for a wrong passphrase, a corrupted envelope and a note
+    // carried in from another context, decided inside `envelope.ts`.
+    const plaintext = await decryptWithPassphrase(input.stored, {
+      workspaceId: context.workspaceId,
+      kek: key,
+    });
+    transferred = true;
+    return { key, plaintext };
+  } finally {
+    if (!transferred) key.fill(0);
+  }
 }
 
 /**
@@ -181,29 +189,35 @@ export async function changePassphrase(
   }
   const currentKdf = passphraseKdfOf(input.stored)!;
   const currentKey = await deriveWith(context, input.currentPassphrase, currentKdf);
-  const recipient = envelope.recipients.find((candidate) => candidate.kind === "passphrase")!;
-  const noteKey = await unwrapNoteKey(recipient, currentKey, context.workspaceId);
+  let noteKey: Uint8Array | undefined;
+  let nextKey: Uint8Array | undefined;
+  let transferred = false;
+  try {
+    const recipient = envelope.recipients.find((candidate) => candidate.kind === "passphrase")!;
+    noteKey = await unwrapNoteKey(recipient, currentKey, context.workspaceId);
 
-  // A fresh salt for the new passphrase, so the new key is not related to the
-  // old one by anything but the person who chose them both.
-  const nextKdf = newKdfDescriptor();
-  const nextKey = await deriveWith(context, input.newPassphrase, nextKdf);
-  const rewrapped = await wrapNoteKey(noteKey, {
-    workspaceId: context.workspaceId,
-    kek: nextKey,
-    kdf: nextKdf,
-    id: recipient.id,
-  });
-  noteKey.fill(0);
-  currentKey.fill(0);
-
-  const document = replacingRecipient(input.stored, rewrapped);
-  const { etag } = await context.writer.write({
-    path: input.path,
-    content: document,
-    expectedEtag: input.etag,
-  });
-  return { etag, key: nextKey, stored: document };
+    // A fresh salt for the new passphrase, so the new key is unrelated to the old.
+    const nextKdf = newKdfDescriptor();
+    nextKey = await deriveWith(context, input.newPassphrase, nextKdf);
+    const rewrapped = await wrapNoteKey(noteKey, {
+      workspaceId: context.workspaceId,
+      kek: nextKey,
+      kdf: nextKdf,
+      id: recipient.id,
+    });
+    const document = replacingRecipient(input.stored, rewrapped);
+    const { etag } = await context.writer.write({
+      path: input.path,
+      content: document,
+      expectedEtag: input.etag,
+    });
+    transferred = true;
+    return { etag, key: nextKey, stored: document };
+  } finally {
+    currentKey.fill(0);
+    noteKey?.fill(0);
+    if (!transferred) nextKey?.fill(0);
+  }
 }
 
 /**
@@ -219,16 +233,20 @@ export async function removePassphrase(
   input: { path: string; stored: string; etag: string | null; passphrase: string },
   context: OpsContext,
 ): Promise<{ etag: string; plaintext: string }> {
-  const { plaintext } = await unlockNote(
+  const unlocked = await unlockNote(
     { stored: input.stored, passphrase: input.passphrase },
     context,
   );
-  const { etag } = await context.writer.write({
-    path: input.path,
-    content: plaintext,
-    expectedEtag: input.etag,
-  });
-  return { etag, plaintext };
+  try {
+    const { etag } = await context.writer.write({
+      path: input.path,
+      content: unlocked.plaintext,
+      expectedEtag: input.etag,
+    });
+    return { etag, plaintext: unlocked.plaintext };
+  } finally {
+    unlocked.key.fill(0);
+  }
 }
 
 /**

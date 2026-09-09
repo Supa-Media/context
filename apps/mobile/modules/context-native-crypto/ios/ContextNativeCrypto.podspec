@@ -5,7 +5,10 @@ Pod::Spec.new do |s|
   s.description    = 'Argon2id and AES-256-GCM primitives for passphrase-locked notes.'
   s.author         = 'Supa Media'
   s.homepage       = 'https://github.com/Supa-Media/context'
-  s.license        = 'MIT'
+  s.license        = {
+    type: 'MIT AND (CC0-1.0 OR Apache-2.0)',
+    file: 'LICENSES.md'
+  }
   s.platforms      = {
     :ios => '15.1',
     :tvos => '15.1'
@@ -25,5 +28,5 @@ Pod::Spec.new do |s|
 
   s.source_files = "**/*.{h,c,swift}"
   s.public_header_files = "vendor/argon2/include/argon2.h"
-  s.preserve_paths = "vendor/argon2/LICENSE"
+  s.preserve_paths = "LICENSES.md", "vendor/argon2/LICENSE", "vendor/argon2/SHA256SUMS"
 end

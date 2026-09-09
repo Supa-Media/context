@@ -73,6 +73,9 @@ export const SALT_BYTES = 16;
 /** Bytes of key it derives. AES-256. */
 export const KEY_BYTES = 32;
 
+/** A hostile envelope may not make a phone reserve more than 64 MiB. */
+export const MOBILE_MAX_KDF_MEMORY_KIB = 64 * 1024;
+
 export type KdfSupport =
   /** Everything is here: a passphrase note can be created, opened and changed. */
   | { supported: true }
@@ -143,9 +146,10 @@ export function newKdfDescriptor(
  * Async because the iOS implementation crosses a native bridge. The computer
  * fallback remains the same byte-compatible, dependency-free JavaScript KDF.
  *
- * **The passphrase is not retained here and is not returned in anything.** What
- * comes back is 32 bytes that the caller holds in memory for as long as the
- * session is unlocked and drops when it locks.
+ * This function does not intentionally store or return the passphrase. The
+ * JavaScript `String` supplied by the caller is immutable and cannot be
+ * zeroized; what comes back is a mutable 32-byte key that the caller clears
+ * when the unlock session ends or an operation fails.
  */
 export async function derivePassphraseKey(passphrase: string, kdf: KdfDescriptor): Promise<Uint8Array> {
   if (kdf.id !== KDF_ARGON2ID) {
@@ -161,6 +165,9 @@ export async function derivePassphraseKey(passphrase: string, kdf: KdfDescriptor
   const support = kdfSupport();
   if (!support.supported) throw new Error(support.reason);
   if (hasNativeNoteCrypto()) {
+    if (kdf.m > MOBILE_MAX_KDF_MEMORY_KIB) {
+      throw new Error("this note's KDF needs more memory than the mobile app permits");
+    }
     return await nativeArgon2id({
       passphrase: passphrase.normalize("NFC"),
       salt: fromBase64Url(kdf.salt),
@@ -170,14 +177,19 @@ export async function derivePassphraseKey(passphrase: string, kdf: KdfDescriptor
       version: kdf.v,
     });
   }
-  return argon2id({
-    password: new TextEncoder().encode(passphrase.normalize("NFC")),
-    salt: fromBase64Url(kdf.salt),
-    memory: kdf.m,
-    iterations: kdf.t,
-    parallelism: kdf.p,
-    tagLength: KEY_BYTES,
-  });
+  const passwordBytes = new TextEncoder().encode(passphrase.normalize("NFC"));
+  try {
+    return argon2id({
+      password: passwordBytes,
+      salt: fromBase64Url(kdf.salt),
+      memory: kdf.m,
+      iterations: kdf.t,
+      parallelism: kdf.p,
+      tagLength: KEY_BYTES,
+    });
+  } finally {
+    passwordBytes.fill(0);
+  }
 }
 
 /*

@@ -6,6 +6,12 @@
  * compatibility gate: an old binary keeps showing the honest desktop-only
  * refusal instead of crashing while loading an update compiled against a new
  * native capability.
+ *
+ * The bridge necessarily serializes secrets as immutable JavaScript and Swift
+ * base64 strings. Neither runtime lets this code erase those copies; native
+ * and JavaScript implementations clear mutable byte buffers in `finally`/
+ * `defer`, but this is best-effort lifetime reduction, not guaranteed
+ * zeroization of every runtime copy.
  */
 import ContextNativeCrypto from "../../../modules/context-native-crypto";
 

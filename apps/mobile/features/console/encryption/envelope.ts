@@ -300,17 +300,22 @@ export async function encryptForPassphrase(
   const aad = contentAad(options.workspaceId);
   const noteKey = randomBytes(KEY_BYTES);
   const iv = randomBytes(IV_BYTES);
-  const ct = await encryptBytes(noteKey, iv, new TextEncoder().encode(plaintext), aad);
-  const recipient = await wrapNoteKey(noteKey, options);
-  noteKey.fill(0);
-  return renderEncryptedNote({
-    v: ENVELOPE_VERSION,
-    alg: CONTENT_ALG,
-    iv: toBase64Url(iv),
-    ct: toBase64Url(ct),
-    aad,
-    recipients: [recipient],
-  });
+  const plaintextBytes = new TextEncoder().encode(plaintext);
+  try {
+    const ct = await encryptBytes(noteKey, iv, plaintextBytes, aad);
+    const recipient = await wrapNoteKey(noteKey, options);
+    return renderEncryptedNote({
+      v: ENVELOPE_VERSION,
+      alg: CONTENT_ALG,
+      iv: toBase64Url(iv),
+      ct: toBase64Url(ct),
+      aad,
+      recipients: [recipient],
+    });
+  } finally {
+    noteKey.fill(0);
+    plaintextBytes.fill(0);
+  }
 }
 
 /** Wrap a note key for a passphrase-derived key, carrying the KDF that made it. */
@@ -357,6 +362,7 @@ export async function unwrapNoteKey(
     throw new NoteCryptoError("that passphrase did not open this note");
   }
   if (noteKey.byteLength !== KEY_BYTES) {
+    noteKey.fill(0);
     throw new NoteCryptoError("that passphrase did not open this note");
   }
   return noteKey;
@@ -381,8 +387,9 @@ export async function decryptWithPassphrase(
     throw new NoteCryptoError("this note is not protected by a passphrase");
   }
   const noteKey = await unwrapNoteKey(recipient, options.kek, options.workspaceId);
+  let plaintext: Uint8Array | undefined;
   try {
-    const plaintext = await decryptBytes(
+    plaintext = await decryptBytes(
       noteKey,
       assertIv(fromBase64Url(envelope.iv)),
       fromBase64Url(envelope.ct),
@@ -394,6 +401,7 @@ export async function decryptWithPassphrase(
     throw new NoteCryptoError("this note's contents could not be read");
   } finally {
     noteKey.fill(0);
+    plaintext?.fill(0);
   }
 }
 
