@@ -42,6 +42,8 @@ jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => mockInsets,
 }));
 
+const mockParamsSet: Record<string, string | undefined>[] = [];
+
 jest.mock("expo-router", () => ({
   Slot: () => null,
   useRouter: () => ({
@@ -51,6 +53,13 @@ jest.mock("expo-router", () => ({
     },
     push: (href: string) => {
       mockPushed.push(href);
+    },
+    // Settings is a parameter on the page somebody is already on, not a
+    // navigation to a new one — that is what keeps an open note open behind
+    // the overlay. Recorded as the URL it produces so the assertions below
+    // still read as "where pressing this lands you".
+    setParams: (params: Record<string, string | undefined>) => {
+      mockParamsSet.push(params);
     },
   }),
   usePathname: () => mockPathname,
@@ -197,6 +206,7 @@ const ConsoleLayout = (
 function mountConsole(next: Shape = {}, width = 1440) {
   shape = next;
   mockPushed.length = 0;
+  mockParamsSet.length = 0;
 
   Object.defineProperty(document.documentElement, "clientWidth", {
     value: width,
@@ -286,7 +296,7 @@ describe("the storage pill on a Dropbox binding", () => {
   test("pressing it opens this context's storage settings", () => {
     const app = mountConsole({ storage: DROPBOX_STORAGE });
     app.press(app.find("storage-pill"));
-    expect(mockPushed).toEqual(["/console/@seyi/settings"]);
+    expect(mockParamsSet).toEqual([{ settings: "storage" }]);
     app.unmount();
   });
 });
@@ -301,7 +311,7 @@ describe("the storage pill on every other binding", () => {
   test("and is a press target too — the way in is not Dropbox-only", () => {
     const app = mountConsole({});
     app.press(app.find("storage-pill"));
-    expect(mockPushed).toEqual(["/console/@seyi/settings"]);
+    expect(mockParamsSet).toEqual([{ settings: "storage" }]);
     app.unmount();
   });
 
@@ -309,7 +319,7 @@ describe("the storage pill on every other binding", () => {
     const app = mountConsole({ storage: null });
     expect(app.text()).toContain("no bucket connected");
     app.press(app.find("storage-pill"));
-    expect(mockPushed).toEqual(["/console/@seyi/settings"]);
+    expect(mockParamsSet).toEqual([{ settings: "storage" }]);
     app.unmount();
   });
 });

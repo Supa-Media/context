@@ -19,7 +19,9 @@ import {
   settingsHref,
   slugFromSegment,
   type ConsoleRoute,
+  settingsFromQuery,
 } from "../features/console/nav";
+import { DEFAULT_SETTINGS_SECTION } from "../features/console/settings/sections";
 
 /**
  * The console's two scopes.
@@ -148,12 +150,36 @@ describe("the route table", () => {
   });
 
   test("settings hangs off the context, not off the app", () => {
-    expect(settingsHref("public-worship")).toBe("/console/@public-worship/settings");
+    // Still the context's, and now a parameter on the context's own page
+    // rather than a route that replaces it: the console renders one `<Slot />`,
+    // so a settings *route* covers Browse instead of overlaying it, and
+    // closing it had to guess whether to return to the context root or to
+    // whatever note was open. As a parameter there is nothing to guess.
+    expect(settingsHref("public-worship")).toBe(
+      "/console/@public-worship?settings=storage",
+    );
+    expect(settingsHref("public-worship", "email")).toBe(
+      "/console/@public-worship?settings=email",
+    );
+    // The old path stays a context route, because it is in the wild — the
+    // Dropbox failure notice and the search nudge both link to it — and
+    // `app/(app)/console/[slug]/settings.tsx` redirects it to the parameter.
     expect(routeForPath("/console/@public-worship/settings")).toEqual({
       kind: "context",
       slug: "public-worship",
       view: "settings",
     });
+  });
+
+  test("a settings parameter is read back fail-closed", () => {
+    // The same shape `safeNotePath` uses: a hand-edited or stale value closes
+    // the overlay rather than opening a blank panel on a section we do not
+    // have. An empty value is somebody asking for settings, so it opens.
+    expect(settingsFromQuery("email")).toBe("email");
+    expect(settingsFromQuery("")).toBe(DEFAULT_SETTINGS_SECTION);
+    expect(settingsFromQuery(undefined)).toBeNull();
+    expect(settingsFromQuery("not-a-section")).toBeNull();
+    expect(settingsFromQuery(["email", "storage"])).toBe("email");
   });
 
   test("there is no top-level storage URL any more", () => {

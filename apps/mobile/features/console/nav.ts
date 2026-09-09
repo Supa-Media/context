@@ -1,3 +1,8 @@
+import {
+  DEFAULT_SETTINGS_SECTION,
+  isSettingsSection,
+  type SettingsSectionKey,
+} from "./settings/sections";
 import { inviteHref } from "../auth/redirect";
 
 /**
@@ -353,8 +358,56 @@ export function searchFromQuery(params: {
   };
 }
 
-export function settingsHref(slug: string): string {
-  return `/console/${contextSegment(slug)}/settings`;
+/**
+ * A context's settings, open over its Browse:
+ * `/console/@seyi?settings=storage`.
+ *
+ * **A query parameter rather than the `/settings` path segment it used to
+ * be**, and the reason is structural rather than aesthetic. The console layout
+ * renders one `<Slot />`, so a settings *route* replaces Browse instead of
+ * covering it — which is why closing settings used to have to reconstruct
+ * where somebody came from, guessing between the context root and whatever
+ * note they had open. As a parameter, the note keeps its own `?note=` and its
+ * place on screen, the overlay is drawn over the top, and closing is the same
+ * URL minus one parameter.
+ *
+ * It rides beside `?note=` and `?q=` exactly as those do, and
+ * `settingsFromQuery` reads it back fail-closed.
+ */
+export function settingsHref(slug: string, section?: SettingsSectionKey): string {
+  const key = section ?? DEFAULT_SETTINGS_SECTION;
+  return `${browseHref(slug)}?settings=${encodeURIComponent(key)}`;
+}
+
+/**
+ * A settings section on a note that is already open, so opening settings from
+ * a note does not close the note behind it.
+ */
+export function settingsOnNoteHref(
+  slug: string,
+  notePath: string,
+  section?: SettingsSectionKey,
+): string {
+  const key = section ?? DEFAULT_SETTINGS_SECTION;
+  return `${noteHref(slug, notePath)}&settings=${encodeURIComponent(key)}`;
+}
+
+/**
+ * Which settings section a URL is showing, or `null` for "settings is closed".
+ *
+ * Fail-closed on anything unrecognised, the same shape as `safeNotePath`: a
+ * hand-edited or stale `?settings=` value closes the overlay rather than
+ * opening a blank panel. An empty value is treated as "open at the default",
+ * because `?settings` with nothing after it is somebody asking for settings.
+ */
+export function settingsFromQuery(
+  value: string | string[] | undefined,
+): SettingsSectionKey | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (trimmed === "") return DEFAULT_SETTINGS_SECTION;
+  return isSettingsSection(trimmed) ? trimmed : null;
 }
 
 export function appSectionHref(key: AppSectionKey): string {
@@ -365,7 +418,18 @@ export function appSectionHref(key: AppSectionKey): string {
 export function hrefFor(route: ConsoleRoute): string {
   if (route.kind === "landing") return CONSOLE_ROOT;
   if (route.kind === "app") return appSectionHref(route.section);
-  return route.view === "settings" ? settingsHref(route.slug) : browseHref(route.slug);
+  // The *path* form for a settings route, not `settingsHref`'s parameter form.
+  //
+  // `ConsoleRoute` is still a path-shaped model, and it has one live consumer
+  // that is not a URL at all: the landing page drives a pretend console from
+  // this type in local state, where `view: "settings"` is how its demo opens
+  // the pane. Returning the parameter form here would make `routeForPath`
+  // unable to read back what `hrefFor` wrote — the round-trip the route table
+  // asserts — for a view that still exists. The path redirects to the
+  // parameter, so anybody following the href still lands on the overlay.
+  return route.view === "settings"
+    ? `/console/${contextSegment(route.slug)}/settings`
+    : browseHref(route.slug);
 }
 
 /**

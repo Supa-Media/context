@@ -122,7 +122,7 @@ describe("zero eligible contexts", () => {
     expect(text()).toContain("Fast search is off for @my-brain");
 
     await press("search-nudge-open-my-brain");
-    expect(onOpen).toHaveBeenCalledWith("/console/@my-brain/settings");
+    expect(onOpen).toHaveBeenCalledWith("/console/@my-brain?settings=storage");
   });
 
   test("names a shared context by its owner, with nothing to press", async () => {

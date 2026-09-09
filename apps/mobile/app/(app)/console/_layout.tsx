@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Slot, useRouter, usePathname } from "expo-router";
+import { SettingsOverlay } from "../../../features/console/settings/SettingsOverlay";
+import { DEFAULT_SETTINGS_SECTION } from "../../../features/console/settings/sections";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { PressRow } from "../../../features/design/components/Button";
@@ -12,7 +14,7 @@ import { ToastHost } from "../../../features/design/components/Toast";
 import { layout, radii } from "../../../features/design/tokens";
 import { useThemedStyles, type Colors } from "../../../features/design/theme";
 import { AppFrame, FrameIconButton, useFrame } from "../../../features/app/AppFrame";
-import { useOptionalLocalSearchParams } from "../../../features/app/useOptionalLocalSearchParams";
+import { useOptionalGlobalSearchParams, useOptionalLocalSearchParams } from "../../../features/app/useOptionalLocalSearchParams";
 import { densityFor } from "../../../features/app/frame";
 import { BottomBar } from "../../../features/console/BottomBar";
 import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
@@ -61,7 +63,8 @@ import {
   routeForPath,
   sameRoute,
   searchHref,
-  settingsHref,
+  appSectionHref,
+  settingsFromQuery,
   type ConsoleRoute,
 } from "../../../features/console/nav";
 import { forgetLocalCopies, unsentOnDevice } from "../../../features/offline/forget";
@@ -121,6 +124,14 @@ export default function ConsoleLayout() {
   const pathname = usePathname();
   const route = routeForPath(pathname);
   const quickParams = useOptionalLocalSearchParams<{ quickAction?: string | string[] }>();
+  /*
+    Settings rides in the query beside `?note=`, so Browse stays mounted under
+    the scrim and the note keeps its address. Global rather than local params:
+    this layout is above the `[slug]` route that owns them, and reading the
+    local ones here returns nothing.
+  */
+  const settingsParams = useOptionalGlobalSearchParams<{ settings?: string | string[] }>();
+  const openSettingsSection = settingsFromQuery(settingsParams.settings);
   const handledQuickNote = useRef(false);
 
   const resolution = resolveContextRoute({
@@ -583,7 +594,7 @@ export default function ConsoleLayout() {
                 onOpenSettings={
                   current === null
                     ? undefined
-                    : () => router.push(settingsHref(current.slug))
+                    : () => router.setParams({ settings: DEFAULT_SETTINGS_SECTION })
                 }
               />
             </>
@@ -774,6 +785,22 @@ export default function ConsoleLayout() {
             }}
             onClose={closeTab}
             onDismiss={() => setSwitcherOpen(false)}
+          />
+        ) : null}
+
+        {/*
+          Settings, over whatever is behind it rather than instead of it.
+          Closing drops one query parameter, which is why there is no
+          reconstruction of where somebody came from here: the note they had
+          open is still in the URL and still on screen.
+        */}
+        {openSettingsSection !== null && route.kind === "context" ? (
+          <SettingsOverlay
+            data={data}
+            section={openSettingsSection}
+            onSelect={(next) => router.setParams({ settings: next })}
+            onOpenSection={(key) => router.push(appSectionHref(key))}
+            onDismiss={() => router.setParams({ settings: undefined })}
           />
         ) : null}
 

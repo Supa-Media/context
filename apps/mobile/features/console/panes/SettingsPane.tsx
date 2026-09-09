@@ -26,6 +26,7 @@ import { GoogleConnectionsCard } from "../google/GoogleConnectionsCard";
 import { ThisMachineCard } from "../../meetings/components/ThisMachineCard";
 import { FastSearchCard } from "../search/FastSearchCard";
 import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
+import type { SettingsSectionKey } from "../settings/sections";
 import { useArming } from "../useArming";
 import { ConnectForm } from "../storage/ConnectForm";
 import { StorageChoice } from "../storage/StorageChoice";
@@ -68,9 +69,20 @@ export function SettingsPane({
   data,
   onClose,
   onOpenSection,
+  section,
 }: {
   data: ConsoleData;
   onClose: () => void;
+  /**
+   * Render one section rather than the whole scroll.
+   *
+   * Absent is the original pane — every section in order, with its own head
+   * and Done button — which is what the landing page's picture of the console
+   * still draws and what the redirected `/settings` route falls back to. When
+   * present the overlay owns the chrome and the section list, and this renders
+   * only the block it was asked for.
+   */
+  section?: SettingsSectionKey;
   /**
    * Open Map or Connections. Absent on the landing page's picture of the
    * console, which has nowhere to send anybody.
@@ -85,8 +97,16 @@ export function SettingsPane({
   const hasIngestion = data.ingestion.availability === "available";
   const [rebinding, setRebinding] = useState(false);
 
+  /**
+   * Whether a block belongs on screen. No `section` is the original pane —
+   * everything, in order — so this is the identity there; with one, it is the
+   * only block drawn and the overlay is drawing the rest of the chrome.
+   */
+  const show = (key: SettingsSectionKey) => section === undefined || section === key;
+
   return (
     <View>
+      {section !== undefined ? null : (
       <PaneHead
         title={`${atName(current?.slug ?? "this context")} settings`}
         description="Storage and ingestion rules. They belong here, not to your account — every other brain or workspace can point somewhere else entirely."
@@ -108,10 +128,15 @@ export function SettingsPane({
           </View>
         }
       />
+      )}
 
+      {show("storage") ? (
+      <>
+      {section === undefined ? (
       <Text variant="eyebrow" style={styles.sectionHead}>
         Storage
       </Text>
+      ) : null}
       {/*
         The sentence has to name the thing the reader can actually go and do,
         and that differs by backend: an S3 owner revokes a key at their
@@ -202,7 +227,12 @@ export function SettingsPane({
         />
       )}
 
-      <Text variant="eyebrow" style={styles.sectionHeadLater}>
+      </>
+      ) : null}
+
+      {show("email") ? (
+      <>
+      <Text variant="eyebrow" style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}>
         Integrations
       </Text>
       <Text variant="paneSub" style={styles.sectionSub}>
@@ -276,7 +306,12 @@ export function SettingsPane({
         screen on a phone and in a browser, which is the whole point of it
         living in Expo Router's shared tree rather than a web-only console.
       */}
-      <Text variant="eyebrow" style={styles.sectionHeadLater}>
+      </>
+      ) : null}
+
+      {show("search") ? (
+      <>
+      <Text variant="eyebrow" style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}>
         Search
       </Text>
       <Text variant="paneSub" style={styles.sectionSub}>
@@ -308,6 +343,9 @@ export function SettingsPane({
         is a picture with nowhere to send anybody — so the rows are not drawn
         there rather than drawn dead.
       */}
+      </>
+      ) : null}
+
       {onOpenSection === undefined ? null : (
         <>
           <Text variant="eyebrow" style={styles.sectionHeadLater}>

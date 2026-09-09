@@ -5,8 +5,8 @@ import {
   contextIdForSlug,
   noteFromQuery,
   noteHref,
-  settingsHref,
 } from "../../../../features/console/nav";
+import { DEFAULT_SETTINGS_SECTION } from "../../../../features/console/settings/sections";
 import { placeFor } from "../../../../features/console/lastPlace";
 import { useContextSlug } from "../../../../features/console/useContextSlug";
 import { useRememberPlace } from "../../../../features/console/useLastPlace";
@@ -92,7 +92,17 @@ export default function ContextBrowseRoute() {
   return (
     <BrowsePane
       data={data}
-      onOpenSettings={slug === null ? undefined : () => router.push(settingsHref(slug))}
+      /*
+        `setParams`, not a push of `settingsHref`: this route is already the
+        context the gear belongs to, and building a fresh URL would drop the
+        `?note=` beside it — closing the note as a side effect of opening
+        settings, which is the defect the overlay exists to fix.
+      */
+      onOpenSettings={
+        slug === null
+          ? undefined
+          : () => router.setParams({ settings: DEFAULT_SETTINGS_SECTION })
+      }
       /*
         What the URL has asked for. The pane pairs it with the browser's own
         `opening` to cover both halves of the gap before a linked note is on
