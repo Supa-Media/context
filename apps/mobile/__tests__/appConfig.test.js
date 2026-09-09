@@ -80,7 +80,7 @@ describe("app.config.js reads EAS_PROJECT_ID from the environment", () => {
 const BEFORE_ANDROID_PREP = {
   name: "Context",
   slug: "context",
-  version: "1.0.1",
+  version: "1.0.0",
   scheme: "context",
   orientation: "portrait",
   icon: "./assets/icon.png",

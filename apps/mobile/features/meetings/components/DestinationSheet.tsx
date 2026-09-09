@@ -68,7 +68,6 @@ export function DestinationSheet({
   onClaimName,
   onOpenMeetings,
   blocked = null,
-  captureNotice = null,
   systemAudio = null,
 }: {
   choice: DestinationChoice;
@@ -87,8 +86,6 @@ export function DestinationSheet({
    * quietly does nothing.
    */
   blocked?: string | null;
-  /** Why this device will produce typed notes only, when audio is unavailable. */
-  captureNotice?: string | null;
   /** Absent when the caller has nowhere to send somebody to claim a name. */
   onClaimName?: () => void;
   /**
@@ -226,11 +223,7 @@ export function DestinationSheet({
                 verified, so most people see the sentence and it is the same one
                 the recorders have always made in their own headers.
               */}
-              {captureNotice !== null ? (
-                <Text variant="error" testID="meeting-destination-capture-notice">
-                  {captureNotice}
-                </Text>
-              ) : systemAudio === null ? (
+              {systemAudio === null ? (
                 <Text variant="hint" testID="meeting-mic-only">
                   {MIC_ONLY_SENTENCE}
                 </Text>
@@ -258,11 +251,9 @@ export function DestinationSheet({
                 </PressRow>
               )}
 
-              {captureNotice === null ? (
-                <View style={styles.disclosure}>
-                  <Text variant="hint">{AUDIO_SENTENCE}</Text>
-                </View>
-              ) : null}
+              <View style={styles.disclosure}>
+                <Text variant="hint">{AUDIO_SENTENCE}</Text>
+              </View>
 
               {blocked === null ? null : (
                 <Text variant="error" testID="meeting-destination-blocked">
@@ -277,7 +268,7 @@ export function DestinationSheet({
                   testID="meeting-destination-cancel"
                 />
                 <Button
-                  label={captureNotice === null ? "Start recording" : "Start typed notes"}
+                  label="Start recording"
                   variant="white"
                   disabled={blocked !== null}
                   onPress={onStart}
