@@ -23,6 +23,7 @@ import {
   isSettingsSection,
   isAccountSection,
   matchSettingsSections,
+  settingsSectionLabel,
   settingsSectionsFor,
   SETTINGS_SECTIONS,
 } from "../features/console/settings/sections";
@@ -112,9 +113,70 @@ describe("searching the list", () => {
     expect(matchSettingsSections(all, "gmail bucket")).toHaveLength(0);
   });
 
+  test("filler words do not have to match anything", () => {
+    // "delete my account" returned nothing: every word has to match and `my`
+    // is in no section's vocabulary. People type sentences at a search box.
+    const all = settingsSectionsFor("personal");
+    expect(matchSettingsSections(all, "delete my account").map((s) => s.key)).toContain(
+      "account",
+    );
+    // Still a filter, not a shrug: a real word that matches nothing still
+    // empties the list.
+    expect(matchSettingsSections(all, "my kubernetes")).toHaveLength(0);
+  });
+
   test("an empty query is not a search", () => {
     const all = settingsSectionsFor("personal");
     expect(matchSettingsSections(all, "   ")).toHaveLength(all.length);
+  });
+
+  /*
+    A curated table rather than a property, because the failure this catches is
+    a *wrong* answer and not a missing one: every one of these queries matched
+    something before, and the ones that regressed matched the wrong row. "sign
+    out" is the case that shipped — the word `sign` lived in exactly one
+    haystack, so it returned the screen that deletes an account.
+  */
+  test.each([
+    ["sign out", "account"],
+    ["delete my account", "account"],
+    ["gmail", "sources"],
+    ["imessage", "sources"],
+    ["calendar", "sources"],
+    ["invite", "invitations"],
+    ["claude", "apps"],
+    ["revoke", "apps"],
+    ["username", "profile"],
+    ["dropbox", "storage"],
+    ["rebuild index", "search"],
+    ["who can see", "people"],
+  ])("%p opens %p", (query, key) => {
+    const hits = matchSettingsSections(settingsSectionsFor("personal"), query).map(
+      (section) => section.key,
+    );
+    expect(hits).toContain(key);
+  });
+
+  test("a section is always findable by the words on its own row", () => {
+    // Our name for a thing has to be *a* way in even when it is not the
+    // reader's: a row nobody can find by typing what it says is a row whose
+    // keywords have quietly replaced its label rather than widened it.
+    const all = settingsSectionsFor("personal");
+    for (const section of all) {
+      const hits = matchSettingsSections(all, section.label).map((entry) => entry.key);
+      expect(hits).toContain(section.key);
+    }
+  });
+});
+
+describe("the panel is headed by the row that opened it", () => {
+  test("every section's heading is its own label", () => {
+    // They were separate strings and drifted: the row said "Mail, calendar &
+    // chats" and the panel it opened was headed "Integrations", handing back
+    // the vocabulary the row exists to avoid.
+    for (const section of SETTINGS_SECTIONS) {
+      expect(settingsSectionLabel(section.key)).toBe(section.label);
+    }
   });
 });
 

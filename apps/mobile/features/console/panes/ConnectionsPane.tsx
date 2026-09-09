@@ -1,5 +1,4 @@
 import { StyleSheet, View } from "react-native";
-import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
 import { CopyField } from "../../design/components/CopyField";
 import { Hint } from "../../design/components/Field";

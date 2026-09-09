@@ -82,16 +82,28 @@ export const SETTINGS_SECTIONS = [
     personalOnly: false,
   },
   {
+    key: "invitations",
+    keywords: "invite invitation join accept pending asked workspace brain share",
+    label: "Invitations",
+    scope: "account",
+    group: "Your account",
+    personalOnly: false,
+  },
+  {
     key: "account",
     /*
-      Deliberately no "sign out", "log out", "leave" or "quit". Every word has
-      to match, and `sign` appeared in exactly one haystack — so typing "sign
-      out" returned this one row, and tapping it landed somebody who wanted to
-      end a session on a screen whose only control deletes their account.
-      Leaving a workspace is a different, non-destructive action too.
+      "sign out" is back in this haystack, and it was right to take it out
+      before. Every word has to match and `sign` appears in exactly one
+      section, so while this screen's only control deleted an account, typing
+      "sign out" landed somebody who wanted to end a session on the one screen
+      that could end their account instead. The screen now carries the sign-out
+      button itself, so the words name what is actually there.
+
+      Still no "leave" or "quit": leaving a *workspace* is a different,
+      non-destructive action, and it is People's, not this one's.
     */
-    keywords: "delete close account remove erase permanently",
-    label: "Delete account",
+    keywords: "sign out log out logout delete close account remove erase permanently",
+    label: "Sign out & delete",
     scope: "account",
     group: "Your account",
     personalOnly: false,
@@ -106,14 +118,6 @@ export const SETTINGS_SECTIONS = [
       and is it working" before any of the three questions the groups ask.
     */
     group: null,
-    personalOnly: false,
-  },
-  {
-    key: "people",
-    keywords: "members invite team who access role owner editor share colleague add remove",
-    scope: "context",
-    label: "People",
-    group: "Who can see it",
     personalOnly: false,
   },
   {
@@ -133,6 +137,14 @@ export const SETTINGS_SECTIONS = [
     */
     personalOnly: false,
   },
+  {
+    key: "people",
+    keywords: "members invite team who access role owner editor share colleague add remove",
+    scope: "context",
+    label: "People",
+    group: "Who can see it",
+    personalOnly: false,
+  },
   { key: "storage", keywords: "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup", scope: "context", label: "Storage", group: "Your notes", personalOnly: false },
   { key: "search", keywords: "find index fast lookup rebuild", scope: "context", label: "Search", group: "Your notes", personalOnly: false },
 ] as const;
@@ -141,6 +153,15 @@ export type SettingsSectionKey = (typeof SETTINGS_SECTIONS)[number]["key"];
 
 /** The section a URL with no `?settings=` value, or an unknown one, opens. */
 export const DEFAULT_SETTINGS_SECTION: SettingsSectionKey = "overview";
+
+/**
+ * Where settings opens when there is no context on screen — Map, Connections,
+ * Search. `overview` there would head the panel with a context the route did
+ * not name, and AI apps is the account section somebody on those routes is
+ * most likely after: all three are already about reach rather than about one
+ * bucket.
+ */
+export const DEFAULT_ACCOUNT_SETTINGS_SECTION: SettingsSectionKey = "apps";
 
 /**
  * The sections this context actually has.
@@ -158,6 +179,19 @@ export function settingsSectionsFor(
     if (section.scope === "account") return true;
     return !section.personalOnly || kind === "personal";
   });
+}
+
+/**
+ * The row's own words, for the panel that opens when it is pressed.
+ *
+ * The heading and the row were separate strings, and they drifted: the row
+ * said "Mail, calendar & chats" — chosen because a person looking for Gmail
+ * does not think "integrations" — and the panel it opened was headed
+ * **Integrations**. Somebody who searched their way past our vocabulary was
+ * handed it back one press later.
+ */
+export function settingsSectionLabel(key: SettingsSectionKey): string {
+  return SETTINGS_SECTIONS.find((section) => section.key === key)?.label ?? "Settings";
 }
 
 /** Whether a section is about the person rather than about one context. */
@@ -178,17 +212,47 @@ export function isSettingsSection(value: string): value is SettingsSectionKey {
 }
 
 /**
+ * Words carried past the matcher.
+ *
+ * Every word has to match something, which is what makes two words narrow
+ * rather than widen — and it is also what made "delete my account" return
+ * nothing at all, because `my` is in no section's vocabulary and never will
+ * be. People type sentences at a search box. The list is deliberately tiny and
+ * only holds words that cannot distinguish one setting from another: a word
+ * that could name a thing here is not on it.
+ */
+const FILLER = new Set([
+  "a",
+  "an",
+  "and",
+  "for",
+  "in",
+  "is",
+  "it",
+  "me",
+  "my",
+  "of",
+  "on",
+  "the",
+  "to",
+]);
+
+/**
  * The sections a typed query names.
  *
- * Every word must match something — label, group or keywords — so "gmail
- * chat" narrows rather than widening, and an empty query is not a search at
- * all and hands back everything.
+ * Every meaningful word must match something — label, group or keywords — so
+ * "gmail chat" narrows rather than widening, and an empty query is not a
+ * search at all and hands back everything.
  */
 export function matchSettingsSections(
   sections: readonly SettingsSectionSpec[],
   query: string,
 ): readonly SettingsSectionSpec[] {
-  const words = query.trim().toLowerCase().split(/\s+/).filter((word) => word !== "");
+  const words = query
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((word) => word !== "" && !FILLER.has(word));
   if (words.length === 0) return sections;
   return sections.filter((section) => {
     const hay = `${section.label} ${section.group ?? ""} ${section.keywords}`.toLowerCase();
