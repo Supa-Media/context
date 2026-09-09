@@ -85,7 +85,13 @@ import {
  */
 export type MachineFocus = "meetings" | "chats";
 
-export function ThisMachineCard({ focus }: { focus?: MachineFocus } = {}) {
+/*
+  No default for the props object, deliberately: `= {}` makes the parameter
+  itself optional, and `createElement(ThisMachineCard, { focus })` then stops
+  type-checking against `focus` at all. React always passes a props object, so
+  the default was never doing anything at runtime.
+*/
+export function ThisMachineCard({ focus }: { focus?: MachineFocus }) {
   const bridge = useDesktopBridge();
   if (bridge === null) return null;
   return <MachineCard bridge={bridge} focus={focus} />;

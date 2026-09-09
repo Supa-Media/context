@@ -169,6 +169,22 @@ describe("each panel narrows the Google card rather than repeating it", () => {
     expect(text).not.toContain("Chat daily file pattern");
   });
 
+  test("Email shows only the mail block", () => {
+    // Asserted here rather than through the Email *panel*, and deliberately:
+    // the demo console carries no Google connections, so a panel-level check
+    // for "no Calendar block" passes whether or not narrowing works at all.
+    const container = mount(() =>
+      createElement(GoogleConnectionsCard, {
+        service: "gmail",
+        connections: [THREE_SERVICE_ACCOUNT],
+      }),
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("Email daily file pattern");
+    expect(text).not.toContain("Calendar daily file pattern");
+    expect(text).not.toContain("Chat daily file pattern");
+  });
+
   test("Chats shows only the chat block", () => {
     const container = mount(() =>
       createElement(GoogleConnectionsCard, {
