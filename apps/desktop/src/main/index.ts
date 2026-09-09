@@ -71,6 +71,7 @@ import { trayPresentation } from "../core/tray/presentation.ts";
 import type { TrayState } from "../core/tray/presentation.ts";
 import { AppTray } from "./tray.ts";
 import { DesktopUpdater } from "./updater.ts";
+import type { ManualUpdateCheckOutcome } from "./updater.ts";
 import {
   createConsoleWindow,
   createNotepad,
@@ -505,7 +506,69 @@ function askSomething(
  */
 let checkForUpdatesFromMenu = () => {
   console.log("[update] manual check requested before updater startup finished.");
+  void showUpdateCheckMessage({ type: "not-started" });
 };
+
+function updateCheckMessage(outcome: ManualUpdateCheckOutcome): Pick<MessageBoxOptions, "type" | "message" | "detail"> {
+  switch (outcome.type) {
+    case "not-started":
+      return {
+        type: "info",
+        message: "Context is still starting up.",
+        detail: "Try checking again in a moment.",
+      };
+    case "unarmed":
+      return {
+        type: "info",
+        message: "Updates are only available in signed packaged builds.",
+        detail: "This local or unsigned build cannot verify release updates.",
+      };
+    case "checking":
+      return {
+        type: "info",
+        message: "Context is already checking for updates.",
+        detail: "The current check will finish in the background.",
+      };
+    case "no-update":
+      return {
+        type: "info",
+        message: "Context is up to date.",
+        detail: "No newer desktop release is available right now.",
+      };
+    case "downloaded":
+      return outcome.deferred
+        ? {
+            type: "info",
+            message: "Update ready.",
+            detail: "Finish the current recording, then restart Context to install it.",
+          }
+        : {
+            type: "info",
+            message: "Update ready.",
+            detail: outcome.version === null ? "Restart Context to install it." : `Version ${outcome.version} is ready to install.`,
+          };
+    case "error":
+      return {
+        type: "warning",
+        message: "Context could not check for updates.",
+        detail: "Try again in a bit. The app did not expose release URLs or credentials in this message.",
+      };
+  }
+}
+
+function showNativeNotification(body: string): void {
+  if (Notification.isSupported()) new Notification({ title: "Context", body }).show();
+}
+
+async function showUpdateCheckMessage(outcome: ManualUpdateCheckOutcome): Promise<void> {
+  const parent = BrowserWindow.getFocusedWindow();
+  const message = updateCheckMessage(outcome);
+  await askSomething(parent === null || parent.isDestroyed() ? null : parent, {
+    ...message,
+    title: "Check for Updates",
+    buttons: ["OK"],
+  });
+}
 
 function installApplicationMenu(): void {
   Menu.setApplicationMenu(
@@ -715,9 +778,6 @@ async function main(): Promise<void> {
     onStateChange: () => push(),
     log: (message) => console.log(message),
   });
-  checkForUpdatesFromMenu = () => {
-    if (!updater.checkNow()) push();
-  };
 
   const detector = await loadDetector();
   const loop = createDetectionLoop({
@@ -838,6 +898,17 @@ async function main(): Promise<void> {
     console.error(`[shell] ${sentence}`);
     if (Notification.isSupported()) new Notification({ title: "Context", body: sentence }).show();
   }
+
+  checkForUpdatesFromMenu = () => {
+    const result = updater.checkNow();
+    push();
+    if (!result.started) {
+      void showUpdateCheckMessage(result.outcome);
+      return;
+    }
+    showNativeNotification("Checking for updates...");
+    void result.outcome.then((outcome) => showUpdateCheckMessage(outcome));
+  };
 
   const tray = new AppTray({
     togglePanel: (bounds) => {

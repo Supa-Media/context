@@ -42,7 +42,7 @@ import { createRoot } from "react-dom/client";
 import { fakeDesktopBridge } from "@context/desktop-bridge/fake";
 import { SHELL_TITLE_BAND_PX } from "@context/desktop-bridge";
 import { shouldShowShellTitleBand } from "../features/app/shellTitleBand";
-import { ShellTitleBand } from "../features/app/ShellTitleBand";
+import { ShellTitleBand } from "../features/app/ShellTitleBand.tsx";
 // `StyleSheet.getSheet()` is react-native-web's, absent from the `react-native`
 // types this repo compiles against — see `design-shots.ts`'s own note on it.
 const { StyleSheet: RNStyleSheet } = require("react-native") as {
