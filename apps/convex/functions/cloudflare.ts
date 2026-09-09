@@ -74,6 +74,7 @@ import { consumeRateLimit } from "./lib/rateLimit";
 import { redactSecrets } from "./lib/verification";
 import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAuth";
 import { addressingIsAmbiguous } from "./storage";
+import { managedAccountId, refuseManagedAccountId } from "./lib/managedStorage";
 import {
   CloudflareApiError,
   type ProvisionErrorCode,
@@ -276,6 +277,10 @@ export const provisionCloudflareR2 = action({
           "That does not look like a Cloudflare account id. It is 32 hexadecimal characters, shown on the right of any account's overview page.",
       });
     }
+    // The BYO path provisions into an account the customer owns. Ours is not
+    // one, and a bucket created there by this flow would be a customer bucket
+    // nobody could hand over. No-ops where no managed account is configured.
+    refuseManagedAccountId(accountId, managedAccountId());
     const bucket = args.bucket.trim().toLowerCase();
     const problem = bucketNameProblem(bucket);
     if (problem !== null) {

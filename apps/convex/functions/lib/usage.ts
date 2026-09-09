@@ -13,7 +13,7 @@
  * facility here for a dimension, a label, a tag, or a free-form detail field:
  * every one of those is where "what was it about" gets in, and what a person
  * searched for or wrote is not ours to hold (CLAUDE.md, "The customer owns the
- * storage"). If a future question needs a breakdown, the answer is another
+ * content, and can always leave with it"). If a future question needs a breakdown, the answer is another
  * named metric, decided deliberately, not a label bag.
  *
  * ## Days are UTC, and that is a reporting decision worth stating

@@ -3,7 +3,8 @@
 **Free your context. Share your context.**
 
 Context is one MCP endpoint a person adds to every AI client, backed by a
-markdown bucket they own. Read `README.md` first for the product shape.
+markdown bucket — one they own, or one we run for them on the paid plan and
+they can take away at any time. Read `README.md` first for the product shape.
 
 This file is the part you read every session. The reasoning behind the rules —
 argued through once, not to be re-litigated — lives in
@@ -15,18 +16,36 @@ file for the area you are touching, and write new durable decisions there.
 These are the product, not implementation details. If a task seems to require
 breaking one, stop and say so rather than working around it.
 
-1. **The customer owns the storage.** Canonical Markdown and attachments live in
-   a bucket the customer owns; the control plane holds metadata only — accounts,
-   workspaces, bindings, grants, audit — and **never** note content. A customer
-   can revoke our credential and keep a complete, usable context. Credentials
-   never live in Markdown, in the bucket, in logs, in URLs, or on a device:
-   encrypted at rest, decrypted only in the gateway at request time.
+1. **The customer owns the content, and can always leave with it.** Canonical
+   Markdown and attachments live in a bucket dedicated to one workspace; the
+   control plane holds metadata only — accounts, workspaces, bindings, grants,
+   audit — and **never** note content. Who holds the bucket's key is a billing
+   question: on the free plan it is the customer's own bucket and revoking our
+   credential leaves them a complete, usable context; on **managed storage** we
+   create and pay for the bucket, and the equivalent guarantee is that
+   downloading everything or handing the bucket to storage of their own is
+   free, identical on both plans, and still works after they cancel. That exit
+   is never gated, never degraded, and never behind a paywall — gate it and
+   this is a different product. Cancelling makes a context read-only and
+   exportable; it never deletes. Credentials never live in Markdown, in the
+   bucket, in logs, in URLs, or on a device: encrypted at rest, decrypted only
+   in the gateway at request time. See
+   [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
 2. **Tenancy is bucket-level, never prefix-level.** Do not namespace keys inside
-   a customer's bucket — no `tenants/<id>/`, no `workspaces/<slug>/`. A note
-   lives at `1-projects/foo.md`, full stop. An existing brain must connect and
-   work unchanged, with zero migration; the same bucket is synced to Obsidian,
-   and rewriting keys breaks that. One workspace maps to one bucket (optionally
-   plus a fixed root prefix the customer chose, applied at the adapter boundary).
+   a bucket — no `tenants/<id>/`, no `workspaces/<slug>/`. A note lives at
+   `1-projects/foo.md`, full stop. An existing brain must connect and work
+   unchanged, with zero migration; the same bucket is synced to Obsidian, and
+   rewriting keys breaks that. One workspace maps to one bucket (optionally
+   plus a fixed root prefix the customer chose, applied at the adapter
+   boundary). **This now also carries non-negotiable #1's exit promise**: a
+   bucket holding one workspace can be handed over, and a shared bucket with a
+   prefix per customer can only ever be exported from — so managed buckets are
+   one per workspace, named from the immutable workspace id, in a Cloudflare
+   account that holds customer data — those buckets, and the per-context
+   search databases — and nothing of ours. A store's per-account resource
+   ceiling is therefore a constraint on the product, not a detail: R2 allows a
+   million buckets, and anything low forces prefix tenancy and ends the exit
+   promise with it.
 3. **Plain files stay canonical.** Markdown stays portable and human-readable.
    Search indexes, caches and embeddings are **disposable derivatives**,
    rebuildable from the files, never the only copy of anything. The on-bucket
@@ -197,8 +216,9 @@ checked is not a guard.**
 - **Conflict-safe writes.** Reads return a version; writes pass it back. R2 and
   AWS S3 support conditional writes; **B2 and Wasabi do not reliably.** Probe
   capability at connect time and degrade honestly — never silently drop it.
-- **Never weaken** customer-owned storage, plain-file portability, privacy,
-  tenant isolation, or revocability to move faster. Raise it instead.
+- **Never weaken** the customer's ownership of their content, plain-file
+  portability, privacy, tenant isolation, revocability, or the export and
+  hand-off path that non-negotiable #1 rests on. Raise it instead.
 
 ## Working style
 

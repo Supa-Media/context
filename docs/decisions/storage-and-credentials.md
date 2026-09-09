@@ -301,3 +301,190 @@ themselves rather than through a shared "requireAppSecret", because requiring
 it in one place while the other two stayed optional is exactly the kind of
 drift nobody would notice until a refresh started failing on a deployment
 that connects fine.
+
+## Managed storage: a bucket we run, in an account that holds nothing else
+
+**Decided 2026-09.** The product no longer requires everybody to bring their
+own bucket. Managed storage is the paid option: we create the bucket, we pay
+for it, and the customer never opens a Cloudflare account. This changes the
+*mechanism* of the first non-negotiable and deliberately keeps its *promise* —
+see the rewrite in `CLAUDE.md`. Nothing below is a softening of it; several
+things are stricter than the BYO path.
+
+### Why it exists
+
+"Make a Cloudflare account, then an R2 bucket, then an S3 key, then paste
+both" is where every non-technical person stops. `functions/cloudflare.ts`
+already removed part of that wall by provisioning **into the customer's own
+account** from a credential they supply, and that path stays exactly as it is
+— it is still the free one and still the honest shape. But it needs a
+Cloudflare account to exist first, and for the audience this product is now
+aimed at, that account is the wall.
+
+### What must stay true, or the promise is gone
+
+1. **One workspace, one bucket. Never a prefix.** This is the second
+   non-negotiable, and managed storage changes what it is *for*: it used to be
+   about connecting an existing brain without migration, and it is now also
+   the thing that makes handing a bucket over possible at all. A bucket
+   holding one customer's notes can be given to them; a shared bucket with a
+   prefix per customer can only ever be exported *from*. `managedBucketName()`
+   derives the name from the workspace id — immutable, unique, and structurally
+   incapable of colliding — rather than from a slug that can be reserved,
+   renamed, or typed by somebody else.
+2. **A separate Cloudflare account, holding customer data and nothing of
+   ours.** R2 has a flat bucket namespace with no grouping, so the account
+   *is* the boundary: a blast radius, a billing line, and an API token that
+   cannot reach our own infrastructure. It costs nothing to create now and is
+   a multi-day migration with one cutover per tenant later, because R2 has no
+   "move bucket between accounts" operation — only a copy (Super Slurper) and
+   a repoint.
+
+   **"Customer data", deliberately, and not "buckets".** The per-context D1
+   search databases (`context-search-<workspaceId>`, `lib/d1.ts`) are the same
+   thing in a different Cloudflare product: one resource per workspace, built
+   from the customer's own files, disposable and rebuildable. They are
+   expected to move into this account too, and the rule is what the account is
+   *for* rather than which product it holds — one resource per workspace, all
+   of it derived from or holding one customer's content, none of it ours. What
+   must never join it is anything of ours: a Worker, a queue, a bucket holding
+   our own state.
+3. **Plain files, unchanged layout.** A managed bucket holds exactly what a
+   BYO bucket holds: Markdown, PARA folders, `privacy.md`, attachments beside
+   their notes. Nothing about the on-bucket format may become conditional on
+   who is paying.
+4. **The exit is free, identical, and outlives the subscription.** Download
+   everything, or hand it to a bucket of their own, on both plans and after a
+   cancellation. The moment either is gated, "you can always leave" is
+   marketing rather than architecture.
+5. **Cancelling never deletes.** Read-only and exportable for a stated window,
+   with the final removal an action the customer takes.
+
+### Why R2 specifically
+
+The design rests on being able to afford a bucket per workspace, so the
+per-account bucket ceiling is the first thing to check in any store this ever
+moves to. R2 allows **1,000,000 buckets per account**, which is not a
+constraint at any size this product plausibly reaches.
+
+**It is no longer the differentiator it would have been before November 2024.**
+S3's default was 100 buckets per account for most of its life — a ceiling this
+product would have hit while still small — but it is now **10,000 by default
+and raisable to 1,000,000** through Service Quotas. The honest reasons to
+prefer R2 are therefore price and operations rather than capacity: no egress
+fee, which is what makes "download everything" and "move it to your own
+bucket" cost us nothing to offer and is the exit promise's economics; and no
+per-bucket monthly charge above a free allowance, where S3 bills for buckets
+beyond the first 2,000. Capacity is merely not in the way.
+
+The price is operational, and it is real: a five-figure bucket count means
+lifecycle rules, CORS and metrics can never be managed by hand, the Cloudflare
+dashboard stops being useful for browsing, and provisioning has to be code
+from the first bucket. That is the accepted cost of being able to hand
+somebody their storage.
+
+### One account id, not one per product
+
+Once D1 lives there too, `SEARCH_D1_ACCOUNT_ID` and `MANAGED_R2_ACCOUNT_ID`
+are the same value written down twice, in two different places — one in
+`appSecrets`, one an environment variable. Two copies of one fact drift, and
+the failure when they drift is silent: provisioning writes into whichever
+account its own copy names. Consolidating them onto a single
+customer-data account id is the follow-up, and the reason it is not done in
+this change is that moving `SEARCH_D1_ACCOUNT_ID` out of `appSecrets` is a
+migration for a live feature rather than a rename.
+
+Until then, **they must be kept equal by hand**, and no test may assert they
+differ. That assertion looks obviously right — "our infrastructure account is
+not the customer-data account" — and it would be wrong here, because these two
+are both the customer-data account. The thing worth asserting is the opposite,
+once one id exists to assert it about.
+
+### One customer-data account per deployment, never shared
+
+Resource names are unique because Convex ids are — **within one deployment**,
+and this applies to a D1 database name exactly as it does to a bucket.
+The R2 bucket namespace is per *account*, so pointing a preview or dev
+deployment at the production managed account reintroduces exactly the
+collision this design exists to prevent, and the reuse path in
+`provisionCloudflareStorage` would then *adopt* a production customer's bucket
+rather than fail. `MANAGED_R2_ACCOUNT_ID` copied between deployments is the
+obvious way to do it by accident. Provisioning must assert it is entitled to
+the account it is about to write into before it creates anything; until it
+does, the rule is operational and this paragraph is the whole of it.
+
+### The credential, which is more dangerous than the BYO one
+
+The managed account's API token can create buckets and mint further
+credentials across *every* customer bucket, which makes it categorically worse
+than anything this codebase has held before: the BYO setup credential is one
+customer's, used for seconds, and never stored. This one is ours, standing,
+and long-lived.
+
+**So the two values live in two different places, and that split is load-bearing
+rather than tidy.** The account id is an identifier: it decides nothing alone,
+and the guards below need it on the *public* bind path — which rules `appSecrets`
+out, because `__tests__/structure.test.ts` fails any public function whose call
+graph reaches `decryptSecret`. It is therefore an environment variable, synced
+like `APPLE_TEAM_ID` rather than committed. The token is a credential and goes
+to `appSecrets` — encrypted at rest, set in the staff console, fingerprinted,
+rotatable — exactly as `SEARCH_D1_API_TOKEN` does for the search provisioner,
+and it is opened only by the provisioning `internalAction`. It is never written
+to a binding row, never returned by any function, never logged, and never
+reaches the gateway, which continues to receive only the per-bucket S3 key that
+provisioning mints. A managed binding is indistinguishable downstream from one a
+customer pasted, which is the point: the adapter has no idea who is paying.
+
+A guard that needed *both* values would fail open the moment one of them was
+missing — during a token rotation, or on a deployment that had set only one —
+and it would do so silently, on precisely the deployment with an account worth
+protecting. Hence one value, read on its own, with "absent" and "malformed"
+kept as different answers: absent is a self-hoster and refuses nothing;
+malformed throws.
+
+`bindStorage` also refuses an endpoint addressing the managed account, and the
+BYO provisioning path refuses its account id. A customer cannot reach that
+account without our token, so neither guard blocks an attack — they exist so
+that "the customer-data account holds nothing of ours" is enforced
+in code rather than asserted in this file, and so that an operator or a support
+engineer pointing the wrong flow at it gets a refusal instead of a bucket.
+
+**They compare the endpoint as the URL parser sees it, never as it was typed.**
+A substring test over the raw string is not the same check as the one every
+consumer performs: `new URL()` percent-decodes and IDNA-maps the host, so
+`0123456789%61bcdef…` and a fullwidth-digit spelling both reach the managed
+account while reading as something else. Both were accepted by the first
+version of this guard and both are now regression tests. What the guards
+cannot see is a **custom domain**, which is a DNS fact rather than a string
+one — a known limit, not an oversight.
+
+### What a "simplification" of this would cost
+
+Putting managed buckets in the same Cloudflare account as our own
+infrastructure saves one account and costs the blast radius: a token scoped to
+"R2 in this account" would then reach production buckets too. Reusing one
+bucket with a prefix per workspace saves a five-figure bucket count and costs
+the entire hand-off story, turning the product into every other SaaS that lets
+you export a zip. Deriving the bucket name from a slug instead of a workspace
+id saves nothing and buys a rename bug. Each of these is the cheap version of
+a promise that is the reason the product exists.
+
+**The tests that fail if this is reversed.** `__tests__/managedStorage.test.ts`
+asserts that two workspaces can never derive the same bucket name — including
+that a case-differing id *refuses* rather than folding onto an existing bucket
+— that a malformed account id throws instead of silently disabling the guards,
+and that the normalised endpoint forms are refused while a path or query
+merely containing the id is not.
+
+Those are unit tests, and unit tests alone would let both call sites be
+deleted with the suite still green — the exact failure `testing.md` names. So
+the wiring is pinned separately, against the real actions:
+`__tests__/storage.test.ts` drives `bindStorage` and asserts the refusal *and*
+that no row was written, and `__tests__/cloudflare.test.ts` drives
+`provisionCloudflareR2` and asserts Cloudflare was never called. Deleting
+either guard call fails one of those two, which was checked by deleting them.
+
+**Still unproven, and named here rather than implied:** nothing yet tests the
+export or hand-off path, because it is not built. Non-negotiable #1's promise
+that the exit is free, identical on both plans and works after cancellation is
+a commitment this decision makes and a later change has to keep.

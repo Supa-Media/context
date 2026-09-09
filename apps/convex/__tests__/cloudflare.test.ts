@@ -1554,6 +1554,44 @@ describe("only an owner may create storage for a context", () => {
     expect(await provisioningRow(t, workspaceId)).toBeNull();
   });
 
+  /**
+   * Our own account is not one a customer may provision into.
+   *
+   * This path exists to make a bucket **in the customer's account**; a bucket
+   * it made in ours would be a customer bucket nobody could hand over, which
+   * is the whole promise managed storage rests on. Driven through the real
+   * action rather than only against the pure guard, because with only the unit
+   * test the call in `provisionCloudflareR2` could be deleted and the suite
+   * would stay green.
+   */
+  test("the account holding managed buckets is refused, and Cloudflare is never called", async () => {
+    const managed = "0123456789abcdef0123456789abcdef";
+    const previous = process.env.MANAGED_R2_ACCOUNT_ID;
+    process.env.MANAGED_R2_ACCOUNT_ID = managed;
+    try {
+      const { t, owner, workspaceId, cloudflare } = await provisioning();
+
+      for (const accountId of [managed, managed.toUpperCase(), `  ${managed}  `]) {
+        expect(
+          errorCode(
+            await captureError(() =>
+              startProvisioning(t, owner, workspaceId, {
+                credential: { source: "api-token", apiToken: SETUP_TOKEN, accountId },
+              }),
+            ),
+          ),
+          `${accountId} was accepted`,
+        ).toBe("MANAGED_ACCOUNT_NOT_ALLOWED");
+      }
+
+      expect(cloudflare.calls).toEqual([]);
+      expect(await provisioningRow(t, workspaceId)).toBeNull();
+    } finally {
+      if (previous === undefined) delete process.env.MANAGED_R2_ACCOUNT_ID;
+      else process.env.MANAGED_R2_ACCOUNT_ID = previous;
+    }
+  });
+
   test("an editor cannot provision, and nothing is queued when they try", async () => {
     const { t, workspaceId, cloudflare } = await provisioning();
     const editor = await createUser(t, "editor@example.invalid");
