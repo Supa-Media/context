@@ -153,7 +153,7 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
     >
       <View style={styles.bar}>
         <Pressable
-          onPress={paused ? () => meetings.resume() : () => meetings.pause()}
+          onPress={paused ? () => void meetings.resume() : () => void meetings.pause()}
           accessibilityRole="button"
           accessibilityLabel={paused ? "Resume recording" : "Pause recording"}
           style={({ pressed }) => [styles.round, paused && styles.roundPaused, pressed && styles.pressed]}

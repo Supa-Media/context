@@ -60,11 +60,15 @@ const mockReplaced: string[] = [];
 let mockBacks = 0;
 /** Whether this navigator has anywhere to go back to. See the round-trip tests. */
 let mockHistory = true;
+let mockQuickParams: { quickAction?: string } = {};
 /** Where the bar is being drawn. See "ending a meeting takes you to it". */
 let mockPathname = "/console/@seyi";
 jest.mock("expo-router", () => ({
   useRouter: () => ({
-    replace: (href: string) => mockReplaced.push(href),
+    replace: (href: string) => {
+      mockReplaced.push(href);
+      if (href === "/meetings") mockQuickParams = {};
+    },
     push: (href: string) => pushed.push(href),
     back: () => {
       mockBacks += 1;
@@ -72,6 +76,7 @@ jest.mock("expo-router", () => ({
     canGoBack: () => mockHistory,
   }),
   usePathname: () => mockPathname,
+  useLocalSearchParams: () => mockQuickParams,
 }));
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -164,6 +169,7 @@ function click(node: Element): void {
 }
 
 async function configure() {
+  mockQuickParams = {};
   const gateway = fakeGateway();
   await act(async () => {
     meetings.reset();
@@ -329,6 +335,38 @@ describe("a way in needs a way back", () => {
     expect(mockReplaced).toEqual([CONSOLE_ROOT]);
     app.unmount();
     mockHistory = true;
+  });
+});
+
+describe("the widget meeting command is consumed", () => {
+  test("remounting or returning to the clean list does not start a second meeting", async () => {
+    await configure();
+    mockQuickParams = { quickAction: "meeting" };
+    mockReplaced.length = 0;
+    pushed.length = 0;
+
+    const first = mount(createElement(MeetingsListScreen));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockReplaced[0]).toBe(MEETINGS_ROUTE);
+    expect(meetings.getSnapshot().records).toHaveLength(1);
+    expect(pushed).toHaveLength(1);
+    first.unmount();
+
+    const returned = mount(createElement(MeetingsListScreen));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(meetings.getSnapshot().records).toHaveLength(1);
+    expect(pushed).toHaveLength(1);
+    returned.unmount();
+
+    await act(async () => {
+      await meetings.end();
+    });
   });
 });
 

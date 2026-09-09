@@ -109,7 +109,8 @@ permissions:
 jobs:
   build:
     name: Build ${{ inputs.platform }} (${{ inputs.profile }})
-    runs-on: ubuntu-latest
+    # IPA validation uses Apple's `codesign`, `security` and `plutil`.
+    runs-on: macos-latest
     environment: production
     env:
       # `eas build`/`eas submit` resolve the project locally (in this runner)
@@ -269,13 +270,24 @@ jobs:
             console.log(`Injected build-time values into ${replaced} eas.json env entr${replaced === 1 ? "y" : "ies"}.`);
           '
 
-      # Waits for the build rather than `--no-wait`, because the submit steps
-      # below use `--latest` and a submission that does not wait would pick up
-      # whatever finished last — quite possibly the previous release.
+      # Waits for the build and records its ID, because submission below uses
+      # that exact validated artifact rather than a race-prone latest lookup.
       - name: Build iOS
         if: ${{ inputs.platform == 'ios' || inputs.platform == 'both' }}
         working-directory: apps/mobile
-        run: eas build --platform ios --profile ${{ inputs.profile }} --non-interactive
+        run: |
+          umask 077
+          BUILD_JSON=/tmp/context-build.json
+          IPA_PATH=/tmp/context-build.ipa
+          BUILD_ID_FILE=/tmp/context-build-id
+          eas build --platform ios --profile ${{ inputs.profile }} --non-interactive --json > "$BUILD_JSON"
+          BUILD_ID=$(node ../../scripts/eas-build-artifact.cjs id "$BUILD_JSON")
+          # eas build:download treats the app archive as a tar.gz and fails on
+          # the IPA ZIP. Download the applicationArchiveUrl from this exact
+          # build JSON, without printing the signed URL or using a latest build.
+          node ../../scripts/eas-build-artifact.cjs download "$BUILD_JSON" "$IPA_PATH" | grep -Fxq "$BUILD_ID"
+          node ../../scripts/validate-ios-ipa.cjs "$IPA_PATH"
+          echo "$BUILD_ID" > "$BUILD_ID_FILE"
 
       - name: Build Android
         if: ${{ inputs.platform == 'android' || inputs.platform == 'both' }}
@@ -290,7 +302,7 @@ jobs:
           # commits an `appleTeamId`, since it is an account identifier this
           # public repository does not hold.
           EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: eas submit --platform ios --latest --profile ${{ inputs.profile }} --non-interactive
+        run: eas submit --platform ios --path /tmp/context-build.ipa --profile ${{ inputs.profile }} --non-interactive
 
       - name: Submit Android to Play Console
         if: ${{ inputs.submit && (inputs.platform == 'android' || inputs.platform == 'both') }}
@@ -310,3 +322,10 @@ jobs:
             echo ""
             echo "A submitted build still needs a release created in App Store Connect."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Clean up native artifacts
+        if: always()
+        run: |
+          umask 077
+          trap 'rm -f /tmp/context-build.json /tmp/context-build.ipa /tmp/context-build-id' EXIT
+          rm -f /tmp/context-build.json /tmp/context-build.ipa /tmp/context-build-id

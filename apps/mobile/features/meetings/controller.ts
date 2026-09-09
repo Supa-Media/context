@@ -31,6 +31,9 @@ import {
   type MeetingProjection,
 } from "./session";
 import { drainMeetings } from "./sync";
+import { meetingActivity } from "./activity";
+import type { MeetingActivityController } from "./activityCore";
+import { newActivityControlToken } from "./activityToken";
 
 /**
  * The meetings feature's state, outside React.
@@ -218,7 +221,20 @@ const UNCONFIGURED: MeetingsSnapshot = Object.freeze({
   backgroundCaptureWarning: null,
 });
 
+function constantTimeEqual(expected: string, supplied: string): boolean {
+  if (expected.length !== supplied.length) return false;
+  let difference = 0;
+  for (let index = 0; index < expected.length; index += 1) {
+    difference |= expected.charCodeAt(index) ^ supplied.charCodeAt(index);
+  }
+  return difference === 0;
+}
+
 export class MeetingsController {
+  constructor(
+    private readonly activity: MeetingActivityController = meetingActivity,
+    private readonly activityToken: () => string = newActivityControlToken,
+  ) {}
   private listeners = new Set<() => void>();
   private snapshot: MeetingsSnapshot = UNCONFIGURED;
   private projections = new Map<string, MeetingProjection>();
@@ -234,6 +250,8 @@ export class MeetingsController {
    * `listenToRecorder`.
    */
   private recorderOff: (() => void)[] = [];
+  /** Current one-use control capability, held only for this process/session. */
+  private activityControlTokens = new Map<string, string>();
 
   /* --------------------------- the store contract -------------------------- */
 
@@ -275,6 +293,7 @@ export class MeetingsController {
     this.config = { ...input };
     this.epoch = currentEpoch();
     this.projections.clear();
+    this.activityControlTokens.clear();
     this.set({
       ...UNCONFIGURED,
       workspaceId: input.workspaceId,
@@ -308,6 +327,9 @@ export class MeetingsController {
       reads `live` off this snapshot and draws a timer for it.
     */
     this.recoverInterruptedRecordings();
+    // A previous process cannot own a recorder after launch; clear any stale
+    // system surface left visible by an unclean termination.
+    this.activity.reconcile(null);
 
     /*
       "On app launch, any `finalizing` session older than the bound is handled
@@ -450,14 +472,21 @@ export class MeetingsController {
 
   /** Forget the configuration, for a sign-out or a context switch. */
   reset(): void {
+    const activityMeetingId = this.snapshot.live?.session.id ?? null;
     this.detachRecorder();
     for (const timer of this.persistTimers.values()) clearTimeout(timer);
     this.persistTimers.clear();
     if (this.syncTimer !== null) clearTimeout(this.syncTimer);
     this.syncTimer = null;
     this.projections.clear();
+    this.activityControlTokens.clear();
     this.config = null;
     this.set(UNCONFIGURED);
+    if (activityMeetingId !== null) {
+      this.activityControlTokens.delete(activityMeetingId);
+      this.activity.end(activityMeetingId);
+    }
+    this.activity.reconcile(null);
   }
 
   /* ------------------------------- recording ------------------------------ */
@@ -523,6 +552,10 @@ export class MeetingsController {
       backgroundCaptureWarning: null,
     });
 
+    // Install failure reporting before opening the recorder: an audio backend
+    // may synchronously downgrade background capture during `start()`.
+    this.listenToRecorder(id);
+
     try {
       /*
         The meeting's own id goes to the recorder, and it is the only thing in
@@ -543,6 +576,12 @@ export class MeetingsController {
         sessionId: id,
         systemAudio: input.systemAudio ?? config.recorder.capability.systemAudio,
       });
+      // Show native recording chrome only after an audio recorder really opens.
+      if (
+        config.recorder.capability.audio &&
+        config.recorder.state === "recording" &&
+        this.snapshot.backgroundCaptureWarning === null
+      ) this.updateMeetingActivity(id);
     } catch (error) {
       /*
         The session stays `recording` and the reason goes on the *snapshot*.
@@ -563,22 +602,43 @@ export class MeetingsController {
       });
     }
 
-    this.listenToRecorder(id);
     return id;
   }
 
-  pause(): void {
+  async pause(): Promise<void> {
     const live = this.snapshot.live;
     if (live === null || !can(live.session.state, "paused")) return;
-    void this.require().recorder.pause();
+    const recorder = this.require().recorder;
+    try {
+      await recorder.pause();
+    } catch {
+      this.invalidateMeetingActivity(live.session.id);
+      return;
+    }
+    if (recorder.state !== "paused") {
+      this.invalidateMeetingActivity(live.session.id);
+      return;
+    }
     this.apply(live.session.id, { type: "pause", at: this.nowIso() });
+    this.updateMeetingActivity(live.session.id);
   }
 
-  resume(): void {
+  async resume(): Promise<void> {
     const live = this.snapshot.live;
     if (live === null || !can(live.session.state, "recording")) return;
-    void this.require().recorder.resume();
+    const recorder = this.require().recorder;
+    try {
+      await recorder.resume();
+    } catch {
+      this.invalidateMeetingActivity(live.session.id);
+      return;
+    }
+    if (recorder.state !== "recording") {
+      this.invalidateMeetingActivity(live.session.id);
+      return;
+    }
     this.apply(live.session.id, { type: "resume", at: this.nowIso() });
+    this.updateMeetingActivity(live.session.id);
   }
 
   /**
@@ -608,10 +668,15 @@ export class MeetingsController {
    */
   async end(): Promise<void> {
     const config = this.require();
+    const activityMeetingId = this.snapshot.live?.session.id ?? null;
     await config.recorder.stop().catch(() => {
       // A recorder that will not stop is not a reason to refuse to end a
       // meeting. It is reported through `onError`, which is already wired.
     });
+    if (activityMeetingId !== null) {
+      this.activityControlTokens.delete(activityMeetingId);
+      this.activity.end(activityMeetingId);
+    }
     /*
       And stop listening for it, **after** the stop rather than before.
 
@@ -655,12 +720,57 @@ export class MeetingsController {
 
   setTitle(meetingId: string, title: string): void {
     this.apply(meetingId, { type: "title", title });
+    this.updateMeetingActivity(meetingId);
+  }
+
+  /** Mirror the controller's truth into optional native lock-screen chrome. */
+  private updateMeetingActivity(meetingId: string): void {
+    const record = this.find(meetingId);
+    if (record === undefined || !isLive(record.session.state)) return;
+    let controlToken: string;
+    try {
+      controlToken = this.activityToken();
+    } catch {
+      // A control surface without a cryptographic capability is unsafe.
+      this.activityControlTokens.delete(meetingId);
+      this.activity.end(meetingId);
+      return;
+    }
+    this.activityControlTokens.set(meetingId, controlToken);
+    this.activity.update({
+      meetingId,
+      controlToken,
+      title: record.session.title,
+      phase: record.session.state === "paused" ? "paused" : "recording",
+      // `recordedMs` is the closed intervals; the native timer adds the open
+      // interval beginning at `runningSince` without double-counting it.
+      recordedMs: record.session.recordedMs,
+      recordingSince:
+        record.session.state === "recording" && record.runningSince !== null
+          ? Date.parse(record.runningSince)
+          : null,
+    });
+  }
+
+  /** Atomically verify and consume the current lock-screen control capability. */
+  consumeActivityControl(meetingId: string, suppliedToken: string): boolean {
+    if (this.snapshot.live?.session.id !== meetingId) return false;
+    const expected = this.activityControlTokens.get(meetingId);
+    if (expected === undefined || !constantTimeEqual(expected, suppliedToken)) return false;
+    this.activityControlTokens.delete(meetingId);
+    return true;
+  }
+
+  private invalidateMeetingActivity(meetingId: string): void {
+    this.activityControlTokens.delete(meetingId);
+    this.activity.end(meetingId);
   }
 
   /** Forget a meeting on this device. The only path that destroys a recording. */
   async discard(meetingId: string): Promise<void> {
     const config = this.require();
-    if (this.snapshot.live?.session.id === meetingId) {
+    const discardingLive = this.snapshot.live?.session.id === meetingId;
+    if (discardingLive) {
       // Discarding the meeting that is running has to release the device as
       // well. Without this the microphone stays open with nothing left to
       // record into — on iOS, a red bar over an app that has forgotten why.
@@ -671,6 +781,8 @@ export class MeetingsController {
       this.detachRecorder();
     }
     this.cancelPersist(meetingId);
+    this.activityControlTokens.delete(meetingId);
+    if (discardingLive) this.activity.end(meetingId);
     this.projections.delete(meetingId);
     await forgetMeeting(config.store, config.workspaceId, meetingId);
     const records = this.snapshot.records.filter((record) => record.session.id !== meetingId);
@@ -924,8 +1036,14 @@ export class MeetingsController {
         chip can say so while it lasts; the next successful `start` clears it.
       */
       if (error.kind === "background-unavailable") {
+        this.activityControlTokens.delete(meetingId);
+        this.activity.end(meetingId);
         this.set({ ...this.snapshot, backgroundCaptureWarning: error.message });
         return;
+      }
+      if (!error.recoverable) {
+        this.activityControlTokens.delete(meetingId);
+        this.activity.end(meetingId);
       }
       this.set({ ...this.snapshot, captureError: error.message });
     }));

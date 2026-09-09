@@ -14,6 +14,7 @@ import {
 } from "../features/meetings/keys";
 import { isSynced, pendingSteps } from "../features/meetings/record";
 import { FINALIZE_TIMEOUT_MS } from "../features/meetings/recovery";
+import type { MeetingActivityController } from "../features/meetings/activityCore";
 
 /**
  * A recording, from the press to the note — and everything that can happen to
@@ -85,9 +86,11 @@ async function harness(
     workspaceId?: string;
     /** Where this launch's clock starts. Defaults to the fixture instant. */
     startAt?: number;
+    activity?: MeetingActivityController;
+    activityToken?: () => string;
   } = {},
 ): Promise<Harness> {
-  const controller = new MeetingsController();
+  const controller = new MeetingsController(options.activity, options.activityToken);
   const store = options.store ?? memoryStore();
   const gateway = options.gateway ?? fakeGateway();
   const recorder = options.recorder ?? fakeRecorder();
@@ -112,11 +115,81 @@ async function settle(): Promise<void> {
   await Promise.resolve();
 }
 
+function fakeActivity() {
+  return {
+    available: jest.fn(() => true),
+    update: jest.fn(),
+    end: jest.fn(),
+    reconcile: jest.fn(),
+  } satisfies MeetingActivityController;
+}
+
 afterEach(() => {
   jest.useRealTimers();
 });
 
 describe("starting a meeting", () => {
+  test("system recording UI follows recorder truth through start, pause, resume and end", async () => {
+    const activity = fakeActivity();
+    const { controller, recorder, clock } = await harness({ activity });
+    const id = await controller.start({ title: "Design review" });
+    expect(activity.update).toHaveBeenLastCalledWith(expect.objectContaining({
+      meetingId: id, phase: "recording", title: "Design review",
+    }));
+
+    clock.advance(4_000);
+    await controller.pause();
+    expect(recorder.state).toBe("paused");
+    expect(activity.update).toHaveBeenLastCalledWith(expect.objectContaining({
+      phase: "paused", recordedMs: 4_000, recordingSince: null,
+    }));
+
+    await controller.resume();
+    expect(recorder.state).toBe("recording");
+    expect(activity.update).toHaveBeenLastCalledWith(expect.objectContaining({ phase: "recording" }));
+    await controller.end();
+    expect(activity.end).toHaveBeenCalledWith(id);
+  });
+
+  test("lock-screen controls require the current one-use capability and rotate after state changes", async () => {
+    const activity = fakeActivity();
+    const first = "11".repeat(32);
+    const second = "22".repeat(32);
+    const tokens = [first, second];
+    const { controller } = await harness({ activity, activityToken: () => tokens.shift()! });
+    const id = await controller.start({ title: "Security review" });
+
+    expect(activity.update).toHaveBeenLastCalledWith(expect.objectContaining({ controlToken: first }));
+    expect(controller.consumeActivityControl(id, "ff".repeat(32))).toBe(false);
+    expect(controller.consumeActivityControl("mtg_someone_else", first)).toBe(false);
+    expect(controller.consumeActivityControl(id, first)).toBe(true);
+    expect(controller.consumeActivityControl(id, first)).toBe(false);
+
+    await controller.pause();
+    expect(activity.update).toHaveBeenLastCalledWith(expect.objectContaining({ controlToken: second }));
+    expect(controller.consumeActivityControl(id, first)).toBe(false);
+    expect(controller.consumeActivityControl(id, second)).toBe(true);
+  });
+
+  test("refused and background-downgraded capture never leaves a Live Activity", async () => {
+    const activity = fakeActivity();
+    const recorder = fakeRecorder();
+    recorder.refuseStart("no microphone");
+    const refused = await harness({ activity, recorder });
+    await refused.controller.start({ title: "Refused" });
+    expect(activity.update).not.toHaveBeenCalled();
+
+    const downgradedActivity = fakeActivity();
+    const downgraded = await harness({ activity: downgradedActivity });
+    const id = await downgraded.controller.start({ title: "Started" });
+    downgraded.recorder.fail({
+      recoverable: true,
+      kind: "background-unavailable",
+      message: "foreground only",
+    });
+    expect(downgradedActivity.end).toHaveBeenCalledWith(id);
+  });
+
   test("the notepad exists before the microphone does", async () => {
     /*
       The order this test exists for: the record is created and written down
@@ -231,9 +304,9 @@ describe("the clock is the log, not a timer", () => {
     await controller.start({ title: "Design review" });
 
     clock.advance(10 * 60_000);
-    controller.pause();
+    await controller.pause();
     clock.advance(15 * 60_000);
-    controller.resume();
+    await controller.resume();
     clock.advance(5 * 60_000);
 
     const live = controller.getSnapshot().live;
@@ -245,7 +318,7 @@ describe("the clock is the log, not a timer", () => {
     const { controller, clock } = await harness();
     await controller.start({ title: "Design review" });
     clock.advance(3 * 60_000);
-    controller.pause();
+    await controller.pause();
 
     const paused = controller.getSnapshot().live!;
     expect(recordElapsedMs(paused, clock.now() + 60 * 60_000)).toBe(3 * 60_000);
@@ -323,7 +396,7 @@ describe("the app being killed mid-meeting", () => {
     const first = await harness({ store });
     const id = await first.controller.start({ title: "Design review" });
     first.clock.advance(2 * 60_000);
-    first.controller.pause();
+    await first.controller.pause();
     await settle();
 
     const second = await harness({ store, startAt: first.clock.now() });
@@ -1471,7 +1544,7 @@ describe("the snapshot is a store React can subscribe to", () => {
 
     unsubscribe();
     const quiet = heard;
-    controller.pause();
+    await controller.pause();
     expect(heard).toBe(quiet);
   });
 
@@ -1484,7 +1557,7 @@ describe("the snapshot is a store React can subscribe to", () => {
     await settle();
 
     const before = controller.getSnapshot();
-    controller.pause();
+    await controller.pause();
     expect(controller.getSnapshot()).toBe(before);
   });
 });

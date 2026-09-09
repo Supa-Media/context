@@ -1295,9 +1295,12 @@ iOS and Android, which is Hermes.
 - **Hermes has no Web Crypto at all.** Not AES-GCM, not PBKDF2, not
   `getRandomValues` without a polyfill. `expo-crypto` — which this app already
   depends on — provides digests and random bytes, and no cipher and no KDF.
-  `react-native-quick-crypto` would provide both and is a **native module**: it
-  cannot arrive in an over-the-air update, which is how this app ships, so
-  adding it changes the release model rather than a dependency list.
+  iOS builds made after this decision include a small local Expo module:
+  CryptoKit supplies AES-256-GCM and secure random bytes, while the pinned
+  Argon2 reference C implementation supplies Argon2id. The capability cannot
+  arrive in an over-the-air update, so the JavaScript uses an optional native
+  lookup and old binaries continue to refuse honestly rather than crash or
+  silently choose different cryptography.
 - **WebAssembly is available in the browser and in Electron, and not in
   Hermes.** So a WASM Argon2id is a two-platform answer wearing a three-platform
   coat.
@@ -1321,10 +1324,22 @@ be slower still.
 1. **Web and the desktop shell: Argon2id, in plain JavaScript, at 19 MiB, t=2,
    p=1.** OWASP's minimum for Argon2id, about a second per unlock, no new
    dependency anywhere.
-2. **iOS and Android: unlocking is refused, by name, with somewhere to go.**
-   "Locked notes open on a computer." Never a quieter, weaker KDF: a note that
-   silently became a PBKDF2 note on a phone would be weaker than the note the
-   person was shown, and they would have no way to find out.
+2. **iOS: the same protocol through native primitives; Android and old iOS
+   binaries: refused by name, with somewhere to go.** The iOS module vendors
+   `P-H-C/phc-winner-argon2` release `20190702` (commit
+   `62358ba2123abd17fccf2a108a301d4b52c01a7c`, CC0/Apache-2.0) and uses Apple
+   CryptoKit for AES-256-GCM. It consumes the recipient's existing KDF
+   descriptor (`v`, `m`, `t`, `p`, `salt`), NFC-normalises the passphrase, and
+   returns the same 32 bytes as the browser and standalone decryptor. It
+   changes no envelope byte and requests no permission. Mutable native and
+   JavaScript byte buffers are cleared on both
+   success and failure paths once ownership ends, but that is lifetime hygiene,
+   not a zeroization guarantee: JavaScript and Swift strings are immutable,
+   bridge serialization creates copies the app cannot erase, and CryptoKit may
+   keep internal copies for an operation. The implementation does not
+   intentionally persist or log those values. Never a quieter, weaker KDF:
+   where the module is absent, the UI says this build
+   cannot open the note and points to an update or a computer.
 3. **The recipient carries `{id, v, m, t, p, salt}`**, so every one of these
    numbers is a parameter rather than a build constant, and a decryptor five
    years from now derives the same key without knowing what this build's
@@ -1383,8 +1398,13 @@ the two inputs this product never uses; RFC 7693's vectors for the BLAKE2b
 underneath; a pinned passphrase deriving a pinned key that opens a pinned note,
 with the two halves asserted in the two suites that run them; a KDF id or an
 argon2 version this build does not implement refused rather than substituted;
-and `kdfSupport` refusing on a runtime without Web Crypto rather than answering
-with a weaker lock.
+the vendored iOS C source independently deriving that same pinned key; a Swift
+executable calling the exact CryptoKit/Argon2 core behind the Expo bridge and
+pinning NFC normalization, fixed AES key/nonce/AAD/plaintext bytes,
+`ciphertext || tag`, decryption, tamper rejection and wrong-key rejection; a
+SHA-256 manifest covering every vendored source file; `kdfSupport` accepting
+Hermes only when the optional module is present; and an old binary refusing
+rather than answering with a weaker lock.
 
 ---
 
@@ -1402,6 +1422,13 @@ the console, with the same numbers: 8 KiB to 2 GiB of memory, 1 to 16 passes, 1
 to 16 lanes, an 8- to 64-byte salt, and Argon2's own floor of 8 KiB per lane.
 The ceilings are far above anything shipped so that raising the parameters later
 is a parameter change and not a format change.
+
+The iOS bridge applies a second, device-local ceiling of **64 MiB** before the
+native call, and the Swift core repeats it defensively. This is not an envelope
+format limit: a larger valid descriptor remains openable by desktop and the
+standalone decryptor. It is an honest mobile resource refusal that prevents an
+untrusted bucket object from asking iOS to reserve anything near the format's
+2 GiB interoperability ceiling.
 
 **A note whose envelope fails these bounds stays an encrypted note.** It is
 refused at parse, it is still recognised by the marker, nothing indexes it, and

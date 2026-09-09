@@ -145,27 +145,23 @@ describe("argon2id", () => {
 });
 
 describe("the shipped derivation", () => {
-  it("derives the pinned fixture's key from the pinned fixture's passphrase", () => {
+  it("derives the pinned fixture's key from the pinned fixture's passphrase", async () => {
     // The other half of this sentence is asserted in the gateway's suite: that
     // key opens that note. Together they pin a passphrase to a plaintext
     // through bytes checked into the repository, in the two runtimes that have
     // to agree about them.
-    const key = derivePassphraseKey(VECTOR.passphrase, VECTOR.kdf);
+    const key = await derivePassphraseKey(VECTOR.passphrase, VECTOR.kdf);
     let binary = "";
     for (const byte of key) binary += String.fromCharCode(byte);
     expect(btoa(binary)).toBe(VECTOR.kek);
   });
 
-  it("refuses a KDF it does not implement rather than substituting one", () => {
-    expect(() => derivePassphraseKey("a passphrase", { ...VECTOR.kdf, id: "pbkdf2" })).toThrow(
-      /does not implement/,
-    );
-    expect(() => derivePassphraseKey("a passphrase", { ...VECTOR.kdf, v: 0x10 })).toThrow(
-      /argon2 version/,
-    );
+  it("refuses a KDF it does not implement rather than substituting one", async () => {
+    await expect(derivePassphraseKey("a passphrase", { ...VECTOR.kdf, id: "pbkdf2" })).rejects.toThrow(/does not implement/);
+    await expect(derivePassphraseKey("a passphrase", { ...VECTOR.kdf, v: 0x10 })).rejects.toThrow(/argon2 version/);
   });
 
-  it("normalises the passphrase, so one typed on two keyboards is one key", () => {
+  it("normalises the passphrase, so one typed on two keyboards is one key", async () => {
     // "\u00e9" as one code point and as "e" plus a combining accent are different
     // bytes and would otherwise be different keys \u2014 somebody setting a
     // passphrase on one platform and being told it is wrong on another. Cheap
@@ -178,8 +174,8 @@ describe("the shipped derivation", () => {
     // would otherwise be reading a test that asserts nothing.
     expect(composed.length).not.toBe(decomposed.length);
     const cheap = { ...VECTOR.kdf, m: 64, t: 1 };
-    expect(hex(derivePassphraseKey(composed, cheap))).toBe(
-      hex(derivePassphraseKey(decomposed, cheap)),
+    expect(hex(await derivePassphraseKey(composed, cheap))).toBe(
+      hex(await derivePassphraseKey(decomposed, cheap)),
     );
 
     // And it is NFC specifically, not merely "some normalisation". Both forms
@@ -194,7 +190,7 @@ describe("the shipped derivation", () => {
       parallelism: cheap.p,
       tagLength: 32,
     });
-    expect(hex(derivePassphraseKey(decomposed, cheap))).toBe(hex(composedBytes));
+    expect(hex(await derivePassphraseKey(decomposed, cheap))).toBe(hex(composedBytes));
   });
 });
 
@@ -203,10 +199,16 @@ describe("what this runtime can do", () => {
     expect(kdfSupport({ subtle: {}, hermes: false })).toEqual({ supported: true });
   });
 
+  it("says yes on Hermes only when the native binary carries the complete crypto module", () => {
+    expect(kdfSupport({ subtle: undefined, hermes: true, nativeCrypto: true })).toEqual({
+      supported: true,
+    });
+  });
+
   it("refuses by name where there is no Web Crypto, rather than substituting a weaker lock", () => {
     const answer = kdfSupport({ subtle: undefined, hermes: true });
     expect(answer.supported).toBe(false);
-    expect(answer.supported === false && answer.reason).toMatch(/browser or the desktop app/);
+    expect(answer.supported === false && answer.reason).toMatch(/Update Context|desktop app/);
   });
 
   it("refuses on Hermes even if a cipher appears, because the derivation would take minutes", () => {
