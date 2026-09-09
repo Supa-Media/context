@@ -48,8 +48,8 @@ import { resolveTranscriber } from "./transcriber";
  * that key existed — which is the case this feature is for.
  *
  * **So background capability is a runtime check, never a version number.**
- * `configureAudioSession` asks for the background-capable session and falls
- * and fails closed if the background-capable session is refused.
+ * `configureAudioSession` asks for the background-capable session and fails
+ * closed if the background-capable session is refused.
  * Comparing `Constants.expoConfig` against a version would be the wrong test
  * twice over: that manifest describes the *bundle*, which is the half that
  * updated, and the question is about the *binary*, which is the half that did
