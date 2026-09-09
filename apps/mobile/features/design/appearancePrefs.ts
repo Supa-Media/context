@@ -32,12 +32,28 @@ export async function readStoredScheme(): Promise<StoredScheme | null> {
   return raw === "light" || raw === "dark" ? raw : null;
 }
 
-/** `null` clears the key, which is what "follow the device" is stored as. */
+/**
+ * `null` clears the key, which is what "follow the device" is stored as.
+ *
+ * Swallows a failed write, on `rememberPlace`'s model in `lastPlace.ts`: both
+ * ports' `set` are deliberately *unguarded* (`store.web.ts` — a write is the
+ * one call each port lets fail loudly, so a queued note edit is never lost
+ * silently), which means the caller is the one place left to decide what a
+ * failure here is worth. For this preference it is worth nothing more than a
+ * cache miss — the screen the person is looking at already shows the choice
+ * they made, and the worst a lost write costs is one extra tap on the next
+ * device or the next cold start. A caller that awaits this and cares whether
+ * it landed can still read the result back with `readStoredScheme`.
+ */
 export async function writeStoredScheme(scheme: StoredScheme | null): Promise<void> {
-  const store = openStore();
-  if (scheme === null) {
-    await store.remove(APPEARANCE_STORAGE_KEY);
-  } else {
-    await store.set(APPEARANCE_STORAGE_KEY, scheme);
+  try {
+    const store = openStore();
+    if (scheme === null) {
+      await store.remove(APPEARANCE_STORAGE_KEY);
+    } else {
+      await store.set(APPEARANCE_STORAGE_KEY, scheme);
+    }
+  } catch {
+    // See above — a lost write here is a cache miss, not a lost note.
   }
 }

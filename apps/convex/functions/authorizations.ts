@@ -784,8 +784,14 @@ export const applyOwnMachineApproval = internalMutation({
   },
 });
 
-/** The most machines "Your devices" ever has to show. See `MAX_GRANTS_RETURNED` in `grants.ts` for the same reasoning applied here. */
-const MAX_MACHINES_RETURNED = 50;
+/**
+ * The most machines "Your devices" ever has to show. See `MAX_GRANTS_RETURNED`
+ * in `grants.ts` for the same reasoning applied here.
+ *
+ * Exported so the test that proves which 50 survive a cap does not hardcode
+ * the number twice.
+ */
+export const MAX_MACHINES_RETURNED = 50;
 
 /**
  * This person's own approved machines — "Your devices" in account settings.
@@ -837,9 +843,21 @@ export const listMyMachines = query({
     // somebody else's rows. That is the whole of the isolation this function
     // provides, and `__tests__/listMyMachines.test.ts` sabotages exactly this
     // line to prove it is load-bearing.
+    //
+    // `.order("desc")` is not decoration: Convex's default is ascending by
+    // `_creationTime`, so a bare `.take()` here would keep the *oldest*
+    // `MAX_MACHINES_RETURNED` grants this person ever received — every AI
+    // client, every workspace, revoked rows included, since nothing sweeps
+    // `oauthGrants`. Past that cap this is an auditing screen whose whole job
+    // is showing what can *currently* capture into someone's contexts; a cap
+    // that silently hides the machine approved five minutes ago in favour of
+    // one revoked years ago is the wrong failure direction. Ordering first
+    // means the 50 rows below the cap are already the 50 most recent, so
+    // nothing downstream has to re-sort them back into that order.
     const grants = await ctx.db
       .query("oauthGrants")
       .withIndex("by_user", (q) => q.eq("userId", userId))
+      .order("desc")
       .take(MAX_MACHINES_RETURNED);
 
     const machines: {
@@ -865,7 +883,10 @@ export const listMyMachines = query({
         tier: visibilityTierOf(grant.scopes),
       });
     }
-    return machines.sort((a, b) => b.approvedAt - a.approvedAt);
+    // No re-sort: `grants` already arrived newest-first from `.order("desc")`
+    // above, and filtering a handful of rows out of an already-ordered list
+    // cannot reorder the ones that remain.
+    return machines;
   },
 });
 

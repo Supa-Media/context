@@ -23,6 +23,7 @@
 import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+import { MAX_MACHINES_RETURNED } from "../functions/authorizations";
 import { DESKTOP_SOFTWARE_ID } from "../functions/lib/machineGrant";
 import {
   type TestConvex,
@@ -308,5 +309,80 @@ describe("one tenant cannot enumerate, read, or infer another's machines", () =>
    * would still pass with the isolation gone — it only ever looks at one
    * person's own list — so isolation has to be its own assertion, not a
    * hoped-for side effect of the other tests.
+   */
+});
+
+/* -------------------------------------------------------------------------- */
+/* The cap keeps the newest machines, not the oldest                          */
+/* -------------------------------------------------------------------------- */
+
+describe("past the cap, the newest machines survive", () => {
+  test(`more than ${MAX_MACHINES_RETURNED} machines: the ${MAX_MACHINES_RETURNED} most recently approved are what's returned`, async () => {
+    // Convex's default order is ascending by `_creationTime`. A bare
+    // `.take(MAX_MACHINES_RETURNED)` with no `.order("desc")` therefore keeps
+    // the *oldest* rows — silently hiding the machine approved five minutes
+    // ago behind ones approved years ago, on a screen whose entire job is
+    // showing what can *currently* capture into someone's contexts. Rows are
+    // inserted directly (as the "non-desktop client" test above does): what
+    // is under test is `listMyMachines`'s own ordering, not the approval flow,
+    // and driving `MAX_MACHINES_RETURNED + 5` machines through the real
+    // gateway round trip buys nothing here.
+    const t: TestConvex = setupTest();
+    const alice = await createUser(t, "alice@example.invalid");
+    const workspaceId = await createWorkspace(t, alice, "alpha");
+
+    const total = MAX_MACHINES_RETURNED + 5;
+    for (let i = 0; i < total; i += 1) {
+      const clientId = `mcp_client_machine_${i}`;
+      await t.run((ctx) =>
+        ctx.db.insert("oauthClients", {
+          clientId,
+          clientName: `Context on machine-${i}`,
+          redirectUris: [MACHINE_REDIRECT],
+          hashedClientSecret: null,
+          softwareId: DESKTOP_SOFTWARE_ID,
+          createdAt: Date.now(),
+        }),
+      );
+      await t.run((ctx) =>
+        ctx.db.insert("oauthGrants", {
+          workspaceId,
+          userId: alice,
+          clientId,
+          scopes: ["context:write", "context:private"],
+          hashedRefreshToken: fakeHash(`refresh:${clientId}`),
+          status: "active",
+          createdAt: Date.now(),
+        }),
+      );
+    }
+
+    const machines = await listMachines(t, alice);
+    expect(machines).toHaveLength(MAX_MACHINES_RETURNED);
+    const names = new Set(machines.map((m) => m.name));
+    // The 5 inserted first are the oldest, and must have been dropped —
+    // exactly what a bare ascending `.take()` would keep instead.
+    for (let i = 0; i < 5; i += 1) {
+      expect(names.has(`Context on machine-${i}`)).toBe(false);
+    }
+    // The most recently inserted must be the ones kept.
+    for (let i = total - MAX_MACHINES_RETURNED; i < total; i += 1) {
+      expect(names.has(`Context on machine-${i}`)).toBe(true);
+    }
+  });
+
+  /**
+   * SABOTAGE RECORD.
+   *
+   * Run as a temporary local edit — `.order("desc")` removed from
+   * `listMyMachines`, reverting to Convex's ascending default — and reverted.
+   * Counts are failing tests across this file.
+   *
+   *   dropping `.order("desc")` before `.take(MAX_MACHINES_RETURNED)`        2
+   *
+   * The second is `"two machines, most recently approved first"`, above in
+   * this file: removing the post-hoc `.sort()` that used to paper over a
+   * missing `.order("desc")` means that test is now also a direct guard on
+   * the ordering, not only the two-machine happy path it reads as.
    */
 });

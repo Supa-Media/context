@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { afterEach, describe, expect, test } from "@jest/globals";
+import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -71,6 +71,38 @@ describe("appearancePrefs — persistence", () => {
     expect(await readStoredScheme()).toBeNull();
     window.localStorage.setItem(APPEARANCE_STORAGE_KEY, "purple");
     expect(await readStoredScheme()).toBeNull();
+  });
+
+  test("a write that throws (a full quota, say) resolves quietly rather than rejecting", async () => {
+    // `store.web.ts` deliberately leaves `set` unguarded — a queued note edit
+    // must not fail silently — so this preference's writer is the one that
+    // has to decide a lost write here is worth nothing more than a cache
+    // miss. A caller that `void`s the promise (`theme.tsx`'s `setChoice`
+    // does) must never see an unhandled rejection out of this.
+    //
+    // Only the real key throws. `openStore()` itself probes `localStorage`
+    // with a throwaway key before handing back a store (`store.web.ts`'s
+    // `canWrite()`) — if the mock threw unconditionally, that probe would
+    // fail instead, `openStore()` would fall back to an in-memory store for
+    // the rest of the test, and the write under test would never reach real
+    // `localStorage` at all. Throwing only for `APPEARANCE_STORAGE_KEY`
+    // is what makes this a test of the write failing, not of the probe.
+    const original = window.localStorage.setItem.bind(window.localStorage);
+    const setItem = jest
+      .spyOn(window.localStorage.__proto__, "setItem")
+      .mockImplementation((...args: unknown[]) => {
+        const [key, value] = args as [string, string];
+        if (key === APPEARANCE_STORAGE_KEY) throw new Error("QuotaExceededError");
+        original(key, value);
+      });
+    try {
+      await expect(writeStoredScheme("dark")).resolves.toBeUndefined();
+      // And the failure was real, not merely swallowed by the fallback store:
+      // nothing landed.
+      expect(window.localStorage.getItem(APPEARANCE_STORAGE_KEY)).toBeNull();
+    } finally {
+      setItem.mockRestore();
+    }
   });
 });
 

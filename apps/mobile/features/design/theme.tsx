@@ -236,6 +236,11 @@ export function useAppearanceChoice(): {
     // every subtree reading this store repaints in the same tick rather than
     // waiting on the device to catch up.
     publishAppearance({ choice, ready: true });
+    // `writeStoredScheme` already swallows a failed write on `rememberPlace`'s
+    // model (see its own comment) — this promise cannot reject. `void` here
+    // is therefore only what it claims to be: telling the type checker the
+    // resolved value is unused, not standing in for error handling that would
+    // otherwise be missing.
     void writeStoredScheme(choice === "system" ? null : choice);
   }, []);
 
