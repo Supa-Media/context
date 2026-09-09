@@ -421,7 +421,7 @@ export async function runSearchIntegrationChecks(check) {
       controlPlane.addWorkspace(workspace, slug, {
         provider: "r2-binding",
         bindingName: binding,
-        capabilities: { conditionalWrite: true },
+        capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
         status: "active",
       });
     }
@@ -1432,7 +1432,7 @@ export async function runSearchIntegrationChecks(check) {
     controlPlane.addWorkspace("ws_search_recall", "searchrecall", {
       provider: "r2-binding",
       bindingName: "RECALL_BUCKET",
-      capabilities: { conditionalWrite: true },
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       status: "active",
     });
     const RECALL_OWNER = `cat_searchidx_recall_owner_${"0".repeat(9)}`;

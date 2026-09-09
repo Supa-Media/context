@@ -181,7 +181,7 @@ export async function runTenancyChecks(check) {
     accessKeyId: "AKIAEXAMPLEEXAMPLEAA",
     secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEAA",
     forcePathStyle: true,
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
   });
   controlPlane.addWorkspace("ws_b", "alphabet", {
@@ -192,7 +192,7 @@ export async function runTenancyChecks(check) {
     accessKeyId: "AKIAEXAMPLEEXAMPLEBB",
     secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEBB",
     forcePathStyle: true,
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
   });
 
@@ -203,14 +203,14 @@ export async function runTenancyChecks(check) {
     provider: "dropbox",
     accessToken: DROPBOX_TOKEN_C,
     rootPrefix: "context/",
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
   });
   controlPlane.addWorkspace("ws_d", "delta", {
     provider: "dropbox",
     accessToken: DROPBOX_TOKEN_D,
     rootPrefix: "context/",
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
   });
 
@@ -514,7 +514,7 @@ export async function runTenancyChecks(check) {
           workspaceId: "ws_c",
           provider: "dropbox",
           rootPrefix: "context/",
-          capabilities: { conditionalWrite: true },
+          capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
           status: "active",
         },
       };
@@ -543,7 +543,7 @@ export async function runTenancyChecks(check) {
           accessToken: DROPBOX_TOKEN_C,
           refreshToken: "rt.FAKE-long-lived-must-never-arrive",
           rootPrefix: "context/",
-          capabilities: { conditionalWrite: true },
+          capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
           status: "active",
         },
       };
@@ -618,7 +618,7 @@ export async function runTenancyChecks(check) {
           accessKeyId: "AKIAEXAMPLEEXAMPLEBB",
           secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEBB",
           forcePathStyle: true,
-          capabilities: { conditionalWrite: true },
+          capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
           status: "active",
         },
       };
@@ -643,7 +643,7 @@ export async function runTenancyChecks(check) {
           workspaceId: "ws_a",
           provider: "r2-binding",
           bindingName: "LOCAL_CONTEXT_BUCKET",
-          capabilities: { conditionalWrite: true },
+          capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
           status: "active",
         },
       };

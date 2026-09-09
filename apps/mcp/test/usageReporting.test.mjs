@@ -87,7 +87,7 @@ function s3Binding(bucket, key) {
     accessKeyId: `AKIAEXAMPLEEXAMPLE${key}`,
     secretAccessKey: `wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLE${key}`,
     forcePathStyle: true,
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
   };
 }

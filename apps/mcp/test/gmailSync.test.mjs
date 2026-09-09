@@ -411,7 +411,7 @@ export async function runGmailSyncChecks(check) {
   check("a store without conditionalWrite still writes, unconditionally", nonConditionalResult.wrote === true);
 
   const alwaysConflictStore = {
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     get: async () => ({ etag: "e1", text: async () => "old" }),
     put: async () => null,
   };
@@ -1094,7 +1094,7 @@ export async function runGmailSyncChecks(check) {
   async function resolveOneUndeclaredAttachment({ byteCount, remainingQuotaBytes }) {
     const written = [];
     const store = {
-      capabilities: { conditionalWrite: true },
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       async get() {
         return null;
       },

@@ -188,7 +188,7 @@ export async function runCommunicationsChecks(check) {
     controlPlane.addWorkspace("ws_comms", "comms", {
       provider: "r2-binding",
       bindingName: "COMMS_BUCKET",
-      capabilities: { conditionalWrite: true },
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       status: "active",
     });
     await controlPlane.addGrant({

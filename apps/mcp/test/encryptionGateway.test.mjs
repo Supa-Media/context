@@ -232,14 +232,14 @@ export async function runEncryptionGatewayChecks(check) {
     controlPlane.addWorkspace("ws_enc_a", "enca", {
       provider: "r2-binding",
       bindingName: "BUCKET_A",
-      capabilities: { conditionalWrite: true },
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       status: "active",
       encryptionKey: { current: "k1", keys: { k1: KEY_A } },
     });
     controlPlane.addWorkspace("ws_enc_b", "encb", {
       provider: "r2-binding",
       bindingName: "BUCKET_B",
-      capabilities: { conditionalWrite: true },
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       status: "active",
       encryptionKey: { current: "k1", keys: { k1: KEY_B } },
     });
@@ -250,7 +250,7 @@ export async function runEncryptionGatewayChecks(check) {
     controlPlane.addWorkspace("ws_enc_none", "encnone", {
       provider: "r2-binding",
       bindingName: "BUCKET_A",
-      capabilities: { conditionalWrite: true },
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       status: "active",
     });
 

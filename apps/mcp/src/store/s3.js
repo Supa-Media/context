@@ -107,7 +107,12 @@ export class S3Store {
     this.forcePathStyle = config.forcePathStyle ?? true;
     this.fetchImpl = config.fetchImpl || ((...args) => globalThis.fetch(...args));
     this.now = config.now || (() => new Date());
-    this.capabilities = { conditionalWrite: true };
+    this.capabilities = {
+      conditionalWrite: true,
+      conditionalCreate: true,
+      conditionalDelete: true,
+      serverSideCopy: "same-store",
+    };
   }
 
   /** Backend URL for a caller key, honouring rootPrefix and addressing style. */
@@ -193,19 +198,52 @@ export class S3Store {
     // silently got last-writer-wins is the exact failure this adapter exists to
     // make impossible.
     const conditional = options?.onlyIf;
-    const expected = conditional ? assertSafeEtag(normalizeEtag(conditional.etagMatches)) : null;
+    let expected = null;
+    if (conditional && conditional.absent !== true) {
+      expected = assertSafeEtag(normalizeEtag(conditional.etagMatches));
+    } else if (conditional?.etagMatches !== undefined) {
+      expected = assertSafeEtag(normalizeEtag(conditional.etagMatches));
+    }
     if (expected) headers["if-match"] = `"${expected}"`;
+    if (conditional?.absent === true) headers["if-none-match"] = "*";
     const response = await this.send("PUT", this.urlFor(key), { headers, body: value });
     // 412 is the documented precondition failure. 404 happens when a
     // conditional write targets an object that no longer exists — also a
     // failed precondition, and R2 returns null for it.
-    if (expected && (response.status === 412 || response.status === 404)) return null;
+    if ((expected || conditional?.absent === true) && (response.status === 412 || response.status === 404)) return null;
     if (!response.ok) throw await s3Error("PUT", key, response);
     return { etag: normalizeEtag(response.headers.get("etag") || "") };
   }
 
-  async delete(key) {
-    const response = await this.send("DELETE", this.urlFor(key));
+  async copy(sourceKey, destinationKey, options = {}) {
+    const source = applyRootPrefix(this.rootPrefix, assertSafeKey(sourceKey));
+    const destination = assertSafeKey(destinationKey);
+    const headers = {
+      "x-amz-copy-source": `/${this.bucket}/${source.split("/").map(encodeRfc3986).join("/")}`,
+      "x-amz-metadata-directive": "COPY",
+    };
+    if (options?.onlyIf?.absent === true) headers["if-none-match"] = "*";
+    if (options?.sourceOnlyIf?.etagMatches) {
+      headers["x-amz-copy-source-if-match"] = `"${assertSafeEtag(
+        normalizeEtag(options.sourceOnlyIf.etagMatches)
+      )}"`;
+    }
+    const response = await this.send("PUT", this.urlFor(destination), {
+      headers,
+    });
+    if (options?.onlyIf?.absent === true && response.status === 412) return null;
+    if (!response.ok) throw await s3Error("COPY", destinationKey, response);
+    const xml = await readCappedText(response, ERROR_RESPONSE_BYTE_CAP, "COPY");
+    return { etag: normalizeEtag(decodeXmlText(readTag(xml, "ETag")) || "") };
+  }
+
+  async delete(key, options = {}) {
+    const headers = {};
+    if (options?.onlyIf?.etagMatches) {
+      headers["if-match"] = `"${assertSafeEtag(normalizeEtag(options.onlyIf.etagMatches))}"`;
+    }
+    const response = await this.send("DELETE", this.urlFor(key), { headers });
+    if (options?.onlyIf?.etagMatches && response.status === 412) return null;
     if (response.status === 404 || response.status === 204 || response.ok) return;
     throw await s3Error("DELETE", key, response);
   }

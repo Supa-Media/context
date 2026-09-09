@@ -992,7 +992,7 @@ async function runSyncReportChecks(check) {
         accessKeyId: "AKIAEXAMPLEEXAMPLESYN",
         secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLESYN",
         forcePathStyle: true,
-        capabilities: { conditionalWrite: true },
+        capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
         status: "active",
       },
       {},
@@ -1053,7 +1053,7 @@ function s3Binding(bucket, searchIndex) {
     accessKeyId: "AKIAEXAMPLEEXAMPLEPRJ",
     secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEPRJ",
     forcePathStyle: true,
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
     ...(searchIndex ? { searchIndex } : {}),
   };

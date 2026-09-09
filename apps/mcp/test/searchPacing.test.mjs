@@ -771,7 +771,7 @@ export async function runSearchPacingChecks(check) {
     controlPlane.addWorkspace("ws_pacing", "pacing", {
       provider: "r2-binding",
       bindingName: "PACING_BUCKET",
-      capabilities: { conditionalWrite: true },
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       status: "active",
     });
     await controlPlane.addGrant({
@@ -914,7 +914,7 @@ export async function runSearchPacingChecks(check) {
     controlPlane.addWorkspace("ws_pacing_bare", "pacingbare", {
       provider: "r2-binding",
       bindingName: "BARE_BUCKET",
-      capabilities: { conditionalWrite: true },
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       status: "active",
     });
     const bareToken = `cat_pacing_bare_${"0".repeat(19)}`;

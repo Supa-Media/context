@@ -314,7 +314,7 @@ export async function runSearchV2IntegrationChecks(check) {
       controlPlane.addWorkspace(workspace, slug, {
         provider: "r2-binding",
         bindingName: binding,
-        capabilities: { conditionalWrite: true },
+        capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
         status: "active",
       });
     }

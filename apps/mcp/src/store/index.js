@@ -10,12 +10,18 @@
  *
  *   get(key)                          → StoredObject | null
  *   put(key, value, options?)         → { etag } | null   (null = precondition failed)
- *   delete(key)                       → void
+ *   copy(sourceKey, destinationKey, options?) → { etag } | null   (optional same-store copy)
+ *   delete(key, options?)             → void | null       (null = precondition failed)
  *   list({ prefix, delimiter, cursor, limit }) → ListResult
  *
  * Plus a capability descriptor:
  *
- *   store.capabilities = { conditionalWrite: boolean }
+ *   store.capabilities = {
+ *     conditionalWrite: boolean,
+ *     conditionalCreate?: boolean,
+ *     conditionalDelete?: boolean,
+ *     serverSideCopy?: "same-store" | false
+ *   }
  *
  * `conditionalWrite` is what makes `put(key, value, { onlyIf: { etagMatches } })`
  * meaningful. R2 and AWS S3 honour it. Backblaze B2 and Wasabi accept the
@@ -44,13 +50,17 @@
  * @property {string} [cursor]
  *
  * @typedef {Object} PutOptions
- * @property {{ etagMatches: string }} [onlyIf]
+ * @property {{ etagMatches?: string, absent?: boolean }} [onlyIf]
+ *
+ * @typedef {Object} DeleteOptions
+ * @property {{ etagMatches?: string }} [onlyIf]
  *
  * @typedef {Object} ContextStore
- * @property {{ conditionalWrite: boolean }} capabilities
+ * @property {{ conditionalWrite: boolean, conditionalCreate?: boolean, conditionalDelete?: boolean, serverSideCopy?: "same-store" | false }} capabilities
  * @property {(key: string) => Promise<StoredObject|null>} get
  * @property {(key: string, value: string|ArrayBuffer|Uint8Array, options?: PutOptions) => Promise<{etag: string}|null>} put
- * @property {(key: string) => Promise<void>} delete
+ * @property {(sourceKey: string, destinationKey: string, options?: PutOptions) => Promise<{etag: string}|null>} [copy]
+ * @property {(key: string, options?: DeleteOptions) => Promise<void|null>} delete
  * @property {(options?: {prefix?: string, delimiter?: string, cursor?: string, limit?: number}) => Promise<ListResult>} list
  */
 
@@ -313,7 +323,7 @@ function errorMessage(error) {
  *   ok: boolean,
  *   reachable: boolean,
  *   writable: boolean,
- *   capabilities: { conditionalWrite: boolean },
+ *   capabilities: { conditionalWrite: boolean, conditionalCreate: boolean, conditionalDelete: boolean, serverSideCopy: "same-store" | false },
  *   conditionalWrite: {
  *     declared: boolean,
  *     verified: boolean,
@@ -323,17 +333,48 @@ function errorMessage(error) {
  *     mismatch: boolean,
  *     detail: string,
  *   },
+ *   conditionalCreate: {
+ *     declared: boolean,
+ *     verified: boolean,
+ *     rejectsExisting: boolean,
+ *     mismatch: boolean,
+ *     detail: string,
+ *   },
+ *   serverSideCopy: {
+ *     declared: boolean,
+ *     verified: boolean,
+ *     rejectsDestinationConflict: boolean,
+ *     rejectsSourceMismatch: boolean,
+ *     mismatch: boolean,
+ *     detail: string,
+ *   },
+ *   conditionalDelete: {
+ *     declared: boolean,
+ *     verified: boolean,
+ *     rejectsWrong: boolean,
+ *     acceptsCorrect: boolean,
+ *     mismatch: boolean,
+ *     detail: string,
+ *   },
  *   cleanedUp: boolean,
  *   errors: string[],
  * }>}
  */
 export async function probeStore(store, { keyPrefix = PROBE_PREFIX } = {}) {
   const declared = Boolean(store?.capabilities?.conditionalWrite);
+  const declaredCreate = Boolean(store?.capabilities?.conditionalCreate);
+  const declaredDelete = Boolean(store?.capabilities?.conditionalDelete);
+  const declaredCopy = store?.capabilities?.serverSideCopy === "same-store";
   const result = {
     ok: false,
     reachable: false,
     writable: false,
-    capabilities: { conditionalWrite: false },
+    capabilities: {
+      conditionalWrite: false,
+      conditionalCreate: false,
+      conditionalDelete: false,
+      serverSideCopy: false,
+    },
     conditionalWrite: {
       declared,
       verified: false,
@@ -342,6 +383,29 @@ export async function probeStore(store, { keyPrefix = PROBE_PREFIX } = {}) {
       rejectsStale: false,
       mismatch: declared,
       detail: "not tested",
+    },
+    conditionalDelete: {
+      declared: declaredDelete,
+      verified: false,
+      rejectsWrong: false,
+      acceptsCorrect: false,
+      mismatch: false,
+      detail: declaredDelete ? "not tested" : "not declared",
+    },
+    conditionalCreate: {
+      declared: declaredCreate,
+      verified: false,
+      rejectsExisting: false,
+      mismatch: false,
+      detail: declaredCreate ? "not tested" : "not declared",
+    },
+    serverSideCopy: {
+      declared: declaredCopy,
+      verified: false,
+      rejectsDestinationConflict: false,
+      rejectsSourceMismatch: false,
+      mismatch: false,
+      detail: declaredCopy ? "not tested" : "not declared",
     },
     cleanedUp: true,
     errors: [],
@@ -476,6 +540,136 @@ export async function probeStore(store, { keyPrefix = PROBE_PREFIX } = {}) {
     result.conditionalWrite.acceptsCorrect &&
     result.conditionalWrite.rejectsStale;
 
+  if (declaredCreate) {
+    try {
+      const createExisting = await store.put(key, overwrite, {
+        onlyIf: { absent: true },
+      });
+      if (createExisting === null || createExisting === undefined) {
+        if ((await readProbe(store, key)) === conditionalOverwrite) {
+          result.conditionalCreate.rejectsExisting = true;
+          result.conditionalCreate.detail = "create-only write refused an existing object";
+        } else {
+          result.conditionalCreate.detail =
+            "create-only write reported refusal but changed the object";
+          result.errors.push("conditional create reports refusal after writing");
+        }
+      } else if ((await readProbe(store, key)) === overwrite) {
+        result.conditionalCreate.detail =
+          "create-only write overwrote an existing object";
+        result.errors.push("conditional create is not enforced by this backend");
+      } else {
+        result.conditionalCreate.detail =
+          "create-only write reported success without a visible write";
+        result.errors.push("conditional create does not report conflicts");
+      }
+    } catch (error) {
+      result.conditionalCreate.detail = `create-only write raised instead of returning null: ${errorMessage(error)}`;
+      result.errors.push("conditional create did not return null on an existing destination");
+    }
+  }
+  result.conditionalCreate.verified = result.conditionalCreate.rejectsExisting;
+  result.capabilities.conditionalCreate = result.conditionalCreate.verified;
+  result.conditionalCreate.mismatch = declaredCreate && !result.conditionalCreate.verified;
+
+  const deleteProbeEtag = await readProbeEtag(store, key);
+  if (declaredDelete && deleteProbeEtag) {
+    try {
+      const wrongDelete = await store.delete(key, {
+        onlyIf: { etagMatches: IMPOSSIBLE_ETAG },
+      });
+      if (wrongDelete === null || wrongDelete === undefined) {
+        const stillThere = (await readProbe(store, key)) !== null;
+        if (stillThere) {
+          result.conditionalDelete.rejectsWrong = true;
+          result.conditionalDelete.detail = "a deliberately wrong If-Match delete was rejected";
+        } else {
+          result.conditionalDelete.detail =
+            "the store reported a refused delete, but the object was deleted";
+          result.errors.push("conditional delete reports refusal after deleting");
+        }
+      } else {
+        result.conditionalDelete.detail =
+          "the store accepted a delete despite a wrong If-Match";
+        result.errors.push("conditional delete is not enforced by this backend");
+      }
+    } catch (error) {
+      const stillThere = (await readProbe(store, key)) !== null;
+      result.conditionalDelete.detail = stillThere
+        ? `conditional delete raised instead of returning null: ${errorMessage(error)}`
+        : `conditional delete raised and the object was deleted: ${errorMessage(error)}`;
+      result.errors.push("conditional delete did not return null on a failed precondition");
+    }
+
+    if (result.conditionalDelete.rejectsWrong) {
+      try {
+        const correctDelete = await store.delete(key, {
+          onlyIf: { etagMatches: deleteProbeEtag },
+        });
+        if (correctDelete === null || (await readProbe(store, key)) !== null) {
+          result.conditionalDelete.detail =
+            "the store rejected a correct If-Match delete";
+          result.errors.push("conditional delete rejects a correct precondition");
+        } else {
+          result.conditionalDelete.acceptsCorrect = true;
+          result.conditionalDelete.detail =
+            "wrong and correct If-Match deletes behaved correctly";
+        }
+      } catch (error) {
+        result.conditionalDelete.detail = `a correct If-Match delete raised: ${errorMessage(error)}`;
+        result.errors.push("conditional delete raised on a correct precondition");
+      }
+    }
+  }
+  result.conditionalDelete.verified =
+    result.conditionalDelete.rejectsWrong && result.conditionalDelete.acceptsCorrect;
+  result.capabilities.conditionalDelete = result.conditionalDelete.verified;
+  result.conditionalDelete.mismatch = declaredDelete && !result.conditionalDelete.verified;
+
+  if (declaredCopy && typeof store.copy === "function" && result.conditionalWrite.verified) {
+    const sourceKey = `${keyPrefix}${crypto.randomUUID()}.copy-source`;
+    const destinationKey = `${keyPrefix}${crypto.randomUUID()}.copy-destination`;
+    try {
+      const sourceWrite = await store.put(sourceKey, "context store copy probe source");
+      await store.put(destinationKey, "context store copy probe existing");
+      const destinationConflict = await store.copy(sourceKey, destinationKey, {
+        onlyIf: { absent: true },
+        sourceOnlyIf: sourceWrite?.etag ? { etagMatches: sourceWrite.etag } : undefined,
+      });
+      const destinationUnchanged =
+        (await readProbe(store, destinationKey)) === "context store copy probe existing";
+      if ((destinationConflict === null || destinationConflict === undefined) && destinationUnchanged) {
+        result.serverSideCopy.rejectsDestinationConflict = true;
+      } else {
+        result.serverSideCopy.detail = "same-store copy ignored destination create-only precondition";
+      }
+      await store.delete(destinationKey);
+      const sourceMismatch = await store.copy(sourceKey, destinationKey, {
+        onlyIf: { absent: true },
+        sourceOnlyIf: { etagMatches: IMPOSSIBLE_ETAG },
+      });
+      if ((sourceMismatch === null || sourceMismatch === undefined) && (await readProbe(store, destinationKey)) === null) {
+        result.serverSideCopy.rejectsSourceMismatch = true;
+      } else {
+        result.serverSideCopy.detail = "same-store copy ignored source If-Match precondition";
+      }
+      result.serverSideCopy.verified =
+        result.serverSideCopy.rejectsDestinationConflict &&
+        result.serverSideCopy.rejectsSourceMismatch;
+      if (result.serverSideCopy.verified) {
+        result.serverSideCopy.detail =
+          "destination create-only and source If-Match copy preconditions behaved correctly";
+      }
+    } catch (error) {
+      result.serverSideCopy.detail = `same-store copy probe raised: ${errorMessage(error)}`;
+    } finally {
+      await cleanUpProbe(store, sourceKey, result);
+      await cleanUpProbe(store, destinationKey, result);
+    }
+  }
+  result.capabilities.serverSideCopy = result.serverSideCopy.verified ? "same-store" : false;
+  result.serverSideCopy.mismatch = declaredCopy && !result.serverSideCopy.verified;
+
   await cleanUpProbe(store, key, result);
 
   result.capabilities.conditionalWrite = result.conditionalWrite.verified;
@@ -488,6 +682,15 @@ async function readProbe(store, key) {
   try {
     const object = await store.get(key);
     return object ? await object.text() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readProbeEtag(store, key) {
+  try {
+    const object = await store.get(key);
+    return object?.etag || null;
   } catch {
     return null;
   }
