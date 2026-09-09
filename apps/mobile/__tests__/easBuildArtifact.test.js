@@ -68,8 +68,31 @@ describe("EAS build artifact coupling", () => {
     try { await expect(downloadArtifact([{ id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056", artifacts: { applicationArchiveUrl: "https://example.invalid/start" } }], path.join(os.tmpdir(), `cred-${Date.now()}.ipa`))).rejects.toThrow(/credentials/); } finally { global.fetch = old; }
   });
 
+  test("rejects HTTPS downgrade and redirect limit", async () => {
+    const old = global.fetch; global.fetch = async () => ({ status: 302, headers: new Map([["location", "http://example.invalid/x"]]) });
+    try { await expect(downloadArtifact([{ id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056", artifacts: { applicationArchiveUrl: "https://example.invalid/x" } }], path.join(os.tmpdir(), `down-${Date.now()}.ipa`))).rejects.toThrow(/HTTPS/); } finally { global.fetch = old; }
+    let calls = 0; global.fetch = async () => ({ status: 302, headers: new Map([["location", `https://example.invalid/${++calls}`]]) });
+    try { await expect(downloadArtifact([{ id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056", artifacts: { applicationArchiveUrl: "https://example.invalid/start" } }], path.join(os.tmpdir(), `limit-${Date.now()}.ipa`))).rejects.toThrow(/limit/); } finally { global.fetch = old; }
+  });
+
   test.each([[0, 4], [5, 4], [4, 3]])("rejects declared/actual size mismatch (%s/%s)", async (declared, actual) => {
     const old = global.fetch; global.fetch = async () => ({ ok: true, status: 200, headers: new Map([["content-length", String(declared)]]), body: require("node:stream").Readable.from([Buffer.alloc(actual, 0x50)]) });
     try { await expect(downloadArtifact([{ id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056", artifacts: { applicationArchiveUrl: "https://example.invalid/a" } }], path.join(os.tmpdir(), `size-${Date.now()}-${declared}.ipa`))).rejects.toThrow(); } finally { global.fetch = old; }
+  });
+
+  test("rejects maximum declared size", async () => {
+    const old = global.fetch; global.fetch = async () => ({ ok: true, status: 200, headers: new Map([["content-length", String(300 * 1024 * 1024)]]), body: require("node:stream").Readable.from([]) });
+    try { await expect(downloadArtifact([{ id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056", artifacts: { applicationArchiveUrl: "https://example.invalid/a" } }], path.join(os.tmpdir(), `max-${Date.now()}.ipa`))).rejects.toThrow(/Content-Length/); } finally { global.fetch = old; }
+  });
+
+  test("sanitizes stream failures and cleans output", async () => {
+    const old = global.fetch; const destination = path.join(os.tmpdir(), `stream-${Date.now()}.ipa`);
+    global.fetch = async () => ({ ok: true, status: 200, headers: new Map([["content-length", "4"]]), body: { async *[Symbol.asyncIterator]() { yield Buffer.from("PK\x03\x04"); throw new Error("signed-token-secret"); } } });
+    try { await expect(downloadArtifact([{ id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056", artifacts: { applicationArchiveUrl: "https://example.invalid/a" } }], destination)).rejects.toThrow("EAS artifact download failed"); expect(fs.existsSync(destination)).toBe(false); } finally { global.fetch = old; }
+  });
+
+  test("rejects an existing destination symlink", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "symlink-")); const destination = path.join(dir, "x.ipa"); fs.symlinkSync("target", destination);
+    await expect(downloadArtifact([{ id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056", artifacts: { applicationArchiveUrl: "https://example.invalid/a" } }], destination)).rejects.toThrow(/already exists/);
   });
 });

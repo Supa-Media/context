@@ -55,7 +55,9 @@ async function downloadArtifact(value, destination) {
     handle = await fs.promises.open(temp, "wx", 0o600);
     let total = 0;
     let magic = Buffer.alloc(0);
-    for await (const chunk of response.body) {
+    let chunks;
+    try { chunks = response.body[Symbol.asyncIterator](); } catch { throw new Error("EAS artifact download failed"); }
+    try { for await (const chunk of { [Symbol.asyncIterator]: () => chunks }) {
       const bytes = Buffer.from(chunk);
       total += bytes.length;
       if (total > MAX_ARTIFACT_BYTES || total > declared) throw new Error("EAS artifact exceeds declared size");
@@ -66,7 +68,7 @@ async function downloadArtifact(value, destination) {
         if (!result || result.bytesWritten <= 0) throw new Error("EAS artifact write made no progress");
         written += result.bytesWritten;
       }
-    }
+    } } catch { throw new Error("EAS artifact download failed"); }
     if (total !== declared || magic.length < 4 || magic.readUInt32LE(0) !== 0x04034b50) throw new Error("EAS artifact is not a complete IPA ZIP archive");
     await handle.sync();
     await handle.close(); handle = undefined;
