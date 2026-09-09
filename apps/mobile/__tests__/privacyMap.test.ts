@@ -229,7 +229,20 @@ describe("the control on a row", () => {
 
   test("the armed press says what it is about to publish, by name", () => {
     expect(widenWarning("2-areas")).toContain("2-areas");
-    expect(widenWarning("2-areas")).toMatch(/everyone|every note/i);
+    expect(widenWarning("2-areas")).toMatch(/everyone/i);
+    /*
+      **And it says what the press does not reach.** `setFolderVisibility`
+      replaces one `folder_defaults` prefix rule and hands `overrides` back
+      untouched, so longest-prefix leaves a subfolder with its own `private`
+      rule private and every note held back by name held back. The first
+      version said "every note in it", which is the right *direction* to err
+      in and still a claim a person can catch being wrong — and a warning
+      somebody has caught out once is one they stop reading.
+    */
+    expect(widenWarning("2-areas")).toMatch(/held back by name/i);
+    expect(widenWarning("2-areas")).toMatch(/subfolder with a rule of its own/i);
+    // Still the strong half: the default governs what lands there next.
+    expect(widenWarning("2-areas")).toMatch(/later/i);
   });
 });
 
@@ -245,13 +258,15 @@ describe("the words", () => {
     // on a link an owner mints and can revoke — a share row, and it says so.
     const spoken = [
       ...BOTH.map(visibilityWord),
-      ...BOTH.flatMap((v) => [
-        folderDefaultLine(v),
-        privateMeans("personal"),
-        teamMeans("personal"),
+      ...BOTH.flatMap((v) => [folderDefaultLine(v)]),
+      ...[true, false].flatMap((owner) => [
+        privateMeans("personal", owner),
+        teamMeans("personal", owner),
+        privateMeans("shared", owner),
+        teamMeans("shared", owner),
+        privateMeans(null, owner),
+        teamMeans(null, owner),
       ]),
-      privateMeans("shared"),
-      teamMeans("shared"),
     ].join(" ");
     expect(spoken).not.toMatch(/\bpublic\b/i);
     expect(spoken).not.toMatch(/search engine|indexed by/i);
@@ -263,8 +278,8 @@ describe("the words", () => {
     // The one thing a member cannot work out from the rules, and the thing
     // somebody otherwise learns by marking a folder private and locking out
     // their co-lead.
-    expect(privateMeans("shared")).toMatch(/owner/i);
-    expect(privateMeans("shared")).not.toBe(privateMeans("personal"));
+    expect(privateMeans("shared", true)).toMatch(/owner/i);
+    expect(privateMeans("shared", true)).not.toBe(privateMeans("personal", true));
     /*
       **The roles it excludes, by name, and this is the half the first version
       of this check missed.** Deleting the whole `shared` branch fell through
@@ -275,8 +290,29 @@ describe("the words", () => {
       not carry it. That is the thing this line exists to say, so it is the
       thing to assert.
     */
-    expect(privateMeans("shared")).toMatch(/member/i);
-    expect(privateMeans("shared")).toMatch(/editor/i);
+    expect(privateMeans("shared", true)).toMatch(/member/i);
+    expect(privateMeans("shared", true)).toMatch(/editor/i);
+    // And a workspace reads the same to everybody in it: "owners only" names a
+    // role rather than a person, so there is nothing for the reader's own
+    // membership to change.
+    expect(privateMeans("shared", false)).toBe(privateMeans("shared", true));
+  });
+
+  test("a brain read by somebody else is never called theirs", () => {
+    /*
+      Found by rendering `@lk` — the demo's *other* person's brain, read at
+      `member`. "Yours alone. …no AI client of anybody else's reaches it — the
+      only way to hand a private note over is to mark it team" is the owner's
+      sentence, and every clause of it is false for the reader: the notes are
+      not theirs, the AI client that cannot reach them is theirs, and the
+      marking is not theirs to do. A brain has exactly one owner, so the
+      reader's own membership is the whole difference.
+    */
+    expect(privateMeans("personal", true)).toMatch(/^Yours alone/);
+    expect(privateMeans("personal", false)).not.toMatch(/Yours alone/);
+    expect(privateMeans("personal", false)).toMatch(/its owner's alone/i);
+    expect(teamMeans("personal", true)).toMatch(/you have given access/i);
+    expect(teamMeans("personal", false)).toMatch(/its owner has given access/i);
   });
 
   test("an exception is described by the direction it goes", () => {

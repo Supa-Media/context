@@ -76,7 +76,7 @@ export function folderDefaultLine(visibility: Visibility): string {
 }
 
 /** What `private` reaches, which is not the same sentence in the two kinds. */
-export function privateMeans(kind: ContextKind | null): string {
+export function privateMeans(kind: ContextKind | null, viewerIsOwner: boolean): string {
   if (kind === "shared") {
     return (
       "Owners only. Not the members, not the editors — being trusted to write here is a " +
@@ -84,20 +84,32 @@ export function privateMeans(kind: ContextKind | null): string {
     );
   }
   if (kind === "personal") {
-    return (
-      "Yours alone. No role, no invitation and no AI client of anybody else's reaches it — " +
-      "the only way to hand a private note over is to mark it team."
-    );
+    /*
+      **A brain has one owner, and the reader is not always them.** Rendered on
+      `@lk` — somebody else's brain, read at `member` — the owner's sentence
+      said "Yours alone" about notes that are not the reader's at all, and the
+      filtered-view line underneath then had to correct it. `viewerIsOwner` is
+      the whole difference; a workspace needs no such split because "owners
+      only" already names a role rather than a person.
+    */
+    return viewerIsOwner
+      ? "Yours alone. No role, no invitation and no AI client of anybody else's reaches it — " +
+          "the only way to hand a private note over is to mark it team."
+      : "Its owner's alone. No role, no invitation and no AI client of yours reaches it — " +
+          "only they can hand a private note over, by marking it team.";
   }
   return "Owners only. No role and no invitation reaches it, and no AI client of anybody else's.";
 }
 
 /** What `team` reaches — the sentence that must never drift towards "public". */
-export function teamMeans(kind: ContextKind | null): string {
+export function teamMeans(kind: ContextKind | null, viewerIsOwner: boolean): string {
+  /* Whose invitations they are — see `privateMeans` for the reader this splits for. */
   const who =
     kind === "shared"
       ? "Everybody in this workspace"
-      : "The people you have given access to";
+      : viewerIsOwner
+        ? "The people you have given access to"
+        : "The people its owner has given access to";
   return `${who} — the named list on People, and nobody else. There is no setting here that puts a note in front of anybody who is not on it.`;
 }
 
@@ -140,9 +152,23 @@ export function truncatedLine(): string {
   return "Your store stopped listing before the end, so this is not the whole of it.";
 }
 
-/** What a member is looking at, when it is not everything. */
+/**
+ * What a member or an editor is looking at, when it is not everything.
+ *
+ * **The only sentence in this panel that says the view is filtered**, so it
+ * carries both halves — a folder held back is absent from the list, and so is
+ * a note. `tierExplanation` used to say the second half at the top of the
+ * panel and was cut: one point in two voices, a screen apart, is the
+ * duplication `memberReachSentence` was already removed for. This is the half
+ * that is specific to *this* surface — the rules you are reading are your own
+ * view of them — and the general paragraph keeps the home its own docstring
+ * gives it, on the members card.
+ */
 export function filteredViewLine(): string {
-  return "Folders held back from you are not listed here — this is your own view of the rules, not the owner's.";
+  return (
+    "Anything the owner held back from you is missing here, folders and notes alike. These " +
+    "are the rules as they reach you, not the whole of what is in the file."
+  );
 }
 
 /** Which way an exact-note rule points. */
@@ -168,11 +194,22 @@ export function noExceptionsLine(visibility: Visibility): string {
  * gateway's `set_folder_visibility` computes an impact report and no console
  * query returns one — and a number invented here would be #25 with a warning
  * label on it.
+ *
+ * **It said "every note in it", and that overstated by a little.**
+ * `setFolderVisibility` in `functions/lib/fileOps.ts` replaces exactly one
+ * `folder_defaults` prefix rule and hands `overrides` back untouched, so
+ * `visibilityOf`'s longest-prefix match leaves a subfolder that carries its
+ * own `private` rule private, and every note held back by name stays held
+ * back. Both exclusions are named here rather than dropped, because a warning
+ * a person can catch being wrong is one they stop reading — and the sentence
+ * is still the strong version: what it warns about is a default that also
+ * governs whatever lands in the folder next.
  */
 export function widenWarning(name: string): string {
   return (
-    `Press again to share ${name}. Every note in it that is not held back by name becomes ` +
-    "readable by everyone on People, including notes you add to it later."
+    `Press again to share ${name}. Everything in it follows the new default and becomes ` +
+    "readable by everyone on People — except a note held back by name, and a subfolder with " +
+    "a rule of its own. Notes added to it later follow it too."
   );
 }
 

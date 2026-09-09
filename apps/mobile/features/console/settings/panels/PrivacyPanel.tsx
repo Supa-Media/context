@@ -9,6 +9,7 @@ import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
 import { radii } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
+import { capabilitiesForRole } from "../../capabilities";
 import type { FileBrowser } from "../../files/browser";
 import type { Visibility } from "../../files/types";
 import {
@@ -36,7 +37,7 @@ import {
 } from "../../privacy/words";
 import { selectedContext, type ConsoleData } from "../../types";
 import { useArming } from "../../useArming";
-import { isFilteredView, tierExplanation } from "../../visibility";
+import { isFilteredView } from "../../visibility";
 import { settingsSectionLabel } from "../sections";
 
 /**
@@ -100,7 +101,16 @@ export function PrivacyPanel({
   const files = data.files;
   const current = selectedContext(data);
   const kind = contextKindOf(current?.kind);
+  /*
+    Whether these notes are the reader's own, which decides the voice the two
+    definitions are written in — `privateMeans` has the case that made it
+    matter. From `capabilitiesForRole` rather than a fresh `role === "owner"`,
+    so this reads the same table the controls do, and a role that has not
+    loaded answers `false`: the wrong direction for a copy default is telling
+    somebody notes are theirs before we know whose they are.
+  */
   const role = current?.role;
+  const viewerIsOwner = capabilitiesForRole(role).isOwner;
 
   /**
    * The folders opened *here*, separate from the tree's own `expanded`.
@@ -183,21 +193,24 @@ export function PrivacyPanel({
   const listings = files.listings ?? {};
   const root = privacyViewOf(listings, "");
   /*
-    The reader's half of the fact, and **only** the reader's half.
+    **Neither `visibility.ts` paragraph is drawn here, and that is one rule
+    applied twice rather than two decisions.**
 
-    `memberReachSentence` — the owner's half — was here in the first version
-    and was cut after reading the rendered screen: it says "anything you marked
-    private is yours alone, no role and no AI client of theirs reaches it, and
-    the only way to hand a private note over is to mark it team", which is
-    `privateMeans("personal")` again, in a second voice, two inches below it.
-    It belongs on the members card, which is where its own docstring sends it.
+    `memberReachSentence` — the owner's half — went first: it says "anything
+    you marked private is yours alone, no role and no AI client of theirs
+    reaches it", which is `privateMeans("personal")` again, in a second voice,
+    two inches below it. `tierExplanation` — the reader's half — survived that
+    pass and should not have: for a `member` it says private notes are
+    invisible here, and `filteredViewLine` under the folder list says the list
+    is missing what was held back. One point, two voices, one screen apart.
 
-    This one is not a repeat of anything here: it tells a member or an editor
-    that the rules they are reading are a *filtered* copy. `null` for an owner
-    and `null` for a role that has not loaded, by construction in
-    `visibility.ts` rather than by a check here.
+    `filteredViewLine` is the one kept, and it is the panel-specific half:
+    it sits under the list it qualifies and says the *rules you are reading*
+    are your own view of them, which no other surface says. The general
+    paragraph keeps the home its own docstring gives it — `MembersSection`,
+    beside the owner's half of the same fact — and the one-line version is
+    already on every screen of Browse.
   */
-  const reach = tierExplanation(role);
 
   return (
     <View>
@@ -216,25 +229,19 @@ export function PrivacyPanel({
         <Row style={styles.meaningRow}>
           <VisibilityPill visibility="private" />
           <Grow>
-            <Text variant="rowSub">{privateMeans(kind)}</Text>
+            <Text variant="rowSub">{privateMeans(kind, viewerIsOwner)}</Text>
           </Grow>
         </Row>
         <Row style={StyleSheet.flatten([styles.meaningRow, styles.meaningRowLater])} divided>
           <VisibilityPill visibility="team" />
           <Grow>
-            <Text variant="rowSub">{teamMeans(kind)}</Text>
+            <Text variant="rowSub">{teamMeans(kind, viewerIsOwner)}</Text>
           </Grow>
         </Row>
         <Hint style={styles.hint}>
           <Text variant="hint">{linkExceptionLine()}</Text>
         </Hint>
       </Card>
-
-      {reach === null ? null : (
-        <Text variant="foot" style={styles.foot}>
-          {reach}
-        </Text>
-      )}
 
       <Text variant="eyebrow" style={styles.sectionHeadLater}>
         Folder by folder

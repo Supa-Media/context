@@ -352,12 +352,40 @@ describe("a filtered view says so and does not fill in the gap", () => {
     // The private folders of this context are simply not in the listing, and
     // nothing here counts them, names them, or leaves a placeholder for them.
     expect(text).not.toContain("2-areas");
-    expect(text).toContain("Folders held back from you are not listed here");
+    expect(text).toContain("Anything the owner held back from you is missing here");
+  });
+
+  test("a member of somebody else's brain is not told the notes are theirs", () => {
+    // The panel picks the voice from `capabilitiesForRole(role).isOwner`, so a
+    // role that has not loaded gets the non-owner sentence: the wrong
+    // direction for a copy default is claiming somebody's notes are yours
+    // before anybody knows whose they are.
+    const text = panel({ role: "member", kind: "personal" }).textContent ?? "";
+    expect(text).not.toContain("Yours alone");
+    expect(text).toContain("Its owner's alone");
+  });
+
+  test("and told it once, not twice in two voices", () => {
+    /*
+      `tierExplanation` was drawn at the top of this panel and said, to a
+      member, that private notes are invisible here — while the line under the
+      folder list said the list is missing what was held back. One point, two
+      voices, a screen apart, which is exactly the duplication
+      `memberReachSentence` was cut for on the owner's side. The panel-specific
+      half is the one kept; the general paragraph keeps the home its own
+      docstring gives it, on the members card, and the one-line version is
+      already on every screen of Browse.
+    */
+    for (const role of ["member", "editor"] as const) {
+      const text = panel({ role, kind: "shared" }).textContent ?? "";
+      expect(text).toContain("Anything the owner held back from you is missing here");
+      expect(text).not.toContain("Anything the owner marked private is invisible here");
+    }
   });
 
   test("an owner is never told their own view is filtered", () => {
     const text = panel({ role: "owner", kind: "personal" }).textContent ?? "";
-    expect(text).not.toContain("Folders held back from you");
+    expect(text).not.toContain("held back from you");
   });
 
   test("a manifest that will not parse is reported, not drawn as all-private rules", () => {
