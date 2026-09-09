@@ -57,9 +57,9 @@ import {
  * ### The original set (57 tests at the time)
  *
  *  - `interruptionMode: "mixWithOthers"` -> `"doNotMix"`: 2 — **"the audio
- *    session mixes rather than seizing the input"** and **"a binary that
+ *    session mixes rather than seizing the input"** and **"a session that
  *    rejects background audio refuses capture"**, which asserts the
- *    fail-closed native-version behavior. This is the one that cannot be
+ *    fail-closed background-session behavior. This is the one that cannot be
  *    caught by hand: a simulator has no other app holding the microphone.
  *  - `chunkStartOffsetMs += durationMs` -> `+= 0`: 2 — **"rotation lays chunks
  *    end to end on the wall clock"** and **"ending mid-chunk still sends what
