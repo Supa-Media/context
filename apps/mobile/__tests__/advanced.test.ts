@@ -4,9 +4,23 @@ import {
   auditActionLabel,
   auditActorLabel,
   buildKeyExportDocument,
+  canReadAuditTrail,
   describeKeyExportFailure,
   type ConsoleAuditEvent,
 } from "../features/console/advanced/advanced";
+
+describe("who may read the audit trail through the console", () => {
+  // `listEvents` itself is member-readable on the backend — this gate is
+  // deliberately stricter than that, because `paths` on every row is an open
+  // leak `docs/decisions/privacy-and-sharing.md` names and the server has not
+  // closed. See `canReadAuditTrail`'s own doc comment for the measured attack.
+  test("only the owner, never a member or an editor", () => {
+    expect(canReadAuditTrail("owner")).toBe(true);
+    expect(canReadAuditTrail("editor")).toBe(false);
+    expect(canReadAuditTrail("member")).toBe(false);
+    expect(canReadAuditTrail(undefined)).toBe(false);
+  });
+});
 
 describe("naming an action for the audit trail", () => {
   test("a known action reads in words", () => {

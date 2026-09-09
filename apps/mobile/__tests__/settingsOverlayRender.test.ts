@@ -347,3 +347,80 @@ describe("the list is the context switcher too", () => {
     expect(host.querySelectorAll('[data-testid="settings-section-storage"]')).toHaveLength(1);
   });
 });
+
+/**
+ * A `SettingsOverlay` whose `data` is genuinely live.
+ *
+ * `overlay()` above snapshots `useDemoConsoleData()` **once** and hands that
+ * frozen object to a `SettingsOverlay` mounted separately — which is exactly
+ * right for asserting a callback fired (the tests above), and wrong for
+ * asserting the screen updates: the two trees share no state, so pressing a
+ * context row there proves the click reached `onSwitchContext` and nothing
+ * about what got drawn afterwards. This wires them into one component
+ * instead, so calling `.selectContext(...)` on the object it returns causes a
+ * real re-render with the new context's own `shares` and `advanced` already
+ * in the `data` the overlay is holding.
+ */
+function liveOverlay(section: SettingsSectionKey): {
+  host: HTMLElement;
+  data: () => ConsoleData;
+} {
+  let latest: ConsoleData | null = null;
+  function Harness() {
+    const data = useDemoConsoleData();
+    latest = data;
+    return createElement(SettingsOverlay, {
+      data,
+      section,
+      onSelect: () => {},
+      onDismiss: () => {},
+    });
+  }
+  mount(() => createElement(Harness));
+  return {
+    host: document.body,
+    data: () => {
+      if (latest === null) throw new Error("the demo console did not resolve");
+      return latest;
+    },
+  };
+}
+
+/**
+ * The isolation `useLiveConsoleData`'s `selectedContextId` derivation already
+ * carries — proven the security-relevant way, at the query layer, elsewhere —
+ * has no equivalent guard at the rendering layer for these two new sections.
+ * Cheap to lose silently: `shares`/`advanced` keyed by the wrong id, or a
+ * stale closure over the previously-selected context, would show one
+ * context's rows on another's screen and nothing here would say so.
+ */
+describe("a section follows the context it belongs to, not the one beside it", () => {
+  test("a shared link belongs to the context that has it, not the one beside it", () => {
+    const { host, data } = liveOverlay("shares");
+    // @seyi is selected first, by `useDemoConsoleData`'s own default.
+    expect(host.textContent ?? "").toContain("1-projects/board-update.md");
+    expect(host.textContent ?? "").not.toContain("1-projects/roadmap.md");
+
+    act(() => {
+      data().selectContext("pw");
+    });
+
+    const text = host.textContent ?? "";
+    expect(text).toContain("1-projects/roadmap.md");
+    expect(text).not.toContain("1-projects/board-update.md");
+  });
+
+  test("an audit row belongs to the context that recorded it, not the one beside it", () => {
+    const { host, data } = liveOverlay("advanced");
+    expect(host.textContent ?? "").toContain("1-projects/board-update.md");
+    expect(host.textContent ?? "").not.toContain("1-projects/roadmap.md");
+
+    act(() => {
+      data().selectContext("pw");
+    });
+
+    const text = host.textContent ?? "";
+    expect(text).toContain("1-projects/roadmap.md");
+    expect(text).not.toContain("1-projects/board-update.md");
+  });
+});

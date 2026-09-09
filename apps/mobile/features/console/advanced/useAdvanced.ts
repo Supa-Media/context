@@ -6,6 +6,7 @@ import { describeQueryFailure } from "../failure";
 import { EMPTY_QUERY_SPEC } from "../querySpec";
 import {
   buildKeyExportDocument,
+  canReadAuditTrail,
   type AdvancedView,
   type ConsoleAuditEvent,
   type KeyExportAction,
@@ -16,15 +17,16 @@ import {
 /**
  * The Advanced section, bound to the control plane.
  *
- * Two backends, two different clearances, in one hook because they share one
- * settings row:
+ * Both halves are owner-only in the console today, for two unrelated reasons
+ * that happen to land on the same gate:
  *
- *  - `audit.listEvents` is readable by **any member**, read-only role
- *    included — the point of an audit trail is that the people whose notes are
- *    involved can see what touched them, and `listEvents` itself withholds the
- *    non-owner-visible `details` fields (`MEMBER_VISIBLE_DETAIL_ACTIONS`). So
- *    this subscribes for everybody, the same shape `useFastSearch` uses for
- *    `fastSearch.status`.
+ *  - `audit.listEvents` is readable by **any member** on the backend,
+ *    deliberately. The console's own subscription is stricter than that —
+ *    see `canReadAuditTrail` for why: `paths` on every row is an open leak
+ *    `docs/decisions/privacy-and-sharing.md` names and the backend has not
+ *    closed, and this hook is where the console keeps that leak from becoming
+ *    a first-class tab in every shared context. When the server-side fix
+ *    lands, this is the gate to revisit.
  *  - `encryptionKeys.exportEncryptionKeys` is **owner-only**
  *    (`authorizeEncryptionExport`), so `keyExport` is absent — the whole
  *    property — for anyone else, the rule `StorageActions` states.
@@ -51,23 +53,31 @@ function usable<T>(value: unknown): T | undefined {
 
 export function useAdvanced(options: {
   workspaceId: Id<"workspaces"> | null;
-  /** Whether the caller is this context's owner — the same gate `storageActions` uses. */
-  isOwner: boolean;
+  /** The caller's role in this context, or `undefined` while it is unknown. */
+  role: string | undefined;
 }): AdvancedView {
-  const { workspaceId, isOwner } = options;
+  const { workspaceId, role } = options;
+  // Owner-only in the console — see `canReadAuditTrail` for why this is
+  // stricter than what `listEvents` itself allows on the backend, and never
+  // relax it without the server-side fix that section describes.
+  const isOwner = canReadAuditTrail(role);
 
-  // Any member may read the audit trail, so the only question is whether
-  // there is a context to ask about — `workspaceId` is the sole dependency,
-  // and `api.…` is reached for *inside* the memo. See `./querySpec.ts`.
+  // An empty spec for a non-owner as well as for no context at all — the same
+  // shape `useShares` uses for `listShares`, and for the same class of reason:
+  // subscribing anyway would trade a plain "only an owner sees this" sentence
+  // for a query this console must not be sending in the first place.
+  //
+  // `workspaceId` and `isOwner` are the only dependencies, and `api.…` is
+  // reached for *inside* the memo. See `./querySpec.ts`.
   const spec = useMemo<RequestForQueries>(() => {
-    if (workspaceId === null) return EMPTY_QUERY_SPEC;
+    if (workspaceId === null || !isOwner) return EMPTY_QUERY_SPEC;
     return {
       events: {
         query: api.functions.audit.listEvents,
         args: { workspaceId, limit: AUDIT_LIMIT },
       },
     };
-  }, [workspaceId]);
+  }, [workspaceId, isOwner]);
 
   const results = useQueries(spec);
   const raw = results.events;
@@ -93,9 +103,14 @@ export function useAdvanced(options: {
   return {
     audit: {
       events,
-      // A query that threw is an answer, not a wait.
-      loading: workspaceId !== null && raw === undefined,
+      // A query that threw is an answer, not a wait. And a non-owner is never
+      // "loading": there is nothing being asked for on their behalf.
+      loading: workspaceId !== null && isOwner && raw === undefined,
       failure: failed === null ? null : describeQueryFailure(failed, "the audit trail"),
+      readOnlyReason:
+        workspaceId === null || isOwner
+          ? undefined
+          : "Only an owner of this context can see its audit trail.",
     },
     keyExport,
   };

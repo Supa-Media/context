@@ -523,9 +523,9 @@ export function useLiveConsoleData(): ConsoleData {
   // See `useShares` for why that is stricter than `useMembers`'s own gate.
   const shares = useShares({ workspaceId: selectedContextId, role: selected?.role });
 
-  // The audit trail is readable by any member; the key export beside it is
-  // owner-only, the same gate `storageActions` uses.
-  const advanced = useAdvanced({ workspaceId: selectedContextId, isOwner });
+  // Both halves are owner-only in the console — see `useAdvanced` for why the
+  // audit trail is stricter here than `listEvents` allows on the backend.
+  const advanced = useAdvanced({ workspaceId: selectedContextId, role: selected?.role });
 
   const files = useFileBrowser({
     slug: selected?.slug,

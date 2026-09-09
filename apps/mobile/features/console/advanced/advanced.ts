@@ -53,6 +53,37 @@ export interface AuditView {
    * `useQuery`, so a thrown query does not take the console down.
    */
   failure: ConsoleFailure | null;
+  /** Shown instead of the trail when it is absent for a real reason. See `canReadAuditTrail`. */
+  readOnlyReason?: string;
+}
+
+/**
+ * Whether a role may read this context's audit trail **through the console**.
+ *
+ * `listEvents` itself is member-readable on the backend, deliberately — its
+ * own header says the point of a trail is that the people whose notes are
+ * involved can see what touched them, and the `details` field is allow-listed
+ * per action (`MEMBER_VISIBLE_DETAIL_ACTIONS`) precisely so that read can be
+ * safe. But `docs/decisions/privacy-and-sharing.md`'s **"The audit trail's
+ * `details` are allow-listed, and its `paths` are not gated at all"** records
+ * a second, separate hole the `details` gate does nothing about: `paths` is
+ * unconditional on every row, and a read-only member whose `listFiles` on a
+ * private folder correctly returns nothing can still recover that note's full
+ * path three times over — from `file.create`, from `visibility.note`, and from
+ * `file.delete`, which names every private sibling via `keysUnder` expanded at
+ * the *actor's* clearance.
+ *
+ * That section calls the fix a design decision rather than a line, and leaves
+ * it open on the server. This is not that fix and does not claim to be — it is
+ * the console's own, strictly narrower gate: until `listEvents` withholds
+ * `paths` itself, nothing under `features/console/` may subscribe to it for
+ * anyone but the owner. A future server-side fix that lets `listEvents` filter
+ * `paths` by the caller's own visibility is what would make this gate
+ * loosenable again; removing it before that lands reopens the exact leak this
+ * function exists to keep out of the console.
+ */
+export function canReadAuditTrail(role: string | undefined): boolean {
+  return role === "owner";
 }
 
 /**

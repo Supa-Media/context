@@ -50,7 +50,8 @@ export function AdvancedPanel({
       </Text>
       <Text variant="rowSub" style={styles.subSub}>
         Every change to this context, and who made it — including an AI app connected
-        here. A read-only member sees the same trail; some details are an owner's alone.
+        here. Owner-only: a row&apos;s path can name a note nobody else here is meant to
+        see.
       </Text>
       <AuditCard view={view.audit} />
 
@@ -92,7 +93,9 @@ function AuditCard({ view }: { view: AuditView }) {
         <Row divided>
           <Grow>
             <Text variant="rowSub">
-              {view.loading ? "Loading…" : "Nothing has happened here yet."}
+              {view.loading
+                ? "Loading…"
+                : (view.readOnlyReason ?? "Nothing has happened here yet.")}
             </Text>
           </Grow>
         </Row>
