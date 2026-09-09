@@ -54,6 +54,20 @@ export function visibilityWord(visibility: Visibility): "Private" | "Team" {
   return visibility === "team" ? "Team" : "Private";
 }
 
+/**
+ * The default nothing else names.
+ *
+ * Its own sentence rather than `folderDefaultLine`, because the root is not a
+ * folder: what it governs is a note sitting at the top of the bucket **and**
+ * every folder nobody has written a rule for — including the one somebody adds
+ * next month, which is the part worth saying out loud.
+ */
+export function rootDefaultLine(visibility: Visibility): string {
+  return visibility === "team"
+    ? "A note at the top of this context, and any folder nobody has given a rule, is readable by the people on People."
+    : "A note at the top of this context, and any folder nobody has given a rule — including one added tomorrow — is private.";
+}
+
 /** What a folder's default does to the notes inside it. */
 export function folderDefaultLine(visibility: Visibility): string {
   return visibility === "team"

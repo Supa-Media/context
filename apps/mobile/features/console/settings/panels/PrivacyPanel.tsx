@@ -28,6 +28,7 @@ import {
   manifestFootLine,
   noExceptionsLine,
   privateMeans,
+  rootDefaultLine,
   teamMeans,
   truncatedLine,
   visibilityWord,
@@ -35,7 +36,7 @@ import {
 } from "../../privacy/words";
 import { selectedContext, type ConsoleData } from "../../types";
 import { useArming } from "../../useArming";
-import { isFilteredView, memberReachSentence, tierExplanation } from "../../visibility";
+import { isFilteredView, tierExplanation } from "../../visibility";
 import { settingsSectionLabel } from "../sections";
 
 /**
@@ -182,11 +183,21 @@ export function PrivacyPanel({
   const listings = files.listings ?? {};
   const root = privacyViewOf(listings, "");
   /*
-    The owner's half and the reader's half of the same fact — exactly one of
-    the two is ever non-null, by construction in `visibility.ts`, and a role
-    that has not loaded yet gets neither rather than a guess.
+    The reader's half of the fact, and **only** the reader's half.
+
+    `memberReachSentence` — the owner's half — was here in the first version
+    and was cut after reading the rendered screen: it says "anything you marked
+    private is yours alone, no role and no AI client of theirs reaches it, and
+    the only way to hand a private note over is to mark it team", which is
+    `privateMeans("personal")` again, in a second voice, two inches below it.
+    It belongs on the members card, which is where its own docstring sends it.
+
+    This one is not a repeat of anything here: it tells a member or an editor
+    that the rules they are reading are a *filtered* copy. `null` for an owner
+    and `null` for a role that has not loaded, by construction in
+    `visibility.ts` rather than by a check here.
   */
-  const reach = tierExplanation(role) ?? memberReachSentence(role);
+  const reach = tierExplanation(role);
 
   return (
     <View>
@@ -255,13 +266,15 @@ export function PrivacyPanel({
               the manifest is rendered.
             */}
             <Row style={styles.folderRow}>
-              <Grow>
+              <View style={styles.rowMain}>
                 <Text variant="rowTitle">Anything with no rule of its own</Text>
                 <Text variant="rowSub" style={styles.rowSub}>
-                  {folderDefaultLine(root.folderDefault)}
+                  {rootDefaultLine(root.folderDefault)}
                 </Text>
-              </Grow>
-              <VisibilityPill visibility={root.folderDefault} />
+              </View>
+              <View style={styles.rowActions}>
+                <VisibilityPill visibility={root.folderDefault} />
+              </View>
             </Row>
 
             {root.folders.map((row) => (
@@ -275,7 +288,15 @@ export function PrivacyPanel({
               />
             ))}
 
-            <Exceptions view={root} />
+            {/*
+              Root-level notes the rules name — a workspace's `index.md: team`
+              is one — but **no empty state here**. Inside an opened folder,
+              "no note in here is held back by name" is about that folder and
+              is worth saying; at the root, hanging off the end of the folder
+              list, the same line reads as a claim about the whole context,
+              which it is not.
+            */}
+            <Exceptions view={root} showEmpty={false} />
 
             {root.truncated ? (
               <Text variant="foot" style={styles.rowSub}>
@@ -371,31 +392,33 @@ function FolderBlock({
         >
           <Icon name={isOpen ? "chevronDown" : "chevronRight"} size={13} color={colors.text2} />
         </PressRow>
-        <Grow>
+        <View style={styles.rowMain}>
           <Text variant="rowTitle">{row.name}</Text>
           <Text variant="rowSub" style={styles.rowSub}>
             {folderDefaultLine(row.visibility)}
           </Text>
-        </Grow>
-        <VisibilityPill visibility={row.visibility} />
-        {control === null ? null : (
-          <Button
-            label={
-              !control.arm
-                ? "Make private"
-                : arming.stage === "armed"
-                  ? "Press again to share"
-                  : "Share with team"
-            }
-            accessibilityLabel={
-              control.arm
-                ? `Share ${row.name} with everyone on People`
-                : `Make ${row.name} private`
-            }
-            onPress={control.arm ? arming.press : apply}
-            testID={`privacy-set-${row.path}`}
-          />
-        )}
+        </View>
+        <View style={styles.rowActions}>
+          <VisibilityPill visibility={row.visibility} />
+          {control === null ? null : (
+            <Button
+              label={
+                !control.arm
+                  ? "Make private"
+                  : arming.stage === "armed"
+                    ? "Press again to share"
+                    : "Share with team"
+              }
+              accessibilityLabel={
+                control.arm
+                  ? `Share ${row.name} with everyone on People`
+                  : `Make ${row.name} private`
+              }
+              onPress={control.arm ? arming.press : apply}
+              testID={`privacy-set-${row.path}`}
+            />
+          )}
+        </View>
       </Row>
       {control !== null && control.arm && arming.stage === "armed" ? (
         <Hint style={StyleSheet.flatten([styles.hint, depth > 0 ? styles.nested : null])}>
@@ -449,13 +472,17 @@ function FolderBlock({
 function Exceptions({
   view,
   nested = false,
+  showEmpty = true,
 }: {
   view: PrivacyFolderView;
   nested?: boolean;
+  /** See the root's call site: an empty state there would over-claim. */
+  showEmpty?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   if (view.state !== "ready") return null;
   if (view.exceptions.length === 0) {
+    if (!showEmpty) return null;
     return (
       <Text variant="foot" style={nested ? styles.nested : styles.rowSub}>
         {noExceptionsLine(view.folderDefault)}
@@ -470,13 +497,15 @@ function Exceptions({
           style={StyleSheet.flatten([styles.folderRow, nested ? styles.nested : null])}
           divided
         >
-          <Grow>
+          <View style={styles.rowMain}>
             <Text variant="rowTitle">{note.name}</Text>
             <Text variant="rowSub" style={styles.rowSub}>
               {exceptionLine(note)}
             </Text>
-          </Grow>
-          <VisibilityPill visibility={note.visibility} />
+          </View>
+          <View style={styles.rowActions}>
+            <VisibilityPill visibility={note.visibility} />
+          </View>
         </Row>
       ))}
     </>
@@ -490,6 +519,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   meaningRow: { alignItems: "flex-start", flexWrap: "wrap" },
   meaningRowLater: { marginTop: 10 },
   folderRow: { flexWrap: "wrap" },
+  /**
+   * The name and its sentence, with a floor under how narrow they may get.
+   *
+   * `flexBasis` and `minWidth` rather than a bare `flex: 1`, and it is not a
+   * polish detail: it is the phone defect the first version of this panel
+   * actually had, caught by looking at a 390pt screenshot rather than by any
+   * test. A growing column shrinks to zero before a sibling wraps, so the pill
+   * and the button took the row and "1-projects" came out as five lines of one
+   * letter each. With a floor, the action group wraps to its own line instead,
+   * which is what a phone should have done in the first place.
+   */
+  rowMain: { flexGrow: 1, flexShrink: 1, flexBasis: 150, minWidth: 150 },
+  /** The pill and, for an owner, the control — one item, so it wraps whole. */
+  rowActions: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
   rowSub: { marginTop: 2 },
   hint: { marginTop: 12 },
   foot: { marginTop: 12, maxWidth: 546 },

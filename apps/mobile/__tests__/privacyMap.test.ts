@@ -38,6 +38,7 @@ import {
   folderDefaultLine,
   linkExceptionLine,
   privateMeans,
+  rootDefaultLine,
   teamMeans,
   truncatedLine,
   visibilityWord,
@@ -272,6 +273,14 @@ describe("the words", () => {
     expect(
       exceptionLine({ path: "a/b.md", name: "b.md", visibility: "team", inherited: "private" }),
     ).toMatch(/shared/i);
+  });
+
+  test("the root is described as the root, not as a folder", () => {
+    // What it governs is a note at the top of the bucket **and** every folder
+    // nobody has ruled on — including one added next month, which is the half
+    // a folder's own sentence cannot say.
+    expect(rootDefaultLine("private")).toMatch(/tomorrow|added/i);
+    expect(rootDefaultLine("private")).not.toBe(folderDefaultLine("private"));
   });
 
   test("a broken manifest offers the repair only to somebody who has it", () => {

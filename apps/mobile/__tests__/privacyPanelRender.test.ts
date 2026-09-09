@@ -211,6 +211,28 @@ describe("what a reader is told", () => {
     expect(text).toContain("Anything with no rule of its own");
   });
 
+  test("the same fact is not said twice in two voices", () => {
+    /*
+      `memberReachSentence` was here and was cut after looking at the rendered
+      screen: it restates `privateMeans("personal")` — "yours alone, no role,
+      no AI client of theirs, the only way to hand one over is to mark it
+      team" — two inches below it, in a second voice. Its own docstring sends
+      it to the members card. A panel that says a thing twice is a panel whose
+      second sentence nobody reads.
+    */
+    const text = panel({ role: "owner", kind: "personal" }).textContent ?? "";
+    expect(text).toContain("Yours alone");
+    expect(text).not.toContain("Everybody here reads this context at team level");
+  });
+
+  test("the root row says what happens to something added tomorrow", () => {
+    const text = panel({ role: "owner", kind: "personal" }).textContent ?? "";
+    expect(text).toContain("including one added tomorrow");
+    // And no empty exceptions line dangling off the end of the folder list,
+    // where it would read as a claim about the whole context.
+    expect(text).not.toContain("No note in here is shared by name");
+  });
+
   test("a workspace is told what private means there, which is not what it means in a brain", () => {
     const shared = panel({ role: "owner", kind: "shared" }).textContent ?? "";
     expect(shared).toContain("Owners only");
