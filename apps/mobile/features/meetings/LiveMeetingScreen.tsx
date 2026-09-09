@@ -195,6 +195,14 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
         <SyncChip record={record} syncing={snapshot.syncing} />
       </View>
 
+      {snapshot.backgroundCaptureWarning === null ? null : (
+        <View style={styles.backgroundWarning} testID="meeting-background-warning">
+          <Text variant="rowSub" style={styles.backgroundWarningText}>
+            {snapshot.backgroundCaptureWarning}
+          </Text>
+        </View>
+      )}
+
       {/*
         The transport's place in the flow, so the chips above it are never
         drawn underneath the bar that rides over them. Sized from the same two
@@ -487,6 +495,17 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   chipText: { color: colors.muted, fontWeight: "500" },
   chipCrit: { backgroundColor: colors.critWash, borderColor: colors.critBorder },
   chipCritText: { color: colors.critText },
+  backgroundWarning: {
+    marginHorizontal: layout.readingMargin,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: radii.card,
+    backgroundColor: colors.warnWash,
+    borderWidth: 1,
+    borderColor: colors.warnBorder,
+  },
+  backgroundWarningText: { color: colors.warnText },
   chipPressed: { opacity: 0.8 },
   pip: { width: 5, height: 5, borderRadius: 3 },
   /**

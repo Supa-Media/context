@@ -200,8 +200,10 @@ const mockOpened: string[] = [];
 const mockDeleted: string[] = [];
 
 let mockPermission = { granted: true, canAskAgain: true };
-/** Reject the background-capable audio session, as an older binary would. */
+/** Reject the background-capable audio session, as the affected iOS runtime does. */
 let mockRefuseBackgroundSession = false;
+/** Reject every audio-session shape, including the stable foreground fallback. */
+let mockRefuseEverySession = false;
 /** What `File.base64()` answers. */
 let mockBase64 = "YWJj";
 let mockDeviceRefusesToPrepare = false;
@@ -264,7 +266,8 @@ function mockDeviceConstructor(this: unknown): MockDevice {
 
 async function mockSetAudioModeAsync(mode: Record<string, unknown>): Promise<void> {
   mockAudioModes.push(mode);
-  if (mockRefuseBackgroundSession && mode.shouldPlayInBackground === true) {
+  if (mockRefuseEverySession) throw new Error("The audio session is unavailable.");
+  if (mockRefuseBackgroundSession && mode.allowsBackgroundRecording === true) {
     throw new Error("This build has no background audio entitlement.");
   }
 }
@@ -454,6 +457,7 @@ beforeEach(() => {
   mockDeleted.length = 0;
   mockPermission = { granted: true, canAskAgain: true };
   mockRefuseBackgroundSession = false;
+  mockRefuseEverySession = false;
   mockDeviceRefusesToPrepare = false;
   mockDeviceRefusesToStop = false;
   mockLeftovers = [];
@@ -1079,21 +1083,75 @@ describe("android", () => {
     await recorder.stop();
   });
 
-  /**
-   * Both platforms fail closed if `setAudioModeAsync` refuses the
-   * background-capable request; silently continuing would risk losing audio.
-   */
-  test.each(["ios", "android"] as const)(
-    "%s refuses capture when the background mode is refused",
-    async (platform) => {
-      mockRefuseBackgroundSession = true;
-      const { recorder } = harness({ platform });
-      await expect(recorder.start()).rejects.toThrow(
-        /Background audio could not be enabled; recording cannot safely continue/,
-      );
-      expect(recorder.state).toBe("idle");
-    },
-  );
+  test("iOS restores foreground capture and visibly warns when the background request is refused", async () => {
+    mockRefuseBackgroundSession = true;
+    const { recorder, errors } = harness({ platform: "ios" });
+
+    await recorder.start();
+
+    expect(recorder.state).toBe("recording");
+    expect(mockDevices[0].records).toBe(1);
+    expect(mockAudioModes).toEqual([
+      MEETING_AUDIO_MODE,
+      {
+        allowsRecording: true,
+        playsInSilentMode: true,
+        shouldPlayInBackground: false,
+        interruptionMode: "mixWithOthers",
+      },
+    ]);
+    expect(errors).toEqual([
+      {
+        recoverable: true,
+        kind: "background-unavailable",
+        message:
+          "Recording works while Context stays open, but locking your phone will stop the audio.",
+      },
+    ]);
+    await recorder.stop();
+  });
+
+  test("the foreground-only warning reaches the controller that subscribes after start", async () => {
+    mockRefuseBackgroundSession = true;
+    setTranscriber(fakeTranscriber());
+    const recorder = audioRecorder("ios");
+    await recorder.start({ sessionId: TEST_MEETING_ID, systemAudio: false });
+    const errors: RecorderError[] = [];
+
+    recorder.onError((error) => errors.push(error));
+
+    expect(errors).toEqual([
+      {
+        recoverable: true,
+        kind: "background-unavailable",
+        message:
+          "Recording works while Context stays open, but locking your phone will stop the audio.",
+      },
+    ]);
+    await recorder.stop();
+  });
+
+  test("Android still refuses capture when its required background service cannot start", async () => {
+    mockRefuseBackgroundSession = true;
+    const { recorder } = harness({ platform: "android" });
+    await expect(recorder.start()).rejects.toThrow(
+      /Background audio could not be enabled; recording cannot safely continue/,
+    );
+    expect(recorder.state).toBe("idle");
+  });
+
+  test("iOS never opens a device or claims recorder state when both session modes fail", async () => {
+    mockRefuseEverySession = true;
+    const { recorder } = harness({ platform: "ios" });
+
+    await expect(recorder.start()).rejects.toThrow(
+      /Background audio could not be enabled; recording cannot safely continue/,
+    );
+
+    expect(recorder.state).toBe("idle");
+    expect(mockDevices).toHaveLength(0);
+    expect(mockAudioModes).toHaveLength(2);
+  });
 
   /**
    * The same code path end to end: rotation, offsets and chunk ids do not
