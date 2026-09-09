@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 
 const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const pathModule = require("node:path");
 const plist = require("@expo/plist").default;
+
+const HOST_BUNDLE_ID = "lc.context.mobile";
+const EXTENSION_BUNDLE_ID = `${HOST_BUNDLE_ID}.widgets`;
+const APP_GROUP = `group.${HOST_BUNDLE_ID}`;
 
 function validateInfoPlistXml(xml) {
   let info;
@@ -13,17 +20,13 @@ function validateInfoPlistXml(xml) {
   const version = info.CFBundleShortVersionString;
   const modes = info.UIBackgroundModes;
   const audio = Array.isArray(modes) && modes.includes("audio");
-  const versionParts = typeof version === "string" ? version.split(".") : [];
-  const numericVersion = versionParts.length >= 1 && versionParts.length <= 3 && versionParts.every((part) => /^\d+$/.test(part));
-  const [major = 0n, minor = 0n, patch = 0n] = numericVersion ? versionParts.map((part) => BigInt(part)) : [];
-  const capable = numericVersion && (major > 1n || (major === 1n && (minor > 0n || (minor === 0n && patch >= 1n))));
-  if (!capable || !audio) {
-    throw new Error(`IPA is not the capable iOS release: version=${version ?? "missing"}, audio=${audio}`);
+  if (typeof version !== "string" || !audio || info.NSSupportsLiveActivities !== true || info.CFBundleIdentifier !== HOST_BUNDLE_ID) {
+    throw new Error(`IPA host is not Live Activity capable: bundle=${info.CFBundleIdentifier ?? "missing"}, audio=${audio}, live=${info.NSSupportsLiveActivities === true}`);
   }
-  return { version, audio };
+  return { version, audio, info };
 }
 
-function validateIpa(path) {
+function validateIpa(path, options = {}) {
   let entries;
   try {
     execFileSync("unzip", ["-t", path], { stdio: "ignore" });
@@ -35,6 +38,9 @@ function validateIpa(path) {
   validateZipEntries(entries);
   const plistEntries = entries.filter((entry) => /^Payload\/[^/]+\.app\/Info\.plist$/.test(entry));
   if (plistEntries.length !== 1) throw new Error("IPA must contain exactly one Payload app Info.plist");
+  const appRoot = plistEntries[0].slice(0, -"/Info.plist".length);
+  const extensionPlists = entries.filter((entry) => entry === `${appRoot}/PlugIns/ContextWidgets.appex/Info.plist`);
+  if (extensionPlists.length !== 1) throw new Error("IPA must contain exactly one embedded ContextWidgets.appex");
   const archive = require("node:fs").readFileSync(path);
   const eocd = archive.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
   if (eocd < 0) throw new Error("IPA ZIP central directory is missing");
@@ -53,14 +59,56 @@ function validateIpa(path) {
     records.push({ name, regular: madeBy === 0 ? (archive.readUInt8(cursor + 38) & 0x10) === 0 : (mode & 0xf000) === 0x8000 });
     cursor += 46 + nameLength + extraLength + commentLength;
   }
-  const plistRecord = records.filter((record) => record.name === plistEntries[0]);
-  if (plistRecord.length !== 1 || !plistRecord[0].regular) throw new Error("IPA Info.plist must be exactly one regular file");
-  const binary = execFileSync("unzip", ["-p", path, plistEntries[0]]);
-  const xml = execFileSync("plutil", ["-convert", "xml1", "-o", "-", "-"], {
-    input: binary,
-    encoding: "utf8",
-  });
-  return validateInfoPlistXml(xml);
+  for (const wanted of [plistEntries[0], extensionPlists[0]]) {
+    const record = records.filter((candidate) => candidate.name === wanted);
+    if (record.length !== 1 || !record[0].regular) throw new Error("IPA plist must be exactly one regular file");
+  }
+  const readPlist = (entry) => {
+    const binary = execFileSync("unzip", ["-p", path, entry]);
+    const xml = execFileSync("plutil", ["-convert", "xml1", "-o", "-", "-"], { input: binary, encoding: "utf8" });
+    return plist.parse(xml);
+  };
+  const host = validateInfoPlistXml(readPlistXml(path, plistEntries[0]));
+  const extension = readPlist(extensionPlists[0]);
+  if (extension.CFBundleIdentifier !== EXTENSION_BUNDLE_ID || extension.NSExtension?.NSExtensionPointIdentifier !== "com.apple.widgetkit-extension") {
+    throw new Error("ContextWidgets extension has the wrong bundle id or extension point");
+  }
+  if (options.verifySignatures !== false) verifySignedPayload(path, appRoot);
+  return { version: host.version, audio: host.audio, extension: EXTENSION_BUNDLE_ID };
+}
+
+function readPlistXml(archivePath, entry) {
+  const binary = execFileSync("unzip", ["-p", archivePath, entry]);
+  return execFileSync("plutil", ["-convert", "xml1", "-o", "-", "-"], { input: binary, encoding: "utf8" });
+}
+
+function verifySignedPayload(ipaPath, appRoot) {
+  const root = fs.mkdtempSync(pathModule.join(os.tmpdir(), "context-ipa-"));
+  try {
+    execFileSync("unzip", ["-q", ipaPath, "-d", root]);
+    const app = pathModule.join(root, appRoot);
+    const extension = pathModule.join(app, "PlugIns", "ContextWidgets.appex");
+    execFileSync("codesign", ["--verify", "--deep", "--strict", app], { stdio: "ignore" });
+    const signedGroups = [app, extension].map((target) => {
+      const xml = execFileSync("codesign", ["-d", "--entitlements", ":-", target], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      const entitlements = plist.parse(xml);
+      return entitlements["com.apple.security.application-groups"];
+    });
+    const provisionedGroups = [app, extension].map((target) => {
+      const profile = pathModule.join(target, "embedded.mobileprovision");
+      const xml = execFileSync("security", ["cms", "-D", "-i", profile], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      return plist.parse(xml).Entitlements?.["com.apple.security.application-groups"];
+    });
+    if (![...signedGroups, ...provisionedGroups].every(hasExactAppGroup)) {
+      throw new Error("host and ContextWidgets signatures must share exactly the Context App Group");
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function hasExactAppGroup(value) {
+  return Array.isArray(value) && value.length === 1 && value[0] === APP_GROUP;
 }
 
 function validateZipEntries(entries) {
@@ -71,7 +119,7 @@ function validateZipEntries(entries) {
 
 if (require.main === module) {
   const result = validateIpa(process.argv[2]);
-  console.log(`iOS IPA validated: CFBundleShortVersionString=${result.version}, UIBackgroundModes includes audio`);
+  console.log(`iOS IPA validated: ${result.version}, background audio, signed ContextWidgets extension`);
 }
 
-module.exports = { validateInfoPlistXml, validateIpa, validateZipEntries };
+module.exports = { hasExactAppGroup, validateInfoPlistXml, validateIpa, validateZipEntries };
