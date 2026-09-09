@@ -237,31 +237,34 @@ function googleConnectionDetailLines(connection: GoogleConnection): string[] {
   const lines: string[] = [];
   if (connection.syncServices.gmail && connection.gmail) {
     const parts = [
+      connection.email,
       `${googleBackfillWindowLabel(connection.gmail.backfillDays)} backfill`,
       connection.gmail.folders.map((folder) => (folder === "inbox" ? "Inbox" : "Sent")).join(" + "),
-      connection.gmail.historyCursorReady ? "Gmail cursor ready" : "waiting for first Gmail cursor",
+      connection.gmail.historyCursorReady ? "new mail tracking ready" : "initial sync pending",
       formatSyncTime(connection.gmail.lastSyncedAt),
     ].filter(Boolean);
     lines.push(`Gmail: ${parts.join(" · ")}`);
-    lines.push(`Destination: ${connection.gmail.destinationPath}`);
+    lines.push(`Destination: Email inbox for ${connection.email}`);
   }
   if (connection.syncServices.calendar && connection.calendar) {
     const parts = [
-      connection.calendar.syncCursorReady ? "Calendar cursor ready" : "waiting for first Calendar cursor",
+      connection.email,
+      connection.calendar.syncCursorReady ? "calendar changes tracking ready" : "initial sync pending",
       formatSyncTime(connection.calendar.lastSyncedAt),
     ].filter(Boolean);
     lines.push(`Calendar: ${parts.join(" · ")}`);
-    lines.push(`Destination: ${connection.calendar.destinationPath}`);
+    lines.push("Destination: Calendar inbox");
   }
   if (connection.syncServices.chat && connection.chat) {
     const parts = [
+      connection.email,
       connection.chat.cursorCount === 0
-        ? "waiting for first Chat space cursor"
-        : `${connection.chat.cursorCount} Chat space cursor${connection.chat.cursorCount === 1 ? "" : "s"}`,
+        ? "initial sync pending"
+        : `tracking ${connection.chat.cursorCount} Chat space${connection.chat.cursorCount === 1 ? "" : "s"}`,
       formatSyncTime(connection.chat.lastSyncedAt),
     ].filter(Boolean);
     lines.push(`Chat: ${parts.join(" · ")}`);
-    lines.push(`Destination: ${connection.chat.destinationPath}`);
+    lines.push("Destination: Google Chat inbox");
   }
   return lines;
 }
