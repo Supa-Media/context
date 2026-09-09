@@ -116,6 +116,8 @@ export interface MeetingsSnapshot {
    * lands in somebody's bucket.
    */
   captureError: string | null;
+  /** A sticky warning that this session records only while the app stays open. */
+  backgroundCaptureWarning: string | null;
 }
 
 export interface ConfigureInput {
@@ -213,6 +215,7 @@ const UNCONFIGURED: MeetingsSnapshot = Object.freeze({
   syncing: false,
   capture: NO_CAPTURE,
   captureError: null,
+  backgroundCaptureWarning: null,
 });
 
 export class MeetingsController {
@@ -514,7 +517,11 @@ export class MeetingsController {
     this.put(record, { immediate: true });
 
     this.apply(id, { type: "start", at });
-    this.set({ ...this.snapshot, captureError: null });
+    this.set({
+      ...this.snapshot,
+      captureError: null,
+      backgroundCaptureWarning: null,
+    });
 
     try {
       /*
@@ -916,6 +923,10 @@ export class MeetingsController {
         A recoverable interruption (a phone call, Siri) also lands here so the
         chip can say so while it lasts; the next successful `start` clears it.
       */
+      if (error.kind === "background-unavailable") {
+        this.set({ ...this.snapshot, backgroundCaptureWarning: error.message });
+        return;
+      }
       this.set({ ...this.snapshot, captureError: error.message });
     }));
   }

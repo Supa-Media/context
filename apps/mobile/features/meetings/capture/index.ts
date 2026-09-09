@@ -195,6 +195,8 @@ export interface RecorderError {
   /** Whether capture can continue. `false` means the session is notes-only from here. */
   recoverable: boolean;
   message: string;
+  /** A durable limitation of this session, separate from transient capture errors. */
+  kind?: "background-unavailable";
 }
 
 /**
