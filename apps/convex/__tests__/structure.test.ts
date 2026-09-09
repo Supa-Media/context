@@ -531,15 +531,15 @@ const BARRIER_FORBIDDEN_FIELDS = [
  * personal context's credential per single-use, five-minute ticket, rate-limited
  * per name, and no shared context ever.
  *
- * A third entry would need the same argument made again, in this comment.
+ * Any additional entry would need the same argument made again, in this comment.
  *
  * So this is not a barrier and must not be read as one. A barrier stops taint
  * propagating — everything that calls through it comes out clean, which is why
  * `CREDENTIAL_BARRIERS` has one member and a long warning attached. This is a
  * **pin**: the route is still decrypt-capable, it still appears in the
  * enumerated `decryptCapable` set below, and every *other* http route in the
- * codebase still fails if it can reach a credential. Adding a second entry
- * here is a diff a reviewer sees, and it means a second internet-facing path
+ * codebase still fails if it can reach a credential. Adding an entry here is a
+ * diff a reviewer sees, and it means another internet-facing path
  * to other people's bucket keys.
  *
  * What keeps the exemption honest, all enforced below:
@@ -560,6 +560,7 @@ const BARRIER_FORBIDDEN_FIELDS = [
  */
 const CREDENTIAL_HTTP_ROUTES = new Set([
   "http.gatewayBinding",
+  "http.gatewayJobsOpen",
   "http.gatewayIngestBinding",
 ]);
 
@@ -568,7 +569,7 @@ const CREDENTIAL_HTTP_ROUTES = new Set([
  *
  * Every one of them must require a shared secret before the handler runs, and
  * the test below reads each factory's body to check that it does. The set is
- * enumerated for the same reason `CREDENTIAL_HTTP_ROUTES` is: adding a third
+ * enumerated for the same reason `CREDENTIAL_HTTP_ROUTES` is: adding another
  * door is a diff to this file that a reviewer sees, rather than a route that
  * quietly checks nothing.
  *
@@ -991,6 +992,11 @@ describe("no public function can reach a storage secret", () => {
       // the gateway. internalAction; the only thing that reaches it is the
       // route below.
       "functions.controlPlane.openStorageBinding",
+      // THE QUEUE RUNNER'S CREDENTIAL DOOR. A user-authorized request mints an
+      // opaque job ticket first; this internal action spends that ticket for
+      // one bounded Worker queue attempt and reads the workspace off the job
+      // row, never off the request body.
+      "functions.controlPlane.openGatewayJob",
       // THE KEY TO NOTE CONTENT, rather than a credential for reaching it.
       //
       // Opens one workspace's data key so the gateway can decrypt that
@@ -1025,10 +1031,14 @@ describe("no public function can reach a storage secret", () => {
       // Requires the gateway secret AND the user's access token, and the
       // workspace comes from the grant, never from the caller.
       "http.gatewayBinding",
+      // THE QUEUE ANALOGUE. `/gateway/jobs/open` requires the gateway secret
+      // and an opaque job ticket that was minted under a live owner/private
+      // grant; there is no workspace id in the request shape.
+      "http.gatewayJobsOpen",
       // THE SECOND ONE. `/gateway/ingest/binding`. Requires the email worker's
       // own secret and a ticket we minted; there is no user token, because an
       // inbound email has nobody behind it. Read the CREDENTIAL_HTTP_ROUTES
-      // comment before adding a third.
+      // comment before adding another.
       "http.gatewayIngestBinding",
       // THE PLATFORM'S OWN CREDENTIALS, AND THE ONE FUNCTION THAT OPENS ONE.
       //
@@ -2006,6 +2016,9 @@ describe("the gateway's HTTP routes", () => {
     "/gateway/session": "gatewaySession",
     "/gateway/binding": "gatewayBinding",
     "/gateway/search-index/progress": "gatewaySearchIndexProgress",
+    "/gateway/jobs/create": "gatewayJobsCreate",
+    "/gateway/jobs/open": "gatewayJobsOpen",
+    "/gateway/jobs/report": "gatewayJobsReport",
     "/gateway/usage": "gatewayUsage",
     "/gateway/clients/register": "gatewayClientsRegister",
     "/gateway/clients/get": "gatewayClientsGet",

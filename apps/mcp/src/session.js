@@ -741,6 +741,38 @@ export async function storeForSession(session, env, controlPlane) {
   return store;
 }
 
+export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
+  const binding = opened?.binding;
+  if (binding === null) throw new StorageUnavailable("not bound");
+  if (!binding || typeof binding !== "object") throw new StorageUnavailable("malformed binding");
+  if (binding.status !== "active") throw new StorageUnavailable("not active");
+  if (typeof binding.workspaceId !== "string" || binding.workspaceId !== expectedWorkspaceId) {
+    throw new StorageUnavailable("workspace mismatch");
+  }
+
+  const store = storeForBinding(binding, env);
+  store.provider = typeof binding.provider === "string" ? binding.provider : null;
+  Object.defineProperty(store, "searchIndex", {
+    value: readSearchIndexBinding({ searchIndex: opened?.searchIndex }),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  Object.defineProperty(store, "encryptionKey", {
+    value: readEncryptionKey(opened?.encryptionKey),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  Object.defineProperty(store, "encryptionRotation", {
+    value: readRotation(opened?.rotation),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  return store;
+}
+
 /**
  * Narrow the control plane's encryption-key descriptor, or answer `null`.
  *

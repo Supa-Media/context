@@ -74,6 +74,15 @@ ALLOWED_ORIGINS = "https://context.lc"
 # deferred half included, still stays inside it.
 SEARCH_SUBREQUEST_BUDGET = "600"
 
+[[queues.producers]]
+binding = "GATEWAY_JOBS"
+queue = "context-gateway-jobs"
+
+[[queues.consumers]]
+queue = "context-gateway-jobs"
+max_batch_size = 1
+max_batch_timeout = 5
+
 # Self-host only. Comma-separated allowlist of Worker binding names that a
 # control-plane storage binding is permitted to name.
 #
