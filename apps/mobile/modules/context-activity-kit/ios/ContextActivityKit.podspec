@@ -10,7 +10,10 @@ Pod::Spec.new do |s|
   s.license        = "MIT"
   s.author         = "Supa Media"
   s.homepage       = "https://context.lc"
-  s.platforms      = { :ios => "16.1" }
+  # The host still supports iOS 15.1. ActivityKit use is runtime-gated in every
+  # Swift entry point, so declaring 16.1 here would make CocoaPods silently
+  # filter the entire Expo module out of that otherwise valid host target.
+  s.platforms      = { :ios => "15.1" }
   s.source         = { :git => "https://github.com/Supa-Media/context.git" }
   s.static_framework = true
   s.dependency "ExpoModulesCore"
