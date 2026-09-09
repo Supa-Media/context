@@ -150,6 +150,10 @@ describe("searching the list", () => {
     ["dropbox", "storage"],
     ["rebuild index", "search"],
     ["who can see", "people"],
+    ["shared link", "shares"],
+    ["revoke a link", "shares"],
+    ["audit log", "advanced"],
+    ["export keys", "advanced"],
   ])("%p opens %p", (query, key) => {
     const hits = matchSettingsSections(settingsSectionsFor("personal"), query).map(
       (section) => section.key,

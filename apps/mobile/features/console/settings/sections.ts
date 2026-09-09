@@ -145,8 +145,30 @@ export const SETTINGS_SECTIONS = [
     group: "Who can see it",
     personalOnly: false,
   },
+  {
+    key: "shares",
+    /*
+      "revoke" also lives on `apps`'s keywords, for revoking a connected AI app
+      — both are real destinations for the word, and `matchSettingsSections`
+      requiring every word to match rather than picking one winner is exactly
+      what lets it return both.
+    */
+    keywords: "link links shared share revoke who has it sent unlisted anyone token url",
+    scope: "context",
+    label: "Shared links",
+    group: "Who can see it",
+    personalOnly: false,
+  },
   { key: "storage", keywords: "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup", scope: "context", label: "Storage", group: "Your notes", personalOnly: false },
   { key: "search", keywords: "find index fast lookup rebuild", scope: "context", label: "Search", group: "Your notes", personalOnly: false },
+  {
+    key: "advanced",
+    keywords: "audit history log trail export key keys encryption rotate activity",
+    scope: "context",
+    label: "Advanced",
+    group: "Your notes",
+    personalOnly: false,
+  },
 ] as const;
 
 export type SettingsSectionKey = (typeof SETTINGS_SECTIONS)[number]["key"];

@@ -147,6 +147,30 @@ describe("a phone reaches the settings, not just a menu", () => {
     expect(overlay("people").textContent ?? "").toContain("People");
   });
 
+  test("shared links lists what the demo console has shared, revoke and all", () => {
+    // The demo has no `shares.actions`, so a real Revoke button must never
+    // appear here — only the arming label with nothing behind it would be a
+    // demo console pretending to act.
+    const host = overlay("shares");
+    const text = host.textContent ?? "";
+    expect(text).toContain("Shared links");
+    expect(text).toContain("1-projects/board-update.md");
+    expect(host.querySelector('[data-testid^="share-revoke-"]')).toBeNull();
+  });
+
+  test("shares is not people, and people is not shares", () => {
+    expect(overlay("people").textContent ?? "").not.toContain("Shared links");
+    expect(overlay("shares").textContent ?? "").not.toContain("Nobody has access");
+  });
+
+  test("advanced shows the audit trail and offers no key export in the demo", () => {
+    const host = overlay("advanced");
+    const text = host.textContent ?? "";
+    expect(text).toContain("Audit trail");
+    expect(text).toContain("Encryption keys");
+    expect(host.querySelector('[data-testid="advanced-export-keys"]')).toBeNull();
+  });
+
   test("the binding's health is stated, since no storage chip exists here", () => {
     // `PaneHead` is skipped when a section is given, and the top bar's chip is
     // pointer-only — so without the overlay carrying this, a phone states the
@@ -233,7 +257,15 @@ describe("the list is one press away, and it navigates", () => {
       (back as HTMLElement).click();
     });
     const text = host.textContent ?? "";
-    for (const label of ["Overview", "People", "Storage", "Search", "Mail, calendar & chats"]) {
+    for (const label of [
+      "Overview",
+      "People",
+      "Shared links",
+      "Storage",
+      "Search",
+      "Advanced",
+      "Mail, calendar & chats",
+    ]) {
       expect(text).toContain(label);
     }
   });

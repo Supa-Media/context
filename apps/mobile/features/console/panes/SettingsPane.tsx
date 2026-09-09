@@ -26,6 +26,8 @@ import { ThisMachineCard } from "../../meetings/components/ThisMachineCard";
 import { FastSearchCard } from "../search/FastSearchCard";
 import { MembersSection } from "../members/MembersSection";
 import { shareBackSuggestions } from "../members/members";
+import { SharedLinksPanel } from "../settings/panels/SharedLinksPanel";
+import { AdvancedPanel } from "../settings/panels/AdvancedPanel";
 import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
 import { settingsSectionLabel, type SettingsSectionKey } from "../settings/sections";
 import { useArming } from "../useArming";
@@ -299,6 +301,22 @@ export function SettingsPane({
       </>
       ) : null}
 
+      {show("shares") ? (
+      <>
+      <Text
+        variant={section === undefined ? "eyebrow" : "paneTitle"}
+        style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}
+      >
+        {settingsSectionLabel("shares")}
+      </Text>
+      <Text variant="paneSub" style={styles.sectionSub}>
+        Every note you have handed to somebody outside this context, one link at a
+        time — with a Revoke beside each.
+      </Text>
+      <SharedLinksPanel view={data.shares} />
+      </>
+      ) : null}
+
       {show("sources") ? (
       <>
       <Text
@@ -398,6 +416,21 @@ export function SettingsPane({
         for all of them.
       */}
       <FastSearchCard view={data.fastSearch} demo={data.demo} />
+      </>
+      ) : null}
+
+      {show("advanced") ? (
+      <>
+      <Text
+        variant={section === undefined ? "eyebrow" : "paneTitle"}
+        style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}
+      >
+        {settingsSectionLabel("advanced")}
+      </Text>
+      <Text variant="paneSub" style={styles.sectionSub}>
+        Audit trail and key export. Most people never need this.
+      </Text>
+      <AdvancedPanel view={data.advanced} demo={data.demo} />
       </>
       ) : null}
 
