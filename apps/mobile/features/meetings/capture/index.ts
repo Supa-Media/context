@@ -56,7 +56,8 @@ import { audioRecorder, resolveRecorder } from "./audio";
  *    imported because it is in `native-deps.json` `core`; the audio session
  *    (including the `mixWithOthers` line that keeps a Zoom call's microphone,
  *    on iOS and Android alike), rotation, the interruption handling, and the
- *    one field (`allowsBackgroundRecording`) that is Android's own switch for
+ *    one field (`allowsBackgroundRecording`) that is the shared background
+ *    recording switch for iOS and Android.
  *    the foreground service `expo-audio`'s native module already bundles.
  *  - `./audio.web.ts` — the browser. Metro resolves it for the web build, which
  *    is why nothing above this file branches on a platform.

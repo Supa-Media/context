@@ -109,6 +109,16 @@ a grep-shaped guard with the usual weakness — see
 [testing](./testing.md), *a guard nobody has checked is not a guard* — so it is
 written against outbound host allowlisting rather than against import names.
 
+### iOS recording survives screen lock through two deliberate controls
+
+The recorder has two controls: the shipped native configuration declares
+`UIBackgroundModes: ["audio"]`, and the OTA-delivered meeting audio mode opts
+the active recorder in with `allowsBackgroundRecording: true`. Both are needed;
+the runtime switch alone cannot add a native entitlement, while the entitlement
+alone does not opt a session in. This covers ordinary screen lock and app
+backgrounding, not force-quit or OS process termination. Acceptance is a real
+iPhone lock/unlock test confirming the transcript continues without a gap.
+
 ### Transcription is cloud on the paid tier and on-device on the free tier, and that seam is disclosed, not glossed
 
 This is the one place where "we never hold your data" needs a footnote, and the
