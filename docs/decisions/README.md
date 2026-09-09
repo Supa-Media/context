@@ -30,6 +30,18 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Managed storage: a bucket we run, in an account that holds nothing else
 - One managed account per deployment, never shared
 
+## [Premium, Stripe, and the promise money may not touch](./billing.md)
+
+- A plan belongs to a workspace, never to a person
+- Two entitlements, one price
+- What a plan may never decide
+- Three values, three different places, and the split is load-bearing
+- The checkout is two round trips, and it cannot be one
+- The workspace is never read out of an event
+- The signature is the whole security of the webhook
+- A third route factory, and why it is enumerated separately
+- What is deliberately not built
+
 ## [Identity, grants, invitations, and ingestion](./identity-and-access.md)
 
 - Ingestion is on the apex, which makes the reserved-name list a security control
