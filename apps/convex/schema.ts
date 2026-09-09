@@ -1072,6 +1072,15 @@ const schema = defineSchema({
     workspaceId: v.id("workspaces"),
     startedBy: v.id("users"),
     redirectUri: v.string(),
+    /**
+     * Which public callback is allowed to spend this shared-table attempt.
+     * Optional only for rows parked before this discriminator existed; those
+     * remain product-callback compatible and are refused by the combined Google
+     * callback.
+     */
+    flow: v.optional(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"), v.literal("google")),
+    ),
     products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
     backfillDays: v.optional(v.number()),
     folders: v.optional(v.array(v.union(v.literal("inbox"), v.literal("sent")))),
