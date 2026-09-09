@@ -6,6 +6,15 @@ const MAX_ARTIFACT_BYTES = 200 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
 const EAS_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+async function writeAll(handle, bytes) {
+  let written = 0;
+  while (written < bytes.length) {
+    const result = await handle.write(bytes, written, bytes.length - written);
+    if (!result || result.bytesWritten <= 0) throw new Error("EAS artifact write made no progress");
+    written += result.bytesWritten;
+  }
+}
+
 function parseBuildResult(value) {
   if (!Array.isArray(value) || value.length !== 1) throw new Error("EAS JSON must contain exactly one build");
   const build = value[0];
@@ -62,12 +71,7 @@ async function downloadArtifact(value, destination) {
       total += bytes.length;
       if (total > MAX_ARTIFACT_BYTES || total > declared) throw new Error("EAS artifact exceeds declared size");
       if (magic.length < 4) magic = Buffer.concat([magic, bytes]).subarray(0, 4);
-      let written = 0;
-      while (written < bytes.length) {
-        const result = await handle.write(bytes, written, bytes.length - written);
-        if (!result || result.bytesWritten <= 0) throw new Error("EAS artifact write made no progress");
-        written += result.bytesWritten;
-      }
+      await writeAll(handle, bytes);
     } } catch { throw new Error("EAS artifact download failed"); }
     if (total !== declared || magic.length < 4 || magic.readUInt32LE(0) !== 0x04034b50) throw new Error("EAS artifact is not a complete IPA ZIP archive");
     await handle.sync();
@@ -100,4 +104,4 @@ if (require.main === module) {
   process.stdout.write(result[field]);
 }
 
-module.exports = { parseBuildResult, parseDownloadResult, downloadArtifact };
+module.exports = { parseBuildResult, parseDownloadResult, downloadArtifact, writeAll };

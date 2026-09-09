@@ -2,7 +2,7 @@ const { describe, expect, test } = require("@jest/globals");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { downloadArtifact, parseBuildResult, parseDownloadResult } = require("../../../scripts/eas-build-artifact.cjs");
+const { downloadArtifact, parseBuildResult, parseDownloadResult, writeAll } = require("../../../scripts/eas-build-artifact.cjs");
 
 describe("EAS build artifact coupling", () => {
   test("takes id and URL from the same build result", () => {
@@ -94,5 +94,20 @@ describe("EAS build artifact coupling", () => {
   test("rejects an existing destination symlink", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "symlink-")); const destination = path.join(dir, "x.ipa"); fs.symlinkSync("target", destination);
     await expect(downloadArtifact([{ id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056", artifacts: { applicationArchiveUrl: "https://example.invalid/a" } }], destination)).rejects.toThrow(/already exists/);
+  });
+
+  test("writeAll retries partial writes", async () => {
+    let calls = 0; await writeAll({ write: async (_b, _o, n) => { calls++; return { bytesWritten: Math.min(2, n) }; } }, Buffer.alloc(5));
+    expect(calls).toBe(3);
+  });
+
+  test.each([0, -1])("writeAll rejects zero progress (%s)", async (n) => {
+    await expect(writeAll({ write: async () => ({ bytesWritten: n }) }, Buffer.alloc(2))).rejects.toThrow(/no progress/);
+  });
+
+  test("failed stream leaves no temporary files", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cleanup-")); const destination = path.join(dir, "x.ipa"); const old = global.fetch;
+    global.fetch = async () => ({ ok: true, status: 200, headers: new Map([["content-length", "4"]]), body: { async *[Symbol.asyncIterator]() { yield Buffer.from("PK\x03\x04"); throw new Error("signed-token-secret https://signed.example/token"); } } });
+    try { await expect(downloadArtifact([{ id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056", artifacts: { applicationArchiveUrl: "https://signed.example/token" } }], destination)).rejects.toThrow("EAS artifact download failed"); expect(fs.readdirSync(dir)).toEqual([]); } finally { global.fetch = old; }
   });
 });
