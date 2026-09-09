@@ -149,6 +149,7 @@ export function describeGoogleStartFailure(error: unknown): Extract<GoogleStartS
         headline: "This address cannot finish Google connect",
         message: "Open this from context.lc or the local development URL and try again.",
       };
+    case "NOT_PERSONAL_OWNER":
     case "NOT_OWNER":
       return {
         kind: "failed",

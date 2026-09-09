@@ -76,5 +76,17 @@ describe("Google connect helpers", () => {
       headline: "Could not start Google",
       message: "Google did not start the connection. Try again.",
     });
+    expect(
+      describeGoogleStartFailure(
+        new ConvexError({
+          code: "NOT_PERSONAL_OWNER",
+          message: "Only the owner of your own personal context can connect a Google account to it.",
+        }),
+      ),
+    ).toEqual({
+      kind: "failed",
+      headline: "Only an owner can connect Google",
+      message: "Ask an owner of this context to connect the Google account.",
+    });
   });
 });
