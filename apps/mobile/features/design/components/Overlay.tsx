@@ -37,6 +37,7 @@ export function Overlay({
   trailing,
   sidebar,
   children,
+  onBack,
   onDismiss,
   testID,
 }: {
@@ -48,6 +49,13 @@ export function Overlay({
   /** The section list. Absent on a phone's second level, which is a push. */
   sidebar?: ReactNode;
   children: ReactNode;
+  /**
+   * Back, on a phone's second level. Present means the head draws a chevron
+   * before the title and Android's back gesture pops a level instead of
+   * closing — a phone reaches a section by pushing onto the list, so
+   * dismissing from there would throw away a step the person just took.
+   */
+  onBack?: () => void;
   onDismiss: () => void;
   testID?: string;
 }) {
@@ -56,6 +64,17 @@ export function Overlay({
 
   const head = (
     <View style={styles.head}>
+      {onBack === undefined ? null : (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back to all settings"
+          onPress={onBack}
+          style={styles.close}
+          testID={testID ? `${testID}-back` : undefined}
+        >
+          <Text variant="rowSub">‹</Text>
+        </Pressable>
+      )}
       <Text variant="noteTitle" role="heading" aria-level={2}>
         {title}
       </Text>
@@ -75,8 +94,21 @@ export function Overlay({
   );
 
   if (compact) {
+    /*
+      Two levels, pushed rather than shown side by side: a phone has no room
+      for a list beside its content, and a caller that hands over both gets the
+      list first and the section after a press. `onRequestClose` — Android's
+      back gesture, and the iOS swipe — pops that step rather than closing the
+      whole overlay, which is what a person who has just opened a section
+      means by "back".
+    */
     return (
-      <Modal visible animationType="slide" onRequestClose={onDismiss} testID={testID}>
+      <Modal
+        visible
+        animationType="slide"
+        onRequestClose={onBack ?? onDismiss}
+        testID={testID}
+      >
         <View style={styles.phone}>
           {head}
           <View style={styles.phoneBody}>{sidebar ?? children}</View>

@@ -1,8 +1,15 @@
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import { useState } from "react";
 import { Overlay } from "../../design/components/Overlay";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
-import { radii, space } from "../../design/tokens";
+import { layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { SettingsPane } from "../panes/SettingsPane";
 import { atName } from "../format";
@@ -53,6 +60,14 @@ export function SettingsOverlay({
 }) {
   const styles = useThemedStyles(makeStyles);
   const current = selectedContext(data);
+  /*
+    A phone shows the list, then the section, rather than both at once. It
+    starts on the section because opening settings from the gear or the
+    storage chip is somebody asking for a *thing*, not for a menu — the list
+    is one press back from there.
+  */
+  const compact = useWindowDimensions().width < layout.narrowBreakpoint;
+  const [listing, setListing] = useState(false);
   const sections = settingsSectionsFor(
     current?.kind === "personal" || current?.kind === "shared" ? current.kind : null,
   );
@@ -81,7 +96,10 @@ export function SettingsOverlay({
               accessibilityRole="tab"
               aria-selected={on}
               accessibilityLabel={entry.label}
-              onPress={() => onSelect(entry.key)}
+              onPress={() => {
+                onSelect(entry.key);
+                setListing(false);
+              }}
               style={[styles.row, on ? styles.rowOn : null]}
               testID={`settings-section-${entry.key}`}
             >
@@ -94,6 +112,33 @@ export function SettingsOverlay({
       })}
     </ScrollView>
   );
+
+  const chosen = sections.find((entry) => entry.key === active);
+
+  if (compact) {
+    return (
+      <Overlay
+        title={listing ? "Settings" : (chosen?.label ?? "Settings")}
+        badge={current ? <Pill tone="neutral">{atName(current.slug)}</Pill> : null}
+        onBack={listing ? undefined : () => setListing(true)}
+        onDismiss={onDismiss}
+        testID="settings-overlay"
+      >
+        {listing ? (
+          list
+        ) : (
+          <ScrollView contentContainerStyle={styles.body}>
+            <SettingsPane
+              data={data}
+              onClose={onDismiss}
+              section={active}
+              onOpenSection={onOpenSection}
+            />
+          </ScrollView>
+        )}
+      </Overlay>
+    );
+  }
 
   return (
     <Overlay

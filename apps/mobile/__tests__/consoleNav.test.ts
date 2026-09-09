@@ -176,7 +176,11 @@ describe("the route table", () => {
     // the overlay rather than opening a blank panel on a section we do not
     // have. An empty value is somebody asking for settings, so it opens.
     expect(settingsFromQuery("email")).toBe("email");
-    expect(settingsFromQuery("")).toBe(DEFAULT_SETTINGS_SECTION);
+    expect(settingsFromQuery(DEFAULT_SETTINGS_SECTION)).toBe(DEFAULT_SETTINGS_SECTION);
+    // Empty is *closed*, not the default: closing sets the parameter to
+    // `undefined`, and a router that serialises that as a bare `?settings=`
+    // would otherwise re-open the panel the press was trying to dismiss.
+    expect(settingsFromQuery("")).toBeNull();
     expect(settingsFromQuery(undefined)).toBeNull();
     expect(settingsFromQuery("not-a-section")).toBeNull();
     expect(settingsFromQuery(["email", "storage"])).toBe("email");

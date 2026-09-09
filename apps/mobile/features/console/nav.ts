@@ -397,8 +397,16 @@ export function settingsOnNoteHref(
  *
  * Fail-closed on anything unrecognised, the same shape as `safeNotePath`: a
  * hand-edited or stale `?settings=` value closes the overlay rather than
- * opening a blank panel. An empty value is treated as "open at the default",
- * because `?settings` with nothing after it is somebody asking for settings.
+ * opening a blank panel.
+ *
+ * **An empty value is closed, not "open at the default", and that is the
+ * difference between a working close button and an overlay nobody can
+ * dismiss.** Closing is `setParams({ settings: undefined })`, and a router
+ * that serialises that as a bare `?settings=` rather than dropping the key
+ * would — under the opposite reading — hand this function an empty string,
+ * get the default section back, and re-open the panel the press was trying to
+ * close. Nothing legitimately produces an empty value: `settingsHref` always
+ * writes a section name.
  */
 export function settingsFromQuery(
   value: string | string[] | undefined,
@@ -406,7 +414,6 @@ export function settingsFromQuery(
   const raw = Array.isArray(value) ? value[0] : value;
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
-  if (trimmed === "") return DEFAULT_SETTINGS_SECTION;
   return isSettingsSection(trimmed) ? trimmed : null;
 }
 
