@@ -38,8 +38,15 @@ export function ChatsPanel({
   return (
     <>
       <PanelHead section="chats" sectioned={sectioned}>
+        {/*
+          "in the desktop app" rather than "on this Mac", and it is not a
+          hedge. `ThisMachineCard` draws nothing in a browser or on a phone —
+          correctly, there is no machine to describe — so a sentence promising
+          this Mac's Messages *here* is a promise the page keeps only in one
+          of the three runtimes it ships to.
+        */}
         {personal
-          ? "Google Chat spaces, and the Messages on this Mac. Two different mechanisms, one place to look."
+          ? "Google Chat spaces, and — in the desktop app — the Messages on your Mac. Two different mechanisms, one place to look."
           : "Chats are read into a brain, not into a workspace. A conversation has people in it who did not agree to a shared bucket."}
       </PanelHead>
 

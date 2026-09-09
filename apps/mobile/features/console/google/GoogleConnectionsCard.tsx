@@ -113,27 +113,43 @@ const SERVICE_TITLES: Record<GoogleService, string> = {
   chat: "Chat",
 };
 
-/** What the card is called, and what connecting one more of them is called. */
+/**
+ * What the card is called, what it says when it is empty, and what connecting
+ * one more account is called.
+ *
+ * `next` is there because a narrowed card with nothing connected is the state
+ * most people meet first, and "No Google calendar connected yet" over a page
+ * of nothing is a heading with no answer under it. It says what a connection
+ * *would* put on this card — a claim about this screen, which is a claim this
+ * screen can keep. It deliberately does **not** name the folder a new
+ * connection files into: that default lives in the control plane
+ * (`defaultGoogleDestinationFolder`), and a copy of it here would be a
+ * plausible sentence about somebody's bucket with nothing behind it, which is
+ * the shape of defect #25.
+ */
 const SERVICE_COPY: Record<
   GoogleService,
-  { title: string; sub: string; empty: string; connect: string }
+  { title: string; sub: string; empty: string; next: string; connect: string }
 > = {
   gmail: {
     title: "Google accounts",
     sub: "Each Google account whose mailbox this context reads.",
     empty: "No Google mailbox connected yet.",
+    next: "Connect one and it appears here with its sync state and the daily note it writes to, which you can change.",
     connect: "Connect a Gmail account",
   },
   calendar: {
     title: "Google accounts",
     sub: "Each Google account whose calendar this context reads.",
     empty: "No Google calendar connected yet.",
+    next: "Connect one and it appears here with its sync state and the daily note it writes to, which you can change.",
     connect: "Connect a Google Calendar",
   },
   chat: {
     title: "Google accounts",
     sub: "Each Google account whose Chat spaces this context reads.",
     empty: "No Google Chat account connected yet.",
+    next: "Connect one and it appears here with the number of spaces it follows and the daily note it writes to, which you can change.",
     connect: "Connect Google Chat",
   },
 };
@@ -193,6 +209,11 @@ export function GoogleConnectionsCard({
           {loading
             ? "Loading Google accounts..."
             : (copy?.empty ?? "No Google accounts connected yet.")}
+        </Text>
+      ) : null}
+      {shown.length === 0 && !loading && copy ? (
+        <Text variant="rowSub" style={styles.empty}>
+          {copy.next}
         </Text>
       ) : null}
 

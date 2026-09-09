@@ -82,7 +82,6 @@ export function SettingsPane({
   const storage = data.storage;
   const actions = data.storageActions;
   const current = selectedContext(data);
-  const hasIngestion = data.ingestion.availability === "available";
   const [rebinding, setRebinding] = useState(false);
 
   /**
@@ -724,7 +723,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   headActions: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
   sectionHead: { marginBottom: 4 },
   sectionHeadLater: { marginTop: 30, marginBottom: 4 },
-  sectionHeadAlone: { marginBottom: 12 },
   sectionSub: { marginBottom: 12, maxWidth: 546 },
   rowSub: { marginTop: 2 },
   checks: {

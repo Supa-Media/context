@@ -54,8 +54,14 @@ export function MeetingsPanel({
   return (
     <>
       <PanelHead section="meetings" sectioned={sectioned}>
+        {/*
+          "in the desktop app", because the machine card below is absent in a
+          browser and on a phone — where this sentence would otherwise be
+          describing a card the reader cannot see. The second half is true in
+          every runtime: the destination question is asked wherever you record.
+        */}
         {personal
-          ? "Recording happens on this Mac, with no window open. The notes land wherever you send them, and you are asked before the microphone opens."
+          ? "In the desktop app, your Mac records with no window open. The notes land wherever you send them, and you are asked before the microphone opens."
           : "A meeting can be filed here, and it never is by default — you are asked every time, before the microphone opens."}
       </PanelHead>
 
