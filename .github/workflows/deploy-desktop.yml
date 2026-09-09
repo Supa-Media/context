@@ -3,18 +3,20 @@ name: Deploy Desktop (build the Mac app)
 # A `.dmg` of the meeting recorder, built on a Mac runner — signed and notarised
 # when the credentials exist, and honestly unsigned when they do not.
 #
-# ## Why nothing about a branch triggers it
+# ## Why `main` triggers it
 #
-# `workflow_dispatch` only, and the same reason `deploy-mobile-native.yml` gives:
-# this produces a **binary somebody installs**. A merge to `main` deploys the
-# Convex functions, the gateway and an OTA bundle because those are reversible
-# by the next merge; a build that a person downloads and runs is not, and
-# shipping one is a decision somebody takes. CLAUDE.md says it in as many words:
-# "a native build, a store submission, rotating a secret" are what a merge
-# cannot do on its own.
+# The desktop app is the native shell for the same product runtime the mobile
+# app updates over the air. A merge that changes the shell or a package bundled
+# into it should reach installed Macs once the same release gates below pass:
+# tests, typecheck, signing, notarisation, icon verification and an actual app
+# launch. If a release is bad, the fix is another merge and another release,
+# not a hand-maintained queue of desktop changes.
 #
-# The consequence, stated rather than discovered: **merging a desktop change
-# ships nothing.** Dispatch this when there is a build worth having.
+# The manual dispatch path remains for artifact-only builds and for an explicit
+# release of the committed package version. The automatic push path is stricter:
+# it only publishes when the build is signed and notarised, and it stamps the
+# ephemeral checkout with a monotonically increasing patch version before
+# packaging so `electron-updater` sees the release as newer.
 #
 # ## Signed or not, and what the difference costs
 #
@@ -47,6 +49,19 @@ name: Deploy Desktop (build the Mac app)
 # that with.
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/desktop/**"
+      - "packages/desktop-bridge/**"
+      - "packages/hook/**"
+      - "packages/communications/**"
+      - "packages/meetings/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".npmrc"
+      - ".github/workflows/deploy-desktop.yml"
   workflow_dispatch:
     inputs:
       reason:
@@ -101,6 +116,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v4
 
@@ -323,14 +340,20 @@ jobs:
           fi
 
       # Whether this run may create a release, decided once rather than
-      # inlined into the Build step below. `publish` asked for a release that
-      # `signed`/`notarized` cannot deliver is a warning and an artifact-only
-      # build, never a failure — the same honesty this file already gives an
-      # unsigned dispatch.
+      # inlined into the Build step below. A push to `main` is a publish
+      # request; a manual dispatch is one only when its `publish` input says
+      # so. Either way, a release still requires a signed and notarised build.
+      # A manual publish request that cannot deliver that is a warning and an
+      # artifact-only build, never a failure — the same honesty this file
+      # already gives an unsigned dispatch. An automatic push with missing
+      # credentials also lands as artifact-only rather than a broken public
+      # release; the red build is the missing release, not an unsigned app
+      # uploaded to everyone.
       - name: Decide whether to publish
         id: decide
         env:
-          PUBLISH_REQUESTED: ${{ inputs.publish }}
+          PUBLISH_REQUESTED: ${{ github.event_name == 'push' || inputs.publish == true }}
+          EVENT_NAME: ${{ github.event_name }}
           SIGNED: ${{ steps.certificate.outputs.signed }}
           NOTARIZED: ${{ steps.notarize_check.outputs.notarized }}
         run: |
@@ -341,19 +364,48 @@ jobs:
           else
             echo "publish=false" >> "$GITHUB_OUTPUT"
             if [ "$PUBLISH_REQUESTED" = "true" ]; then
+              if [ "$EVENT_NAME" = "push" ]; then
+                echo "::error::A desktop-relevant push to main is an automatic release request, but this build is $( [ "$SIGNED" = "true" ] && echo unnotarised || echo unsigned ). Fix the production signing/notarisation secrets or revert the desktop change."
+                exit 1
+              fi
               echo "::warning::publish was requested but this build is $( [ "$SIGNED" = "true" ] && echo unnotarised || echo unsigned ) — uploading an artifact only, no release."
             fi
           fi
 
-      # A version this workflow already released, refused before forty-five
-      # minutes of signing and notarising rather than after — and before
-      # electron-builder gets anywhere near overwriting a release somebody may
-      # already have pointed people at. `apps/desktop/package.json`'s version is
-      # never bumped by this workflow; bump it, commit it, then dispatch again.
-      - name: Read the app version
+      # The app version that goes into Info.plist, latest-mac.yml and the tag.
+      #
+      # Artifact-only manual dispatches keep the committed
+      # `apps/desktop/package.json` version. Any run that will publish — an
+      # automatic `push` release or a manual dispatch with `publish: true` —
+      # patches only this runner's checkout to `<major>.<minor>.<run_number>`.
+      # That gives every release a semver-increasing version without
+      # committing release-number churn back to `main`, and it keeps the Build
+      # step and the Publish step reading one value from the same package file.
+      - name: Resolve the app version
         id: version
         working-directory: apps/desktop
-        run: echo "value=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+        env:
+          PUBLISH_REQUESTED: ${{ steps.decide.outputs.publish }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { readFileSync, writeFileSync, appendFileSync } = require("node:fs");
+          const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+          const base = String(pkg.version);
+          let version = base;
+          if (process.env.PUBLISH_REQUESTED === "true") {
+            const [major, minor] = base.split(".");
+            const run = process.env.GITHUB_RUN_NUMBER;
+            if (!/^\d+$/.test(major) || !/^\d+$/.test(minor) || !/^\d+$/.test(run ?? "")) {
+              throw new Error(`cannot derive desktop auto-release version from ${base} and run ${run}`);
+            }
+            version = `${major}.${minor}.${run}`;
+            pkg.version = version;
+            writeFileSync("package.json", `${JSON.stringify(pkg, null, 2)}\n`);
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `value=${version}\n`);
+          console.log(`Desktop app version for this build: ${version}`);
+          NODE
 
       - name: Refuse to publish a version already released
         if: steps.decide.outputs.publish == 'true'
@@ -444,7 +496,7 @@ jobs:
           ls -la release/*.dmg
           ls -la release/*.zip release/latest-mac.yml 2>/dev/null || true
           if [ "$WILL_PUBLISH" = "true" ]; then
-            echo "This dispatch asked to publish v$VERSION — that happens in the \"Publish the release\" step, and only if the launch check below passes."
+            echo "This run will publish v$VERSION — that happens in the \"Publish the release\" step, and only if the launch check below passes."
           fi
 
       # `spctl --assess` on the `.dmg` itself always said "no usable
