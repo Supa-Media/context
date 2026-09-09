@@ -171,7 +171,7 @@ export function useNoteEncryption(
    * same reason `passphraseOps.ts`'s own `OpsContext.derive` is injectable.
    * Never passed by the console itself, which always wants the real KDF.
    */
-  derive?: (passphrase: string, kdf: KdfDescriptor) => Uint8Array,
+  derive?: (passphrase: string, kdf: KdfDescriptor) => Uint8Array | Promise<Uint8Array>,
   /**
    * Where a write actually lands, when it is not `writeNote`/
    * `removeNoteEncryption` over Convex. The one caller is

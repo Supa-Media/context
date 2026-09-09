@@ -5,8 +5,8 @@
  * this file implements. Three sentences of it are load-bearing:
  *
  *  - **Argon2id, at OWASP's floor parameters** — 19 MiB, two passes, one lane —
- *    computed in plain JavaScript, with no new dependency in the console and
- *    none at all in the gateway.
+ *    computed in plain JavaScript on computers and by the pinned reference C
+ *    implementation in an iOS binary that contains the native module.
  *  - **On a runtime that cannot do it, unlocking is refused by name.** Never a
  *    weaker KDF chosen quietly on the person's behalf: a passphrase note that
  *    silently became a PBKDF2 note on a phone would be weaker than the note the
@@ -17,7 +17,9 @@
  *
  * ## What "cannot do it" means, concretely
  *
- * Two capabilities, and the phone is missing both:
+ * Two capabilities. A browser provides both through JavaScript and Web Crypto;
+ * a new iOS binary provides both through the optional native module. Android
+ * and old iOS binaries still lack them and fail closed:
  *
  *  - `crypto.subtle` — AES-GCM, to unwrap the note key and open the body.
  *    Hermes has no Web Crypto at all; `expo-crypto` offers digests and random
@@ -34,6 +36,7 @@
  */
 
 import { argon2id } from "./argon2id.ts";
+import { hasNativeNoteCrypto, nativeArgon2id, nativeRandomBytes } from "./nativeCrypto";
 
 /** What a v1 passphrase recipient names as its KDF. */
 export const KDF_ARGON2ID = "argon2id";
@@ -86,21 +89,22 @@ export type KdfSupport =
  * @param runtime injected for tests — the real answer comes from the globals.
  */
 export function kdfSupport(
-  runtime: { subtle?: unknown; hermes?: boolean } = {
+  runtime: { subtle?: unknown; hermes?: boolean; nativeCrypto?: boolean } = {
     subtle: (globalThis as { crypto?: { subtle?: unknown } }).crypto?.subtle,
     // Hermes announces itself. A runtime that both has Web Crypto and is Hermes
     // does not exist today; if one ever does, the capability wins and this is
     // just a slow path.
     hermes: typeof (globalThis as { HermesInternal?: unknown }).HermesInternal !== "undefined",
+    nativeCrypto: hasNativeNoteCrypto(),
   },
 ): KdfSupport {
+  if (runtime.nativeCrypto) return { supported: true };
   if (!runtime.subtle) {
     return {
       supported: false,
       reason:
-        "Locked notes can only be opened where this app can do the cryptography itself, " +
-        "which on a phone it cannot yet. Open it in the browser or the desktop app — " +
-        "the note is safe, and this is a limitation of the phone rather than of the note.",
+        "This app build can't open locked notes. Update Context or open the note in the " +
+        "browser or desktop app.",
     };
   }
   if (runtime.hermes) {
@@ -136,16 +140,14 @@ export function newKdfDescriptor(
 /**
  * The key-encryption key a passphrase derives, under one descriptor.
  *
- * Synchronous, and deliberately: it is a second of arithmetic, and hiding that
- * behind a promise would not make it less of one. The caller runs it where a
- * second of arithmetic is acceptable — a deliberate unlock, off the frame the
- * person is looking at.
+ * Async because the iOS implementation crosses a native bridge. The computer
+ * fallback remains the same byte-compatible, dependency-free JavaScript KDF.
  *
  * **The passphrase is not retained here and is not returned in anything.** What
  * comes back is 32 bytes that the caller holds in memory for as long as the
  * session is unlocked and drops when it locks.
  */
-export function derivePassphraseKey(passphrase: string, kdf: KdfDescriptor): Uint8Array {
+export async function derivePassphraseKey(passphrase: string, kdf: KdfDescriptor): Promise<Uint8Array> {
   if (kdf.id !== KDF_ARGON2ID) {
     // Never guessed at, never substituted. A note naming a KDF this build does
     // not implement is a note this build cannot open, and saying so is the only
@@ -158,6 +160,16 @@ export function derivePassphraseKey(passphrase: string, kdf: KdfDescriptor): Uin
   }
   const support = kdfSupport();
   if (!support.supported) throw new Error(support.reason);
+  if (hasNativeNoteCrypto()) {
+    return await nativeArgon2id({
+      passphrase: passphrase.normalize("NFC"),
+      salt: fromBase64Url(kdf.salt),
+      memory: kdf.m,
+      iterations: kdf.t,
+      parallelism: kdf.p,
+      version: kdf.v,
+    });
+  }
   return argon2id({
     password: new TextEncoder().encode(passphrase.normalize("NFC")),
     salt: fromBase64Url(kdf.salt),
@@ -182,6 +194,8 @@ function defaultRandomBytes(length: number): Uint8Array {
   const bytes = new Uint8Array(length);
   const source = (globalThis as { crypto?: Crypto }).crypto;
   if (!source?.getRandomValues) {
+    const native = nativeRandomBytes(length);
+    if (native !== null) return native;
     throw new Error("this runtime has no cryptographic random source");
   }
   source.getRandomValues(bytes);

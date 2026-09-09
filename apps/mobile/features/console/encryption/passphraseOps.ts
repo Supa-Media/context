@@ -54,11 +54,11 @@ export interface OpsContext {
   workspaceId: string;
   writer: NoteWriter;
   /** Injected so tests need not pay a real derivation. Defaults to Argon2id. */
-  derive?: (passphrase: string, kdf: KdfDescriptor) => Uint8Array;
+  derive?: (passphrase: string, kdf: KdfDescriptor) => Uint8Array | Promise<Uint8Array>;
 }
 
-function deriveWith(context: OpsContext, passphrase: string, kdf: KdfDescriptor): Uint8Array {
-  return (context.derive ?? derivePassphraseKey)(passphrase, kdf);
+async function deriveWith(context: OpsContext, passphrase: string, kdf: KdfDescriptor): Promise<Uint8Array> {
+  return await (context.derive ?? derivePassphraseKey)(passphrase, kdf);
 }
 
 /**
@@ -80,7 +80,7 @@ export async function protectNote(
 ): Promise<{ etag: string; key: Uint8Array; stored: string }> {
   requirePassphrase(input.passphrase);
   const kdf = newKdfDescriptor();
-  const key = deriveWith(context, input.passphrase, kdf);
+  const key = await deriveWith(context, input.passphrase, kdf);
   const document = await encryptForPassphrase(input.plaintext, {
     workspaceId: context.workspaceId,
     kek: key,
@@ -113,7 +113,7 @@ export async function unlockNote(
   requirePassphrase(input.passphrase);
   const kdf = passphraseKdfOf(input.stored);
   if (kdf === null) throw new NoteCryptoError("this note is not protected by a passphrase");
-  const key = deriveWith(context, input.passphrase, kdf);
+  const key = await deriveWith(context, input.passphrase, kdf);
   // One failure for a wrong passphrase, a corrupted envelope and a note carried
   // in from another context, decided inside `envelope.ts`. Catching and
   // relabelling here would rebuild the oracle that file exists to avoid.
@@ -180,14 +180,14 @@ export async function changePassphrase(
     throw new NoteCryptoError("this note is not protected by a passphrase");
   }
   const currentKdf = passphraseKdfOf(input.stored)!;
-  const currentKey = deriveWith(context, input.currentPassphrase, currentKdf);
+  const currentKey = await deriveWith(context, input.currentPassphrase, currentKdf);
   const recipient = envelope.recipients.find((candidate) => candidate.kind === "passphrase")!;
   const noteKey = await unwrapNoteKey(recipient, currentKey, context.workspaceId);
 
   // A fresh salt for the new passphrase, so the new key is not related to the
   // old one by anything but the person who chose them both.
   const nextKdf = newKdfDescriptor();
-  const nextKey = deriveWith(context, input.newPassphrase, nextKdf);
+  const nextKey = await deriveWith(context, input.newPassphrase, nextKdf);
   const rewrapped = await wrapNoteKey(noteKey, {
     workspaceId: context.workspaceId,
     kek: nextKey,
