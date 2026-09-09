@@ -15,18 +15,34 @@ file for the area you are touching, and write new durable decisions there.
 These are the product, not implementation details. If a task seems to require
 breaking one, stop and say so rather than working around it.
 
-1. **The customer owns the storage.** Canonical Markdown and attachments live in
-   a bucket the customer owns; the control plane holds metadata only — accounts,
-   workspaces, bindings, grants, audit — and **never** note content. A customer
-   can revoke our credential and keep a complete, usable context. Credentials
-   never live in Markdown, in the bucket, in logs, in URLs, or on a device:
-   encrypted at rest, decrypted only in the gateway at request time.
+1. **The customer owns the content, and can always leave with it.** Canonical
+   Markdown and attachments live in a bucket dedicated to one workspace; the
+   control plane holds metadata only — accounts, workspaces, bindings, grants,
+   audit — and **never** note content. Who holds the bucket's key is a billing
+   question: on the free plan it is the customer's own bucket and revoking our
+   credential leaves them a complete, usable context; on **managed storage** we
+   create and pay for the bucket, and the equivalent guarantee is that
+   downloading everything or handing the bucket to storage of their own is
+   free, identical on both plans, and still works after they cancel. That exit
+   is never gated, never degraded, and never behind a paywall — gate it and
+   this is a different product. Cancelling makes a context read-only and
+   exportable; it never deletes. Credentials never live in Markdown, in the
+   bucket, in logs, in URLs, or on a device: encrypted at rest, decrypted only
+   in the gateway at request time. See
+   [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
 2. **Tenancy is bucket-level, never prefix-level.** Do not namespace keys inside
-   a customer's bucket — no `tenants/<id>/`, no `workspaces/<slug>/`. A note
-   lives at `1-projects/foo.md`, full stop. An existing brain must connect and
-   work unchanged, with zero migration; the same bucket is synced to Obsidian,
-   and rewriting keys breaks that. One workspace maps to one bucket (optionally
-   plus a fixed root prefix the customer chose, applied at the adapter boundary).
+   a bucket — no `tenants/<id>/`, no `workspaces/<slug>/`. A note lives at
+   `1-projects/foo.md`, full stop. An existing brain must connect and work
+   unchanged, with zero migration; the same bucket is synced to Obsidian, and
+   rewriting keys breaks that. One workspace maps to one bucket (optionally
+   plus a fixed root prefix the customer chose, applied at the adapter
+   boundary). **This now also carries non-negotiable #1's exit promise**: a
+   bucket holding one workspace can be handed over, and a shared bucket with a
+   prefix per customer can only ever be exported from — so managed buckets are
+   one per workspace, named from the immutable workspace id, in a Cloudflare
+   account that holds customer buckets and nothing else. R2 allows a million
+   buckets per account, which is what makes this affordable; a store with a
+   low bucket ceiling cannot host this product.
 3. **Plain files stay canonical.** Markdown stays portable and human-readable.
    Search indexes, caches and embeddings are **disposable derivatives**,
    rebuildable from the files, never the only copy of anything. The on-bucket

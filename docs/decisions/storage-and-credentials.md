@@ -301,3 +301,103 @@ themselves rather than through a shared "requireAppSecret", because requiring
 it in one place while the other two stayed optional is exactly the kind of
 drift nobody would notice until a refresh started failing on a deployment
 that connects fine.
+
+## Managed storage: a bucket we run, in an account that holds nothing else
+
+**Decided 2026-09.** The product no longer requires everybody to bring their
+own bucket. Managed storage is the paid option: we create the bucket, we pay
+for it, and the customer never opens a Cloudflare account. This changes the
+*mechanism* of the first non-negotiable and deliberately keeps its *promise* —
+see the rewrite in `CLAUDE.md`. Nothing below is a softening of it; several
+things are stricter than the BYO path.
+
+### Why it exists
+
+"Make a Cloudflare account, then an R2 bucket, then an S3 key, then paste
+both" is where every non-technical person stops. `functions/cloudflare.ts`
+already removed part of that wall by provisioning **into the customer's own
+account** from a credential they supply, and that path stays exactly as it is
+— it is still the free one and still the honest shape. But it needs a
+Cloudflare account to exist first, and for the audience this product is now
+aimed at, that account is the wall.
+
+### What must stay true, or the promise is gone
+
+1. **One workspace, one bucket. Never a prefix.** This is the second
+   non-negotiable, and managed storage changes what it is *for*: it used to be
+   about connecting an existing brain without migration, and it is now also
+   the thing that makes handing a bucket over possible at all. A bucket
+   holding one customer's notes can be given to them; a shared bucket with a
+   prefix per customer can only ever be exported *from*. `managedBucketName()`
+   derives the name from the workspace id — immutable, unique, and structurally
+   incapable of colliding — rather than from a slug that can be reserved,
+   renamed, or typed by somebody else.
+2. **A separate Cloudflare account, holding customer buckets and nothing
+   else.** R2 has a flat bucket namespace with no grouping, so the account
+   *is* the boundary: a blast radius, a billing line, and an API token that
+   cannot reach anything of ours. It costs nothing to create now and is a
+   multi-day migration with one cutover per tenant later, because R2 has no
+   "move bucket between accounts" operation — only a copy (Super Slurper) and
+   a repoint.
+3. **Plain files, unchanged layout.** A managed bucket holds exactly what a
+   BYO bucket holds: Markdown, PARA folders, `privacy.md`, attachments beside
+   their notes. Nothing about the on-bucket format may become conditional on
+   who is paying.
+4. **The exit is free, identical, and outlives the subscription.** Download
+   everything, or hand it to a bucket of their own, on both plans and after a
+   cancellation. The moment either is gated, "you can always leave" is
+   marketing rather than architecture.
+5. **Cancelling never deletes.** Read-only and exportable for a stated window,
+   with the final removal an action the customer takes.
+
+### Why R2 specifically, and not S3
+
+The whole design rests on being able to afford a bucket per workspace. AWS S3
+allows **100 buckets per account by default**, raisable into the low thousands
+— a ceiling this product would hit while still small, at which point the only
+remaining option is prefix tenancy and the exit promise dies with it. R2's
+limit is **1,000,000 buckets per account**, so the ceiling is not a design
+constraint. This is the fact that makes the architecture legal; if the store
+ever moves, it has to be re-checked first.
+
+The price is operational, and it is real: a five-figure bucket count means
+lifecycle rules, CORS and metrics can never be managed by hand, the Cloudflare
+dashboard stops being useful for browsing, and provisioning has to be code
+from the first bucket. That is the accepted cost of being able to hand
+somebody their storage.
+
+### The credential, which is more dangerous than the BYO one
+
+The managed account's API token can create buckets and mint further
+credentials across *every* customer bucket, which makes it categorically worse
+than anything this codebase has held before: the BYO setup credential is one
+customer's, used for seconds, and never stored. This one is ours, standing,
+and long-lived. So it lives only in `MANAGED_R2_API_TOKEN`, is read only
+inside actions, is never written to any table, never returned by any function,
+never logged, and never reaches the gateway — the gateway continues to receive
+only the per-bucket S3 key that provisioning mints, exactly as it does for a
+BYO binding. A workspace's binding is indistinguishable downstream from one a
+customer pasted, which is the point: the adapter has no idea who is paying.
+
+`bindStorage` also refuses an endpoint pointing at the managed account. A
+customer cannot reach it without our token, so this guard blocks nothing an
+attacker could otherwise do — it exists so that "the managed account holds
+customer buckets and nothing else" is enforced in code rather than asserted in
+this file.
+
+### What a "simplification" of this would cost
+
+Putting managed buckets in the same Cloudflare account as our own
+infrastructure saves one account and costs the blast radius: a token scoped to
+"R2 in this account" would then reach production buckets too. Reusing one
+bucket with a prefix per workspace saves a five-figure bucket count and costs
+the entire hand-off story, turning the product into every other SaaS that lets
+you export a zip. Deriving the bucket name from a slug instead of a workspace
+id saves nothing and buys a rename bug. Each of these is the cheap version of
+a promise that is the reason the product exists.
+
+**The test that fails if this is reversed.** `__tests__/managedStorage.test.ts`
+asserts that two workspaces can never derive the same bucket name, that a
+managed name is recognisably ours, that the managed account id is refused as a
+customer-supplied one, and that nothing in the module returns or embeds the
+managed token.
