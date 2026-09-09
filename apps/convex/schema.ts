@@ -952,6 +952,12 @@ const schema = defineSchema({
          */
         attachmentRetentionDays: v.optional(v.union(v.number(), v.literal("forever"))),
         /**
+         * Customer-visible folder where this mailbox's day notes and
+         * attachments land. Absent on rows written before integration settings
+         * existed, in which case the old canonical folder is used.
+         */
+        destinationFolder: v.optional(v.string()),
+        /**
          * A hard ceiling on bytes this connection may write into the bucket
          * — note text and stored attachment bytes both — independent of the
          * customer's overall storage. Backfill and sync both refuse to write
@@ -981,6 +987,7 @@ const schema = defineSchema({
     calendar: v.optional(
       v.object({
         scopes: v.array(v.string()),
+        destinationFolder: v.optional(v.string()),
         syncToken: v.optional(v.string()),
         lastSyncedAt: v.optional(v.number()),
       }),
@@ -1013,6 +1020,7 @@ const schema = defineSchema({
         scopes: v.array(v.string()),
         spaceSettings: v.optional(v.record(v.string(), v.union(v.literal("excluded"), v.literal("paused")))),
         cursors: v.optional(v.record(v.string(), v.string())),
+        destinationFolder: v.optional(v.string()),
         nonceSeed: v.string(),
         lastSyncedAt: v.optional(v.number()),
       }),
@@ -1073,6 +1081,7 @@ const schema = defineSchema({
     itemsFound: v.optional(v.number()),
     daysWithMail: v.optional(v.number()),
     bytesWritten: v.optional(v.number()),
+    destinationFolder: v.optional(v.string()),
     currentService: v.optional(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
     currentUnit: v.optional(v.string()),
     startedAt: v.optional(v.number()),

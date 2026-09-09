@@ -279,6 +279,7 @@ export async function resolveSession(token, slug, controlPlane) {
     grantId: session.grantId,
     workspaceId: workspace.workspaceId,
     workspaceSlug: workspace.slug,
+    workspaceKind: workspace.kind,
     role: workspace.role,
     scope: visibilityTierForGrant(scopes, workspace.role),
     actorUserId: session.actorUserId,
@@ -361,6 +362,7 @@ export function sessionForContext(session, name) {
     ...session,
     workspaceId: covered.workspaceId,
     workspaceSlug: covered.slug,
+    workspaceKind: covered.kind,
     role: covered.role,
     scope: visibilityTierForGrant(scopes, covered.role),
     scopes,
@@ -412,8 +414,9 @@ function normalizeSession(raw) {
     if (!entry || typeof entry !== "object") throw fail();
     if (typeof entry.workspaceId !== "string" || !entry.workspaceId) throw fail();
     if (typeof entry.role !== "string" || !entry.role) throw fail();
+    const kind = entry.kind === "shared" ? "shared" : "personal";
     const slug = typeof entry.slug === "string" ? entry.slug.toLowerCase() : null;
-    return { workspaceId: entry.workspaceId, slug, role: entry.role };
+    return { workspaceId: entry.workspaceId, slug, role: entry.role, kind };
   });
   if (typeof defaultWorkspaceId !== "string" || !defaultWorkspaceId) throw fail();
   return {

@@ -185,12 +185,24 @@ export async function runCommunicationsChecks(check) {
   const restore = controlPlane.install();
   try {
     const bucket = createBucket();
+    const sharedBucket = createBucket();
     controlPlane.addWorkspace("ws_comms", "comms", {
       provider: "r2-binding",
       bindingName: "COMMS_BUCKET",
       capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       status: "active",
     });
+    controlPlane.addWorkspace(
+      "ws_comms_shared",
+      "comms-shared",
+      {
+        provider: "r2-binding",
+        bindingName: "SHARED_COMMS_BUCKET",
+        capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+        status: "active",
+      },
+      { kind: "shared" }
+    );
     await controlPlane.addGrant({
       accessToken: OWNER_TOKEN,
       workspaceId: "ws_comms",
@@ -207,16 +219,27 @@ export async function runCommunicationsChecks(check) {
       clientId: "mcp_client_comms_member",
       userId: "user_comms_member",
     });
+    await controlPlane.addGrant({
+      accessToken: "cat_test_shared_comms_owner_00000000",
+      workspaceId: "ws_comms_shared",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "mcp_client_comms_shared_owner",
+      userId: "user_comms_shared_owner",
+    });
 
     const env = {
       CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
       GATEWAY_SECRET,
-      NATIVE_BINDINGS: "COMMS_BUCKET",
+      NATIVE_BINDINGS: "COMMS_BUCKET,SHARED_COMMS_BUCKET",
       COMMS_BUCKET: bucket,
+      SHARED_COMMS_BUCKET: sharedBucket,
     };
 
     bucket.seed("privacy.md", PRIVACY_MANIFEST);
     bucket.seed("index.md", "# The front page");
+    sharedBucket.seed("privacy.md", PRIVACY_MANIFEST);
+    sharedBucket.seed("index.md", "# Shared front page");
 
     const workDay = seedDay(bucket, {
       account: "work-at-example-com",
@@ -378,6 +401,16 @@ export async function runCommunicationsChecks(check) {
       !(await callTool(env, TEAM_TOKEN, "list_channel_days", { channel: "google-chat" })).includes(googleChatDay) &&
         (await callTool(env, TEAM_TOKEN, "read_channel_day", { path: googleChatDay })) ===
           (await callTool(env, TEAM_TOKEN, "read_channel_day", { path: "0-inbox/google-chat/1999-01-01.md" }))
+    );
+    const sharedCommsWrite = await callTool(env, "cat_test_shared_comms_owner_00000000", "write_note", {
+      path: "0-inbox/imessage/2026-09-07.md",
+      content: "# iMessage\n",
+      visibility: "private",
+    });
+    check(
+      "shared workspaces refuse automated personal communications even for their owner",
+      sharedCommsWrite.includes("personal communications can only be synced to a personal brain") &&
+        !sharedBucket.objects.has("0-inbox/imessage/2026-09-07.md")
     );
     check(
       "a channel nobody has is a caller error, not a silent empty answer",

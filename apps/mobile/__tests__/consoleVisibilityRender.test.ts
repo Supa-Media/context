@@ -162,6 +162,25 @@ describe("the chip is worn once, by the frame", () => {
   });
 });
 
+describe("personal communications integrations stay out of shared workspaces", () => {
+  test("a personal brain shows integrations setup", () => {
+    const text = settings(OWNED);
+
+    expect(text).toContain("Integrations");
+    expect(text).toContain("Google accounts");
+    expect(text).not.toContain("Personal integrations unavailable");
+  });
+
+  test("a shared workspace explains that email, chat and iMessage imports do not belong there", () => {
+    const text = settings(EDITOR_OF);
+
+    expect(text).toContain("Personal integrations unavailable");
+    expect(text).toContain("Switch to a personal brain");
+    expect(text).not.toContain("Google accounts");
+    expect(text).not.toContain("Connect Google account");
+  });
+});
+
 describe("Browse says so in words, because Browse is where the absence is invisible", () => {
   /*
     A private folder is not greyed out in the tree — it is not in the tree. An

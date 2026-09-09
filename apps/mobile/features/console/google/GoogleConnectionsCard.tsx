@@ -1,15 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
-import { ChoiceGroup, FormError, ToggleGroup } from "../../design/components/Input";
+import { ChoiceGroup, FormError, TextField, ToggleGroup } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useArming } from "../useArming";
 import {
   GOOGLE_REDIRECT_ORIGINS,
-  googleBackfillWindowLabel,
   type GoogleBackfillWindow,
   type GoogleSyncServices,
 } from "./google";
@@ -27,16 +26,19 @@ export interface GoogleConnection {
   gmail?: {
     backfillDays: number;
     folders: Array<"inbox" | "sent">;
+    destinationFolder: string;
     destinationPath: string;
     historyCursorReady: boolean;
     lastSyncedAt?: number;
   };
   calendar?: {
+    destinationFolder: string;
     destinationPath: string;
     syncCursorReady: boolean;
     lastSyncedAt?: number;
   };
   chat?: {
+    destinationFolder: string;
     destinationPath: string;
     cursorCount: number;
     lastSyncedAt?: number;
@@ -65,6 +67,11 @@ export interface GoogleActions {
   workspaceId: string;
   disconnect: (connectionId: string) => Promise<null>;
   startBackfill: (connectionId: string, backfillDays: number) => Promise<unknown>;
+  saveDestination: (
+    connectionId: string,
+    service: "gmail" | "calendar" | "chat",
+    destinationPath: string,
+  ) => Promise<unknown>;
 }
 
 export function GoogleConnectionsCard({
@@ -186,31 +193,85 @@ function ConnectedGoogleRow({
     void actions.disconnect(connection.connectionId);
   });
   const serviceNames = [
-    connection.syncServices.gmail ? "Gmail" : null,
+    connection.syncServices.gmail ? "Email" : null,
     connection.syncServices.calendar ? "Calendar" : null,
     connection.syncServices.chat ? "Chat" : null,
   ].filter(Boolean);
-  const detailLines = googleConnectionDetailLines(connection);
   const inlineError = connection.lastError ?? connection.syncRun?.lastError;
   const inlineErrorCode = connection.errorCode ?? connection.syncRun?.errorCode;
+  const showAccountError = inlineError && connection.syncRun?.status !== "failed";
 
   return (
     <Row divided style={styles.connectionRow}>
       <Grow style={styles.connectionBody}>
         <Text variant="rowTitle">{connection.email}</Text>
         <Text variant="rowSub" style={styles.rowSub}>
-          {`${serviceNames.join(", ")} · ${statusLabel(connection.syncStatus)}`}
+          {`${serviceNames.join(", ")} connected`}
         </Text>
-        {detailLines.length > 0 ? (
-          <View style={styles.details}>
-            {detailLines.map((line) => (
-              <Text key={line} variant="foot" style={styles.detailLine}>
-                {line}
-              </Text>
-            ))}
-          </View>
-        ) : null}
-        {inlineError ? (
+        <View style={styles.serviceList}>
+          {connection.syncServices.gmail && connection.gmail ? (
+            <GoogleServiceBlock
+              connectionId={connection.connectionId}
+              service="gmail"
+              title="Email"
+              status={gmailRunDetail(connection) ?? (connection.gmail.historyCursorReady ? "Watching for new mail" : "Ready to backfill")}
+              destinationPath={connection.gmail.destinationPath}
+              destinationHint="Daily email files use YYYY-MM-DD.md; attachments stay beside the mailbox."
+              error={connection.syncRun?.status === "failed" ? inlineError : undefined}
+              actionLabel={gmailBackfillActionLabel(connection)}
+              actionDisabled={
+                actions === undefined ||
+                connection.syncRun?.status === "queued" ||
+                connection.syncRun?.status === "running"
+              }
+              onAction={() => {
+                if (actions === undefined || !connection.gmail) return;
+                void actions.startBackfill(connection.connectionId, connection.gmail.backfillDays);
+              }}
+              saveDestination={
+                connection.syncRun?.status === "queued" || connection.syncRun?.status === "running"
+                  ? undefined
+                  : actions?.saveDestination
+              }
+              destinationReadOnly={connection.syncRun?.status === "queued" || connection.syncRun?.status === "running"}
+            />
+          ) : null}
+          {connection.syncServices.calendar && connection.calendar ? (
+            <GoogleServiceBlock
+              connectionId={connection.connectionId}
+              service="calendar"
+              title="Calendar"
+              status={
+                connection.calendar.syncCursorReady
+                  ? `Watching calendar changes${formatSyncTime(connection.calendar.lastSyncedAt) ? ` · ${formatSyncTime(connection.calendar.lastSyncedAt)}` : ""}`
+                  : "Connected; calendar backfill control is next"
+              }
+              destinationPath={connection.calendar.destinationPath}
+              destinationHint="Calendar events will land as daily context notes here."
+              actionLabel="Start Calendar sync"
+              actionDisabled
+              saveDestination={actions?.saveDestination}
+            />
+          ) : null}
+          {connection.syncServices.chat && connection.chat ? (
+            <GoogleServiceBlock
+              connectionId={connection.connectionId}
+              service="chat"
+              title="Chat"
+              status={
+                connection.chat.cursorCount > 0
+                  ? `Tracking ${connection.chat.cursorCount} Chat space${connection.chat.cursorCount === 1 ? "" : "s"}${formatSyncTime(connection.chat.lastSyncedAt) ? ` · ${formatSyncTime(connection.chat.lastSyncedAt)}` : ""}`
+                  : "Connected; Chat backfill control is next"
+              }
+              destinationPath={connection.chat.destinationPath}
+              destinationHint="Google Chat spaces will land as daily channel notes here."
+              actionLabel="Start Chat sync"
+              actionDisabled
+              saveDestination={actions?.saveDestination}
+            />
+          ) : null}
+        </View>
+        {showAccountError ? (
           <FormError
             headline={inlineErrorCode ? statusLabel(inlineErrorCode) : "Google needs attention"}
             next={inlineError}
@@ -219,17 +280,6 @@ function ConnectedGoogleRow({
         ) : null}
       </Grow>
       <View style={styles.connectionActions}>
-        {connection.gmail && shouldShowGmailBackfillAction(connection) ? (
-          <Button
-            label={gmailBackfillActionLabel(connection)}
-            disabled={actions === undefined || connection.syncRun?.status === "queued" || connection.syncRun?.status === "running"}
-            onPress={() => {
-              if (actions === undefined || !connection.gmail) return;
-              void actions.startBackfill(connection.connectionId, connection.gmail.backfillDays);
-            }}
-            testID={`start-google-backfill-${connection.connectionId}`}
-          />
-        ) : null}
         <Button
           label={disconnect.stage === "armed" ? "Press again" : "Disconnect"}
           variant="danger"
@@ -238,6 +288,100 @@ function ConnectedGoogleRow({
         />
       </View>
     </Row>
+  );
+}
+
+function GoogleServiceBlock({
+  connectionId,
+  service,
+  title,
+  status,
+  destinationPath,
+  destinationHint,
+  actionLabel,
+  actionDisabled = false,
+  error,
+  onAction,
+  saveDestination,
+  destinationReadOnly = false,
+}: {
+  connectionId: string;
+  service: "gmail" | "calendar" | "chat";
+  title: string;
+  status: string;
+  destinationPath: string;
+  destinationHint: string;
+  actionLabel: string;
+  actionDisabled?: boolean;
+  error?: string;
+  onAction?: () => void;
+  saveDestination?: GoogleActions["saveDestination"];
+  destinationReadOnly?: boolean;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [draft, setDraft] = useState(destinationPath);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(destinationPath);
+    setSaveError(null);
+  }, [destinationPath]);
+
+  const dirty = draft.trim() !== destinationPath.trim();
+
+  return (
+    <View style={styles.serviceBlock}>
+      <View style={styles.serviceHead}>
+        <View style={styles.serviceText}>
+          <Text variant="rowTitle">{title}</Text>
+          <Text variant="rowSub" style={styles.rowSub}>
+            {status}
+          </Text>
+        </View>
+        <Button
+          label={actionLabel}
+          disabled={actionDisabled}
+          onPress={onAction}
+          testID={`start-google-${service}-${connectionId}`}
+        />
+      </View>
+      <View style={styles.destinationRow}>
+        <TextField
+          label={`${title} destination`}
+          value={draft}
+          editable={!destinationReadOnly}
+          onChangeText={(value) => {
+            setDraft(value);
+            setSaveError(null);
+          }}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder={destinationPath}
+          hint={destinationHint}
+          containerStyle={styles.destinationField}
+          testID={`google-${service}-destination-${connectionId}`}
+        />
+        <Button
+          label={saving ? "Saving..." : "Save path"}
+          disabled={!dirty || saving || destinationReadOnly || saveDestination === undefined}
+          onPress={() => {
+            if (saveDestination === undefined) return;
+            setSaving(true);
+            setSaveError(null);
+            void saveDestination(connectionId, service, draft)
+              .catch((reason) => {
+                setSaveError(reason instanceof Error ? reason.message : "That path did not save.");
+              })
+              .finally(() => setSaving(false));
+          }}
+          style={styles.destinationSave}
+          testID={`save-google-${service}-destination-${connectionId}`}
+        />
+      </View>
+      {saveError ? <FormError headline="Path was not saved" next={saveError} /> : null}
+      {error ? <FormError headline="Sync stopped" next={error} /> : null}
+    </View>
   );
 }
 
@@ -275,19 +419,12 @@ function formatBytes(value: number | undefined): string | null {
   return `${(value / 1024 / 1024).toFixed(1)} MB saved`;
 }
 
-function shouldShowGmailBackfillAction(connection: GoogleConnection): boolean {
-  if (!connection.gmail) return false;
-  const status = connection.syncRun?.status;
-  if (status === "queued" || status === "running") return true;
-  return !connection.gmail.historyCursorReady || status === "failed";
-}
-
 function gmailBackfillActionLabel(connection: GoogleConnection): string {
   const status = connection.syncRun?.status;
-  if (status === "queued") return "Backfill queued";
-  if (status === "running") return "Backfill running";
-  if (status === "failed") return "Retry Gmail backfill";
-  return "Start Gmail backfill";
+  if (status === "queued") return "Email queued";
+  if (status === "running") return "Email running";
+  if (status === "failed") return "Retry Email";
+  return "Start Email";
 }
 
 function gmailRunDetail(connection: GoogleConnection): string | null {
@@ -315,55 +452,27 @@ function gmailRunDetail(connection: GoogleConnection): string | null {
     case "complete":
       return `Backfill complete${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
     case "failed":
-      return `Backfill stopped${run.lastError ? ` · ${run.lastError}` : ""}${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
+      return `Stopped${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
   }
-}
-
-function googleConnectionDetailLines(connection: GoogleConnection): string[] {
-  const lines: string[] = [];
-  if (connection.syncServices.gmail && connection.gmail) {
-    const runDetail = gmailRunDetail(connection);
-    const parts = [
-      connection.email,
-      `${googleBackfillWindowLabel(connection.gmail.backfillDays)} backfill`,
-      connection.gmail.folders.map((folder) => (folder === "inbox" ? "Inbox" : "Sent")).join(" + "),
-      runDetail ?? (connection.gmail.historyCursorReady ? "watching for new mail" : "ready to start"),
-      formatSyncTime(connection.gmail.lastSyncedAt),
-    ].filter(Boolean);
-    lines.push(`Gmail: ${parts.join(" · ")}`);
-    lines.push(`Destination: Email inbox for ${connection.email}`);
-  }
-  if (connection.syncServices.calendar && connection.calendar) {
-    const parts = [
-      connection.email,
-      connection.calendar.syncCursorReady
-        ? "watching for calendar changes"
-        : "sync controls coming next",
-      formatSyncTime(connection.calendar.lastSyncedAt),
-    ].filter(Boolean);
-    lines.push(`Calendar: ${parts.join(" · ")}`);
-    lines.push("Destination: Calendar inbox");
-  }
-  if (connection.syncServices.chat && connection.chat) {
-    const parts = [
-      connection.email,
-      connection.chat.cursorCount === 0
-        ? "sync controls coming next"
-        : `tracking ${connection.chat.cursorCount} Chat space${connection.chat.cursorCount === 1 ? "" : "s"}`,
-      formatSyncTime(connection.chat.lastSyncedAt),
-    ].filter(Boolean);
-    lines.push(`Chat: ${parts.join(" · ")}`);
-    lines.push("Destination: Google Chat inbox");
-  }
-  return lines;
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   head: { marginBottom: 12 },
   rowSub: { marginTop: 2 },
   connectionRow: { alignItems: "flex-start", flexWrap: "wrap" },
-  details: { marginTop: 8, gap: 3 },
-  detailLine: { color: colors.text2 },
+  serviceList: { marginTop: 12, gap: 12 },
+  serviceBlock: {
+    borderColor: colors.line,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 8,
+    padding: 12,
+    gap: 10,
+  },
+  serviceHead: { flexDirection: "row", gap: 12, alignItems: "flex-start", flexWrap: "wrap" },
+  serviceText: { flexGrow: 1, flexShrink: 1, flexBasis: 240 },
+  destinationRow: { flexDirection: "row", gap: 10, alignItems: "flex-end", flexWrap: "wrap" },
+  destinationField: { flexGrow: 1, flexShrink: 1, flexBasis: 280 },
+  destinationSave: { marginTop: 18 },
   inlineError: { marginTop: 10 },
   empty: { marginTop: 4 },
   connect: { marginTop: 14, gap: 12 },

@@ -1107,6 +1107,42 @@ describe("this machine, in settings", () => {
     // handler that could not be detached is a leak per visit.
     expect(shell.listenerCount()).toBe(0);
   });
+
+  test("the desktop integration card exposes iMessage import from the bridge", async () => {
+    const shell = fakeDesktopBridge({
+      imessage: {
+        enabled: false,
+        permission: "granted",
+        lastSyncedAt: null,
+        lastError: null,
+      },
+    });
+    installShell(shell);
+
+    const mounted = mount(createElement(ThisMachineCard));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(has(mounted.container, "this-machine-imessage")).toBe(true);
+    expect(mounted.container.textContent).toContain("iMessage");
+    expect(mounted.container.textContent).toContain("Import is off on this Mac.");
+
+    const button = mounted.container.querySelector(
+      '[data-testid="this-machine-imessage-toggle"]',
+    );
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(shell.imessageSetEnabledCalls).toEqual([true]);
+
+    mounted.unmount();
+    expect(shell.listenerCount()).toBe(0);
+  });
 });
 
 /* -------------------------------------------------------------------------- */
