@@ -66,7 +66,7 @@ describe("the settings path somebody already has", () => {
     render();
     // Not `/console/@seyi` — that is Browse with settings closed, which is the
     // dead page this redirect exists to avoid.
-    expect(redirected).toEqual(["/console/@seyi?settings=storage"]);
+    expect(redirected).toEqual(["/console/@seyi?settings=overview"]);
   });
 
   test("does not invent a context when the URL names none", () => {

@@ -624,7 +624,18 @@ export default function ConsoleLayout() {
           trailing capsule is untouched, because the scope and Share act on what
           is on screen and were never navigation.
         */
-        accountSlot={<Account data={data} compact touch />}
+        accountSlot={
+          <Account
+            data={data}
+            compact
+            touch
+            onOpenSettings={
+              current === null
+                ? undefined
+                : () => router.setParams({ settings: DEFAULT_SETTINGS_SECTION })
+            }
+          />
+        }
         rail={(mode) => <Rail data={data} route={route} mode={mode} />}
         /*
           `browsing`, not `insideContext`.
@@ -1138,7 +1149,27 @@ function Rail({
         // out from under an open note.
         if (!sameRoute(next, route)) router.replace(hrefFor(next));
       }}
-      account={<Account data={data} compact={mode === "icons"} touch={mode === "sheet"} />}
+      account={
+        <Account
+          data={data}
+          compact={mode === "icons"}
+          touch={mode === "sheet"}
+          /*
+            The one settings control that is on screen at every density, next
+            to the person's own name. It was reachable only from the storage
+            chip — pointer-only, and reads as a status rather than a control —
+            and from a long press on a context row, which nobody finds.
+          */
+          onOpenSettings={
+            route.kind === "context"
+              ? () => {
+                  frame.closeNav();
+                  router.setParams({ settings: DEFAULT_SETTINGS_SECTION });
+                }
+              : undefined
+          }
+        />
+      }
       onClaimContext={() => {
         frame.closeNav();
         // `push`, not `replace`: somebody who opens this out of curiosity from
@@ -1495,10 +1526,12 @@ function Account({
   data,
   compact,
   touch = false,
+  onOpenSettings,
 }: {
   data: ConsoleData;
   compact: boolean;
   touch?: boolean;
+  onOpenSettings?: () => void;
 }) {
   const router = useRouter();
   const { signOut } = useAuthActions();
@@ -1529,6 +1562,7 @@ function Account({
         initial={data.viewer.initial}
         compact={compact}
         touch={touch}
+        onOpenSettings={onOpenSettings}
         onSignOut={() => {
           void (async () => {
             /*

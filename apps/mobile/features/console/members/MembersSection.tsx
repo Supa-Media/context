@@ -107,7 +107,15 @@ export function MembersSection({
   // permanent "Loading…", which is how both halves of this card would otherwise
   // read. It only reaches here at all because `useMembers` subscribes with
   // `useQueries`; a `useQuery` threw it past every layout in the app.
-  if (view.failure !== null) {
+  /*
+    Truthiness rather than `!== null`: the type says `ConsoleFailure | null`,
+    and a view assembled without the field at all — which is what a fixture
+    that only cares about storage produces — is `undefined`, which is not
+    `null` and would take this branch to read `.headline` off nothing. Both
+    absences mean the same thing here, and this component now has more than
+    one caller.
+  */
+  if (view.failure) {
     return (
       <View testID="members-failure">
         <FormError

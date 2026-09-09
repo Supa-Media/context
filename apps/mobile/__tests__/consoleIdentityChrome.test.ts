@@ -296,7 +296,7 @@ describe("the storage pill on a Dropbox binding", () => {
   test("pressing it opens this context's storage settings", () => {
     const app = mountConsole({ storage: DROPBOX_STORAGE });
     app.press(app.find("storage-pill"));
-    expect(mockParamsSet).toEqual([{ settings: "storage" }]);
+    expect(mockParamsSet).toEqual([{ settings: "overview" }]);
     app.unmount();
   });
 });
@@ -311,7 +311,7 @@ describe("the storage pill on every other binding", () => {
   test("and is a press target too — the way in is not Dropbox-only", () => {
     const app = mountConsole({});
     app.press(app.find("storage-pill"));
-    expect(mockParamsSet).toEqual([{ settings: "storage" }]);
+    expect(mockParamsSet).toEqual([{ settings: "overview" }]);
     app.unmount();
   });
 
@@ -319,7 +319,7 @@ describe("the storage pill on every other binding", () => {
     const app = mountConsole({ storage: null });
     expect(app.text()).toContain("no bucket connected");
     app.press(app.find("storage-pill"));
-    expect(mockParamsSet).toEqual([{ settings: "storage" }]);
+    expect(mockParamsSet).toEqual([{ settings: "overview" }]);
     app.unmount();
   });
 });

@@ -25,6 +25,8 @@ import { GoogleConnectionsCard } from "../google/GoogleConnectionsCard";
 */
 import { ThisMachineCard } from "../../meetings/components/ThisMachineCard";
 import { FastSearchCard } from "../search/FastSearchCard";
+import { MembersSection } from "../members/MembersSection";
+import { shareBackSuggestions } from "../members/members";
 import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
 import type { SettingsSectionKey } from "../settings/sections";
 import { useArming } from "../useArming";
@@ -230,6 +232,66 @@ export function SettingsPane({
       </>
       ) : null}
 
+      {show("overview") ? (
+      <>
+      <Text variant="eyebrow" style={styles.sectionHead}>
+        Overview
+      </Text>
+      <Text variant="paneSub" style={styles.sectionSub}>
+        {current?.kind === "shared"
+          ? "A workspace several people share. It has no address of its own — only a personal brain can be sent mail."
+          : "Your brain. One bucket, one set of privacy rules, one history — and every other brain or workspace can point somewhere else entirely."}
+      </Text>
+      <Card>
+        <SettingRow label="Name" value={atName(current?.slug ?? "—")} />
+        <SettingRow
+          label="Kind"
+          value={current?.kind === "shared" ? "Shared workspace" : "Personal brain"}
+          divided
+        />
+        <SettingRow label="You are" value={current?.role ?? "—"} divided />
+        <SettingRow
+          label="Storage"
+          value={
+            storage === undefined
+              ? "Checking…"
+              : storage === null
+                ? "Nothing connected yet"
+                : `${storage.provider === "dropbox" ? "Dropbox" : storage.provider.toUpperCase()}${storage.bucket ? ` · ${storage.bucket}` : ""}`
+          }
+          divided
+        />
+      </Card>
+      </>
+      ) : null}
+
+      {show("people") ? (
+      <>
+      <Text variant="eyebrow" style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}>
+        People
+      </Text>
+      <Text variant="paneSub" style={styles.sectionSub}>
+        Everyone who can reach this context, and what each of them may do. Write access
+        is never implied by read — a role is granted, not inherited.
+      </Text>
+      <MembersSection
+        view={data.members}
+        viewerRole={current?.role}
+        /*
+          Defensive because this pane is rendered from fixtures that carry only
+          the half of `members` their own subject needs — the Dropbox screens
+          test among them. A missing invitations list is "nobody to suggest",
+          not a crash in a section that test is not about.
+        */
+        shareBackWith={
+          Array.isArray(data.members?.invitations)
+            ? shareBackSuggestions(data.contexts, data.members)
+            : []
+        }
+      />
+      </>
+      ) : null}
+
       {show("sources") ? (
       <>
       <Text variant="eyebrow" style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}>
@@ -395,6 +457,38 @@ const SECTION_BLURBS: Record<AppSectionKey, string> = {
   map: "Every context you can reach, and every AI client connected to one, as a diagram.",
   connections: "The MCP endpoint, and the clients holding a grant. Revoke one without disturbing the others.",
 };
+
+/**
+ * A label and its value, on one row.
+ *
+ * The shape the settings redesign is built on: what a thing is on the left,
+ * what it currently is on the right, and no control unless there is something
+ * to change. It replaces a column of full-width fields where every value had
+ * the same visual weight as every other.
+ */
+function SettingRow({
+  label,
+  value,
+  divided = false,
+}: {
+  label: string;
+  value: string;
+  divided?: boolean;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <Row divided={divided}>
+      <View style={styles.settingRow}>
+        <Text variant="rowTitle" style={styles.settingRowLabel}>
+          {label}
+        </Text>
+        <Text variant="mono" numberOfLines={1}>
+          {value}
+        </Text>
+      </View>
+    </Row>
+  );
+}
 
 /**
  * Exported because the overlay draws it, not the pane.
@@ -739,6 +833,13 @@ function joinSentences(...parts: Array<string | undefined>): string | undefined 
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   /** A re-homed pane's row: what it is on the left, the way in on the right. */
+  settingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    minHeight: 24,
+  },
+  settingRowLabel: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
   sectionRow: { flexDirection: "row", alignItems: "center", gap: 14 },
   sectionRowText: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
 
