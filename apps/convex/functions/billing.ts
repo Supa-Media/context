@@ -129,6 +129,30 @@ function bindingIsManaged(
   return binding.bucket === `${MANAGED_BUCKET_PREFIX}${String(workspaceId)}`;
 }
 
+/**
+ * Does this deployment sell anything?
+ *
+ * `stripePriceId` **throws** on a value that is present and malformed, which is
+ * the right answer where it is read — the minting action turns it into a
+ * recorded `NOT_CONFIGURED` an operator can see. It is the wrong answer in a
+ * public query: an operator typo in one environment variable would throw for
+ * every member of every context on this deployment and take the whole Premium
+ * section down with it, on a read that changes nothing.
+ *
+ * So the read degrades to "this deployment does not sell", which is what a
+ * misconfigured deployment *is* from a customer's side, and the loudness stays
+ * where it can be acted on — the deployment's own log, and the failed attempt
+ * row the moment anybody presses Upgrade.
+ */
+function deploymentSells(): boolean {
+  try {
+    return stripePriceId() !== null;
+  } catch {
+    console.error("billing.price_id_malformed");
+    return false;
+  }
+}
+
 const statusValidator = v.union(
   v.literal("none"),
   v.literal("active"),
@@ -209,7 +233,7 @@ export const status = query({
       // is a configuration fact, and a public function may not reach the key
       // that would make the answer complete. A deployment with a price id and
       // no payment key fails at the checkout with our own sentence.
-      configured: stripePriceId() !== null,
+      configured: deploymentSells(),
       priceCents: PREMIUM_PRICE_CENTS,
       currency: PREMIUM_CURRENCY,
       interval: PREMIUM_INTERVAL,
@@ -327,6 +351,38 @@ export const startCheckout = mutation({
         message: "This context is already on Premium.",
       });
     }
+
+    /*
+      A live attempt is reused rather than joined by a second one.
+
+      Two presses — a double tap, a reload that lost the id, two tabs — used to
+      mean two Checkout Sessions, and a person who paid on both would have two
+      subscriptions for one bucket, only the second of which this control plane
+      would know about. The first would go on being charged with nothing here
+      naming it. Stripe cannot dedupe that for us: two sessions built from the
+      same parameters are two legitimate intents as far as it is concerned.
+
+      Scoped to the person who started it as well as to the context, because a
+      checkout URL is a capability: handing a co-owner the page minted for
+      somebody else is a different bug wearing this fix's clothes.
+
+      This does not make a double subscription impossible — two tabs opened
+      before either was recorded still race — but it removes every ordinary way
+      to reach it.
+    */
+    const live = await ctx.db
+      .query("billingSessions")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    const now = Date.now();
+    const reusable = live.find(
+      (row) =>
+        row.kind === "checkout" &&
+        row.startedBy === userId &&
+        row.status !== "failed" &&
+        row.expiresAt > now,
+    );
+    if (reusable !== undefined) return { sessionId: reusable._id };
 
     const sessionId = await openSession(ctx, {
       workspaceId: args.workspaceId,

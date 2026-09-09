@@ -359,6 +359,84 @@ describe("asking for a checkout URL", () => {
     ).toBe("https://checkout.invalid/x");
   });
 
+  test("pressing Upgrade twice does not open two checkouts", async () => {
+    /*
+      Two Checkout Sessions for one bucket, and a person who pays on both has
+      two subscriptions of which this control plane knows about one — the other
+      goes on being charged with nothing here naming it. Stripe cannot dedupe
+      that: two sessions built from the same parameters are two legitimate
+      intents as far as it is concerned.
+    */
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "double-press");
+    await chooseBoth(t, owner, workspaceId);
+    const first = await asUser(t, owner).mutation(
+      api.functions.billing.startCheckout,
+      { workspaceId },
+    );
+    const second = await asUser(t, owner).mutation(
+      api.functions.billing.startCheckout,
+      { workspaceId },
+    );
+    expect(second.sessionId).toBe(first.sessionId);
+    const rows = await t.run((ctx) => ctx.db.query("billingSessions").collect());
+    expect(rows).toHaveLength(1);
+  });
+
+  test("but a stale one does not block a new attempt", async () => {
+    // A tab abandoned yesterday must not be the reason somebody cannot pay
+    // today.
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "stale-press");
+    await chooseBoth(t, owner, workspaceId);
+    const first = await asUser(t, owner).mutation(
+      api.functions.billing.startCheckout,
+      { workspaceId },
+    );
+    await t.run((ctx) => ctx.db.patch(first.sessionId, { expiresAt: Date.now() - 1 }));
+    const second = await asUser(t, owner).mutation(
+      api.functions.billing.startCheckout,
+      { workspaceId },
+    );
+    expect(second.sessionId).not.toBe(first.sessionId);
+  });
+
+  test("nor does one that failed", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "failed-press");
+    await chooseBoth(t, owner, workspaceId);
+    const first = await asUser(t, owner).mutation(
+      api.functions.billing.startCheckout,
+      { workspaceId },
+    );
+    await t.action(internal.functions.billingStripe.createCheckoutSession, {
+      sessionId: first.sessionId,
+    });
+    const second = await asUser(t, owner).mutation(
+      api.functions.billing.startCheckout,
+      { workspaceId },
+    );
+    expect(second.sessionId).not.toBe(first.sessionId);
+  });
+
+  test("and another owner's attempt is not handed to this one", async () => {
+    // A checkout URL is a capability. Reusing a co-owner's live attempt would
+    // hand it to somebody it was never minted for.
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "two-owners-press");
+    const second = await createUser(t, "second@example.invalid");
+    await addMember(t, workspaceId, second, "owner", owner);
+    await chooseBoth(t, owner, workspaceId);
+    const mine = await asUser(t, owner).mutation(api.functions.billing.startCheckout, {
+      workspaceId,
+    });
+    const theirs = await asUser(t, second).mutation(
+      api.functions.billing.startCheckout,
+      { workspaceId },
+    );
+    expect(theirs.sessionId).not.toBe(mine.sessionId);
+  });
+
   test("an expired attempt hands back no URL", async () => {
     const t = setupTest();
     const { owner, workspaceId } = await context(t, "expired");
@@ -406,6 +484,27 @@ describe("asking for a checkout URL", () => {
     });
     expect(row?.status).toBe("failed");
     expect(row?.errorCode).toBe("NOT_CONFIGURED");
+  });
+
+  test("a malformed price id does not take the section down for everybody", async () => {
+    /*
+      `stripePriceId` throws on a value that is present and malformed, which is
+      right where it is *read* — the minting action turns it into a recorded
+      `NOT_CONFIGURED`. In a public query it would be an operator typo in one
+      environment variable throwing for every member of every context on this
+      deployment, on a read that changes nothing.
+    */
+    const t = setupTest();
+    vi.stubEnv(STRIPE_PRICE_ID_ENV_VAR, "not-a-price-id");
+    try {
+      const { owner, workspaceId } = await context(t, "typo");
+      const view = await asUser(t, owner).query(api.functions.billing.status, {
+        workspaceId,
+      });
+      expect(view.configured).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   test("a price id without a payment key is still not configured", async () => {
