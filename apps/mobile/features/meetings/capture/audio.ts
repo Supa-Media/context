@@ -32,20 +32,16 @@ import { resolveTranscriber } from "./transcriber";
  * exactly as `features/offline/store.ts` imports async-storage. `gated` is for
  * dependencies added *after* the first binary; these were in it. Adding any
  * *other* native module — an on-device speech engine, a Live Activity target —
- * is the opposite case and must go through the gate: dynamic import, runtime
- * check, honest fallback.
+ * is the opposite case and remains notes-only by design.
  *
  * ────────────────────────────────────────────────────────────────────────────
  * 2. FOREGROUND CAPTURE ALREADY WORKS ON THE SHIPPED BINARY.
  * ────────────────────────────────────────────────────────────────────────────
  *
- * The `expo-audio` config plugin's `microphonePermission` was in the build that
- * shipped, so `NSMicrophoneUsageDescription` is in the installed app and asking
- * for the microphone does not terminate it. `UIBackgroundModes: ["audio"]` is
- * new in `app.config.js`, and it governs exactly one thing: whether capture
- * survives the app leaving the foreground. An OTA update therefore turns on a
- * recorder that works while somebody is looking at it, on binaries built before
- * that key existed — which is the case this feature is for.
+ * The shipped native baseline already includes the microphone permission and
+ * `UIBackgroundModes: ["audio"]`. The latter governs whether capture survives
+ * the app leaving the foreground; the per-session `allowsBackgroundRecording`
+ * setting below is therefore safe to deliver in an OTA update.
  *
  * **So background capability is a runtime check, never a version number.**
  * `configureAudioSession` asks for the background-capable session and fails
@@ -163,13 +159,11 @@ import { resolveTranscriber } from "./transcriber";
  * for it), creates its own notification channel the first time a recording
  * starts, and calls `startForeground` with the `microphone` service type
  * itself. So `audioRecorder("android")` now answers a *real* `expoAudioRecorder`
- * the same as iOS, with one difference threaded through: `allowsBackgroundRecording:
- * true` in the `AudioMode` handed to `setAudioModeAsync`, which is what tells
+ * the same as iOS: the shared `MEETING_AUDIO_MODE` includes
+ * `allowsBackgroundRecording: true` in the `AudioMode` handed to `setAudioModeAsync`, which tells
  * that native module to actually start the service (`AudioRecorder.kt`'s
  * `useForegroundService` field, set from `AudioMode.allowsBackgroundRecording`
- * — see `AudioModule.kt`). iOS's own `MEETING_AUDIO_MODE` is untouched: that
- * field is Android's own switch, not a shared one, and mixing it into the
- * object iOS reads would be a behaviour change nobody asked for.
+ * — see `AudioModule.kt`). Both platforms consume this shared session setting.
  *
  * **`interruptionMode: "mixWithOthers"` already does the right thing on
  * Android too, unchanged.** The worry going in was that "mixing" needed its
