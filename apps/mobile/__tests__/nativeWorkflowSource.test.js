@@ -15,5 +15,10 @@ describe("native release workflow artifact safety", () => {
       /- name: Build iOS[\s\S]*?env:\s*\n\s*#.*\n(?:\s*#.*\n)*\s*EXPO_APPLE_TEAM_ID: \$\{\{ secrets\.APPLE_TEAM_ID \}\}[\s\S]*?eas build --platform ios/,
     );
   });
+  test("injects the App Store app ID from a secret for non-interactive submission", () => {
+    expect(source).toMatch(/ASC_APP_ID: \$\{\{ secrets\.ASC_APP_ID \}\}/);
+    expect(source).toMatch(/submitProfile\.ios\.ascAppId = process\.env\.ASC_APP_ID/);
+    expect(source).not.toMatch(/ascAppId\s*:\s*["']\d+/);
+  });
   test("cleans temporary build artifacts with a trap", () => expect(source).toMatch(/trap 'rm -f \/tmp\/context-build\.json/));
 });
