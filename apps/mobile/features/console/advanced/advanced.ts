@@ -103,7 +103,7 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   "ingestion.settings.updated": "Changed the email ingestion rules",
   "mail.disconnected": "Disconnected mail",
   "mail.rekeyed": "Rotated a mail credential",
-  google_sync_destination_updated: "Changed a Google sync destination",
+  "google_sync_destination_updated": "Changed a Google sync destination",
   "encryption.export": "Exported this context's encryption keys",
   "encryption.rekeyed": "Rotated an encryption key",
 };
