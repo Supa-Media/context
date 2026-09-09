@@ -93,13 +93,13 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
       : perContext.find((row) => row.id === selected.id)?.url ?? null) ?? data.endpoint;
 
   return (
-    <View>
+    <View style={styles.root}>
       <PaneHead
         title="Connections"
         description="One URL for every AI tool, across everything you can reach. Each client gets its own grant — revoking one leaves the others working."
       />
 
-      <Card>
+      <Card style={styles.endpointCard}>
         <Text variant="eyebrow" style={styles.eyebrow}>
           Your endpoint
         </Text>
@@ -316,18 +316,27 @@ export function ClientRow({ client }: { client: ConsoleClient }) {
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  root: {
+    width: "100%",
+    maxWidth: 1080,
+    alignSelf: "center",
+  },
+  endpointCard: {
+    paddingVertical: 20,
+    paddingHorizontal: 22,
+  },
   account: { marginTop: 18 },
   accountHead: { marginBottom: 8 },
   accountSub: { maxWidth: 520 },
   eyebrow: { marginBottom: 10 },
-  startIn: { marginTop: 17 },
-  endpointRow: { marginBottom: 9 },
+  startIn: { marginTop: 21 },
+  endpointRow: { marginBottom: 12 },
   endpointName: { marginBottom: 4, color: colors.text2, fontWeight: "600" },
-  spaced: { marginTop: 11 },
+  spaced: { marginTop: 14 },
   clientsHead: { marginBottom: 13 },
   rowTitle: { gap: 8 },
   rowSub: { marginTop: 2 },
   rowContext: { color: colors.text2, fontWeight: "600" },
   hintStrong: { color: colors.hintStrong, fontWeight: "600" },
-  members: { marginTop: 11 },
+  members: { marginTop: 14 },
 });

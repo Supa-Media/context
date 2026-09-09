@@ -212,24 +212,52 @@ export function runAppShellChecks(check) {
     );
   }
   check(
-    "THE CHECK-FOR-UPDATES MENU COMMAND CALLS THE UPDATER DIRECTLY",
-    /checkForUpdatesFromMenu = \(\) => \{\s*if \(!updater\.checkNow\(\)\) push\(\);\s*\};/.test(source),
+    "THE CHECK-FOR-UPDATES MENU COMMAND CALLS THE UPDATER AND SHOWS A NATIVE RESULT",
+    /let checkForUpdatesFromMenu = \(\) => \{[\s\S]*?showUpdateCheckMessage\(\{ type: "not-started" \}\)[\s\S]*?\};/.test(
+      source,
+    ) &&
+      /checkForUpdatesFromMenu = \(\) => \{[\s\S]*?const result = updater\.checkNow\(\);[\s\S]*?push\(\);[\s\S]*?showUpdateCheckMessage\(result\.outcome\)[\s\S]*?showNativeNotification\("Checking for updates\.\.\."\)[\s\S]*?result\.outcome\.then\(\(outcome\) => showUpdateCheckMessage\(outcome\)\)/.test(
+        source,
+      ),
   );
   check(
     "A MANUAL UPDATE CHECK IS REFUSED UNTIL UPDATER STARTUP HAS WIRED EVENTS",
     /#started = false;/.test(updaterSource) &&
-      /if \(!this\.#started\) \{[\s\S]*?updater startup has not finished yet[\s\S]*?return false;[\s\S]*?\}/.test(
+      /if \(!this\.#started\) \{[\s\S]*?updater startup has not finished yet[\s\S]*?return \{ started: false, outcome: \{ type: "not-started" \} \};[\s\S]*?\}/.test(
         updaterSource,
       ) &&
       /this\.#started = true;\s*this\.#maybeCheck\(\);/.test(updaterSource),
   );
   check(
     "A MANUAL UPDATE CHECK MARKS CHECKING BEFORE THE NETWORK CALL CAN BE DOUBLE-CLICKED",
-    /this\.#move\(\{ type: "check-started" \}\);\s*autoUpdater\.checkForUpdates\(\)/.test(updaterSource),
+    /this\.#manualCheckPromise = new Promise<ManualUpdateCheckOutcome>/.test(updaterSource) &&
+      /this\.#move\(\{ type: "check-started" \}\);\s*this\.#updater\.checkForUpdates\(\)/.test(updaterSource),
+  );
+  check(
+    "A DOUBLE-CLICKED MANUAL UPDATE CHECK IS COALESCED, NOT STARTED AGAIN",
+    /if \(this\.#state === "checking" \|\| this\.#state === "available"\) \{[\s\S]*?manual check ignored[\s\S]*?return \{ started: false, outcome: \{ type: "checking" \} \};/.test(
+      updaterSource,
+    ),
+  );
+  check(
+    "A FINISHED MANUAL UPDATE CHECK SAYS UP-TO-DATE, READY, UNAVAILABLE OR FAILED",
+    source.includes("Context is up to date.") &&
+      source.includes("Updates are only available in signed packaged builds.") &&
+      source.includes("Update ready.") &&
+      source.includes("Context could not check for updates.") &&
+      /this\.#updater\.on\("update-not-available", \(\) => \{[\s\S]*?this\.#finishManualCheck\(\{ type: "no-update" \}\);[\s\S]*?\}\);/.test(
+        updaterSource,
+      ) &&
+      /this\.#updater\.on\("update-downloaded", \(info\) => \{[\s\S]*?this\.#finishManualCheck\(\{ type: "downloaded", version: info\.version, deferred: capturing \}\);[\s\S]*?\}\);/.test(
+        updaterSource,
+      ) &&
+      /this\.#updater\.on\("error", \(error\) => \{[\s\S]*?this\.#finishManualCheck\(\{ type: "error" \}\);[\s\S]*?\}\);/.test(
+        updaterSource,
+      ),
   );
   check(
     "SCHEDULED UPDATE CHECKS SHARE THE SAME IN-FLIGHT GUARD AS MANUAL CHECKS",
-    /#maybeCheck\(\): void \{\s*if \(this\.#state !== "idle"\) return;[\s\S]*?this\.#move\(\{ type: "check-started" \}\);\s*autoUpdater\.checkForUpdates\(\)/.test(
+    /#maybeCheck\(\): void \{\s*if \(this\.#state !== "idle"\) return;[\s\S]*?this\.#move\(\{ type: "check-started" \}\);\s*this\.#updater\.checkForUpdates\(\)/.test(
       updaterSource,
     ) &&
       /\[update\] checkForUpdates threw:[\s\S]*?this\.#move\(\{ type: "check-failed" \}\);/.test(updaterSource),

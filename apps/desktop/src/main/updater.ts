@@ -9,7 +9,7 @@
  * interrupt a meeting.**
  */
 
-import { autoUpdater } from "electron-updater";
+import updaterPackage from "electron-updater";
 import {
   mayInstall,
   shouldArmUpdater,
@@ -20,6 +20,31 @@ import type { UpdateEvent, UpdateState } from "../core/update/policy.ts";
 
 /** How often the scheduler is polled. Short, because `shouldCheckForUpdate` decides the rest. */
 const POLL_INTERVAL_MS = 60_000;
+const MANUAL_CHECK_TIMEOUT_MS = 120_000;
+
+export type ManualUpdateCheckOutcome =
+  | { type: "not-started" }
+  | { type: "unarmed" }
+  | { type: "checking" }
+  | { type: "no-update" }
+  | { type: "downloaded"; version: string | null; deferred: boolean }
+  | { type: "error" };
+
+export type ManualUpdateCheck =
+  | { started: false; outcome: ManualUpdateCheckOutcome }
+  | { started: true; outcome: Promise<ManualUpdateCheckOutcome> };
+
+export interface DesktopAutoUpdater {
+  autoDownload: boolean;
+  autoInstallOnAppQuit: boolean;
+  on(event: "checking-for-update", listener: () => void): void;
+  on(event: "update-not-available", listener: () => void): void;
+  on(event: "error", listener: (error: Error) => void): void;
+  on(event: "update-available", listener: (info: { version: string }) => void): void;
+  on(event: "update-downloaded", listener: (info: { version: string }) => void): void;
+  checkForUpdates(): Promise<unknown>;
+  quitAndInstall(): void;
+}
 
 export interface DesktopUpdaterDeps {
   packaged: boolean;
@@ -30,19 +55,26 @@ export interface DesktopUpdaterDeps {
   onStateChange?: (state: UpdateState) => void;
   log: (message: string) => void;
   now?: () => number;
+  updater?: DesktopAutoUpdater;
 }
 
 export class DesktopUpdater {
   #deps: DesktopUpdaterDeps;
+  #updater: DesktopAutoUpdater;
   #state: UpdateState = "idle";
   #armed: boolean;
   #started = false;
   #launchedAtMs: number;
   #lastCheckedAtMs: number | null = null;
   #timer: ReturnType<typeof setInterval> | null = null;
+  #manualCheckPromise: Promise<ManualUpdateCheckOutcome> | null = null;
+  #manualCheckResolve: ((outcome: ManualUpdateCheckOutcome) => void) | null = null;
+  #manualCheckTimer: ReturnType<typeof setTimeout> | null = null;
+  #downloadedVersion: string | null = null;
 
   constructor(deps: DesktopUpdaterDeps) {
     this.#deps = deps;
+    this.#updater = deps.updater ?? defaultAutoUpdater();
     this.#armed = shouldArmUpdater({ packaged: deps.packaged, signed: deps.signed });
     this.#launchedAtMs = (deps.now ?? Date.now)();
   }
@@ -70,28 +102,33 @@ export class DesktopUpdater {
       return;
     }
 
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+    this.#updater.autoDownload = true;
+    this.#updater.autoInstallOnAppQuit = true;
 
-    autoUpdater.on("checking-for-update", () => this.#move({ type: "check-started" }));
-    autoUpdater.on("update-not-available", () => this.#move({ type: "no-update-found" }));
-    autoUpdater.on("error", (error) => {
-      // Never the URL a release lives at, and never a token — `error.message`
-      // from `electron-updater` is the GitHub API's own text, which does not
-      // carry either for a public repository's public releases.
-      this.#deps.log(`[update] check failed: ${error.message}`);
-      this.#move({ type: "check-failed" });
+    this.#updater.on("checking-for-update", () => this.#move({ type: "check-started" }));
+    this.#updater.on("update-not-available", () => {
+      this.#move({ type: "no-update-found" });
+      this.#finishManualCheck({ type: "no-update" });
     });
-    autoUpdater.on("update-available", (info) => {
+    this.#updater.on("error", (error) => {
+      // Never echo the raw updater error. The library may include a request URL
+      // or a proxy's response text, and logs are user-visible in crash reports.
+      this.#deps.log(`[update] check failed: ${safeUpdaterError(error)}`);
+      this.#move({ type: "check-failed" });
+      this.#finishManualCheck({ type: "error" });
+    });
+    this.#updater.on("update-available", (info) => {
       this.#deps.log(`[update] ${info.version} is available — downloading.`);
       this.#move({ type: "update-available" });
     });
-    autoUpdater.on("update-downloaded", (info) => {
+    this.#updater.on("update-downloaded", (info) => {
       const capturing = this.#deps.capturing();
+      this.#downloadedVersion = info.version;
       this.#deps.log(
         `[update] ${info.version} downloaded${capturing ? " — a meeting is recording, so the install is deferred until it ends" : " — ready to install"}.`,
       );
       this.#move({ type: "update-downloaded", capturing });
+      this.#finishManualCheck({ type: "downloaded", version: info.version, deferred: capturing });
     });
 
     this.#started = true;
@@ -119,7 +156,7 @@ export class DesktopUpdater {
    */
   install(): boolean {
     if (!mayInstall(this.#state, this.#deps.capturing())) return false;
-    autoUpdater.quitAndInstall();
+    this.#updater.quitAndInstall();
     return true;
   }
 
@@ -127,39 +164,65 @@ export class DesktopUpdater {
    * A human asked from the macOS application menu. This bypasses the six-hour
    * scheduler, but not the arming rules or the install guard.
    */
-  checkNow(): boolean {
+  checkNow(): ManualUpdateCheck {
     if (!this.#started) {
       this.#deps.log("[update] manual check refused — updater startup has not finished yet.");
-      return false;
+      return { started: false, outcome: { type: "not-started" } };
     }
     if (!this.#armed) {
       this.#deps.log(
         "[update] manual check refused — this build is unpackaged or unsigned, and Squirrel.Mac has nothing to verify it against.",
       );
-      return false;
+      return { started: false, outcome: { type: "unarmed" } };
     }
     if (this.#state === "checking" || this.#state === "available") {
       this.#deps.log("[update] manual check ignored — an update check is already running.");
-      return true;
+      return { started: false, outcome: { type: "checking" } };
     }
     if (this.#state === "ready" || this.#state === "deferred-for-recording") {
       this.#deps.log("[update] manual check ignored — an update is already downloaded.");
-      return true;
+      return {
+        started: false,
+        outcome: {
+          type: "downloaded",
+          version: this.#downloadedVersion,
+          deferred: this.#state === "deferred-for-recording" || this.#deps.capturing(),
+        },
+      };
     }
     this.#lastCheckedAtMs = (this.#deps.now ?? Date.now)();
+    this.#manualCheckPromise = new Promise<ManualUpdateCheckOutcome>((resolve) => {
+      this.#manualCheckResolve = resolve;
+    });
+    this.#manualCheckTimer = setTimeout(() => {
+      this.#deps.log("[update] manual check timed out before the updater reported a result.");
+      this.#move({ type: "check-failed" });
+      this.#finishManualCheck({ type: "error" });
+    }, MANUAL_CHECK_TIMEOUT_MS);
     this.#move({ type: "check-started" });
-    autoUpdater.checkForUpdates().catch((error: unknown) => {
+    this.#updater.checkForUpdates().catch((error: unknown) => {
       this.#deps.log(
-        `[update] manual checkForUpdates threw: ${error instanceof Error ? error.message : String(error)}`,
+        `[update] manual checkForUpdates threw: ${safeUpdaterError(error)}`,
       );
       this.#move({ type: "check-failed" });
+      this.#finishManualCheck({ type: "error" });
     });
-    return true;
+    return { started: true, outcome: this.#manualCheckPromise };
   }
 
   #move(event: UpdateEvent): void {
     this.#state = transition(this.#state, event);
     this.#deps.onStateChange?.(this.#state);
+  }
+
+  #finishManualCheck(outcome: ManualUpdateCheckOutcome): void {
+    const resolve = this.#manualCheckResolve;
+    if (resolve === null) return;
+    if (this.#manualCheckTimer) clearTimeout(this.#manualCheckTimer);
+    this.#manualCheckTimer = null;
+    this.#manualCheckResolve = null;
+    this.#manualCheckPromise = null;
+    resolve(outcome);
   }
 
   #maybeCheck(): void {
@@ -176,11 +239,35 @@ export class DesktopUpdater {
     }
     this.#lastCheckedAtMs = now;
     this.#move({ type: "check-started" });
-    autoUpdater.checkForUpdates().catch((error: unknown) => {
+    this.#updater.checkForUpdates().catch((error: unknown) => {
       this.#deps.log(
-        `[update] checkForUpdates threw: ${error instanceof Error ? error.message : String(error)}`,
+        `[update] checkForUpdates threw: ${safeUpdaterError(error)}`,
       );
       this.#move({ type: "check-failed" });
     });
   }
+}
+
+function defaultAutoUpdater(): DesktopAutoUpdater {
+  return (updaterPackage as { autoUpdater: DesktopAutoUpdater }).autoUpdater;
+}
+
+function safeUpdaterError(error: unknown): string {
+  if (error instanceof Error) {
+    const code = codeOf(error);
+    const name = nameOf(error.name);
+    return code === null ? name : `${name} (${code})`;
+  }
+  const code = codeOf(error);
+  return code === null ? "unknown error" : `unknown error (${code})`;
+}
+
+function nameOf(name: string): string {
+  return /^[A-Za-z0-9_.-]{1,64}$/.test(name) ? name : "Error";
+}
+
+function codeOf(error: unknown): string | null {
+  if (typeof error !== "object" || error === null) return null;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(code) ? code : null;
 }
