@@ -269,18 +269,13 @@ jobs:
             console.log(`Injected build-time values into ${replaced} eas.json env entr${replaced === 1 ? "y" : "ies"}.`);
           '
 
-      # Waits for the build and records its ID, because submission below uses
-      # that exact validated artifact rather than a race-prone latest lookup.
+      # Waits for the build rather than `--no-wait`, because the submit steps
+      # below use `--latest` and a submission that does not wait would pick up
+      # whatever finished last — quite possibly the previous release.
       - name: Build iOS
         if: ${{ inputs.platform == 'ios' || inputs.platform == 'both' }}
         working-directory: apps/mobile
-        run: |
-          eas build --platform ios --profile ${{ inputs.profile }} --non-interactive --json > /tmp/context-build.json
-          BUILD_ID=$(node ../../scripts/eas-build-artifact.cjs id /tmp/context-build.json)
-          eas build:download --build-id "$BUILD_ID" --json --non-interactive > /tmp/context-download.json
-          IPA_PATH=$(node ../../scripts/eas-build-artifact.cjs download-path /tmp/context-download.json)
-          node ../../scripts/validate-ios-ipa.cjs "$IPA_PATH"
-          echo "$BUILD_ID" > /tmp/context-build-id
+        run: eas build --platform ios --profile ${{ inputs.profile }} --non-interactive
 
       - name: Build Android
         if: ${{ inputs.platform == 'android' || inputs.platform == 'both' }}
@@ -295,7 +290,7 @@ jobs:
           # commits an `appleTeamId`, since it is an account identifier this
           # public repository does not hold.
           EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: eas submit --platform ios --id "$(cat /tmp/context-build-id)" --profile ${{ inputs.profile }} --non-interactive
+        run: eas submit --platform ios --latest --profile ${{ inputs.profile }} --non-interactive
 
       - name: Submit Android to Play Console
         if: ${{ inputs.submit && (inputs.platform == 'android' || inputs.platform == 'both') }}

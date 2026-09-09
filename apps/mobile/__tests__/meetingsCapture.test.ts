@@ -27,7 +27,6 @@ import {
   type FakeTranscriber,
 } from "../features/meetings/capture/transcriber";
 
-jest.mock("expo-application", () => ({ nativeApplicationVersion: "1.0.1" }));
 
 /**
  * The phone actually records, and every way that can go wrong is a state
@@ -58,9 +57,9 @@ jest.mock("expo-application", () => ({ nativeApplicationVersion: "1.0.1" }));
  * ### The original set (57 tests at the time)
  *
  *  - `interruptionMode: "mixWithOthers"` -> `"doNotMix"`: 2 — **"the audio
- *    session mixes rather than seizing the input"** and **"a binary that
+ *    session mixes rather than seizing the input"** and **"a session that
  *    rejects background audio refuses capture"**, which asserts the
- *    fail-closed native-version behavior. This is the one that cannot be
+ *    fail-closed background-session behavior. This is the one that cannot be
  *    caught by hand: a simulator has no other app holding the microphone.
  *  - `chunkStartOffsetMs += durationMs` -> `+= 0`: 2 — **"rotation lays chunks
  *    end to end on the wall clock"** and **"ending mid-chunk still sends what
@@ -358,10 +357,8 @@ const native =
 const {
   CAPTURE_MESSAGES,
   MEETING_AUDIO_MODE,
-  IOS_BACKGROUND_RECORDING_VERSION,
   RESUME_RETRY_MS,
   audioRecorder,
-  supportsIosBackgroundRecording,
 } = native;
 
 const SESSION_START = Date.parse("2026-09-05T18:00:00.000Z");
@@ -473,15 +470,6 @@ afterEach(() => {
 /* -------------------------------------------------------------------------- */
 
 describe("the audio session", () => {
-  test("requires the native build that carries the background audio mode", () => {
-    expect(IOS_BACKGROUND_RECORDING_VERSION).toBe("1.0.1");
-    expect(supportsIosBackgroundRecording("1.0.1")).toBe(true);
-    expect(supportsIosBackgroundRecording("1.0.2")).toBe(true);
-    expect(supportsIosBackgroundRecording("1.0.0")).toBe(false);
-    expect(supportsIosBackgroundRecording("2.evil")).toBe(false);
-    expect(supportsIosBackgroundRecording("2.0.0.1")).toBe(false);
-    expect(supportsIosBackgroundRecording(null)).toBe(false);
-  });
 
   /**
    * The single most expensive line in this feature to get wrong.
@@ -507,17 +495,6 @@ describe("the audio session", () => {
     await recorder.stop();
   });
 
-  /**
-   * Background capture is a property of the **native app version**, which an
-   * over-the-air update cannot change. The known 1.0.0 binary must refuse
-   * capture rather than silently risk losing audio when the phone locks.
-   */
-  test("a binary that rejects background audio refuses capture", async () => {
-    mockRefuseBackgroundSession = true;
-    const { recorder } = harness();
-    await expect(recorder.start()).rejects.toThrow(/Update Context/);
-    expect(recorder.state).toBe("idle");
-  });
 });
 
 describe("rotation", () => {
@@ -750,7 +727,6 @@ describe("the audio is transient, structurally", () => {
     expect(exported).toEqual([
       "CAPTURE_MESSAGES",
       "CHUNK_MIME",
-      "IOS_BACKGROUND_RECORDING_VERSION",
       "MEETING_AUDIO_MODE",
       "RESUME_RETRY_MS",
       "audioRecorder",
@@ -764,7 +740,6 @@ describe("the audio is transient, structurally", () => {
         belongs on this list rather than failing it.
       */
       "resolveRecorder",
-      "supportsIosBackgroundRecording",
     ]);
     await recorder.stop();
   });
@@ -1105,18 +1080,20 @@ describe("android", () => {
   });
 
   /**
-   * Same fallback shape as iOS, for the same defensive reason: if
-   * `setAudioModeAsync` ever throws for the background-capable request, a
-   * Android setup failures are fail-closed too, so the same safety contract
-   * applies even though Android's foreground service is supplied by
-   * expo-audio's native module.
+   * Both platforms fail closed if `setAudioModeAsync` refuses the
+   * background-capable request; silently continuing would risk losing audio.
    */
-  test("a session that refuses the background mode refuses capture", async () => {
-    mockRefuseBackgroundSession = true;
-    const { recorder } = harness({ platform: "android" });
-    await expect(recorder.start()).rejects.toThrow(/Update Context/);
-    expect(recorder.state).toBe("idle");
-  });
+  test.each(["ios", "android"] as const)(
+    "%s refuses capture when the background mode is refused",
+    async (platform) => {
+      mockRefuseBackgroundSession = true;
+      const { recorder } = harness({ platform });
+      await expect(recorder.start()).rejects.toThrow(
+        /Background audio could not be enabled; recording cannot safely continue/,
+      );
+      expect(recorder.state).toBe("idle");
+    },
+  );
 
   /**
    * The same code path end to end: rotation, offsets and chunk ids do not

@@ -28,10 +28,7 @@ import type { MeetingRecorder, RecorderState } from "./index";
  * call — not the far side of one on headphones. System audio is the desktop
  * app's job, and no copy anywhere may imply otherwise.
  */
-export function notesOnlyRecorder(
-  platform: "ios" | "android" | "web",
-  unavailableReason?: string,
-): MeetingRecorder {
+export function notesOnlyRecorder(platform: "ios" | "android" | "web"): MeetingRecorder {
   let state: RecorderState = "idle";
   return {
     capability: {
@@ -41,10 +38,9 @@ export function notesOnlyRecorder(
       systemAudio: false,
       transcribesAt: "nowhere",
       unavailableReason:
-        unavailableReason ??
-        (platform === "web"
+        platform === "web"
           ? "This browser can't hear the meeting, so this is a typed session. Your notes still land in your bucket."
-          : "Audio capture isn't switched on in this build, so this is a typed session. Your notes still land in your bucket."),
+          : "Audio capture isn't switched on in this build, so this is a typed session. Your notes still land in your bucket.",
     },
     get state() {
       return state;

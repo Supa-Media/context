@@ -111,32 +111,13 @@ written against outbound host allowlisting rather than against import names.
 
 ### iOS recording survives screen lock through two deliberate controls
 
-The iOS meeting recorder has two distinct background-recording controls, and
-both are required. The app config declares `UIBackgroundModes: ["audio"]`, a
-build-time capability in the native binary. At runtime, `expo-audio` receives
-`allowsBackgroundRecording: true` in the meeting audio mode, which opts the
-active recorder into that capability. The entitlement alone is insufficient:
-without the runtime switch, locking the phone can pause the recorder and lose
-the remainder of a meeting. The runtime switch alone is also insufficient in
-a binary that was built without the native background mode.
-
-This guarantees continuity through ordinary screen lock and app backgrounding.
-It does not promise recovery after the user force-quits the app or iOS
-terminates it under system pressure; those are process termination, not audio
-session interruption, and remain outside this fix. The checks are `the iOS
-audio mode requests allowsBackgroundRecording`, `Android keeps its equivalent
-runtime switch`, and `the native config carries one audio background mode`.
-
-Rollout is two-stage: the OTA ships the fail-closed runtime request on the
-existing `runtimeVersion: "1.0.0"`, while the next native build bumps
-`CFBundleShortVersionString` to `1.0.1` and carries the plist mode. Older
-1.0.0 installs refuse audio capture with an actionable update message rather
-than silently offering recording that will stop on lock. EAS remote build
-numbers may vary and are intentionally not part of this capability boundary.
-Acceptance on a real iPhone is to start a meeting, lock the screen for several
-minutes, unlock it, and verify the transcript continues without a gap; also
-verify setup failure and an old build show the update explanation. Force-quit
-and OS termination remain excluded.
+The recorder has two controls: the shipped native configuration declares
+`UIBackgroundModes: ["audio"]`, and the OTA-delivered meeting audio mode opts
+the active recorder in with `allowsBackgroundRecording: true`. Both are needed;
+the runtime switch alone cannot add a native entitlement, while the entitlement
+alone does not opt a session in. This covers ordinary screen lock and app
+backgrounding, not force-quit or OS process termination. Acceptance is a real
+iPhone lock/unlock test confirming the transcript continues without a gap.
 
 ### Transcription is cloud on the paid tier and on-device on the free tier, and that seam is disclosed, not glossed
 

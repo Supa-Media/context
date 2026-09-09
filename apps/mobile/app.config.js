@@ -46,7 +46,7 @@ module.exports = ({ config }) => {
     ...config,
     name: "Context",
     slug: "context",
-    version: "1.0.1",
+    version: "1.0.0",
     scheme: "context",
     orientation: "portrait",
     icon: "./assets/icon.png",
@@ -97,10 +97,8 @@ module.exports = ({ config }) => {
          * it is not a duplicate of the plugin block below: this is an
          * entitlement-shaped capability and the plugins own no key for it.
          *
-         * It only reaches a device in a **new binary**, so nothing in the JS may
-         * assume it. `capture/audio.ts` checks the immutable native app version
-         * and fails closed on the 1.0.0 binary; the runtimeVersion stays 1.0.0
-         * so that safety update can reach existing installs.
+         * This native baseline is already present in the shipped binary. The
+         * JS session setting is therefore safe to deliver over the air.
          */
         UIBackgroundModes: ["audio"],
       },

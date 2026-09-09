@@ -89,8 +89,6 @@ const { fakeGateway } =
   require("../features/meetings/fakeGateway") as typeof import("../features/meetings/fakeGateway");
 const { fakeRecorder } =
   require("../features/meetings/capture/fake") as typeof import("../features/meetings/capture/fake");
-const { notesOnlyRecorder } =
-  require("../features/meetings/capture/notesOnly") as typeof import("../features/meetings/capture/notesOnly");
 const { INBOX_FOLDER, rememberDestination, recallDestination } =
   require("../features/meetings/destination") as typeof import("../features/meetings/destination");
 const { memoryStore } =
@@ -375,23 +373,6 @@ describe("what the sheet offers", () => {
 });
 
 describe("a device that cannot record says so", () => {
-  test("the destination sheet uses only the typed-notes explanation", async () => {
-    const store = memoryStore();
-    await act(async () => {
-      meetings.reset();
-      await meetings.configure({ workspaceId: "ws-old", store, gateway: fakeGateway(), recorder: notesOnlyRecorder("ios", "Update Context; typed notes only."), device: { platform: "ios" }, persistDebounceMs: 0 });
-    });
-    const mounted = mount(createElement(Harness, { contexts: [OWN], page: null, store }));
-    await settle();
-    press("mic");
-    expect(text()).toContain("Update Context; typed notes only.");
-    expect(text()).not.toContain("microphone");
-    expect(text()).not.toContain("transcribed");
-    expect(text()).not.toContain("Audio is transcribed and then discarded");
-    expect(text()).toContain("Start typed notes");
-    mounted.unmount();
-  });
-
   test("a device with no context yet refuses Start rather than throwing", async () => {
     /*
       Found in self-review. The controller is configured by an effect in another

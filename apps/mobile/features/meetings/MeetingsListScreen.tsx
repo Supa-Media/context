@@ -67,9 +67,6 @@ export function MeetingsListScreen({
   const router = useRouter();
   const styles = useThemedStyles(makeStyles);
   const now = useTick(upcoming.length > 0, 30_000);
-  const captureNotice = snapshot.status === "ready" && !snapshot.capture.audio
-    ? snapshot.capture.unavailableReason ?? "Audio is unavailable; this meeting will be typed notes only."
-    : null;
 
   const sections = useMemo(
     () =>
@@ -118,13 +115,6 @@ export function MeetingsListScreen({
           Meetings
         </Text>
 
-        {snapshot.status === "ready" && !snapshot.capture.audio ? (
-          <Text variant="meta" style={styles.unreadable} testID="meetings-capture-warning">
-            {snapshot.capture.unavailableReason ??
-              "Audio capture is unavailable, so new meetings will be typed notes only."}
-          </Text>
-        ) : null}
-
         {snapshot.status !== "ready" ? (
           // Loading is not "no meetings". Drawing the empty state here would
           // tell somebody with fifty recordings that they have none, for as
@@ -132,7 +122,7 @@ export function MeetingsListScreen({
           // `emptyConsoleStats.test.ts` exists to keep.
           <View style={styles.quiet} testID="meetings-loading" />
         ) : sections.length === 0 ? (
-          <Empty onStart={() => void start("New meeting")} captureNotice={captureNotice} />
+          <Empty onStart={() => void start("New meeting")} />
         ) : (
           sections.map((section) => (
             <Section
@@ -142,7 +132,6 @@ export function MeetingsListScreen({
               now={now === 0 ? Date.now() : now}
               onOpen={(id) => router.push(meetingHref(id))}
               onRecord={(title) => void start(title)}
-              captureNotice={captureNotice}
             />
           ))
         )}
@@ -162,7 +151,7 @@ export function MeetingsListScreen({
         ) : null}
       </ScreenScroll>
 
-      {snapshot.live === null ? <RecordButton onPress={() => void start("New meeting")} captureNotice={captureNotice} /> : null}
+      {snapshot.live === null ? <RecordButton onPress={() => void start("New meeting")} /> : null}
     </>
   );
 }
@@ -206,14 +195,12 @@ function Section({
   now,
   onOpen,
   onRecord,
-  captureNotice,
 }: {
   section: MeetingListSection;
   locale?: string;
   now: number;
   onOpen: (id: string) => void;
   onRecord: (title: string) => void;
-  captureNotice: string | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
@@ -226,7 +213,6 @@ function Section({
           event={event}
           now={now}
           onRecord={() => onRecord(event.title)}
-          captureNotice={captureNotice}
         />
       ))}
 
@@ -260,12 +246,10 @@ function UpcomingRow({
   event,
   now,
   onRecord,
-  captureNotice,
 }: {
   event: CalendarEvent;
   now: number;
   onRecord: () => void;
-  captureNotice: string | null;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -293,36 +277,34 @@ function UpcomingRow({
       <Pressable
         onPress={onRecord}
         accessibilityRole="button"
-        accessibilityLabel={captureNotice === null ? `Record ${event.title}` : `Start typed notes for ${event.title}`}
-        accessibilityHint={captureNotice ?? undefined}
+        accessibilityLabel={`Record ${event.title}`}
         style={({ pressed }) => [styles.recordChip, pressed && styles.chipPressed]}
       >
         <Text variant="mini" style={styles.recordChipLabel}>
-          {captureNotice === null ? "Record" : "Typed notes"}
+          Record
         </Text>
       </Pressable>
     </View>
   );
 }
 
-function Empty({ onStart, captureNotice }: { onStart: () => void; captureNotice: string | null }) {
+function Empty({ onStart }: { onStart: () => void }) {
   const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.empty} testID="meetings-empty">
       <Text variant="noteTitle">Nothing recorded on this device yet.</Text>
       <Text variant="rowSub" style={styles.emptyBody}>
-        Start a meeting and type as it happens. Your notes become one Markdown
-        note in your own bucket — nobody else holds a copy.
+        Start a meeting and type as it happens. Your notes and the transcript
+        become one Markdown note in your own bucket — nobody else holds a copy.
       </Text>
-      {captureNotice === null ? null : <Text variant="meta" style={styles.unreadable}>{captureNotice}</Text>}
       <Pressable
         onPress={onStart}
         accessibilityRole="button"
-        accessibilityLabel={captureNotice === null ? "Start recording a meeting" : "Start typed notes"}
+        accessibilityLabel="Start recording a meeting"
         style={({ pressed }) => [styles.emptyCta, pressed && styles.chipPressed]}
       >
         <Text variant="mini" style={styles.recordChipLabel}>
-          {captureNotice === null ? "Start a meeting" : "Start typed notes"}
+          Start a meeting
         </Text>
       </Pressable>
     </View>
@@ -338,19 +320,18 @@ function Empty({ onStart, captureNotice }: { onStart: () => void; captureNotice:
  * `minTouchTarget` — the visible circle *is* the target here, with no padding
  * around it to make up a shortfall.
  */
-function RecordButton({ onPress, captureNotice }: { onPress: () => void; captureNotice: string | null }) {
+function RecordButton({ onPress }: { onPress: () => void }) {
   const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.recordSlot}>
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel={captureNotice === null ? "Start recording a meeting" : "Start typed notes"}
-        accessibilityHint={captureNotice ?? undefined}
-        style={({ pressed }) => [captureNotice === null ? styles.record : styles.recordNotes, pressed && styles.recordPressed]}
+        accessibilityLabel="Start recording a meeting"
+        style={({ pressed }) => [styles.record, pressed && styles.recordPressed]}
         testID="meetings-record"
       >
-        {captureNotice === null ? <View style={styles.recordDot} aria-hidden /> : <Text variant="mini" style={styles.notesMark}>T</Text>}
+        <View style={styles.recordDot} aria-hidden />
       </Pressable>
     </View>
   );
@@ -453,16 +434,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  recordNotes: {
-    width: layout.bottomBarHeight,
-    height: layout.bottomBarHeight,
-    borderRadius: radii.pill,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surface2,
-    borderColor: colors.line,
-    borderWidth: 1,
-  },
   recordPressed: { backgroundColor: colors.chromePressed },
   recordDot: {
     width: 26,
@@ -470,5 +441,4 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.pill,
     backgroundColor: colors.crit,
   },
-  notesMark: { color: colors.text2 },
 });
