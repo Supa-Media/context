@@ -244,7 +244,7 @@ function ConnectedGoogleRow({
               status={
                 connection.calendar.syncCursorReady
                   ? `Watching calendar changes${formatSyncTime(connection.calendar.lastSyncedAt) ? ` · ${formatSyncTime(connection.calendar.lastSyncedAt)}` : ""}`
-                  : "Connected; calendar backfill control is next"
+                  : "Connected grant; calendar sync is not running yet"
               }
               destinationPath={connection.calendar.destinationPath}
               destinationHint="Calendar events will land as daily context notes here."
@@ -261,10 +261,10 @@ function ConnectedGoogleRow({
               status={
                 connection.chat.cursorCount > 0
                   ? `Tracking ${connection.chat.cursorCount} Chat space${connection.chat.cursorCount === 1 ? "" : "s"}${formatSyncTime(connection.chat.lastSyncedAt) ? ` · ${formatSyncTime(connection.chat.lastSyncedAt)}` : ""}`
-                  : "Connected; Chat backfill control is next"
+                  : "Connected grant; Chat sync is not running yet"
               }
               destinationPath={connection.chat.destinationPath}
-              destinationHint="Google Chat spaces will land as daily channel notes here."
+              destinationHint="Chat will use this folder when the Chat sync worker is enabled."
               actionLabel="Start Chat sync"
               actionDisabled
               saveDestination={actions?.saveDestination}
@@ -448,6 +448,12 @@ function gmailRunDetail(connection: GoogleConnection): string | null {
     case "queued":
       return "Backfill queued";
     case "running":
+      if (run.errorCode === "GOOGLE_RATE_LIMITED") {
+        return `Paused by Google; retrying automatically${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
+      }
+      if (run.lastError) {
+        return `Retrying automatically${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
+      }
       return `Scanning Gmail${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
     case "complete":
       return `Backfill complete${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;

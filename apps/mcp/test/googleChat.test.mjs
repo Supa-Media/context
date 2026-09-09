@@ -144,6 +144,24 @@ export async function runGoogleChatChecks(check) {
     check("...and does read what is inside the window", allEvents.some((e) => e.sentAt.startsWith("2026-09-06")));
     check("the cursor advances to the latest message actually seen", result.cursors[ENGINEERING] === "2026-09-06T12:00:00.000Z");
   });
+  await section("sync: configured destination folder", async () => {
+    const space = fixtureSpace({ name: ENGINEERING });
+    const message = fixtureMessage({ name: `${ENGINEERING}/messages/dest`, createTime: "2026-09-06T12:00:00Z" });
+    const fetchImpl = createChatFixture({ spaces: [space], messagesBySpace: { [ENGINEERING]: [message] } });
+    const result = await syncGoogleChat({
+      ...clientFor(fetchImpl),
+      connection: {
+        account: "acct",
+        nonceSeed: "seed",
+        destinationFolder: "2-areas/communications/daily",
+      },
+      now: NOW,
+    });
+    check(
+      "a configured Chat destination folder controls where daily notes are written",
+      result.notes.some((part) => part.path === "2-areas/communications/daily/2026-09-06.md"),
+    );
+  });
 
   // -- per-space settings: excluded and paused sync nothing -----------------
   await section("sync: per-space include/exclude settings", async () => {

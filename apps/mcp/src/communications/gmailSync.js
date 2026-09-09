@@ -598,10 +598,12 @@ export function buildDayQuery(options) {
 
 /** A Gmail API call that failed, classified just enough for the caller to react. */
 export class GmailApiError extends Error {
-  constructor(status, message) {
+  constructor(status, message, details = {}) {
     super(message);
     this.name = "GmailApiError";
     this.status = status;
+    this.reason = typeof details.reason === "string" ? details.reason : undefined;
+    this.googleStatus = typeof details.googleStatus === "string" ? details.googleStatus : undefined;
   }
 }
 
@@ -632,14 +634,34 @@ async function gmailFetch(fetchImpl, accessToken, path, params) {
     // sync or — if a caller reacted to the type the way the class name tells
     // it to — trigger a needless 90-day reconcile, once per deletion, forever.
     // Only `listHistoryPage` promotes a 404 now, at its own call site.
-    // Never includes the response body: it could echo the query string, and
-    // the query string never carries a secret, but the access token rides in
-    // the header of the *request* this failed response is answering — a
-    // provider error page that happened to reflect request context is not
-    // where any of it should end up in a log.
-    throw new GmailApiError(response.status, `Gmail answered ${path} with ${response.status}`);
+    throw new GmailApiError(
+      response.status,
+      `Gmail answered ${path} with ${response.status}`,
+      await safeGoogleErrorDetails(response),
+    );
   }
   return response.json();
+}
+
+async function safeGoogleErrorDetails(response) {
+  try {
+    const type = response.headers?.get?.("content-type") ?? "";
+    if (!type.toLowerCase().includes("application/json")) return {};
+    const body = await response.json();
+    const error = body && typeof body === "object" ? body.error : undefined;
+    if (!error || typeof error !== "object") return {};
+    const reasons = Array.isArray(error.errors)
+      ? error.errors
+          .map((entry) => entry?.reason)
+          .filter((reason) => typeof reason === "string" && reason.length > 0)
+      : [];
+    return {
+      reason: reasons[0],
+      googleStatus: typeof error.status === "string" ? error.status : undefined,
+    };
+  } catch {
+    return {};
+  }
 }
 
 /** One page of message ids matching `query`. */

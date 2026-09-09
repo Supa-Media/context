@@ -112,8 +112,8 @@ describe("GoogleConnectionsCard", () => {
               syncCursorReady: false,
             },
             chat: {
-              destinationFolder: "0-inbox/google-chat",
-              destinationPath: "0-inbox/google-chat/YYYY-MM-DD.md",
+              destinationFolder: "2-areas/communications/daily",
+              destinationPath: "2-areas/communications/daily/YYYY-MM-DD.md",
               cursorCount: 2,
             },
           },
@@ -128,7 +128,7 @@ describe("GoogleConnectionsCard", () => {
     expect(text).toContain("Start Email");
     expect(text).toContain("Email destination");
     expect(text).toContain("Calendar");
-    expect(text).toContain("Connected; calendar backfill control is next");
+    expect(text).toContain("Connected grant; calendar sync is not running yet");
     expect(text).toContain("Start Calendar sync");
     expect(text).toContain("Chat");
     expect(text).toContain("Tracking 2 Chat spaces");

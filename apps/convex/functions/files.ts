@@ -142,6 +142,9 @@ import type { GatewayCredential } from "./storage";
 /** Same deadline `functions/provisioning.ts` puts on the customer's endpoint. */
 const REQUEST_TIMEOUT_MS = 20_000;
 const GMAIL_BACKFILL_DAYS_PER_PASS = 1;
+const GMAIL_TRANSIENT_RETRY_BASE_MS = 5 * 60 * 1000;
+const GMAIL_TRANSIENT_RETRY_MAX_MS = 60 * 60 * 1000;
+const GMAIL_TRANSIENT_RETRY_LIMIT = 24;
 
 /**
  * Maintenance passes that may chain behind one search's worth of work.
@@ -1136,6 +1139,26 @@ function gmailBackfillStartDate(days: number, now: number): string {
   return dateKeyAt(now - (window - 1) * DAY_MS);
 }
 
+const GMAIL_RATE_LIMIT_REASONS = new Set([
+  "dailyLimitExceeded",
+  "rateLimitExceeded",
+  "userRateLimitExceeded",
+  "quotaExceeded",
+]);
+
+function isTransientGmailBackfillError(code: string): boolean {
+  return (
+    code === "GOOGLE_RATE_LIMITED" ||
+    code === "GOOGLE_UNAVAILABLE" ||
+    code === "GOOGLE_SYNC_TIMEOUT"
+  );
+}
+
+function gmailTransientRetryDelay(failures: number): number {
+  const exponent = Math.max(0, Math.min(failures - 1, 4));
+  return Math.min(GMAIL_TRANSIENT_RETRY_MAX_MS, GMAIL_TRANSIENT_RETRY_BASE_MS * 2 ** exponent);
+}
+
 function classifyGmailBackfillError(error: unknown): { code: string; message: string } {
   if (error instanceof ConvexError) {
     return {
@@ -1144,16 +1167,22 @@ function classifyGmailBackfillError(error: unknown): { code: string; message: st
     };
   }
   if (error instanceof GmailApiError) {
+    const reason = typeof error.reason === "string" ? error.reason : undefined;
+    const googleStatus = typeof error.googleStatus === "string" ? error.googleStatus : undefined;
+    if (
+      error.status === 429 ||
+      (error.status === 403 &&
+        (GMAIL_RATE_LIMIT_REASONS.has(reason ?? "") || googleStatus === "RESOURCE_EXHAUSTED"))
+    ) {
+      return {
+        code: "GOOGLE_RATE_LIMITED",
+        message: "Google rate-limited this Gmail backfill. Retry it in a few minutes.",
+      };
+    }
     if (error.status === 401 || error.status === 403) {
       return {
         code: "GOOGLE_ACCESS_REFUSED",
         message: "Google refused Gmail access for this account. Reconnect it and approve Gmail access.",
-      };
-    }
-    if (error.status === 429) {
-      return {
-        code: "GOOGLE_RATE_LIMITED",
-        message: "Google rate-limited this Gmail backfill. Retry it in a few minutes.",
       };
     }
     if (error.status >= 500) {
@@ -1334,6 +1363,14 @@ async function runGoogleGmailBackfill(
     };
   } catch (error) {
     const { code, message } = classifyGmailBackfillError(error);
+    const nextTransientFailures = job.transientFailures + 1;
+    const transient =
+      isTransientGmailBackfillError(code) &&
+      nextTransientFailures <= GMAIL_TRANSIENT_RETRY_LIMIT;
+    const recordedMessage =
+      transient || !isTransientGmailBackfillError(code)
+        ? message
+        : `${message} The automatic retry budget was used; start a new Gmail backfill to try again.`;
     console.log(
       JSON.stringify({
         event: "google.gmail_backfill_failed",
@@ -1343,6 +1380,8 @@ async function runGoogleGmailBackfill(
         errorCode: code,
         errorName: error instanceof Error ? error.name : typeof error,
         gmailStatus: error instanceof GmailApiError ? error.status : undefined,
+        gmailReason: error instanceof GmailApiError ? error.reason : undefined,
+        transientFailures: nextTransientFailures,
         fromUnit,
         date: startDate,
       }),
@@ -1357,14 +1396,22 @@ async function runGoogleGmailBackfill(
       daysWithMail: 0,
       bytesWritten: 0,
       currentUnit: startDate,
-      status: "failed",
+      status: transient ? "running" : "failed",
       errorCode: code,
-      error: message,
+      error: recordedMessage,
+      transientFailures: nextTransientFailures,
     });
+    if (transient) {
+      await ctx.scheduler.runAfter(gmailTransientRetryDelay(nextTransientFailures), internal.functions.files.runFileOperation, {
+        workspaceId,
+        scope: "private" as const,
+        operation: { kind: "googleGmailBackfill" as const, runId },
+      });
+    }
     return {
       kind: "googleSyncRun",
       runId,
-      status: "failed",
+      status: transient ? "running" : "failed",
       totalUnits: job.totalUnits,
       completedUnits: fromUnit,
       itemsFound: 0,
