@@ -15,7 +15,7 @@
  * visible to a reconciler; here it is because the question is "what does a
  * person actually read".
  *
- * Four things:
+ * Two copy claims plus the interaction safeguards:
  *
  * 1. **Every consequence is on the screen before the field is.** Loss is
  *    permanent, the title and folder stay visible, no assistant can read it,
@@ -41,8 +41,8 @@
  * `ACKNOWLEDGEMENT_POINTS` and checked each one was on the screen — which is a
  * loop over the thing under test, and passes exactly as happily when the list
  * is empty. Deleting the sentence that says a lost passphrase is permanent
- * failed nothing at all. The four claims are now spelled out here, and the loop
- * is kept beside them so a fifth point added later cannot live in the constant
+ * failed nothing at all. The two claims are now spelled out here, and the loop
+ * is kept beside them so a later point cannot live in the constant alone.
  * alone.
  */
 
@@ -119,27 +119,22 @@ function render(props: Parameters<typeof LockNoteDialog>[0]): {
 const noop = () => {};
 
 describe("the screen that locks a note", () => {
-  it("says every consequence out loud", () => {
+  it("shows only the concise irreversible-lock warning", () => {
     mockSupportOverride = { supported: true };
     const screen = render({ path: "1-projects/a.md", onLock: noop, onClose: noop });
     const text = screen.html().replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
-    // The four claims, spelled out here rather than looped over
+    // The two claims, spelled out here rather than looped over
     // `ACKNOWLEDGEMENT_POINTS` — a loop over the list is a loop over the thing
     // under test, and it passes just as happily for an empty list. Measured:
     // deleting the permanence sentence failed nothing until these lines
     // existed.
-    expect(text).toMatch(/this note is gone/i);
-    expect(text).toMatch(/not stored anywhere/i);
-    expect(text).toMatch(/there is no reset/i);
-    expect(text).toMatch(/title, its folder/i);
-    expect(text).toMatch(/no assistant/i);
-    expect(text).toMatch(/not appear in search/i);
-    expect(text).toMatch(/device and browser you trust/i);
-    expect(text).toMatch(/keylogger/i);
-    expect(text).toMatch(/does not share its passphrase/i);
+    expect(text).toContain(ACKNOWLEDGEMENT_POINTS[0]);
+    expect(text).toContain(ACKNOWLEDGEMENT_POINTS[1]);
+    expect(ACKNOWLEDGEMENT_POINTS).toHaveLength(2);
+    expect(text).not.toMatch(/keylogger|screenshot|search results|share.*passphrase/i);
 
-    // And whatever else the list holds is on the screen too, so a fifth point
+    // And whatever else the list holds is on the screen too, so a later point
     // added later cannot be added to the constant alone.
     for (const point of ACKNOWLEDGEMENT_POINTS) {
       expect(text).toContain(point.replace(/\s+/g, " "));

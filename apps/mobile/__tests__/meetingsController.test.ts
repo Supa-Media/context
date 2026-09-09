@@ -192,6 +192,25 @@ describe("starting a meeting", () => {
     expect(snapshot.captureError).toBe("The microphone was taken by a call.");
   });
 
+  test("a foreground-only warning survives later capture notices", async () => {
+    const { controller, recorder } = await harness();
+    await controller.start({ title: "Design review" });
+    const warning =
+      "Recording works while Context stays open, but locking your phone will stop the audio.";
+
+    recorder.fail({ recoverable: true, kind: "background-unavailable", message: warning });
+
+    for (const message of [
+      "No speech was heard in the last stretch of audio, so nothing was transcribed from it. Capture is still running.",
+      "Transcription is running behind, so a few seconds of audio were dropped. Capture is still running.",
+      "Something else took the microphone. Typing still works, and capture picks up when it is free.",
+    ]) {
+      recorder.fail({ recoverable: true, message });
+      expect(controller.getSnapshot().captureError).toBe(message);
+      expect(controller.getSnapshot().backgroundCaptureWarning).toBe(warning);
+    }
+  });
+
   test("the id is the protocol's, and the meeting is filed under this context", async () => {
     const { controller, store } = await harness();
     const id = await controller.start({ title: "Design review" });

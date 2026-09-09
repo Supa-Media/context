@@ -161,13 +161,12 @@ function formatYears(years: number): string {
 
 function crackTimeLabel(passphrase: string): string {
   const bits = entropyBits(passphrase);
-  const years = 2 ** bits / ASSUMED_OFFLINE_GUESSES_PER_SECOND / SECONDS_PER_YEAR;
-  return (
-    `Rough offline crack time: about ${formatYears(years)} at an assumed ` +
+  const years =
+    2 ** bits / ASSUMED_OFFLINE_GUESSES_PER_SECOND / SECONDS_PER_YEAR;
+  return `Rough offline crack time: about ${formatYears(years)} at an assumed ` +
     `${ASSUMED_OFFLINE_GUESSES_PER_SECOND.toLocaleString()} Argon2id guesses/sec. ` +
     `This is an order-of-magnitude estimate, and common or patterned phrases may ` +
-    `be much faster.`
-  );
+    `be much faster.`;
 }
 
 /**
@@ -204,7 +203,9 @@ export function passphraseStrength(passphrase: string): {
   if (distinct <= 3) {
     return {
       strength: "weak",
-      label: "Weak — this repeats itself too much to protect the note. " + crackTime,
+      label:
+        "Weak — this repeats itself too much to protect the note. " +
+        crackTime,
     };
   }
   if (veryLong || (long && variety >= 2) || (passphrase.length >= 20 && variety >= 3)) {

@@ -124,6 +124,10 @@ So the words are fixed here and are a decision, not copy:
 - The second list becomes available exactly when the passphrase recipient ships
   and the note carries **only** a passphrase recipient — not before, and per
   note, not per product.
+- The console shows a rough offline crack-time estimate beside the passphrase
+  field, using an explicit Argon2id guess-rate assumption, and warns that
+  common or patterned phrases may be much faster. It is an order-of-magnitude
+  guide, not a promise.
 
 **That has now happened, for one of the two modes.** A note locked with a
 passphrase carries no workspace recipient, so for *that note* every sentence in
@@ -1498,3 +1502,12 @@ Supa Media, and therefore invisible to every AI client the customer has
 connected?** That is the difference between "encrypted at rest" and what the
 product note asked for, it is the whole of Phase 2's scope, and it is a product
 call about which failure mode the customer prefers, not an engineering one.
+
+### Additional owner decisions (2026-09-08)
+
+- There are no legacy workspace-key notes requiring migration. Do not invent a
+  migration or deletion exception for that nonexistent format.
+- Passphrase-protected notes are treated the same as other notes in exports;
+  their ciphertext is exported without a special case.
+- Export remains owner-only. Sharing a note or its passphrase does not grant
+  export authority.

@@ -11,25 +11,13 @@
  *
  * ## What has to be said, and why each line is here
  *
- * Somebody about to press this button is about to make a decision they cannot
- * take back, on the strength of what this screen tells them. Four things are
- * true and all four are load-bearing:
+ * Somebody about to press this button is making an irreversible decision. The
+ * two short lines below preserve the essential loss and safety claims.
  *
- * 1. **Lose the passphrase and the note is gone.** Not "contact support", not
- *    "reset it" — gone, by design, because the alternative is us holding a way
- *    in. This is the sentence the whole feature is bought with.
- * 2. **The title, the folder and the timestamps stay visible.** The path is
- *    still a path in a bucket; encrypting the filename would mean namespacing
- *    keys, which the second non-negotiable forbids outright. Somebody who
- *    thinks they are hiding *that* a note exists has to be told otherwise
- *    before they rely on it.
- * 3. **No AI client can read it, and neither can search.** The owner asked for
- *    exactly this; it is still a loss, and the screen that takes the decision
- *    is where it belongs rather than in a support article afterwards.
- * 4. **Sharing the note does not share the passphrase.** A `team` note that is
- *    locked is visible to the people it is shared with as a locked note. They
- *    open it if — and only if — they were given the passphrase some other way,
- *    which the owner does by hand, out of band, deliberately.
+ * 1. Losing the passphrase permanently loses access; Context.LC cannot recover
+ *    or reset it.
+ * 2. A strong, unique passphrase and trusted device reduce risk; the estimate
+ *    is only a rough offline crack-time guide.
  *
  * ## What may not be said
  *
@@ -43,26 +31,15 @@
 export const ACKNOWLEDGEMENT_TITLE = "Lock this note with a passphrase";
 
 /**
- * The four statements, in the order somebody needs them.
+ * The two statements, in the order somebody needs them.
  *
  * An array rather than a paragraph because the screen renders them as a list
  * somebody reads, and because a test can then assert that a specific one is
  * present rather than grepping prose.
  */
 export const ACKNOWLEDGEMENT_POINTS: readonly string[] = [
-  "If you lose this passphrase, this note is gone. It is not stored anywhere, " +
-    "we cannot recover it, and there is no reset — that is the point of it.",
-  "The note's title, its folder and when it changed stay visible. What is " +
-    "hidden is what is inside it.",
-  "No assistant you have connected can read it any more, and it will not " +
-    "appear in search results, because opening it needs the passphrase and " +
-    "they do not have it.",
-  "This only protects you on a device and browser you trust. A compromised " +
-    "browser, extension, keylogger, screenshot tool or laptop can still " +
-    "capture what you type.",
-  "If this note is shared with your team, they will see it as a locked note. " +
-    "Sharing a note does not share its passphrase — you would have to give " +
-    "them that yourself.",
+  "Lose the passphrase and you permanently lose access; Context.LC cannot recover or reset it.",
+  "Use a strong, unique passphrase on a trusted device. The crack-time number is only a rough offline estimate.",
 ];
 
 /** What the confirm button says. A verb, and the object it acts on. */
@@ -73,10 +50,8 @@ export const ACKNOWLEDGEMENT_PHRASE = "I understand";
 
 /** Under the passphrase field. Length is what compensates for a KDF in JavaScript. */
 export const PASSPHRASE_HINT =
-  "Use several words you will remember and nobody could guess. Length is what " +
-  "protects this note; twelve characters is the minimum and more is better. " +
-  "The strength meter shows a rough offline crack-time estimate, not an exact " +
-  "one, and common or patterned phrases may be much faster to crack.";
+  "Use several words you will remember; twelve characters is the minimum. " +
+  "Common or patterned phrases may be much faster to crack.";
 
 /** Shown where the runtime cannot open locked notes, in place of the form. */
 export const UNSUPPORTED_TITLE = "Locked notes open on a computer";

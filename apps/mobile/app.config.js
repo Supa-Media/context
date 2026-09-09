@@ -97,11 +97,8 @@ module.exports = ({ config }) => {
          * it is not a duplicate of the plugin block below: this is an
          * entitlement-shaped capability and the plugins own no key for it.
          *
-         * It only reaches a device in a **new binary**, so nothing in the JS may
-         * assume it. `capture/audio.ts` asks for the background-capable audio
-         * session and falls back to a foreground-only one when this binary has no
-         * entitlement for it — a runtime capability check, never a version
-         * comparison against a manifest that ships over the air.
+         * This native baseline is already present in the shipped binary. The
+         * JS session setting is therefore safe to deliver over the air.
          */
         UIBackgroundModes: ["audio"],
       },

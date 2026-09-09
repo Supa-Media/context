@@ -433,6 +433,52 @@ describe("the live screen is a notepad with a recorder attached", () => {
     mounted.unmount();
   });
 
+  test("the foreground-only warning stays fully visible through later capture notices", async () => {
+    const recorder = fakeRecorder();
+    const warning =
+      "Recording works while Context stays open, but locking your phone will stop the audio.";
+    const originalStart = recorder.start.bind(recorder);
+    const originalOnError = recorder.onError.bind(recorder);
+    let startWarning: Parameters<Parameters<typeof recorder.onError>[0]>[0] | null = null;
+    recorder.start = async (options) => {
+      await originalStart(options);
+      startWarning = {
+        recoverable: true,
+        kind: "background-unavailable",
+        message: warning,
+      };
+    };
+    recorder.onError = (listener) => {
+      const off = originalOnError(listener);
+      if (startWarning !== null) listener(startWarning);
+      return off;
+    };
+    await configure({ recorder });
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Reboot Camp" });
+    });
+    const mounted = mount(createElement(LiveMeetingScreen, { meetingId: id }));
+
+    act(() => {
+      recorder.fail({
+        recoverable: true,
+        message:
+          "No speech was heard in the last stretch of audio, so nothing was transcribed from it. Capture is still running.",
+      });
+    });
+
+    const notice = mounted.container.querySelector(
+      '[data-testid="meeting-background-warning"]',
+    );
+    expect(notice?.textContent).toBe(warning);
+    expect((notice?.querySelector("div") as HTMLElement | null)?.style.whiteSpace).not.toBe(
+      "nowrap",
+    );
+    expect(mounted.container.textContent).toContain("No speech was heard");
+    mounted.unmount();
+  });
+
   test("End does not navigate — the same route becomes the note", async () => {
     await configure();
     let id = "";

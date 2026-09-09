@@ -146,6 +146,8 @@ export function runAppShellChecks(check) {
   const source = withoutComments(raw);
   const consoleRaw = readFileSync(new URL("../src/core/shell/console.ts", import.meta.url), "utf8");
   const consoleSource = withoutComments(consoleRaw);
+  const updaterRaw = readFileSync(new URL("../src/main/updater.ts", import.meta.url), "utf8");
+  const updaterSource = withoutComments(updaterRaw);
   const builderRaw = readFileSync(new URL("../electron-builder.yml", import.meta.url), "utf8");
   const builder = withoutYamlComments(builderRaw);
 
@@ -201,10 +203,37 @@ export function runAppShellChecks(check) {
       roles.includes("close") && roles.includes("quit"),
     );
     check(
+      "THE APP MENU EXPOSES A NATIVE CHECK-FOR-UPDATES COMMAND",
+      menu.includes('label: "Check for Updates..."') && /click: \(\) => checkForUpdatesFromMenu\(\)/.test(menu),
+    );
+    check(
       "...and no developer tools in a shipped build",
       roles.includes("toggleDevTools") === false,
     );
   }
+  check(
+    "THE CHECK-FOR-UPDATES MENU COMMAND CALLS THE UPDATER DIRECTLY",
+    /checkForUpdatesFromMenu = \(\) => \{\s*if \(!updater\.checkNow\(\)\) push\(\);\s*\};/.test(source),
+  );
+  check(
+    "A MANUAL UPDATE CHECK IS REFUSED UNTIL UPDATER STARTUP HAS WIRED EVENTS",
+    /#started = false;/.test(updaterSource) &&
+      /if \(!this\.#started\) \{[\s\S]*?updater startup has not finished yet[\s\S]*?return false;[\s\S]*?\}/.test(
+        updaterSource,
+      ) &&
+      /this\.#started = true;\s*this\.#maybeCheck\(\);/.test(updaterSource),
+  );
+  check(
+    "A MANUAL UPDATE CHECK MARKS CHECKING BEFORE THE NETWORK CALL CAN BE DOUBLE-CLICKED",
+    /this\.#move\(\{ type: "check-started" \}\);\s*autoUpdater\.checkForUpdates\(\)/.test(updaterSource),
+  );
+  check(
+    "SCHEDULED UPDATE CHECKS SHARE THE SAME IN-FLIGHT GUARD AS MANUAL CHECKS",
+    /#maybeCheck\(\): void \{\s*if \(this\.#state !== "idle"\) return;[\s\S]*?this\.#move\(\{ type: "check-started" \}\);\s*autoUpdater\.checkForUpdates\(\)/.test(
+      updaterSource,
+    ) &&
+      /\[update\] checkForUpdates threw:[\s\S]*?this\.#move\(\{ type: "check-failed" \}\);/.test(updaterSource),
+  );
   check(
     "A DOCK CLICK REOPENS A WINDOW THAT WAS CLOSED, RATHER THAN ONLY RAISING ONE",
     /app\.on\("activate", \(\) => \{[\s\S]*?openConsoleWindow\(\)[\s\S]*?\}\);/.test(source),

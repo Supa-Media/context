@@ -56,8 +56,9 @@ import { audioRecorder, resolveRecorder } from "./audio";
  *    imported because it is in `native-deps.json` `core`; the audio session
  *    (including the `mixWithOthers` line that keeps a Zoom call's microphone,
  *    on iOS and Android alike), rotation, the interruption handling, and the
- *    one field (`allowsBackgroundRecording`) that is Android's own switch for
- *    the foreground service `expo-audio`'s native module already bundles.
+ *    shared `allowsBackgroundRecording` switch that keeps iOS capture alive in
+ *    the background and starts the foreground service bundled by `expo-audio`
+ *    on Android.
  *  - `./audio.web.ts` — the browser. Metro resolves it for the web build, which
  *    is why nothing above this file branches on a platform.
  *  - `./segments.ts` — the wall clock and the chunk-id scheme both halves share.
@@ -194,6 +195,8 @@ export interface RecorderError {
   /** Whether capture can continue. `false` means the session is notes-only from here. */
   recoverable: boolean;
   message: string;
+  /** A durable limitation of this session, separate from transient capture errors. */
+  kind?: "background-unavailable";
 }
 
 /**
