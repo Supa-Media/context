@@ -31,6 +31,9 @@
  *   `setEntitlements` and `startCheckout` accepting an editor         1
  *   `status` returning the money fields to every member               1
  *   `billingSession` returning a URL to another member                1
+ *   `startCheckout` opening a second checkout on a second press         1
+ *   `startCheckout` reusing a co-owner's live attempt                    1
+ *   `status` letting a malformed price id throw at every reader          1
  *
  * **The metadata row is the one worth reading twice.** It is not a line that
  * exists to be deleted — nothing here reads a workspace out of an event — so
