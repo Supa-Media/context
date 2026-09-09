@@ -2857,6 +2857,41 @@ check(
     storedText("2-areas/deep/big-complete-moved/note-001.md") ===
       "[[../../../1-projects/big-complete-link]]"
 );
+const queuedGatewayMessages = [];
+env.GATEWAY_JOBS = {
+  async send(message) {
+    queuedGatewayMessages.push(message);
+  },
+};
+for (let i = 0; i < 501; i += 1) {
+  const suffix = String(i).padStart(3, "0");
+  await contextStore.put(`1-projects/queued-move/note-${suffix}.md`, `queued ${suffix}`);
+}
+const queuedMove = await call("priv-token", "move_folder", {
+  source: "1-projects/queued-move",
+  destination: "1-projects/queued-moved",
+});
+const queuedMoveId = queuedMove.content[0].text.match(/move_id: (\S+)/)?.[1];
+check(
+  "large logical move enqueues a durable gateway job without credentials",
+  queuedGatewayMessages.length === 1 &&
+    queuedGatewayMessages[0]?.ticket === "job-ticket-1" &&
+    queuedGatewayMessages[0]?.kind === "materialize_move" &&
+    queuedGatewayMessages[0]?.moveId === queuedMoveId &&
+    !JSON.stringify(queuedGatewayMessages[0]).includes("cat_test_owner")
+);
+for (let i = 0; i < 20 && objects.has(`.context/moves/${queuedMoveId}.json`); i += 1) {
+  const message = queuedGatewayMessages.shift();
+  if (!message) break;
+  await worker.queue({ messages: [{ body: message }] }, env);
+}
+check(
+  "queue consumer materializes a large logical move across bounded passes",
+  !objects.has(`.context/moves/${queuedMoveId}.json`) &&
+    !objects.has("1-projects/queued-move/note-000.md") &&
+    objects.has("1-projects/queued-moved/note-000.md")
+);
+delete env.GATEWAY_JOBS;
 for (let i = 0; i < 502; i += 1) {
   const suffix = String(i).padStart(3, "0");
   await contextStore.delete(`1-projects/big-move/note-${suffix}.md`);
@@ -2868,6 +2903,8 @@ for (let i = 0; i < 501; i += 1) {
   await contextStore.delete(`1-projects/big-missing-moved/note-${suffix}.md`);
   await contextStore.delete(`1-projects/big-complete/note-${suffix}.md`);
   await contextStore.delete(`2-areas/deep/big-complete-moved/note-${suffix}.md`);
+  await contextStore.delete(`1-projects/queued-move/note-${suffix}.md`);
+  await contextStore.delete(`1-projects/queued-moved/note-${suffix}.md`);
 }
 await contextStore.delete("1-projects/big-complete-link.md");
 

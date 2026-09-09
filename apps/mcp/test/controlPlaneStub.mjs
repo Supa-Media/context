@@ -103,6 +103,8 @@ export function createControlPlaneStub(options = {}) {
   const codes = new Map();
   /** requestId → parked authorization request */
   const pendingAuthorizations = new Map();
+  /** opaque gateway job ticket → job */
+  const gatewayJobs = new Map();
 
   /** Every call the worker made, for assertions about what was sent. */
   const calls = [];
@@ -421,6 +423,64 @@ export function createControlPlaneStub(options = {}) {
         return ok({ ok: true });
       }
 
+      case "/gateway/jobs/create": {
+        const grant = await grantForAccessToken(body.accessToken);
+        if (!grant) return ok({ ticket: null });
+        const covered = coveredContexts(grant);
+        const named = covered.find((entry) => entry.workspaceId === body.expectedWorkspaceId);
+        if (!named || named.role !== "owner") return ok({ ticket: null });
+        if (!grant.scopes.includes("context:write") || !grant.scopes.includes("context:private")) {
+          return ok({ ticket: null });
+        }
+        if (body.job?.kind !== "materialize_move" || typeof body.job?.moveId !== "string") {
+          return ok({ ticket: null });
+        }
+        const ticket = `job-ticket-${gatewayJobs.size + 1}`;
+        gatewayJobs.set(ticket, {
+          workspaceId: named.workspaceId,
+          actorUserId: grant.userId,
+          actorClientId: grant.clientId,
+          grantId: grant.grantId,
+          kind: "materialize_move",
+          moveId: body.job.moveId,
+          status: "queued",
+        });
+        return ok({ ticket });
+      }
+
+      case "/gateway/jobs/open": {
+        const job = gatewayJobs.get(body.ticket);
+        if (!job || job.status !== "queued") return ok({ job: null });
+        job.status = "running";
+        const binding = bindings.get(job.workspaceId);
+        if (!binding) return ok({ job: null });
+        const { searchIndex, encryptionKey, ...storage } = binding;
+        return ok({
+          job: {
+            job: {
+              workspaceId: job.workspaceId,
+              actorUserId: job.actorUserId,
+              actorClientId: job.actorClientId,
+              grantId: job.grantId,
+              kind: job.kind,
+              moveId: job.moveId,
+            },
+            binding: { workspaceId: job.workspaceId, ...storage, status: "active" },
+            ...(searchIndex ? { searchIndex } : {}),
+            ...(encryptionKey ? { encryptionKey } : {}),
+          },
+        });
+      }
+
+      case "/gateway/jobs/report": {
+        const job = gatewayJobs.get(body.ticket);
+        if (job && job.status === "running" && body.result) {
+          job.status = body.result.status;
+          job.lastError = body.result.error;
+        }
+        return ok({ ok: true });
+      }
+
       case "/gateway/usage": {
         // The reference implementation of the counter route: it accepts a list
         // of {metric, workspaceId, count} and answers how many it applied.
@@ -473,6 +533,7 @@ export function createControlPlaneStub(options = {}) {
     flags,
     accessTokens,
     refreshTokens,
+    gatewayJobs,
     pendingAuthorizations,
     calls,
   };

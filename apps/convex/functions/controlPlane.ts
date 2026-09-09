@@ -758,6 +758,52 @@ const searchIndexValidator = v.object({
   state: v.union(v.literal("backfilling"), v.literal("ready")),
 });
 
+const GATEWAY_JOB_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const GATEWAY_JOB_LEASE_MS = 15 * 60 * 1000;
+const GATEWAY_JOB_ERROR_MAX = 240;
+const MOVE_ID_PATTERN = /^move-[a-f0-9-]{12,}$/;
+
+const gatewayJobKindValidator = v.union(v.literal("materialize_move"));
+type GatewayJobKind = "materialize_move";
+
+interface ClaimedGatewayJob {
+  workspaceId: Id<"workspaces">;
+  actorUserId: Id<"users">;
+  actorClientId: string;
+  grantId: Id<"oauthGrants">;
+  kind: GatewayJobKind;
+  moveId?: string;
+}
+
+interface OpenedGatewayJob {
+  job: ClaimedGatewayJob;
+  binding: GatewayBinding;
+  searchIndex?: GatewaySearchIndex;
+  encryptionKey?: GatewayEncryptionKey;
+  rotation?: GatewayKeyRotation;
+}
+
+function gatewayJobError(message: string | undefined): string | undefined {
+  if (typeof message !== "string" || message.length === 0) return undefined;
+  return message.slice(0, GATEWAY_JOB_ERROR_MAX);
+}
+
+function canQueueGatewayJob(
+  session: {
+    scopes: string[];
+    workspaceId: Id<"workspaces">;
+    workspaces: Array<{ workspaceId: Id<"workspaces">; role: string }>;
+  },
+  expectedWorkspaceId: string,
+): Id<"workspaces"> | null {
+  const covered = session.workspaces.find((entry) => entry.workspaceId === expectedWorkspaceId);
+  if (covered === undefined) return null;
+  if (covered.role !== "owner") return null;
+  if (!session.scopes.includes("context:write")) return null;
+  if (!session.scopes.includes("context:private")) return null;
+  return covered.workspaceId;
+}
+
 /**
  * Open one workspace's storage credential for the gateway. INTERNAL ACTION,
  * and the second half of the two-factor check.
@@ -1082,5 +1128,264 @@ export const openStorageBinding = internalAction({
       encryptionKey,
       rotation,
     };
+  },
+});
+
+export const createGatewayJob = internalMutation({
+  args: {
+    hashedAccessToken: v.string(),
+    expectedWorkspaceId: v.string(),
+    hashedTicket: v.string(),
+    kind: gatewayJobKindValidator,
+    moveId: v.optional(v.string()),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    if (!TOKEN_HASH_PATTERN.test(args.hashedAccessToken)) return false;
+    if (!TOKEN_HASH_PATTERN.test(args.hashedTicket)) return false;
+    if (args.kind === "materialize_move" && !MOVE_ID_PATTERN.test(args.moveId || "")) return false;
+
+    const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
+    if (live === null) return false;
+    const workspaceId = canQueueGatewayJob(
+      {
+        scopes: live.grant.scopes,
+        workspaceId: live.grant.workspaceId,
+        workspaces: await contextsForGrant(ctx, live),
+      },
+      args.expectedWorkspaceId,
+    );
+    if (workspaceId === null) return false;
+
+    const now = Date.now();
+    await ctx.db.insert("gatewayJobs", {
+      hashedTicket: args.hashedTicket,
+      workspaceId,
+      actorUserId: live.grant.userId,
+      actorClientId: live.grant.clientId,
+      grantId: live.grant._id,
+      kind: args.kind,
+      moveId: args.moveId,
+      status: "queued",
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + GATEWAY_JOB_TTL_MS,
+    });
+    return true;
+  },
+});
+
+export const claimGatewayJob = internalMutation({
+  args: { hashedTicket: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      workspaceId: v.id("workspaces"),
+      actorUserId: v.id("users"),
+      actorClientId: v.string(),
+      grantId: v.id("oauthGrants"),
+      kind: gatewayJobKindValidator,
+      moveId: v.optional(v.string()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    if (!TOKEN_HASH_PATTERN.test(args.hashedTicket)) return null;
+    const job = await ctx.db
+      .query("gatewayJobs")
+      .withIndex("by_hashed_ticket", (q) => q.eq("hashedTicket", args.hashedTicket))
+      .unique();
+    if (job === null) return null;
+    if (job.expiresAt <= Date.now()) return null;
+    const now = Date.now();
+    const staleLease =
+      job.status === "running" &&
+      typeof job.leasedAt === "number" &&
+      job.leasedAt + GATEWAY_JOB_LEASE_MS <= now;
+    if (job.status !== "queued" && !staleLease) return null;
+    const membership = await getMembership(ctx, job.workspaceId, job.actorUserId);
+    if (membership === null || membership.role !== "owner") return null;
+    await ctx.db.patch(job._id, {
+      status: "running",
+      attempts: job.attempts + 1,
+      leasedAt: now,
+      updatedAt: now,
+      lastError: undefined,
+    });
+    return {
+      workspaceId: job.workspaceId,
+      actorUserId: job.actorUserId,
+      actorClientId: job.actorClientId,
+      grantId: job.grantId,
+      kind: job.kind,
+      moveId: job.moveId,
+    };
+  },
+});
+
+export const openGatewayJob = internalAction({
+  args: { hashedTicket: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      job: v.object({
+        workspaceId: v.id("workspaces"),
+        actorUserId: v.id("users"),
+        actorClientId: v.string(),
+        grantId: v.id("oauthGrants"),
+        kind: gatewayJobKindValidator,
+        moveId: v.optional(v.string()),
+      }),
+      binding: v.union(s3BindingValidator, dropboxBindingValidator),
+      searchIndex: v.optional(searchIndexValidator),
+      encryptionKey: v.optional(encryptionKeyValidator),
+      rotation: v.optional(keyRotationValidator),
+    }),
+  ),
+  handler: async (ctx, args): Promise<OpenedGatewayJob | null> => {
+    const claimed: ClaimedGatewayJob | null = await ctx.runMutation(
+      internal.functions.controlPlane.claimGatewayJob,
+      {
+        hashedTicket: args.hashedTicket,
+      },
+    );
+    if (claimed === null) return null;
+
+    let credential;
+    try {
+      credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
+        workspaceId: claimed.workspaceId,
+      });
+    } catch {
+      await ctx.runMutation(internal.functions.controlPlane.reportGatewayJob, {
+        hashedTicket: args.hashedTicket,
+        result: { status: "failed", error: "storage_unavailable" },
+      });
+      return null;
+    }
+    if (credential === null || !isUsable(credential.status as BindingStatus)) {
+      await ctx.runMutation(internal.functions.controlPlane.reportGatewayJob, {
+        hashedTicket: args.hashedTicket,
+        result: { status: "failed", error: "storage_unavailable" },
+      });
+      return null;
+    }
+
+    let searchIndex: GatewaySearchIndex | undefined;
+    try {
+      const target: { databaseId: string; state: "backfilling" | "ready" } | null = await ctx.runQuery(
+        internal.functions.fastSearch.projectionTargetForWorkspace,
+        { workspaceId: claimed.workspaceId },
+      );
+      if (target !== null) {
+        const apiToken: string | null = await ctx.runAction(internal.functions.admin.readIntegrationSecret, {
+          name: D1_TOKEN_SECRET,
+        });
+        const accountId: string | null = await ctx.runAction(internal.functions.admin.readIntegrationSecret, {
+          name: D1_ACCOUNT_SECRET,
+        });
+        if (
+          typeof apiToken === "string" &&
+          apiToken.length > 0 &&
+          typeof accountId === "string" &&
+          accountId.length > 0
+        ) {
+          searchIndex = {
+            databaseId: target.databaseId,
+            accountId,
+            apiToken,
+            state: target.state,
+          };
+        }
+      }
+    } catch {
+      searchIndex = undefined;
+    }
+
+    let encryptionKey: GatewayEncryptionKey | undefined;
+    try {
+      const opened: GatewayEncryptionKey | null = await ctx.runAction(
+        internal.functions.encryptionKeys.openWorkspaceDataKey,
+        { workspaceId: claimed.workspaceId },
+      );
+      encryptionKey = opened === null ? undefined : opened;
+    } catch {
+      encryptionKey = undefined;
+    }
+
+    let rotation: GatewayKeyRotation | undefined;
+    try {
+      const active: { fromGeneration: string; toGeneration: string } | null = await ctx.runQuery(
+        internal.functions.encryptionKeys.getActiveWorkspaceKeyRotation,
+        { workspaceId: claimed.workspaceId },
+      );
+      rotation =
+        active === null ? undefined : { fromGeneration: active.fromGeneration, toGeneration: active.toGeneration };
+    } catch {
+      rotation = undefined;
+    }
+
+    if (credential.provider === "dropbox") {
+      return {
+        job: claimed,
+        binding: {
+          workspaceId: claimed.workspaceId,
+          provider: credential.provider,
+          accessToken: credential.accessToken,
+          rootPrefix: credential.rootPrefix,
+          capabilities: credential.capabilities,
+          status: "active",
+        },
+        searchIndex,
+        encryptionKey,
+        rotation,
+      };
+    }
+    return {
+      job: claimed,
+      binding: {
+        workspaceId: claimed.workspaceId,
+        provider: credential.provider,
+        endpoint: credential.endpoint,
+        region: credential.region,
+        bucket: credential.bucket,
+        rootPrefix: credential.rootPrefix,
+        accessKeyId: credential.accessKeyId,
+        secretAccessKey: credential.secretAccessKey,
+        forcePathStyle: credential.forcePathStyle,
+        capabilities: credential.capabilities,
+        status: "active",
+      },
+      searchIndex,
+      encryptionKey,
+      rotation,
+    };
+  },
+});
+
+export const reportGatewayJob = internalMutation({
+  args: {
+    hashedTicket: v.string(),
+    result: v.object({
+      status: v.union(v.literal("queued"), v.literal("complete"), v.literal("failed")),
+      error: v.optional(v.string()),
+    }),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    if (!TOKEN_HASH_PATTERN.test(args.hashedTicket)) return false;
+    const job = await ctx.db
+      .query("gatewayJobs")
+      .withIndex("by_hashed_ticket", (q) => q.eq("hashedTicket", args.hashedTicket))
+      .unique();
+    if (job === null) return false;
+    if (job.status !== "running") return false;
+    await ctx.db.patch(job._id, {
+      status: args.result.status,
+      updatedAt: Date.now(),
+      completedAt: args.result.status === "complete" ? Date.now() : undefined,
+      lastError: gatewayJobError(args.result.error),
+    });
+    return true;
   },
 });

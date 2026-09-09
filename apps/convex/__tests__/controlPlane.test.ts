@@ -1732,7 +1732,75 @@ describe("/gateway/binding — workspace-key rotation", () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/* 3c. /gateway/search-index/progress — the backfill reporting back          */
+/* 3c. /gateway/jobs/* — queued gateway work                                  */
+/* -------------------------------------------------------------------------- */
+
+describe("/gateway/jobs/*", () => {
+  test("an owner-private grant mints a hashed ticket and opens one queued move", async () => {
+    const { t, aliceWs, grantA } = await twoConnectedTenants();
+    await t.run((ctx) =>
+      ctx.db.patch(grantA, { scopes: ["context:read", "context:write", "context:private"] }),
+    );
+
+    const created = await bodyOf(
+      await gatewayPost(t, "/gateway/jobs/create", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: aliceWs,
+        job: { kind: "materialize_move", moveId: "move-aaaaaaaaaaaa" },
+      }),
+    );
+    const ticket = created.ticket as string;
+    expect(typeof ticket).toBe("string");
+    expect(ticket).not.toContain(ACCESS_A);
+
+    const rows = await t.run((ctx) => ctx.db.query("gatewayJobs").collect());
+    expect(rows).toHaveLength(1);
+    expect(rows[0].hashedTicket).toBe(await hashToken(ticket));
+    expect(JSON.stringify(rows[0])).not.toContain(ticket);
+
+    const opened = await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
+    const job = opened.job as {
+      job: { workspaceId: Id<"workspaces">; moveId: string };
+      binding: { workspaceId: Id<"workspaces">; bucket: string };
+    };
+    expect(job.job.workspaceId).toBe(aliceWs);
+    expect(job.job.moveId).toBe("move-aaaaaaaaaaaa");
+    expect(job.binding.workspaceId).toBe(aliceWs);
+    expect(job.binding.bucket).toBe("tenant-a");
+
+    const replay = await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
+    expect(replay).toEqual({ job: null });
+  });
+
+  test("a job request cannot select a workspace outside the token's owner-private reach", async () => {
+    const { t, aliceWs, bobWs, grantA } = await twoConnectedTenants();
+    await t.run((ctx) =>
+      ctx.db.patch(grantA, { scopes: ["context:read", "context:write", "context:private"] }),
+    );
+
+    const cross = await bodyOf(
+      await gatewayPost(t, "/gateway/jobs/create", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: bobWs,
+        job: { kind: "materialize_move", moveId: "move-bbbbbbbbbbbb" },
+      }),
+    );
+    expect(cross).toEqual({ ticket: null });
+
+    await t.run((ctx) => ctx.db.patch(grantA, { scopes: ["context:read", "context:write"] }));
+    const teamTier = await bodyOf(
+      await gatewayPost(t, "/gateway/jobs/create", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: aliceWs,
+        job: { kind: "materialize_move", moveId: "move-cccccccccccc" },
+      }),
+    );
+    expect(teamTier).toEqual({ ticket: null });
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* 3d. /gateway/search-index/progress — the backfill reporting back          */
 /* -------------------------------------------------------------------------- */
 
 /**

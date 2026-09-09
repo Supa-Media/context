@@ -71,6 +71,7 @@ import {
   resolveSession,
   sessionForContext,
   splitWorkspacePath,
+  storeForOpenedBinding,
   storeForSession,
   readsPrivateAnywhere,
   writesAnywhere,
@@ -204,6 +205,65 @@ function searchBudgetFor(env) {
   const parsed = typeof raw === "string" || typeof raw === "number" ? Number(raw) : NaN;
   if (!Number.isFinite(parsed)) return SEARCH_SUBREQUEST_BUDGET;
   return Math.min(SEARCH_BUDGET_MAX, Math.max(SEARCH_BUDGET_MIN, Math.floor(parsed)));
+}
+
+function attachGatewayJobQueue(store, session, controlPlane, env) {
+  const queue = env?.GATEWAY_JOBS;
+  if (!queue || typeof queue.send !== "function") return;
+  Object.defineProperty(store, "enqueueGatewayJob", {
+    value: async (job) => {
+      const ticket = await controlPlane.createGatewayJob(session.accessToken, session.workspaceId, job);
+      await queue.send({ ticket, kind: job.kind, moveId: job.moveId });
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+}
+
+async function handleGatewayJobMessage(message, env) {
+  const body = message?.body;
+  const ticket = typeof body?.ticket === "string" ? body.ticket : null;
+  if (!ticket) return;
+
+  const controlPlane = createControlPlane(env);
+  const opened = await controlPlane.openGatewayJob(ticket);
+  if (opened === null) return;
+  const { job } = opened;
+  const store = storeForOpenedBinding(opened, job.workspaceId, env);
+  store.searchSubrequestBudget = searchBudgetFor(env);
+  store.actor = {
+    workspaceId: job.workspaceId,
+    userId: job.actorUserId,
+    clientId: job.actorClientId,
+    grantId: job.grantId,
+  };
+  store.reportSearchIndexProgress = (progress) =>
+    controlPlane.reportSearchIndexProgress({
+      ...progress,
+      workspaceId: job.workspaceId,
+    });
+
+  let status = "failed";
+  let error;
+  if (job.kind === "materialize_move" && typeof job.moveId === "string") {
+    const result = await toolMaterializeMove(store, "private", job.moveId, MOVE_MATERIALIZE_BATCH);
+    const text = result?.content?.[0]?.text || "";
+    if (result?.isError) {
+      error = text;
+    } else if (text.includes("complete") || text.includes("no active work")) {
+      status = "complete";
+    } else {
+      status = "queued";
+    }
+  } else {
+    error = "unsupported gateway job";
+  }
+
+  await controlPlane.reportGatewayJob(ticket, { status, ...(error ? { error } : {}) });
+  if (status === "queued" && env?.GATEWAY_JOBS && typeof env.GATEWAY_JOBS.send === "function") {
+    await env.GATEWAY_JOBS.send(body);
+  }
 }
 /**
  * Ops that must remain before the deferred pass is worth starting: the
@@ -769,6 +829,7 @@ async function route(request, env, ctx) {
       // `store.actor` does: the tool layer never sees `env`, and the store dies
       // with the request, so a reused isolate carries nothing across tenants.
       store.searchSubrequestBudget = searchBudgetFor(env);
+      attachGatewayJobQueue(store, session, controlPlane, env);
       // The one way anything in this worker gets to keep working after the
       // response has gone out. Request-scoped like the budget above, and the
       // credential inside `store` never outlives the request either: an
@@ -903,6 +964,7 @@ async function route(request, env, ctx) {
         if (target === session) return { session, store };
         const targetStore = await storeForSession(target, env, controlPlane);
         targetStore.searchSubrequestBudget = searchBudgetFor(env);
+        attachGatewayJobQueue(targetStore, target, controlPlane, env);
         targetStore.defer = store.defer;
         targetStore.actor = actorFor(target);
         targetStore.contexts = contextsFor(target);
@@ -982,6 +1044,10 @@ export default {
     ctx.waitUntil(
       Promise.all([syncCalendar(env, store), processPendingGranolaEvents(env, store)])
     );
+  },
+
+  async queue(batch, env) {
+    await Promise.all((batch?.messages || []).map((message) => handleGatewayJobMessage(message, env)));
   },
 };
 
@@ -3339,6 +3405,15 @@ async function createLogicalFolderMove(store, scope, source, destination, object
   };
   await store.put(moveJobKey(id), JSON.stringify(job, null, 2));
   await writeMoveSentinel(store);
+  if (typeof store.enqueueGatewayJob === "function") {
+    try {
+      await store.enqueueGatewayJob({ kind: "materialize_move", moveId: id });
+    } catch {
+      // The on-bucket marker is the source of truth. Queueing is what makes the
+      // move autonomous, but a control-plane blip must not roll back the
+      // logical cutover; the owner can still resume with `materialize_move`.
+    }
+  }
   if (typeof store.defer === "function") {
     try {
       store.defer(() => materializeMoveInBackground(store, scope, id));

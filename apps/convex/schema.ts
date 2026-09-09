@@ -1296,6 +1296,40 @@ const schema = defineSchema({
   }).index("by_workspace", ["workspaceId"]),
 
   /**
+   * Durable gateway work, never note content.
+   *
+   * A row is minted only while a live user token is present; later Cloudflare
+   * Queue attempts present an opaque ticket for that already-authorized row.
+   * The ticket is stored hashed, and the payload is deliberately small: which
+   * bounded gateway operation to resume, not the files or bytes it will touch.
+   */
+  gatewayJobs: defineTable({
+    hashedTicket: v.string(),
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    actorClientId: v.string(),
+    grantId: v.id("oauthGrants"),
+    kind: v.union(v.literal("materialize_move")),
+    moveId: v.optional(v.string()),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("complete"),
+      v.literal("failed"),
+    ),
+    attempts: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    expiresAt: v.number(),
+    leasedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+  })
+    .index("by_hashed_ticket", ["hashedTicket"])
+    .index("by_workspace_status", ["workspaceId", "status"])
+    .index("by_expiresAt", ["expiresAt"]),
+
+  /**
    * A short-lived capability the email worker presents to fetch a credential.
    *
    * ## What it is for
