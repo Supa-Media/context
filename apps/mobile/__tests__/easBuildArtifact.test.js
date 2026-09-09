@@ -39,4 +39,37 @@ describe("EAS build artifact coupling", () => {
       global.fetch = originalFetch;
     }
   });
+
+  test.each([{}, [], [{ id: "x" }], [{ id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056" }, { id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056" }]])("rejects empty or non-singleton build JSON %#", (value) => {
+    expect(() => parseBuildResult(value)).toThrow();
+  });
+
+  test.each(["http://example.invalid/a", "https://user:pass@example.invalid/a", "not a url"])('rejects hostile URL "%s"', async (url) => {
+    await expect(downloadArtifact([{ id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056", artifacts: { applicationArchiveUrl: url } }], path.join(os.tmpdir(), `bad-${Date.now()}-${Math.random()}.ipa`))).rejects.toThrow(/HTTPS|invalid/);
+  });
+
+  test("sanitizes fetch failures", async () => {
+    const old = global.fetch;
+    global.fetch = async () => { throw new Error("signed-token-secret"); };
+    try { await expect(downloadArtifact([{ id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056", artifacts: { applicationArchiveUrl: "https://example.invalid/a?token=secret" } }], path.join(os.tmpdir(), `bad-${Date.now()}.ipa`))).rejects.toThrow("EAS artifact download failed"); }
+    finally { global.fetch = old; }
+  });
+
+  test.each([301, 302, 303, 307, 308])("follows HTTPS redirect %s", async (status) => {
+    const old = global.fetch; let n = 0;
+    global.fetch = async () => n++ === 0 ? { status, headers: new Map([["location", "https://example.invalid/final"]]) } : { ok: true, status: 200, headers: new Map([["content-length", "4"]]), body: require("node:stream").Readable.from([Buffer.from([0x50, 0x4b, 3, 4])]) };
+    try { await expect(downloadArtifact([{ id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056", artifacts: { applicationArchiveUrl: "https://example.invalid/start" } }], path.join(os.tmpdir(), `redirect-${Date.now()}-${status}.ipa`))).resolves.toHaveProperty("id"); } finally { global.fetch = old; }
+  });
+
+  test("rejects redirect loops and credential redirects", async () => {
+    const old = global.fetch; global.fetch = async () => ({ status: 302, headers: new Map([["location", "https://example.invalid/loop"]]) });
+    try { await expect(downloadArtifact([{ id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056", artifacts: { applicationArchiveUrl: "https://example.invalid/loop" } }], path.join(os.tmpdir(), `loop-${Date.now()}.ipa`))).rejects.toThrow(/loop/); } finally { global.fetch = old; }
+    global.fetch = async () => ({ status: 302, headers: new Map([["location", "https://user:pass@example.invalid/x"]]) });
+    try { await expect(downloadArtifact([{ id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056", artifacts: { applicationArchiveUrl: "https://example.invalid/start" } }], path.join(os.tmpdir(), `cred-${Date.now()}.ipa`))).rejects.toThrow(/credentials/); } finally { global.fetch = old; }
+  });
+
+  test.each([[0, 4], [5, 4], [4, 3]])("rejects declared/actual size mismatch (%s/%s)", async (declared, actual) => {
+    const old = global.fetch; global.fetch = async () => ({ ok: true, status: 200, headers: new Map([["content-length", String(declared)]]), body: require("node:stream").Readable.from([Buffer.alloc(actual, 0x50)]) });
+    try { await expect(downloadArtifact([{ id: "e3fd3e28-4b9d-49ed-8fdd-83da2f454056", artifacts: { applicationArchiveUrl: "https://example.invalid/a" } }], path.join(os.tmpdir(), `size-${Date.now()}-${declared}.ipa`))).rejects.toThrow(); } finally { global.fetch = old; }
+  });
 });
