@@ -13,7 +13,7 @@
  *
  *  - `const show = () => true` in `SettingsPane` — every section renders the
  *    whole scroll again, and sectioning is gone;
- *  - swapping which block `show("sources")` and `show("search")` guard —
+ *  - swapping which block `show("email")` and `show("search")` guard —
  *    sections render each other's content;
  *  - making the section list's `onSelect` a no-op — the list stops navigating;
  *  - `Overlay`'s compact branch dropping `children` — no settings content is
@@ -218,8 +218,11 @@ describe("the search box", () => {
       field.dispatchEvent(new Event("input", { bubbles: true }));
     });
     const text = host.textContent ?? "";
-    // "Mail, calendar & chats" is where Gmail lives, and nobody types that.
-    expect(text).toContain("Mail, calendar & chats");
+    // Email is where Gmail lives, and it is not the only row it could have
+    // been: a mailbox reaches a brain through a Google account *or* through
+    // the forwarding address, which is why those are one section rather than
+    // two. What the box has to do is land on it from the word people type.
+    expect(text).toContain("Email");
     expect(text).not.toContain("Delete account");
   });
 });
@@ -233,7 +236,16 @@ describe("the list is one press away, and it navigates", () => {
       (back as HTMLElement).click();
     });
     const text = host.textContent ?? "";
-    for (const label of ["Overview", "People", "Storage", "Search", "Mail, calendar & chats"]) {
+    for (const label of [
+      "Overview",
+      "People",
+      "Storage",
+      "Search",
+      "Email",
+      "Calendar",
+      "Chats",
+      "Meetings",
+    ]) {
       expect(text).toContain(label);
     }
   });

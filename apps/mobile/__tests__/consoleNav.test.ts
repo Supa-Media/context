@@ -158,8 +158,8 @@ describe("the route table", () => {
     expect(settingsHref("public-worship")).toBe(
       "/console/@public-worship?settings=overview",
     );
-    expect(settingsHref("public-worship", "sources")).toBe(
-      "/console/@public-worship?settings=sources",
+    expect(settingsHref("public-worship", "email")).toBe(
+      "/console/@public-worship?settings=email",
     );
     // The old path stays a context route, because it is in the wild — the
     // Dropbox failure notice and the search nudge both link to it — and
@@ -175,7 +175,7 @@ describe("the route table", () => {
     // The same shape `safeNotePath` uses: a hand-edited or stale value closes
     // the overlay rather than opening a blank panel on a section we do not
     // have — and an empty value closes, because closing is what produces it.
-    expect(settingsFromQuery("sources")).toBe("sources");
+    expect(settingsFromQuery("email")).toBe("email");
     expect(settingsFromQuery(DEFAULT_SETTINGS_SECTION)).toBe(DEFAULT_SETTINGS_SECTION);
     // Empty is *closed*, not the default: closing sets the parameter to
     // `undefined`, and a router that serialises that as a bare `?settings=`
@@ -185,7 +185,7 @@ describe("the route table", () => {
     expect(settingsFromQuery("not-a-section")).toBeNull();
     // The nudge's destination is a real section, not just any string.
     expect(settingsFromQuery("search")).toBe("search");
-    expect(settingsFromQuery(["sources", "storage"])).toBe("sources");
+    expect(settingsFromQuery(["email", "storage"])).toBe("email");
   });
 
   test("there is no top-level storage URL any more", () => {
