@@ -83,7 +83,11 @@ import { storeForBinding } from "../../mcp/src/store/factory.js";
 // which is Convex's runtime too. It holds the write token for the life of one
 // call and puts it in exactly one place, an `Authorization` header.
 import { createD1Client } from "../../mcp/src/search/d1/client.js";
-import { getProfileHistoryId, runBackfill } from "../../mcp/src/communications/gmailSync.js";
+import {
+  getProfileHistoryId,
+  GmailApiError,
+  runBackfill,
+} from "../../mcp/src/communications/gmailSync.js";
 import {
   D1_ACCOUNT_SECRET,
   D1_TOKEN_SECRET,
@@ -136,8 +140,8 @@ import {
 import type { GatewayCredential } from "./storage";
 
 /** Same deadline `functions/provisioning.ts` puts on the customer's endpoint. */
-const REQUEST_TIMEOUT_MS = 10_000;
-const GMAIL_BACKFILL_DAYS_PER_PASS = 5;
+const REQUEST_TIMEOUT_MS = 20_000;
+const GMAIL_BACKFILL_DAYS_PER_PASS = 1;
 
 /**
  * Maintenance passes that may chain behind one search's worth of work.
@@ -1132,6 +1136,52 @@ function gmailBackfillStartDate(days: number, now: number): string {
   return dateKeyAt(now - (window - 1) * DAY_MS);
 }
 
+function classifyGmailBackfillError(error: unknown): { code: string; message: string } {
+  if (error instanceof ConvexError) {
+    return {
+      code: "GOOGLE_RECONNECT_REQUIRED",
+      message: "Google needs to be reconnected before Gmail can sync.",
+    };
+  }
+  if (error instanceof GmailApiError) {
+    if (error.status === 401 || error.status === 403) {
+      return {
+        code: "GOOGLE_ACCESS_REFUSED",
+        message: "Google refused Gmail access for this account. Reconnect it and approve Gmail access.",
+      };
+    }
+    if (error.status === 429) {
+      return {
+        code: "GOOGLE_RATE_LIMITED",
+        message: "Google rate-limited this Gmail backfill. Retry it in a few minutes.",
+      };
+    }
+    if (error.status >= 500) {
+      return {
+        code: "GOOGLE_UNAVAILABLE",
+        message: "Google did not answer Gmail reliably. Retry shortly.",
+      };
+    }
+    return {
+      code: `GMAIL_HTTP_${error.status}`,
+      message: `Gmail answered with ${error.status}. Retry after checking this account's access.`,
+    };
+  }
+  if (
+    error instanceof Error &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  ) {
+    return {
+      code: "GOOGLE_SYNC_TIMEOUT",
+      message: "Gmail or storage took too long while scanning this day. Retry resumes from this date.",
+    };
+  }
+  return {
+    code: "GOOGLE_SYNC_FAILED",
+    message: "Gmail backfill stopped on this day. Retry resumes from here.",
+  };
+}
+
 async function runGoogleGmailBackfill(
   ctx: ActionCtx,
   store: FileStore,
@@ -1241,6 +1291,7 @@ async function runGoogleGmailBackfill(
       folders: job.folders,
       startDate,
       endDate,
+      folder: job.destinationFolder,
       nonce: `gmail:${job.connectionId}`,
       now: new Date(now).toISOString(),
       quotaBytes: job.quotaBytes,
@@ -1282,7 +1333,20 @@ async function runGoogleGmailBackfill(
       continue: !complete && !result.quotaExceeded && result.daysProcessed > 0,
     };
   } catch (error) {
-    const code = error instanceof ConvexError ? "GOOGLE_RECONNECT_REQUIRED" : "GOOGLE_SYNC_FAILED";
+    const { code, message } = classifyGmailBackfillError(error);
+    console.log(
+      JSON.stringify({
+        event: "google.gmail_backfill_failed",
+        workspaceId,
+        runId,
+        connectionId: job.connectionId,
+        errorCode: code,
+        errorName: error instanceof Error ? error.name : typeof error,
+        gmailStatus: error instanceof GmailApiError ? error.status : undefined,
+        fromUnit,
+        date: startDate,
+      }),
+    );
     await ctx.runMutation(internal.functions.googleConnect.recordGoogleGmailBackfillPass, {
       runId,
       connectionId: job.connectionId,
@@ -1295,10 +1359,7 @@ async function runGoogleGmailBackfill(
       currentUnit: startDate,
       status: "failed",
       errorCode: code,
-      error:
-        code === "GOOGLE_RECONNECT_REQUIRED"
-          ? "Google needs to be reconnected before Gmail can sync."
-          : "Gmail backfill stopped before it finished.",
+      error: message,
     });
     return {
       kind: "googleSyncRun",

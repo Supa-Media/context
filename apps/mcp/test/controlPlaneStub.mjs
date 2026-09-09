@@ -111,8 +111,8 @@ export function createControlPlaneStub(options = {}) {
 
   let grantCounter = 0;
 
-  function addWorkspace(workspaceId, slug, binding) {
-    workspaces.set(workspaceId, { slug });
+  function addWorkspace(workspaceId, slug, binding, options = {}) {
+    workspaces.set(workspaceId, { slug, kind: options.kind === "shared" ? "shared" : "personal" });
     bindings.set(workspaceId, binding);
   }
 
@@ -178,6 +178,7 @@ export function createControlPlaneStub(options = {}) {
         workspaceId: grant.workspaceId,
         slug: workspaces.get(grant.workspaceId)?.slug ?? null,
         role: grant.role,
+        kind: workspaces.get(grant.workspaceId)?.kind ?? "personal",
       },
     ];
     for (const membership of grant.alsoMemberOf || []) {
@@ -186,6 +187,7 @@ export function createControlPlaneStub(options = {}) {
         workspaceId: membership.workspaceId,
         slug: workspaces.get(membership.workspaceId)?.slug ?? null,
         role: membership.role ?? "member",
+        kind: workspaces.get(membership.workspaceId)?.kind ?? "personal",
       });
     }
     return rows;

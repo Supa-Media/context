@@ -33,7 +33,11 @@
 // are injected, which is what makes this file testable against a fixture
 // Gmail server and an in-memory store rather than the real internet.
 
-import { isCalendarDate, planChannelDay } from "../../../../packages/communications/src/index.js";
+import {
+  channelDestinationFolder,
+  isCalendarDate,
+  planChannelDay,
+} from "../../../../packages/communications/src/index.js";
 
 /** Where every Gmail REST call in this file goes. */
 export const GMAIL_API_ORIGIN = "https://gmail.googleapis.com";
@@ -292,7 +296,9 @@ export async function sha256Hex(bytes) {
 export function attachmentPath(options) {
   if (!isCalendarDate(options.date)) throw new TypeError(`not a calendar date: ${options.date}`);
   const safeName = sanitizeAttachmentFilename(options.filename);
-  return `0-inbox/email/${options.mailboxSlug}/attachments/${options.date}/${options.contentHash}-${safeName}`;
+  const folder = channelDestinationFolder("email", options.mailboxSlug, options.folder);
+  if (folder === null) throw new TypeError(`not an email destination folder: ${options.folder}`);
+  return `${folder}/attachments/${options.date}/${options.contentHash}-${safeName}`;
 }
 
 /** One attachment's bytes, raw. `assertWritableContentType` in the store never sees Gmail's declared type — see that file's comment. */
@@ -328,15 +334,17 @@ export async function getAttachmentBytes({ fetchImpl, accessToken, messageId, at
  *    walks — never a folder listing — which is the "idempotent, and never a
  *    folder walk" property the owner asked for.
  */
-export function manifestPath(mailboxSlug) {
-  return `0-inbox/email/${mailboxSlug}/attachments/.manifest.json`;
+export function manifestPath(mailboxSlug, folder) {
+  const base = channelDestinationFolder("email", mailboxSlug, folder);
+  if (base === null) throw new TypeError(`not an email destination folder: ${folder}`);
+  return `${base}/attachments/.manifest.json`;
 }
 
 const EMPTY_MANIFEST = Object.freeze({ version: 1, resolved: {}, files: {} });
 
 /** Read the manifest, or an empty one — a missing manifest is a mailbox with nothing fetched yet, not an error. */
-export async function readManifest(store, mailboxSlug) {
-  const object = await store.get(manifestPath(mailboxSlug));
+export async function readManifest(store, mailboxSlug, folder) {
+  const object = await store.get(manifestPath(mailboxSlug, folder));
   if (!object) return { version: 1, resolved: {}, files: {} };
   try {
     const parsed = JSON.parse(await object.text());
@@ -353,8 +361,8 @@ export async function readManifest(store, mailboxSlug) {
   }
 }
 
-export async function writeManifest(store, mailboxSlug, manifest) {
-  await store.put(manifestPath(mailboxSlug), JSON.stringify(manifest));
+export async function writeManifest(store, mailboxSlug, manifest, folder) {
+  await store.put(manifestPath(mailboxSlug, folder), JSON.stringify(manifest));
 }
 
 /**
@@ -383,7 +391,8 @@ export async function writeManifest(store, mailboxSlug, manifest) {
  *  - **An attachment already in `resolved`, whose file is live**: `path` is
  *    reused verbatim, again with no fetch.
  *
- * @param {{store, fetchImpl, accessToken, mailboxSlug, date, events: object[],
+ * @param {{store, fetchImpl, accessToken, mailboxSlug, folder?: string,
+ *          date, events: object[],
  *          attachmentMode: "metadata-only"|"store", retentionDays: number|"forever",
  *          now: string, remainingQuotaBytes: number, manifest: object}} options
  * @returns {Promise<{bytesWritten: number, manifest: object, manifestChanged: boolean}>}
@@ -468,6 +477,7 @@ export async function resolveDayAttachments(options) {
       if (!file || file.expired) {
         const path = attachmentPath({
           mailboxSlug: options.mailboxSlug,
+          folder: options.folder,
           date: options.date,
           contentHash,
           filename: attachment.filename,
@@ -521,7 +531,7 @@ export async function resolveDayAttachments(options) {
  * @returns {Promise<{expiredHashes: string[], affectedDates: string[]}>}
  */
 export async function sweepExpiredAttachments(options) {
-  const manifest = await readManifest(options.store, options.mailboxSlug);
+  const manifest = await readManifest(options.store, options.mailboxSlug, options.folder);
   const nowMs = Date.parse(options.now);
   const expiredHashes = [];
   const dates = new Set();
@@ -533,7 +543,9 @@ export async function sweepExpiredAttachments(options) {
   // this line, "deletes only files this sync wrote" is a property of the code
   // that writes the manifest; with it, it is a property of the code that acts
   // on it, and a manifest entry naming `privacy.md` deletes nothing.
-  const ownPrefix = `0-inbox/email/${options.mailboxSlug}/attachments/`;
+  const folder = channelDestinationFolder("email", options.mailboxSlug, options.folder);
+  if (folder === null) throw new TypeError(`not an email destination folder: ${options.folder}`);
+  const ownPrefix = `${folder}/attachments/`;
 
   for (const [hash, file] of Object.entries(manifest.files)) {
     if (file.expired) continue;
@@ -547,7 +559,7 @@ export async function sweepExpiredAttachments(options) {
     if (dateMatch) dates.add(dateMatch[1]);
   }
 
-  if (expiredHashes.length > 0) await writeManifest(options.store, options.mailboxSlug, manifest);
+  if (expiredHashes.length > 0) await writeManifest(options.store, options.mailboxSlug, manifest, options.folder);
   return { expiredHashes, affectedDates: [...dates] };
 }
 
@@ -775,7 +787,8 @@ function latestSentAt(events) {
  * file at all, not an empty one.
  *
  * @param {{mailboxSlug: string, address: string, date: string,
- *          events: object[], nonce: string, now?: string, root?: string}} options
+ *          events: object[], nonce: string, now?: string, root?: string,
+ *          folder?: string}} options
  * @returns {import("../../../../packages/communications/src/protocol.js").ChannelDayPart[]}
  */
 export function renderDay(options) {
@@ -791,7 +804,7 @@ export function renderDay(options) {
       now: options.now ?? latestSentAt(options.events),
       origin: "gmail-sync",
     },
-    { root: options.root },
+    { root: options.root, folder: options.folder },
   );
 }
 
@@ -856,7 +869,7 @@ export async function writeDayPart(store, part, maxAttempts = 3) {
  *
  * @param {{store: import("../store/index.js").ContextStore, mailboxSlug: string,
  *          address: string, date: string, events: object[], nonce: string,
- *          now?: string, root?: string, remainingQuotaBytes: number,
+ *          now?: string, root?: string, folder?: string, remainingQuotaBytes: number,
  *          fetchImpl?: FetchLike, accessToken?: string,
  *          attachmentMode?: "metadata-only"|"store",
  *          attachmentRetentionDays?: number|"forever"}} options
@@ -875,12 +888,13 @@ export async function syncOneDay(options) {
     // count from whatever `now` a caller happened to pass for rendering,
     // which for a backfill can be far in the past.
     const resolutionNow = new Date().toISOString();
-    const manifest = await readManifest(options.store, options.mailboxSlug);
+    const manifest = await readManifest(options.store, options.mailboxSlug, options.folder);
     const resolved = await resolveDayAttachments({
       store: options.store,
       fetchImpl: options.fetchImpl,
       accessToken: options.accessToken,
       mailboxSlug: options.mailboxSlug,
+      folder: options.folder,
       date: options.date,
       events: options.events,
       attachmentMode: options.attachmentMode ?? "metadata-only",
@@ -891,7 +905,7 @@ export async function syncOneDay(options) {
     });
     bytesWritten += resolved.bytesWritten;
     remaining -= resolved.bytesWritten;
-    if (resolved.manifestChanged) await writeManifest(options.store, options.mailboxSlug, resolved.manifest);
+    if (resolved.manifestChanged) await writeManifest(options.store, options.mailboxSlug, resolved.manifest, options.folder);
   }
 
   // `options.now` travels through UNCHANGED — see `renderDay`'s own default
@@ -972,6 +986,7 @@ export async function syncDayFromGmail(options) {
     nonce: options.nonce,
     now: options.now,
     root: options.root,
+    folder: options.folder,
     remainingQuotaBytes: options.remainingQuotaBytes,
     fetchImpl: options.fetchImpl,
     accessToken: options.accessToken,
@@ -991,7 +1006,7 @@ export async function syncDayFromGmail(options) {
  *
  * @param {{store, fetchImpl, accessToken, mailboxSlug, address, folders,
  *          startDate: string, endDate: string, nonce: string, now?: string,
- *          root?: string, quotaBytes: number, bytesAlreadyUsed?: number,
+ *          root?: string, folder?: string, quotaBytes: number, bytesAlreadyUsed?: number,
  *          attachmentMode?: "metadata-only" | "store",
  *          attachmentRetentionDays?: number | "forever"}} options
  * @returns {Promise<{daysProcessed: number, daysWithMail: number, itemsFound: number, bytesWritten: number, quotaExceeded: boolean}>}
@@ -1022,6 +1037,7 @@ export async function runBackfill(options) {
       nonce: options.nonce,
       now: options.now,
       root: options.root,
+      folder: options.folder,
       remainingQuotaBytes: remaining,
       attachmentMode: options.attachmentMode,
       attachmentRetentionDays: options.attachmentRetentionDays,
@@ -1110,6 +1126,7 @@ export async function runIncrementalSync(options) {
       nonce: options.nonce,
       now: options.now,
       root: options.root,
+      folder: options.folder,
       remainingQuotaBytes: remaining,
       attachmentMode: options.attachmentMode,
       attachmentRetentionDays: options.attachmentRetentionDays,

@@ -145,16 +145,19 @@ interface GoogleConnectionSummary {
   gmail?: {
     backfillDays: number;
     folders: Array<"inbox" | "sent">;
+    destinationFolder: string;
     destinationPath: string;
     historyCursorReady: boolean;
     lastSyncedAt?: number;
   };
   calendar?: {
+    destinationFolder: string;
     destinationPath: string;
     syncCursorReady: boolean;
     lastSyncedAt?: number;
   };
   chat?: {
+    destinationFolder: string;
     destinationPath: string;
     cursorCount: number;
     lastSyncedAt?: number;
@@ -297,6 +300,9 @@ export function useLiveConsoleData(): ConsoleData {
     api.functions.googleConnect.disconnectGoogleConnection,
   );
   const startGoogleSyncRun = useMutation(api.functions.googleConnect.startGoogleSyncRun);
+  const updateGoogleSyncDestination = useMutation(
+    api.functions.googleConnect.updateGoogleSyncDestination,
+  );
   const leaveWorkspace = useMutation(api.functions.workspaces.leaveWorkspace);
   const deleteAccountMutation = useMutation(api.functions.account.deleteAccount);
   // Not destructured: the context is undefined in test harnesses that
@@ -632,7 +638,7 @@ export function useLiveConsoleData(): ConsoleData {
     storageActions,
     googleConnections,
     googleActions:
-      selectedContextId === null || !isOwner
+      selectedContextId === null || !isOwner || selected?.kind !== "personal"
         ? undefined
         : {
             workspaceId: selectedContextId,
@@ -647,6 +653,13 @@ export function useLiveConsoleData(): ConsoleData {
                 connectionId: connectionId as Id<"googleConnections">,
                 services: { gmail: true, calendar: false, chat: false },
                 backfillDays,
+              }),
+            saveDestination: (connectionId, service, destinationPath) =>
+              updateGoogleSyncDestination({
+                workspaceId: selectedContextId,
+                connectionId: connectionId as Id<"googleConnections">,
+                service,
+                destinationPath,
               }),
           },
     endpoint: MCP_ENDPOINT,

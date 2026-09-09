@@ -6,6 +6,7 @@ export * from "./protocol.js";
 export {
   MAX_SLUG_LENGTH,
   SLUG_FALLBACK,
+  channelDestinationFolder,
   channelDayNotePath,
   channelFolder,
   chooseMailboxSlug,

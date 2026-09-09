@@ -394,7 +394,7 @@ describe("/gateway/session", () => {
     expect(typeof session.expiresAt).toBe("number");
     expect(session.defaultWorkspaceId).toBe(aliceWs);
     expect(session.workspaces).toEqual([
-      { workspaceId: aliceWs, slug: "alpha", role: "owner" },
+      { workspaceId: aliceWs, slug: "alpha", role: "owner", kind: "personal" },
     ]);
   });
 
@@ -430,13 +430,13 @@ describe("/gateway/session", () => {
     );
     const session = body.session as {
       defaultWorkspaceId: string;
-      workspaces: { workspaceId: string; slug: string; role: string }[];
+      workspaces: { workspaceId: string; slug: string; role: string; kind: string }[];
     };
 
     // No re-approval, no new grant: the membership row is the whole of it.
     expect(session.workspaces).toEqual([
-      { workspaceId: aliceWs, slug: "alpha", role: "owner" },
-      { workspaceId: bobWs, slug: "alphabet", role: "member" },
+      { workspaceId: aliceWs, slug: "alpha", role: "owner", kind: "personal" },
+      { workspaceId: bobWs, slug: "alphabet", role: "member", kind: "personal" },
     ]);
     // And the context she approved is still the one an unaddressed call means.
     expect(session.defaultWorkspaceId).toBe(aliceWs);

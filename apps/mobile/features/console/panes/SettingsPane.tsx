@@ -203,16 +203,40 @@ export function SettingsPane({
       )}
 
       <Text variant="eyebrow" style={styles.sectionHeadLater}>
-        Google sync
+        Integrations
       </Text>
       <Text variant="paneSub" style={styles.sectionSub}>
-        Add the Gmail, Calendar and Chat accounts this context should keep up with.
+        {current?.kind === "personal"
+          ? "Bring private communications into this personal brain: email, calendars, chats, and this Mac's iMessages."
+          : "Private communications import is only available on personal brains. Workspaces should not receive somebody's email, chats, calendar, or iMessages."}
       </Text>
-      <GoogleConnectionsCard
-        connections={data.googleConnections}
-        actions={data.googleActions}
-        loading={data.loading}
-      />
+      {current?.kind === "personal" ? (
+        <>
+          <GoogleConnectionsCard
+            connections={data.googleConnections}
+            actions={data.googleActions}
+            loading={data.loading}
+          />
+          {/*
+            The machine this console is running on — drawn only inside the
+            desktop shell, and by the component itself rather than by a check
+            here.
+
+            It belongs with integrations now: meetings and iMessage both come
+            from this Mac, while Google comes from OAuth. A browser still draws
+            nothing here, but the surrounding section finally tells a person
+            why a local-only integration may be absent.
+          */}
+          <ThisMachineCard />
+        </>
+      ) : (
+        <Card>
+          <Text variant="rowTitle">Personal integrations unavailable</Text>
+          <Text variant="rowSub" style={styles.rowSub}>
+            Switch to a personal brain to connect Gmail, Calendar, Chat, or iMessage.
+          </Text>
+        </Card>
+      )}
 
       {/*
         The blurb describes a setting, so it is shown only where there is one.
@@ -262,23 +286,6 @@ export function SettingsPane({
       </Text>
 
       <FastSearchCard view={data.fastSearch} demo={data.demo} />
-
-      {/*
-        The machine this console is running on — drawn only inside the desktop
-        shell, and by the component itself rather than by a check here.
-
-        It belongs in settings and it belongs *per person* rather than per
-        context, which is the one thing about it that looks out of place on this
-        pane: a machine's grant is one OAuth client on one computer. It is here
-        because this is where somebody comes to ask "is my stuff actually
-        landing", and because the shell records with no window open — so the
-        state that a laptop cannot send is otherwise invisible in a UI that is
-        signed in perfectly happily.
-
-        `ThisMachineCard` returns `null` in a browser and on a phone, so this is
-        a render and nothing else on every surface but one.
-      */}
-      <ThisMachineCard />
 
       {/*
         Map and Connections, re-homed.

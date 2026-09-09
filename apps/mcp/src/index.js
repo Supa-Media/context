@@ -1577,6 +1577,7 @@ function visiblePrivateOverrides(rules) {
 function actorFor(session) {
   return {
     workspaceId: session.workspaceId,
+    workspaceKind: session.workspaceKind,
     userId: session.actorUserId,
     clientId: session.actorClientId,
     grantId: session.grantId,
@@ -4635,6 +4636,11 @@ function frontmatterVisibility(content) {
   return match ? match[1].toLowerCase() : null;
 }
 
+function isPersonalCommunicationsPath(path) {
+  const kind = classifyCaptureKind(path);
+  return kind === "channel-day" || kind === "calendar-day";
+}
+
 async function toolWriteNote(store, scope, rules, overrides, args) {
   const path = normalizePath(args.path);
   const content = args.content;
@@ -4642,6 +4648,9 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   if (!path || !path.endsWith(".md")) return toolError("invalid path (must end in .md)");
   if (typeof content !== "string") return toolError("content must be a string");
   if (isPlumbing(path)) return toolError("that path is reserved");
+  if (isPersonalCommunicationsPath(path) && store.actor?.workspaceKind === "shared") {
+    return toolError("personal communications can only be synced to a personal brain");
+  }
   if (await pathUnderActiveMovedSource(store, path)) {
     return toolError("conflict: that folder is being moved; write to the destination path instead");
   }

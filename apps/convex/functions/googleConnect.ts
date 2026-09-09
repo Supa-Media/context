@@ -83,7 +83,7 @@ import {
 // already taken in a workspace — is what makes the choice made once, at
 // connect time, and never recomputed against a different `taken` set.
 // eslint-disable-next-line import/extensions
-import { chooseMailboxSlug } from "../../../packages/communications/src/paths.js";
+import { chooseMailboxSlug, normalizeRoot } from "../../../packages/communications/src/paths.js";
 
 /** How long a started connect stays answerable. Same ten minutes as Dropbox's. */
 const ATTEMPT_TTL_MS = 10 * 60 * 1000;
@@ -93,6 +93,8 @@ const STATE_BYTES = 32;
 
 const GOOGLE_CLIENT_ID_ENV_VAR = "GOOGLE_OAUTH_CLIENT_ID";
 const GOOGLE_CLIENT_SECRET_ENV_VAR = "GOOGLE_OAUTH_CLIENT_SECRET";
+const DATE_PATTERN_FILE = /\/(?:YYYY-MM-DD|\{date\})\.md$/;
+const DESTINATION_SEGMENT_LIMIT = 96;
 
 /**
  * The flag. A restricted-scope feature is off by default on every deployment,
@@ -199,6 +201,58 @@ function validateBackfillDays(value: number | undefined): number {
     });
   }
   return days;
+}
+
+function defaultGoogleDestinationFolder(
+  service: GoogleSyncService,
+  mailboxSlug: string | undefined,
+): string {
+  if (service === "gmail") return `0-inbox/email/${mailboxSlug ?? "mailbox"}`;
+  if (service === "calendar") return "0-inbox/calendar";
+  return "0-inbox/google-chat";
+}
+
+function destinationPattern(folder: string): string {
+  return `${folder}/YYYY-MM-DD.md`;
+}
+
+function normalizeDestinationFolder(value: string): string {
+  const withoutPattern = value.trim().replace(DATE_PATTERN_FILE, "");
+  let normalized: string;
+  try {
+    normalized = normalizeRoot(withoutPattern).replace(/\/$/g, "");
+  } catch {
+    throw new ConvexError({
+      code: "GOOGLE_DESTINATION_INVALID",
+      message: "Use a folder path inside this context, without '..' or backslashes.",
+    });
+  }
+  if (!normalized) {
+    throw new ConvexError({
+      code: "GOOGLE_DESTINATION_INVALID",
+      message: "Choose a folder where synced files should land.",
+    });
+  }
+  if (normalized.endsWith(".md")) {
+    throw new ConvexError({
+      code: "GOOGLE_DESTINATION_INVALID",
+      message: "Use a folder, or a pattern ending in /YYYY-MM-DD.md.",
+    });
+  }
+  const segments = normalized.split("/");
+  if (segments.some((segment) => segment.startsWith(".") || segment === "privacy.md")) {
+    throw new ConvexError({
+      code: "GOOGLE_DESTINATION_RESERVED",
+      message: "That folder is reserved for Context internals.",
+    });
+  }
+  if (segments.some((segment) => segment.length > DESTINATION_SEGMENT_LIMIT)) {
+    throw new ConvexError({
+      code: "GOOGLE_DESTINATION_INVALID",
+      message: "Keep each folder name under 96 characters.",
+    });
+  }
+  return normalized;
 }
 
 function validateFolders(value: MailFolder[] | undefined): MailFolder[] {
@@ -706,6 +760,7 @@ export const listGoogleConnections = query({
         v.object({
           backfillDays: v.number(),
           folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
+          destinationFolder: v.string(),
           destinationPath: v.string(),
           historyCursorReady: v.boolean(),
           lastSyncedAt: v.optional(v.number()),
@@ -713,6 +768,7 @@ export const listGoogleConnections = query({
       ),
       calendar: v.optional(
         v.object({
+          destinationFolder: v.string(),
           destinationPath: v.string(),
           syncCursorReady: v.boolean(),
           lastSyncedAt: v.optional(v.number()),
@@ -720,6 +776,7 @@ export const listGoogleConnections = query({
       ),
       chat: v.optional(
         v.object({
+          destinationFolder: v.string(),
           destinationPath: v.string(),
           cursorCount: v.number(),
           lastSyncedAt: v.optional(v.number()),
@@ -780,6 +837,15 @@ export const listGoogleConnections = query({
         calendar?.lastSyncedAt ?? 0,
         chat?.lastSyncedAt ?? 0,
       );
+      const gmailDestinationFolder = gmail
+        ? (gmail.destinationFolder ?? defaultGoogleDestinationFolder("gmail", gmail.mailboxSlug))
+        : undefined;
+      const calendarDestinationFolder = calendar
+        ? (calendar.destinationFolder ?? defaultGoogleDestinationFolder("calendar", undefined))
+        : undefined;
+      const chatDestinationFolder = chat
+        ? (chat.destinationFolder ?? defaultGoogleDestinationFolder("chat", undefined))
+        : undefined;
       const latestRun = await ctx.db
         .query("googleSyncRuns")
         .withIndex("by_connection_created", (q) => q.eq("connectionId", row._id))
@@ -807,21 +873,24 @@ export const listGoogleConnections = query({
           ? {
               backfillDays: gmail.backfillDays,
               folders: gmail.folders,
-              destinationPath: `0-inbox/email/${gmail.mailboxSlug}/YYYY-MM-DD.md`,
+              destinationFolder: gmailDestinationFolder!,
+              destinationPath: destinationPattern(gmailDestinationFolder!),
               historyCursorReady: gmail.historyId !== undefined,
               lastSyncedAt: gmail.lastSyncedAt,
             }
           : undefined,
         calendar: calendar
           ? {
-              destinationPath: "0-inbox/calendar/YYYY-MM-DD.md",
+              destinationFolder: calendarDestinationFolder!,
+              destinationPath: destinationPattern(calendarDestinationFolder!),
               syncCursorReady: calendar.syncToken !== undefined,
               lastSyncedAt: calendar.lastSyncedAt,
             }
           : undefined,
         chat: chat
           ? {
-              destinationPath: "0-inbox/google-chat/YYYY-MM-DD.md",
+              destinationFolder: chatDestinationFolder!,
+              destinationPath: destinationPattern(chatDestinationFolder!),
               cursorCount: Object.keys(chat.cursors ?? {}).length,
               lastSyncedAt: chat.lastSyncedAt,
             }
@@ -1118,6 +1187,9 @@ export const applyGmailConnectionBinding = internalMutation({
         storeRawMime: existing?.gmail?.storeRawMime ?? false,
         attachmentMode: args.attachmentMode,
         attachmentRetentionDays: args.attachmentRetentionDays,
+        destinationFolder:
+          existing?.gmail?.destinationFolder ??
+          defaultGoogleDestinationFolder("gmail", existing?.gmail?.mailboxSlug ?? args.mailboxSlug),
         quotaBytes: existing?.gmail?.quotaBytes ?? DEFAULT_MAIL_QUOTA_BYTES,
         historyId: existing?.gmail?.historyId,
         lastSyncedAt: existing?.gmail?.lastSyncedAt,
@@ -1178,6 +1250,99 @@ export const applyGmailConnectionBinding = internalMutation({
       details: { mailboxSlug: fields.gmail.mailboxSlug, backfillDays: args.backfillDays },
     });
     return connectionId;
+  },
+});
+
+export const updateGoogleSyncDestination = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    connectionId: v.id("googleConnections"),
+    service: v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat")),
+    destinationPath: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = await requireActor(ctx);
+    const allowed = await ctx.runQuery(internal.functions.googleConnect.requirePersonalOwner, {
+      workspaceId: args.workspaceId,
+      userId,
+    });
+    if (!allowed) {
+      throw new ConvexError({
+        code: "NOT_OWNER",
+        message: "Only the owner can change integration destinations for this context.",
+      });
+    }
+    const connection = await ctx.db.get(args.connectionId);
+    if (
+      connection === null ||
+      connection.workspaceId !== args.workspaceId ||
+      connection.disconnectedAt !== undefined ||
+      !connection.products.includes(args.service)
+    ) {
+      throw new ConvexError({
+        code: "GOOGLE_CONNECTION_NOT_FOUND",
+        message: "That Google service is not connected to this context.",
+      });
+    }
+    const destinationFolder = normalizeDestinationFolder(args.destinationPath);
+    const now = Date.now();
+    if (args.service === "gmail") {
+      if (!connection.gmail) {
+        throw new ConvexError({ code: "GOOGLE_CONNECTION_NOT_FOUND", message: "Gmail is not connected." });
+      }
+      const activeConnections = await ctx.db
+        .query("googleConnections")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .collect();
+      const conflict = activeConnections.find((row) => {
+        if (
+          row._id === args.connectionId ||
+          row.disconnectedAt !== undefined ||
+          !row.products.includes("gmail") ||
+          !row.gmail
+        ) {
+          return false;
+        }
+        const folder =
+          row.gmail.destinationFolder ??
+          defaultGoogleDestinationFolder("gmail", row.gmail.mailboxSlug);
+        return folder === destinationFolder;
+      });
+      if (conflict) {
+        throw new ConvexError({
+          code: "GOOGLE_SYNC_DESTINATION_CONFLICT",
+          message: "Each Gmail account needs its own destination folder.",
+        });
+      }
+      await ctx.db.patch(args.connectionId, {
+        gmail: { ...connection.gmail, destinationFolder },
+        updatedAt: now,
+      });
+    } else if (args.service === "calendar") {
+      if (!connection.calendar) {
+        throw new ConvexError({ code: "GOOGLE_CONNECTION_NOT_FOUND", message: "Calendar is not connected." });
+      }
+      await ctx.db.patch(args.connectionId, {
+        calendar: { ...connection.calendar, destinationFolder },
+        updatedAt: now,
+      });
+    } else {
+      if (!connection.chat) {
+        throw new ConvexError({ code: "GOOGLE_CONNECTION_NOT_FOUND", message: "Chat is not connected." });
+      }
+      await ctx.db.patch(args.connectionId, {
+        chat: { ...connection.chat, destinationFolder },
+        updatedAt: now,
+      });
+    }
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: userId,
+      action: "google_sync_destination_updated",
+      details: { connectionId: args.connectionId, service: args.service, destinationFolder },
+    });
+    return null;
   },
 });
 
@@ -1313,6 +1478,9 @@ export const startGoogleSyncRun = mutation({
     }
 
     const now = Date.now();
+    const destinationFolder =
+      connection.gmail.destinationFolder ??
+      defaultGoogleDestinationFolder("gmail", connection.gmail.mailboxSlug);
     const runId = await ctx.db.insert("googleSyncRuns", {
       workspaceId: args.workspaceId,
       connectionId: args.connectionId,
@@ -1326,6 +1494,7 @@ export const startGoogleSyncRun = mutation({
       itemsFound: 0,
       daysWithMail: 0,
       bytesWritten: 0,
+      destinationFolder,
       currentService: "gmail" as const,
       createdAt: now,
       updatedAt: now,
@@ -1365,6 +1534,7 @@ export const googleGmailBackfillForRun = internalQuery({
       bytesWritten: v.number(),
       address: v.string(),
       mailboxSlug: v.string(),
+      destinationFolder: v.string(),
       folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
       quotaBytes: v.number(),
       attachmentMode: v.union(v.literal("metadata-only"), v.literal("store")),
@@ -1382,6 +1552,8 @@ export const googleGmailBackfillForRun = internalQuery({
     ) {
       return null;
     }
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (workspace === null || workspace.kind !== "personal") return null;
     const connection = await ctx.db.get(run.connectionId);
     if (
       connection === null ||
@@ -1401,6 +1573,10 @@ export const googleGmailBackfillForRun = internalQuery({
       bytesWritten: run.bytesWritten ?? 0,
       address: connection.address,
       mailboxSlug: connection.gmail.mailboxSlug,
+      destinationFolder:
+        run.destinationFolder ??
+        connection.gmail.destinationFolder ??
+        defaultGoogleDestinationFolder("gmail", connection.gmail.mailboxSlug),
       folders: connection.gmail.folders,
       quotaBytes: connection.gmail.quotaBytes,
       attachmentMode: connection.gmail.attachmentMode,

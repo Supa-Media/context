@@ -146,11 +146,14 @@ const MAX_SESSION_CONTEXTS = 50;
 async function contextsForGrant(
   ctx: QueryCtx,
   live: LiveGrant,
-): Promise<Array<{ workspaceId: Id<"workspaces">; slug: string; role: string }>> {
+): Promise<
+  Array<{ workspaceId: Id<"workspaces">; slug: string; role: string; kind: "personal" | "shared" }>
+> {
   const own = {
     workspaceId: live.workspace._id,
     slug: live.workspace.slug,
     role: live.role,
+    kind: live.workspace.kind,
   };
   const memberships = await ctx.db
     .query("workspaceMembers")
@@ -177,6 +180,7 @@ async function contextsForGrant(
       workspaceId: workspace._id,
       slug: workspace.slug,
       role: membership.role,
+      kind: workspace.kind,
     });
   }
   return rows;
@@ -216,11 +220,13 @@ export const resolveGrantByAccessToken = internalQuery({
       workspaceId: v.id("workspaces"),
       slug: v.string(),
       role: v.string(),
+      kind: v.union(v.literal("personal"), v.literal("shared")),
       workspaces: v.array(
         v.object({
           workspaceId: v.id("workspaces"),
           slug: v.string(),
           role: v.string(),
+          kind: v.union(v.literal("personal"), v.literal("shared")),
         }),
       ),
     }),
@@ -237,6 +243,7 @@ export const resolveGrantByAccessToken = internalQuery({
       workspaceId: live.grant.workspaceId,
       slug: live.workspace.slug,
       role: live.role,
+      kind: live.workspace.kind,
       workspaces: await contextsForGrant(ctx, live),
     };
   },

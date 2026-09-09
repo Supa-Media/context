@@ -175,15 +175,39 @@ export function channelFolder(channel, account) {
 }
 
 /**
+ * A customer-chosen channel folder.
+ *
+ * This is deliberately a folder, not a full object key: a channel day can split
+ * into multiple `-part-N` files, and attachments/manifests live beside the day
+ * files for email. Letting the caller choose the folder keeps the visible
+ * setting honest without making one text field decide several keys.
+ *
+ * @param {string} channel
+ * @param {string|undefined} account
+ * @param {unknown} folder
+ * @returns {string|null}
+ */
+export function channelDestinationFolder(channel, account, folder) {
+  if (folder === undefined || folder === null || String(folder).trim() === "") {
+    return channelFolder(channel, account);
+  }
+  if (!CHANNELS.includes(channel)) return null;
+  if (channel === "email" && !isMailboxSlug(typeof account === "string" ? account : "")) return null;
+  if (channel !== "email" && account) return null;
+  const normalized = normalizeRoot(folder).replace(/\/$/g, "");
+  return normalized || null;
+}
+
+/**
  * Where one part of one channel-day lands.
  *
  * @param {{channel: string, account?: string, date: string, part?: number}} day
- * @param {{root?: string}} [options]
+ * @param {{root?: string, folder?: string}} [options]
  * @returns {string}
  */
 export function channelDayNotePath(day, options = {}) {
   if (!day || typeof day !== "object") throw new TypeError("channelDayNotePath needs a day");
-  const folder = channelFolder(day.channel, day.account);
+  const folder = channelDestinationFolder(day.channel, day.account, options.folder);
   if (folder === null) throw new TypeError(`not a channel this package files into: ${day.channel}`);
   if (!isCalendarDate(day.date)) throw new TypeError(`not a calendar date: ${day.date}`);
 

@@ -6,6 +6,7 @@ import {
   getDesktopBridge,
   type ConnectionView,
   type DesktopBridge,
+  type ImessageStatus,
   type PendingMachineApproval,
 } from "@context/desktop-bridge";
 import { Button } from "../../design/components/Button";
@@ -86,6 +87,7 @@ function useDesktopBridge(): DesktopBridge | null {
 function MachineCard({ bridge }: { bridge: DesktopBridge }) {
   const styles = useThemedStyles(makeStyles);
   const [connection, setConnection] = useState<ConnectionView | null>(null);
+  const imessage = useImessageStatus(bridge);
   const approval = useMachineApproval(bridge, connection);
 
   /*
@@ -174,8 +176,101 @@ function MachineCard({ bridge }: { bridge: DesktopBridge }) {
           />
         </View>
       )}
+
+      {imessage === null ? null : (
+        <View style={styles.imessage} testID="this-machine-imessage">
+          <View style={styles.imessageText}>
+            <Text variant="rowTitle">iMessage</Text>
+            <Text variant="rowSub" style={styles.sub}>
+              {imessageLine(imessage.status)}
+            </Text>
+            {imessage.status.lastError ? (
+              <Text variant="rowSub" style={styles.notice}>
+                {imessage.status.lastError}
+              </Text>
+            ) : null}
+          </View>
+          <Button
+            label={
+              imessage.changing
+                ? "Saving..."
+                : imessage.status.enabled
+                  ? "Pause iMessage"
+                  : "Start iMessage"
+            }
+            disabled={imessage.changing || imessage.status.permission === "denied"}
+            onPress={() => imessage.setEnabled(!imessage.status.enabled)}
+            testID="this-machine-imessage-toggle"
+          />
+        </View>
+      )}
     </Card>
   );
+}
+
+function useImessageStatus(
+  bridge: DesktopBridge,
+): {
+  status: ImessageStatus;
+  changing: boolean;
+  setEnabled: (enabled: boolean) => void;
+} | null {
+  const [status, setStatus] = useState<ImessageStatus | null>(null);
+  const [changing, setChanging] = useState(false);
+
+  useEffect(() => {
+    if (bridge.imessage === undefined) return;
+    let live = true;
+    void bridge.imessage.status().then(
+      (value) => {
+        if (live) setStatus(value);
+      },
+      () => {},
+    );
+    const off = bridge.imessage.onChange((value) => {
+      if (live) setStatus(value);
+    });
+    return () => {
+      live = false;
+      off();
+    };
+  }, [bridge]);
+
+  if (bridge.imessage === undefined || status === null) return null;
+  return {
+    status,
+    changing,
+    setEnabled: (enabled: boolean) => {
+      setChanging(true);
+      void bridge.imessage
+        ?.setEnabled(enabled)
+        .then(() => bridge.imessage?.status())
+        .then((next) => {
+          if (next) setStatus(next);
+        })
+        .finally(() => setChanging(false));
+    },
+  };
+}
+
+function imessageLine(status: ImessageStatus): string {
+  if (status.permission === "denied") {
+    return "Full Disk Access is needed before this Mac can import Messages.";
+  }
+  const lastSynced = status.lastSyncedAt
+    ? new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(new Date(status.lastSyncedAt))
+    : null;
+  if (status.enabled) {
+    return lastSynced === null
+      ? "Import is on; waiting for the first completed sync."
+      : `Import is on; last synced ${lastSynced}.`;
+  }
+  return "Import is off on this Mac.";
 }
 
 /**
@@ -333,4 +428,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   sub: { marginTop: 4 },
   notice: { marginTop: 8, color: colors.crit },
   actions: { flexDirection: "row", justifyContent: "flex-end", marginTop: 12 },
+  imessage: {
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.line,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    flexWrap: "wrap",
+  },
+  imessageText: { flexGrow: 1, flexShrink: 1, flexBasis: 260 },
 });

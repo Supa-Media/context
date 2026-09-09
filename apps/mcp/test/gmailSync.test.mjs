@@ -735,6 +735,26 @@ export async function runGmailSyncChecks(check) {
     dayNoteText.includes(`[[${expectedAttachmentPath}|report.pdf]]`),
   );
 
+  const customFolderGmail = createFixtureGmail({
+    messages: attachmentMessages,
+    attachmentContents: { "att1/ATT-1": "pdf-bytes!!" },
+  });
+  const customFolderStore = createMemoryStore();
+  await syncDayFromGmail({
+    ...fetchDayOptions,
+    store: customFolderStore,
+    fetchImpl: customFolderGmail.fetchImpl,
+    folder: "2-areas/communications/supa-mail",
+  });
+  check(
+    "a mailbox destination folder moves the day note",
+    (await customFolderStore.get("2-areas/communications/supa-mail/2026-09-07.md")) !== null,
+  );
+  check(
+    "...and moves the attachment manifest beside that mailbox destination",
+    (await customFolderStore.get("2-areas/communications/supa-mail/attachments/.manifest.json")) !== null,
+  );
+
   const attachmentCallCountAfterFirstFetch = attachmentGmail.calls.filter((call) => call.includes("/attachments/")).length;
   check("exactly one attachment fetch happened for one attachment", attachmentCallCountAfterFirstFetch === 1);
 
