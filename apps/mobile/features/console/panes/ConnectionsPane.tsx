@@ -1,19 +1,17 @@
 import { StyleSheet, View } from "react-native";
-import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
 import { CopyField } from "../../design/components/CopyField";
-import { Dot } from "../../design/components/Dot";
 import { Hint } from "../../design/components/Field";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../design/theme";
+import { ClientRow } from "../clients/ClientRow";
 import { ConnectClients } from "../clients/ConnectClients";
 import { MembersSection } from "../members/MembersSection";
-import { useArming } from "../useArming";
 import { shareBackSuggestions } from "../members/members";
 import { PaneHead } from "../ConsoleShell";
 import { contextEndpoints } from "../endpoints";
-import { selectedContext, type ConsoleClient, type ConsoleData } from "../types";
+import { selectedContext, type ConsoleData } from "../types";
 
 /**
  * Who and what can reach this context — the people, and the robots.
@@ -188,130 +186,13 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
       </View>
 
       {/*
-        The way all the way out. It lives on this pane because Connections is
-        already the surface about access — who has it, which clients hold it —
-        and deleting the account is revoking every one of those at once. Absent
-        in the demo, where there is no account to delete.
+        Deleting the account is not offered here any more. It lives in the
+        settings overlay's account scope (`settings/DeleteAccountCard.tsx`),
+        which is where every other account-wide control now is — two live
+        Delete buttons for one account, on two surfaces kept in step by hand,
+        is the hazard the sibling comment used to argue against.
       */}
-      {data.deleteAccount ? <DeleteAccountCard deleteAccount={data.deleteAccount} /> : null}
     </View>
-  );
-}
-
-/**
- * Deletion is two presses, the second one expires, and the copy says what it
- * does first.
- *
- * The lead is still the fact people fear getting wrong: notes in their own
- * storage are not ours to delete and stay where they are. What follows it are
- * two consequences the copy used to leave out, both of which reach other
- * people:
- *
- *  - **Every context you solely own is destroyed, even where editors and
- *    members remain.** `account.ts` states that edge deliberately — "an
- *    ownerless context has nobody who can rebind storage or revoke a grant,
- *    which is not a state to leave anybody in" — so somebody you invited loses
- *    access, and the old wording ("removes your … memberships") read as though
- *    only yours went.
- *  - **Your name is released**, and because ingestion is on the apex that
- *    includes your capture address: `you@context.lc` becomes claimable.
- *
- * The arming window is `useArming`'s, which expires. It was a bare `useState`
- * with no way back to `idle`, so an armed Delete stayed armed until something
- * pressed it.
- */
-export function DeleteAccountCard({ deleteAccount }: { deleteAccount: () => Promise<void> }) {
-  const styles = useThemedStyles(makeStyles);
-  const arming = useArming(deleteAccount);
-  return (
-    <View style={styles.account}>
-      <Text variant="eyebrow" style={styles.accountHead}>
-        Account
-      </Text>
-      <Card>
-        <Row>
-          <Grow>
-            <Text variant="rowTitle">Delete this account</Text>
-            <Text variant="rowSub" style={styles.accountSub}>
-              Notes in your own bucket or Dropbox stay exactly where they are — they
-              are not ours to delete. What goes is everything Context knows: your
-              contexts, storage connections, memberships and sign-in. Any context you
-              are the only owner of is deleted with it, so people you invited lose
-              access, and your name is released — including your capture address, which
-              somebody else can then claim.
-            </Text>
-          </Grow>
-          <Button
-            label={
-              arming.stage === "working"
-                ? "Deleting…"
-                : arming.stage === "armed"
-                  ? "Press again to delete"
-                  : "Delete account"
-            }
-            variant="danger"
-            disabled={arming.stage === "working"}
-            testID="delete-account"
-            onPress={arming.press}
-          />
-        </Row>
-      </Card>
-    </View>
-  );
-}
-
-/**
- * One connected client, and whose it is.
- *
- * A row that is not yours says so. Only a context's `owner` is shown anybody
- * else's grants at all — `functions/grants.listGrants` narrowed to that after
- * somebody invited into a personal brain found the owner's clients in their
- * own Settings — and what is left is the other half of the same confusion: in
- * a shared context the owner's list holds their colleagues' clients too, under
- * a heading that says every client *you* add appears below, on a card under
- * *your* endpoint. Unmarked, a colleague's Claude is indistinguishable from
- * one of your own, and Revoke beside it is a button that disconnects somebody
- * else's laptop without saying so.
- *
- * It does not name the person. `listGrants` returns a `userId` and no more, and
- * resolving it here would put "who uses which AI client" on a row that only
- * has to answer "is this mine".
- */
-export function ClientRow({ client }: { client: ConsoleClient }) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <Row divided>
-      <Dot tone={client.status} />
-      <Grow>
-        <Row style={styles.rowTitle}>
-          <Text variant="rowTitle">{client.name}</Text>
-          {client.mine ? null : <Pill tone="neutral">another member&apos;s</Pill>}
-        </Row>
-        <Text variant="rowSub" style={styles.rowSub}>
-          {/* Which context, then what it can do there. */}
-          <Text variant="rowSub" style={styles.rowContext}>
-            {client.context}
-          </Text>
-          {` · ${client.detail}`}
-        </Text>
-      </Grow>
-      {/*
-        Present in the demo but disabled: the mockup shows a Revoke on every
-        row, and hiding it there would misrepresent the design — but a demo
-        console must never offer a button that pretends to act.
-      */}
-      <Button
-        label="Revoke"
-        variant="danger"
-        accessibilityLabel={
-          client.mine
-            ? `Revoke ${client.name}'s access to ${client.context}`
-            : `Revoke another member's ${client.name} access to ${client.context}`
-        }
-        disabled={client.revoke === undefined}
-        onPress={client.revoke}
-      />
-    </Row>
   );
 }
 
@@ -325,18 +206,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: 20,
     paddingHorizontal: 22,
   },
-  account: { marginTop: 18 },
-  accountHead: { marginBottom: 8 },
-  accountSub: { maxWidth: 520 },
   eyebrow: { marginBottom: 10 },
   startIn: { marginTop: 21 },
   endpointRow: { marginBottom: 12 },
   endpointName: { marginBottom: 4, color: colors.text2, fontWeight: "600" },
   spaced: { marginTop: 14 },
   clientsHead: { marginBottom: 13 },
-  rowTitle: { gap: 8 },
-  rowSub: { marginTop: 2 },
-  rowContext: { color: colors.text2, fontWeight: "600" },
   hintStrong: { color: colors.hintStrong, fontWeight: "600" },
   members: { marginTop: 14 },
 });

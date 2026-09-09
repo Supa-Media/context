@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Slot, useRouter, usePathname } from "expo-router";
 import { SettingsOverlay } from "../../../features/console/settings/SettingsOverlay";
-import { DEFAULT_SETTINGS_SECTION } from "../../../features/console/settings/sections";
+import {
+  DEFAULT_ACCOUNT_SETTINGS_SECTION,
+  DEFAULT_SETTINGS_SECTION,
+} from "../../../features/console/settings/sections";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
-import { useAuthActions } from "@convex-dev/auth/react";
 import { PressRow } from "../../../features/design/components/Button";
 import { Dot } from "../../../features/design/components/Dot";
 import { Pill } from "../../../features/design/components/Pill";
@@ -26,7 +28,9 @@ import {
   ExplorerDialogs,
   type Dialog,
 } from "../../../features/console/files/Explorer";
+import { inviteHref } from "../../../features/auth/redirect";
 import { Confirm } from "../../../features/console/files/Dialogs";
+import { useSignOutFlow } from "../../../features/console/useSignOutFlow";
 import { itemsFromListings } from "../../../features/console/files/palette";
 import { useContextSearch } from "../../../features/console/files/useContextSearch";
 import { useTabs } from "../../../features/console/files/useTabs";
@@ -68,8 +72,6 @@ import {
   settingsFromQuery,
   type ConsoleRoute,
 } from "../../../features/console/nav";
-import { forgetLocalCopies, unsentOnDevice } from "../../../features/offline/forget";
-import { signOutWarning } from "../../../features/offline/copy";
 import { storagePillLabel } from "../../../features/console/storage/pill";
 import { describeIndexProgress } from "../../../features/console/search/fastSearch";
 import { selectedContext, type ConsoleData } from "../../../features/console/types";
@@ -133,6 +135,13 @@ export default function ConsoleLayout() {
   */
   const settingsParams = useOptionalGlobalSearchParams<{ settings?: string | string[] }>();
   const openSettingsSection = settingsFromQuery(settingsParams.settings);
+  /*
+    Ending the session, asked for from either the rail's account block or the
+    settings overlay's Sign out row. One flow, because it decides whether
+    unsaved work is about to be discarded and two copies of that decision would
+    be two answers to it.
+  */
+  const { requestSignOut, dialog: signOutDialog } = useSignOutFlow(data);
   const handledQuickNote = useRef(false);
 
   const resolution = resolveContextRoute({
@@ -596,13 +605,14 @@ export default function ConsoleLayout() {
                   current === null
                     ? undefined
                     : /*
-                        `setParams` only where the overlay can actually draw.
-                        The chip states the binding on *every* route — Map,
-                        Connections, Search — and `selectedContext` is non-null
-                        on all of them, but the overlay renders only over a
-                        context. Adding a parameter to `/console/connections`
-                        would leave a stated fact you cannot act on, which is
-                        the defect this control's own comment exists about.
+                        `setParams` inside a context, a push out of one.
+
+                        Both open the overlay now — it draws on every console
+                        route — but only a context route carries the note in
+                        its URL, and `setParams` is what keeps it there while
+                        settings is over the top of it. From Map or Connections
+                        there is no note to keep, and the push names the
+                        context whose binding this chip is stating.
                       */
                       insideContext
                       ? () => router.setParams({ settings: DEFAULT_SETTINGS_SECTION })
@@ -629,14 +639,26 @@ export default function ConsoleLayout() {
             data={data}
             compact
             touch
-            onOpenSettings={
-              current === null
-                ? undefined
-                : () => router.setParams({ settings: DEFAULT_SETTINGS_SECTION })
+            onSignOut={requestSignOut}
+            /*
+              Present with no context too. The account scope is about the
+              person, so "nothing selected" is a reason to open on an account
+              section rather than a reason to withhold the only settings
+              control a phone has.
+            */
+            onOpenSettings={() =>
+              router.setParams({
+                settings:
+                  current === null
+                    ? DEFAULT_ACCOUNT_SETTINGS_SECTION
+                    : DEFAULT_SETTINGS_SECTION,
+              })
             }
           />
         }
-        rail={(mode) => <Rail data={data} route={route} mode={mode} />}
+        rail={(mode) => (
+          <Rail data={data} route={route} mode={mode} onSignOut={requestSignOut} />
+        )}
         /*
           `browsing`, not `insideContext`.
 
@@ -834,15 +856,34 @@ export default function ConsoleLayout() {
           reconstruction of where somebody came from here: the note they had
           open is still in the URL and still on screen.
         */}
-        {openSettingsSection !== null && route.kind === "context" ? (
+        {/*
+          Drawn on every console route, not only a context's. The account
+          sections are about the person and reachable from anywhere, and the
+          list itself now switches contexts — so gating this on `route.kind`
+          left `?settings=apps` on `/console/map` as a URL that changed nothing
+          and drew nothing, and left the gear absent on exactly the routes with
+          no other way in.
+        */}
+        {openSettingsSection === null ? null : (
           <SettingsOverlay
             data={data}
             section={openSettingsSection}
             onSelect={(next) => router.setParams({ settings: next })}
             onOpenSection={(key) => router.push(appSectionHref(key))}
+            /*
+              A context switch inside settings is a navigation, because the
+              context a console is showing is a route rather than component
+              state — the same `settingsHref` the storage chip pushes, carrying
+              the open section so switching does not also change the subject.
+            */
+            onSwitchContext={(slug) => router.push(settingsHref(slug, openSettingsSection))}
+            onSignOut={requestSignOut}
+            onOpenInvitation={(token) => router.push(inviteHref(token))}
             onDismiss={() => router.setParams({ settings: undefined })}
           />
-        ) : null}
+        )}
+
+        {signOutDialog}
 
         {closingTab === null ? null : (
           <Confirm
@@ -1129,10 +1170,12 @@ function Rail({
   data,
   route,
   mode,
+  onSignOut,
 }: {
   data: ConsoleData;
   route: ConsoleRoute;
   mode: "full" | "icons" | "sheet";
+  onSignOut: () => void;
 }) {
   const frame = useFrame();
   const router = useRouter();
@@ -1154,20 +1197,31 @@ function Rail({
           data={data}
           compact={mode === "icons"}
           touch={mode === "sheet"}
+          onSignOut={onSignOut}
           /*
             The one settings control that is on screen at every density, next
             to the person's own name. It was reachable only from the storage
             chip — pointer-only, and reads as a status rather than a control —
             and from a long press on a context row, which nobody finds.
           */
-          onOpenSettings={
-            route.kind === "context"
-              ? () => {
-                  frame.closeNav();
-                  router.setParams({ settings: DEFAULT_SETTINGS_SECTION });
-                }
-              : undefined
-          }
+          /*
+            On every route now. It was `route.kind === "context"` only, which
+            put the one always-visible settings control on some console routes
+            and not others — and the routes it was missing from (Map,
+            Connections, Search) are the ones with no storage chip to fall back
+            to either. Off a context, the section opened is an account one:
+            there is no note in the URL to preserve, and the account scope is
+            what a person on `/console/map` can act on without first choosing a
+            context.
+          */
+          onOpenSettings={() => {
+            frame.closeNav();
+            if (route.kind === "context") {
+              router.setParams({ settings: DEFAULT_SETTINGS_SECTION });
+              return;
+            }
+            router.setParams({ settings: DEFAULT_ACCOUNT_SETTINGS_SECTION });
+          }}
         />
       }
       onClaimContext={() => {
@@ -1482,133 +1536,42 @@ function StorageChip({
   );
 }
 
-/** No context selected, or a browser with no offline layer under it. */
-const NO_QUEUE = { pending: 0, conflicted: 0, rejected: 0 };
-
 /**
- * Who you are signed in as, and the way out — which is also the moment this
- * device stops holding somebody's notes.
+ * Who you are signed in as, and the way out.
  *
- * Sign-out used to be `signOut().then(replace("/"))` and nothing else, while
- * `features/offline/cache.ts` carried a `forgetEverything` whose own comment
- * said it was "called on sign-out". Nothing called it. On a shared machine that
- * left cached note bodies — including ones an owner read at **private** tier —
- * keyed by workspace and by nothing about *who* read them, so the next person
- * to sign in who is a `team` member of the same context read them; and it left
- * the outbox, which `useOfflineNotes` drains the moment a queue and a
- * connection exist, sending the previous person's typing to the bucket under
- * the new person's session.
- *
- * Four properties, and each is a different failure if dropped:
- *
- *  - **The clear is awaited before `signOut`.** Not fire-and-forget: a clear
- *    that merely started leaves a window the next sign-in can race.
- *  - **The clear is also a barrier, not only a moment.** Awaiting it is not
- *    enough on its own: a read still in flight lands after it and writes a
- *    note body back. `forgetLocalCopies` ends the session epoch before it
- *    removes anything, and every writer in `useOfflineNotes` drops a write
- *    from a session that has ended.
- *  - **It cannot block.** Being unable to end a session is worse than a cache
- *    that outlives one, so the verdict is reported and never enforced — and
- *    the await itself is bounded, because a wedged native bridge never settles
- *    and a `catch` has nothing to catch. See `features/offline/forget.ts` for
- *    the whole stance.
- *  - **The person is asked first when the queue is not empty.** Discarding it
- *    is deliberate, so this is the last moment anybody can be told — and the
- *    count covers every context on the device, not just the one on screen,
- *    because that is what is about to go.
- *
- * The confirm is the console's own `Confirm`, the same primitive a dirty tab
- * close uses. A second dialog shape for the same question ("this throws away
- * work — still?") is how two answers to it start drifting apart.
+ * Presentational now. Ending a session is `useSignOutFlow`, which the console
+ * layout owns and hands to both this block and the settings overlay's Sign out
+ * row — see that hook for what sign-out actually does to the device's cache
+ * and its unsent writes, and why the person is asked first.
  */
 function Account({
   data,
   compact,
   touch = false,
   onOpenSettings,
+  onSignOut,
 }: {
   data: ConsoleData;
   compact: boolean;
   touch?: boolean;
   onOpenSettings?: () => void;
+  onSignOut: () => void;
 }) {
-  const router = useRouter();
-  const { signOut } = useAuthActions();
-  const [discarding, setDiscarding] = useState<string | null>(null);
-
-  const signOutNow = useCallback(() => {
-    void (async () => {
-      // Awaited, and first — and bounded inside `forget.ts`, so a store that
-      // stops answering cannot hold somebody on this button. The result is
-      // deliberately not acted on here: `forget.ts` reports it, and there is
-      // no surface left to show it on.
-      await forgetLocalCopies();
-      await signOut();
-      router.replace("/");
-    })();
-  }, [router, signOut]);
-
   return (
-    <>
-      <AccountBlock
-        // The viewer, resolved once in `identity.ts` — never the viewed context.
-        // This block used to take the first `kind === "personal"` context (which
-        // is somebody else's the moment one is shared with you) and the selected
-        // context's capture address, so opening a shared context renamed the
-        // signed-in person after it.
-        name={data.viewer.name}
-        detail={data.viewer.detail}
-        initial={data.viewer.initial}
-        compact={compact}
-        touch={touch}
-        onOpenSettings={onOpenSettings}
-        onSignOut={() => {
-          void (async () => {
-            /*
-              The open context's queue is normally excluded from the device
-              count and supplied by the live hook instead, because the hook's
-              copy is newer than the persisted one — see `waitingOnDevice`.
-
-              That swap only holds once the hook has actually read the queue
-              back. Before `ready` its counts are an *empty* queue rather than
-              this device's, so excluding the persisted copy at the same time
-              warns about nothing and then discards it — and sign-out pressed
-              during a cold load is not a corner, it is somebody who opened the
-              console to leave. Unready, nothing is excluded; the live counts
-              are zero, so there is nothing to double.
-            */
-            const live = data.files.sync;
-            const elsewhere = await unsentOnDevice(
-              live?.ready === true ? data.selectedContextId : null,
-            );
-            const here = live?.counts ?? NO_QUEUE;
-            const warning = signOutWarning({
-              pending: here.pending + elsewhere.pending,
-              conflicted: here.conflicted + elsewhere.conflicted,
-              rejected: here.rejected + elsewhere.rejected,
-            });
-            if (warning === null) {
-              signOutNow();
-              return;
-            }
-            setDiscarding(warning);
-          })();
-        }}
-      />
-      {discarding === null ? null : (
-        <Confirm
-          title="Sign out with edits still waiting?"
-          body={`${discarding} Nothing else is lost — your bucket is untouched.`}
-          confirmLabel="Sign out and discard"
-          onCancel={() => setDiscarding(null)}
-          onConfirm={() => {
-            setDiscarding(null);
-            signOutNow();
-          }}
-        />
-      )}
-    </>
+    <AccountBlock
+      // The viewer, resolved once in `identity.ts` — never the viewed context.
+      // This block used to take the first `kind === "personal"` context (which
+      // is somebody else's the moment one is shared with you) and the selected
+      // context's capture address, so opening a shared context renamed the
+      // signed-in person after it.
+      name={data.viewer.name}
+      detail={data.viewer.detail}
+      initial={data.viewer.initial}
+      compact={compact}
+      touch={touch}
+      onOpenSettings={onOpenSettings}
+      onSignOut={onSignOut}
+    />
   );
 }
 

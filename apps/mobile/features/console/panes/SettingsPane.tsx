@@ -9,7 +9,6 @@ import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { leading } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import { appSectionsFor, type AppSectionKey } from "../nav";
 import { relativeTime } from "../format";
 import { PaneHead } from "../ConsoleShell";
 import { atName } from "../format";
@@ -28,7 +27,7 @@ import { FastSearchCard } from "../search/FastSearchCard";
 import { MembersSection } from "../members/MembersSection";
 import { shareBackSuggestions } from "../members/members";
 import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
-import type { SettingsSectionKey } from "../settings/sections";
+import { settingsSectionLabel, type SettingsSectionKey } from "../settings/sections";
 import { useArming } from "../useArming";
 import { ConnectForm } from "../storage/ConnectForm";
 import { StorageChoice } from "../storage/StorageChoice";
@@ -70,7 +69,6 @@ import type { ReverifyState } from "../storage/reverify";
 export function SettingsPane({
   data,
   onClose,
-  onOpenSection,
   section,
 }: {
   data: ConsoleData;
@@ -85,11 +83,6 @@ export function SettingsPane({
    * only the block it was asked for.
    */
   section?: SettingsSectionKey;
-  /**
-   * Open Map or Connections. Absent on the landing page's picture of the
-   * console, which has nowhere to send anybody.
-   */
-  onOpenSection?: (section: AppSectionKey) => void;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -134,11 +127,12 @@ export function SettingsPane({
 
       {show("storage") ? (
       <>
-      {section === undefined ? (
-      <Text variant="eyebrow" style={styles.sectionHead}>
-        Storage
+      <Text
+        variant={section === undefined ? "eyebrow" : "paneTitle"}
+        style={styles.sectionHead}
+      >
+        {settingsSectionLabel("storage")}
       </Text>
-      ) : null}
       {/*
         The sentence has to name the thing the reader can actually go and do,
         and that differs by backend: an S3 owner revokes a key at their
@@ -234,8 +228,11 @@ export function SettingsPane({
 
       {show("overview") ? (
       <>
-      <Text variant="eyebrow" style={styles.sectionHead}>
-        Overview
+      <Text
+        variant={section === undefined ? "eyebrow" : "paneTitle"}
+        style={styles.sectionHead}
+      >
+        {settingsSectionLabel("overview")}
       </Text>
       <Text variant="paneSub" style={styles.sectionSub}>
         {current?.kind === "shared"
@@ -267,8 +264,18 @@ export function SettingsPane({
 
       {show("people") ? (
       <>
-      <Text variant="eyebrow" style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}>
-        People
+      <Text
+        /*
+          In the overlay one block is the whole panel, so its name is the
+          panel's title rather than a label separating it from the block above
+          — there is no block above. An eyebrow at 11pt uppercase over a page
+          of cards reads as a category marker, which is what it was when this
+          pane was one scroll of eight of them.
+        */
+        variant={section === undefined ? "eyebrow" : "paneTitle"}
+        style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}
+      >
+        {settingsSectionLabel("people")}
       </Text>
       <Text variant="paneSub" style={styles.sectionSub}>
         Everyone who can reach this context, and what each of them may do. Write access
@@ -294,8 +301,18 @@ export function SettingsPane({
 
       {show("sources") ? (
       <>
-      <Text variant="eyebrow" style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}>
-        Integrations
+      <Text
+        /*
+          In the overlay one block is the whole panel, so its name is the
+          panel's title rather than a label separating it from the block above
+          — there is no block above. An eyebrow at 11pt uppercase over a page
+          of cards reads as a category marker, which is what it was when this
+          pane was one scroll of eight of them.
+        */
+        variant={section === undefined ? "eyebrow" : "paneTitle"}
+        style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}
+      >
+        {settingsSectionLabel("sources")}
       </Text>
       <Text variant="paneSub" style={styles.sectionSub}>
         {current?.kind === "personal"
@@ -356,25 +373,16 @@ export function SettingsPane({
         folders={loadedFolders(data.files.listings)}
       />
 
-      {/*
-        Search, under the same gear as storage and ingestion, and here rather
-        than at app level for the same reason this whole pane moved: what it
-        switches is per context. Two brains can be answered from two different
-        places, and a switch above the context picker would claim there is one
-        setting for all of them.
-
-        Below ingestion because it is the least urgent of the three and the
-        only one that is off for everybody until somebody asks — and the same
-        screen on a phone and in a browser, which is the whole point of it
-        living in Expo Router's shared tree rather than a web-only console.
-      */}
       </>
       ) : null}
 
       {show("search") ? (
       <>
-      <Text variant="eyebrow" style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}>
-        Search
+      <Text
+        variant={section === undefined ? "eyebrow" : "paneTitle"}
+        style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}
+      >
+        {settingsSectionLabel("search")}
       </Text>
       <Text variant="paneSub" style={styles.sectionSub}>
         Where this context&apos;s search is answered from. Your Markdown never moves:
@@ -382,81 +390,20 @@ export function SettingsPane({
         owner turns it on.
       </Text>
 
-      <FastSearchCard view={data.fastSearch} demo={data.demo} />
-
       {/*
-        Map and Connections, re-homed.
-
-        They used to be an `App` group at the top of the rail, and on a phone
-        that made the rail a *second left navigation*: the same edge and the
-        same gesture produced either the file tree or a panel headed APP /
-        YOURS / SHARED WITH YOU, depending on which control you had pressed.
-        Obsidian has one sidebar whose contents switch; it never becomes a
-        different panel. So the rail is the vault switcher now and these two
-        live here, behind the gear at the foot of the tree.
-
-        Here rather than deleted, and here rather than anywhere else: the
-        constellation is the clearest picture this product has of what it *is*,
-        and the grants list is the one place a person revokes an AI client. Both
-        are facts about a context you would come to settings to check, and
-        neither is a place you navigate to in order to read a note.
-
-        `onOpenSection` is absent on the landing page's copy of this pane, which
-        is a picture with nowhere to send anybody — so the rows are not drawn
-        there rather than drawn dead.
+        Under the same gear as storage and ingestion, and here rather than at
+        app level for the same reason this whole pane moved: what it switches
+        is per context. Two brains can be answered from two different places,
+        and a switch above the context picker would claim there is one setting
+        for all of them.
       */}
+      <FastSearchCard view={data.fastSearch} demo={data.demo} />
       </>
       ) : null}
 
-      {onOpenSection === undefined ? null : (
-        <>
-          <Text variant="eyebrow" style={styles.sectionHeadLater}>
-            This context, from further out
-          </Text>
-          <Card>
-            {/*
-              Search is drawn only where something would answer it — see
-              `appSectionsFor`. `data.searchableContexts` is `undefined` until
-              the query behind it has landed, and `undefined` draws the row: a
-              navigation item that appears a beat after the screen does is one
-              people learn not to look for.
-            */}
-            {appSectionsFor(data.searchableContexts).map((section, index) => (
-              <Row key={section.key} divided={index > 0}>
-                <View style={styles.sectionRow}>
-                  <View style={styles.sectionRowText}>
-                    <Text variant="rowTitle">{section.label}</Text>
-                    <Text variant="rowSub" style={styles.rowSub}>
-                      {SECTION_BLURBS[section.key]}
-                    </Text>
-                  </View>
-                  <Button
-                    label="Open"
-                    accessibilityLabel={`Open ${section.label}`}
-                    onPress={() => onOpenSection(section.key)}
-                    testID={`settings-open-${section.key}`}
-                  />
-                </View>
-              </Row>
-            ))}
-          </Card>
-        </>
-      )}
     </View>
   );
 }
-
-/**
- * What each re-homed pane is for, said once.
- *
- * A row that is only a name is a row people press to find out what it does,
- * which on a settings page is a navigation somebody has to come back from.
- */
-const SECTION_BLURBS: Record<AppSectionKey, string> = {
-  search: "One search across every context you can reach, with a scope you can narrow.",
-  map: "Every context you can reach, and every AI client connected to one, as a diagram.",
-  connections: "The MCP endpoint, and the clients holding a grant. Revoke one without disturbing the others.",
-};
 
 /**
  * A label and its value, on one row.

@@ -32,7 +32,7 @@ import { ConvexProvider } from "convex/react";
 import { getFunctionName } from "convex/server";
 import { api } from "@context/convex/_generated/api";
 
-import { ClientRow } from "../features/console/panes/ConnectionsPane";
+import { ClientRow } from "../features/console/clients/ClientRow";
 import type { ConsoleClient } from "../features/console/types";
 import { useLiveConsoleData } from "../features/console/useLiveConsoleData";
 

@@ -166,7 +166,10 @@ describe("personal communications integrations stay out of shared workspaces", (
   test("a personal brain shows integrations setup", () => {
     const text = settings(OWNED);
 
-    expect(text).toContain("Integrations");
+    // The section's own words, not ours: the heading is `settingsSectionLabel`
+    // now, so it cannot drift from the row that opens it the way "Integrations"
+    // over a row reading "Mail, calendar & chats" did.
+    expect(text).toContain("Mail, calendar & chats");
     expect(text).toContain("Google accounts");
     expect(text).not.toContain("Personal integrations unavailable");
   });

@@ -89,9 +89,23 @@ function overlay(
   section: SettingsSectionKey,
   onSelect: (next: SettingsSectionKey) => void = () => {},
   onDismiss: () => void = () => {},
+  extra: Partial<Parameters<typeof SettingsOverlay>[0]> = {},
 ): HTMLElement {
-  const data = demoData();
-  mount(() => createElement(SettingsOverlay, { data, section, onSelect, onDismiss }));
+  /*
+    The demo console has no `deleteAccount` and no `invitations` — it is the
+    landing page's data, where there is no account to act on. Supplying both
+    here is what lets these assert the *controls* rather than the headings
+    around them: an account section whose card never renders still prints its
+    own title, so "the heading is there" passed on a screen with nothing on it.
+  */
+  const data: ConsoleData = {
+    ...demoData(),
+    deleteAccount: async () => {},
+    invitations: [{ slug: "tomi", token: "invite-token" }],
+  };
+  mount(() =>
+    createElement(SettingsOverlay, { data, section, onSelect, onDismiss, ...extra }),
+  );
   return document.body;
 }
 
@@ -141,6 +155,75 @@ describe("a phone reaches the settings, not just a menu", () => {
   });
 });
 
+describe("the account's own settings have a home", () => {
+  test("AI apps is reachable and is about apps, not this context", () => {
+    const text = overlay("apps").textContent ?? "";
+    expect(text).toContain("AI apps");
+    // No context badge and no binding health: an account section wearing a
+    // context chip would be naming a scope it is not in.
+    expect(text).not.toContain("Your bucket, your credentials");
+  });
+
+  test("both ways out of a session are controls, not headings", () => {
+    let signedOut = 0;
+    const host = overlay("account", () => {}, () => {}, {
+      onSignOut: () => {
+        signedOut += 1;
+      },
+    });
+    const remove = host.querySelector('[data-testid="delete-account"]');
+    const out = host.querySelector('[data-testid="settings-sign-out"]');
+    expect(remove).not.toBeNull();
+    expect(out).not.toBeNull();
+    // Sign-out used to be a glyph in the rail and nothing else, so somebody
+    // searching for it landed on the one screen that can end an account.
+    act(() => {
+      (out as HTMLElement).click();
+    });
+    expect(signedOut).toBe(1);
+  });
+
+  test("an invitation is a live row, and answering it navigates", () => {
+    const tokens: string[] = [];
+    const host = overlay("invitations", () => {}, () => {}, {
+      onOpenInvitation: (token) => tokens.push(token),
+    });
+    const row = host.querySelector('[data-testid="settings-invitation-tomi"]');
+    expect(row).not.toBeNull();
+    act(() => {
+      (row as HTMLElement).click();
+    });
+    expect(tokens).toEqual(["invite-token"]);
+  });
+
+  test("profile states the name and does not pretend it can be changed", () => {
+    expect(overlay("profile").textContent ?? "").toContain("Profile");
+  });
+});
+
+describe("the search box", () => {
+  test("narrows the list to what somebody typed", () => {
+    const host = overlay("overview");
+    act(() => {
+      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
+    });
+    const field = host.querySelector('[data-testid="settings-search"]') as HTMLInputElement;
+    expect(field).not.toBeNull();
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(field, "gmail");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const text = host.textContent ?? "";
+    // "Mail, calendar & chats" is where Gmail lives, and nobody types that.
+    expect(text).toContain("Mail, calendar & chats");
+    expect(text).not.toContain("Delete account");
+  });
+});
+
 describe("the list is one press away, and it navigates", () => {
   test("back reveals every section", () => {
     const host = overlay("storage");
@@ -180,5 +263,55 @@ describe("the list is one press away, and it navigates", () => {
       (close as HTMLElement).click();
     });
     expect(closed).toBe(1);
+  });
+});
+
+describe("the list is the context switcher too", () => {
+  /*
+    The old list was the *selected* context's sections and nothing else, so
+    changing a workspace's storage meant closing settings, switching contexts
+    in the rail, and opening settings again — on a phone, three screens away
+    from a setting the person was already looking at the name of.
+  */
+  function list(onSwitchContext: (slug: string) => void) {
+    const host = overlay("overview", () => {}, () => {}, { onSwitchContext });
+    act(() => {
+      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
+    });
+    return host;
+  }
+
+  test("every context this person can reach is a row", () => {
+    const host = list(() => {});
+    for (const slug of ["seyi", "lk", "public-worship"]) {
+      expect(host.querySelector(`[data-testid="settings-context-${slug}"]`)).not.toBeNull();
+    }
+  });
+
+  test("pressing another context asks to switch to it", () => {
+    const asked: string[] = [];
+    const host = list((slug) => asked.push(slug));
+    act(() => {
+      (
+        host.querySelector('[data-testid="settings-context-public-worship"]') as HTMLElement
+      ).click();
+    });
+    expect(asked).toEqual(["public-worship"]);
+  });
+
+  test("pressing the context you are already in is not a navigation", () => {
+    const asked: string[] = [];
+    const host = list((slug) => asked.push(slug));
+    act(() => {
+      (host.querySelector('[data-testid="settings-context-seyi"]') as HTMLElement).click();
+    });
+    expect(asked).toEqual([]);
+  });
+
+  test("only the open context carries its sections", () => {
+    const host = list(() => {});
+    // Two contexts' worth of Storage rows in one list is two answers to "what
+    // is my bucket", which is the question the row is there to settle.
+    expect(host.querySelectorAll('[data-testid="settings-section-storage"]')).toHaveLength(1);
   });
 });
