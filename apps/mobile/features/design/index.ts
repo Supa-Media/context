@@ -27,14 +27,16 @@ export {
 export type { Colors, GraphColors, GraphKind, Shadows } from "./tokens";
 
 export {
+  AppearanceProvider,
   ThemeProvider,
   resolveScheme,
+  useAppearanceChoice,
   useColors,
   useScheme,
   useTheme,
   useThemedStyles,
 } from "./theme";
-export type { Scheme, StyleFactory, Theme } from "./theme";
+export type { AppearanceChoice, Scheme, StyleFactory, Theme } from "./theme";
 
 export { gradient, repeatingPattern, maskImage } from "./css";
 export { segment, distance, angleDegrees, midpoint, scalePoint } from "./geometry";
