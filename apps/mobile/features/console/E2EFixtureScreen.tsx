@@ -119,8 +119,14 @@ export function E2EFixtureScreen() {
         The phone top bar's account slot, reduced to the block itself:
         `AppFrame` is not mounted here (see this file's header), and the gear
         is the one settings control that is on screen at every density.
-        `compact` and `touch` are what `(app)/console/_layout.tsx` passes at
-        this width.
+
+        `compact` and `touch` at every width, which the real console does not
+        do — it draws this block compact in the phone's top bar and full in
+        the pointer layout's rail, and neither of those two containers exists
+        on this screen. Both forms draw the same gear, labelled "Settings",
+        opening the same overlay (`ConsoleRail.AccountBlock`), so the shape
+        that needs no container is the honest one to mount here; a case about
+        the rail's own layout would need the rail, not this.
       */}
       <View style={styles.account}>
         <AccountBlock

@@ -27,6 +27,14 @@ import { tap } from "./helpers";
  * declaration and `the phone's section labels are left-aligned` must go red,
  * or this file is decoration.
  *
+ * **Proved red, then green.** `justifyContent: "center"` was put back on
+ * `rowTouch`, the export rebuilt, and this file run against it: that case
+ * failed with `AI apps: starts 154pt in` against `AI apps: left-aligned`,
+ * and the two beside it passed — the defect is a layout one and nothing
+ * about opening, pushing or popping the overlay changes when it is present,
+ * which is exactly why every other kind of test stayed green while it
+ * shipped. With the declaration removed again, all three pass.
+ *
  * ## What a pass here proves, and what it does not
  *
  * It proves the overlay mounts, opens on a section, pushes and pops its two
