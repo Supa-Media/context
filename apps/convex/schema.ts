@@ -2094,6 +2094,156 @@ const schema = defineSchema({
     .index("by_day", ["day"])
     .index("by_day_surface", ["day", "surface"])
     .index("by_day_surface_workspace", ["day", "surface", "workspaceId"]),
+
+  /**
+   * What one context pays for.
+   *
+   * **Keyed by `workspaceId`, never by `userId`**, exactly as a storage
+   * binding is and for the same reason (`CLAUDE.md`, "The workspace model"):
+   * you are upgrading a bucket, not a person. One person may hold a free
+   * personal brain and a paid work workspace on a work card, and each is one
+   * row and one subscription. A `userId` here would make the second of those
+   * impossible to express and the first impossible to keep free.
+   *
+   * **A row exists only where somebody chose something.** No row is the
+   * ordinary state and means free, no entitlements, no Stripe customer — so
+   * "how many contexts are paying" is a count rather than a filter, the same
+   * shape `searchIndexes` uses.
+   *
+   * **Nothing here gates the exit.** There is no export flag, no quota and no
+   * expiry attached to one: downloading everything, or handing the bucket to
+   * storage of their own, is free, identical on both plans, and works after a
+   * cancellation (non-negotiable #1). `__tests__/premium.test.ts` fails on a
+   * field shaped like one.
+   */
+  workspacePlans: defineTable({
+    workspaceId: v.id("workspaces"),
+    /**
+     * What the owner asked for, stored whether or not anybody is paying.
+     *
+     * Kept apart from what is *active* so a lapsed subscription can be resumed
+     * with a payment rather than a re-selection — the same "asked for" /
+     * "entitled" separation `lib/fastSearch.ts` argues at length. Nothing reads
+     * these two directly to decide what a context gets: `activeEntitlements`
+     * in `lib/premium.ts` is the one place that ANDs them with the status.
+     */
+    managedStorage: v.boolean(),
+    fastSearch: v.boolean(),
+    /**
+     * Stripe's subscription status as this build understands it —
+     * `planStatusFromStripe`, a closed set. A word we have never heard of
+     * lands here as `unknown` and serves nothing; it is never read as
+     * `active`, which would be an entitlement bought by a vocabulary change.
+     */
+    status: v.union(
+      v.literal("none"),
+      v.literal("active"),
+      v.literal("past_due"),
+      v.literal("canceled"),
+      v.literal("unknown"),
+    ),
+    /**
+     * Stripe's own identifiers, and deliberately **not credentials**: a
+     * customer id and a subscription id decide nothing without the API key,
+     * which lives in `appSecrets` and never here. They are what lets a later
+     * event be reconciled to the context it belongs to without trusting an id
+     * that arrived in the event body.
+     */
+    stripeCustomerId: v.optional(v.string()),
+    stripeSubscriptionId: v.optional(v.string()),
+    /** Seconds, from Stripe. The end of the period already paid for. */
+    currentPeriodEnd: v.optional(v.number()),
+    /** True where Stripe says the subscription stops at the period end. */
+    cancelAtPeriodEnd: v.optional(v.boolean()),
+    /**
+     * When Stripe created the newest event applied, in seconds, and **every**
+     * event id applied at that second.
+     *
+     * Webhook delivery is at-least-once and out of order, and the two fields
+     * answer the two halves of that: the timestamp drops anything created
+     * before the newest applied, and the set drops a redelivery of anything
+     * applied *at* it.
+     *
+     * ## Why a set and not one id
+     *
+     * One id plus a strict `<` left a hole precisely where Stripe stamps a
+     * cancellation pair, because `updated` and `deleted` are emitted together
+     * in the same second:
+     *
+     *   evt_upd (T, active)  applied → last id = evt_upd
+     *   evt_del (T, deleted) applied → last id = evt_del, plan canceled
+     *   evt_upd (T) retried  → a different id, and T < T is false → APPLIED,
+     *                          and the cancelled plan is active again.
+     *
+     * A retry is freshly signed, so the signature's five-minute tolerance does
+     * not bound it — it can arrive days later, anywhere in Stripe's retry
+     * schedule. Widening the comparison to `<=` is not the fix either: it
+     * drops the legitimate `deleted` when `updated` arrives first in the same
+     * second, which is the ordinary ordering.
+     *
+     * So the set holds every id at `lastEventAt` and is **reset when the
+     * second moves**, which is what keeps it bounded: its size is the number
+     * of events Stripe emits for one subscription within one second.
+     */
+    lastEventIds: v.optional(v.array(v.string())),
+    lastEventAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    /** How a subscription event finds the context it belongs to. */
+    .index("by_subscription", ["stripeSubscriptionId"]),
+
+  /**
+   * One attempt to open Stripe's hosted checkout or customer portal.
+   *
+   * The row exists because the URL cannot be returned from the mutation that
+   * asks for it. Minting one needs the payment key, only an action may open a
+   * credential, and a public action that awaited one would be a public
+   * function reaching a decrypt — which `__tests__/structure.test.ts` refuses.
+   * So the mutation writes a row and **schedules** the action ("scheduling is
+   * not calling"), the action fills the row in, and the console watches the
+   * row it was handed. Same shape as `cloudflareProvisioning`.
+   *
+   * The row holds a URL and no credential. Stripe's checkout URL is a
+   * capability — anybody holding it can pay — so it is readable only by the
+   * owner who started the attempt, and it expires.
+   */
+  billingSessions: defineTable({
+    workspaceId: v.id("workspaces"),
+    startedBy: v.id("users"),
+    kind: v.union(v.literal("checkout"), v.literal("portal")),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("ready"),
+      v.literal("failed"),
+    ),
+    /** Stripe's hosted page, once it exists. */
+    url: v.optional(v.string()),
+    /**
+     * What the owner had chosen when this attempt was opened.
+     *
+     * **What somebody paid for is what they chose at checkout**, not whatever
+     * the toggles happen to say when the webhook lands minutes later. Stored
+     * so a plan can never activate entitling nothing: if the live selection is
+     * empty at activation, this is restored. Absent on a portal attempt, which
+     * buys nothing.
+     */
+    selectedAtCheckout: v.optional(
+      v.object({ managedStorage: v.boolean(), fastSearch: v.boolean() }),
+    ),
+    /** Ours, from a closed set — never Stripe's text, which can name an account. */
+    errorCode: v.optional(v.string()),
+    /**
+     * Short. An attempt nobody completed within a few minutes is a tab
+     * somebody abandoned, and a live checkout URL is a live capability.
+     */
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_expiresAt", ["expiresAt"]),
 });
 
 export default schema;

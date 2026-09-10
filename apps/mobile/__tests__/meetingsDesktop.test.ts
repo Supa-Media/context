@@ -1143,6 +1143,94 @@ describe("this machine, in settings", () => {
     mounted.unmount();
     expect(shell.listenerCount()).toBe(0);
   });
+
+  /*
+    One machine, two settings panels.
+
+    Settings asks about recording under **Meetings** and about Messages under
+    **Chats**, because a person looking for their texts does not think
+    "meetings". This card is the one place both live, so it takes a `focus`
+    rather than being split — and what makes that safe is that the two halves
+    are not symmetrical. Both spend the *same* machine grant (`apps/desktop`'s
+    iMessage import writes through `write_note` with this machine's token), so
+    Chats cannot simply drop the connection state: an unconnected machine is
+    precisely why somebody's messages are not arriving.
+  */
+  const IMESSAGE_SHELL = {
+    enabled: false,
+    permission: "granted" as const,
+    lastSyncedAt: null,
+    lastError: null,
+  };
+
+  async function machine(focus: "meetings" | "chats" | undefined, shell: FakeDesktopBridge) {
+    installShell(shell);
+    const mounted = mount(createElement(ThisMachineCard, focus === undefined ? {} : { focus }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    return mounted;
+  }
+
+  test("Meetings is the machine without the Messages half", async () => {
+    const mounted = await machine(
+      "meetings",
+      fakeDesktopBridge({ imessage: { ...IMESSAGE_SHELL, enabled: true } }),
+    );
+
+    expect(has(mounted.container, "this-machine-title")).toBe(true);
+    expect(has(mounted.container, "this-machine-imessage")).toBe(false);
+    expect(mounted.container.textContent).not.toContain("iMessage");
+
+    mounted.unmount();
+  });
+
+  test("Chats keeps Messages and drops the meetings sentence", async () => {
+    const mounted = await machine(
+      "chats",
+      fakeDesktopBridge({
+        imessage: IMESSAGE_SHELL,
+        connection: {
+          state: "connected",
+          gateway: "https://gateway.invalid",
+          encrypted: true,
+          connecting: false,
+          error: null,
+        },
+      }),
+    );
+
+    expect(has(mounted.container, "this-machine-imessage")).toBe(true);
+    expect(mounted.container.textContent).toContain("Import is off on this Mac.");
+    // The machine's own copy is about meetings, because that is what the grant
+    // was built for. Under a Chats heading it answers a question nobody asked.
+    expect(mounted.container.textContent).not.toContain("Meetings recorded here go to");
+    // And Disconnect stops meetings too, so it lives on the panel that says so.
+    expect(has(mounted.container, "this-machine-disconnect")).toBe(false);
+
+    mounted.unmount();
+  });
+
+  test("...and says an unconnected machine is why nothing is arriving, with the way out", async () => {
+    const mounted = await machine("chats", fakeDesktopBridge({ imessage: IMESSAGE_SHELL }));
+
+    expect(mounted.container.textContent).toContain("nothing arrives until it is connected");
+    // The one control that unblocks Messages is here, unlike Disconnect.
+    expect(has(mounted.container, "this-machine-connect")).toBe(true);
+
+    mounted.unmount();
+  });
+
+  test("Chats draws nothing at all where the shell has no Messages support", async () => {
+    // A card headed with this Mac's name over one blank line is a worse answer
+    // than no card — the same rule the settings sections themselves follow.
+    const mounted = await machine("chats", fakeDesktopBridge({ noImessage: true }));
+
+    expect(mounted.container.textContent).toBe("");
+
+    mounted.unmount();
+  });
 });
 
 /* -------------------------------------------------------------------------- */

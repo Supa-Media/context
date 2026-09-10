@@ -9,6 +9,7 @@
 import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+import { scopeForRole } from "../functions/files";
 import {
   asUser,
   captureError,
@@ -290,14 +291,22 @@ describe("audit details are allow-listed, not deny-listed", () => {
     expect(rows.get("billing.plan_changed")?.details?.last4).toBe("4242");
   });
 
-  test("a member reads a share's path and never its recipient", async () => {
+  /**
+   * This test used to assert the opposite of its second clause -- that a
+   * member reads *what* was shared, and only the recipient is withheld. The
+   * path gate took that half away, deliberately: a share row names one note,
+   * and `listShares` is owner-only, so "the owner shared `X`" was a note's
+   * identity travelling one rung lower through the trail. What survives is
+   * that the event happened and who did it, which is what the trail is for.
+   */
+  test("a member reads that a share happened, and neither its note nor its recipient", async () => {
     const { t, member, workspaceId } = await sharedBrainWithRows();
     const rows = await rowsFor(t, member, workspaceId);
     const share = rows.get("share.created");
     expect(share, "the event itself is not hidden").toBeDefined();
-    expect(share?.paths, "nor is what was shared").toEqual([
-      "1-projects/atlas.md",
-    ]);
+    expect(share?.actorEmail, "nor is who did it").toBe("owner@example.invalid");
+    expect(share?.paths, "but not which note").toEqual([]);
+    expect(share?.pathsWithheld).toBe(true);
     expect(share?.details, "the recipient is a stranger's address").toBeUndefined();
   });
 
@@ -410,5 +419,200 @@ describe("the allow-list's own criteria are applied to the allow-list", () => {
       row?.details?.reason,
       "it names no scope, no client and no third party"
     ).toBe("refresh_token_reuse");
+  });
+
+  /**
+   * `exception: true` paired with `visibility: "private"` says this note's
+   * classification differs from its folder's default -- a private note
+   * counted inside a folder whose default the member CAN read, once `paths`
+   * no longer rides beside it to make the flag redundant. The identical shape
+   * `workspace.structure_applied`'s `folderCount` was struck from this list
+   * for above.
+   */
+  test("a member cannot tell a note's visibility differs from its folder's default", async () => {
+    const row = await sharedBrainWith("visibility.note", {
+      visibility: "private",
+      exception: true,
+    });
+    expect(row?.action, "the event itself is not hidden").toBe("visibility.note");
+    expect(
+      row?.details,
+      "visibility and exception together are a private-note existence oracle",
+    ).toBeUndefined();
+  });
+
+  /**
+   * `visibility.folder` keeps no `exception` field, and its subject -- a
+   * folder's own default -- is one a member watching that folder already
+   * learns first-hand the instant their own listing of it changes. It stays
+   * on the allow-list deliberately, not by oversight.
+   */
+  test("but a folder's own default is visible, having no exception field", async () => {
+    const row = await sharedBrainWith("visibility.folder", { visibility: "team" });
+    expect(row?.details?.visibility).toBe("team");
+  });
+});
+
+/**
+ * THE PATH GATE IS THE CLEARANCE BOUNDARY, NOT A SECOND OPINION ABOUT IT.
+ *
+ * `listEvents` releases a row's `paths` on two grounds a Convex `query` can
+ * actually verify: the reader has `private` clearance, or the reader is the
+ * row's own actor. It cannot run `canSee` -- that needs `privacy.md`, which
+ * lives in the customer's bucket, behind the credential decrypt that
+ * `runFileOperation` is the sole member of `CREDENTIAL_BARRIERS` to keep in
+ * one place. So the gate is a sound under-approximation: it releases only
+ * paths the reader demonstrably already had.
+ *
+ * `files.test.ts` proves the attack end to end, against a real bucket and the
+ * real privacy engine. These are the control-plane edges around it.
+ */
+describe("a row's paths are the reader's clearance or the reader's own hands", () => {
+  async function sharedBrain() {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const editor = await createUser(t, "editor@example.invalid");
+    const member = await createUser(t, "member@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "atlas");
+    await t.run(async (ctx) => {
+      for (const [userId, role] of [
+        [editor, "editor"],
+        [member, "member"],
+      ] as const) {
+        await ctx.db.insert("workspaceMembers", {
+          workspaceId,
+          userId,
+          role,
+          joinedAt: Date.now(),
+        });
+      }
+      await ctx.db.insert("auditEvents", {
+        workspaceId,
+        actorUserId: owner,
+        action: "file.create",
+        paths: ["2-areas/acquisition-of-acme.md"],
+        at: 1_000,
+        details: { conflictCheck: "none" },
+      });
+      // Nobody's own row: ingestion acts with no `actorUserId` at all. It has
+      // to fall to the clearance leg, which is the closed direction.
+      await ctx.db.insert("auditEvents", {
+        workspaceId,
+        action: "ingestion.captured",
+        paths: ["0-inbox/2026-09-09-from-a-stranger.md"],
+        at: 2_000,
+      });
+      await ctx.db.insert("auditEvents", {
+        workspaceId,
+        actorUserId: member,
+        action: "file.write",
+        paths: ["1-projects/the-member-wrote-this.md"],
+        at: 3_000,
+        details: { conflictCheck: "etag" },
+      });
+    });
+    return { t, owner, editor, member, workspaceId };
+  }
+
+  async function pathsSeenBy(
+    t: ReturnType<typeof setupTest>,
+    who: Id<"users">,
+    workspaceId: Id<"workspaces">,
+  ) {
+    const rows = await asUser(t, who).query(api.functions.audit.listEvents, {
+      workspaceId,
+      limit: 20,
+    });
+    return rows.flatMap((row) => row.paths);
+  }
+
+  test("the owner reads every path", async () => {
+    const { t, owner, workspaceId } = await sharedBrain();
+    expect(await pathsSeenBy(t, owner, workspaceId)).toEqual([
+      "1-projects/the-member-wrote-this.md",
+      "0-inbox/2026-09-09-from-a-stranger.md",
+      "2-areas/acquisition-of-acme.md",
+    ]);
+  });
+
+  test("a member reads their own row's paths and nobody else's", async () => {
+    const { t, member, workspaceId } = await sharedBrain();
+    expect(await pathsSeenBy(t, member, workspaceId)).toEqual([
+      "1-projects/the-member-wrote-this.md",
+    ]);
+  });
+
+  /**
+   * WRITE ACCESS IS NOT CLEARANCE.
+   *
+   * `scopeForRole` gives an `editor` `team`, the same as a read-only member --
+   * being able to write is a separate grant from being able to see what the
+   * owner marked private. A path gate keyed on "can they write" rather than
+   * "what can they see" would hand every editor the whole trail.
+   */
+  test("an editor is a team-scoped reader here, exactly like a member", async () => {
+    const { t, editor, workspaceId } = await sharedBrain();
+    expect(await pathsSeenBy(t, editor, workspaceId)).toEqual([]);
+  });
+
+  /**
+   * The gate is written as `role === "owner"` because a query cannot import
+   * `functions/files.ts` -- that module reaches the store factory and the
+   * credential decrypt, and pulling it into an audit query would drag both
+   * across a boundary `structure.test.ts` exists to police. This pins the
+   * equivalence instead, so a change to `scopeForRole` that stopped meaning
+   * "owner alone holds `private`" fails here rather than silently widening
+   * the trail.
+   */
+  test("and `owner` is exactly the set of roles holding `private` clearance", () => {
+    expect(scopeForRole("owner")).toBe("private");
+    expect(scopeForRole("editor")).toBe("team");
+    expect(scopeForRole("member")).toBe("team");
+  });
+
+  /**
+   * `workspace.structure_applied` records `{ template, folderCount }`, and
+   * `folderCount === paths.length` exactly. That cost nothing while `paths`
+   * was published to members; the moment it is not, it is an exact census of
+   * the top-level folders of a context whose scaffold manifest is
+   * `default_visibility: private` -- the member can list none of them. It came
+   * off the detail allow-list in the same commit that closed `paths`, which is
+   * the revisit its old entry asked for.
+   */
+  test("a scaffold's folder count came off the allow-list with the paths it counted", async () => {
+    const { t, member, owner, workspaceId } = await sharedBrain();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("auditEvents", {
+        workspaceId,
+        actorUserId: owner,
+        action: "workspace.structure_applied",
+        paths: ["0-inbox", "1-projects", "2-areas", "3-resources", "4-archive"],
+        at: 4_000,
+        details: { template: "para", folderCount: 5 },
+      });
+    });
+    const rows = await asUser(t, member).query(api.functions.audit.listEvents, {
+      workspaceId,
+      limit: 20,
+    });
+    const scaffold = rows.find(
+      (row) => row.action === "workspace.structure_applied",
+    );
+    expect(scaffold, "the event itself is not hidden").toBeDefined();
+    expect(scaffold?.paths).toEqual([]);
+    expect(
+      scaffold?.details,
+      "folderCount is paths.length under another name",
+    ).toBeUndefined();
+
+    const ownersView = await asUser(t, owner).query(
+      api.functions.audit.listEvents,
+      { workspaceId, limit: 20 },
+    );
+    expect(
+      ownersView.find((row) => row.action === "workspace.structure_applied")
+        ?.details?.folderCount,
+      "withheld from the member, never dropped from the record",
+    ).toBe(5);
   });
 });

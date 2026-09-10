@@ -43,8 +43,11 @@ import {
  * cap keeps one pathological workspace from turning a dashboard query into a
  * full-table read. Nobody has 200 connected clients; if a real workspace ever
  * approaches this, it needs pagination, not a bigger number.
+ *
+ * Exported so the test that proves which grants survive a cap does not
+ * hardcode the number twice.
  */
-const MAX_GRANTS_RETURNED = 200;
+export const MAX_GRANTS_RETURNED = 200;
 
 /**
  * One error for "no such grant" and for "a grant you have no business
@@ -109,17 +112,29 @@ export const listGrants = query({
     // construction* — the error comes from the one helper that builds it.
     if (membership === null) throw workspaceNotFound();
 
+    // `.order("desc")` is not decoration: Convex's default is ascending by
+    // `_creationTime`, so a bare `.take()` here would keep the *oldest*
+    // `MAX_GRANTS_RETURNED` grants this context has ever issued — every AI
+    // client, every workspace member, revoked rows included, since nothing
+    // sweeps `oauthGrants`. This is a screen whose whole job is showing what
+    // can *currently* capture into a context and letting somebody revoke it;
+    // a cap that silently hides the client connected five minutes ago behind
+    // ones revoked years ago is the wrong failure direction. Ordering first
+    // means the rows below the cap already arrive newest-first, so nothing
+    // downstream has to re-sort them back into that order.
     const seesAll = membership.role === "owner";
     const rows: Doc<"oauthGrants">[] = seesAll
       ? await ctx.db
           .query("oauthGrants")
           .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+          .order("desc")
           .take(MAX_GRANTS_RETURNED)
       : await ctx.db
           .query("oauthGrants")
           .withIndex("by_workspace_user", (q) =>
             q.eq("workspaceId", args.workspaceId).eq("userId", userId),
           )
+          .order("desc")
           .take(MAX_GRANTS_RETURNED);
 
     const summaries = [];
@@ -142,7 +157,10 @@ export const listGrants = query({
         revokedAt: grant.revokedAt,
       });
     }
-    return summaries.sort((a, b) => b.createdAt - a.createdAt);
+    // No re-sort: `rows` already arrived newest-first from `.order("desc")`
+    // above, and building `summaries` one-for-one from `rows` cannot reorder
+    // them.
+    return summaries;
   },
 });
 

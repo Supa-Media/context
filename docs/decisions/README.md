@@ -30,6 +30,19 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Managed storage: a bucket we run, in an account that holds nothing else
 - One managed account per deployment, never shared
 
+## [Premium, Stripe, and the promise money may not touch](./billing.md)
+
+- A plan belongs to a workspace, never to a person
+- Two entitlements, one price
+- What a plan may never decide
+- Three values, three different places, and the split is load-bearing
+- The checkout is two round trips, and it cannot be one
+- The workspace is never read out of an event
+- The signature is the whole security of the webhook
+- The API version pins outbound calls and nothing else
+- A third route factory, and why it is enumerated separately
+- What is deliberately not built
+
 ## [Identity, grants, invitations, and ingestion](./identity-and-access.md)
 
 - Ingestion is on the apex, which makes the reserved-name list a security control
@@ -56,7 +69,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - An unlisted share is the third audience, and it is one row rather than a tier
 - `privacy.md` is generated, and the console can generate a fresh one
 - The visibility tier is displayed, never stored
-- The audit trail's `details` are allow-listed, and its `paths` are not gated at all
+- The audit trail's `details` are allow-listed
+- A row's paths are the reader's own clearance, or the reader's own hands
 - A privacy decision is folded, and the fold only ever narrows
 - A shared workspace scaffolds `team`, and that is not a widening
 - `index.md` is opened by name, because no folder rule reaches the root
@@ -251,6 +265,11 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [Testing and guards](./testing.md)
 
 - A guard nobody has checked is not a guard
+- A gate that only speaks at release is a gate that speaks too late
+- A hand-scan is not a fix for something that has already recurred
+- An invisible character in source is a fixture nobody can review
+- WebKit in CI proves the JavaScript engine, not the OS gesture recogniser
+- A surface no browser can open is a surface no test is looking at
 
 ## [Vocabulary and the workspace model](./vocabulary-and-workspaces.md)
 

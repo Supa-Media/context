@@ -25,6 +25,14 @@ jest.mock("convex/react", () => ({
   useAction: () => async () => {
     throw new Error("not used in this test");
   },
+  /*
+    The real `useConvex` returns `undefined` when there is no provider in the
+    tree, which is exactly this harness. `PremiumPanel` asks the question and
+    renders its non-subscribing half on that answer — so the stub returns what
+    the real hook would, rather than a fake client that would then be asked for
+    a subscription nothing here can serve.
+  */
+  useConvex: () => undefined,
 }));
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -162,23 +170,35 @@ describe("the chip is worn once, by the frame", () => {
   });
 });
 
-describe("personal communications integrations stay out of shared workspaces", () => {
-  test("a personal brain shows integrations setup", () => {
+describe("personal communications stay out of shared workspaces", () => {
+  /*
+    One section covering mail, calendars and chats became four — Email,
+    Calendar, Chats, Meetings — because the thing they had in common was our
+    plumbing (one Google account carries all three) and not the reader's
+    question. What this pair protects is unchanged by that split and is the
+    only reason it was ever asserted: **a workspace must never be told it can
+    connect somebody's Gmail.**
+  */
+  test("a personal brain shows every way of filling it", () => {
     const text = settings(OWNED);
 
-    // The section's own words, not ours: the heading is `settingsSectionLabel`
-    // now, so it cannot drift from the row that opens it the way "Integrations"
-    // over a row reading "Mail, calendar & chats" did.
-    expect(text).toContain("Mail, calendar & chats");
+    // The sections' own words, not ours: every heading is
+    // `settingsSectionLabel` now, so none can drift from the row that opens it
+    // the way "Integrations" over a row reading "Mail, calendar & chats" did.
+    for (const label of ["Email", "Calendar", "Chats", "Meetings"]) {
+      expect(text).toContain(label);
+    }
     expect(text).toContain("Google accounts");
-    expect(text).not.toContain("Personal integrations unavailable");
+    expect(text).not.toContain("Switch to a personal brain");
   });
 
   test("a shared workspace explains that email, chat and iMessage imports do not belong there", () => {
     const text = settings(EDITOR_OF);
 
-    expect(text).toContain("Personal integrations unavailable");
+    // The exact sentence a workspace is handed, in the panels that would
+    // otherwise be offering somebody else's mailbox.
     expect(text).toContain("Switch to a personal brain");
+    expect(text).toContain("This workspace does not receive email");
     expect(text).not.toContain("Google accounts");
     expect(text).not.toContain("Connect Google account");
   });

@@ -254,3 +254,54 @@ that is affordable in CI, not the whole of "enough to prove."
 regression test that pins the code's own logic, beside it. A fix whose only
 evidence is a simulated sequence in Chromium is exactly the shape every bug in
 "A long press has two signals" already was.
+
+### A surface no browser can open is a surface no test is looking at
+
+`SettingsOverlay` reached this state: a large, heavily tested component that
+**could not be opened in a real browser anywhere in this repository.** The
+`/e2e-fixture` route — the one the `Editor in WebKit` job drives — handed
+`BrowsePane` an `onOpenSettings={() => {}}`, and the landing page's only
+trigger is a "Connect a bucket" button drawn while a context has *no* bucket,
+which no demo context is. Two agents established that by trying, one of them
+by loading the page and enumerating every `aria-label` on it.
+
+The bill came in defects that passed a fully green suite and were caught only
+when somebody hand-wrote a throwaway route and looked at it in a browser:
+`rowTouch` carrying a `justifyContent: "center"` — written as the vertical
+centring of a column, and horizontal centring the moment the row grew a dot
+and a trailing label — which centred every label in the phone's settings list;
+a temporal dead zone that crashed the whole overlay behind an error boundary
+with typecheck clean; a panel that was a heading over an empty page; and copy
+telling a member "yours alone" about somebody else's brain. Every agent since
+wrote the same disposable route and deleted it before committing, which is the
+hand-scan this file already refuses to accept as a fix.
+
+**The rule: a console surface reachable only through chrome the fixture does
+not mount gets wired into `E2EFixtureScreen` and a case in
+`apps/mobile/e2e/webkit`, in the change that builds it.** Not a second fixture
+and not a route in the shipped app — `app/e2e-fixture.tsx`'s flag is what
+keeps every real export blind to this, and a permanent `dev-settings` route
+would be a screen in the product that exists for us. The fixture's own header
+records what it substitutes for a router: keep what the navigation *does* to
+the screen's state, and say so rather than pretending there is a URL.
+
+`settings.spec.ts` is the first of these. It asserts the things jsdom cannot
+have an opinion about — the panel on screen, list and panel together at a
+pointer width, Back popping the phone's second level, and every section label
+starting at its row's left edge — and it was proved by reintroducing the
+centring declaration and watching that last case fail with `AI apps: starts
+154pt in` while the other two stayed green.
+
+**What it still does not cover**, because the fixture has no session and no
+router: `onSignOut`, `onOpenInvitation` and `onOpenSection` are absent there,
+so the sign-out row, the invitation answer and the "Elsewhere in the console"
+card are not on that screen to be pressed. Those are the next ones to earn a
+surface, not things this case quietly claims.
+
+**One measurement worth keeping**, because it cost a red run to find: the
+overlay is a `Modal` with `animationType="slide"`, and `helpers.ts`'s `tap`
+reads a `boundingBox()` and then taps that point — so a press issued while the
+panel is still travelling lands where the button was, resolves normally, and
+does nothing at all. Presses inside an animating overlay use `locator.tap()`,
+which is the same real touch under an actionability check that waits for the
+element to stop moving.
