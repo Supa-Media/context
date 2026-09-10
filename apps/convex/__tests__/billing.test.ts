@@ -76,6 +76,7 @@ import {
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
+import { MANAGED_R2_ACCOUNT_ID_ENV_VAR } from "../functions/lib/managedStorage";
 import {
   STRIPE_API_KEY_SECRET,
   STRIPE_PRICE_ID_ENV_VAR,
@@ -1459,6 +1460,76 @@ describe("the return from Stripe", () => {
     } finally {
       vi.unstubAllEnvs();
       vi.unstubAllGlobals();
+    }
+  });
+});
+
+/**
+ * WHAT THIS DEPLOYMENT CAN ACTUALLY GIVE SOMEBODY.
+ *
+ * Selling and delivering are different questions, and the console has to ask
+ * the second one before it draws a managed-storage option. A deployment with a
+ * Stripe price and no customer-data account can take $20 and has nowhere to
+ * put the bucket that money buys — which is the worst failure this flow has,
+ * because it happens *after* the payment.
+ *
+ * ## Sabotage record
+ *
+ *   `managedStorageAvailable` answering `deploymentSells()` alone         1
+ *   the malformed account id thrown rather than caught                    1
+ */
+describe("whether managed storage can be offered at all", () => {
+  const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
+
+  async function availability(t: TestConvex, slug: string): Promise<boolean> {
+    const { owner, workspaceId } = await context(t, slug);
+    const row = await asUser(t, owner).query(api.functions.billing.status, { workspaceId });
+    return row.managedStorageAvailable;
+  }
+
+  test("a deployment that sells nothing offers nothing", async () => {
+    const t = setupTest();
+    expect(await availability(t, "offers-nothing")).toBe(false);
+  });
+
+  test("a price with nowhere to put a bucket is still not an offer", async () => {
+    // The case worth having a test for: everything Stripe needs is present and
+    // the thing being sold cannot be delivered.
+    const t = setupTest();
+    vi.stubEnv(STRIPE_PRICE_ID_ENV_VAR, FAKE_PRICE_ID);
+    try {
+      expect(await availability(t, "sells-only")).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("both, and it is an offer", async () => {
+    const t = setupTest();
+    vi.stubEnv(STRIPE_PRICE_ID_ENV_VAR, FAKE_PRICE_ID);
+    vi.stubEnv(MANAGED_R2_ACCOUNT_ID_ENV_VAR, ACCOUNT_ID);
+    try {
+      expect(await availability(t, "sells-and-holds")).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("an operator's typo does not take the status query down for every member", async () => {
+    /*
+      `managedAccountId` throws on set-but-malformed, which is right where
+      provisioning reads it and wrong here: this query is called by every
+      member of every context, and one bad environment variable would answer
+      all of them with an exception. It reads as "cannot offer it", which is
+      both true and survivable.
+    */
+    const t = setupTest();
+    vi.stubEnv(STRIPE_PRICE_ID_ENV_VAR, FAKE_PRICE_ID);
+    vi.stubEnv(MANAGED_R2_ACCOUNT_ID_ENV_VAR, "not-an-account-id");
+    try {
+      expect(await availability(t, "typo")).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 });

@@ -39,6 +39,7 @@ export function StorageChoice({
   onCancel,
   dropboxNote,
   dropboxResumeTo,
+  managed,
 }: {
   /** The context being connected. `null` disables the Dropbox card only. */
   workspaceId: string | null;
@@ -49,6 +50,16 @@ export function StorageChoice({
   dropboxNote?: string;
   /** Set from first-run, so the callback can hand the person back to it. */
   dropboxResumeTo?: "onboarding";
+  /**
+   * The third answer: storage we create and pay for.
+   *
+   * **Absent unless the deployment can actually deliver it** — a price to
+   * charge and somewhere to put the bucket, which is one fact from
+   * `billing.status`. A card that takes $20 for storage that cannot be created
+   * is the worst failure this flow has, because it happens after the payment;
+   * absent is the honest state, and it is also what a self-hoster sees.
+   */
+  managed?: { price: string; onChoose: () => void };
 }) {
   const dropbox = useDropboxStart(workspaceId, { resumeTo: dropboxResumeTo });
   return (
@@ -60,6 +71,7 @@ export function StorageChoice({
       connect={connect}
       onCancel={onCancel}
       dropboxNote={dropboxNote}
+      managed={managed}
     />
   );
 }
@@ -76,6 +88,7 @@ export function StorageChoiceBody({
   connect,
   onCancel,
   dropboxNote,
+  managed,
 }: {
   dropboxReady: boolean;
   redirectUri: string | null;
@@ -84,6 +97,7 @@ export function StorageChoiceBody({
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   onCancel?: () => void;
   dropboxNote?: string;
+  managed?: { price: string; onChoose: () => void };
 }) {
   const styles = useThemedStyles(makeStyles);
   const [bucketOpen, setBucketOpen] = useState(false);
@@ -119,6 +133,34 @@ export function StorageChoiceBody({
           }}
         />
       </View>
+
+      {/*
+        THE THIRD ANSWER GOES BELOW THE TWO FREE ONES, AT FULL WIDTH.
+
+        Not beside them as an equal third column, and not above them. Dropbox
+        is one click and costs nothing, so a screen that sold above it would be
+        selling against its own free tier — and the person this option exists
+        for, who has no storage and is not going to make any, still finds it:
+        it is on the same screen, it says what it costs on its face, and it
+        says what it saves them. Ordering free before paid is the honest
+        hierarchy rather than modesty.
+
+        Full width rather than a third card, because "below" must not read as
+        "lesser", and because a 132pt square with three lines in it reads as an
+        unfinished card.
+      */}
+      {managed === undefined ? null : (
+        <ChoiceCard
+          testID="choose-managed"
+          title="Let Context keep them"
+          sub="No account to make anywhere. We create the storage, we pay for it, and you can take it away at any time."
+          badge={managed.price}
+          badgeTone="neutral"
+          wide
+          selected={false}
+          onPress={managed.onChoose}
+        />
+      )}
 
       {dropboxBlocked && redirectUri === null ? (
         <Text variant="foot" role="status" style={styles.note} testID="dropbox-unavailable">
@@ -157,6 +199,8 @@ function ChoiceCard({
   title,
   sub,
   badge,
+  badgeTone = "ok",
+  wide = false,
   selected,
   busy,
   disabled,
@@ -166,6 +210,14 @@ function ChoiceCard({
   title: string;
   sub: string;
   badge?: string;
+  /** `ok` for "Recommended", `neutral` for a price — a price is not a boast. */
+  badgeTone?: "ok" | "neutral";
+  /**
+   * A card on its own row rather than one of a pair, which drops the square
+   * minimum two side-by-side cards need to agree on a height. Kept on a
+   * full-width card it is 132pt of empty box under three lines of copy.
+   */
+  wide?: boolean;
   selected: boolean;
   busy?: boolean;
   disabled?: boolean;
@@ -183,13 +235,14 @@ function ChoiceCard({
       onPress={onPress}
       style={({ pressed }) => [
         styles.choice,
+        wide && styles.choiceWide,
         selected && styles.choiceSelected,
         pressed && styles.choicePressed,
         disabled && styles.choiceDisabled,
       ]}
     >
       {badge ? (
-        <Text variant="foot" style={styles.badge}>
+        <Text variant="foot" style={badgeTone === "ok" ? styles.badge : styles.badgePrice}>
           {badge}
         </Text>
       ) : null}
@@ -221,10 +274,24 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 16,
   },
+  /*
+    A full-width card, and `flexBasis` is the wrong lever for it.
+  
+    This card is a child of a **column**, where `flexBasis` is the height —
+    so `100%` asked for the full height of the step and the card grew over
+    everything under it: the skip button and the footer were drawn inside
+    its border. It reads as a broken page, it type-checked, and jsdom lays
+    nothing out, so only a browser could see it.
+  
+    Width comes from `alignSelf: "stretch"`, and the square minimum two
+    side-by-side cards need to agree on a height goes away.
+  */
+  choiceWide: { alignSelf: "stretch", flexGrow: 0, flexBasis: "auto", minHeight: 0 },
   choiceSelected: { borderColor: colors.lineStrong, backgroundColor: colors.surface3 },
   choicePressed: { backgroundColor: colors.surface3 },
   choiceDisabled: { opacity: 0.55 },
   badge: { color: colors.okText },
+  badgePrice: { color: colors.text2 },
   sub: { lineHeight: leading(13, 1.55) },
   busy: { position: "absolute", top: 14, right: 14 },
   note: { lineHeight: leading(12.5, 1.7) },

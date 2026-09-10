@@ -60,6 +60,16 @@ export interface PremiumStatus {
   notesTruncated?: boolean;
   notesCountedAt?: number;
   storageIsManaged: boolean;
+  /**
+   * Whether this deployment can provide managed storage at all — a price to
+   * charge and somewhere to put the bucket.
+   *
+   * Optional so a console can talk to a control plane older than itself
+   * without every read failing. Absent reads as "no", which is the only safe
+   * direction: the failure it prevents is selling storage that cannot be
+   * created, and that one happens *after* the payment.
+   */
+  managedStorageAvailable?: boolean;
 }
 
 /** Where an opened Checkout or portal attempt has got to. */

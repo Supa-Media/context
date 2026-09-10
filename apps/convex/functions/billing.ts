@@ -70,7 +70,7 @@ import {
   type Entitlements,
   type PlanStatus,
 } from "./lib/premium";
-import { MANAGED_BUCKET_PREFIX } from "./lib/managedStorage";
+import { MANAGED_BUCKET_PREFIX, managedAccountId } from "./lib/managedStorage";
 import { isHandledEventType, type StripeEventFacts } from "./lib/stripe";
 
 /** How long a minted checkout or portal URL stays usable from our side. */
@@ -154,6 +154,32 @@ function deploymentSells(): boolean {
 }
 
 /**
+ * Can this deployment actually *give* somebody managed storage?
+ *
+ * Selling is not the same question. A deployment with a price id can take a
+ * payment; one without a customer-data account has nowhere to put the bucket
+ * that payment buys. Offering managed storage on such a deployment would be
+ * taking $20 for something that cannot be delivered, which is the worst
+ * failure this flow has — so the answer is a fact the console reads *before*
+ * drawing the option, and a first run simply does not show it where this is
+ * false.
+ *
+ * Malformed is false rather than a throw, for the reason the price id learned
+ * the hard way: this is read by `status`, which every member of every context
+ * calls, and an operator's typo must not take that query down for all of them.
+ * The throw is still the right behaviour where provisioning itself reads it.
+ */
+function deploymentProvidesManagedStorage(): boolean {
+  if (!deploymentSells()) return false;
+  try {
+    return managedAccountId() !== null;
+  } catch {
+    console.error("billing.managed_account_malformed");
+    return false;
+  }
+}
+
+/**
  * Is there a checkout attempt out there that somebody may be paying on?
  *
  * A `pending` row is one the minting action has not answered; a `ready` one is
@@ -231,6 +257,12 @@ export const status = query({
     notesCountedAt: v.optional(v.number()),
     /** Whether this context's storage is a bucket we run. */
     storageIsManaged: v.boolean(),
+    /**
+     * Whether this deployment can provide managed storage at all — a price to
+     * charge *and* somewhere to put the bucket. The console does not offer
+     * what cannot be delivered.
+     */
+    managedStorageAvailable: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
@@ -269,6 +301,7 @@ export const status = query({
       notesTruncated: isOwner ? binding?.noteCountTruncated : undefined,
       notesCountedAt: isOwner ? binding?.noteCountedAt : undefined,
       storageIsManaged: bindingIsManaged(binding, args.workspaceId),
+      managedStorageAvailable: deploymentProvidesManagedStorage(),
     };
   },
 });

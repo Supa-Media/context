@@ -108,7 +108,7 @@ export function storageWarning(shape: FlowShape): string | null {
 
 export const STEP_LABELS: Record<StepKey, string> = {
   name: "Your name",
-  storage: "Your bucket",
+  storage: "Your storage",
   structure: "Your layout",
   agents: "Your tools",
   done: "You're set",
@@ -137,7 +137,13 @@ export function stepTitle(key: StepKey): string {
     case "name":
       return "Claim your name";
     case "storage":
-      return "Connect your bucket";
+      /*
+        Not "Connect your bucket" any more, which presumed the answer: a bucket
+        is one of three, and the person this step gained a third option for
+        does not have one and is not going to make one. The step asks the
+        question rather than naming one of its answers.
+      */
+      return "Where your notes live";
     case "structure":
       return "Pick a starting layout";
     case "agents":

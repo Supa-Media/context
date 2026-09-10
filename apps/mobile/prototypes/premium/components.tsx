@@ -345,7 +345,19 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: space.x4,
       paddingHorizontal: space.x4,
     },
-    choiceWide: { flexBasis: "100%", minHeight: 0 },
+    /*
+      A full-width card, and `flexBasis` is the wrong lever for it.
+    
+      This card is a child of a **column**, where `flexBasis` is the height —
+      so `100%` asked for the full height of the step and the card grew over
+      everything under it: the skip button and the footer were drawn inside
+      its border. It reads as a broken page, it type-checked, and jsdom lays
+      nothing out, so only a browser could see it.
+    
+      Width comes from `alignSelf: "stretch"`, and the square minimum two
+      side-by-side cards need to agree on a height goes away.
+    */
+    choiceWide: { alignSelf: "stretch", flexGrow: 0, flexBasis: "auto", minHeight: 0 },
     choiceSelected: { borderColor: colors.lineStrong, backgroundColor: colors.surface3 },
     choicePressed: { backgroundColor: colors.surface3 },
     choiceDisabled: { opacity: 0.55 },
