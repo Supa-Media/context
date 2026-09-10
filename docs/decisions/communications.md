@@ -1440,6 +1440,27 @@ would rewrite every touched day forever, which is churn wearing the costume of
 sync activity. The check that holds it is "re-running the same pass writes no
 new bytes".
 
+**The fence nonce is the connection's own id, and that answers a question
+`calendar-sync.js` left for exactly this work.** That file's comment names the
+nonce as "a cross-cutting, not-yet-wired question for whoever builds the live
+sync trigger for either channel": Calendar derives it from account and date,
+both of which are printed in the note, so an inviter who knows which account
+they wrote to and which day their invite landed on can compute it and forge a
+fence marker. Gmail's is `gmail:<connectionId>` — the same value the removed
+backfill used, kept so a day rewritten by either path keeps its message anchors
+— and it does not have that weakness: a sender cannot derive a Convex row id
+from anything they can see, and they never see the note. It is stable across
+every pass by construction, which is the other property the fence needs.
+
+It is not the strongest available shape, and the stronger one is already in the
+schema next door: Chat's `nonceSeed`, a random value minted at connect time and
+stored on the row (not a credential — leaking it weakens one connection's fence
+and nothing else). Gmail has no such field, and adding one now would rename the
+fence markers in every day already written. So: named as a follow-up, with the
+migration it needs — read the existing note's own nonce back and reuse it,
+minting a fresh random one only the first time a day is written — rather than
+done quietly here. Calendar's is the one that should move first.
+
 **The cron holds no decision**, which is the rule `crons.ts` opens with and the
 one a job that *starts* work has to argue rather than assume. Whether a
 connection may sync at all — still connected, personal context, a product this
