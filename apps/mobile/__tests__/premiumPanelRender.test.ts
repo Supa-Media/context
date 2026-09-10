@@ -141,6 +141,15 @@ const EVERY_SCREEN: Array<[string, PremiumView]> = [
     }),
   ],
   ["a member", view({ status: status({ canManage: false }), choose: undefined, upgrade: undefined, manageBilling: undefined })],
+  [
+    "a member on a context whose payment failed",
+    view({
+      status: status({ status: "past_due", canManage: false, hasStripeCustomer: true }),
+      choose: undefined,
+      upgrade: undefined,
+      manageBilling: undefined,
+    }),
+  ],
   ["a deployment that does not sell", view({ status: status({ configured: false }) })],
   ["a status this build does not know", view({ status: status({ status: "paused" }) })],
   ["still loading", view({ status: null, loading: true })],
@@ -235,6 +244,28 @@ describe("what each screen offers", () => {
     expect(host.querySelector('[data-testid="premium-continue"]')).toBeNull();
     // And it is the free plan, not a claim about a context that does not exist.
     expect(host.textContent ?? "").toContain("free plan");
+  });
+
+  test("a member is never shown the owner's card being declined", () => {
+    // Asserted on the rendered screen and not only on the copy function: the
+    // money fields were owner-only on the wire and this sentence was not.
+    const host = mount(
+      view({
+        status: status({ status: "past_due", canManage: false, hasStripeCustomer: true }),
+        choose: undefined,
+        upgrade: undefined,
+        manageBilling: undefined,
+      }),
+    );
+    const text = host.textContent ?? "";
+    expect(text).not.toMatch(/update the card/i);
+    expect(text).not.toMatch(/payment did not go through/i);
+    // …while the owner's own screen still says exactly that, because they can
+    // act on it.
+    const owner = mount(
+      view({ status: status({ status: "past_due", hasStripeCustomer: true }) }),
+    );
+    expect(owner.textContent ?? "").toMatch(/update the card/i);
   });
 
   test("a status this build does not know offers nothing to buy", () => {

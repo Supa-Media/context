@@ -556,6 +556,37 @@ describe("asking for a checkout URL", () => {
     }
   });
 
+  test("a deployment with no APP_ORIGIN says so, rather than blaming Stripe", async () => {
+    /*
+      `returnUrl` used to fall back to `""`, producing a relative `success_url`
+      that Stripe requires to be absolute. A self-hoster mid-setup got
+      `STRIPE_REFUSED` — "that did not go through, check your connection" — for
+      a configuration they had simply not finished. Everywhere else an absent
+      `APP_ORIGIN` is loud; this was the one place it was papered over, and the
+      paper said the wrong thing.
+    */
+    const t = setupTest();
+    vi.stubEnv(STRIPE_PRICE_ID_ENV_VAR, FAKE_PRICE_ID);
+    vi.stubEnv("APP_ORIGIN", "");
+    try {
+      const { owner, workspaceId } = await context(t, "no-origin");
+      await chooseBoth(t, owner, workspaceId);
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId },
+      );
+      await t.action(internal.functions.billingStripe.createCheckoutSession, {
+        sessionId,
+      });
+      const row = await asUser(t, owner).query(api.functions.billing.billingSession, {
+        sessionId,
+      });
+      expect(row?.errorCode).toBe("NOT_CONFIGURED");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   test("the portal is not offered before there is a customer to manage", async () => {
     const t = setupTest();
     const { owner, workspaceId } = await context(t, "noportal");

@@ -246,7 +246,15 @@ describe("the webhook signature is the whole security of the endpoint", () => {
   const nowSeconds = 1_780_000_000;
   const nowMs = nowSeconds * 1000;
 
-  test("a body Stripe signed is accepted", async () => {
+  test("a body signed with the endpoint's secret is accepted", async () => {
+    /*
+      Named for what it does. It said "a body Stripe signed", and Stripe signed
+      nothing here — `sign()` above is the same construction as the verifier, so
+      this proves the two agree and would not notice if both computed the MAC
+      over the wrong preimage. What holds the construction itself is the
+      documented scheme, and the negative cases below: a body edited after
+      signing, a timestamp moved, a v0 scheme, a wrong secret.
+    */
     const digest = await sign(payload, nowSeconds);
     expect(
       await stripeSignatureIsValid({
@@ -508,9 +516,68 @@ describe("talking to Stripe", () => {
     );
   });
 
-  test("the API version is pinned rather than inherited from the dashboard", () => {
-    // Otherwise an account-level version bump changes the shape of the objects
-    // `stripeEventFacts` reads, with no deploy and no diff.
+  test("the API version is sent on outbound calls, and claims nothing about webhooks", () => {
+    /*
+      This test used to be called "the API version is pinned rather than
+      inherited from the dashboard" and asserted a protection that does not
+      exist. `Stripe-Version` pins what comes back from a call WE make. A
+      webhook payload's shape is decided by the ENDPOINT's version, and there is
+      no header on an inbound request to pin — the request is Stripe's.
+
+      The version below is therefore a statement about outbound calls only, and
+      the reader for the field that actually moved is tested beside it.
+    */
     expect(STRIPE_API_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  test("the renewal date is read in both shapes Stripe has put it in", () => {
+    /*
+      `current_period_end` moved off the subscription and onto
+      `items.data[].current_period_end` in the `2025-03-31` versions. Reading
+      only the old place yields `undefined` on any deployment whose endpoint is
+      on a current version — and the console's renewal line then vanishes with
+      no error anywhere, which is the kind of wrong answer nobody reports.
+    */
+    const older = stripeEventFacts({
+      id: "evt_fake_old_shape",
+      type: "customer.subscription.updated",
+      created: 1_780_000_000,
+      data: {
+        object: {
+          id: "sub_FAKE",
+          object: "subscription",
+          status: "active",
+          current_period_end: 1_782_000_000,
+        },
+      },
+    });
+    expect(older?.currentPeriodEndSeconds).toBe(1_782_000_000);
+
+    const newer = stripeEventFacts({
+      id: "evt_fake_new_shape",
+      type: "customer.subscription.updated",
+      created: 1_780_000_000,
+      data: {
+        object: {
+          id: "sub_FAKE",
+          object: "subscription",
+          status: "active",
+          items: {
+            object: "list",
+            data: [{ id: "si_FAKE", current_period_end: 1_782_000_000 }],
+          },
+        },
+      },
+    });
+    expect(newer?.currentPeriodEndSeconds).toBe(1_782_000_000);
+
+    // And neither shape present is still absent rather than a guess.
+    const neither = stripeEventFacts({
+      id: "evt_fake_no_period",
+      type: "customer.subscription.updated",
+      created: 1_780_000_000,
+      data: { object: { id: "sub_FAKE", object: "subscription", status: "active" } },
+    });
+    expect(neither?.currentPeriodEndSeconds).toBeUndefined();
   });
 });

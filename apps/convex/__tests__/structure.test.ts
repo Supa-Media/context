@@ -2406,14 +2406,51 @@ describe("the gateway's HTTP routes", () => {
         .not.toMatch(/readIntegrationSecret|decryptSecret/);
     }
 
-    // Non-vacuity for the last of the four: the verifier the factory calls has
-    // to be one that actually checks a timestamp, or "signed" means "signed at
-    // some point in history".
-    const stripe = realModules().find((m) => m.path === "functions/lib/stripe.ts");
-    expect(stripe, "functions/lib/stripe.ts is not in the analysed modules")
+    /*
+      Non-vacuity for the last of the four, and it is bound to the guard the
+      factory actually names.
+
+      The first version read `lib/stripe.ts` for the tolerance constant no
+      matter which function the factory called — so a `fooRoute: "alwaysTrue"`
+      that satisfied the four body assertions above would have passed on the
+      strength of a constant somewhere else in the file. The guard's own body is
+      what has to check a timestamp and compare in constant time, or "signed"
+      means "signed at some point in history".
+    */
+    for (const guard of Object.values(SIGNED_ROUTE_FACTORIES)) {
+      const stripe = realModules().find((m) => m.path === "functions/lib/stripe.ts");
+      expect(stripe, "functions/lib/stripe.ts is not in the analysed modules")
+        .toBeDefined();
+      const start = stripe!.source.indexOf(`export async function ${guard}(`);
+      expect(start, `${guard} is named by a route factory but is not defined in lib/stripe.ts`)
+        .toBeGreaterThan(-1);
+      const guardBody = stripe!.source.slice(start);
+      const body = guardBody.slice(0, guardBody.indexOf("\n}\n"));
+
+      expect(body, `${guard} does not check the delivery's timestamp`).toMatch(
+        /toleranceMs/,
+      );
+      expect(body, `${guard} does not compare in constant time`).toMatch(
+        /constantTimeEqualsHex\(/,
+      );
+      // The timestamp has to be inside the MAC as well as checked, or moving it
+      // is free.
+      expect(body, `${guard} does not prepend the timestamp to the signed payload`)
+        .toMatch(/\$\{parsed\.timestamp\}\.\$\{payload\}/);
+      // And an absent secret must refuse rather than allow.
+      expect(body, `${guard} does not refuse when no signing secret is configured`)
+        .toMatch(/secret\.length === 0\) return false/);
+    }
+
+    // The env var the factory reads is a real name, held where the deployment
+    // actually sets it — the same non-vacuity `GATEWAY_SECRET_ENV_VAR` gets
+    // below, and it was missing for this one.
+    const premium = realModules().find((m) => m.path === "functions/lib/premium.ts");
+    expect(premium, "functions/lib/premium.ts is not in the analysed modules")
       .toBeDefined();
-    expect(stripe!.source).toMatch(/SIGNATURE_TOLERANCE_MS/);
-    expect(stripe!.source).toMatch(/constantTimeEqualsHex/);
+    expect(premium!.source).toMatch(
+      /export const STRIPE_WEBHOOK_SECRET_ENV_VAR = "STRIPE_WEBHOOK_SECRET"/,
+    );
   });
 
   /**

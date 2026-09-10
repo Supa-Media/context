@@ -222,6 +222,14 @@ export interface StripeEventFacts {
   cancelAtPeriodEnd?: boolean;
 }
 
+/** `items.data[0].current_period_end`, where the newer shape puts it. */
+function firstItemPeriodEnd(object: unknown): number | undefined {
+  if (typeof object !== "object" || object === null) return undefined;
+  const items = (object as { items?: { data?: unknown } }).items?.data;
+  if (!Array.isArray(items) || items.length === 0) return undefined;
+  return numberAt(items[0], "current_period_end");
+}
+
 function stringAt(source: unknown, ...path: string[]): string | undefined {
   let cursor: unknown = source;
   for (const key of path) {
@@ -305,7 +313,19 @@ export function stripeEventFacts(body: unknown): StripeEventFacts | null {
     paymentStatus: isSubscriptionEvent
       ? undefined
       : stringAt(object, "payment_status"),
-    currentPeriodEndSeconds: numberAt(object, "current_period_end"),
+    /*
+      Both shapes, because the webhook's is not ours to pin.
+
+      `current_period_end` sits on the subscription up to `2024-06-20` and on
+      each of `items.data[]` from `2025-03-31`. Reading only the first yields
+      `undefined` on any deployment whose endpoint is on a current version, and
+      the renewal line disappears with no error anywhere. The first item's is
+      taken: every item on one subscription shares a period, and this is a
+      renewal date in a sentence rather than an invoice line.
+    */
+    currentPeriodEndSeconds:
+      numberAt(object, "current_period_end") ??
+      firstItemPeriodEnd(object),
     cancelAtPeriodEnd:
       typeof (object as { cancel_at_period_end?: unknown } | undefined)
         ?.cancel_at_period_end === "boolean"
@@ -332,9 +352,28 @@ export const STRIPE_API_BASE = "https://api.stripe.com/v1";
 /**
  * The Stripe API version this code was written against.
  *
- * Pinned on every request rather than inherited from whatever the account's
- * dashboard is set to, because an account-level version bump would otherwise
- * change the shape of the objects this file reads without a deploy.
+ * Sent as `Stripe-Version` on every **outbound** request, so the objects this
+ * file gets back from a checkout or a portal call have the shape it expects
+ * whatever the account dashboard is set to.
+ *
+ * ## It does NOT pin the webhook, and the first version of this comment said
+ * it did
+ *
+ * A webhook payload's shape is decided by the **endpoint's** version — set on
+ * the endpoint in Stripe, falling back to the account's — and nothing this
+ * codebase sends can influence it. There is no header on an inbound request to
+ * pin; the request is Stripe's, not ours.
+ *
+ * That is not academic. `current_period_end` moved off the subscription and
+ * onto `items.data[].current_period_end` in the `2025-03-31` versions, so a
+ * deployment whose endpoint is on a current version yields
+ * `currentPeriodEnd: undefined` and the console's renewal line silently
+ * vanishes — a wrong answer with a confident comment above it, which is worse
+ * than no comment.
+ *
+ * So `stripeEventFacts` reads **both shapes**, and `docs/decisions/billing.md`
+ * names pinning the endpoint's version as a deployment step rather than
+ * pretending this constant does it.
  */
 export const STRIPE_API_VERSION = "2024-06-20";
 

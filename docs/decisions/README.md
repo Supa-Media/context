@@ -39,6 +39,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The checkout is two round trips, and it cannot be one
 - The workspace is never read out of an event
 - The signature is the whole security of the webhook
+- The API version pins outbound calls and nothing else
 - A third route factory, and why it is enumerated separately
 - What is deliberately not built
 

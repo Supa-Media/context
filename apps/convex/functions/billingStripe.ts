@@ -60,11 +60,21 @@ async function fail(
   return { status: "failed" };
 }
 
-/** Where Stripe sends somebody back to. Never a URL the client supplied. */
-function returnUrl(path: string): string {
+/**
+ * Where Stripe sends somebody back to. Never a URL the client supplied.
+ *
+ * `null` where the deployment has no `APP_ORIGIN`, and the caller turns that
+ * into `NOT_CONFIGURED`. It used to fall back to `""`, which produced a
+ * relative `success_url` — Stripe requires an absolute one, so a self-hoster
+ * mid-setup got `STRIPE_REFUSED` ("that did not go through, check your
+ * connection") for a configuration they had simply not finished. Everywhere
+ * else in this codebase an absent `APP_ORIGIN` is loud; this was the one place
+ * it was papered over, and the paper said the wrong thing.
+ */
+function returnUrl(path: string): string | null {
   const origin = process.env[APP_ORIGIN_ENV_VAR];
-  const base = typeof origin === "string" && origin.length > 0 ? origin : "";
-  return `${base}${path}`;
+  if (typeof origin !== "string" || origin.trim().length === 0) return null;
+  return `${origin.trim().replace(/\/$/, "")}${path}`;
 }
 
 /**
@@ -113,7 +123,9 @@ export const createCheckoutSession = internalAction({
       return await fail(ctx, args.sessionId, "NOT_CONFIGURED");
     }
     const key = await apiKey(ctx);
-    if (priceId === null || key === null) {
+    const successUrl = returnUrl("/settings?settings=premium&checkout=done");
+    const cancelUrl = returnUrl("/settings?settings=premium");
+    if (priceId === null || key === null || successUrl === null || cancelUrl === null) {
       return await fail(ctx, args.sessionId, "NOT_CONFIGURED");
     }
 
@@ -122,8 +134,8 @@ export const createCheckoutSession = internalAction({
       "line_items[0][price]": priceId,
       "line_items[0][quantity]": 1,
       client_reference_id: String(args.sessionId),
-      success_url: returnUrl("/settings?settings=premium&checkout=done"),
-      cancel_url: returnUrl("/settings?settings=premium"),
+      success_url: successUrl,
+      cancel_url: cancelUrl,
       "subscription_data[metadata][workspaceId]": String(session.workspaceId),
       // Selection is ours to keep, not Stripe's to price — sent so an invoice
       // is readable by a human, never read back as an entitlement.
@@ -228,12 +240,15 @@ export const createPortalSession = internalAction({
     }
 
     const key = await apiKey(ctx);
-    if (key === null) return await fail(ctx, args.sessionId, "NOT_CONFIGURED");
+    const backTo = returnUrl("/settings?settings=premium");
+    if (key === null || backTo === null) {
+      return await fail(ctx, args.sessionId, "NOT_CONFIGURED");
+    }
 
     try {
       const created = await stripePost(key, "/billing_portal/sessions", {
         customer: session.stripeCustomerId,
-        return_url: returnUrl("/settings?settings=premium"),
+        return_url: backTo,
       });
       const url = typeof created.url === "string" ? created.url : null;
       if (url === null) return await fail(ctx, args.sessionId, "NO_URL");

@@ -154,12 +154,28 @@ somebody's published incident:
 which would be a free upgrade for anybody who can find the URL and is exactly
 the shape of mistake that ships because it makes a staging environment work.
 
-Delivery is at-least-once and out of order, so the plan row carries both the
-last event id and the last event's `created`: the id makes a redelivery a
-no-op, and the timestamp makes an older event arriving after a newer one a
-no-op too. Without the second, a retried `subscription.updated` from before a
-cancellation quietly re-activates a cancelled plan — the failure nobody notices
-until they are still being served after cancelling.
+Delivery is at-least-once and out of order, so the plan row carries the newest
+`created` it has applied **and every event id applied at that second**.
+
+The first version of this carried one id and compared with a strict `<`, and
+this document claimed that prevented a cancelled plan coming back. It did not,
+and the hole was precisely where Stripe stamps a cancellation pair, because
+`updated` and `deleted` are emitted together:
+
+```
+evt_upd (T, active)  applied → last id = evt_upd
+evt_del (T, deleted) applied → last id = evt_del, plan canceled
+evt_upd (T) retried  → a different id, and T < T is false → APPLIED
+                     → plan active again, both entitlements restored
+```
+
+A retry is freshly signed, so the signature's five-minute tolerance does not
+bound it: it can arrive anywhere in Stripe's multi-day retry schedule. Widening
+to `<=` is not the fix either — it drops the legitimate `deleted` when `updated`
+arrives first in the same second, which is the ordinary ordering. So the set is
+appended to while the second matches and replaced when it moves, which is also
+what bounds it: its size is the number of events Stripe emits for one
+subscription inside one second.
 
 **A status word this build has never heard of is `unknown`, and `unknown`
 serves nothing.** Never `active`, which would be an entitlement bought by a
@@ -171,6 +187,24 @@ second mapped a paid checkout onto `unknown`, so somebody who had just paid
 would have seen nothing happen. It was written that way round first and
 `billing.test.ts` caught it; a session is now judged on its own words and turns
 the plan on only where Stripe says it completed **and** was paid for.
+
+## The API version pins outbound calls and nothing else
+
+`Stripe-Version` on a request we make fixes the shape of what comes back. It
+does **not** fix the shape of a webhook payload: that is decided by the
+endpoint's version, falling back to the account's, and there is no header on an
+inbound request to pin because the request is Stripe's.
+
+That distinction is not academic. `current_period_end` moved off the
+subscription and onto `items.data[].current_period_end` in the `2025-03-31`
+versions, so a deployment whose endpoint is on a current version would yield
+`currentPeriodEnd: undefined` and the console's renewal line would silently
+vanish. `stripeEventFacts` therefore reads **both shapes**.
+
+**Pinning the endpoint's own API version is a deployment step**, not something
+this code can do for itself. Set it on the webhook endpoint in Stripe to the
+version named in `STRIPE_API_VERSION`, and treat a bump as a change that needs
+the reader checked — the same way an account-level bump would.
 
 ## A third route factory, and why it is enumerated separately
 
@@ -201,12 +235,16 @@ not fit, which is how an enumeration stops meaning anything.
   The console shows a note count and says in words that stored bytes are not
   metered yet, because a bar drawn against a denominator nobody measured is a
   more confident lie than the sentence admitting it.
-- **Cancelling a subscription when a workspace is deleted.**
-  `deleteWorkspaceCascade` does not touch `workspacePlans`, so deleting a
-  context with a live subscription leaves the card being charged. This is the
-  most urgent thing on this list and is named here rather than half-done: the
-  right fix schedules a cancellation at Stripe before the row goes, and that is
-  a call this branch could not test.
+- **A cancellation Stripe refuses.** Deleting a context now schedules
+  `cancelSubscription` before the row carrying the id is deleted — it had to,
+  because `startPortal` is the only cancellation path in the product and it is
+  reached from that context's own Premium section, so deleting the context
+  otherwise billed the customer every month with no route to stop it. What is
+  *not* handled is that call failing: there is no row left to record a status
+  on, so it is logged and lost, and a subscription Stripe refused to cancel
+  stays live with nothing here naming it. Closing that needs a place to park the
+  obligation that outlives the workspace, which is a table this design does not
+  have.
 - **Proration, plan changes, coupons, tax, multi-currency, invoices in the
   app.** All of them live at Stripe, which is where the payment UI deliberately
   went.

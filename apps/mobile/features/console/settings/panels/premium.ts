@@ -129,8 +129,34 @@ export interface PremiumCopy {
  * The heading answers "what is this context on", the paragraph answers "what
  * does that mean for me right now". Neither mentions the exit, because the
  * exit has its own line that every state gets.
+ *
+ * ## `past_due` is not a member's business, and it was
+ *
+ * The money fields are owner-only on the wire — `stripeCustomerId`, the renewal
+ * date, the note census — but the *copy* was not, and `past_due` said "The last
+ * payment did not go through … update the card and it comes straight back" to
+ * every member of a shared workspace. That is somebody's card being declined,
+ * addressed in the second person to people who do not hold it and cannot act on
+ * it, on a screen they can open at any time.
+ *
+ * `canceled` and `none` are legitimately member-relevant — what a context is
+ * entitled to affects everybody in it — so only `past_due` narrows, and it
+ * narrows to the `canceled` wording: what Premium adds is off, nothing is
+ * deleted, and an owner is the one who can change it.
  */
-export function describePremium(state: PremiumState): PremiumCopy {
+export function describePremium(
+  state: PremiumState,
+  /** False for a member. Defaults to the owner's view for callers with one. */
+  canManage = true,
+): PremiumCopy {
+  if (state === "past_due" && !canManage) {
+    return {
+      title: "Premium is not active for this context",
+      blurb:
+        "What Premium adds is off. Nothing has been deleted and nothing will be — " +
+        "an owner of this context can turn it back on.",
+    };
+  }
   switch (state) {
     case "premium":
       return {
