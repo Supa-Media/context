@@ -116,6 +116,7 @@ function mockConsoleData(): never {
     toggleFolder: () => {},
     selectedPath: null,
     select: () => {},
+    deselect: () => true,
     editor: emptyEditor,
     setDraft: () => {},
     save: () => {},
@@ -333,7 +334,7 @@ describe("on a phone", () => {
     expect(app.find("bottom-bar-meeting")).not.toBeNull();
     expect(app.find("bottom-bar-separator")).not.toBeNull();
     // And the account, pinned at the leading end of the top row.
-    expect(app.find("account-sign-out")).not.toBeNull();
+    expect(app.find("account-menu")).not.toBeNull();
 
     // The bottom edge is one of the two, never both — `frame.ts`'s invariant.
     expect(app.find("console-status")).toBeNull();
@@ -444,7 +445,7 @@ describe("on a phone", () => {
 
     // Leading: the account. Trailing: the capsule with the note's own actions,
     // which is `noteChrome.test.ts`'s.
-    expect(app.find("account-sign-out")).not.toBeNull();
+    expect(app.find("account-menu")).not.toBeNull();
 
     // The contexts are on the screen, and not in the bar. `topBarCompact` is
     // the bar's own testID-free container, so the check is the band: the strip
@@ -453,7 +454,7 @@ describe("on a phone", () => {
     expect(strip).not.toBeNull();
     expect(strip!.closest('[data-testid="nav-band"]')).not.toBeNull();
     expect(strip!.closest('[data-testid="app-frame"] > div')).not.toBe(
-      app.find("account-sign-out")!.closest('[data-testid="app-frame"] > div'),
+      app.find("account-menu")!.closest('[data-testid="app-frame"] > div'),
     );
 
     // The two controls that used to be here, and the chip that never was.
@@ -600,10 +601,11 @@ describe("search", () => {
  * Against a green baseline of **172 suites / 3,285 tests**
  * (`npx jest --watchman=false`): returning the pinned account's pressable to
  * `padding: 4` — a 34pt target around a 34pt mark, which is what it shipped as
- * — fails **1 test**, `sign-out is reachable, and is a target a thumb can hit`,
- * and nothing else. That is the whole of the coverage on the only sign-out
- * control this product has on a phone, which is why it is asserted from
- * `layout.minTouchTarget` rather than from a literal.
+ * — fails **1 test**, `sign-out is reachable through the account menu, and the
+ * trigger is a target a thumb can hit`, and nothing else. That is the whole of
+ * the coverage on the only sign-out control this product has on a phone,
+ * which is why it is asserted from `layout.minTouchTarget` rather than from a
+ * literal.
  */
 describe("the phone reaches a destination with nothing opened first", () => {
   test("a context is one press in the band, and the press raises no panel", () => {
@@ -655,31 +657,46 @@ describe("the phone reaches a destination with nothing opened first", () => {
     app.unmount();
   });
 
-  test("sign-out is reachable, and is a target a thumb can hit", () => {
+  test("sign-out is reachable through the account menu, and the trigger is a target a thumb can hit", () => {
     /*
       **It is the only sign-out control in the product**, and before the panels
       went it was at the foot of the rail — this test used to press
       `frame-nav-toggle` to reach it. There is no toggle and no rail on a phone;
       it lives behind the pinned account slot, in the corner of the glass that
-      is always visible, and is reached with no press at all.
+      is always visible.
 
-      44pt on both axes, from the token rather than from a literal. The mark
-      inside it is 34 (`layout.accountAvatar`) and that is legal — what a thumb
-      hits is the pressable, and this is the one control here somebody reaches
-      for deliberately and must not miss.
+      **It used to be reached with no press at all** — `account-sign-out` was
+      the avatar's own pressable, and pressing it signed out directly. That was
+      the bug this test's sabotage record predates: on a clean queue,
+      `useSignOutFlow` raises no confirmation, so the one thing reachable
+      without a press was also the one thing nothing should do by accident.
+      The avatar now opens a menu; this test presses through it rather than
+      finding the row already on screen.
+
+      The trigger is 44pt on both axes, from the token rather than from a
+      literal — what a thumb hits is the pressable, and this is the one
+      control here somebody reaches for deliberately and must not miss. The
+      row inside the menu is a `Modal` portal (`react-native-web`), so it is
+      searched for in `document.body` rather than through `app.find`, which is
+      scoped to this test's own container.
     */
     mockPathname = "/console";
     const app = mountConsole(390);
 
-    const signOut = app.find("account-sign-out");
-    expect(signOut).not.toBeNull();
+    const trigger = app.find("account-menu");
+    expect(trigger).not.toBeNull();
     // Named, not just present: an icon carries nothing to a screen reader and
     // there is no menu and no keymap here to reach it by instead.
-    expect(signOut!.getAttribute("aria-label")).toBe("@seyi — sign out");
+    expect(trigger!.getAttribute("aria-label")).toBe("@seyi — account menu");
 
-    const box = window.getComputedStyle(signOut!);
+    const box = window.getComputedStyle(trigger!);
     expect(Number.parseFloat(box.width)).toBeGreaterThanOrEqual(layout.minTouchTarget);
     expect(Number.parseFloat(box.height)).toBeGreaterThanOrEqual(layout.minTouchTarget);
+
+    app.press(trigger);
+    const signOut = document.body.querySelector<HTMLElement>('[data-testid="account-sign-out"]');
+    expect(signOut).not.toBeNull();
+    expect(signOut!.textContent).toContain("Sign out");
 
     app.unmount();
     mockPathname = "/console/@seyi";
@@ -691,7 +708,7 @@ describe("the phone reaches a destination with nothing opened first", () => {
     // assertion above.
     const app = mountConsole(1440);
     expect(app.find("rail-sign-out")).not.toBeNull();
-    expect(app.find("account-sign-out")).toBeNull();
+    expect(app.find("account-menu")).toBeNull();
     app.unmount();
   });
 });

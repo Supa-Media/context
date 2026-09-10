@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -11,12 +11,14 @@ import { ContextRowMenu, RightClickTarget } from "./ContextRowMenu";
 import { PressRow } from "../design/components/Button";
 import { Dot } from "../design/components/Dot";
 import { Icon, type IconName } from "../design/components/Icon";
+import { Menu } from "../design/components/Menu";
 import { Text } from "../design/components/Text";
 import { gradient } from "../design/css";
 import { layout, radii, space } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { offerOwnContext } from "../onboarding/route";
 import { atName } from "./format";
+import type { MenuItem } from "./files/menu";
 import { selectContextRoute, type ConsoleRoute } from "./nav";
 import { isOwnBrain, railSections } from "./rail";
 import type { ConsoleData } from "./types";
@@ -566,6 +568,30 @@ function RailEntry({
  * inside it stays 26. That is `accountAvatar`'s own rule — "what a thumb hits
  * is the pressable around it, and the caller pads to the floor" — actually
  * applied; it used to pad by 4, which is 34, which is under the floor.
+ *
+ * ## The corner used to be two controls, and one of them signed you out on one press
+ *
+ * The paragraph above is still true of the *target*; it stopped being true of
+ * what the corner drew. It was two 44×44 pressables 4pt apart — a gear that
+ * opened Settings, and the avatar itself, whose `onPress` was `onSignOut`
+ * directly. "The setting button should be merged with the person icon, right
+ * now all it does is sign you out" — and on a clean queue, `useSignOutFlow`'s
+ * `requestSignOut` raises no confirmation at all (`if (warning === null) {
+ * signOutNow(); return; }`), so that corner tap ended the session with no
+ * question asked. Two deliberate presses (open the menu, then choose) *is*
+ * the missing confirmation for that case, not a decoration added beside it.
+ *
+ * `compact` is one pressable now, holding the avatar, opening a `Menu` with
+ * both actions in it — the same disclosure menu `Explorer.tsx`'s right-click
+ * and long-press already draw from, reused rather than reinvented, per
+ * `docs/decisions/app-and-console.md`. **The harm the two-control layout
+ * caused was a control that ambiguously did one thing or the other depending
+ * on which 44×44 square a thumb landed in**; a menu with two rows that say
+ * the words is strictly more explicit than a coloured disc whose only
+ * disambiguation was an `aria-label` nobody speaking to a screen reads twice
+ * a session. Fixing "one control, two meanings" by drawing it as one control
+ * with a disclosure step is the same shape `Menu.tsx`'s own header argues for
+ * a destructive row: say what it is before it happens, not after.
  */
 export function AccountBlock({
   name,
@@ -597,28 +623,13 @@ export function AccountBlock({
   if (compact) {
     return (
       <View style={styles.accountPinned}>
-        {onOpenSettings === undefined ? null : (
-          <PressRow
-            accessibilityLabel="Settings"
-            onPress={onOpenSettings}
-            radius={radii.pill}
-            style={styles.avatarOnly}
-            hoverStyle={styles.entryHover}
-            testID="account-settings"
-          >
-            <Icon name="gear" size={17} />
-          </PressRow>
-        )}
-        <PressRow
-          accessibilityLabel={`${name} — sign out`}
-          onPress={onSignOut}
-          radius={radii.pill}
-          style={styles.avatarOnly}
-          hoverStyle={styles.entryHover}
-          testID="account-sign-out"
-        >
-          <Avatar initial={initial} />
-        </PressRow>
+        <AccountMenuTrigger
+          name={name}
+          detail={detail}
+          initial={initial}
+          onSignOut={onSignOut}
+          onOpenSettings={onOpenSettings}
+        />
       </View>
     );
   }
@@ -673,6 +684,99 @@ export function Avatar({ initial }: { initial: string }) {
     >
       <Text style={styles.avatarInitial}>{initial}</Text>
     </View>
+  );
+}
+
+/** The two things `compact`'s single control can do. */
+type AccountMenuActionId = "settings" | "signOut";
+
+/**
+ * The compact corner, merged into one disclosure control.
+ *
+ * See `AccountBlock`'s own doc comment for why this replaced two adjacent
+ * pressables — this is the "how". `Menu`/`Menu.web` are generic in their own
+ * id union (`features/console/files/menu.ts`'s `MenuItem<Id>`) for exactly
+ * this: the sheet and the popover both already exist, both already pick the
+ * right one for the width, and reusing them is the point rather than a third
+ * menu idiom (`ContextRowMenu` is the file tree's own bespoke one, and this is
+ * not a file's menu).
+ */
+function AccountMenuTrigger({
+  name,
+  detail,
+  initial,
+  onSignOut,
+  onOpenSettings,
+}: {
+  name: string;
+  detail?: string;
+  initial: string;
+  onSignOut: () => void;
+  onOpenSettings?: () => void;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [open, setOpen] = useState(false);
+  /**
+   * Where the popover appears, on a pointer.
+   *
+   * Touch ignores this entirely (`Menu.web.tsx` picks the sheet under
+   * `layout.narrowBreakpoint`, and `Menu.tsx`'s native sheet never reads
+   * `anchor` at all) — it matters only for the collapsed pointer rail's
+   * `compact` (`mode === "icons"` in `console/_layout.tsx`), where this
+   * button sits wherever the rail is, not in a fixed corner. Measured at
+   * press time rather than carried from layout, the same way `Explorer.tsx`
+   * and `TabStrip.tsx` capture a row's position for their own context menus:
+   * a value computed once at render and reused across presses would still be
+   * right the first time and stale after the rail scrolls.
+   */
+  const triggerRef = useRef<View>(null);
+  const [anchor, setAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
+
+  const items: MenuItem<AccountMenuActionId>[] = [];
+  if (onOpenSettings !== undefined) {
+    items.push({ id: "settings", label: "Settings…", testID: "account-settings" });
+  }
+  items.push({ id: "signOut", label: "Sign out", danger: true, testID: "account-sign-out" });
+
+  return (
+    <>
+      <View
+        ref={triggerRef}
+        // Measurement only: an unstyled `View` sizes to its one child, so
+        // this adds no second box around the 44×44 pressable below.
+      >
+        <PressRow
+          accessibilityLabel={`${name} — account menu`}
+          onPress={() => {
+            triggerRef.current?.measureInWindow((x, y, _width, height) => {
+              setAnchor({ x, y: y + height });
+            });
+            setOpen(true);
+          }}
+          radius={radii.pill}
+          style={styles.avatarOnly}
+          hoverStyle={styles.entryHover}
+          testID="account-menu"
+          ariaHasPopup="menu"
+          ariaExpanded={open}
+        >
+          <Avatar initial={initial} />
+        </PressRow>
+      </View>
+      {open ? (
+        <Menu<AccountMenuActionId>
+          items={items}
+          title={name}
+          titleDetail={detail}
+          anchor={anchor}
+          onSelect={(id) => {
+            if (id === "settings") onOpenSettings?.();
+            else onSignOut();
+          }}
+          onDismiss={() => setOpen(false)}
+        />
+      ) : null}
+    </>
   );
 }
 

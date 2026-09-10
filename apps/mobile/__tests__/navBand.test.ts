@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, test } from "@jest/globals";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { CurrentContextPill } from "../features/console/ContextStrip";
+import { ContextStrip, CurrentContextPill } from "../features/console/ContextStrip";
 import { NavBand, NavBandProvider } from "../features/console/NavBand";
 import type { ConsoleContext } from "../features/console/types";
 
@@ -142,15 +142,26 @@ describe("the context you are in", () => {
 
   /**
    * The way up, which is the whole reason the button exists rather than a
-   * label. Pressing it opens the context at its **root** — not at the place the
-   * device last had open there, which for the context you are standing in is
-   * where you already are.
+   * label. `onOpenRoot` stays `() => void` at this layer regardless of what a
+   * caller does with the press — `NavBand`/`ContextStrip` do not know or care
+   * whether that is a navigation or not — so this only proves the wiring:
+   * exactly one press, exactly one call.
    *
-   * SABOTAGE: `onOpenRoot` wired to `contextHrefFrom` instead of `browseHref`
-   * in the layout. Not caught here (this test owns the press, not the href) —
-   * `lastPlaceConsole.test.ts` owns that half, which is why both exist.
+   * **What used to be asserted here was stronger than the prop actually
+   * promises**, and the strength was wrong: this test's own name read "presses
+   * to somewhere, and that somewhere is asked for", on the assumption that
+   * `onOpenRoot` necessarily produces a navigation. It no longer does —
+   * `console/_layout.tsx` calls `data.files.deselect()` directly, and there is
+   * no "somewhere" to ask for, on purpose (see `breadcrumbRoot.test.ts`, "the
+   * press calls deselect and makes no router call"). A test at this layer
+   * cannot see that distinction either way, since `mountBand` supplies its own
+   * stub handler rather than the layout's real one — which is exactly why it
+   * must not claim more than "the button calls its prop".
+   *
+   * SABOTAGE: the press handler wired to fire twice (once on `mousedown`,
+   * once on `click`). Fails here.
    */
-  test("presses to somewhere, and that somewhere is asked for", () => {
+  test("presses call the handler once, whatever it does", () => {
     const opened: number[] = [];
     const band = mountBand({}, () => opened.push(1));
     band.press("nav-context-seyi");
@@ -242,5 +253,47 @@ describe("the band's two rows", () => {
     const band = mountBand({ contexts: null });
     expect(band.find("nav-band")).not.toBeNull();
     expect(band.find("nav-context-seyi")).not.toBeNull();
+  });
+
+  /**
+   * **The head of the path is quieter than the switcher above it.**
+   *
+   * Row one means "go there"; the head at the front of row two means "you are
+   * here" — the same fact `pillCurrent`'s fill already states in colour, which
+   * is what made drawing both at the same size and with the same shadow read
+   * as one control repeated rather than two different ones. Both rows are
+   * mounted for real here — `ContextStrip` for the switcher, `NavBand` for the
+   * head — rather than compared against a literal, so a change to either
+   * pill's actual rendered style is what this reads.
+   *
+   * SABOTAGE: `head && styles.pillHead` dropped from `Pill`'s style array —
+   * the whole variant reverted, as if `head` were accepted and never drawn.
+   * Fails here, and only here: `head` and `current` set disjoint properties
+   * (size/shadow/radius versus background), so — checked, not assumed —
+   * reordering the two against each other changes nothing this test or any
+   * other can see; dropping the styles entirely is the mutation this guard
+   * actually answers for.
+   */
+  test("the head of the path is quieter than the switcher above it", () => {
+    const strip = mount(
+      createElement(ContextStrip, {
+        contexts: [context({ slug: "supa", id: "ws_supa" })],
+        currentSlug: null,
+        recent: [],
+        loading: false,
+        onOpen: () => {},
+        onSelect: () => {},
+      }),
+    );
+    const stripMark = strip.need("mark-context-strip-supa");
+
+    const band = mountBand();
+    const headMark = band.need("mark-nav-context-seyi");
+
+    const stripHeight = Number.parseFloat(getComputedStyle(stripMark).height);
+    const headHeight = Number.parseFloat(getComputedStyle(headMark).height);
+    expect(headHeight).toBeLessThan(stripHeight);
+
+    expect(getComputedStyle(headMark).boxShadow).toBe("none");
   });
 });

@@ -103,13 +103,18 @@ import { Text } from "./Text";
  * The same rule applies again, independently, to a submenu: it opens to the
  * right of its parent and flips to the left when the right has no room.
  */
-export interface MenuProps {
-  items: MenuItem[];
+export interface MenuProps<Id extends string = MenuActionId> {
+  items: MenuItem<Id>[];
   /** Where the pointer was. Web anchors a popover here; touch ignores it. */
   anchor?: { x: number; y: number };
   /** Sheet heading on touch — the file name. Web shows no heading. */
   title?: string;
-  onSelect: (id: MenuActionId) => void;
+  /**
+   * A second line under `title` — the account menu's email under the
+   * signed-in name. Sheet only, same as `title`: the popover shows neither.
+   */
+  titleDetail?: string;
+  onSelect: (id: Id) => void;
   onDismiss: () => void;
 }
 
@@ -155,11 +160,11 @@ const ROW_CHROME = 34;
 const DETAIL_BLOCK = 18;
 
 /** The height one row occupies, which is not the same for every row. */
-function rowHeight(item: MenuItem): number {
+function rowHeight(item: MenuItem<string>): number {
   return ROW_HEIGHT + (item.detail === undefined ? 0 : DETAIL_BLOCK);
 }
 
-function widthFor(items: readonly MenuItem[]): number {
+function widthFor(items: readonly MenuItem<string>[]): number {
   let widest = MIN_WIDTH;
   for (const item of items) {
     const chord = item.shortcut === undefined ? 0 : item.shortcut.length + 3;
@@ -176,14 +181,14 @@ function widthFor(items: readonly MenuItem[]): number {
   return Math.min(MAX_WIDTH, Math.round(widest));
 }
 
-function heightFor(items: readonly MenuItem[]): number {
+function heightFor(items: readonly MenuItem<string>[]): number {
   const rules = items.filter((item) => item.separatorBefore === true).length;
   const rows = items.reduce((total, item) => total + rowHeight(item), 0);
   return PADDING * 2 + BORDER * 2 + rows + rules * SEPARATOR_BLOCK;
 }
 
 /** How far below the top of the box a given row's own top edge sits. */
-function offsetOfRow(items: readonly MenuItem[], index: number): number {
+function offsetOfRow(items: readonly MenuItem<string>[], index: number): number {
   let offset = PADDING + BORDER;
   for (let at = 0; at < index; at += 1) {
     if (items[at].separatorBefore === true) offset += SEPARATOR_BLOCK;
@@ -287,6 +292,7 @@ function Row({
   focused = false,
   onActivate,
   onHover,
+  testID,
 }: {
   id: string;
   label: string;
@@ -304,6 +310,8 @@ function Row({
   focused?: boolean;
   onActivate: () => void;
   onHover?: () => void;
+  /** `MenuItem.testID`, or the `menu-item-<id>` default. */
+  testID?: string;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -314,7 +322,7 @@ function Row({
     <Pressable
       role="menuitem"
       accessibilityLabel={accessibilityLabel ?? label}
-      testID={`menu-item-${id}`}
+      testID={testID ?? `menu-item-${id}`}
       onPress={onActivate}
       onHoverIn={() => {
         setHovered(true);
@@ -374,7 +382,7 @@ function ItemRow({
   onActivate,
   onHover,
 }: {
-  item: MenuItem;
+  item: MenuItem<string>;
   touch: boolean;
   focused?: boolean;
   onActivate: () => void;
@@ -392,6 +400,7 @@ function ItemRow({
       focused={focused}
       onActivate={onActivate}
       onHover={onHover}
+      testID={item.testID}
     />
   );
 }
@@ -400,7 +409,13 @@ function ItemRow({
 /*                                  the sheet                                 */
 /* -------------------------------------------------------------------------- */
 
-function Sheet({ items, title, onSelect, onDismiss }: MenuProps) {
+function Sheet<Id extends string = MenuActionId>({
+  items,
+  title,
+  titleDetail,
+  onSelect,
+  onDismiss,
+}: MenuProps<Id>) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   /**
@@ -411,7 +426,7 @@ function Sheet({ items, title, onSelect, onDismiss }: MenuProps) {
    * copy of a page on screen: the parent is looked up again every render, and
    * an id that no longer exists collapses back to the first page.
    */
-  const [openId, setOpenId] = useState<MenuActionId | null>(null);
+  const [openId, setOpenId] = useState<Id | null>(null);
   const insets = useSafeAreaInsets();
 
   const parent = items.find((item) => item.id === openId && item.items !== undefined) ?? null;
@@ -438,16 +453,28 @@ function Sheet({ items, title, onSelect, onDismiss }: MenuProps) {
 
           {parent === null ? (
             title === undefined ? null : (
-              <Text
-                variant="rowSub"
-                numberOfLines={1}
-                role="heading"
-                aria-level={2}
-                testID="menu-title"
-                style={styles.title}
-              >
-                {title}
-              </Text>
+              <View style={styles.titleBlock}>
+                <Text
+                  variant="rowSub"
+                  numberOfLines={1}
+                  role="heading"
+                  aria-level={2}
+                  testID="menu-title"
+                  style={styles.title}
+                >
+                  {title}
+                </Text>
+                {titleDetail === undefined ? null : (
+                  <Text
+                    variant="treeMeta"
+                    numberOfLines={1}
+                    testID="menu-title-detail"
+                    style={styles.titleDetail}
+                  >
+                    {titleDetail}
+                  </Text>
+                )}
+              </View>
             )
           ) : (
             /**
@@ -522,12 +549,12 @@ function Panel({
   onHover,
   testID,
 }: {
-  items: readonly MenuItem[];
+  items: readonly MenuItem<string>[];
   box: Box;
   focus: number;
   nodeRef: (node: unknown) => void;
-  onActivate: (item: MenuItem, index: number) => void;
-  onHover: (item: MenuItem, index: number) => void;
+  onActivate: (item: MenuItem<string>, index: number) => void;
+  onHover: (item: MenuItem<string>, index: number) => void;
   testID: string;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -549,13 +576,18 @@ function Panel({
   );
 }
 
-function Popover({ items, anchor, onSelect, onDismiss }: MenuProps) {
+function Popover<Id extends string = MenuActionId>({
+  items,
+  anchor,
+  onSelect,
+  onDismiss,
+}: MenuProps<Id>) {
   const view = useWindowDimensions();
   const rootNode = useRef<HTMLElement | null>(null);
   const subNode = useRef<HTMLElement | null>(null);
 
   /** The submenu's parent, by id, and whether the keyboard is inside it. */
-  const [openId, setOpenId] = useState<MenuActionId | null>(null);
+  const [openId, setOpenId] = useState<Id | null>(null);
   const [inSub, setInSub] = useState(false);
   const [focus, setFocus] = useState(-1);
   const [subFocus, setSubFocus] = useState(-1);
@@ -580,7 +612,7 @@ function Popover({ items, anchor, onSelect, onDismiss }: MenuProps) {
           root.width,
         );
 
-  const close = (id: MenuActionId) => {
+  const close = (id: Id) => {
     onSelect(id);
     onDismiss();
   };
@@ -697,13 +729,21 @@ function Popover({ items, anchor, onSelect, onDismiss }: MenuProps) {
         }}
         testID="menu-root"
         onActivate={(item, index) => {
+          /*
+            `item` is `MenuItem<string>` here — `Panel` is a dumb renderer
+            with no reason to know this menu's own id union — but it is the
+            same object `items` (this closure's `MenuItem<Id>[]`) handed it,
+            so the id genuinely is an `Id`. The cast says only that; it adds
+            no behaviour `Panel`'s own typing does not already guarantee.
+          */
+          const id = item.id as Id;
           if (item.items !== undefined) {
-            setOpenId(openId === item.id ? null : item.id);
+            setOpenId(openId === id ? null : id);
             setInSub(false);
             setFocus(index);
             return;
           }
-          close(item.id);
+          close(id);
         }}
         onHover={(item, index) => {
           setFocus(index);
@@ -711,7 +751,7 @@ function Popover({ items, anchor, onSelect, onDismiss }: MenuProps) {
           setSubFocus(-1);
           // Hovering a row with no submenu closes whatever was open, so the
           // pointer never leaves a stray panel beside a different row.
-          setOpenId(item.items === undefined ? null : item.id);
+          setOpenId(item.items === undefined ? null : (item.id as Id));
         }}
       />
       {parent === null || sub === null ? null : (
@@ -723,7 +763,7 @@ function Popover({ items, anchor, onSelect, onDismiss }: MenuProps) {
             subNode.current = node as HTMLElement | null;
           }}
           testID="menu-sub"
-          onActivate={(item) => close(item.id)}
+          onActivate={(item) => close(item.id as Id)}
           onHover={(_item, index) => {
             setInSub(true);
             setSubFocus(index);
@@ -736,7 +776,7 @@ function Popover({ items, anchor, onSelect, onDismiss }: MenuProps) {
 
 /* -------------------------------------------------------------------------- */
 
-export function Menu(props: MenuProps) {
+export function Menu<Id extends string = MenuActionId>(props: MenuProps<Id>) {
   const { width } = useWindowDimensions();
 
   /**
@@ -789,11 +829,13 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     backgroundColor: colors.lineStrong,
     marginBottom: space.x2,
   },
-  title: {
+  titleBlock: {
     paddingHorizontal: space.x5,
     paddingBottom: space.x2,
-    color: colors.muted,
+    gap: 2,
   },
+  title: { color: colors.muted },
+  titleDetail: { color: colors.muted },
   list: { flexGrow: 0 },
   listContent: { paddingVertical: space.x1 },
 

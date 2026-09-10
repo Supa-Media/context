@@ -41,6 +41,7 @@ import {
   MAX_FOLDER_CRUMBS,
   SEPARATOR_CHARS,
 } from "../features/console/files/crumbs";
+import { phoneRowBudget } from "../features/console/files/Breadcrumb";
 
 /** The labels, in order, with the gap drawn as the character it renders as. */
 function labels(path: string, options?: Parameters<typeof crumbsFor>[1]): string[] {
@@ -416,5 +417,62 @@ describe("protecting the leaf with a character budget", () => {
   test("the char width is a positive, sub-glyph-sized number of points", () => {
     expect(CHAR_WIDTH_PX).toBeGreaterThan(0);
     expect(CHAR_WIDTH_PX).toBeLessThan(20);
+  });
+
+  /**
+   * Fix 3 shrank the pill in front of this row — `layout.crumbPill` (26)
+   * rather than `stripPill` (34), 6pt of padding rather than a switcher
+   * pill's `space.x2*2 + 6 + 8` (padding both sides, the gap before the
+   * label, an 8pt dot), an 11px mono label rather than a 13px body one — and
+   * `phoneRowBudget` is the one place that turns the pill's own footprint
+   * into characters this row may spend on the leaf. This is the real
+   * function, not a re-derived copy of its formula: `Breadcrumb.tsx` pulls in
+   * `react-native`, and this suite otherwise runs in plain node with no
+   * renderer on purpose (see the file comment) — checked directly, that
+   * import alone does not need one, so `phoneRowBudget` is exported and
+   * required here rather than copied.
+   *
+   * The "before" figure is the one thing this test cannot get from the live
+   * function — there is only one `phoneRowBudget`, and it answers for today's
+   * pill. It is `phoneRowBudget`'s own formula with the switcher pill's
+   * numbers substituted by hand, which is what the head's chrome and label
+   * actually were before this fix.
+   *
+   * SABOTAGE: `phoneRowBudget`'s real constants (`pillChromePx`,
+   * `pillLabelPx`) reverted to the "before" values below. MEASURED: at 390pt
+   * with `@public-worship` lit, the leaf comes back shorter than "before" —
+   * this test fails because `after` and `before` converge, which is exactly
+   * what "the fix stopped mattering" looks like here.
+   */
+  test("a narrower head yields more leaf characters for the same path", () => {
+    const windowWidthPx = 390;
+    const contextLabel = "@public-worship";
+    const path = "3-resources/books/reading-notes/the-lean-startup.md";
+
+    const leafFor = (chars: number): string => {
+      const crumbs = crumbsFor(path, { budget: { chars } });
+      const leaf = crumbs[crumbs.length - 1];
+      if (leaf?.kind !== "leaf") throw new Error("expected a leaf crumb");
+      return leaf.label;
+    };
+
+    // `phoneRowBudget`'s other three terms — the row's own margin, the
+    // trailing fade, the flat safety margin — are shared by both figures
+    // below and unaffected by the pill's size, so subtracting them out with
+    // the switcher pill's numbers substituted in reproduces exactly what this
+    // row's budget was before the pill in front of it shrank.
+    const gutterPx = 25 * 2; // `layout.readingMargin`, both sides of the row
+    const fadePx = 24; // `NavBand`'s own trailing falloff
+    const slackPx = 12; // the flat safety margin `phoneRowBudget` argues for
+    const beforeChromePx = 8 * 2 + 6 + 8; // `space.x2*2 + 6 (gap) + 8 (dot)`
+    const beforeLabelPx = contextLabel.length * 7.5; // 13px body, generously
+    const beforeAvailablePx =
+      windowWidthPx - gutterPx - fadePx - beforeChromePx - beforeLabelPx - slackPx;
+    const beforeChars = Math.max(0, Math.floor(beforeAvailablePx / CHAR_WIDTH_PX));
+
+    const before = leafFor(beforeChars);
+    const after = leafFor(phoneRowBudget(windowWidthPx, contextLabel).chars);
+
+    expect(after.length).toBeGreaterThan(before.length);
   });
 });

@@ -338,7 +338,14 @@ export function CurrentContextPill({
         */
         accessibilityLabel={`${atName(context.slug)}, the context you are in — open its root`}
         current
-        leading={<Dot tone={toneForKind(context)} />}
+        /*
+          `head`, not the switcher's mark — see `Pill`'s own comment on the
+          variant. No `leading`: the dot is `toneForKind`'s answer to "tell
+          these contexts apart in a list", and a list of the one context you
+          are standing in tells nothing apart. That is 13pt back for a control
+          this row already keeps quiet.
+        */
+        head
         onPress={onOpenRoot}
         onLongPress={() => setMenuOpen(true)}
         testID={`nav-context-${context.slug}`}
@@ -370,7 +377,7 @@ export function CurrentContextPill({
 }
 
 /**
- * One pill.
+ * One pill — a switcher mark, or the breadcrumb's quieter `head` variant.
  *
  * `flexShrink: 0` is the rule rather than the styling: a flex child in a row
  * shrinks by default, so without it the pills would compress to fit the strip's
@@ -380,16 +387,50 @@ export function CurrentContextPill({
  *
  * **Exported, because the breadcrumb draws one too.** The context you are in is
  * the button at the head of the path (`CurrentContextPill` below), and it has to
- * be the same object as the ones on the strip — same height, same radius, same
- * dot, same target — or the two rows read as two unrelated controls. One pill in
- * the app; a second implementation is how the strip and the breadcrumb come to
- * disagree about what a context looks like.
+ * be the *same component* as the ones on the strip — same target, same file, one
+ * set of rules about truncation and labels — or the two rows come to disagree
+ * about what a context looks like, which is how one of them silently drops a
+ * rule the other keeps. `head` is that pill drawn smaller rather than a second
+ * implementation: the two are no longer styled identically (see below), and the
+ * fix for that was a variant on this component, not a fork of it.
+ *
+ * ## Why the head stopped being sized like the switcher
+ *
+ * They were the same object — `stripPill` 34, `radii.md`, `shadows.floating`,
+ * `wsSwitch` 13px — for as long as the head *was* a switcher pill, moved down a
+ * row when the contexts moved into the scroller (`docs/decisions/app-and-console.md`,
+ * "The contexts moved into the scroller"). That stopped being the right size the
+ * moment the two rows stopped meaning the same thing: row one is "go there", row
+ * two's head is "you are here", and a control for the first drawn identically for
+ * the second reads as the same kind of button in two colours rather than as two
+ * different facts. Measured at 390×844: the head's mark was 68.1×34, 43% of that
+ * width chrome, with a 13px label beside an 11px leaf it was supposed to be part
+ * of the same line as.
+ *
+ * `head` therefore differs from the switcher mark in every way that made it read
+ * as a second switcher: `layout.crumbPill` (26) rather than `stripPill` (34), no
+ * `boxShadow` (the shadow's own justification — "the top row has no surface of
+ * its own" — expired when the strip moved inside the scroller; see `NavBand`'s
+ * header), `radii.xs` rather than `radii.md`, and an 11px mono label matching the
+ * leaf's own size and weight rather than `wsSwitch`'s 13px body face — so colour
+ * is what says "this is the context" and the row reads as one line. And no
+ * `leading`: `toneForKind`'s dot exists to tell contexts apart *in a list*, and a
+ * list of the one context you are standing in has nothing to tell apart.
+ *
+ * **What does not change**: `styles.target` — the pressable stays
+ * `minTouchTarget` on both axes regardless of which mark is inside it, so a
+ * two-character slug's head is still held at 44 by `minWidth` exactly as a
+ * switcher pill is. Nothing truncates, `flexShrink: 0` is unchanged, and
+ * `docs/decisions/app-and-console.md`'s "A context pill's target is not its
+ * mark" is not reversed by any of this — that decision is about the *switcher*
+ * pill, which keeps its 34pt mark and its shadow untouched.
  */
 export function Pill({
   label,
   accessibilityLabel,
   current = false,
   accented = false,
+  head = false,
   leading,
   onPress,
   onLongPress,
@@ -401,6 +442,12 @@ export function Pill({
   current?: boolean;
   /** The claim entry, and only that one. See the file comment. */
   accented?: boolean;
+  /**
+   * The breadcrumb's own mark, not a switcher pill drawn a second time. See
+   * the file comment for the whole argument; only `CurrentContextPill` passes
+   * this.
+   */
+  head?: boolean;
   leading?: React.ReactNode;
   onPress: () => void;
   onLongPress?: () => void;
@@ -422,7 +469,8 @@ export function Pill({
         thumb hits is the pressable around it, and the caller pads to the floor"
         — finally applied here: the mark inside is what somebody sees, and this
         is what they hit. Collapsing the two is how "make the pills smaller"
-        becomes navigation a phone misses.
+        becomes navigation a phone misses. Unaffected by `head`: a quieter mark
+        still needs the same floor under it.
       */
       style={styles.target}
     >
@@ -433,6 +481,16 @@ export function Pill({
           current && styles.pillCurrent,
           accented && styles.pillAccent,
           pressed && styles.pillPressed,
+          /*
+            Last, though it does not have to win over anything here to be
+            correct: `pillHead` sets size, radius and shadow, `pillCurrent`
+            sets only `backgroundColor`, and the two never touch the same
+            property (checked — swapping this order changes nothing
+            `navBand.test.ts` or any other suite can see). Kept last anyway so
+            a future property added to either one fails safe: `head`'s own
+            sizing is the one this pill is actually drawn for.
+          */
+          head && styles.pillHead,
         ]}
         testID={testID === undefined ? undefined : `mark-${testID}`}
       >
@@ -443,10 +501,11 @@ export function Pill({
         comment.
       */}
       <Text
-        variant="wsSwitch"
+        variant={head ? "mono" : "wsSwitch"}
         style={[
           current && styles.pillCurrentLabel,
           accented && styles.pillAccentLabel,
+          head && styles.pillHeadLabel,
         ]}
       >
         {label}
@@ -542,9 +601,16 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * What somebody sees: smaller than the target and squarer than a stadium.
    *
    * A pill lying on the note, the same object the toggle and the capsule beside
-   * it are: `chrome` fill, a floating shadow, a full radius. The top row has no
-   * surface of its own — see `AppFrame`'s `topBarCompact` — so anything on it
-   * that is not drawn as an object has nothing behind it.
+   * it are: `chrome` fill, a floating shadow, a full radius. **"The top row has
+   * no surface of its own, so anything on it that is not drawn as an object has
+   * nothing behind it" was true of this row when it floated in `AppFrame`'s own
+   * `topBarCompact`, and it stopped being true when the strip moved inside the
+   * scroller** (`docs/decisions/app-and-console.md`, "The contexts moved into
+   * the scroller") — row one now sits above the pane's own surface, which is
+   * why `head` (below) can drop this shadow without floating over nothing. The
+   * switcher pill keeps it regardless: it is still read at a glance while
+   * scrolling past whatever is under it, which is exactly the case a floating
+   * mark is for.
    *
    * The owner asked for both, off a real recording — "smaller and squarer" so
    * more workspaces are on screen at once — and the horizontal saving is where
@@ -567,6 +633,22 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     boxShadow: shadows.floating,
   },
   pillPressed: { backgroundColor: colors.chromePressed },
+  /**
+   * The breadcrumb's head — the same pill, drawn quieter. See `Pill`'s file
+   * comment for the measurement and the full argument; this is the four
+   * property changes it comes down to. Applied last in the style array so it
+   * wins over `pill`'s own sizing rather than merging with it.
+   */
+  pillHead: {
+    height: layout.crumbPill,
+    paddingHorizontal: 6,
+    borderRadius: radii.xs,
+    // Not merely omitted: `pill` sets one, and a later array entry must say
+    // "none" to actually remove it rather than leaving it standing.
+    boxShadow: "none",
+  },
+  /** 11px mono, matching the leaf beside it — see `Pill`'s file comment. */
+  pillHeadLabel: { fontSize: 11, fontWeight: "600", color: colors.accentText },
   /**
    * Where you are.
    *

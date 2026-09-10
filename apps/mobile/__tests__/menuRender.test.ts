@@ -169,7 +169,7 @@ function mountSheet(items: MenuItem[] = sheetItems()): Mounted {
     root.render(
       createElement(ThemeProvider, {
         scheme: "dark",
-        children: createElement(Menu, {
+        children: createElement(Menu<MenuActionId>, {
           items,
           title: "plan.md",
           onSelect: (id: MenuActionId) => selected.push(id),
@@ -476,7 +476,7 @@ function mountPopover(
     root.render(
       createElement(ThemeProvider, {
         scheme: "dark",
-        children: createElement(web.Menu, {
+        children: createElement(web.Menu<MenuActionId>, {
           items,
           anchor,
           onSelect: (id: MenuActionId) => selected.push(id),

@@ -2153,6 +2153,86 @@ note (see **A URL is a context and a note**), so a press that clears `?note=`
 files the context at its root by construction, and the relaunch after it does
 not reopen what was just closed.
 
+**Amendment: the first fix did not hold, because `router.replace` to the same
+screen is a remount, not a no-op.** Everything above is right, `deselect` is
+still the missing verb, and it shipped with `onOpenRoot={() =>
+router.replace(browseHref(current.slug))}` in `_layout.tsx`. On a native
+build the pill still did nothing — reported again, this time filmed on an
+iPhone rather than described from a screenshot.
+
+`router.replace` dispatches a React Navigation `REPLACE` action, and
+`@react-navigation/routers`' `StackRouter` answers every `REPLACE` by calling
+`createRouteFromAction`, which mints a route key from `` `${name}-${nanoid()}` ``
+**unconditionally** — there is no branch that reuses the current key because
+the params did not change. A fresh key remounts whatever that key names, and
+what it names here is `ContextBrowseRoute` — not `_layout`, not
+`ConsoleDataProvider`, not the `FileBrowser` instance underneath it, all of
+which are mounted a layer up and do not move when a child's key changes.
+`useNoteAddress`'s `seen` ref lives on the side that remounts. So the press
+that was supposed to close the note instead: cleared the URL's `?note=`
+(correct), remounted the hook watching it (not requested by anything in the
+fix), reset `seen` to `null`, and handed `nextAddressStep` a "fresh" instance
+holding a leftover selection — which it read as a cold load whose URL simply
+had not caught up yet, and answered `address`, writing the note straight back
+before the closed screen was ever visible. The round trip landed exactly
+where it started, silently, once per press.
+
+Nothing about the first fix's *reasoning* was wrong: `deselect` is still
+exactly the missing verb, and the symmetric rule — a URL that changed is a
+navigation, honoured whichever way it went — is still the right rule for a
+URL that actually needs to *go* somewhere. What was wrong is that the pill's
+press never needed to be a navigation at all: there is no route to leave and
+none to arrive at, only a selection to clear in the browser standing above the
+route. So the call site changed to `onOpenRoot={() => { data.files.deselect();
+}}` — no `router` call, no `REPLACE` action, no remount, no `seen` reset,
+identical on web (where this was never visibly broken; see below) and native.
+`useNoteAddress` sees the selection change under an unchanged URL and takes
+the same "address" step a tapped-closed tab already takes, and the address
+lands one commit later with nothing in between for a remount to corrupt.
+
+Because the *reason* the shipped fix broke — a `seen` reset while the browser
+survives — is a property of `nextAddressStep` and not only of this one call
+site, `noteAddress.ts`'s `fresh` branch no longer trusts the assumption the
+remount violated ("the selection is empty by construction"). It now closes a
+leftover selection instead of re-addressing it, which is provably safe rather
+than merely reasonable: `useFileBrowser` clears `selectedPath` in the same
+commit it adopts a new `contextId`, so a *genuinely* fresh instance can never
+reach that branch holding a non-null selection in the first place — the
+combination is unreachable except through exactly the remount this amendment
+describes. `noteAddress.test.ts`'s "a fresh instance holding a leftover
+selection closes it rather than re-addressing it" pins the new answer, and
+`breadcrumbRoot.test.ts`'s "closes the open note even if the route remounts
+under the press" reproduces the composed bug directly — a route remounted in
+the same commit the URL drops its note — as a standing guard against a future
+call site making the same round trip for the same reason.
+
+**This is not native-only, and the source says so rather than a screenshot
+from the field.** `expo-router`'s `<Slot/>` (`views/Navigator.js`) renders the
+focused route as `descriptors[state.routes[state.index].key].render()`, and
+that `render` — `@react-navigation/core`'s `useDescriptors.js`, one
+implementation, no `.native.js`/`.web.js` split — wraps every screen's element
+in `key: route.key` before handing it back. `StackRouter`'s `REPLACE` handler
+mints that key from `` `${name}-${nanoid()}` `` unconditionally, with no
+branch that reuses the current key when the params it carries are otherwise
+identical. None of this is platform code: it is the same `@react-navigation/
+core` and `@react-navigation/routers` packages under both the native-stack
+view and the web bundle, and React's own reconciliation-by-`key` does not
+special-case a browser. A changed key is a new element on every renderer React
+has. So the remount is not a maybe to be masked by timing — it is a guaranteed
+consequence of calling `router.replace` on this route on **any** platform this
+app ships to, and the symptom it produces (the still-open note, because
+`nextAddressStep` writes it straight back) is not a race either, so there is
+no window in which a faster or slower browser would come out differently.
+
+What is genuinely unverified is only whether anybody happened to *notice*: no
+test in this repository mounts the real `expo-router` navigator against a
+real browser history, and the owner's report came from a native build. Given
+the mechanism, the honest expectation is that a web session pressing the same
+pill hit the identical silent round trip and nobody was looking — not that
+the web platform was ever exempt from it. Treat that absence of a web report
+as absence of evidence, and not as license to reintroduce a `router.replace`
+here on the reasoning that nobody saw it fail in a browser.
+
 #### 2. The path stopped one segment short of where you were
 
 **A phone gets a path bar** (above) argues the leaf away: the note names itself
@@ -2581,3 +2661,151 @@ activity links — reads whatever mailbox is already connected, by hand or on
 a fixture, whether or not this flag is on. Flipping it later changes nothing
 about any of those; it only changes whether the empty state's button does
 something.
+
+### The compact corner was two controls, and one of them was a silent sign-out
+
+"the setting button should be merged with the person icon, right now all it
+does is sign you out." `ConsoleRail.tsx`'s `AccountBlock` drew `compact` as a
+gear and the avatar, 4pt apart, each its own 44×44 `PressRow` — and the
+avatar's `onPress` was `onSignOut` directly. `useSignOutFlow.requestSignOut`
+only raises `Confirm` when the device holds unsent edits; on a clean queue it
+calls `signOutNow()` immediately. So the one control in that corner reachable
+with **no confirmation at all** was also the one a thumb was most likely to
+land on by a few points of error, next to a gear it looked just like.
+
+The fix is not a confirmation dialog bolted onto the avatar — that is a third
+answer to "what happens when I press this" competing with the two the corner
+already gave conflicting cues about. It is one control: the avatar opens a
+menu naming both actions, and choosing one is a second, separate press. Two
+deliberate presses *is* the missing confirmation for the clean-queue case,
+built out of the same mechanism the non-empty-queue case already uses
+(a second gesture before anything happens), rather than a second, different
+mechanism beside it. `useSignOutFlow`'s own `Confirm` dialog is untouched and
+still fires for the non-empty case — this closes the gap on the other side of
+that `if`, not the dialog itself.
+
+**Drawn with `features/design/components/Menu.tsx` / `Menu.web.tsx`, not a
+third menu idiom.** Those two files already are a disclosure menu component
+— a title, danger rows, a Cancel row, a sheet on touch and a popover on a
+pointer picked by `layout.narrowBreakpoint` — built for `Explorer.tsx`'s
+right-click and long-press. They were typed to `menu.ts`'s `MenuActionId`,
+the file tree's own closed action union, which made them look like "the file
+menu's renderer" rather than what they actually are. Widening
+`MenuActionId` itself to fit an account action was the tempting fix and the
+wrong one: `Explorer.tsx`'s `runAction` switches on every member of that
+union, so a case with nothing to do with files would have needed a branch
+there forever, for a menu that file never draws. `MenuItem`/`MenuProps` are
+generic in their own id (`Id extends string = MenuActionId`) instead —
+default-typed so every existing file-menu call site is unchanged, and open to
+a caller with its own two-item union. `MenuItem.testID` is the one other
+addition, because `account-settings` / `account-sign-out` predate this menu
+and are cited by name rather than by the `menu-item-<id>` convention every
+other row uses; `MenuProps.titleDetail` is the other, because the sheet's
+title had nowhere to put an email under a name until this needed one.
+
+**The harm the two-control layout caused, restated for the record, because
+it is also why `accountSettingsControl.test.ts`'s central claim did not
+reverse.** That file used to assert "signing out and opening settings are
+different intentions and must not share a control" — true, and it is still
+true of the *compact* form now that both live behind one press. What made the
+old layout dangerous was never that two things were reachable near each
+other; it was that a coloured disc's only disambiguation from its neighbour
+was an `aria-label` nobody speaking to a screen reads before landing a thumb
+on it — one control, two possible unannounced outcomes depending on four
+points of horizontal error. A menu with two rows that say "Settings…" and
+"Sign out" in words is strictly *more* explicit than that pair of circles
+ever was, which is why sharing a trigger is the fix rather than the
+regression the old sentence would suggest on a literal reading.
+
+**The full (non-`compact`) rail foot is untouched.** `rail-settings` and
+`rail-sign-out` stay exactly as they were — two 28pt targets beside a name,
+which is a rail foot with room, not a 44×44 corner with none. Merging them
+too would be solving a problem that surface does not have.
+
+### The breadcrumb head stopped being a switcher pill when it moved rows
+
+"the button for @seyi is too big." Measured at 390×844: the head mark was
+68.1×34 — 43% of that width chrome (8+8 padding, 6 gap, 7 dot) — carrying a
+13px label beside an 11px leaf it sits on the same line as. It was also,
+literally, the identical object **A context pill's target is not its mark**
+(above) argues for: same `layout.stripPill` 34, same `radii.md`, same
+`shadows.floating`, same `wsSwitch` 13px label. That section is not reversed
+by this one — read again, it is an argument about the **switcher** pill,
+made when the switcher and the breadcrumb's head were the same object worn
+in two places, and it is still correct about that pill today. `stripPill`
+keeps its height and its shadow untouched; `contextStrip.test.ts`'s two
+positive controls for both stay green.
+
+What changed is that the two stopped being the same object the moment
+**The contexts moved into the scroller** (above) put them on two different
+rows meaning two different things: row one is a list of places to switch
+*to*, so each pill needs the full switcher target and a shadow to read as a
+floating control while somebody scrolls past whatever is under it. Row two's
+head is not a list — it is naming the one context you are already standing
+in, beside the path to the note you are reading — and a control drawn
+identically to the list above it reads as "this is also a place to switch
+to", in the wrong colour. Two facts ("go there" and "you are here") drawn as
+the same shape in two colours is weaker than the same shape used once and a
+colour carrying the second fact alone.
+
+So `Pill` gained a `head` variant rather than the breadcrumb growing a second
+pill implementation — that file's own rule is that a second implementation
+is how the strip and the breadcrumb come to disagree about what a context
+looks like, and it was right the first time this was built. `head` differs
+from the switcher mark in exactly the four ways that made it read as a
+second switcher: `layout.crumbPill` (26) rather than `stripPill` (34), no
+`boxShadow`, `radii.xs` rather than `radii.md`, and an 11px mono label
+matching the leaf's own size and weight rather than `wsSwitch`'s 13px body
+face — so colour (`accentDim`/`accentText`, unchanged) is what says "this is
+the context", and the row reads as one line rather than two chrome weights
+stacked on each other. The dot goes too: `toneForKind` exists to tell
+contexts apart *in a list*, and a list of the one context you are standing
+in has nothing left to tell apart.
+
+**Dropping the shadow is itself a small instance of the same lesson**, worth
+naming on its own: `pill`'s own docblock justified `shadows.floating` with
+"the top row has no surface of its own… so anything on it that is not drawn
+as an object has nothing behind it," which was true while this row floated in
+`AppFrame`'s `topBarCompact`. **The contexts moved into the scroller** made
+that premise stop being true for both rows — they now sit above the pane's
+own surface — and the switcher pill keeps the shadow anyway, because it is
+still read at a glance while scrolling past whatever is under it, which is
+exactly the case a floating mark is for. The head has no such case: it does
+not move independently of the text beside it, so the premise that used to
+justify the shadow everywhere on this row now justifies it for only one of
+the two pills on it.
+
+**The target does not move, and this is not a second exception to
+`minTouchTarget`.** `styles.target` stays `layout.minTouchTarget` on both
+axes for `head` exactly as for the switcher — the mark shrank, the pressable
+around it did not, which is `accountAvatar`'s rule applied to a case that
+already had it half right (a smaller mark, a target that was already at the
+floor because `styles.target` never depended on the mark's own size). A
+two-character slug's head is still held at 44 by `minWidth`.
+
+**The visible payoff is a few more characters of the note's own title.**
+`Breadcrumb.tsx`'s `phoneRowBudget` estimates the pill's footprint to decide
+how many characters the leaf may keep before it elides, and it was still
+budgeting for the switcher pill's chrome and label size after this fix —
+`pillChromePx` at `space.x2*2 + 6 + 8` (the padding, the gap, the dot) and
+`pillLabelPx` at a 13px body glyph. Left uncorrected the leaf would still
+truncate at the old, wider pill's width even though the real one had
+shrunk — safe (the bias is to overestimate the room the pill takes, so the
+error only ever costs a folder segment, never the leaf), but it would leave
+on the table exactly the room this fix bought. `pillChromePx` is `6 * 2` now
+(`layout.crumbPill`'s own padding, no dot, no gap for one) and `pillLabelPx`
+is `contextLabel.length * 7.0` (11px mono, the leaf's own face).
+`breadcrumbPath.test.ts`'s "a narrower head yields more leaf characters for
+the same path" pins the direction of that difference against the real
+`phoneRowBudget`, not a re-derived copy of it.
+
+What a simplification of any of this costs: restoring the switcher's
+`stripPill`/`shadows.floating`/`wsSwitch` sizing to the head puts the 68.1pt
+mark back over an 11px leaf; dropping the dot's removal or the label's size
+match puts the two-signals-for-one-fact problem back in a smaller box;
+reverting `phoneRowBudget`'s constants leaves the leaf truncating at the old
+pill's width forever, silently. `navBand.test.ts`'s "the head of the path is
+quieter than the switcher above it" and `breadcrumbPath.test.ts`'s new case
+each fail on their own piece of this and nothing else, and `contextStrip.
+test.ts:518` — the strip pill's own 34pt — is the positive control that
+proves the switcher itself was never touched.
