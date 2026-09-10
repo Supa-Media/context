@@ -485,7 +485,7 @@ fields from anybody whose role is not `owner`, and the console's total treats a
 context it cannot count as an unknown, which makes the sum a floor rather than
 silently dropping it.
 
-### The audit trail's `details` are allow-listed, and its `paths` are not gated at all
+### The audit trail's `details` are allow-listed
 
 `listEvents` is readable by every member, deliberately: the trail exists so the
 people whose notes are involved can see what touched them. That makes the shape
@@ -525,34 +525,121 @@ on the details it actually carries, and adding one is where that happens:
   scope, no client and no third party.
 
 The count is withheld rather than dropped at the call site, so the owner's
-record keeps it. `workspace.structure_applied` is on the list only because its
-`folderCount` equals `paths.length` exactly today; it carries a note to be
-revisited in the same commit that ever withholds `paths`.
+record keeps it. `workspace.structure_applied` was on the list only because its
+`folderCount` equals `paths.length` exactly, with a note to revisit it in the
+commit that ever withheld `paths`. That commit came, and it came off: withhold
+the five scaffolded folder names and publish "5" beside them, and the census is
+back under another name, over a scaffold whose manifest is
+`default_visibility: private`.
 
-**And `paths` is an open leak that this gate does not touch.** Stated here
-rather than left to be rediscovered, because a draft of the code comment
-*defended* it — "the folder is one a member can list" — which is false in
-general and was the most dangerous line in that change. Measured through the
-real actions and the real privacy engine: a read-only member whose `listFiles`
-on `1-projects` correctly returns **zero entries** gets a hidden note's full
-path out of `listEvents` three times over — from `file.create`, from
-`visibility.note` (labelled `visibility: "private"`, so they learn it was
-withheld from them), and from `file.delete`, which records `keysUnder(...)`
+**And `paths` was an open leak that gate did not touch.** It is closed now, but
+the leak is written down rather than quietly deleted, because a draft of the
+code comment once *defended* it — "the folder is one a member can list" — which
+is false in general and was the most dangerous line in that change. Measured
+through the real actions and the real privacy engine: a read-only member whose
+`listFiles` on a private folder correctly returns **zero entries** got a hidden
+note's full path out of `listEvents` three times over — from `file.create`,
+from `visibility.note` (labelled `visibility: "private"`, so they learned it
+was withheld from them), and from `file.delete`, which records `keysUnder(...)`
 expanded at the owner's clearance and therefore names every private sibling.
-That is `audit.ts`'s own module-header example handed to a member.
+That was `audit.ts`'s own module-header example handed to a member.
 
-The fix is a design decision rather than a line, which is why it is open.
-`canSee` needs the privacy manifest, which lives in the customer's bucket, and
-a Convex `query` structurally cannot reach storage — `runFileOperation` is the
-sole member of `CREDENTIAL_BARRIERS`, and this is the same constraint that makes
-`previewForNote` snapshot a folder's children at link time. So the candidates
-are: make `listEvents` an action (losing reactivity, and spending a bucket read
-per trail load); stamp each row's visibility at write time (which a later
-visibility change makes wrong); record the actor's *scope* and withhold `paths`
-on rows written at `private` (same staleness, failing towards over-withholding);
-or withhold `paths` from non-owners outright, which takes the trail's subject
-away from it. Whoever picks one revisits `workspace.structure_applied` in the
-same commit.
+### A row's paths are the reader's own clearance, or the reader's own hands
+
+**The rule.** `listEvents` releases a row's `paths` on exactly two grounds: the
+reader holds `private` clearance — which is `role === "owner"`, the boundary
+`scopeForRole` already draws — or the reader is that row's own actor.
+Everything else comes back with `paths: []` and `pathsWithheld: true`.
+
+**Why identity and not visibility.** The honest gate is
+`canSee(path, scopeForRole(role), …)`, the one `listFiles` runs, and it is not
+reachable from a Convex `query`. `canSee` needs the parsed `privacy.md`,
+`privacy.md` lives in the customer's bucket, and reaching the bucket needs the
+decrypted storage credential — `runFileOperation` is the sole member of
+`CREDENTIAL_BARRIERS` precisely to keep that decrypt in one place, and a query
+cannot call an action at all. The control plane also holds no shadow copy of a
+note's visibility to consult instead, by non-negotiable #1. This is the same
+constraint that makes `previewForNote` snapshot a folder's children at link
+time.
+
+So the gate is the strongest **sound under-approximation** of `canSee` a query
+can make: a path is released only where the reader demonstrably already had it.
+The owner had it by clearance. The actor had it by having supplied it — and a
+row's `paths` are expanded by `keysUnder` at the *actor's* clearance, so a
+member's own row can only ever name what that member could already list. Being
+sound in that direction is the whole point: the failure mode of getting this
+wrong is a member seeing less than they might have, never a member seeing a
+note they were never shown.
+
+The three alternatives, and what each costs:
+
+- **Make `listEvents` an action.** Exact filtering, at the price of the
+  console's reactivity plus a bucket read and a credential decrypt on every
+  trail load. Worth reopening if the trail moves behind an action for other
+  reasons; not worth widening the credential surface for a settings panel.
+- **Stamp each row's visibility at write time.** Cheap, and wrong in the unsafe
+  direction: a note written at `team` and later made `private` keeps its `team`
+  stamp, so the leak survives exactly the act — hiding something — that makes
+  it matter.
+- **Withhold `paths` from every non-owner, own rows included.** Marginally
+  simpler and strictly worse. It takes away "what did my own client just do in
+  my name", which is a member's main reason to open the trail, and buys
+  nothing: the reader supplied those paths.
+
+**What a legitimate member loses, and why it is the right trade.** A member no
+longer sees which note somebody else touched — including `team` notes they can
+read perfectly well, because nothing here can tell those apart from private
+ones. "Who changed my shared note" now stops at "who, and when". That is a real
+loss, and it is the reason this needed a decision rather than a line. It is
+taken because the alternative is a boundary that holds in `listFiles` and leaks
+in the settings panel next to it, and because the loss is recoverable later
+(the action variant above) while a path once shown is not.
+
+**A trail with holes, never one that lies.** The row survives, and
+`pathsWithheld: true` sits beside the empty `paths`. Returning `paths: []`
+alone would claim the event touched nothing, which is false; the flag makes the
+hole legible, so a console can render "a note you cannot see" instead of
+silently nothing.
+
+**The flag is computed from the reader, never from the row.** It is a function
+of the reader's role and whether they are the actor — two facts they already
+know about themselves — and consults neither `paths` nor `action`. So a
+withheld row that named two private notes and a withheld row that named nothing
+come back byte-identical. Raising it only where `paths` was non-empty would
+have been the obvious implementation and would have rebuilt the private-note
+census out of booleans: rows-that-touched-something minus notes-I-can-list.
+`files.test.ts` pins the indistinguishability with two rows inserted at an
+identical `at` and action, one with paths and one without.
+
+**What survives, stated rather than hidden.** A row's *incidence* is still
+visible to every member: action, actor, and timestamp are ungated, so a member
+can still see that the owner created a note at 14:02 and count how many such
+rows there are. That is a weaker signal than the path — it names nothing and
+joins to nothing — but it is genuinely the same family as the counts the detail
+gate withholds, and it is left open on purpose: removing the row is the one
+thing that would make the trail stop answering the question it exists for, and
+"the row vanished" is itself a disclosure with none of the honesty of a marked
+hole. Closing it means gating incidence, which is a separate decision with a
+separate cost, and the same one that `grant.created`'s ungated
+`actorUserId`/`actorClientId`/`at` columns are waiting on.
+
+**A "simplification" of this costs**: folding `readsEveryPath` into the
+`details` boolean (they agree today and are different rules, so a change to
+either would silently move the other); keying the gate on write access rather
+than clearance, which hands every editor the whole trail although
+`scopeForRole` gives an editor `team`; or making the redaction marker depend on
+what the row holds.
+
+**The tests that fail if it is reversed**: in `apps/convex/__tests__`,
+`files.test.ts` → "a member cannot recover a hidden path out of the audit
+trail" builds attacker and victim in **one** database and one workspace — a
+fixture that separates them proves nothing, because the refusal would then come
+from the row not existing — and drives the real actions against a real bucket
+and the real privacy engine; `audit.test.ts` → "a row's paths are the reader's
+clearance or the reader's own hands" covers the control-plane edges, including
+a row with no actor at all, and pins `scopeForRole("owner") === "private"` so
+that a change to the role/clearance mapping fails here rather than silently
+widening the trail.
 
 ### A privacy decision is folded, and the fold only ever narrows
 
