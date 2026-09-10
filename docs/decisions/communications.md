@@ -1335,21 +1335,153 @@ whatever was written intact rather than discarding a partially-written day —
 the day it stopped on is picked up again once the connection's usage has room,
 by the next scheduled pass.
 
-**What phase 1 does NOT wire up, named so it reads as scope rather than a
-gap**: `apps/mcp/src/communications/gmailSync.js` takes its Gmail socket, its
-access token and its `ContextStore` as parameters and is tested end to end
-against a fixture Gmail server and an in-memory store — but nothing yet calls
-it from a live Worker, and nothing yet mints that access token over the
-network. `functions/googleConnect.ts`'s `mintGoogleAccessToken` is a real,
-tested internal action, reachable today only from a test; a live sync needs
-the same two things `/gateway/ingest/binding` already is for the email worker
-— an internet-facing route on the control plane the gateway can call with its
-own secret, and a scheduled trigger on the gateway side to call it — and
-building both is exactly the shape `docs/decisions/search.md` already uses
-for its own phase boundary ("decided here and built in phase 2"). Until then
-the control plane can connect a mailbox and the gateway can render one
-correctly; nothing yet makes the second happen automatically for a real
-person.
+**What phase 1 did NOT wire up — closed 2026-09-10 by the forward sync loop
+below, and left here because the gap it describes was real for three days and
+the shape of the fix is the argument.** `apps/mcp/src/communications/gmailSync.js`
+takes its Gmail socket, its access token and its `ContextStore` as parameters
+and is tested end to end against a fixture Gmail server and an in-memory store
+— but for a while nothing called it at all: the historical backfill that used
+to (#388) was removed, and the reference count went to zero without anybody
+noticing, because a module nothing imports still passes its own tests. What was
+missing was never a pipeline. It was a trigger.
+
+The route it was assumed to need was not needed either. `mintGoogleAccessToken`
+and the storage binding both already live in the control plane, and
+`runFileOperation` is already the one function allowed to open a bucket
+credential — so the loop runs *there*, exactly as the removed backfill did,
+rather than as an internet-facing route the gateway calls with its own secret.
+A second credential-bearing route is a real cost (`__tests__/structure.test.ts`,
+`CREDENTIAL_HTTP_ROUTES`), and this needed none.
+
+### The forward sync loop: a pull, on a floor of five minutes
+
+Built 2026-09-10 (`functions/googleSync.ts`, `crons.ts`), because a person
+could connect Gmail, see a healthy-looking connection, and receive nothing,
+forever. The grant was stored, the `historyId` baseline was recorded, and
+**nothing advanced it**: no cron, no webhook, and the gateway's `scheduled()`
+handler has no `[triggers]` block configured and reaches only the single-tenant
+legacy path when it does fire.
+
+**Why a pull, and not Google's push.** Gmail can push — `users.watch` posts
+change notifications to a Cloud Pub/Sub topic, and Calendar has watch channels.
+Both are rejected for now, and not because they are hard:
+
+- A push path needs a Pub/Sub topic in **our** Google Cloud project, an
+  internet-facing endpoint verified with Google, and per-mailbox
+  re-registration every seven days (`users.watch` expires). That is a second
+  externally-triggered ingress, a second thing to authenticate, and a second
+  thing to rotate — against a control plane whose whole discipline is that
+  exactly one HTTP route may reach a customer credential.
+- It does not remove the poll. A watch that expires, a notification that is
+  dropped, a topic whose subscription lapsed: each is only ever *noticed* by
+  something that polls. Every mature push integration has a reconciliation
+  loop underneath it, so the loop is the part that has to exist first.
+- The notification carries no mail. It says "this mailbox changed"; the client
+  still calls `history.list` and `messages.get`. Push buys latency, not work
+  avoided — and latency is what the interval is for.
+
+So: a pull now, and push later as an *accelerator* that pokes the same pass
+rather than as a second path into the bucket. What that costs is honest and
+worth stating: mail is late by up to one interval. It is never lost, because
+every pass rebuilds each touched day from Gmail's live state.
+
+**Why the floor is five minutes.** The cron ticks at five and the sweep starts
+a pass only where `now >= lastSyncAt + interval`, so one fixed tick serves
+every per-connection frequency; an interval below the tick could not be
+honoured anyway. Five is also where the cost stops being negligible: every pass
+mints or reuses an access token, calls `history.list`, and re-lists and
+re-renders every day a changed message landed on — against Google's quota and
+a Convex action budget, per connection. `apps/desktop/src/main/imessage.ts`,
+the one sync loop in this codebase that has always worked, settled on the same
+five minutes against a *local* SQLite file; this one crosses a network. The
+floor is enforced in the mutation, not the picker: four minutes is refused from
+a console, a script, and a client that has never seen the UI.
+
+**Why the default is fifteen and not the floor.** Mail is not a chat. Three
+passes an hour keeps a brain within a quarter of an hour of the mailbox at a
+third of the floor's cost, and somebody who wants the floor can choose it.
+
+**What a person loses by choosing a longer interval**, in the order it starts
+to matter:
+
+1. **Freshness, linearly.** An hourly connection's brain can be an hour behind.
+   Nothing else changes: the same bytes are written, later.
+2. **Nothing else, until a day.** A day's note is regenerated from the complete
+   current query for that date, so a slow poll writes the same file a fast one
+   would.
+3. **At the far end, actual mail.** Gmail expires a `historyId` after roughly a
+   week. Under a forward-only policy an expired cursor cannot be recovered by a
+   reconcile — there is no backfill to run — so the mail that arrived in the
+   gap is never captured. That is why the maximum is one day rather than a
+   week, and why an expired cursor is written onto the row as a failure a
+   person can read rather than silently re-baselined.
+
+**Forward-only, and what a gap therefore means.** #388's decision stands: a
+pass advances `historyId` from wherever it is, and a connection with no cursor
+takes one from `users.getProfile` and starts *there* — the mail from before
+that moment is not this loop's to collect. The recovery this file documented
+for `gapDetected` ("call `runBackfill` over the connection's window again") no
+longer exists, so the gap is re-baselined forward and recorded as
+`GOOGLE_SYNC_GAP` on the connection, alongside a healthy `active` state,
+because both are true.
+
+**The cursor never advances past mail that was not written.** A quota ceiling
+reached mid-pass, or anything thrown, leaves `historyId` exactly where it was
+and the next pass asks Gmail the same question again. Advancing it would be the
+one defect in this design that loses somebody's mail with nothing to show for
+it, so it has its own check.
+
+**The pass passes no `now`, which is not a detail.** `renderDay` keys a day's
+`updated` to the newest message's own `sentAt` precisely so that re-rendering an
+unchanged day is byte-identical — and `syncOneDay` forwards whatever `now` a
+caller hands it straight through, overriding that. The removed backfill passed a
+wall clock, which a one-shot import survives; a pass that runs every few minutes
+would rewrite every touched day forever, which is churn wearing the costume of
+sync activity. The check that holds it is "re-running the same pass writes no
+new bytes".
+
+**The cron holds no decision**, which is the rule `crons.ts` opens with and the
+one a job that *starts* work has to argue rather than assume. Whether a
+connection may sync at all — still connected, personal context, a product this
+engine can advance, a deployment permitted to read a restricted scope — is the
+connection's own state, re-asked by `googleForwardSyncJob` inside the pass,
+before a credential is opened. The sweep decides only when to look. It also
+claims each row it starts (`syncStartedAt`) and skips anything claimed less than
+fifteen minutes ago, so a pass still running is never overtaken — the same
+heartbeat, and the same fifteen minutes, as `sweepStalledBackfills`.
+
+**A connection that has never synced must not look like one syncing fine.**
+That state is exactly what shipped, so the row now carries `lastSyncAt` (when a
+pass last *finished*, successfully or not — making it mean "last success" would
+leave a permanently failing connection due on every tick), `nextSyncAt`, and a
+`lastSyncFailure*` triple that is **not** cleared by a later success, because
+"did this break overnight?" is a different question from "is it broken now".
+The console reads all of it.
+
+**One account, one schedule — which is what makes Calendar and Chat cheap.**
+The loop's unit is the `googleConnections` row, not a product: one claim, one
+credential mint, one report, and `ENGINE_PRODUCTS` says which products a pass
+walks. Adding Calendar means adding it to that list and giving it a pass beside
+Gmail's in `functions/files.ts`; it needs no second cron, no second claim, and
+no second set of status fields. What each of the two still needs before that is
+true:
+
+- **Calendar** has a sync module (`apps/mcp/src/communications/calendar-sync.js`)
+  whose own comment names this same gap, and a `calendar.syncToken` cursor
+  already declared on the row. What it lacks is an incremental entry point
+  shaped like `runIncrementalSync` — one that takes a `syncToken`, returns the
+  new one, and reports a `410 GONE` (Calendar's equivalent of an expired
+  `historyId`) as a typed gap rather than an error. Its horizon also rolls on a
+  clock rather than on a token, so a pass has a second job Gmail's does not:
+  extending the window forward even when nothing changed.
+- **Chat** pages `spaces.messages.list` by `create_time` **per space**, so its
+  cursor is a map rather than a value. The engine does not care — the cursor
+  lives on the product's own object — but `recordGoogleForwardSyncPass` writes
+  `gmail` specifically today and would need the same per-product branch its
+  reader has. Chat also needs one space's failure not to stall another's, which
+  is a property of its pass rather than of this loop.
+
+Neither is half-built here. Gmail is built properly and the two are named.
 
 ## Calendar
 
