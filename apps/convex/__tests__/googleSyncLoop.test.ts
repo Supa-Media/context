@@ -48,7 +48,7 @@ import {
   MIN_SYNC_INTERVAL_MINUTES,
   SYNC_FAILURE_BACKOFF_MS,
   SYNC_STALL_MS,
-} from "../functions/googleSync";
+} from "../functions/lib/googleSchedule";
 
 const MINUTE = 60_000;
 

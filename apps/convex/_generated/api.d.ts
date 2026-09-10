@@ -57,6 +57,7 @@ import type * as functions_lib_nameClaims from "../functions/lib/nameClaims.js";
 import type * as functions_lib_names from "../functions/lib/names.js";
 import type * as functions_lib_noteCount from "../functions/lib/noteCount.js";
 import type * as functions_lib_noteLinks from "../functions/lib/noteLinks.js";
+import type * as functions_lib_googleSchedule from "../functions/lib/googleSchedule.js";
 import type * as functions_lib_privacy from "../functions/lib/privacy.js";
 import type * as functions_lib_rateLimit from "../functions/lib/rateLimit.js";
 import type * as functions_lib_scaffold from "../functions/lib/scaffold.js";
@@ -133,6 +134,7 @@ declare const fullApi: ApiFromModules<{
   "functions/lib/names": typeof functions_lib_names;
   "functions/lib/noteCount": typeof functions_lib_noteCount;
   "functions/lib/noteLinks": typeof functions_lib_noteLinks;
+  "functions/lib/googleSchedule": typeof functions_lib_googleSchedule;
   "functions/lib/privacy": typeof functions_lib_privacy;
   "functions/lib/rateLimit": typeof functions_lib_rateLimit;
   "functions/lib/scaffold": typeof functions_lib_scaffold;

@@ -64,11 +64,12 @@ import { hashToken } from "./lib/crypto";
 import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
-// The scheduling half of a connection lives in `googleSync.ts` — the loop that
-// advances it — and the console reads both halves off one row. Importing the
-// view rather than re-deriving it here keeps "when is this next due" from
-// having two implementations that can disagree.
-import { syncStatusOf } from "./googleSync";
+// The scheduling half of a connection is the loop's (`googleSync.ts`), and the
+// console reads both halves off one row. The view is imported from the leaf
+// both files share rather than from the loop itself: importing the loop here
+// would close a cycle, and a cycle in this module graph surfaces as an export
+// that is sometimes missing rather than as an error.
+import { syncStatusOf } from "./lib/googleSchedule";
 import {
   createPkcePair,
   exchangeGoogleCode,
