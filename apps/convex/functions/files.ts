@@ -1042,7 +1042,7 @@ export const runFileOperation = internalAction({
     }
 
     if (args.operation.kind === "googleForwardSync" && forwardSyncJob?.kind === "run") {
-      return await runGoogleForwardSync(ctx, store, forwardSyncJob, Date.now());
+      return await runGoogleForwardSync(ctx, store, forwardSyncJob);
     }
 
     const result = await executeOperation(
@@ -1326,7 +1326,6 @@ async function runGoogleForwardSync(
   ctx: ActionCtx,
   store: FileStore,
   job: Extract<ForwardSyncJob, { kind: "run" }>,
-  now: number,
 ): Promise<ForwardSyncResult> {
   const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, {
     connectionId: job.connectionId,
@@ -1378,7 +1377,19 @@ async function runGoogleForwardSync(
       // The same nonce the backfill used, so a day rewritten by either path
       // keeps its message anchors — see `packages/communications/src/note.js`.
       nonce: `gmail:${job.connectionId}`,
-      now: new Date(now).toISOString(),
+      /*
+       * NO `now`, AND THAT IS THE WHOLE POINT OF A LOOP THAT REPEATS.
+       *
+       * `renderDay` defaults `updated` to the latest message's own `sentAt`
+       * precisely so that re-rendering an unchanged day is byte-identical, and
+       * `syncOneDay` forwards whatever `now` a caller passes straight through
+       * to it. The backfill removed by #388 passed a wall clock, which was
+       * survivable for a one-shot import and is not for a pass that runs every
+       * few minutes: every touched day would get a new `updated`, a new write,
+       * and a new etag, forever — churn wearing the costume of sync activity.
+       * Attachment retention is measured against a real wall clock inside
+       * `syncOneDay` regardless, so nothing here loses a clock it needed.
+       */
       quotaBytes: job.quotaBytes,
       bytesAlreadyUsed: job.bytesAlreadyUsed,
       attachmentMode: job.attachmentMode,
