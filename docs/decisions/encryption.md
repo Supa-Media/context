@@ -1112,13 +1112,22 @@ Five consequences, each a decision:
 - **It is offered when encryption is first turned on, not only at the exit.**
   A customer who revokes our credential having never exported has ciphertext
   they cannot open. The same reasoning puts the bucket-versioning advice in the
-  setup guide rather than in the delete dialog. **Not yet wired into the
-  console's own settings screen** — `exportEncryptionKeys` in
-  `apps/convex/functions/encryptionKeys.ts` is built, tested, and owner-gated,
-  but the button that calls it from `SettingsPane.tsx` is deliberately left for
-  a follow-up pass: the console's action-wiring (`ConsoleData` /
-  `StorageActions`) reaches further than this change's tested surface, and a
-  rushed UI change to it is a worse trade than a documented gap.
+  setup guide rather than in the delete dialog. **Wired into the console's own
+  settings screen, in Advanced.** `exportEncryptionKeys` in
+  `apps/convex/functions/encryptionKeys.ts` is called from
+  `apps/mobile/features/console/advanced/useAdvanced.ts`, which builds the
+  versioned document above (`buildKeyExportDocument` in `advanced.ts`, kept in
+  lockstep with `renderKeyExport` by the same field names and the same
+  `apps/mcp/src/encryption.js` shape) and hands it to
+  `settings/panels/AdvancedPanel.tsx`. The console's version of the two-surface
+  argument below: owner-only, two presses before anything leaves the screen
+  (`useArming`, the same control `Disconnect` uses), and a Copy button rather
+  than a file download — React Native has no cross-platform "save a file"
+  primitive, and the JSON is short enough that a clipboard round-trip loses
+  nothing a download would have kept. `ConsoleData.advanced.keyExport` is the
+  whole property, absent — not disabled — for anyone who is not this context's
+  owner and in the read-only landing-page demo, the same rule `StorageActions`
+  states throughout the console.
 
 **The console's export reaches the same barrier the gateway's does, and
 neither is a second cryptosystem.** `exportWorkspaceDataKeys` — a
@@ -1488,12 +1497,14 @@ Convex function has been allowed to hand a credential's plaintext back to its
 own caller on purpose, because this is the one case in the whole system where
 that is the point rather than a bug.
 
-**Does not build:** the console button that calls `exportEncryptionKeys` —
-the action is built, owner-gated, rate-limited and audited, but nothing in
-`apps/mobile` references it, so **the console cannot export a key at all**;
-and any operator tool to purge a retired generation, which is deliberately a
-manual, documented decision rather than code, at least until an owner using
-this in anger asks for one.
+**Does not build:** any operator tool to purge a retired generation, which is
+deliberately a manual, documented decision rather than code, at least until an
+owner using this in anger asks for one. The console button that calls
+`exportEncryptionKeys` **was** on this list — the action shipped built,
+owner-gated, rate-limited and audited, with nothing in `apps/mobile`
+referencing it — until `apps/mobile/features/console/advanced/` wired it into
+the Advanced settings section; see "Revocation and export" above for what that
+wiring is.
 
 **A persisted rotation-walk cursor was added after this shipped, once a
 measured ceiling made the trade this section originally accepted the wrong
@@ -1506,11 +1517,13 @@ design and its measured before/after table; `startWorkspaceKeyRotation` and
 `completeWorkspaceKeyRotation` are unchanged — the control plane still tracks
 only whether a walk may *start*, never how far it has gotten.
 
-**So what can somebody actually reach on the day this merges?** The two MCP
+**So what could somebody actually reach on the day this merged?** The two MCP
 tools, on an owner-tier personal connection, from any client they have
-connected — that is the whole of it, and it is enough for the non-negotiable:
-an owner can ask their assistant to export their keys and get the bundle back
-in the response. The console is not a second door yet, it is no door.
+connected — that was the whole of it, and it was enough for the
+non-negotiable: an owner could ask their assistant to export their keys and
+get the bundle back in the response. The console was not a second door yet, it
+was no door — until `apps/mobile/features/console/advanced/` opened one; see
+"Revocation and export" above.
 
 **And the decryptor is reachable by `git clone`, not by `npx`, until somebody
 dispatches `publish-decryptor.yml`.** The package's README used to open with

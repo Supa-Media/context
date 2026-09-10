@@ -150,6 +150,10 @@ describe("searching the list", () => {
     ["dropbox", "storage"],
     ["rebuild index", "search"],
     ["who can see", "people"],
+    ["shared link", "shares"],
+    ["revoke a link", "shares"],
+    ["audit log", "advanced"],
+    ["export keys", "advanced"],
     /*
       The four somebody types when they are worried. "public" is the one that
       matters most and the one our own vocabulary would never have caught: the
