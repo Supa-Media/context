@@ -171,6 +171,21 @@ describe("searching the list", () => {
     ["dropbox", "storage"],
     ["rebuild index", "search"],
     ["who can see", "people"],
+    /*
+      The four somebody types when they are worried. "public" is the one that
+      matters most and the one our own vocabulary would never have caught: the
+      product has no public tier, so the word appears in no label and in no
+      copy — and a person asking "is any of this public?" is asking the
+      question this section exists to answer.
+    */
+    ["private", "privacy"],
+    ["public", "privacy"],
+    ["hide", "privacy"],
+    ["permissions", "privacy"],
+    ["mac", "devices"],
+    ["laptop", "devices"],
+    ["dark mode", "appearance"],
+    ["light", "appearance"],
   ])("%p opens %p", (query, key) => {
     const hits = matchSettingsSections(settingsSectionsFor("personal"), query).map(
       (section) => section.key,
