@@ -5,6 +5,7 @@ import {
   useWindowDimensions,
   type StyleProp,
   type TextStyle,
+  type ViewStyle,
 } from "react-native";
 import { densityFor } from "../../app/frame";
 import { PressRow } from "../../design/components/Button";
@@ -208,6 +209,13 @@ export function Breadcrumb({
                 name. See `Segment`'s own `titled` prop, below.
               */
               leafStyle={styles.pathLeaf}
+              /*
+                `NavBand`'s row is already `layout.minTouchTarget` tall —
+                `CurrentContextPill`'s own target holds it there — so growing a
+                folder segment's pressable to match costs nothing visible here.
+                See `segmentTouch` and `Segment`'s own `folderStyle` prop.
+              */
+              folderStyle={styles.segmentTouch}
               titled={title !== undefined}
             />
           </Fragment>
@@ -291,11 +299,22 @@ function Segment({
   crumb,
   onSelectFolder,
   leafStyle,
+  folderStyle,
   titled,
 }: {
   crumb: Crumb;
   onSelectFolder?: (folder: string) => void;
   leafStyle: StyleProp<TextStyle>;
+  /**
+   * Extra layout on top of `segment`, for the caller that needs the folder
+   * pressable's own box grown past what it draws — see `pathOnly`'s
+   * `segmentTouch` below. `undefined` everywhere else: the pointer bar's row
+   * is not `minTouchTarget` tall the way `NavBand`'s already is, so growing
+   * its folder segments to the floor would grow the *row*, not just the
+   * target — a visible regression this file has no reason to ship on a
+   * surface a mouse, not a thumb, presses.
+   */
+  folderStyle?: StyleProp<ViewStyle>;
   /**
    * Whether the leaf's label is a title somebody wrote rather than the note's
    * filename — decides the body face below, where `crumb.kind === "leaf"` is
@@ -329,7 +348,7 @@ function Segment({
       accessibilityLabel={`Open ${crumb.path}`}
       onPress={() => onSelectFolder?.(crumb.path)}
       radius={radii.xs}
-      style={styles.segment}
+      style={[styles.segment, folderStyle]}
       hoverStyle={styles.segmentHover}
       testID={`breadcrumb-folder-${crumb.path}`}
     >
@@ -421,7 +440,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * `barCompact` reserves height for a `Button` because the full line used to
    * hold Share; there is no button here — the phone's actions are in the top
    * bar's group — so the row is type on both counts and the floor comes off.
-   * The touch targets are the segments' own, widened by `segment`.
+   * The touch targets are the segments' own, widened by `segmentTouch`.
    *
    * **And no horizontal padding**: `NavBand` pays it for both of its rows, so
    * the pills above this line and the segments on it start at the same
@@ -432,10 +451,16 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   context: { color: colors.text2, fontSize: 11 },
   separator: { color: colors.heroDim, fontSize: 11 },
   /**
-   * The folder segment's own pressable — `layout.crumbSegmentHeight` tall to
-   * the eye (an 11px mono label inside 1pt of vertical padding, 22.15pt), but
-   * `minHeight: layout.minTouchTarget` genuinely: 44, centred, so the drawn
-   * label sits exactly where it did before.
+   * The folder segment's own visual box — `layout.crumbSegmentHeight` tall (an
+   * 11px mono label inside 1pt of vertical padding, 22.15pt), on **every**
+   * density. `segmentTouch`, below, is what a caller adds on top of this for
+   * the one row that can afford to grow the pressable to the touch floor.
+   */
+  segment: { paddingHorizontal: 3, paddingVertical: 1, borderRadius: radii.xs },
+  /**
+   * What `NavBand`'s `pathOnly` row adds to `segment`, via `Segment`'s own
+   * `folderStyle` prop — `minHeight: layout.minTouchTarget`, centred, so the
+   * drawn label sits exactly where it did before.
    *
    * **This used to be `hitSlop`, and it stopped being that.** `hitSlop` is a
    * `Pressable` prop, and react-native-web's `View` drops it from what it
@@ -451,20 +476,23 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    *
    * `minHeight` is a real layout property on both platforms, so hit-testing
    * (native and web) is against the pressable's own actual box rather than a
-   * platform-specific extension of it — no asterisk. It does not grow
-   * `NavBand`'s row: `CurrentContextPill`'s own target (`ContextStrip.tsx`) is
-   * already `minTouchTarget` tall, so the row's cross-axis size — the tallest
-   * child of a `alignItems: "center"` flex row — was 44 before this segment
-   * ever grew to match it; this only stops being the one child shorter than
-   * the row it sits in.
+   * platform-specific extension of it — no asterisk. **It does not grow
+   * `NavBand`'s row**: `CurrentContextPill`'s own target (`ContextStrip.tsx`)
+   * is already `minTouchTarget` tall, so the row's cross-axis size — the
+   * tallest child of an `alignItems: "center"` flex row — was 44 before this
+   * segment ever grew to match it; this only stops being the one child
+   * shorter than the row it sits in.
+   *
+   * **Scoped to `pathOnly` on purpose** — checked live, the other way round,
+   * against the pointer bar's own row (`bar`/`barCompact`, below): that row is
+   * *not* already 44 tall, so an earlier version of this fix applied
+   * `minHeight` to `segment` itself and grew the pointer breadcrumb from
+   * 22.15pt to 44pt — a real, visible regression on a surface a mouse, not a
+   * thumb, presses, and one neither this PR nor the codebase before it ever
+   * shipped. `Segment`'s `folderStyle` prop is what keeps that row out of
+   * reach of this style.
    */
-  segment: {
-    paddingHorizontal: 3,
-    paddingVertical: 1,
-    borderRadius: radii.xs,
-    minHeight: layout.minTouchTarget,
-    justifyContent: "center",
-  },
+  segmentTouch: { minHeight: layout.minTouchTarget, justifyContent: "center" },
   segmentHover: { backgroundColor: colors.surface3 },
   folder: { color: colors.muted, fontSize: 11 },
   leaf: { color: colors.text, fontSize: 11 },

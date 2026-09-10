@@ -672,6 +672,29 @@ describe("the path bar", () => {
     expect(app.container.textContent).toContain("the-lean-startup");
   });
 
+  /**
+   * **The pointer breadcrumb's own row does not grow to the touch floor.**
+   *
+   * `layout.minTouchTarget` is right for `NavBand`'s row because that row is
+   * already 44 tall — `CurrentContextPill`'s own target holds it there — so a
+   * folder segment growing to match costs nothing visible. The pointer bar
+   * makes no such claim: its row is a plain 22.15pt line, and a folder segment
+   * that grew to 44 there would grow the *row*, not just the target — a real,
+   * visible regression on a surface a mouse, not a thumb, presses.
+   *
+   * SABOTAGE: `minHeight: layout.minTouchTarget` moved from `segmentTouch`
+   * back onto `segment` itself in `Breadcrumb.tsx` — the shape an earlier,
+   * broader version of this fix took. Fails here: the pointer segment's
+   * `minHeight` reads 44 instead of the unset value this asserts against.
+   */
+  test("a pointer layout's folder segment stays its own height, not the touch floor", () => {
+    const app = mountConsole(dataWith({}, { path: DEEP, name: "the-lean-startup.md" }), 1200);
+    const segment = app.find("breadcrumb-folder-3-resources");
+    expect(segment).not.toBeNull();
+    const minHeight = Number.parseFloat(getComputedStyle(segment!).minHeight || "0");
+    expect(minHeight).toBeLessThan(layout.minTouchTarget);
+  });
+
   test("and a pointer layout mid-switch draws neither the line nor the note's actions", () => {
     /*
       The same seam as the phone's, and it is worth its own case because the
