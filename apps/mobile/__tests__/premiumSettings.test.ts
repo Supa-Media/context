@@ -89,6 +89,35 @@ describe("reading a plan off the wire", () => {
     }
   });
 
+  test("a member is not told the owner's card was declined", () => {
+    /*
+      The money fields are owner-only on the wire, and this sentence was not:
+      `past_due` said "The last payment did not go through … update the card and
+      it comes straight back" to every member of a shared workspace. That is
+      somebody's card being declined, in the second person, to people who do not
+      hold it and cannot act on it, on a screen they can open at any time.
+    */
+    const asMember = describePremium("past_due", false);
+    expect(asMember.title).not.toMatch(/payment|card/i);
+    expect(asMember.blurb).not.toMatch(/card/i);
+    expect(asMember.blurb).not.toMatch(/payment/i);
+    // Still told the part that affects them — what the context is entitled to.
+    expect(asMember.blurb).toMatch(/off/i);
+    expect(asMember.blurb).toMatch(/nothing has been deleted/i);
+
+    // …and the owner still gets the actionable version, because they can act.
+    expect(describePremium("past_due", true).blurb).toMatch(/card/i);
+  });
+
+  test("the states that are legitimately everybody's business do not narrow", () => {
+    // What a context is entitled to affects every member of it. Only the
+    // sentence about somebody's card narrows, and narrowing more would be
+    // hiding a state from the people living in it.
+    for (const state of ["free", "premium", "canceled", "unavailable"] as const) {
+      expect(describePremium(state, false)).toEqual(describePremium(state, true));
+    }
+  });
+
   test("every state has copy and a decided pill", () => {
     for (const state of PREMIUM_STATES) {
       const copy = describePremium(state);

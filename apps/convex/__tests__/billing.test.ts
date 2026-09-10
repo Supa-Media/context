@@ -35,6 +35,25 @@
  *   `startCheckout` reusing a co-owner's live attempt                    1
  *   `status` letting a malformed price id throw at every reader          1
  *
+ * Added after the adversarial review, run against a committed tree:
+ *
+ *   `lastEventIds` back to one remembered id                             1
+ *   the ordering check widened to `<=` instead                           2
+ *   the id set reset on every apply rather than when the second moves    1
+ *   `setEntitlements` ignoring a live checkout                           1
+ *   the checkout snapshot not restored at activation                     1
+ *   the cascade deleting the plan row without cancelling                 2
+ *   the cascade not sweeping the plan table at all                       3
+ *   `returnUrl` falling back to an empty origin again                0 → 1
+ *
+ * **The `returnUrl` row is 0 → 1 and the 0 is a finding about this file.** The
+ * test seeded no payment key, so the action answered `NOT_CONFIGURED` for the
+ * *missing key* and the assertion passed whatever `returnUrl` did —
+ * reintroducing the empty fallback failed nothing at all. It seeds one now, so
+ * `APP_ORIGIN` is the only thing missing and the only thing the answer can be
+ * about. A test that cannot fail is not evidence, and only the sabotage pass
+ * distinguishes the two.
+ *
  * **The metadata row is the one worth reading twice.** It is not a line that
  * exists to be deleted — nothing here reads a workspace out of an event — so
  * the sabotage was to *write* the vulnerable version: a `workspaceHint` field
@@ -52,10 +71,14 @@ import {
   asUser,
   createUser,
   createWorkspace,
+  seedAppSecret,
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
-import { STRIPE_PRICE_ID_ENV_VAR } from "../functions/lib/premium";
+import {
+  STRIPE_API_KEY_SECRET,
+  STRIPE_PRICE_ID_ENV_VAR,
+} from "../functions/lib/premium";
 import { STRIPE_SIGNATURE_HEADER } from "../functions/lib/stripe";
 
 /** Obviously fake. This repository is public. */
@@ -565,7 +588,18 @@ describe("asking for a checkout URL", () => {
       `APP_ORIGIN` is loud; this was the one place it was papered over, and the
       paper said the wrong thing.
     */
+    /*
+      A PAYMENT KEY IS SEEDED, and that is the whole point of this setup.
+
+      Without one the action answers `NOT_CONFIGURED` for the *missing key*, so
+      the assertion below passes whatever `returnUrl` does — which is how it was
+      written first, and the sabotage pass caught it: reintroducing the empty
+      fallback failed nothing. Everything else this deployment needs is present
+      here, so `APP_ORIGIN` is the only thing missing and the only thing the
+      answer can be about.
+    */
     const t = setupTest();
+    await seedAppSecret(t, STRIPE_API_KEY_SECRET, "sk_test_obviously_fake_key");
     vi.stubEnv(STRIPE_PRICE_ID_ENV_VAR, FAKE_PRICE_ID);
     vi.stubEnv("APP_ORIGIN", "");
     try {

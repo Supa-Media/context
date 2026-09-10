@@ -36,6 +36,10 @@
  *   `usageLine` inventing a byte figure from the note count               1
  *   `describeSessionFailure` rendering an unknown code raw                1
  *
+ * Added after the adversarial review, run against a committed tree:
+ *
+ *   `describePremium` telling a member the owner's card was declined       2
+ *
  * **The first row is 0 → 3 and the 0 is the finding.** The first attempt at it
  * produced unbalanced JSX, so the suite failed to compile rather than failing a
  * test — which reports as a suite error and, to a script counting "Tests: N

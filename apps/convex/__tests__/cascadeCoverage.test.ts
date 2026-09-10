@@ -43,6 +43,19 @@
  * depends on the same one — and breaking either is the thing a reviewer has
  * to notice, because no test here will.
  */
+/*
+ * ## Sabotage record
+ *
+ * Run as temporary local edits against a committed tree and reverted.
+ *
+ *   the obligation derivation matching nothing                          2
+ *   the cascade deleting the plan row without cancelling first          2
+ *   the cascade not sweeping the plan table at all                      3
+ *
+ * The second is the one this guard exists for: it is an *ordering* failure, and
+ * a sweep that deleted the row before scheduling the cancellation would look
+ * completely correct in a diff.
+ */
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
 import { describe, expect, test } from "vitest";
