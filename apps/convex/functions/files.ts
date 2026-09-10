@@ -945,13 +945,31 @@ export const runFileOperation = internalAction({
     if (args.operation.kind === "googleForwardSync") {
       forwardSyncJob = await ctx.runQuery(
         internal.functions.googleSync.googleForwardSyncJob,
-        { connectionId: args.operation.connectionId },
+        { workspaceId: args.workspaceId, connectionId: args.operation.connectionId },
       );
-      if (forwardSyncJob === null || forwardSyncJob.kind === "skip") {
+      if (forwardSyncJob === null) {
+        /*
+         * No row this workspace owns — it was deleted, or the pair of
+         * arguments does not agree (see `googleForwardSyncJob`). Nothing is
+         * written, and in particular the *other* context's row is not: a
+         * mismatched pair that released somebody else's claim and pushed their
+         * next sync out would be a cross-tenant write, small but real.
+         */
+        return {
+          kind: "googleForwardSync",
+          connectionId: args.operation.connectionId,
+          status: "skipped",
+          daysTouched: 0,
+          bytesWritten: 0,
+          cursorAdvanced: false,
+          gapDetected: false,
+        };
+      }
+      if (forwardSyncJob.kind === "skip") {
         return await releaseForwardSync(
           ctx,
           args.operation.connectionId,
-          forwardSyncJob === null ? undefined : forwardSyncJob.reason,
+          forwardSyncJob.reason,
         );
       }
     }

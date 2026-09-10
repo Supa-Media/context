@@ -573,34 +573,46 @@ describe("the pass re-asks every gate before it opens a credential", () => {
   beforeEach(() => enableMailSync());
 
   test("a disconnected account is skipped", async () => {
-    const { t, connectionId } = await scenario();
+    const { t, workspaceId, connectionId } = await scenario();
     await patchConnection(t, connectionId, { disconnectedAt: Date.now() });
     expect(
-      await t.query(internal.functions.googleSync.googleForwardSyncJob, { connectionId }),
+      await t.query(internal.functions.googleSync.googleForwardSyncJob, {
+        workspaceId,
+        connectionId,
+      }),
     ).toEqual({ kind: "skip", reason: "GOOGLE_DISCONNECTED" });
   });
 
   test("a deployment that may not read mail is skipped even mid-flight", async () => {
-    const { t, connectionId } = await scenario();
+    const { t, workspaceId, connectionId } = await scenario();
     vi.stubEnv("MAIL_CONNECT_ENABLED", "");
     expect(
-      await t.query(internal.functions.googleSync.googleForwardSyncJob, { connectionId }),
+      await t.query(internal.functions.googleSync.googleForwardSyncJob, {
+        workspaceId,
+        connectionId,
+      }),
     ).toEqual({ kind: "skip", reason: "MAIL_CONNECT_DISABLED" });
   });
 
   test("a grant Google has already refused is skipped rather than retried at it", async () => {
-    const { t, connectionId } = await scenario();
+    const { t, workspaceId, connectionId } = await scenario();
     await patchConnection(t, connectionId, { health: "reconnect_required" });
     expect(
-      await t.query(internal.functions.googleSync.googleForwardSyncJob, { connectionId }),
+      await t.query(internal.functions.googleSync.googleForwardSyncJob, {
+        workspaceId,
+        connectionId,
+      }),
     ).toEqual({ kind: "skip", reason: "GOOGLE_RECONNECT_REQUIRED" });
   });
 
   test("a product turned off since the sweep looked is skipped", async () => {
-    const { t, connectionId } = await scenario();
+    const { t, workspaceId, connectionId } = await scenario();
     await patchConnection(t, connectionId, { products: [] });
     expect(
-      await t.query(internal.functions.googleSync.googleForwardSyncJob, { connectionId }),
+      await t.query(internal.functions.googleSync.googleForwardSyncJob, {
+        workspaceId,
+        connectionId,
+      }),
     ).toEqual({ kind: "skip", reason: "NO_SYNCABLE_PRODUCT" });
   });
 
@@ -610,16 +622,88 @@ describe("the pass re-asks every gate before it opens a credential", () => {
     const shared = await createWorkspace(t, owner, "atlas-team", { kind: "shared" });
     const connectionId = await seedGoogleConnection(t, { workspaceId: shared, boundBy: owner });
     expect(
-      await t.query(internal.functions.googleSync.googleForwardSyncJob, { connectionId }),
+      await t.query(internal.functions.googleSync.googleForwardSyncJob, {
+        workspaceId: shared,
+        connectionId,
+      }),
     ).toEqual({ kind: "skip", reason: "NOT_PERSONAL_CONTEXT" });
   });
 
+  /*
+    ONE CONTEXT'S MAIL MUST NEVER BE WRITTEN INTO ANOTHER'S BUCKET.
+
+    The pass takes a `workspaceId` (whose bucket credential is opened) and a
+    `connectionId` (whose mail is read). Nothing builds a mismatched pair
+    today — the sweep reads both off one row — but the pair is what a tenant
+    boundary is made of, and this is the only function that sees both.
+    Attacker and victim are in one database: two real personal contexts, each
+    with a real connection, so a refusal cannot come from the row not existing.
+  */
+  test("a job whose workspace does not own the connection is refused outright", async () => {
+    const { t, workspaceId: victimWorkspace, connectionId: victimConnection } = await scenario();
+    const attacker = await createUser(t, "attacker@example.invalid");
+    const attackerWorkspace = await createWorkspace(t, attacker, "attacker");
+    const attackerConnection = await seedGoogleConnection(t, {
+      workspaceId: attackerWorkspace,
+      boundBy: attacker,
+      address: "attacker@example.invalid",
+    });
+
+    expect(
+      await t.query(internal.functions.googleSync.googleForwardSyncJob, {
+        workspaceId: attackerWorkspace,
+        connectionId: victimConnection,
+      }),
+    ).toBeNull();
+    // And the mirror image, so the check cannot be one-directional.
+    expect(
+      await t.query(internal.functions.googleSync.googleForwardSyncJob, {
+        workspaceId: victimWorkspace,
+        connectionId: attackerConnection,
+      }),
+    ).toBeNull();
+    // Each still works against its own workspace, so the refusal above is the
+    // pairing and not something broken about either row.
+    expect(
+      await t.query(internal.functions.googleSync.googleForwardSyncJob, {
+        workspaceId: victimWorkspace,
+        connectionId: victimConnection,
+      }),
+    ).toMatchObject({ kind: "run" });
+  });
+
+  test("...and a pass driven with a mismatched pair writes nothing and touches nothing", async () => {
+    const { t, workspaceId, connectionId, backend } = await endToEnd({ historyId: "1000" });
+    const attacker = await createUser(t, "attacker@example.invalid");
+    const attackerWorkspace = await createWorkspace(t, attacker, "attacker");
+    const google = googleAndBucket({ backend });
+    vi.stubGlobal("fetch", google.fetchImpl);
+
+    const result = await t.action(internal.functions.files.runFileOperation, {
+      workspaceId: attackerWorkspace,
+      scope: "private" as const,
+      operation: { kind: "googleForwardSync" as const, connectionId },
+    });
+
+    expect(result).toMatchObject({ status: "skipped" });
+    expect(google.calls).toEqual([]);
+    expect(backend.requests).toEqual([]);
+    const row = await readConnection(t, connectionId);
+    expect(row.gmail?.historyId).toBe("1000");
+    expect(row.gmail?.lastSyncedAt).toBeUndefined();
+    // The victim's own claim is untouched: another context's pass may not even
+    // release it.
+    expect(row.syncStartedAt).toBeTypeOf("number");
+    expect(workspaceId).not.toEqual(attackerWorkspace);
+  });
+
   test("a live connection is handed its settings and cursor, and no secret", async () => {
-    const { t, connectionId } = await scenario();
+    const { t, workspaceId, connectionId } = await scenario();
     await patchConnection(t, connectionId, {
       gmail: { ...(await readConnection(t, connectionId)).gmail!, historyId: "1000" },
     });
     const job = await t.query(internal.functions.googleSync.googleForwardSyncJob, {
+      workspaceId,
       connectionId,
     });
     expect(job).toMatchObject({

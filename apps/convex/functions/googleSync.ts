@@ -290,18 +290,30 @@ const forwardSyncJobValidator = v.union(
  * token never leaves `mintGoogleAccessToken`.
  */
 export const googleForwardSyncJob = internalQuery({
-  args: { connectionId: v.id("googleConnections") },
+  args: { workspaceId: v.id("workspaces"), connectionId: v.id("googleConnections") },
   returns: forwardSyncJobValidator,
   handler: async (ctx, args) => {
     const connection = await ctx.db.get(args.connectionId);
     if (connection === null) return null;
+    /*
+     * THE TWO ARGUMENTS HAVE TO AGREE, AND THIS IS WHERE THAT IS CHECKED.
+     *
+     * The pass runs inside `runFileOperation`, which opens the bucket
+     * credential of the `workspaceId` it was handed, and then writes mail read
+     * from the account named by `connectionId`. A mismatched pair would file
+     * one context's mail into another context's bucket. Nothing constructs
+     * such a pair today — the sweep reads both off one row — but "no caller
+     * does that" is not a tenant boundary, and this is the one place that can
+     * be one, because it is the only function that sees both.
+     */
+    if (connection.workspaceId !== args.workspaceId) return null;
     if (connection.disconnectedAt !== undefined) {
       return { kind: "skip" as const, reason: "GOOGLE_DISCONNECTED" };
     }
     if (!mailConnectEnabled()) {
       return { kind: "skip" as const, reason: "MAIL_CONNECT_DISABLED" };
     }
-    const workspace = await ctx.db.get(connection.workspaceId);
+    const workspace = await ctx.db.get(args.workspaceId);
     if (workspace === null || workspace.kind !== "personal") {
       // A mailbox may only ever land in a personal context
       // (`identity-and-access.md`). A workspace that changed kind under a
