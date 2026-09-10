@@ -673,7 +673,9 @@ describe("the top row ends in one group, and it is the note's", () => {
   test("an account, the contexts, and the note's own actions", () => {
     const app = mountConsole(dataWith());
 
-    expect(app.find("account-sign-out")).not.toBeNull();
+    // The slot's own control, not `account-sign-out`: that testID now names a
+    // row inside the menu this trigger opens, not something on screen at rest.
+    expect(app.find("account-menu")).not.toBeNull();
     expect(app.find("context-strip")).not.toBeNull();
     expect(app.find("note-share")).not.toBeNull();
 

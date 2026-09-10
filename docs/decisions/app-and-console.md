@@ -2661,3 +2661,63 @@ activity links — reads whatever mailbox is already connected, by hand or on
 a fixture, whether or not this flag is on. Flipping it later changes nothing
 about any of those; it only changes whether the empty state's button does
 something.
+
+### The compact corner was two controls, and one of them was a silent sign-out
+
+"the setting button should be merged with the person icon, right now all it
+does is sign you out." `ConsoleRail.tsx`'s `AccountBlock` drew `compact` as a
+gear and the avatar, 4pt apart, each its own 44×44 `PressRow` — and the
+avatar's `onPress` was `onSignOut` directly. `useSignOutFlow.requestSignOut`
+only raises `Confirm` when the device holds unsent edits; on a clean queue it
+calls `signOutNow()` immediately. So the one control in that corner reachable
+with **no confirmation at all** was also the one a thumb was most likely to
+land on by a few points of error, next to a gear it looked just like.
+
+The fix is not a confirmation dialog bolted onto the avatar — that is a third
+answer to "what happens when I press this" competing with the two the corner
+already gave conflicting cues about. It is one control: the avatar opens a
+menu naming both actions, and choosing one is a second, separate press. Two
+deliberate presses *is* the missing confirmation for the clean-queue case,
+built out of the same mechanism the non-empty-queue case already uses
+(a second gesture before anything happens), rather than a second, different
+mechanism beside it. `useSignOutFlow`'s own `Confirm` dialog is untouched and
+still fires for the non-empty case — this closes the gap on the other side of
+that `if`, not the dialog itself.
+
+**Drawn with `features/design/components/Menu.tsx` / `Menu.web.tsx`, not a
+third menu idiom.** Those two files already are a disclosure menu component
+— a title, danger rows, a Cancel row, a sheet on touch and a popover on a
+pointer picked by `layout.narrowBreakpoint` — built for `Explorer.tsx`'s
+right-click and long-press. They were typed to `menu.ts`'s `MenuActionId`,
+the file tree's own closed action union, which made them look like "the file
+menu's renderer" rather than what they actually are. Widening
+`MenuActionId` itself to fit an account action was the tempting fix and the
+wrong one: `Explorer.tsx`'s `runAction` switches on every member of that
+union, so a case with nothing to do with files would have needed a branch
+there forever, for a menu that file never draws. `MenuItem`/`MenuProps` are
+generic in their own id (`Id extends string = MenuActionId`) instead —
+default-typed so every existing file-menu call site is unchanged, and open to
+a caller with its own two-item union. `MenuItem.testID` is the one other
+addition, because `account-settings` / `account-sign-out` predate this menu
+and are cited by name rather than by the `menu-item-<id>` convention every
+other row uses; `MenuProps.titleDetail` is the other, because the sheet's
+title had nowhere to put an email under a name until this needed one.
+
+**The harm the two-control layout caused, restated for the record, because
+it is also why `accountSettingsControl.test.ts`'s central claim did not
+reverse.** That file used to assert "signing out and opening settings are
+different intentions and must not share a control" — true, and it is still
+true of the *compact* form now that both live behind one press. What made the
+old layout dangerous was never that two things were reachable near each
+other; it was that a coloured disc's only disambiguation from its neighbour
+was an `aria-label` nobody speaking to a screen reads before landing a thumb
+on it — one control, two possible unannounced outcomes depending on four
+points of horizontal error. A menu with two rows that say "Settings…" and
+"Sign out" in words is strictly *more* explicit than that pair of circles
+ever was, which is why sharing a trigger is the fix rather than the
+regression the old sentence would suggest on a literal reading.
+
+**The full (non-`compact`) rail foot is untouched.** `rail-settings` and
+`rail-sign-out` stay exactly as they were — two 28pt targets beside a name,
+which is a rail foot with room, not a 44×44 corner with none. Merging them
+too would be solving a problem that surface does not have.

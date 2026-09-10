@@ -219,6 +219,8 @@ export function PressRow({
   radius = radii.md,
   hitSlop,
   testID,
+  ariaExpanded,
+  ariaHasPopup,
 }: {
   children: ReactNode;
   onPress?: () => void;
@@ -246,6 +248,22 @@ export function PressRow({
    */
   hitSlop?: PressableProps["hitSlop"];
   testID?: string;
+  /**
+   * For a disclosure control — the compact account trigger, so far. Both are
+   * plain pass-throughs rather than derived from `role`, because most rows
+   * that pass a `role` are not menus: adding them unconditionally would put
+   * `aria-haspopup="false"`-shaped noise on every tab and link this component
+   * draws.
+   */
+  ariaExpanded?: boolean;
+  /**
+   * Not one of `View`'s typed accessibility props (`aria-expanded` is, and is
+   * declared directly below) — RN-Web still renders it
+   * (`createDOMProps`'s own `ariaHasPopup`), so this is passed through the
+   * same escape hatch `TabStrip.tsx`'s `mouseButtonProps` uses for a DOM
+   * attribute the platform supports ahead of its own types.
+   */
+  ariaHasPopup?: "menu";
 }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -261,6 +279,10 @@ export function PressRow({
       // unlabelled for assistive tech, silently, and a render test asserting
       // the prop was passed would still have gone green.
       aria-selected={role === "tab" ? selected : undefined}
+      aria-expanded={ariaExpanded}
+      {...(ariaHasPopup === undefined
+        ? {}
+        : ({ "aria-haspopup": ariaHasPopup } as unknown as { "aria-haspopup": string }))}
       hitSlop={hitSlop}
       onPress={onPress}
       onHoverIn={() => setHovered(true)}
