@@ -29,12 +29,17 @@ import {
 } from "../features/console/settings/sections";
 
 describe("which sections a context has", () => {
-  test("both kinds get the sources section", () => {
-    // The capture *address* is personal-only and the pane gates that card, but
-    // the card explaining why a workspace cannot connect Gmail is in the same
-    // block — hiding the section would take the explanation with it.
+  test("both kinds get all four communications sections", () => {
+    // The capture *address* is personal-only and each panel gates its own
+    // controls, but the sentence explaining why a workspace cannot connect
+    // Gmail lives in the same block — hiding the section would take the
+    // explanation with it. "Absent, not disabled" is right for a control that
+    // would be refused and wrong for the sentence that says why.
     for (const kind of ["personal", "shared"] as const) {
-      expect(settingsSectionsFor(kind).map((section) => section.key)).toContain("sources");
+      const keys = settingsSectionsFor(kind).map((section) => section.key);
+      for (const key of ["email", "calendar", "chats", "meetings"]) {
+        expect(keys).toContain(key);
+      }
     }
   });
 
@@ -48,7 +53,8 @@ describe("which sections a context has", () => {
 describe("the order and the grouping", () => {
   test("what comes in is asked before where it is kept", () => {
     const keys = SETTINGS_SECTIONS.map((section) => section.key);
-    expect(keys.indexOf("sources")).toBeLessThan(keys.indexOf("storage"));
+    expect(keys.indexOf("email")).toBeLessThan(keys.indexOf("storage"));
+    expect(keys.indexOf("meetings")).toBeLessThan(keys.indexOf("storage"));
   });
 
   test("every section sits under a heading somebody can answer", () => {
@@ -103,7 +109,7 @@ describe("searching the list", () => {
     // The whole point: nobody types "sources" looking for Gmail, and nobody
     // types "account" meaning cancel.
     const all = settingsSectionsFor("personal");
-    expect(matchSettingsSections(all, "gmail").map((s) => s.key)).toContain("sources");
+    expect(matchSettingsSections(all, "gmail").map((s) => s.key)).toContain("email");
     expect(matchSettingsSections(all, "bucket").map((s) => s.key)).toContain("storage");
     expect(matchSettingsSections(all, "cursor").map((s) => s.key)).toContain("apps");
   });
@@ -137,12 +143,27 @@ describe("searching the list", () => {
     out" is the case that shipped — the word `sign` lived in exactly one
     haystack, so it returned the screen that deletes an account.
   */
+  /*
+    The `sources` rows below are repointed rather than deleted. One section
+    covering mail, calendars and chats became four, and the queries that used
+    to land on it are exactly the ones that must still land somewhere: the
+    split is only worth anything if "imessage" now opens Chats instead of a
+    page that also holds a forwarding address.
+  */
   test.each([
     ["sign out", "account"],
     ["delete my account", "account"],
-    ["gmail", "sources"],
-    ["imessage", "sources"],
-    ["calendar", "sources"],
+    ["gmail", "email"],
+    ["mailbox", "email"],
+    ["forward", "email"],
+    ["imessage", "chats"],
+    ["messages", "chats"],
+    ["calendar", "calendar"],
+    ["ical", "calendar"],
+    ["schedule", "calendar"],
+    ["zoom", "meetings"],
+    ["recording", "meetings"],
+    ["transcript", "meetings"],
     ["invite", "invitations"],
     ["claude", "apps"],
     ["revoke", "apps"],
@@ -214,7 +235,10 @@ describe("the panel is headed by the row that opened it", () => {
 describe("reading a section out of a URL", () => {
   test("only names we have", () => {
     expect(isSettingsSection("storage")).toBe(true);
-    expect(isSettingsSection("sources")).toBe(true);
+    expect(isSettingsSection("email")).toBe(true);
+    // The section this one replaced. A URL still carrying it must fail the
+    // check and fall back to the default, not open a blank panel.
+    expect(isSettingsSection("sources")).toBe(false);
     expect(isSettingsSection("../../etc")).toBe(false);
     expect(isSettingsSection("")).toBe(false);
   });

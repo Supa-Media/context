@@ -69,7 +69,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - An unlisted share is the third audience, and it is one row rather than a tier
 - `privacy.md` is generated, and the console can generate a fresh one
 - The visibility tier is displayed, never stored
-- The audit trail's `details` are allow-listed, and its `paths` are not gated at all
+- The audit trail's `details` are allow-listed
+- A row's paths are the reader's own clearance, or the reader's own hands
 - A privacy decision is folded, and the fold only ever narrows
 - A shared workspace scaffolds `team`, and that is not a widening
 - `index.md` is opened by name, because no folder rule reaches the root

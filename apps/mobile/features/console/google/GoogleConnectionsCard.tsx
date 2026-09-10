@@ -69,45 +69,170 @@ export interface GoogleActions {
   ) => Promise<unknown>;
 }
 
+/**
+ * Which of an account's three services this card is about, or all of them.
+ *
+ * Settings asks one question per panel — Email, Calendar, Chats — and this
+ * card's unit is a Google **account**, which carries all three at once. Three
+ * panels needing "the Google part of this question" is therefore a real
+ * problem, and there were two ways out of it.
+ *
+ * ## Why a prop, and not three smaller components
+ *
+ * A shared per-service component would have had to be handed the account list,
+ * the connect flow, the owner gate, the disconnect arming and the error
+ * surface anyway — so the "small" component is the card minus its frame, and
+ * what is left over is three copies of the frame with three copies of the
+ * decisions in it. `features/console/capabilities.ts` records what happens to
+ * a rule that gets copied into a component: *every guard expressed inside a
+ * component in this app was held by nothing*. The owner gate here is one such
+ * rule, and it is worth exactly one implementation.
+ *
+ * So: one card, one `service`, and narrowing is a filter rather than a fork.
+ * `service === undefined` is the whole card, unchanged, which is what the
+ * un-sectioned settings pane and this card's own tests still render.
+ *
+ * ## What narrowing changes, and what it must not
+ *
+ * It changes what is *listed* (accounts not syncing this service are not this
+ * panel's business), what a row *shows* (one service block, not three), and
+ * what connecting *asks Google for* (this scope alone — a Calendar panel that
+ * silently requested Gmail would be the worst kind of consent bug).
+ *
+ * It must not change who may act. Disconnect still removes the **account**,
+ * not the service, because that is what `disconnect` does — so a narrowed card
+ * says so out loud rather than letting a per-service heading imply a
+ * per-service button.
+ */
+export type GoogleService = "gmail" | "calendar" | "chat";
+
+/** The reader's word for each service, which is not always Google's. */
+const SERVICE_TITLES: Record<GoogleService, string> = {
+  gmail: "Email",
+  calendar: "Calendar",
+  chat: "Chat",
+};
+
+/**
+ * What the card is called, what it says when it is empty, and what connecting
+ * one more account is called.
+ *
+ * `next` is there because a narrowed card with nothing connected is the state
+ * most people meet first, and "No Google calendar connected yet" over a page
+ * of nothing is a heading with no answer under it. It says what a connection
+ * *would* put on this card — a claim about this screen, which is a claim this
+ * screen can keep. It deliberately does **not** name the folder a new
+ * connection files into: that default lives in the control plane
+ * (`defaultGoogleDestinationFolder`), and a copy of it here would be a
+ * plausible sentence about somebody's bucket with nothing behind it, which is
+ * the shape of defect #25.
+ */
+const SERVICE_COPY: Record<
+  GoogleService,
+  { sub: string; empty: string; next: string; connect: string }
+> = {
+  gmail: {
+    sub: "Each Google account whose mailbox this context reads.",
+    empty: "No Google mailbox connected yet.",
+    next: "Connect one and it appears here with its sync state and the daily note it writes to, which you can change.",
+    connect: "Connect a Gmail account",
+  },
+  calendar: {
+    sub: "Each Google account whose calendar this context reads.",
+    empty: "No Google calendar connected yet.",
+    next: "Connect one and it appears here with its sync state and the daily note it writes to, which you can change.",
+    connect: "Connect a Google Calendar",
+  },
+  chat: {
+    sub: "Each Google account whose Chat spaces this context reads.",
+    empty: "No Google Chat account connected yet.",
+    next: "Connect one and it appears here with the number of spaces it follows and the daily note it writes to, which you can change.",
+    connect: "Connect Google Chat",
+  },
+};
+
+/** Every service on this account except the one a narrowed panel is about. */
+function otherServices(connection: GoogleConnection, service: GoogleService): string[] {
+  return (["gmail", "calendar", "chat"] as const)
+    .filter((key) => key !== service && connection.syncServices[key])
+    .map((key) => SERVICE_TITLES[key]);
+}
+
+/** "Calendar", "Calendar and Chat", "Email, Calendar and Chat". */
+function listWords(words: string[]): string {
+  if (words.length <= 1) return words[0] ?? "";
+  return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+}
+
 export function GoogleConnectionsCard({
   connections = [],
   actions,
   loading = false,
+  service,
 }: {
   connections?: GoogleConnection[];
   actions?: GoogleActions;
   loading?: boolean;
+  /** Narrow the card to one service. Absent is the whole account. */
+  service?: GoogleService;
 }) {
   const styles = useThemedStyles(makeStyles);
+  /*
+    An account that does not sync this service is not this panel's business.
+    Listing it would put a row somebody cannot act on under a heading about
+    something it does not do — and its Disconnect button would be the only
+    control on it, aimed at the services they came here for.
+  */
+  const shown =
+    service === undefined
+      ? connections
+      : connections.filter((connection) => connection.syncServices[service]);
+  const copy = service === undefined ? null : SERVICE_COPY[service];
 
   return (
     <Card>
       <Row style={styles.head}>
         <Grow>
+          {/*
+            The card is named after its unit, and the unit is a Google
+            *account* on every panel — which is not decoration: Disconnect
+            removes the account, so a card titled "Google calendars" over a
+            button that stops Gmail too would be the narrower name doing the
+            misleading. The sub below says which of the account's services
+            this panel is about.
+          */}
           <Text variant="rowTitle">Google accounts</Text>
           <Text variant="rowSub" style={styles.rowSub}>
-            Connect each Google account this context should sync.
+            {copy?.sub ?? "Connect each Google account this context should sync."}
           </Text>
         </Grow>
-        <Pill tone="neutral">{`${connections.length} connected`}</Pill>
+        <Pill tone="neutral">{`${shown.length} connected`}</Pill>
       </Row>
 
-      {connections.length === 0 ? (
+      {shown.length === 0 ? (
         <Text variant="rowSub" style={styles.empty}>
-          {loading ? "Loading Google accounts..." : "No Google accounts connected yet."}
+          {loading
+            ? "Loading Google accounts..."
+            : (copy?.empty ?? "No Google accounts connected yet.")}
+        </Text>
+      ) : null}
+      {shown.length === 0 && !loading && copy ? (
+        <Text variant="rowSub" style={styles.empty}>
+          {copy.next}
         </Text>
       ) : null}
 
-      {connections.map((connection) => (
+      {shown.map((connection) => (
         <ConnectedGoogleRow
           key={connection.connectionId}
           connection={connection}
           actions={actions}
+          service={service}
         />
       ))}
 
       {actions ? (
-        <GoogleConnectControls actions={actions} />
+        <GoogleConnectControls actions={actions} service={service} />
       ) : (
         <Text variant="foot" style={styles.note}>
           Only an owner can connect or remove Google accounts.
@@ -117,7 +242,13 @@ export function GoogleConnectionsCard({
   );
 }
 
-function GoogleConnectControls({ actions }: { actions: GoogleActions }) {
+function GoogleConnectControls({
+  actions,
+  service,
+}: {
+  actions: GoogleActions;
+  service?: GoogleService;
+}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const [services, setServices] = useState<GoogleSyncServices>({
@@ -126,29 +257,53 @@ function GoogleConnectControls({ actions }: { actions: GoogleActions }) {
     chat: true,
   });
   const google = useGoogleStart(actions.workspaceId);
-  const selected = Object.values(services).some(Boolean);
+  /*
+    A narrowed panel asks Google for its own scope and nothing else. The
+    toggles are the *whole* card's control — three services chosen at once —
+    and reproducing them under a heading that says "Calendar" would offer
+    somebody a Gmail scope they did not come here for.
+  */
+  const requested: GoogleSyncServices =
+    service === undefined
+      ? services
+      : { gmail: service === "gmail", calendar: service === "calendar", chat: service === "chat" };
+  const selected = Object.values(requested).some(Boolean);
   const starting = google.state.kind === "starting";
 
   return (
     <View style={styles.connect}>
-      <ToggleGroup
-        label="Sync"
-        options={[
-          { value: "gmail", label: "Gmail", on: services.gmail },
-          { value: "calendar", label: "Calendar", on: services.calendar },
-          { value: "chat", label: "Chat", on: services.chat },
-        ]}
-        onToggle={(value, next) =>
-          setServices((current) => ({ ...current, [value]: next }))
-        }
-      />
+      {service === undefined ? (
+        <ToggleGroup
+          label="Sync"
+          options={[
+            { value: "gmail", label: "Gmail", on: services.gmail },
+            { value: "calendar", label: "Calendar", on: services.calendar },
+            { value: "chat", label: "Chat", on: services.chat },
+          ]}
+          onToggle={(value, next) =>
+            setServices((current) => ({ ...current, [value]: next }))
+          }
+        />
+      ) : null}
       <Button
-        label={starting ? "Opening Google..." : "Connect Google account"}
+        label={
+          starting
+            ? "Opening Google..."
+            : service === undefined
+              ? "Connect Google account"
+              : SERVICE_COPY[service].connect
+        }
         disabled={!selected || starting || google.redirectUri === null}
-        onPress={() => google.start(services)}
+        onPress={() => google.start(requested)}
         trailing={starting ? <ActivityIndicator color={colors.text} size="small" /> : null}
         testID="connect-google"
       />
+      {service === undefined ? null : (
+        <Text variant="foot" style={styles.note}>
+          Google asks for this one thing. Connecting the same account under another
+          heading adds that service to it rather than starting again.
+        </Text>
+      )}
       {google.redirectUri === null ? (
         <Text variant="foot" style={styles.note}>
           Google connect works in a browser at {GOOGLE_REDIRECT_ORIGINS.join(" or ")}.
@@ -164,23 +319,31 @@ function GoogleConnectControls({ actions }: { actions: GoogleActions }) {
 function ConnectedGoogleRow({
   connection,
   actions,
+  service,
 }: {
   connection: GoogleConnection;
   actions?: GoogleActions;
+  service?: GoogleService;
 }) {
   const styles = useThemedStyles(makeStyles);
   const disconnect = useArming(() => {
     if (actions === undefined) return;
     void actions.disconnect(connection.connectionId);
   });
-  const serviceNames = [
-    connection.syncServices.gmail ? "Email" : null,
-    connection.syncServices.calendar ? "Calendar" : null,
-    connection.syncServices.chat ? "Chat" : null,
-  ].filter(Boolean);
+  const serviceNames = (["gmail", "calendar", "chat"] as const)
+    .filter((key) => connection.syncServices[key])
+    .map((key) => SERVICE_TITLES[key]);
   const inlineError = connection.lastError ?? connection.syncRun?.lastError;
   const inlineErrorCode = connection.errorCode ?? connection.syncRun?.errorCode;
   const showAccountError = inlineError && connection.syncRun?.status !== "failed";
+  /*
+    Disconnect removes the account, never one service — `GoogleActions` has no
+    per-service call and inventing one here would be a button that acts on
+    something else. Under a per-service heading that has to be said, or the
+    heading itself implies the narrower thing.
+  */
+  const alsoRemoved = service === undefined ? [] : otherServices(connection, service);
+  const showBlock = (key: GoogleService) => service === undefined || service === key;
 
   return (
     <Row divided style={styles.connectionRow}>
@@ -190,11 +353,11 @@ function ConnectedGoogleRow({
           {`${serviceNames.join(", ")} connected`}
         </Text>
         <View style={styles.serviceList}>
-          {connection.syncServices.gmail && connection.gmail ? (
+          {showBlock("gmail") && connection.syncServices.gmail && connection.gmail ? (
             <GoogleServiceBlock
               connectionId={connection.connectionId}
               service="gmail"
-              title="Email"
+              title={SERVICE_TITLES.gmail}
               status={
                 gmailRunDetail(connection) ??
                 (connection.gmail.historyCursorReady
@@ -207,11 +370,11 @@ function ConnectedGoogleRow({
               saveDestination={actions?.saveDestination}
             />
           ) : null}
-          {connection.syncServices.calendar && connection.calendar ? (
+          {showBlock("calendar") && connection.syncServices.calendar && connection.calendar ? (
             <GoogleServiceBlock
               connectionId={connection.connectionId}
               service="calendar"
-              title="Calendar"
+              title={SERVICE_TITLES.calendar}
               status={
                 connection.calendar.syncCursorReady
                   ? `Ready for calendar changes${formatSyncTime(connection.calendar.lastSyncedAt) ? ` · ${formatSyncTime(connection.calendar.lastSyncedAt)}` : ""}`
@@ -222,11 +385,11 @@ function ConnectedGoogleRow({
               saveDestination={actions?.saveDestination}
             />
           ) : null}
-          {connection.syncServices.chat && connection.chat ? (
+          {showBlock("chat") && connection.syncServices.chat && connection.chat ? (
             <GoogleServiceBlock
               connectionId={connection.connectionId}
               service="chat"
-              title="Chat"
+              title={SERVICE_TITLES.chat}
               status={
                 connection.chat.cursorCount > 0
                   ? `Ready for ${connection.chat.cursorCount} Chat space${connection.chat.cursorCount === 1 ? "" : "s"}${formatSyncTime(connection.chat.lastSyncedAt) ? ` · ${formatSyncTime(connection.chat.lastSyncedAt)}` : ""}`
@@ -249,10 +412,20 @@ function ConnectedGoogleRow({
       <View style={styles.connectionActions}>
         <Button
           label={disconnect.stage === "armed" ? "Press again" : "Disconnect"}
+          accessibilityLabel={
+            alsoRemoved.length === 0
+              ? `Disconnect ${connection.email}`
+              : `Disconnect ${connection.email}, which also stops ${listWords(alsoRemoved)}`
+          }
           variant="danger"
           disabled={actions === undefined}
           onPress={disconnect.press}
         />
+        {alsoRemoved.length === 0 ? null : (
+          <Text variant="foot" style={styles.alsoRemoved}>
+            {`Removes the whole account — ${listWords(alsoRemoved)} stop too.`}
+          </Text>
+        )}
       </View>
     </Row>
   );
@@ -444,6 +617,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   empty: { marginTop: 4 },
   connect: { marginTop: 14, gap: 12 },
   connectionBody: { flexBasis: 280 },
-  connectionActions: { marginLeft: "auto", gap: 8 },
+  connectionActions: { marginLeft: "auto", gap: 8, maxWidth: 220 },
+  alsoRemoved: { marginTop: 2 },
   note: { marginTop: 2 },
 });
