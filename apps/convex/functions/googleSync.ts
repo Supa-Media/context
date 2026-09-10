@@ -218,8 +218,10 @@ export const sweepDueGoogleSyncs = internalMutation({
     let started = 0;
     for (const row of rows) {
       // The index range already excludes these. An index is a poor place to
-      // trust an invariant that lives on another field — the same belt this
-      // `sweepStalledBackfills` wears over `optedIn`.
+      // trust an invariant that lives on another field — the same belt
+      // `sweepStalledBackfills` wears over `optedIn`. Unreachable while the
+      // index above is right, which is the point: it is what catches the day
+      // somebody changes the index.
       if (row.disconnectedAt !== undefined) continue;
       if (syncableProductsOf(row).length === 0) continue;
       if (!isDue(row, now)) continue;
