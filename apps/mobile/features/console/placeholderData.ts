@@ -524,7 +524,27 @@ const SEYI_TREE: DemoContextTree = {
     "3-resources": listing("3-resources", "private", [
       file("3-resources/doxology-framework.md"),
       file("3-resources/matthew-13-soil.md"),
+      folder("3-resources/books", "private"),
     ]),
+    /*
+      Four folders deep — past the old `MAX_FOLDER_CRUMBS` cap — so the demo
+      console itself is real evidence that nothing elides any more. It is the
+      exact path `crumbs.ts`'s header and `docs/decisions/app-and-console.md`
+      measured against a browser when the cap and the character budget still
+      existed; `scripts/ux-audit-shots.ts`'s "deep-path" shot is what
+      photographs it now.
+    */
+    "3-resources/books": listing("3-resources/books", "private", [
+      folder("3-resources/books/reading-notes", "private"),
+    ]),
+    "3-resources/books/reading-notes": listing("3-resources/books/reading-notes", "private", [
+      folder("3-resources/books/reading-notes/2026", "private"),
+    ]),
+    "3-resources/books/reading-notes/2026": listing(
+      "3-resources/books/reading-notes/2026",
+      "private",
+      [file("3-resources/books/reading-notes/2026/the-lean-startup.md")],
+    ),
   },
   notes: {
     "index.md": [
@@ -610,9 +630,7 @@ const SEYI_TREE: DemoContextTree = {
     ].join("\n"),
     // Carries a wikilink, a checked and an unchecked task, and a plain bullet
     // long enough to wrap at 390pt — the constructs `apps/mobile/e2e/webkit`
-    // drives real touch events against. One folder deep and already the
-    // subject of `breadcrumb-shots.ts`'s first shot, so adding to it is the
-    // one place a WebKit run and a screenshot regression share a fixture.
+    // drives real touch events against.
     "2-areas/weekly-review.md": [
       "# Weekly review",
       "",
@@ -662,6 +680,13 @@ const SEYI_TREE: DemoContextTree = {
       "difference is the ground. Our mission language comes from here —",
       "we are not trying to produce a harvest, we are trying to be",
       "somewhere one is possible.",
+      "",
+    ].join("\n"),
+    "3-resources/books/reading-notes/2026/the-lean-startup.md": [
+      "# The Lean Startup",
+      "",
+      "Build-measure-learn as a loop rather than three separate phases —",
+      "the point is the cycle time, not any one step done well.",
       "",
     ].join("\n"),
     ...COMMS_NOTES,

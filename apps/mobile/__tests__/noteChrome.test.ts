@@ -41,6 +41,7 @@ import { createRoot } from "react-dom/client";
 import type { ConsoleData } from "../features/console/types";
 import type { FileBrowser } from "../features/console/files/browser";
 import type { FolderListing } from "../features/console/files/types";
+import { layout } from "../features/design/tokens";
 
 const mockInsets = { top: 59, bottom: 34, left: 0, right: 0 };
 
@@ -124,12 +125,14 @@ const FILE = [
 ].join("\n");
 
 /**
- * The same shape as `FILE`, with a title short enough that it never needs
- * `crumbs.ts`'s width budget to give a folder up — for the tests below whose
- * claim is about a folder segment being *pressable*, not about what happens
- * when the row runs out of room for one. `noteChrome.test.ts`'s own "a deep
- * path elides its middle" test is where that second claim is made, against
- * `FILE`'s own sentence-length title.
+ * The same shape as `FILE`, with a short title — used where a test's claim is
+ * about a folder segment being *pressable* and the title's own length is not
+ * the point. `crumbs.ts` used to have a width budget that would give a folder
+ * up beside a longer title; there is no such budget left to avoid triggering,
+ * but the short fixture stays for tests that have no reason to care what the
+ * title says. `noteChrome.test.ts`'s own "a deep path renders every segment"
+ * test is where `FILE`'s sentence-length title is deliberately used instead,
+ * against the deepest path — nothing elides even there any more.
  */
 const SHORT_FILE = [
   "---",
@@ -499,25 +502,68 @@ describe("the path bar", () => {
     expect(app.find("breadcrumb-leaf")!.textContent).toBe("index");
   });
 
-  test("a deep path elides its middle and keeps the last segment", () => {
-    /*
-      Nothing here fits without giving something up: four real folder names
-      beside `FILE`'s sentence-length title run well past 390pt, so the row
-      protects the leaf and gives up folders from the *front* — the immediate
-      parent (`a/b/c/d`) is the one worth keeping pressable longest, because it
-      is what "step back" actually reaches, and it is the last one to go.
-    */
+  /**
+   * **The reversal this branch is for.** Four real folder names beside
+   * `FILE`'s sentence-length title run well past 390pt — the exact fixture
+   * that used to fold `a`, `a/b` and `a/b/c` into a `…` and keep only `a/b/c/d`
+   * live. There is no elision to fall back to any more: `NavBand`'s row
+   * scrolls, so every ancestor stays its own pressable segment and the row
+   * simply runs long instead of hiding one.
+   *
+   * SABOTAGE: restored `crumbsFor`'s old `maxFolders`/cap branch. Fails here —
+   * `a`, `a/b` and `a/b/c` would go missing and `breadcrumb-gap` would exist.
+   */
+  test("a deep path renders every segment, in order, with no gap crumb", () => {
     const deep = "a/b/c/d/the-lean-startup.md";
     const app = mountConsole(dataWith({}, { path: deep, name: "the-lean-startup.md" }));
 
-    expect(app.find("breadcrumb-gap")).not.toBeNull();
-    // The root is folded away first...
-    expect(app.find2("Open a")).toBeNull();
-    expect(app.find2("Open a/b")).toBeNull();
-    expect(app.find2("Open a/b/c")).toBeNull();
-    // ...and the immediate parent is the one still live.
-    expect(app.find2("Open a/b/c/d")).not.toBeNull();
+    expect(app.find("breadcrumb-gap")).toBeNull();
+    for (const folder of ["a", "a/b", "a/b/c", "a/b/c/d"]) {
+      expect(app.find2(`Open ${folder}`)).not.toBeNull();
+    }
     expect(app.find("breadcrumb-leaf")!.textContent).toBe("The storage binding");
+  });
+
+  /**
+   * A path you can only read is a label — every folder segment in that longer
+   * row still has to be a real target, not only a visible one.
+   */
+  test("pressing any segment navigates to that folder", () => {
+    const select = jest.fn(() => true);
+    const deep = "a/b/c/d/the-lean-startup.md";
+    const app = mountConsole(dataWith({ select }, { path: deep, name: "the-lean-startup.md" }));
+
+    app.press(app.find2("Open a/b/c"));
+    expect(select).toHaveBeenCalledWith("a/b/c");
+  });
+
+  /**
+   * **Every folder segment is a real 44pt target**, checked against the box a
+   * browser actually hit-tests rather than a constant fed to a prop that never
+   * reaches it.
+   *
+   * This used to be `hitSlop`, asserted in `breadcrumbPath.test.ts` by holding
+   * the exact object passed to it — the only thing a jsdom test *could* hold,
+   * because react-native-web's `View` drops `hitSlop` from what it forwards to
+   * the DOM before any hit-testing happens. Measured live in a real Chromium
+   * build of this page: pressing a few pixels above a segment's visible box
+   * landed on the row's plain container, never the segment, all the way to the
+   * box's own edge — the slop bought nothing there. `minHeight` is a real
+   * layout property instead, so it is what both platforms actually hit-test
+   * against, and — because it is real — a rendered assertion can finally see
+   * it, here, rather than re-deriving a number `Breadcrumb.tsx` already owns.
+   *
+   * SABOTAGE: `segment`'s `minHeight: layout.minTouchTarget` dropped in
+   * `Breadcrumb.tsx`. Fails here.
+   */
+  test("every folder segment is a real 44pt target, not just a visible one", () => {
+    const deep = "a/b/c/d/the-lean-startup.md";
+    const app = mountConsole(dataWith({}, { path: deep, name: "the-lean-startup.md" }));
+
+    const segment = app.find("breadcrumb-folder-a/b/c");
+    expect(segment).not.toBeNull();
+    const minHeight = Number.parseFloat(getComputedStyle(segment!).minHeight);
+    expect(minHeight).toBeGreaterThanOrEqual(layout.minTouchTarget);
   });
 
   test("the context is a button at the head of the path, not a segment", () => {
@@ -624,6 +670,29 @@ describe("the path bar", () => {
     expect(app.find2(`Open ${DEEP}`)).toBeNull();
     expect(app.find2("Open 3-resources")).not.toBeNull();
     expect(app.container.textContent).toContain("the-lean-startup");
+  });
+
+  /**
+   * **The pointer breadcrumb's own row does not grow to the touch floor.**
+   *
+   * `layout.minTouchTarget` is right for `NavBand`'s row because that row is
+   * already 44 tall — `CurrentContextPill`'s own target holds it there — so a
+   * folder segment growing to match costs nothing visible. The pointer bar
+   * makes no such claim: its row is a plain 22.15pt line, and a folder segment
+   * that grew to 44 there would grow the *row*, not just the target — a real,
+   * visible regression on a surface a mouse, not a thumb, presses.
+   *
+   * SABOTAGE: `minHeight: layout.minTouchTarget` moved from `segmentTouch`
+   * back onto `segment` itself in `Breadcrumb.tsx` — the shape an earlier,
+   * broader version of this fix took. Fails here: the pointer segment's
+   * `minHeight` reads 44 instead of the unset value this asserts against.
+   */
+  test("a pointer layout's folder segment stays its own height, not the touch floor", () => {
+    const app = mountConsole(dataWith({}, { path: DEEP, name: "the-lean-startup.md" }), 1200);
+    const segment = app.find("breadcrumb-folder-3-resources");
+    expect(segment).not.toBeNull();
+    const minHeight = Number.parseFloat(getComputedStyle(segment!).minHeight || "0");
+    expect(minHeight).toBeLessThan(layout.minTouchTarget);
   });
 
   test("and a pointer layout mid-switch draws neither the line nor the note's actions", () => {
