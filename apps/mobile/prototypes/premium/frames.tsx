@@ -22,6 +22,7 @@ import {
 import {
   Block,
   ChoiceCard,
+  ContextSketch,
   ChoiceRow,
   PointList,
   PriceRow,
@@ -163,8 +164,18 @@ function view(over: Partial<PremiumStatus>, extra: Partial<PremiumView> = {}): P
  * The frames.
  * -------------------------------------------------------------------------- */
 
+/**
+ * The acquisition surface.
+ *
+ * Two columns that are not two products: the left one is what everybody gets
+ * and keeps, the right one is the two things we run. The price is drawn once
+ * and large, because it is the single fact a pricing page exists to state, and
+ * every line under it answers the question the number provokes — per what, for
+ * how long, and what happens if I stop.
+ */
 function Pricing(): ReactElement {
   const styles = useThemedStyles(makeStyles);
+  const free = status({});
   return (
     <View style={styles.page}>
       <Text variant="eyebrow">{pricing.eyebrow}</Text>
@@ -177,21 +188,48 @@ function Pricing(): ReactElement {
 
       <View style={styles.planRow}>
         <Card style={styles.plan}>
-          <Text variant="rowTitle">{pricing.freeTitle}</Text>
+          <View style={styles.planHead}>
+            <Text variant="rowTitle">{pricing.freeTitle}</Text>
+            <Pill tone="ok">Included</Pill>
+          </View>
+          <View style={styles.priceBlock}>
+            <Text variant="statValue">Free</Text>
+            <Text variant="statLabel" style={styles.priceUnit}>
+              every context, for ever
+            </Text>
+          </View>
           <PointList points={pricing.freePoints} />
         </Card>
+
         <Card style={styles.plan}>
           <View style={styles.planHead}>
             <Text variant="rowTitle">{pricing.premiumTitle}</Text>
-            <Pill tone="neutral">{fill(pricing.premiumPrice)}</Pill>
+            <Pill tone="neutral">Optional</Pill>
+          </View>
+          {/*
+            The price, once, at display size. `statValue` is the console's own
+            figure style — the same one the health tiles use — so this is a big
+            number in the product's voice rather than a marketing lockup
+            borrowed from somewhere else.
+          */}
+          <View style={styles.priceBlock}>
+            <Text variant="statValue" testID="proto-price">
+              {PRICE}
+            </Text>
+            <Text variant="statLabel" style={styles.priceUnit}>
+              for one brain or one workspace
+            </Text>
           </View>
           <Text variant="rowSub" style={styles.planLede}>
             {pricing.premiumLede}
           </Text>
           <View style={styles.planPoints}>
-            {entitlementRows(status({})).map((row) => (
+            {entitlementRows(free).map((row) => (
               <View key={row.value} style={styles.planPoint}>
-                <Text variant="rowTitle">{row.label}</Text>
+                <View style={styles.planPointHead}>
+                  <Dot tone="ok" />
+                  <Text variant="rowTitle">{row.label}</Text>
+                </View>
                 <Text variant="rowSub" style={styles.planPointBody}>
                   {row.detail}
                 </Text>
@@ -594,6 +632,7 @@ function ReadOnlyBanner({ who }: { who: "owner" | "member" | "cancelled" }): Rea
   return (
     <View style={styles.page}>
       <Text variant="eyebrow">Above the note list, in the context itself</Text>
+      <ContextSketch name={CONTEXT}>
       {who === "owner" ? (
         <StateBanner
           tone="warn"
@@ -620,10 +659,12 @@ function ReadOnlyBanner({ who }: { who: "owner" | "member" | "cancelled" }): Rea
           secondary={{ label: readOnly.ownerSecondary, goto: "settings-exit" }}
         />
       )}
+      </ContextSketch>
       <Text variant="foot" style={styles.foot}>
-        Drawn on its own here. In the product it is the first thing inside the
-        context, above the folder listing and above an open note, so somebody who
-        cannot save reads it where they are rather than in settings.
+        The rows above and below the banner are a sketch of where it sits — the
+        first thing inside the context, above the folder listing and above an
+        open note, so somebody who cannot save reads it where they are rather
+        than in settings. The banner is the proposal.
       </Text>
     </View>
   );
@@ -932,8 +973,11 @@ const makeStyles = (colors: Colors) =>
     plan: { flexGrow: 1, flexBasis: 300 },
     planHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.x3 },
     planLede: { marginTop: space.x2, lineHeight: leading(13, 1.6) },
-    planPoints: { marginTop: space.x4, gap: space.x3 },
+    priceBlock: { marginTop: space.x4, marginBottom: space.x2, gap: space.x1 },
+    priceUnit: { color: colors.muted },
+    planPoints: { marginTop: space.x4, gap: space.x4 },
     planPoint: { gap: space.x1 },
+    planPointHead: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     planPointBody: { lineHeight: leading(13, 1.6) },
 
     lede: { marginTop: space.x2, marginBottom: space.x4, lineHeight: leading(12.5, 1.7) },

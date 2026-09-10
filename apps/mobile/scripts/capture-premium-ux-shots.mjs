@@ -45,7 +45,7 @@ mkdirSync(SHOTS, { recursive: true });
   silently stops photographing whatever was added last.
 */
 const html = readFileSync(PAGE, "utf8");
-const frames = [...new Set([...html.matchAll(/data-frame="([^"]+)"/g)].map((m) => m[1]))];
+const frames = [...new Set([...html.matchAll(/class="cell"[^>]*data-frame="([^"]+)"/g)].map((m) => m[1]))];
 if (frames.length === 0) {
   console.error(`no frames in ${PAGE} — run the renderer first (see the header)`);
   process.exit(1);
@@ -60,35 +60,37 @@ for (const frame of frames) {
     // `capture-ux-audit-shots.mjs` argues: 390pt of glass has to stay legible
     // when the file is opened at any size, and 1440px already is.
     const page = await browser.newPage({
-      viewport: { width: viewport.width + 320, height: viewport.height + 140 },
+      viewport: { width: viewport.width + 360, height: viewport.height + 200 },
       deviceScaleFactor: density === "phone" ? 2 : 1,
     });
     await page.goto(`${pathToFileURL(PAGE).toString()}#${frame}/${density}/dark`);
-    const shot = page.locator(
-      `.viewport[data-frame="${frame}"][data-density="${density}"][data-theme="dark"]`,
+    const cell = page.locator(
+      `.cell[data-frame="${frame}"][data-density="${density}"][data-theme="dark"]`,
     );
-    await shot.waitFor({ state: "visible" });
+    await cell.waitFor({ state: "visible" });
     /*
-      The still is the whole frame, not the part of it that fits.
+      The still is the device at 1:1, not the fitted-to-the-window copy the
+      page shows.
 
-      In the prototype a frame is a fixed 390x844 or 1440x900 box you scroll
-      inside, which is what makes it a device. A *picture* of a state that stops
-      at the fold is the failure mode this pack exists to avoid — the confirm
-      screen's price and export promise are both below it — so the box is
-      released to its content height before the shutter and the element is
-      photographed rather than the page. The width, which is what the layout
-      actually depends on, is untouched.
+      `scale(1)` rather than `none`: the transform is what makes `.viewport` the
+      containing block for the settings overlay, which is `position: fixed`.
+      Remove it and the overlay escapes its device and sizes itself to the
+      browser window — which is exactly the bug these stills were re-shot for.
     */
-    await shot.evaluate((node) => {
-      node.style.height = "auto";
-      node.style.overflow = "visible";
-      const app = node.firstElementChild;
+    await cell.evaluate((node) => {
+      const view = node.querySelector(".viewport");
+      const screen = node.querySelector(".screen");
+      view.style.transform = "scale(1)";
+      screen.style.width = view.style.width;
+      screen.style.height = "auto";
+      view.style.height = "auto";
+      const app = view.firstElementChild;
       if (app instanceof HTMLElement) {
         app.style.height = "auto";
         app.style.maxHeight = "none";
       }
     });
-    await shot.screenshot({ path: join(SHOTS, `${frame}-${density}.png`) });
+    await cell.locator(".device").screenshot({ path: join(SHOTS, `${frame}-${density}.png`) });
     await page.close();
     console.log(`wrote shots/${frame}-${density}.png`);
   }
