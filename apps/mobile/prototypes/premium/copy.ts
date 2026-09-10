@@ -82,7 +82,6 @@ export const pricing = {
  * it saves them.
  */
 export const firstRunA = {
-  title: "Where should your notes live?",
   lede:
     "Your name is claimed. Context keeps your notes as plain Markdown files — " +
     "this is where those files go.",
@@ -119,7 +118,6 @@ export const firstRunA = {
  * the review index's first critique question.
  */
 export const firstRunB = {
-  title: "Where should your notes live?",
   lede:
     "Your notes are plain Markdown files, and they live in storage rather than " +
     "in an app. One question decides the rest of this step.",
@@ -146,10 +144,6 @@ export const confirm = {
     "buying your files — those are yours either way, and always leave with you.",
   unit: "This applies to {context} and nothing else. Every other brain or workspace you can reach stays exactly as it is.",
   includesLabel: "What Premium includes",
-  storageOnlyHint:
-    "Managed storage is what you asked for. Fast search is included at the same " +
-    "price if you want it — you can change this later.",
-  priceRow: "Price",
   renewalNote: "Billed monthly. Cancel any time from this context's settings; cancelling never deletes a note.",
   cta: "Continue to Stripe",
   ctaSub: "Payment is handled by Stripe. We never see your card.",
@@ -171,6 +165,12 @@ export const confirm = {
  * blocks and a person does not trust.
  */
 export const leaving = {
+  /**
+   * The pending label, which the frames do not draw because they draw the
+   * settled state. It ships today as "Opening…" on the button itself; this is
+   * the proposed replacement for a beat that is a second long and currently
+   * looks like a stuck button.
+   */
   preparing: "Opening a secure payment page…",
   ready: "Your payment page is ready.",
   readySub: "This opens Stripe. Come back to this tab when you are done — we will be waiting here.",
