@@ -633,6 +633,27 @@ export const layout = {
    */
   stripPill: 34,
   /**
+   * The height of the breadcrumb's own head mark — the `@seyi` at the front
+   * of row two, not a `stripPill` copy.
+   *
+   * The two used to be the identical object: same `stripPill` 34, same
+   * `radii.md`, same `shadows.floating`, same `wsSwitch` 13px label. That was
+   * right for as long as the pill *was* the switcher, moved down a row —
+   * `A context pill's target is not its mark` (below) argues `stripPill` down
+   * to 34 and keeps the shadow for exactly that reason, and it was correct
+   * about the object it was arguing over. It stopped being the same object
+   * when **the contexts moved into the scroller** (above): row one switches
+   * *to* a context, row two's head names the one you are already in, and a
+   * switcher pill drawn a second time one row down is two objects claiming to
+   * be the same control. See "The breadcrumb head stopped being a switcher
+   * pill" for the measurement and the rest of the argument.
+   *
+   * `stripPill` is untouched — the switcher row still needs the whole target
+   * a phone's only route between contexts has always needed. This token is
+   * for the one caller that draws a *quieter* mark: `Pill`'s `head` variant.
+   */
+  crumbPill: 26,
+  /**
    * The account mark pinned at the leading end of a phone's top row.
    *
    * 34, and **below `minTouchTarget` on purpose**, which is legal for the same

@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, test } from "@jest/globals";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { CurrentContextPill } from "../features/console/ContextStrip";
+import { ContextStrip, CurrentContextPill } from "../features/console/ContextStrip";
 import { NavBand, NavBandProvider } from "../features/console/NavBand";
 import type { ConsoleContext } from "../features/console/types";
 
@@ -253,5 +253,47 @@ describe("the band's two rows", () => {
     const band = mountBand({ contexts: null });
     expect(band.find("nav-band")).not.toBeNull();
     expect(band.find("nav-context-seyi")).not.toBeNull();
+  });
+
+  /**
+   * **The head of the path is quieter than the switcher above it.**
+   *
+   * Row one means "go there"; the head at the front of row two means "you are
+   * here" — the same fact `pillCurrent`'s fill already states in colour, which
+   * is what made drawing both at the same size and with the same shadow read
+   * as one control repeated rather than two different ones. Both rows are
+   * mounted for real here — `ContextStrip` for the switcher, `NavBand` for the
+   * head — rather than compared against a literal, so a change to either
+   * pill's actual rendered style is what this reads.
+   *
+   * SABOTAGE: `head && styles.pillHead` dropped from `Pill`'s style array —
+   * the whole variant reverted, as if `head` were accepted and never drawn.
+   * Fails here, and only here: `head` and `current` set disjoint properties
+   * (size/shadow/radius versus background), so — checked, not assumed —
+   * reordering the two against each other changes nothing this test or any
+   * other can see; dropping the styles entirely is the mutation this guard
+   * actually answers for.
+   */
+  test("the head of the path is quieter than the switcher above it", () => {
+    const strip = mount(
+      createElement(ContextStrip, {
+        contexts: [context({ slug: "supa", id: "ws_supa" })],
+        currentSlug: null,
+        recent: [],
+        loading: false,
+        onOpen: () => {},
+        onSelect: () => {},
+      }),
+    );
+    const stripMark = strip.need("mark-context-strip-supa");
+
+    const band = mountBand();
+    const headMark = band.need("mark-nav-context-seyi");
+
+    const stripHeight = Number.parseFloat(getComputedStyle(stripMark).height);
+    const headHeight = Number.parseFloat(getComputedStyle(headMark).height);
+    expect(headHeight).toBeLessThan(stripHeight);
+
+    expect(getComputedStyle(headMark).boxShadow).toBe("none");
   });
 });

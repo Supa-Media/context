@@ -2721,3 +2721,91 @@ regression the old sentence would suggest on a literal reading.
 `rail-sign-out` stay exactly as they were — two 28pt targets beside a name,
 which is a rail foot with room, not a 44×44 corner with none. Merging them
 too would be solving a problem that surface does not have.
+
+### The breadcrumb head stopped being a switcher pill when it moved rows
+
+"the button for @seyi is too big." Measured at 390×844: the head mark was
+68.1×34 — 43% of that width chrome (8+8 padding, 6 gap, 7 dot) — carrying a
+13px label beside an 11px leaf it sits on the same line as. It was also,
+literally, the identical object **A context pill's target is not its mark**
+(above) argues for: same `layout.stripPill` 34, same `radii.md`, same
+`shadows.floating`, same `wsSwitch` 13px label. That section is not reversed
+by this one — read again, it is an argument about the **switcher** pill,
+made when the switcher and the breadcrumb's head were the same object worn
+in two places, and it is still correct about that pill today. `stripPill`
+keeps its height and its shadow untouched; `contextStrip.test.ts`'s two
+positive controls for both stay green.
+
+What changed is that the two stopped being the same object the moment
+**The contexts moved into the scroller** (above) put them on two different
+rows meaning two different things: row one is a list of places to switch
+*to*, so each pill needs the full switcher target and a shadow to read as a
+floating control while somebody scrolls past whatever is under it. Row two's
+head is not a list — it is naming the one context you are already standing
+in, beside the path to the note you are reading — and a control drawn
+identically to the list above it reads as "this is also a place to switch
+to", in the wrong colour. Two facts ("go there" and "you are here") drawn as
+the same shape in two colours is weaker than the same shape used once and a
+colour carrying the second fact alone.
+
+So `Pill` gained a `head` variant rather than the breadcrumb growing a second
+pill implementation — that file's own rule is that a second implementation
+is how the strip and the breadcrumb come to disagree about what a context
+looks like, and it was right the first time this was built. `head` differs
+from the switcher mark in exactly the four ways that made it read as a
+second switcher: `layout.crumbPill` (26) rather than `stripPill` (34), no
+`boxShadow`, `radii.xs` rather than `radii.md`, and an 11px mono label
+matching the leaf's own size and weight rather than `wsSwitch`'s 13px body
+face — so colour (`accentDim`/`accentText`, unchanged) is what says "this is
+the context", and the row reads as one line rather than two chrome weights
+stacked on each other. The dot goes too: `toneForKind` exists to tell
+contexts apart *in a list*, and a list of the one context you are standing
+in has nothing left to tell apart.
+
+**Dropping the shadow is itself a small instance of the same lesson**, worth
+naming on its own: `pill`'s own docblock justified `shadows.floating` with
+"the top row has no surface of its own… so anything on it that is not drawn
+as an object has nothing behind it," which was true while this row floated in
+`AppFrame`'s `topBarCompact`. **The contexts moved into the scroller** made
+that premise stop being true for both rows — they now sit above the pane's
+own surface — and the switcher pill keeps the shadow anyway, because it is
+still read at a glance while scrolling past whatever is under it, which is
+exactly the case a floating mark is for. The head has no such case: it does
+not move independently of the text beside it, so the premise that used to
+justify the shadow everywhere on this row now justifies it for only one of
+the two pills on it.
+
+**The target does not move, and this is not a second exception to
+`minTouchTarget`.** `styles.target` stays `layout.minTouchTarget` on both
+axes for `head` exactly as for the switcher — the mark shrank, the pressable
+around it did not, which is `accountAvatar`'s rule applied to a case that
+already had it half right (a smaller mark, a target that was already at the
+floor because `styles.target` never depended on the mark's own size). A
+two-character slug's head is still held at 44 by `minWidth`.
+
+**The visible payoff is a few more characters of the note's own title.**
+`Breadcrumb.tsx`'s `phoneRowBudget` estimates the pill's footprint to decide
+how many characters the leaf may keep before it elides, and it was still
+budgeting for the switcher pill's chrome and label size after this fix —
+`pillChromePx` at `space.x2*2 + 6 + 8` (the padding, the gap, the dot) and
+`pillLabelPx` at a 13px body glyph. Left uncorrected the leaf would still
+truncate at the old, wider pill's width even though the real one had
+shrunk — safe (the bias is to overestimate the room the pill takes, so the
+error only ever costs a folder segment, never the leaf), but it would leave
+on the table exactly the room this fix bought. `pillChromePx` is `6 * 2` now
+(`layout.crumbPill`'s own padding, no dot, no gap for one) and `pillLabelPx`
+is `contextLabel.length * 7.0` (11px mono, the leaf's own face).
+`breadcrumbPath.test.ts`'s "a narrower head yields more leaf characters for
+the same path" pins the direction of that difference against the real
+`phoneRowBudget`, not a re-derived copy of it.
+
+What a simplification of any of this costs: restoring the switcher's
+`stripPill`/`shadows.floating`/`wsSwitch` sizing to the head puts the 68.1pt
+mark back over an 11px leaf; dropping the dot's removal or the label's size
+match puts the two-signals-for-one-fact problem back in a smaller box;
+reverting `phoneRowBudget`'s constants leaves the leaf truncating at the old
+pill's width forever, silently. `navBand.test.ts`'s "the head of the path is
+quieter than the switcher above it" and `breadcrumbPath.test.ts`'s new case
+each fail on their own piece of this and nothing else, and `contextStrip.
+test.ts:518` — the strip pill's own 34pt — is the positive control that
+proves the switcher itself was never touched.

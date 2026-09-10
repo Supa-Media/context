@@ -447,6 +447,21 @@ const SHOTS: readonly Shot[] = [
     sizes: ["phone"],
   },
   {
+    /*
+      The compact account trigger, opened. Phone only: a pointer layout draws
+      `rail-settings`/`rail-sign-out` as two separate rail-foot rows and never
+      reaches this menu at `wideBreakpoint`.
+    */
+    name: "account-menu",
+    prepare: (container, settle) => {
+      press(need(container, "account-menu"));
+      settle();
+      need(container, "account-settings");
+      need(container, "account-sign-out");
+    },
+    sizes: ["phone"],
+  },
+  {
     name: "settings",
     at: { pathname: "/console/@seyi", settings: "account" },
     prepare: (container) => {

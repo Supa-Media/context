@@ -130,13 +130,23 @@ import type { Visibility } from "./types";
  * - **The trailing fade**, 24pt — `NavBand`'s own number for the same falloff,
  *   duplicated with a comment rather than imported because it is a decoration
  *   this module has no other reason to depend on.
- * - **The pill**, estimated rather than measured: `space.x2` of padding on
- *   each side, the 6pt gap before its label, an 8pt dot, and the label itself
- *   at `wsSwitch`'s 13px body face. Body glyphs run wider than the row's own
- *   11px monospace, so this is deliberately generous — a budget that assumes
- *   a bigger pill than the real one leaves the row *more* room than it has,
- *   which is the wrong direction to be wrong in. Erring the other way here
- *   would spend characters `crumbs.ts` does not actually have.
+ * - **The pill**, estimated rather than measured: 6pt of padding on each
+ *   side (`layout.crumbPill`'s own `head` chrome — see `ContextStrip.tsx`'s
+ *   `Pill`), and the label itself at 11px mono, the same face and size as the
+ *   leaf beside it.
+ *
+ *   **This used to budget for the switcher pill** — `space.x2` padding, a 6pt
+ *   gap, an 8pt dot, a 13px body label — because the head *was* a switcher
+ *   pill drawn a second time. It is `layout.crumbPill` now: no dot, no gap for
+ *   one, `radii.xs` padding rather than `radii.md`'s, and a label matching the
+ *   leaf's own size rather than running wider than it. Carrying the old,
+ *   larger budget forward here would still be *safe* — an overestimate costs a
+ *   folder, never the leaf — but it would spend characters this row now
+ *   genuinely has, which is the whole visible payoff of the smaller head: a
+ *   few more characters of the note's own title before it has to elide.
+ *   `CHAR_WIDTH_PX` carries the same bias for the row's own glyphs, mono
+ *   against mono, so this estimate is not generous in the way the old one had
+ *   to be to cover a wider, different-faced pill.
  * - **A flat safety margin**, `SLACK_PX`. `breadcrumb-shots.ts` photographed
  *   this against the real font before that constant existed and the leaf was
  *   still fading out under `NavBand`'s gradient — every other number here was
@@ -152,11 +162,18 @@ import type { Visibility } from "./types";
  * carries the same bias for the row's own glyphs. `breadcrumb-shots.ts` is
  * where this gets checked against a real browser rather than arithmetic.
  */
-function phoneRowBudget(windowWidthPx: number, contextLabel: string): { chars: number } {
+/**
+ * Exported for `breadcrumbPath.test.ts`, which is otherwise free of
+ * `react-native` (see that file's own header) — this is the one function in
+ * here that is plain arithmetic over numbers, so it is the one worth pulling
+ * out of a component file and testing directly rather than re-deriving its
+ * formula as a second copy in the test.
+ */
+export function phoneRowBudget(windowWidthPx: number, contextLabel: string): { chars: number } {
   const gutterPx = layout.readingMargin * 2;
   const fadePx = 24;
-  const pillChromePx = space.x2 * 2 + 6 + 8;
-  const pillLabelPx = contextLabel.length * 7.5; // ~13px body glyph, generously
+  const pillChromePx = 6 * 2; // `layout.crumbPill`'s own horizontal padding
+  const pillLabelPx = contextLabel.length * 7.0; // 11px mono, same face as the leaf
   const slackPx = 12;
   const availablePx = windowWidthPx - gutterPx - fadePx - pillChromePx - pillLabelPx - slackPx;
   return { chars: Math.max(0, Math.floor(availablePx / CHAR_WIDTH_PX)) };
