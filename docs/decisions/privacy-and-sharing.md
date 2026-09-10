@@ -523,6 +523,23 @@ on the details it actually carries, and adding one is where that happens:
   the same reason at both), so `grant.created`'s `{ scopes, tier }` on the trail
   republished it a rung lower. `grant.revoked` stays — its details name no
   scope, no client and no third party.
+- **An exception flag that turns a same-shape detail into a note-level
+  existence signal, once `paths` no longer rides beside it.**
+  `visibility.note`'s `{ visibility, exception }` was harmless while every
+  row's `paths` was published: `exception` was redundant with the path
+  attached to the same row. It stopped being harmless the moment `paths` was
+  gated (below) — paired with `visibility: "private"` on a row whose path a
+  member can no longer resolve, `exception: true` still says this note's
+  classification differs from its *folder's* default, which counts a private
+  note inside a folder whose default the member can read. Found by adversarial
+  review of the `paths` fix itself, applying the exact criterion
+  `workspace.structure_applied` was already struck from this list for.
+  `visibility.note` came off with it; `visibility.folder` stayed, because it
+  carries no `exception` field and its subject — a folder's own default — is
+  something a member watching that folder already learns first-hand the
+  instant their own listing of it changes. Both setters are `owner`-only, so a
+  member is never either row's actor and loses nothing about their own work
+  either way.
 
 The count is withheld rather than dropped at the call site, so the owner's
 record keeps it. `workspace.structure_applied` was on the list only because its
@@ -571,6 +588,20 @@ sound in that direction is the whole point: the failure mode of getting this
 wrong is a member seeing less than they might have, never a member seeing a
 note they were never shown.
 
+**The actor leg is past-tense clearance, not current — worth saying plainly
+rather than folding into "sound".** An editor who wrote `1-projects/plan.md`
+keeps reading their own `file.write` row's path after the owner later marks
+that note `private`; they had it when they wrote it, and the gate does not
+revoke it retroactively. The exposure is mild and self-limiting: it is a path
+the editor already possessed outside the trail (they wrote it), it never
+grows (no later *owner* action on that path re-exposes it to them — the
+owner's own rows on it, the eventual `file.delete` included, are gated by
+clearance and stay closed), and it is symmetric with the honest `canSee` this
+approximates, which would have shown the same row at write time and only
+stops matching once the manifest changes underneath it. The owner leg has no
+such gap: `role === "owner"` is evaluated fresh on every call, never cached
+from when a row was written.
+
 The three alternatives, and what each costs:
 
 - **Make `listEvents` an action.** Exact filtering, at the price of the
@@ -599,7 +630,14 @@ in the settings panel next to it, and because the loss is recoverable later
 `pathsWithheld: true` sits beside the empty `paths`. Returning `paths: []`
 alone would claim the event touched nothing, which is false; the flag makes the
 hole legible, so a console can render "a note you cannot see" instead of
-silently nothing.
+silently nothing — **for actions that carry paths at all.** `pathsWithheld` is
+`true` on rows like `member.joined` or `storage.rekeyed` too, and it cannot
+tell "a path exists and is hidden" apart from "there was never a path on this
+row" any more than it can tell one hidden path from three — it is computed
+from the reader alone, never the row. A renderer has to gate that sentence on
+the row's own `action` being one that carries paths before reading the flag
+that way; `action` is public on every row, so branching on it publishes
+nothing a member could not already see.
 
 **The flag is computed from the reader, never from the row.** It is a function
 of the reader's role and whether they are the actor — two facts they already
@@ -623,6 +661,16 @@ hole. Closing it means gating incidence, which is a separate decision with a
 separate cost, and the same one that `grant.created`'s ungated
 `actorUserId`/`actorClientId`/`at` columns are waiting on.
 
+A fourth column rides beside those three: **`details`**, on whichever actions
+`MEMBER_VISIBLE_DETAIL_ACTIONS` allow-lists, per the section above. That gate
+is where `visibility.note`'s `{ visibility, exception }` lived until it was
+struck for being an existence oracle over exactly the notes `paths` now
+protects — the two gates are read separately for a reason (`readsEveryDetail`
+and `readsEveryPath` agree today only because both currently mean `owner`;
+folding them into one boolean is how a later change to either would silently
+move the other), but a leak that survives `paths` being closed can still live
+in `details`, and did until this review found it.
+
 **A "simplification" of this costs**: folding `readsEveryPath` into the
 `details` boolean (they agree today and are different rules, so a change to
 either would silently move the other); keying the gate on write access rather
@@ -639,7 +687,11 @@ and the real privacy engine; `audit.test.ts` → "a row's paths are the reader's
 clearance or the reader's own hands" covers the control-plane edges, including
 a row with no actor at all, and pins `scopeForRole("owner") === "private"` so
 that a change to the role/clearance mapping fails here rather than silently
-widening the trail.
+widening the trail. `audit.test.ts` → "the allow-list's own criteria are
+applied to the allow-list" additionally builds the exact `visibility: private,
+exception: true` row inside a folder a member can list, and asserts its
+`details` come back `undefined` for a non-owner — re-adding `visibility.note`
+to `MEMBER_VISIBLE_DETAIL_ACTIONS` fails it.
 
 ### A privacy decision is folded, and the fold only ever narrows
 

@@ -420,6 +420,37 @@ describe("the allow-list's own criteria are applied to the allow-list", () => {
       "it names no scope, no client and no third party"
     ).toBe("refresh_token_reuse");
   });
+
+  /**
+   * `exception: true` paired with `visibility: "private"` says this note's
+   * classification differs from its folder's default -- a private note
+   * counted inside a folder whose default the member CAN read, once `paths`
+   * no longer rides beside it to make the flag redundant. The identical shape
+   * `workspace.structure_applied`'s `folderCount` was struck from this list
+   * for above.
+   */
+  test("a member cannot tell a note's visibility differs from its folder's default", async () => {
+    const row = await sharedBrainWith("visibility.note", {
+      visibility: "private",
+      exception: true,
+    });
+    expect(row?.action, "the event itself is not hidden").toBe("visibility.note");
+    expect(
+      row?.details,
+      "visibility and exception together are a private-note existence oracle",
+    ).toBeUndefined();
+  });
+
+  /**
+   * `visibility.folder` keeps no `exception` field, and its subject -- a
+   * folder's own default -- is one a member watching that folder already
+   * learns first-hand the instant their own listing of it changes. It stays
+   * on the allow-list deliberately, not by oversight.
+   */
+  test("but a folder's own default is visible, having no exception field", async () => {
+    const row = await sharedBrainWith("visibility.folder", { visibility: "team" });
+    expect(row?.details?.visibility).toBe("team");
+  });
 });
 
 /**

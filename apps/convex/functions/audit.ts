@@ -18,7 +18,11 @@ import { requireAuthId } from "@supa-media/convex/auth";
 import { internalMutation, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
-import { getMembership, workspaceNotFound } from "./lib/workspaceAuth";
+import {
+  getMembership,
+  workspaceNotFound,
+  type WorkspaceRole,
+} from "./lib/workspaceAuth";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -141,11 +145,34 @@ export const recordEvent = internalMutation({
  *    `listGrants` gates at `owner`. Closing that means gating those columns
  *    too, which is the same shape as the `paths` decision below and belongs
  *    with it.
+ *  - **An exception flag turns a same-shape detail into a note-level
+ *    existence signal.** `visibility.note`'s `{ visibility, exception }` was
+ *    harmless while `paths` rode beside it on the same row -- `exception`
+ *    was redundant with the path it was attached to. It stopped being
+ *    harmless the moment `readsEveryPath` below gated `paths`: paired with
+ *    `visibility: "private"` on a row whose path a member cannot resolve,
+ *    `exception: true` still says this note's classification differs from
+ *    its *folder's* default, which is a private note counted inside a folder
+ *    whose default the member CAN read. That is `workspace.structure_
+ *    applied`'s `folderCount` all over again -- the identical shape struck
+ *    from this list above for exactly this reason -- rebuilt one action
+ *    later. `visibility.note` comes off the list with it.
+ *
+ *    `visibility.folder` stays, and for a different reason than "it's fine":
+ *    it carries no `exception` field, and its subject -- a folder's own
+ *    default -- is something a member watching that folder already learns
+ *    first-hand the instant their own `listFiles` on it changes. Publishing
+ *    it a second time through the trail teaches a member nothing beyond what
+ *    the folder itself already showed them. Both setters
+ *    (`setNoteVisibility`, `setDirectoryVisibility`) are `owner`-only, so a
+ *    member is never either row's actor -- keeping one and dropping the
+ *    other costs a legitimate reader nothing about their own work either way.
  *
  * What is on it is what a member can already derive from the context they can
- * read: that a note was written or deleted, that a visibility changed and to
- * what, who joined and who left. Withholding those too would leave a trail
- * that answers nothing.
+ * read: that a note was written or deleted, that a *folder's* visibility
+ * changed and to what, who joined and who left. A member no longer learns
+ * that some *note's* visibility changed, or to what -- see `visibility.note`
+ * above. Withholding the rest too would leave a trail that answers nothing.
  *
  * The last two families were found by a review of the first version of this
  * list, which broke its own criteria with its own entries -- which is the
@@ -162,7 +189,10 @@ const MEMBER_VISIBLE_DETAIL_ACTIONS: ReadonlySet<string> = new Set([
   "file.decrypt",
   "file.delete",
   "folder.create",
-  "visibility.note",
+  // `visibility.note` is deliberately NOT here -- see the family above. Its
+  // `{ visibility, exception }` is an existence oracle now that `paths` is
+  // gated; `visibility.folder` keeps no `exception` field and its subject is
+  // one a member already sees first-hand in their own listing.
   "visibility.folder",
   "member.joined",
   "member.left",
@@ -204,6 +234,20 @@ const MEMBER_VISIBLE_DETAIL_ACTIONS: ReadonlySet<string> = new Set([
  * expanded by `keysUnder` at the *actor's* clearance, so a member's own row
  * can only ever name what the member could already list.
  *
+ * **The actor leg is past-tense clearance, not current** -- worth saying
+ * plainly rather than folding into "sound". An editor who wrote
+ * `1-projects/plan.md` keeps reading their own `file.write` row's path after
+ * the owner later marks that note `private`; they had it when they wrote it,
+ * and this gate does not revoke it retroactively. The exposure is mild and
+ * self-limiting: it is a path the editor already possesses outside the trail
+ * (they wrote it), never grows (no later *owner* action on that path
+ * re-exposes it to them -- the owner's own rows on it, including the
+ * eventual `file.delete`, are gated by clearance and stay closed), and is
+ * symmetric with the honest `canSee` this approximates, which would show the
+ * same row at write time and only stops matching once the manifest changes
+ * underneath it. The owner leg has no such gap: `role === "owner"` is
+ * evaluated fresh on every call.
+ *
  * The three alternatives, and why not:
  *
  *  - **Make `listEvents` an action.** Correct filtering, and it costs the
@@ -231,7 +275,7 @@ const MEMBER_VISIBLE_DETAIL_ACTIONS: ReadonlySet<string> = new Set([
  * seeing less than they might have rather than a member seeing a note they
  * were never shown. See `docs/decisions/privacy-and-sharing.md`.
  */
-function readsEveryPath(role: string): boolean {
+function readsEveryPath(role: WorkspaceRole): boolean {
   return role === "owner";
 }
 
@@ -272,6 +316,16 @@ export const listEvents = query({
        * touched nothing", which is false, and a trail that lies is worse than
        * one with holes. The flag makes the hole legible instead, so a console
        * can render "a note you cannot see" rather than silently nothing.
+       *
+       * **That rendering is only correct for actions that carry paths in the
+       * first place.** `pathsWithheld` is `true` on rows like `member.joined`
+       * or `mail.rekeyed` too -- it is computed from the reader alone, so it
+       * cannot tell "a path exists and is hidden" apart from "there was never
+       * a path here" any more than it can tell one hidden path from three. A
+       * renderer must gate "a note you cannot see" on the row's own `action`
+       * being one that carries paths before it reads this flag that way --
+       * `action` is public on every row, so branching on it adds nothing a
+       * member could not already see.
        */
       pathsWithheld: v.boolean(),
       at: v.number(),
