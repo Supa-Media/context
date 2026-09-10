@@ -387,7 +387,15 @@ export const setEntitlements = mutation({
  * anybody but its owner.
  */
 export const startCheckout = mutation({
-  args: { workspaceId: v.id("workspaces") },
+  args: {
+    workspaceId: v.id("workspaces"),
+    /**
+     * Where this attempt started. It decides where Stripe returns to, and
+     * nothing else — a first run comes back to the flow it is standing in,
+     * settings comes back to the section it was opened from.
+     */
+    origin: v.optional(v.union(v.literal("settings"), v.literal("onboarding"))),
+  },
   returns: v.object({ sessionId: v.id("billingSessions") }),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
@@ -445,6 +453,7 @@ export const startCheckout = mutation({
       kind: "checkout",
       // What this attempt is buying, frozen now. See `selectedAtCheckout`.
       selected: selectionOf(plan),
+      origin: args.origin,
     });
 
     await ctx.scheduler.runAfter(
@@ -501,6 +510,8 @@ async function openSession(
     kind: "checkout" | "portal";
     /** The selection this attempt is buying. Absent for a portal attempt. */
     selected?: Entitlements;
+    /** Where it started, which decides where Stripe returns to. */
+    origin?: "settings" | "onboarding";
   },
 ): Promise<Id<"billingSessions">> {
   const now = Date.now();
@@ -510,6 +521,7 @@ async function openSession(
     kind: input.kind,
     status: "pending",
     selectedAtCheckout: input.selected,
+    origin: input.origin,
     expiresAt: now + SESSION_TTL_MS,
     createdAt: now,
     updatedAt: now,
@@ -566,18 +578,30 @@ export const sessionForAction = internalQuery({
       status: v.union(v.literal("pending"), v.literal("ready"), v.literal("failed")),
       stripeCustomerId: v.optional(v.string()),
       selected: entitlementsValidator,
+      /**
+       * What the return URL is built from: where the attempt started, and the
+       * name of the context it is for. The slug rather than the id, because a
+       * URL addresses a context by name and never by a raw workspace id.
+       */
+      origin: v.union(v.literal("settings"), v.literal("onboarding")),
+      slug: v.string(),
     }),
   ),
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.sessionId);
     if (row === null) return null;
     const plan = await planFor(ctx, row.workspaceId);
+    const workspace = await ctx.db.get(row.workspaceId);
     return {
       workspaceId: row.workspaceId,
       kind: row.kind,
       status: row.status,
       stripeCustomerId: plan?.stripeCustomerId,
       selected: selectionOf(plan),
+      // A row written before `origin` existed is a settings attempt: it is
+      // where the only checkout this product had could be started from.
+      origin: row.origin ?? "settings",
+      slug: workspace?.slug ?? "",
     };
   },
 });

@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useConvex } from "convex/react";
+import type { CheckoutOutcome } from "@context/shared";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { Button } from "../../../design/components/Button";
 import { Card, Row } from "../../../design/components/Card";
@@ -14,7 +15,9 @@ import { leaveTo } from "../../../consent/leave";
 import { selectedContext, type ConsoleData } from "../../types";
 import { settingsSectionLabel } from "../sections";
 import {
+  CHECKOUT_SETTLING_SLOW_MS,
   EXPORT_PROMISE,
+  checkoutReturnCopy,
   demoPremiumView,
   describePremium,
   describeSessionFailure,
@@ -69,9 +72,19 @@ export function PremiumPanel({
   data,
   /** Absent is the old one-scroll settings pane; present is the overlay. */
   section,
+  /**
+   * What the return from Stripe said, handed down from the route.
+   *
+   * Read where the URL is already read rather than here. A leaf that imports
+   * `expo-router` needs a router mocked wherever it is mounted, and this one is
+   * mounted in six suites that have no business knowing about navigation —
+   * which is exactly what happened when it read the parameter itself.
+   */
+  returned = null,
 }: {
   data: ConsoleData;
   section?: string;
+  returned?: CheckoutOutcome | null;
 }) {
   /*
     `useConvex` returns `undefined` rather than throwing when there is no
@@ -89,28 +102,30 @@ export function PremiumPanel({
   const client = useConvex();
   const current = selectedContext(data);
   const workspaceId = data.demo || client === undefined ? null : (current?.id ?? null);
-
   if (workspaceId === null) {
     return (
       <PremiumBody
         view={data.demo ? demoPremiumView() : unreadablePremiumView()}
         section={section}
+        returned={returned}
       />
     );
   }
-  return <PremiumLive workspaceId={workspaceId} section={section} />;
+  return <PremiumLive workspaceId={workspaceId} section={section} returned={returned} />;
 }
 
 /** The half that subscribes. Rendered only where there is a client to do it. */
 function PremiumLive({
   workspaceId,
   section,
+  returned,
 }: {
   workspaceId: string;
   section?: string;
+  returned: CheckoutOutcome | null;
 }) {
   const view = usePremium({ workspaceId: workspaceId as Id<"workspaces"> });
-  return <PremiumBody view={view} section={section} />;
+  return <PremiumBody view={view} section={section} returned={returned} />;
 }
 
 /**
@@ -123,13 +138,30 @@ function PremiumLive({
 export function PremiumBody({
   view,
   section,
+  returned = null,
+  /** Test seam: the settling copy's later wording, without waiting for it. */
+  slowAfter = CHECKOUT_SETTLING_SLOW_MS,
 }: {
   view: PremiumView;
   section?: string;
+  /** What the return from Stripe said, or `null` for an ordinary visit. */
+  returned?: CheckoutOutcome | null;
+  slowAfter?: number;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [working, setWorking] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  /*
+    The settling copy changes once, on a timer, and the timer only runs while
+    there is something to wait for. Cleared on unmount and never restarted, so
+    a section somebody left open for an hour does not keep a handle alive.
+  */
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (returned !== "done") return undefined;
+    const handle = setTimeout(() => setSlow(true), slowAfter);
+    return () => clearTimeout(handle);
+  }, [returned, slowAfter]);
 
   const run = (action: (() => Promise<void>) | undefined) => {
     if (action === undefined) return;
@@ -151,6 +183,7 @@ export function PremiumBody({
   const pill = premiumPill(state, status?.canManage ?? true);
   const control = premiumControl(view);
   const session = view.session;
+  const returning = checkoutReturnCopy(returned, state, { slow });
 
   const toggle = (value: string, next: boolean) => {
     if (status === undefined || status === null || view.choose === undefined) return;
@@ -180,6 +213,39 @@ export function PremiumBody({
         exactly as it is.
       </Text>
 
+      {/*
+        A return that is still settling is drawn *as* the plan, not above it.
+
+        It was a notice over the card first, and looking at it in a browser is
+        what killed that: "Payment received — setting up this context" sat
+        directly above "This context is on the free plan", two statements about
+        somebody's money contradicting each other on one screen. The plan has
+        genuinely not changed yet — the webhook decides that — so the honest
+        move is to stop asserting the old state while we are telling them the
+        new one is coming, rather than to assert both.
+
+        A *cancelled* return is a notice, because "no payment was taken" and
+        "you are on the free plan" agree with each other.
+      */}
+      {returning === null || returning.working ? (
+        <></>
+      ) : (
+        <Notice
+          tone={returning.tone}
+          style={styles.notice}
+          testID="premium-checkout-return"
+        >
+          <View style={styles.returnText}>
+            <Text variant="rowTitle" role="status">
+              {returning.title}
+            </Text>
+            <Text variant="rowSub" style={styles.blurb}>
+              {returning.body}
+            </Text>
+          </View>
+        </Notice>
+      )}
+
       {status === null ? (
         <Card>
           <View style={styles.loadingRow}>
@@ -192,17 +258,22 @@ export function PremiumBody({
           </View>
         </Card>
       ) : (
-        <Card>
+        <Card testID={returning?.working === true ? "premium-checkout-return" : undefined}>
           <View style={styles.head}>
             <View style={styles.headText}>
-              <Text variant="rowTitle" testID="premium-title">
-                {copy.title}
+              <Text variant="rowTitle" testID="premium-title" role="status">
+                {returning?.working === true ? returning.title : copy.title}
               </Text>
               <Text variant="rowSub" style={styles.blurb}>
-                {copy.blurb}
+                {returning?.working === true ? returning.body : copy.blurb}
               </Text>
             </View>
-            {pill === null ? null : (
+            {returning?.working === true ? (
+              <View style={styles.settlingPill}>
+                <ActivityIndicator size="small" />
+                <Pill tone="neutral">Setting up</Pill>
+              </View>
+            ) : pill === null ? null : (
               <Pill tone={pill.tone} leading={<Dot tone={pill.tone} />}>
                 {pill.label}
               </Pill>
@@ -367,6 +438,8 @@ const makeStyles = (colors: Colors) =>
     },
     hint: { marginTop: 12 },
     notice: { marginTop: 12 },
+    settlingPill: { flexDirection: "row", alignItems: "center", gap: 8 },
+    returnText: { flex: 1, minWidth: 0 },
     readOnlyRow: { marginTop: 14 },
     readOnlyHead: {
       flexDirection: "row",

@@ -35,6 +35,7 @@
  */
 
 import { v } from "convex/values";
+import { checkoutReturnPath, portalReturnPath } from "@context/shared";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction, type ActionCtx } from "../_generated/server";
@@ -70,6 +71,14 @@ async function fail(
  * connection") for a configuration they had simply not finished. Everywhere
  * else in this codebase an absent `APP_ORIGIN` is loud; this was the one place
  * it was papered over, and the paper said the wrong thing.
+ *
+ * **The path it is given comes from `@context/shared`, and that is the fix for
+ * the worse half of the same bug.** These URLs used to be written here as
+ * `/settings?settings=premium&checkout=done` — a path that is not a route in
+ * the app at all, because settings became an overlay over a context's own
+ * page. A completed payment landed on `+not-found`. The path is built in one
+ * place now, and a test in the app asserts that what it builds is what the
+ * console resolves.
  */
 function returnUrl(path: string): string | null {
   const origin = process.env[APP_ORIGIN_ENV_VAR];
@@ -123,8 +132,8 @@ export const createCheckoutSession = internalAction({
       return await fail(ctx, args.sessionId, "NOT_CONFIGURED");
     }
     const key = await apiKey(ctx);
-    const successUrl = returnUrl("/settings?settings=premium&checkout=done");
-    const cancelUrl = returnUrl("/settings?settings=premium");
+    const successUrl = returnUrl(checkoutReturnPath(session.origin, session.slug, "done"));
+    const cancelUrl = returnUrl(checkoutReturnPath(session.origin, session.slug, "cancelled"));
     if (priceId === null || key === null || successUrl === null || cancelUrl === null) {
       return await fail(ctx, args.sessionId, "NOT_CONFIGURED");
     }
@@ -240,7 +249,7 @@ export const createPortalSession = internalAction({
     }
 
     const key = await apiKey(ctx);
-    const backTo = returnUrl("/settings?settings=premium");
+    const backTo = returnUrl(portalReturnPath(session.slug));
     if (key === null || backTo === null) {
       return await fail(ctx, args.sessionId, "NOT_CONFIGURED");
     }

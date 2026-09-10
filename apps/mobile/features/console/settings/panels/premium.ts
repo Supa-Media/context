@@ -95,6 +95,82 @@ export const EXPORT_PROMISE =
   "deletes anything.";
 
 /**
+ * COMING BACK FROM STRIPE.
+ *
+ * The payment happens on a page we do not own, so the first thing the console
+ * can say about it is whatever the return URL carries. Three states, and the
+ * one in the middle is the one the product had no design for at all:
+ *
+ * - **done, and the plan is already active** — the webhook beat the browser
+ *   back. Say so once and get out of the way.
+ * - **done, and the plan is not active yet** — the ordinary case. Delivery is
+ *   at-least-once and out of order, so this can take a moment. It must never
+ *   read as a failure, must never spin without a sentence, and must give
+ *   permission to leave: the work finishes on the server whether or not this
+ *   tab is open.
+ * - **cancelled** — they came back without paying. Nothing was charged,
+ *   nothing changed, and there is no second pitch. There is no discount to
+ *   offer and offering one would be a different product.
+ *
+ * `slow` is the same settling state a little later. It changes the words and
+ * not the spinner, because the spinner is still telling the truth.
+ */
+export interface CheckoutReturnCopy {
+  tone: "ok" | "neutral";
+  title: string;
+  body: string;
+  /** Shown only while something is actually outstanding. */
+  working: boolean;
+}
+
+export function checkoutReturnCopy(
+  outcome: "done" | "cancelled" | null,
+  state: PremiumState,
+  options: { slow?: boolean; context?: string } = {},
+): CheckoutReturnCopy | null {
+  if (outcome === null) return null;
+  if (outcome === "cancelled") {
+    return {
+      tone: "neutral",
+      title: "No payment was taken",
+      body:
+        "You came back without finishing, which is fine — nothing was charged " +
+        "and nothing changed. This context is exactly as you left it.",
+      working: false,
+    };
+  }
+  if (state === "premium") {
+    return {
+      tone: "ok",
+      title: "Payment received",
+      body: "Premium is on for this context. What you chose is active now.",
+      working: false,
+    };
+  }
+  const where = options.context === undefined ? "this context" : options.context;
+  if (options.slow === true) {
+    return {
+      tone: "neutral",
+      title: "Still working",
+      body:
+        "Stripe has your payment and we are waiting for the confirmation. This " +
+        "can take a minute. You can close this — we will finish on our own, and " +
+        `${where} will be ready when you come back.`,
+      working: true,
+    };
+  }
+  return {
+    tone: "neutral",
+    title: "Payment received",
+    body: `Setting up ${where}. This usually takes a few seconds.`,
+    working: true,
+  };
+}
+
+/** How long before the settling copy stops saying "a few seconds". */
+export const CHECKOUT_SETTLING_SLOW_MS = 20_000;
+
+/**
  * Read a plan status off the wire.
  *
  * A control plane newer than this bundle can name a state this build has never

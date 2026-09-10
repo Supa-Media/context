@@ -1309,3 +1309,156 @@ describe("nothing here gates the exit", () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * WHERE STRIPE SENDS SOMEBODY BACK TO.
+ *
+ * The one moment this product cannot afford to get wrong is the one it did:
+ * `success_url` was `/settings?settings=premium&checkout=done`, and
+ * `/settings` is not a route in the app — settings became an overlay over a
+ * context's own page. A completed payment landed on `+not-found`.
+ *
+ * These tests pin the exact strings sent to Stripe, because that is the only
+ * place the mistake was visible. The *other* half of the guard is in the app
+ * (`apps/mobile/__tests__/checkoutReturn.test.ts`): a path this file says is
+ * right and the router does not resolve is still a 404, and only that side can
+ * ask the router.
+ *
+ * ## Sabotage record
+ *
+ *   `createCheckoutSession` back to the literal `/settings?...` path        1
+ *   `sessionForAction` reporting "settings" for an onboarding attempt       1
+ *   `portalReturnPath` swapped for the old literal                         1
+ */
+describe("the return from Stripe", () => {
+  /** What Stripe was asked for, as the form parameters it received. */
+  function captureStripe(): { params: () => URLSearchParams; calls: () => number } {
+    const seen: URLSearchParams[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: { body: string }) => {
+      seen.push(new URLSearchParams(init.body));
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ url: "https://checkout.invalid/session" }),
+      };
+    });
+    return { params: () => seen[seen.length - 1], calls: () => seen.length };
+  }
+
+  async function sellingContext(t: TestConvex, slug: string) {
+    await seedAppSecret(t, STRIPE_API_KEY_SECRET, "sk_test_obviously_fake_key");
+    vi.stubEnv(STRIPE_PRICE_ID_ENV_VAR, FAKE_PRICE_ID);
+    vi.stubEnv("APP_ORIGIN", "https://app.example.invalid");
+    return await context(t, slug);
+  }
+
+  test("a checkout from settings returns to that context's Premium section", async () => {
+    const t = setupTest();
+    const stripe = captureStripe();
+    try {
+      const { owner, workspaceId } = await sellingContext(t, "return-settings");
+      await chooseBoth(t, owner, workspaceId);
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId },
+      );
+      await t.action(internal.functions.billingStripe.createCheckoutSession, { sessionId });
+
+      expect(stripe.calls()).toBe(1);
+      expect(stripe.params().get("success_url")).toBe(
+        "https://app.example.invalid/console/@return-settings?settings=premium&checkout=done",
+      );
+      expect(stripe.params().get("cancel_url")).toBe(
+        "https://app.example.invalid/console/@return-settings?settings=premium&checkout=cancelled",
+      );
+      // The path that shipped, and the reason this file has a section.
+      expect(stripe.params().get("success_url")).not.toContain("/settings?");
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("a checkout from first run returns to first run", async () => {
+    /*
+      Somebody thirty seconds into their first session has no context page to
+      be sent to — they are mid-flow, with a name claimed and no storage — so
+      sending them to a console that has neither is sending them to a dead end
+      wearing a different URL.
+    */
+    const t = setupTest();
+    const stripe = captureStripe();
+    try {
+      const { owner, workspaceId } = await sellingContext(t, "return-firstrun");
+      await chooseBoth(t, owner, workspaceId);
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId, origin: "onboarding" },
+      );
+      await t.action(internal.functions.billingStripe.createCheckoutSession, { sessionId });
+
+      expect(stripe.params().get("success_url")).toBe(
+        "https://app.example.invalid/welcome?checkout=done",
+      );
+      expect(stripe.params().get("cancel_url")).toBe(
+        "https://app.example.invalid/welcome?checkout=cancelled",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("a row written before origin existed is read as a settings attempt", async () => {
+    // The field is optional because rows predate it, and the fallback has to be
+    // the origin the product actually had — not a crash, and not first run.
+    const t = setupTest();
+    const stripe = captureStripe();
+    try {
+      const { owner, workspaceId } = await sellingContext(t, "return-legacy");
+      await chooseBoth(t, owner, workspaceId);
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId, origin: "onboarding" },
+      );
+      await t.run((ctx) => ctx.db.patch(sessionId, { origin: undefined }));
+      await t.action(internal.functions.billingStripe.createCheckoutSession, { sessionId });
+
+      expect(stripe.params().get("success_url")).toContain("/console/@return-legacy?settings=premium");
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("the billing portal returns to the section it was opened from", async () => {
+    const t = setupTest();
+    const stripe = captureStripe();
+    try {
+      const { owner, workspaceId } = await sellingContext(t, "return-portal");
+      await t.run(async (ctx) => {
+        await ctx.db.insert("workspacePlans", {
+          workspaceId,
+          managedStorage: true,
+          fastSearch: false,
+          status: "active",
+          stripeCustomerId: "cus_FAKE0000",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      });
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startPortal,
+        { workspaceId },
+      );
+      await t.action(internal.functions.billingStripe.createPortalSession, { sessionId });
+
+      expect(stripe.params().get("return_url")).toBe(
+        "https://app.example.invalid/console/@return-portal?settings=premium",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+});

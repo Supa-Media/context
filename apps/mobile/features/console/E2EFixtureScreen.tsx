@@ -4,6 +4,7 @@ import { AccountBlock } from "./ConsoleRail";
 import { BrowsePane } from "./panes/BrowsePane";
 import { ContextStrip, CurrentContextPill } from "./ContextStrip";
 import { NavBandProvider } from "./NavBand";
+import type { CheckoutOutcome } from "@context/shared";
 import { SettingsOverlay } from "./settings/SettingsOverlay";
 import {
   DEFAULT_ACCOUNT_SETTINGS_SECTION,
@@ -85,7 +86,12 @@ import { useE2EFixtureConsoleData } from "./e2eFixtureData";
  * it is the one inert press on this screen (`onSelect={() => {}}` above is
  * the same bargain); no case presses it.
  */
-export function E2EFixtureScreen() {
+export function E2EFixtureScreen({
+  returned = null,
+}: {
+  /** What a return from Stripe said, read by the route and handed down. */
+  returned?: CheckoutOutcome | null;
+} = {}) {
   const data = useE2EFixtureConsoleData();
   const current = selectedContext(data);
   const [anchor, setAnchor] = useState<string | null>(null);
@@ -190,6 +196,13 @@ export function E2EFixtureScreen() {
         <SettingsOverlay
           data={data}
           section={settings}
+          /*
+            The one thing this screen takes from a URL, and it takes it as a
+            prop: `?checkout=done` is how somebody comes back from Stripe, and
+            the state it produces — paid, webhook not yet applied — is on no
+            browser-reachable screen otherwise. `settings.spec.ts` drives it.
+          */
+          returned={returned}
           onSelect={setSettings}
           onSwitchContext={(slug) => {
             setAnchor(null);

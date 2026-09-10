@@ -20,6 +20,7 @@ import { SettingsPane, StatusPill } from "../panes/SettingsPane";
 import { AccountSection } from "./AccountSections";
 import { atName } from "../format";
 import { appSectionsFor, type AppSectionKey } from "../nav";
+import type { CheckoutOutcome } from "@context/shared";
 import { selectedContext, type ConsoleData, type StatusTone } from "../types";
 import {
   DEFAULT_SETTINGS_SECTION,
@@ -56,9 +57,17 @@ export function SettingsOverlay({
   onSignOut,
   onOpenInvitation,
   onDismiss,
+  returned = null,
 }: {
   data: ConsoleData;
   section: SettingsSectionKey;
+  /**
+   * What a return from Stripe said, carried from the route to the one panel
+   * that reads it. Settings is addressed by query parameter, so the answer is
+   * already in the URL the overlay was opened by — this is the wire from there
+   * to Premium, rather than a leaf reaching for a router.
+   */
+  returned?: CheckoutOutcome | null;
   onSelect: (next: SettingsSectionKey) => void;
   /**
    * Map and Connections, which are console destinations rather than settings.
@@ -369,7 +378,7 @@ export function SettingsOverlay({
       onOpenInvitation={onOpenInvitation}
     />
   ) : (
-    <SettingsPane data={data} onClose={onDismiss} section={active} />
+    <SettingsPane data={data} onClose={onDismiss} section={active} returned={returned} />
   );
 
   if (compact) {
