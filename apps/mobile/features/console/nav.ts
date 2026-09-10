@@ -395,13 +395,26 @@ export function settingsHref(slug: string, section?: SettingsSectionKey): string
  * close. Nothing legitimately produces an empty value: `settingsHref` always
  * writes a section name.
  */
+/**
+ * `sources` renamed to `email` when the section split into Email, Calendar,
+ * Chats and Meetings — `email` absorbed exactly the content `sources` used to
+ * hold. This is a rename alias, not a section of its own: it must never
+ * appear in `SETTINGS_SECTIONS`, the sidebar, or search results, so it is
+ * handled here, one line, rather than by adding a row that would show up in
+ * all three.
+ */
+const RENAMED_SETTINGS_SECTIONS: Record<string, SettingsSectionKey> = {
+  sources: "email",
+};
+
 export function settingsFromQuery(
   value: string | string[] | undefined,
 ): SettingsSectionKey | null {
   const raw = Array.isArray(value) ? value[0] : value;
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
-  return isSettingsSection(trimmed) ? trimmed : null;
+  if (isSettingsSection(trimmed)) return trimmed;
+  return RENAMED_SETTINGS_SECTIONS[trimmed] ?? null;
 }
 
 export function appSectionHref(key: AppSectionKey): string {

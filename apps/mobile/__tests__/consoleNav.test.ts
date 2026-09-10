@@ -188,6 +188,18 @@ describe("the route table", () => {
     expect(settingsFromQuery(["email", "storage"])).toBe("email");
   });
 
+  test("a stale ?settings=sources link opens Email, not nothing", () => {
+    // `sources` was the section's key before it split into Email, Calendar,
+    // Chats and Meetings; Email absorbed exactly the content it used to hold.
+    // Without this alias, `isSettingsSection` no longer recognises the key and
+    // a bookmarked or shared `?settings=sources` link would fail closed like
+    // any other unrecognised value — silently *closing* the overlay instead of
+    // opening the section it used to name. This is a rename alias, not a
+    // section: it must never appear in `SETTINGS_SECTIONS`, the sidebar, or
+    // search results, so it is handled here rather than by adding a row.
+    expect(settingsFromQuery("sources")).toBe("email");
+  });
+
   test("there is no top-level storage URL any more", () => {
     // It was never app level: a binding belongs to a workspace. The old URL
     // must not resolve to something that renders a different context's bucket.
