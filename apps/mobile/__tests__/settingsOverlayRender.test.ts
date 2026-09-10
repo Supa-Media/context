@@ -43,6 +43,8 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { useDemoConsoleData } from "../features/console/useDemoConsoleData";
 import { SettingsOverlay } from "../features/console/settings/SettingsOverlay";
+import { SharedLinksPanel } from "../features/console/settings/panels/SharedLinksPanel";
+import { AdvancedPanel } from "../features/console/settings/panels/AdvancedPanel";
 import type { ConsoleData } from "../features/console/types";
 import type { SettingsSectionKey } from "../features/console/settings/sections";
 
@@ -147,6 +149,30 @@ describe("a phone reaches the settings, not just a menu", () => {
     expect(overlay("people").textContent ?? "").toContain("People");
   });
 
+  test("shared links lists what the demo console has shared, revoke and all", () => {
+    // The demo has no `shares.actions`, so a real Revoke button must never
+    // appear here — only the arming label with nothing behind it would be a
+    // demo console pretending to act.
+    const host = overlay("shares");
+    const text = host.textContent ?? "";
+    expect(text).toContain("Shared links");
+    expect(text).toContain("1-projects/board-update.md");
+    expect(host.querySelector('[data-testid^="share-revoke-"]')).toBeNull();
+  });
+
+  test("shares is not people, and people is not shares", () => {
+    expect(overlay("people").textContent ?? "").not.toContain("Shared links");
+    expect(overlay("shares").textContent ?? "").not.toContain("Nobody has access");
+  });
+
+  test("advanced shows the audit trail and offers no key export in the demo", () => {
+    const host = overlay("advanced");
+    const text = host.textContent ?? "";
+    expect(text).toContain("Audit trail");
+    expect(text).toContain("Encryption keys");
+    expect(host.querySelector('[data-testid="advanced-export-keys"]')).toBeNull();
+  });
+
   test("the binding's health is stated, since no storage chip exists here", () => {
     // `PaneHead` is skipped when a section is given, and the top bar's chip is
     // pointer-only — so without the overlay carrying this, a phone states the
@@ -233,7 +259,15 @@ describe("the list is one press away, and it navigates", () => {
       (back as HTMLElement).click();
     });
     const text = host.textContent ?? "";
-    for (const label of ["Overview", "People", "Storage", "Search", "Mail, calendar & chats"]) {
+    for (const label of [
+      "Overview",
+      "People",
+      "Shared links",
+      "Storage",
+      "Search",
+      "Advanced",
+      "Mail, calendar & chats",
+    ]) {
       expect(text).toContain(label);
     }
   });
@@ -313,5 +347,130 @@ describe("the list is the context switcher too", () => {
     // Two contexts' worth of Storage rows in one list is two answers to "what
     // is my bucket", which is the question the row is there to settle.
     expect(host.querySelectorAll('[data-testid="settings-section-storage"]')).toHaveLength(1);
+  });
+});
+
+/**
+ * A `SettingsOverlay` whose `data` is genuinely live.
+ *
+ * `overlay()` above snapshots `useDemoConsoleData()` **once** and hands that
+ * frozen object to a `SettingsOverlay` mounted separately — which is exactly
+ * right for asserting a callback fired (the tests above), and wrong for
+ * asserting the screen updates: the two trees share no state, so pressing a
+ * context row there proves the click reached `onSwitchContext` and nothing
+ * about what got drawn afterwards. This wires them into one component
+ * instead, so calling `.selectContext(...)` on the object it returns causes a
+ * real re-render with the new context's own `shares` and `advanced` already
+ * in the `data` the overlay is holding.
+ */
+function liveOverlay(section: SettingsSectionKey): {
+  host: HTMLElement;
+  data: () => ConsoleData;
+} {
+  let latest: ConsoleData | null = null;
+  function Harness() {
+    const data = useDemoConsoleData();
+    latest = data;
+    return createElement(SettingsOverlay, {
+      data,
+      section,
+      onSelect: () => {},
+      onDismiss: () => {},
+    });
+  }
+  mount(() => createElement(Harness));
+  return {
+    host: document.body,
+    data: () => {
+      if (latest === null) throw new Error("the demo console did not resolve");
+      return latest;
+    },
+  };
+}
+
+/**
+ * The isolation `useLiveConsoleData`'s `selectedContextId` derivation already
+ * carries — proven the security-relevant way, at the query layer, elsewhere —
+ * has no equivalent guard at the rendering layer for these two new sections.
+ * Cheap to lose silently: `shares`/`advanced` keyed by the wrong id, or a
+ * stale closure over the previously-selected context, would show one
+ * context's rows on another's screen and nothing here would say so.
+ */
+describe("a section follows the context it belongs to, not the one beside it", () => {
+  test("a shared link belongs to the context that has it, not the one beside it", () => {
+    const { host, data } = liveOverlay("shares");
+    // @seyi is selected first, by `useDemoConsoleData`'s own default.
+    expect(host.textContent ?? "").toContain("1-projects/board-update.md");
+    expect(host.textContent ?? "").not.toContain("1-projects/roadmap.md");
+
+    act(() => {
+      data().selectContext("pw");
+    });
+
+    const text = host.textContent ?? "";
+    expect(text).toContain("1-projects/roadmap.md");
+    expect(text).not.toContain("1-projects/board-update.md");
+  });
+
+  test("an audit row belongs to the context that recorded it, not the one beside it", () => {
+    const { host, data } = liveOverlay("advanced");
+    expect(host.textContent ?? "").toContain("1-projects/board-update.md");
+    expect(host.textContent ?? "").not.toContain("1-projects/roadmap.md");
+
+    act(() => {
+      data().selectContext("pw");
+    });
+
+    const text = host.textContent ?? "";
+    expect(text).toContain("1-projects/roadmap.md");
+    expect(text).not.toContain("1-projects/board-update.md");
+  });
+});
+
+/**
+ * `readOnlyReason` for a non-owner, on both panels directly.
+ *
+ * Neither the demo console nor any test above ever builds a `SharesView` or
+ * an `AuditView` with `actions`/rows absent and `readOnlyReason` set — the
+ * demo shows every section's content regardless of the viewed context's role,
+ * the same way `DEMO_MEMBERS` always renders. So the sentence a real
+ * non-owner is shown had nothing exercising it: dropping it silently renders
+ * an empty card with no explanation, and nothing above would have noticed.
+ */
+describe("what a non-owner is told instead of the controls", () => {
+  test("shared links: the reason stands in for the missing Revoke", () => {
+    const container = mount(() =>
+      createElement(SharedLinksPanel, {
+        view: {
+          shares: [],
+          actions: undefined,
+          loading: false,
+          failure: null,
+          readOnlyReason: "Only an owner of this context can see or revoke the links shared from it.",
+        },
+      }),
+    );
+    expect(container.textContent ?? "").toContain(
+      "Only an owner of this context can see or revoke the links shared from it.",
+    );
+  });
+
+  test("advanced: the reason stands in for the missing audit trail", () => {
+    const container = mount(() =>
+      createElement(AdvancedPanel, {
+        view: {
+          audit: {
+            events: [],
+            loading: false,
+            failure: null,
+            readOnlyReason: "Only an owner of this context can see its audit trail.",
+          },
+          keyExport: undefined,
+        },
+      }),
+    );
+    expect(container.textContent ?? "").toContain(
+      "Only an owner of this context can see its audit trail.",
+    );
   });
 });

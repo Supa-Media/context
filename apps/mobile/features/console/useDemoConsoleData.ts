@@ -4,6 +4,8 @@ import { useDemoFileBrowser } from "./files/useDemoFileBrowser";
 import { viewerIdentity } from "./identity";
 import { ingestionAvailabilityFor } from "./ingestion/settings";
 import type { ConsoleInvitation, ConsoleMember } from "./members/members";
+import type { ConsoleAuditEvent } from "./advanced/advanced";
+import type { ConsoleShare } from "./shares/shares";
 import type {
   ConsoleClient,
   ConsoleContext,
@@ -163,6 +165,97 @@ const DEMO_MEMBERS: ConsoleMember[] = [
 ];
 
 /**
+ * One live share per context — the "what have I shared" a real console draws
+ * from `listShares`. `lk` has none, on purpose: an empty list is the common
+ * case this panel has to look right for too.
+ */
+const DEMO_SHARES: Record<string, ConsoleShare[]> = {
+  seyi: [
+    {
+      shareId: "sh1",
+      token: "demo-share-token-1",
+      recipient: "@lk",
+      audience: "name",
+      entryPath: "1-projects/board-update.md",
+      titleInPreview: true,
+      previewTitle: "Board update",
+      createdBy: "m1",
+      createdAt: 0,
+    },
+    {
+      shareId: "sh2",
+      token: "demo-share-token-2",
+      recipient: "Anyone with the link",
+      audience: "anyone",
+      entryPath: "2-areas/hiring/offer-letter-template.md",
+      titleInPreview: false,
+      createdBy: "m1",
+      createdAt: 0,
+    },
+  ],
+  lk: [],
+  pw: [
+    {
+      shareId: "sh3",
+      token: "demo-share-token-3",
+      recipient: "Anyone with access",
+      audience: "members",
+      entryPath: "1-projects/roadmap.md",
+      titleInPreview: true,
+      previewTitle: "Roadmap",
+      createdBy: "m2",
+      createdAt: 0,
+    },
+  ],
+};
+
+/**
+ * A few rows of activity, dated relative to now for the same reason
+ * `demoInvitations` is — a fixed timestamp would read as older and older with
+ * every visit.
+ */
+function demoAuditEvents(contextId: string, now: number): ConsoleAuditEvent[] {
+  switch (contextId) {
+    case "seyi":
+      return [
+        {
+          eventId: "e1",
+          actorEmail: "seyi@example.com",
+          action: "file.write",
+          paths: ["1-projects/board-update.md"],
+          at: now - 4 * 60 * 1000,
+        },
+        {
+          eventId: "e2",
+          actorEmail: "seyi@example.com",
+          action: "share.created",
+          paths: ["1-projects/board-update.md"],
+          at: now - 2 * 60 * 60 * 1000,
+        },
+        {
+          eventId: "e3",
+          actorClientId: "Claude Desktop",
+          action: "file.write",
+          paths: ["0-inbox/meeting-notes.md"],
+          at: now - 24 * 60 * 60 * 1000,
+        },
+      ];
+    case "pw":
+      return [
+        {
+          eventId: "e4",
+          actorEmail: "lk@example.com",
+          action: "visibility.note",
+          paths: ["1-projects/roadmap.md"],
+          at: now - 6 * 60 * 60 * 1000,
+        },
+      ];
+    default:
+      return [];
+  }
+}
+
+/**
  * One outstanding invitation, dated relative to now.
  *
  * Unlike the storage row's frozen `updatedAt`, this one has to move with the
@@ -247,6 +340,27 @@ export function useDemoConsoleData(): ConsoleData {
       actions: undefined,
       loading: false,
       failure: null,
+    },
+    // Names, but no Revoke — `actions` absent exactly like `storageActions`
+    // and the clients' `revoke`. A demo console must never offer a button
+    // that pretends to act, and revoking somebody else's link is exactly that.
+    shares: {
+      shares: DEMO_SHARES[selectedContextId] ?? [],
+      actions: undefined,
+      loading: false,
+      failure: null,
+    },
+    // The trail is real data with nothing behind it, the same shape as every
+    // other demo card; the key export is absent for the same reason
+    // `storageActions` is — it hands somebody a credential and cannot be
+    // offered where nothing would really act on it.
+    advanced: {
+      audit: {
+        events: demoAuditEvents(selectedContextId, Date.now()),
+        loading: false,
+        failure: null,
+      },
+      keyExport: undefined,
     },
     loading: false,
     // Nothing here is fetched, so nothing here can fail: the landing page's

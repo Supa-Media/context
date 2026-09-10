@@ -90,6 +90,29 @@ export const SETTINGS_SECTIONS = [
     personalOnly: false,
   },
   {
+    key: "devices",
+    /*
+      "This Mac, and what it's allowed to capture" was drawn inside
+      *workspace* settings, under `sources`, where a machine does not belong
+      — a device is the person's, not the context's, and every other member
+      of that workspace could see it too. Account-scoped, alongside the other
+      things that follow the person rather than whichever context is open.
+    */
+    keywords: "mac computer laptop machine device devices revoke capture desktop",
+    label: "Your devices",
+    scope: "account",
+    group: "Your account",
+    personalOnly: false,
+  },
+  {
+    key: "appearance",
+    keywords: "dark mode light theme night appearance display colour color scheme",
+    label: "Appearance",
+    scope: "account",
+    group: "Your account",
+    personalOnly: false,
+  },
+  {
     key: "account",
     /*
       "sign out" is back in this haystack, and it was right to take it out
@@ -168,8 +191,47 @@ export const SETTINGS_SECTIONS = [
     group: "Who can see it",
     personalOnly: false,
   },
+  {
+    key: "shares",
+    /*
+      "revoke" also lives on `apps`'s keywords, for revoking a connected AI app
+      — both are real destinations for the word, and `matchSettingsSections`
+      requiring every word to match rather than picking one winner is exactly
+      what lets it return both.
+    */
+    keywords: "link links shared share revoke who has it sent unlisted anyone token url",
+    scope: "context",
+    label: "Shared links",
+    group: "Who can see it",
+    personalOnly: false,
+  },
+  {
+    key: "privacy",
+    /*
+      What people type when they are worried, which is rarely the word on the
+      row. "public" and "secret" are in this haystack and in no copy anywhere
+      in the section, deliberately: somebody asking "is any of this public?"
+      is asking a real question, and the answer — that no setting here puts a
+      note in front of anybody the owner has not named — is exactly what this
+      section exists to give them. A word nobody can search for is an answer
+      nobody finds.
+    */
+    keywords: "private public who can see visible hide hidden secret share permissions access folder default privacy manifest",
+    scope: "context",
+    label: "Privacy",
+    group: "Who can see it",
+    personalOnly: false,
+  },
   { key: "storage", keywords: "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup", scope: "context", label: "Storage", group: "Your notes", personalOnly: false },
   { key: "search", keywords: "find index fast lookup rebuild", scope: "context", label: "Search", group: "Your notes", personalOnly: false },
+  {
+    key: "advanced",
+    keywords: "audit history log trail export key keys encryption rotate activity",
+    scope: "context",
+    label: "Advanced",
+    group: "Your notes",
+    personalOnly: false,
+  },
 ] as const;
 
 export type SettingsSectionKey = (typeof SETTINGS_SECTIONS)[number]["key"];

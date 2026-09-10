@@ -1,3 +1,4 @@
+import type { AdvancedView } from "./advanced/advanced";
 import type { ConsoleFailure } from "./failure";
 import type { NoteWriter } from "./encryption/passphraseOps";
 import type { FileBrowser } from "./files/browser";
@@ -10,6 +11,7 @@ import type { IngestionState } from "./ingestion/settings";
 import type { MapGraph } from "./map/layout";
 import type { MembersView } from "./members/members";
 import type { FastSearchView } from "./search/fastSearch";
+import type { SharesView } from "./shares/shares";
 import type { ConnectFormValues } from "./storage/connect";
 
 /**
@@ -306,6 +308,26 @@ export interface ConsoleData {
    * demo — the same rule as `storageActions`, expressed the same way.
    */
   members: MembersView;
+  /**
+   * Every live link this context's owner has minted over one note, and the
+   * Revoke that takes each one back — see `apps/convex/functions/shares.ts`'s
+   * own module comment for why a share is a standing grant over one note and
+   * never a membership, and `docs/decisions/privacy-and-sharing.md` for the
+   * product argument behind it. `actions` is absent for anyone who is not the
+   * owner of this context, and in the demo — the same rule `StorageActions`
+   * states, because `listShares` and `revokeShare` are both owner-only on the
+   * backend.
+   */
+  shares: SharesView;
+  /**
+   * This context's audit trail, and the owner-only export that keeps
+   * encryption honest about non-negotiable #1 — a customer who revokes our
+   * credential must be able to get the key that opens their own encrypted
+   * notes, not only decrypt with it through us. `keyExport` is absent for
+   * anyone who is not the owner, and in the demo, the same rule `shares`
+   * follows.
+   */
+  advanced: AdvancedView;
   /** True while the first Convex round-trip is outstanding. */
   loading: boolean;
   /**

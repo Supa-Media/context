@@ -26,7 +26,10 @@ import { ThisMachineCard } from "../../meetings/components/ThisMachineCard";
 import { FastSearchCard } from "../search/FastSearchCard";
 import { PremiumPanel } from "../settings/panels/PremiumPanel";
 import { MembersSection } from "../members/MembersSection";
+import { PrivacyPanel } from "../settings/panels/PrivacyPanel";
 import { shareBackSuggestions } from "../members/members";
+import { SharedLinksPanel } from "../settings/panels/SharedLinksPanel";
+import { AdvancedPanel } from "../settings/panels/AdvancedPanel";
 import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
 import { settingsSectionLabel, type SettingsSectionKey } from "../settings/sections";
 import { useArming } from "../useArming";
@@ -302,6 +305,30 @@ export function SettingsPane({
       </>
       ) : null}
 
+      {show("shares") ? (
+      <>
+      <Text
+        variant={section === undefined ? "eyebrow" : "paneTitle"}
+        style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}
+      >
+        {settingsSectionLabel("shares")}
+      </Text>
+      <Text variant="paneSub" style={styles.sectionSub}>
+        Every note you have handed to somebody outside this context, one link at a
+        time — with a Revoke beside each.
+      </Text>
+      <SharedLinksPanel view={data.shares} />
+      </>
+      ) : null}
+
+      {/*
+        Its own file, and its own module beneath that. Privacy is the section
+        whose every sentence is a claim about who can read somebody's notes, so
+        the rows, the words and the one control all come from pure modules a
+        test can drive — see `features/console/privacy/`.
+      */}
+      {show("privacy") ? <PrivacyPanel data={data} inline={section === undefined} /> : null}
+
       {show("sources") ? (
       <>
       <Text
@@ -401,6 +428,21 @@ export function SettingsPane({
         for all of them.
       */}
       <FastSearchCard view={data.fastSearch} demo={data.demo} />
+      </>
+      ) : null}
+
+      {show("advanced") ? (
+      <>
+      <Text
+        variant={section === undefined ? "eyebrow" : "paneTitle"}
+        style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}
+      >
+        {settingsSectionLabel("advanced")}
+      </Text>
+      <Text variant="paneSub" style={styles.sectionSub}>
+        Audit trail and key export. Most people never need this.
+      </Text>
+      <AdvancedPanel view={data.advanced} demo={data.demo} />
       </>
       ) : null}
 

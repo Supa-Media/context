@@ -9,7 +9,7 @@ import { ShellTitleBand } from "../features/app/ShellTitleBandView";
 import { holdSplash, releaseSplash } from "../features/app/splash";
 import { shouldHandleCodeHere } from "../features/auth/handleCode";
 import { ensureFontsLoaded } from "../features/design/fonts";
-import { ThemeProvider, useColors, useScheme } from "../features/design/theme";
+import { AppearanceProvider, useAppearanceChoice, useColors, useScheme } from "../features/design/theme";
 import { useConvexAuth } from "convex/react";
 import { useEffect } from "react";
 
@@ -50,7 +50,7 @@ holdSplash();
 
 export default function RootLayout() {
   return (
-    <ThemeProvider>
+    <AppearanceProvider>
       <KeyboardProvider>
         <SafeAreaProvider>
           {/*
@@ -67,7 +67,7 @@ export default function RootLayout() {
           </SupaConvexProvider>
         </SafeAreaProvider>
       </KeyboardProvider>
-    </ThemeProvider>
+    </AppearanceProvider>
   );
 }
 
@@ -94,9 +94,25 @@ function AppGround() {
     own backstop, so a session that never resolves is still bounded.
   */
   const { isLoading } = useConvexAuth();
+  /*
+    The remembered appearance choice, read a second time here — `readStarted`
+    in theme.tsx makes that a no-op past the first call, not a second device
+    read. What this call site needs that `AppearanceProvider` above does not
+    expose downward is `ready`: on a native cold start `AsyncStorage` has not
+    answered yet, and painting before it does risks exactly the flash this
+    feature exists to avoid (dark, `resolveScheme`'s fallback, then a flip to a
+    stored "light"). Holding the launch image on `ready` — the same lever
+    `isLoading` already pulls for the auth session — means the frame nobody
+    should see never gets painted at all rather than being corrected after the
+    fact. On web this changes nothing observable: `ready` is already `true` by
+    the time this component exists (`peekStoredSchemeSync` answers
+    synchronously, before any render), and `releaseSplash` is inert there
+    regardless — see `splash.ts`.
+  */
+  const { ready: appearanceReady } = useAppearanceChoice();
   useEffect(() => {
-    if (!isLoading) releaseSplash();
-  }, [isLoading]);
+    if (!isLoading && appearanceReady) releaseSplash();
+  }, [isLoading, appearanceReady]);
 
   return (
     <>
