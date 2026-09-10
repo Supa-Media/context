@@ -251,6 +251,11 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [Testing and guards](./testing.md)
 
 - A guard nobody has checked is not a guard
+- A gate that only speaks at release is a gate that speaks too late
+- A hand-scan is not a fix for something that has already recurred
+- An invisible character in source is a fixture nobody can review
+- WebKit in CI proves the JavaScript engine, not the OS gesture recogniser
+- A surface no browser can open is a surface no test is looking at
 
 ## [Vocabulary and the workspace model](./vocabulary-and-workspaces.md)
 
