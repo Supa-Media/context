@@ -21,12 +21,14 @@ import {
  * that happen to land on the same gate:
  *
  *  - `audit.listEvents` is readable by **any member** on the backend,
- *    deliberately. The console's own subscription is stricter than that —
- *    see `canReadAuditTrail` for why: `paths` on every row is an open leak
- *    `docs/decisions/privacy-and-sharing.md` names and the backend has not
- *    closed, and this hook is where the console keeps that leak from becoming
- *    a first-class tab in every shared context. When the server-side fix
- *    lands, this is the gate to revisit.
+ *    deliberately, and `paths` is now gated server-side to the reader's own
+ *    clearance or their own rows — see `canReadAuditTrail` for the current
+ *    reasoning. The console's own subscription is stricter still: even with
+ *    `paths` closed, a member reading the trail sees every row's incidence
+ *    (action, actor, timestamp) and whatever `details` the allow-list
+ *    publishes, and this hook is where the console keeps that narrower
+ *    residual signal from becoming a first-class tab in every shared context
+ *    until a product decision says otherwise.
  *  - `encryptionKeys.exportEncryptionKeys` is **owner-only**
  *    (`authorizeEncryptionExport`), so `keyExport` is absent — the whole
  *    property — for anyone else, the rule `StorageActions` states.
