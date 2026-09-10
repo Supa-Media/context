@@ -586,6 +586,36 @@ const ROUTE_FACTORIES: Record<string, string> = {
 };
 
 /**
+ * THE FACTORIES WHOSE KEY IS A SIGNATURE RATHER THAN A BEARER SECRET.
+ *
+ * Kept apart from `ROUTE_FACTORIES` rather than folded into it, because the
+ * two tests below ask different questions of the two kinds and folding them
+ * would mean one of those questions being asked of a route it does not fit —
+ * which is how an enumeration stops meaning anything.
+ *
+ * A bearer factory is checked against `requestCarriesSecret` and against every
+ * other bearer factory reading a *different* environment variable. A signature
+ * factory cannot be: Stripe posts from an address nobody here controls with no
+ * Authorization header at all, which is the entire reason webhooks are signed.
+ * What it owes instead is checked in its own test further down — an HMAC over
+ * the **raw** body, a timestamp inside that MAC, and a secret read from the
+ * environment rather than from `appSecrets`, which is what keeps this route off
+ * `CREDENTIAL_HTTP_ROUTES`.
+ *
+ * One entry, and the enumeration is the point: a second signed door is a diff
+ * to this file that a reviewer reads.
+ */
+const SIGNED_ROUTE_FACTORIES: Record<string, string> = {
+  stripeWebhookRoute: "stripeSignatureIsValid",
+};
+
+/** Every factory a route in `http.ts` may be built by, of either kind. */
+const ALL_ROUTE_FACTORIES: Record<string, string> = {
+  ...ROUTE_FACTORIES,
+  ...SIGNED_ROUTE_FACTORIES,
+};
+
+/**
  * THE ROUTES THAT REQUIRE NO SECRET AT ALL.
  *
  * There is one, and the enumeration is the point: a route that checks nothing
@@ -1072,6 +1102,37 @@ describe("no public function can reach a storage secret", () => {
       // invisible here and are not any more. See `unattributed` in `analyze`.
       "functions.fastSearchProvision.provisionIndex",
       "functions.fastSearchProvision.releaseIndex",
+      // THE PAYMENT KEY, WHICH IS ALSO OURS AND NOT A CUSTOMER'S.
+      //
+      // Both open `STRIPE_SECRET_KEY` to mint a hosted Checkout or customer
+      // portal URL. internalActions, reached only by a schedule edge from
+      // `billing.startCheckout` / `.startPortal` — the same shape as the two
+      // above and resting on the same decision, and the reason those two
+      // mutations return a row id rather than a URL.
+      //
+      // What bounds them: the key never leaves this file. What is written back
+      // to the row is a URL Stripe minted, and the failure path records our own
+      // error code rather than Stripe's text, which can name an account or a
+      // customer.
+      //
+      // The webhook is deliberately NOT here. It verifies an HMAC against an
+      // environment variable, so it opens no envelope and stays off
+      // `CREDENTIAL_HTTP_ROUTES` — see `STRIPE_WEBHOOK_SECRET_ENV_VAR` in
+      // `functions/lib/premium.ts` for why that placement is load-bearing.
+      "functions.billingStripe.createCheckoutSession",
+      "functions.billingStripe.createPortalSession",
+      // THE THIRD, AND THE ONLY ONE NOBODY PRESSED A BUTTON FOR.
+      //
+      // Opens the same payment key to cancel a subscription whose context is
+      // being deleted. Reached by a schedule edge from `deleteWorkspaceCascade`
+      // — a *public* mutation, which is exactly why it is a schedule and not a
+      // call: `account.deleteAccount` must not be a path to the payment key.
+      //
+      // It is here rather than folded into the portal because the portal is the
+      // customer choosing to cancel and this is the product noticing it must.
+      // Without it, deleting a context leaves the card being charged with no
+      // route in the product to stop it.
+      "functions.billingStripe.cancelSubscription",
       // THE GOOGLE CONNECT FLOW'S FOUR, THE SAME SHAPE AS DROPBOX'S TWO PLUS
       // product-specific and combined binders. See the `functions/googleConnect.ts`
       // entry in `DECRYPT_IMPORTERS` for why OAuth-connect modules exist rather
@@ -2085,7 +2146,7 @@ describe("the gateway's HTTP routes", () => {
     for (const [, name, factory] of declarations) {
       if (UNAUTHENTICATED_HTTP_ROUTES.has(name)) continue;
       expect(
-        Object.keys(ROUTE_FACTORIES),
+        Object.keys(ALL_ROUTE_FACTORIES),
         `http.ts#${name} is built by ${factory}, which is not one of the enumerated route factories — so nothing forces it to require a secret`,
       ).toContain(factory);
     }
@@ -2229,7 +2290,7 @@ describe("the gateway's HTTP routes", () => {
   /** And every factory really does check it — otherwise the rule above is decor. */
   test("every factory refuses a request that does not carry its secret", () => {
     const source = httpModule().source;
-    for (const [factoryName, guard] of Object.entries(ROUTE_FACTORIES)) {
+    for (const [factoryName, guard] of Object.entries(ALL_ROUTE_FACTORIES)) {
       const start = source.indexOf(`function ${factoryName}(`);
       expect(start, `${factoryName} is enumerated but not defined in http.ts`).toBeGreaterThan(-1);
       const factory = source.slice(start);
@@ -2287,6 +2348,108 @@ describe("the gateway's HTTP routes", () => {
     );
     expect(gatewayAuth.source).toMatch(
       /export const EMAIL_WORKER_SECRET_ENV_VAR = "EMAIL_WORKER_SECRET"/,
+    );
+  });
+
+  /**
+   * THE SIGNED DOOR OWES WHAT THE BEARER DOORS OWE, IN ITS OWN CURRENCY.
+   *
+   * A webhook route cannot be checked against `requestCarriesSecret` — its
+   * caller has no Authorization header and never will — so being exempt from
+   * the two tests above would leave it with no structural obligation at all,
+   * which is precisely how a route that "checks a signature" ends up checking
+   * a signature it computed over something else.
+   *
+   * Four properties, each of which has been somebody's published incident:
+   *
+   *  - the MAC is over the **raw body**. `request.text()` before any
+   *    `JSON.parse`, and the parse happens after the check. Re-serialising the
+   *    parsed object verifies a different document from the one that was
+   *    signed;
+   *  - the secret is read from `process.env`, not from `appSecrets` — which is
+   *    what keeps this route off `CREDENTIAL_HTTP_ROUTES` and is asserted
+   *    positively rather than left to the decrypt graph;
+   *  - a failure is `unauthorized()`, the same opaque refusal every other door
+   *    gives; and
+   *  - the verifier itself checks the timestamp, so a captured delivery is not
+   *    a standing key.
+   */
+  test("the signed route factory verifies the raw body against an environment secret", () => {
+    const source = httpModule().source;
+    for (const [factoryName, guard] of Object.entries(SIGNED_ROUTE_FACTORIES)) {
+      const start = source.indexOf(`function ${factoryName}(`);
+      expect(start, `${factoryName} is enumerated but not defined in http.ts`)
+        .toBeGreaterThan(-1);
+      const factory = source.slice(start);
+      const body = factory.slice(0, factory.indexOf("\n}\n"));
+
+      expect(body, `${factoryName} does not call ${guard}`).toContain(`${guard}(`);
+      expect(body, `${factoryName} does not refuse`).toMatch(/unauthorized\(\)/);
+
+      // The raw body, and the parse strictly after the verification.
+      expect(body, `${factoryName} must verify the raw body`).toMatch(
+        /await request\.text\(\)/,
+      );
+      const verifiedAt = body.indexOf(`${guard}(`);
+      const parsedAt = body.indexOf("JSON.parse(");
+      expect(parsedAt, `${factoryName} never parses the body it verified`)
+        .toBeGreaterThan(-1);
+      expect(
+        parsedAt,
+        `${factoryName} parses the body before verifying it`,
+      ).toBeGreaterThan(verifiedAt);
+
+      // The secret is an environment read, not a database one.
+      expect(body, `${factoryName} must read its secret from the environment`)
+        .toMatch(/process\.env\[STRIPE_WEBHOOK_SECRET_ENV_VAR\]/);
+      expect(body, `${factoryName} must not open an appSecrets envelope`)
+        .not.toMatch(/readIntegrationSecret|decryptSecret/);
+    }
+
+    /*
+      Non-vacuity for the last of the four, and it is bound to the guard the
+      factory actually names.
+
+      The first version read `lib/stripe.ts` for the tolerance constant no
+      matter which function the factory called — so a `fooRoute: "alwaysTrue"`
+      that satisfied the four body assertions above would have passed on the
+      strength of a constant somewhere else in the file. The guard's own body is
+      what has to check a timestamp and compare in constant time, or "signed"
+      means "signed at some point in history".
+    */
+    for (const guard of Object.values(SIGNED_ROUTE_FACTORIES)) {
+      const stripe = realModules().find((m) => m.path === "functions/lib/stripe.ts");
+      expect(stripe, "functions/lib/stripe.ts is not in the analysed modules")
+        .toBeDefined();
+      const start = stripe!.source.indexOf(`export async function ${guard}(`);
+      expect(start, `${guard} is named by a route factory but is not defined in lib/stripe.ts`)
+        .toBeGreaterThan(-1);
+      const guardBody = stripe!.source.slice(start);
+      const body = guardBody.slice(0, guardBody.indexOf("\n}\n"));
+
+      expect(body, `${guard} does not check the delivery's timestamp`).toMatch(
+        /toleranceMs/,
+      );
+      expect(body, `${guard} does not compare in constant time`).toMatch(
+        /constantTimeEqualsHex\(/,
+      );
+      // The timestamp has to be inside the MAC as well as checked, or moving it
+      // is free.
+      expect(body, `${guard} does not prepend the timestamp to the signed payload`)
+        .toMatch(/\$\{parsed\.timestamp\}\.\$\{payload\}/);
+      // And an absent secret must refuse rather than allow.
+      expect(body, `${guard} does not refuse when no signing secret is configured`)
+        .toMatch(/secret\.length === 0\) return false/);
+    }
+
+    // The env var the factory reads is a real name, held where the deployment
+    // actually sets it — the same non-vacuity `GATEWAY_SECRET_ENV_VAR` gets
+    // below, and it was missing for this one.
+    const premium = realModules().find((m) => m.path === "functions/lib/premium.ts");
+    expect(premium, "functions/lib/premium.ts is not in the analysed modules")
+      .toBeDefined();
+    expect(premium!.source).toMatch(
+      /export const STRIPE_WEBHOOK_SECRET_ENV_VAR = "STRIPE_WEBHOOK_SECRET"/,
     );
   });
 

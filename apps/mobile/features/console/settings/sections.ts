@@ -148,6 +148,29 @@ export const SETTINGS_SECTIONS = [
     group: null,
     personalOnly: false,
   },
+  {
+    key: "premium",
+    /*
+      Nobody types "premium" looking for this. They type the thing they are
+      trying to do — stop paying, change a card, find an invoice, work out why
+      storage is capped — and none of those words are on the row. "storage
+      limit" is here because the 50 GB ceiling is a Premium fact and the
+      Storage section cannot answer it.
+    */
+    keywords:
+      "billing bill upgrade paid pay payment plan price cost subscription subscribe cancel card invoice receipt stripe managed storage limit quota gb ceiling free trial money",
+    scope: "context",
+    label: "Premium",
+    /*
+      Ungrouped, directly after Overview, and above the three questions. It is
+      about this context as a whole rather than about what comes in, who can
+      see it, or where it is kept — and what it changes cuts across all three:
+      the bucket in "Your notes" can be one we run, and the index under it can
+      be the fast one.
+    */
+    group: null,
+    personalOnly: false,
+  },
   /*
     Four sections where there was one, and the one is worth remembering.
 

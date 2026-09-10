@@ -17,6 +17,7 @@ import { CalendarPanel } from "../settings/panels/CalendarPanel";
 import { ChatsPanel } from "../settings/panels/ChatsPanel";
 import { MeetingsPanel } from "../settings/panels/MeetingsPanel";
 import { FastSearchCard } from "../search/FastSearchCard";
+import { PremiumPanel } from "../settings/panels/PremiumPanel";
 import { MembersSection } from "../members/MembersSection";
 import { PrivacyPanel } from "../settings/panels/PrivacyPanel";
 import { shareBackSuggestions } from "../members/members";
@@ -256,6 +257,8 @@ export function SettingsPane({
       </Card>
       </>
       ) : null}
+
+      {show("premium") ? <PremiumPanel data={data} section={section} /> : null}
 
       {show("people") ? (
       <>

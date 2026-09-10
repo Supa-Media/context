@@ -119,6 +119,19 @@ jobs:
           # like APPLE_TEAM_ID rather than committed. Absent is a working
           # state: the deployment simply does not offer managed storage.
           MANAGED_R2_ACCOUNT_ID: ${{ secrets.MANAGED_R2_ACCOUNT_ID }}
+          # The Stripe price Premium is sold at. An identifier rather than a
+          # credential — it is visible in every checkout URL the product opens
+          # — and here rather than committed only because this repository is
+          # public. Absent is a working state: the deployment sells nothing and
+          # the Premium section says so.
+          STRIPE_PRICE_ID: ${{ secrets.STRIPE_PRICE_ID }}
+          # The webhook's signing secret, and it is here rather than in
+          # `appSecrets` for the reason `docs/decisions/billing.md` argues: the
+          # check has to happen before anything the request says is trusted, and
+          # a database read would make the webhook the fourth HTTP route able to
+          # reach a decrypted credential. Absent refuses every delivery, which is
+          # the only safe direction — never "allow".
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
         run: |
           set -euo pipefail
           # Plain strings rather than arrays: an empty array under `set -u` is
@@ -133,7 +146,8 @@ jobs:
                      GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET \
                      MAIL_CONNECT_ENABLED CALENDAR_CONNECT_ENABLED \
                      TRANSCRIBE_WORKER_URL TRANSCRIBE_WORKER_SECRET \
-                     MANAGED_R2_ACCOUNT_ID; do
+                     MANAGED_R2_ACCOUNT_ID \
+                     STRIPE_PRICE_ID STRIPE_WEBHOOK_SECRET; do
             value="${!var:-}"
             if [ -z "$value" ]; then
               # Never pushed as an empty string — see the header.

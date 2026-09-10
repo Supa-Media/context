@@ -421,6 +421,42 @@ async function deleteWorkspaceCascade(
     await ctx.db.delete(row._id);
   }
 
+  // What this context pays for, and any checkout attempt open on it.
+  //
+  // THE SUBSCRIPTION IS CANCELLED FIRST, and the same care the Dropbox
+  // revocation above takes and for the same reason: the id rides in the args
+  // because the row carrying it is deleted on the next line. Scheduled, not
+  // called — this public mutation must not reach the payment key.
+  //
+  // Without it, deleting a context bills the customer every month with no route
+  // in the product to stop it: `startPortal` is the only cancellation path and
+  // it is reached from *this* context's Premium section. That is a chargeback
+  // rather than a loose end, which is why it is here rather than on a list.
+  //
+  // A cancellation Stripe refuses is logged and lost — there is no row left to
+  // record it on. `docs/decisions/billing.md` names that residual.
+  const planRows = await ctx.db
+    .query("workspacePlans")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const plan of planRows) {
+    if (plan.stripeSubscriptionId !== undefined) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.billingStripe.cancelSubscription,
+        { subscriptionId: plan.stripeSubscriptionId },
+      );
+    }
+    await ctx.db.delete(plan._id);
+  }
+  const billingSessionRows = await ctx.db
+    .query("billingSessions")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of billingSessionRows) {
+    await ctx.db.delete(row._id);
+  }
+
   // The fast-search index, RELEASED rather than deleted — the one row here
   // that a `ctx.db.delete` would make worse. Its `databaseId` names a live
   // Cloudflare D1 database holding a projection of this context's notes (see
