@@ -446,11 +446,26 @@ const CHROME_JS = `
     if (frame !== null && !frame.hidden) go(frame.dataset.next);
   });
 
-  const fromHash = location.hash.slice(1).split("/");
-  state.frame = titles.has(fromHash[0]) ? fromHash[0] : [...titles.keys()][0];
-  if (fromHash[1]) state.density = fromHash[1];
-  if (fromHash[2]) state.theme = fromHash[2];
-  apply();
+  /*
+    The address is readable as well as written.
+
+    The runtime used to read the hash once, on load, and only ever write it
+    afterwards — so \`#confirm/phone/light\` opened correctly and then editing
+    the address, or pressing Back, changed nothing at all. Found by driving the
+    page from a script that navigated by hash instead of reloading, which is
+    also how anybody sharing "look at this frame" would use it.
+  */
+  function fromHash() {
+    const parts = location.hash.slice(1).split("/");
+    if (titles.has(parts[0])) state.frame = parts[0];
+    else if (state.frame === null) state.frame = [...titles.keys()][0];
+    if (parts[1] === "phone" || parts[1] === "desktop") state.density = parts[1];
+    if (parts[2] === "dark" || parts[2] === "light") state.theme = parts[2];
+    apply();
+  }
+
+  window.addEventListener("hashchange", fromHash);
+  fromHash();
 `;
 
 function document_(bodies: string, css: string): string {
