@@ -57,6 +57,45 @@ export const SYNC_STALL_MS = 15 * 60 * 1000;
 export const SYNC_FAILURE_BACKOFF_MS = 15 * 60 * 1000;
 
 /**
+ * The ceiling on that backoff: six hours.
+ *
+ * A ladder with no cap turns a fortnight of failures into a connection nobody
+ * ever checks again, and the failures this actually meets — a revoked grant, a
+ * daily quota, a bucket somebody has to reconnect — are all fixed by a person
+ * doing something, after which the next pass should be hours away rather than
+ * days.
+ */
+export const MAX_SYNC_BACKOFF_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * How long to wait after a failure: the interval, or the ladder, whichever is
+ * longer — plus a per-connection spread so a deployment's connections do not
+ * all wake in the same minute after a Google outage ends.
+ *
+ * The spread is derived from the row id rather than drawn at random, because
+ * this is computed inside a mutation and a value a test cannot predict is a
+ * value a test cannot pin.
+ */
+export function failureBackoffMs(
+  intervalMs: number,
+  failures: number,
+  connectionId: string,
+): number {
+  const step = Math.max(0, Math.min(Math.floor(failures) - 1, 8));
+  const ladder = Math.min(MAX_SYNC_BACKOFF_MS, SYNC_FAILURE_BACKOFF_MS * 2 ** step);
+  return Math.max(intervalMs, ladder) + spreadMs(connectionId);
+}
+
+/** Up to a minute, stable for one connection, different between connections. */
+function spreadMs(connectionId: string): number {
+  let hash = 0;
+  for (let index = 0; index < connectionId.length; index += 1) {
+    hash = (hash * 31 + connectionId.charCodeAt(index)) % 60_000;
+  }
+  return hash;
+}
+
+/**
  * Which products the loop can actually advance today.
  *
  * Gmail, and the loop is deliberately built around the *account* rather than
@@ -92,9 +131,17 @@ export function syncableProductsOf(connection: { products: string[] }): string[]
  * was computed from.
  */
 export function isDue(
-  connection: { lastSyncAt?: number; syncIntervalMinutes?: number },
+  connection: { lastSyncAt?: number; syncIntervalMinutes?: number; syncCatchUp?: boolean },
   now: number,
 ): boolean {
+  /*
+    A pass that ran out of pages is due again at once, whatever the interval.
+    The interval is how often to *ask whether anything changed*; this
+    connection is not asking, it is draining a backlog it has already seen the
+    edge of, and every pass makes real progress because the cursor moved to the
+    last record walked.
+  */
+  if (connection.syncCatchUp === true) return true;
   if (connection.lastSyncAt === undefined) return true;
   return now >= connection.lastSyncAt + syncIntervalMinutesOf(connection) * 60_000;
 }
@@ -103,6 +150,8 @@ export function isDue(
 export function syncStatusOf(connection: Doc<"googleConnections">): {
   intervalMinutes: number;
   everSynced: boolean;
+  cursorReady: boolean;
+  catchingUp: boolean;
   lastAttemptAt?: number;
   nextDueAt?: number;
   lastFailureAt?: number;
@@ -119,6 +168,15 @@ export function syncStatusOf(connection: Doc<"googleConnections">): {
       skipped or that failed does not make it true.
     */
     everSynced: connection.gmail?.lastSyncedAt !== undefined,
+    /*
+      A cursor exists, so this connection is watching — but watching is not the
+      same as having read anything, and the two used to be one screen. A
+      baseline pass (and a re-baseline after a gap) sets this and deliberately
+      leaves `everSynced` alone, because forward-only means neither one read a
+      single message.
+    */
+    cursorReady: connection.gmail?.historyId !== undefined,
+    catchingUp: connection.syncCatchUp === true,
     lastAttemptAt: connection.lastSyncAt,
     nextDueAt:
       connection.disconnectedAt !== undefined

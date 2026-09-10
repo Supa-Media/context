@@ -1,10 +1,25 @@
 /**
- * Scheduled maintenance.
+ * Scheduled maintenance, and — since 2026-09-10 — one scheduled engine.
  *
  * Nothing here may hold a decision. A cron is the wrong place for anything a
- * person would want to see refused in the moment, so this file is limited to
- * jobs whose only effect is that the database stops accumulating things nobody
- * reads.
+ * person would want to see refused in the moment, and that rule is unchanged.
+ *
+ * What has changed is the second half of the original sentence. This file was
+ * written for jobs whose only effect is that the database stops accumulating
+ * things nobody reads, and it later gained a job that *restarts* work over a
+ * disposable derivative (`restart stalled search backfills`) — still a repair,
+ * still nothing a customer's bucket would notice. `sync due Google accounts`
+ * is a third kind and it should be named rather than filed quietly beside the
+ * sweeps: it calls a third party on a customer's quota and writes canonical
+ * Markdown into their bucket, on a clock, with nobody present.
+ *
+ * That is admitted here rather than argued away, because the honest limit on
+ * this file is not "only deletions" — it is that **every job here must hold no
+ * decision, and a job that acts outside this database must additionally
+ * re-ask, at the moment it acts, everything that could have changed since it
+ * was scheduled**. The sync job's own comment below makes that case in full,
+ * and `googleForwardSyncJob` is where the re-asking lives. A fourth job of
+ * this kind owes the same two paragraphs.
  */
 
 import { cronJobs } from "convex/server";
@@ -156,6 +171,13 @@ crons.interval(
  * deployment allow reading a restricted scope — is the connection's own state,
  * re-asked by `googleForwardSyncJob` inside the pass, before a credential is
  * opened. What this decides is only *when to look*.
+ *
+ * One thing is genuinely this job's alone and is not re-asked inside the pass:
+ * **due-ness**. The sweep decides a connection is due and the pass then syncs
+ * without asking whether it should have waited. That is deliberate — the pass
+ * runs minutes later and re-deciding due-ness against a clock that has moved
+ * would make a claimed pass refuse itself — but it is worth stating plainly
+ * rather than letting "every gate is re-asked" imply more than is true.
  *
  * It exists because nothing else ever looked. Connecting a mailbox recorded a
  * grant and a `historyId` and then nothing advanced it: no cron, no webhook —

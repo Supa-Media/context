@@ -1355,6 +1355,15 @@ A second credential-bearing route is a real cost (`__tests__/structure.test.ts`,
 
 ### The forward sync loop: a pull, on a floor of five minutes
 
+**Nothing in this section has ever contacted Google.** Every operational claim
+below — the cursor invariant, how long a `historyId` survives, what a rate
+limit looks like, what `history.list` returns on page fifty — is read from
+Google's documentation and exercised against a fixture, and the whole loop is
+proved end to end against a fake Gmail and an in-memory bucket. That is enough
+to hold the *shape* of the thing; it is not evidence about Google's actual
+behaviour, and the first real mailbox may contradict a sentence here. Whoever
+runs it against one should correct this section rather than work around it.
+
 Built 2026-09-10 (`functions/googleSync.ts`, `crons.ts`), because a person
 could connect Gmail, see a healthy-looking connection, and receive nothing,
 forever. The grant was stored, the `historyId` baseline was recorded, and
@@ -1409,12 +1418,15 @@ to matter:
 2. **Nothing else, until a day.** A day's note is regenerated from the complete
    current query for that date, so a slow poll writes the same file a fast one
    would.
-3. **At the far end, actual mail.** Gmail expires a `historyId` after roughly a
-   week. Under a forward-only policy an expired cursor cannot be recovered by a
-   reconcile — there is no backfill to run — so the mail that arrived in the
-   gap is never captured. That is why the maximum is one day rather than a
-   week, and why an expired cursor is written onto the row as a failure a
-   person can read rather than silently re-baselined.
+3. **At the far end, actual mail.** Google documents a `historyId` as usable
+   for "typically at least a week", and adds "in rare circumstances only a few
+   hours". The tail matters more than the typical case: it means **even a
+   one-day interval can gap**, so the maximum is a bound on how *often* that
+   happens rather than a promise it cannot. Under a forward-only policy an
+   expired cursor cannot be recovered by a reconcile — there is no backfill to
+   run — so the mail that arrived in the gap is never captured, which is why an
+   expired cursor is written onto the row as a failure a person can read rather
+   than silently re-baselined.
 
 **Forward-only, and what a gap therefore means.** #388's decision stands: a
 pass advances `historyId` from wherever it is, and a connection with no cursor
@@ -1430,6 +1442,67 @@ reached mid-pass, or anything thrown, leaves `historyId` exactly where it was
 and the next pass asks Gmail the same question again. Advancing it would be the
 one defect in this design that loses somebody's mail with nothing to show for
 it, so it has its own check.
+
+**A history walk that runs out of pages resumes from the last record it read,
+and stays due — it does not store the mailbox head.** This is the same failure
+as the paragraph above wearing a much better disguise, and it was found in
+adversarial review of the first implementation rather than by writing it
+correctly. `history.list` returns the **mailbox's current** `historyId` on
+*every* page, not a per-page cursor. So a bounded walk (fifty pages) that
+stopped early and stored that value would report "caught up" while holding only
+the first pages — and every change behind them would be skipped **forever**,
+with no `gapDetected`, on a row reading `active`. It fires hardest on exactly
+the case this loop exists for: the first pass against a connection whose
+baseline is weeks old.
+
+Three ways out were available, and the third is taken:
+
+1. *Raise the page limit.* Moves the cliff without removing it, and makes one
+   pass unboundedly long against a Convex action deadline.
+2. *Leave the cursor where it is and re-run.* Safe, and it never finishes: the
+   next pass re-reads the same first fifty pages and stops in the same place.
+   Correct, and permanently stuck one page-limit from the front.
+3. *Advance to the last history record actually walked.* A history record's own
+   `id` is a valid `startHistoryId`, and it covers precisely the records this
+   pass collected and regenerated. The cursor moves, nothing is skipped, and
+   the next pass starts where this one stopped.
+
+Which is why `listAllHistory` reports `truncated` and carries `lastRecordId`,
+why `runIncrementalSync` hands back the record boundary rather than the head
+when truncated, and why the pass then sets `syncCatchUp` on the row. That flag
+makes the connection **due on the next tick regardless of its interval**: the
+interval is how often to ask *whether anything changed*, and a connection
+draining a backlog is not asking — it has already seen the edge of one. Each
+pass makes real progress, so the loop terminates, and the flag is cleared by
+the first pass that reaches the end. The console says "catching up on older
+mail" rather than naming a next due time it does not mean.
+
+**A failed pass counts the bytes it wrote, and a refused grant stays refused.**
+Both were also review findings, and both are the same shape — a branch that
+patched a row *nearly* correctly. Byte accounting that skipped the failure path
+froze `bytesAlreadyUsed` below the ceiling on the one path that reaches it (the
+quota stop, which writes whole days before stopping), leaving a quota that
+could never be crossed and a day rewritten forever. And a failure that
+overwrote `health: "reconnect_required"` with a plain `error` erased the state
+the pass's own skip gate keys on, so a grant Google had revoked was offered
+back to Google's token endpoint on every backoff, forever, while the console
+never showed the one state the owner could act on.
+
+**A failure backs off on a ladder, not a flat wait.** Fifteen minutes, doubling
+to a six-hour ceiling, plus a spread derived from the connection's own id so a
+deployment's connections do not all wake in the same minute when an outage
+ends. Flat retries meant a `dailyLimitExceeded` — which by definition will not
+clear today — was retried about ninety-six times before it could.
+
+**Idempotence had to become true on the backends that cannot do a conditional
+write.** `writeDayPart` used to `put` unconditionally when
+`capabilities.conditionalWrite` was false, which made "re-syncing an unchanged
+day writes nothing" a property of R2 and S3 rather than of this code — and on
+B2 and Wasabi (which CLAUDE.md already names) a loop running every few minutes
+would rewrite every touched day forever and re-count the bytes each time. It
+now does the same read-compare there; what those backends still cannot give is
+the *atomicity* that turns a race into a retry, and that remains the honest
+degradation.
 
 **The pass passes no `now`, which is not a detail.** `renderDay` keys a day's
 `updated` to the newest message's own `sentAt` precisely so that re-rendering an
@@ -1470,6 +1543,26 @@ before a credential is opened. The sweep decides only when to look. It also
 claims each row it starts (`syncStartedAt`) and skips anything claimed less than
 fifteen minutes ago, so a pass still running is never overtaken — the same
 heartbeat, and the same fifteen minutes, as `sweepStalledBackfills`.
+
+**A pass that establishes a cursor is not a pass that synced mail**, and the
+card has to be able to say so. Forward-only makes the two genuinely different:
+a first baseline, and a re-baseline after a gap, both read *nothing* by design.
+Counting them as a sync would have shown every freshly connected mailbox as
+current before a single message had been read — the same confusion the card was
+rewritten to end, arriving one state later. So `gmail.lastSyncedAt` moves only
+when mail was actually read, `cursorReady` is what a baseline makes true, and
+the console has three sentences where it used to have two: never synced,
+watching with nothing read yet, and syncing.
+
+**Every pass that writes leaves an audit row, and the actor is `boundBy`.**
+This loop is the first writer in the codebase with nobody present, and
+non-negotiable #4 says the audit records the acting identity rather than the
+scope. The identity is the person who connected the account, on whose grant
+every one of these writes is made; naming them is more honest than an empty
+actor and is the name an owner needs. Only passes that wrote something are
+recorded — a poll that found nothing is not an event, and 288 of those a day
+per connection would bury the rows that matter — and the row carries counts
+only: no address, no subject, no path.
 
 **A connection that has never synced must not look like one syncing fine.**
 That state is exactly what shipped, so the row now carries `lastSyncAt` (when a

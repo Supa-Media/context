@@ -471,6 +471,8 @@ const googleForwardSyncValidator = v.object({
   bytesWritten: v.number(),
   cursorAdvanced: v.boolean(),
   gapDetected: v.boolean(),
+  /** The history walk ran out of pages; this connection has more to drain. */
+  truncated: v.boolean(),
   errorCode: v.optional(v.string()),
 });
 
@@ -663,6 +665,7 @@ type OperationResult =
       bytesWritten: number;
       cursorAdvanced: boolean;
       gapDetected: boolean;
+      truncated: boolean;
       errorCode?: string;
     }
   | {
@@ -963,6 +966,7 @@ export const runFileOperation = internalAction({
           bytesWritten: 0,
           cursorAdvanced: false,
           gapDetected: false,
+          truncated: false,
         };
       }
       if (forwardSyncJob.kind === "skip") {
@@ -1228,6 +1232,7 @@ async function releaseForwardSync(
     bytesWritten: 0,
     cursorAdvanced: false,
     gapDetected: false,
+    truncated: false,
     errorCode: reason,
   };
 }
@@ -1253,6 +1258,7 @@ async function failForwardSync(
     bytesWritten: 0,
     cursorAdvanced: false,
     gapDetected: false,
+    truncated: false,
     errorCode,
   };
 }
@@ -1379,6 +1385,9 @@ async function runGoogleForwardSync(
         historyId,
         daysTouched: 0,
         bytesWritten: 0,
+        // A cursor, not a sync: this pass read no mail, and the console must
+        // be able to say so rather than showing a mailbox that looks current.
+        baseline: true,
       });
       return {
         kind: "googleForwardSync",
@@ -1388,6 +1397,7 @@ async function runGoogleForwardSync(
         bytesWritten: 0,
         cursorAdvanced: true,
         gapDetected: false,
+        truncated: false,
       };
     }
 
@@ -1434,6 +1444,8 @@ async function runGoogleForwardSync(
         daysTouched: 0,
         bytesWritten: 0,
         gapDetected: true,
+        // Re-baselining reads nothing either, for the same reason.
+        baseline: true,
       });
       return {
         kind: "googleForwardSync",
@@ -1443,6 +1455,7 @@ async function runGoogleForwardSync(
         bytesWritten: 0,
         cursorAdvanced: true,
         gapDetected: true,
+        truncated: false,
       };
     }
 
@@ -1466,16 +1479,30 @@ async function runGoogleForwardSync(
         bytesWritten: result.bytesWritten,
         cursorAdvanced: false,
         gapDetected: false,
+        truncated: result.truncated === true,
         errorCode: "MAIL_QUOTA_EXCEEDED",
       };
     }
 
+    /*
+     * A WALK THAT RAN OUT OF PAGES IS NOT A FINISHED SYNC.
+     *
+     * `history.list` hands back the mailbox's *current* head on every page, so
+     * a truncated walk that stored it would say "caught up" while holding only
+     * the first pages — and everything behind them would be skipped forever,
+     * with no gap signalled and the row reading `active`. `runIncrementalSync`
+     * reports the truncation and offers the last record it actually walked
+     * instead; the cursor moves there, and `catchUp` keeps this connection due
+     * so the next pass drains further rather than waiting out its interval.
+     */
+    const truncated = result.truncated === true;
     await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
       connectionId: job.connectionId,
       status: "synced",
       historyId: result.historyId,
       daysTouched: result.daysTouched.length,
       bytesWritten: result.bytesWritten,
+      catchUp: truncated,
     });
     return {
       kind: "googleForwardSync",
@@ -1485,6 +1512,7 @@ async function runGoogleForwardSync(
       bytesWritten: result.bytesWritten,
       cursorAdvanced: result.historyId !== undefined,
       gapDetected: false,
+      truncated,
     };
   } catch (error) {
     const { code, message } = classifyForwardSyncError(error);

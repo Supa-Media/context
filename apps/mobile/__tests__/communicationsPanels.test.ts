@@ -70,6 +70,8 @@ import {
 const SYNCING_HOURLY: GoogleSyncSchedule = {
   intervalMinutes: 60,
   everSynced: true,
+  cursorReady: true,
+  catchingUp: false,
   lastAttemptAt: Date.parse("2026-09-09T09:00:00.000Z"),
   nextDueAt: Date.parse("2026-09-09T10:00:00.000Z"),
 };

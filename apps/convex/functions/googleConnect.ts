@@ -794,6 +794,10 @@ export const listGoogleConnections = query({
       sync: v.object({
         intervalMinutes: v.number(),
         everSynced: v.boolean(),
+        /** A cursor exists, so new mail will be read — which is not the same as having read any. */
+        cursorReady: v.boolean(),
+        /** The last pass ran out of history pages and there is more to drain. */
+        catchingUp: v.boolean(),
         lastAttemptAt: v.optional(v.number()),
         nextDueAt: v.optional(v.number()),
         lastFailureAt: v.optional(v.number()),

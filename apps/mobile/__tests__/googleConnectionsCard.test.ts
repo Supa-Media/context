@@ -18,6 +18,8 @@ import {
 const SYNCING_HOURLY: GoogleSyncSchedule = {
   intervalMinutes: 60,
   everSynced: true,
+  cursorReady: true,
+  catchingUp: false,
   lastAttemptAt: Date.parse("2026-09-09T09:00:00.000Z"),
   nextDueAt: Date.parse("2026-09-09T10:00:00.000Z"),
 };
@@ -295,7 +297,12 @@ describe("GoogleConnectionsCard", () => {
  * it has to be the owner's alone.
  */
 describe("the sync schedule on a connected account", () => {
-  const neverSynced: GoogleSyncSchedule = { intervalMinutes: 15, everSynced: false };
+  const neverSynced: GoogleSyncSchedule = {
+    intervalMinutes: 15,
+    everSynced: false,
+    cursorReady: false,
+    catchingUp: false,
+  };
 
   function connection(sync: GoogleSyncSchedule): GoogleConnection {
     return {
@@ -349,6 +356,8 @@ describe("the sync schedule on a connected account", () => {
           connection({
             intervalMinutes: 15,
             everSynced: false,
+            cursorReady: false,
+            catchingUp: false,
             lastAttemptAt: Date.parse("2026-09-09T09:00:00.000Z"),
             nextDueAt: Date.parse("2026-09-09T09:15:00.000Z"),
             lastFailureAt: Date.parse("2026-09-09T09:00:00.000Z"),
@@ -387,6 +396,49 @@ describe("the sync schedule on a connected account", () => {
     expect(text).not.toContain("Every 15 min");
     // Calendar's own honest sentence is still there.
     expect(text).toContain("Connected; upcoming event sync setup is pending");
+    screen.unmount();
+  });
+
+  test("a baselined mailbox says it is watching, not that it has synced", () => {
+    const screen = render(
+      createElement(GoogleConnectionsCard, {
+        service: "gmail",
+        connections: [
+          connection({
+            intervalMinutes: 15,
+            everSynced: false,
+            cursorReady: true,
+            catchingUp: false,
+            lastAttemptAt: Date.parse("2026-09-09T09:00:00.000Z"),
+            nextDueAt: Date.parse("2026-09-09T09:15:00.000Z"),
+          }),
+        ],
+      }),
+    );
+    const text = screen.container.textContent ?? "";
+    expect(text).toContain("watching for new mail; none read yet");
+    expect(text).not.toContain("never synced yet");
+    screen.unmount();
+  });
+
+  test("a mailbox draining a backlog says so instead of naming a next due time", () => {
+    const screen = render(
+      createElement(GoogleConnectionsCard, {
+        service: "gmail",
+        connections: [
+          connection({
+            intervalMinutes: 60,
+            everSynced: true,
+            cursorReady: true,
+            catchingUp: true,
+            lastAttemptAt: Date.parse("2026-09-09T09:00:00.000Z"),
+            nextDueAt: Date.parse("2026-09-09T09:00:00.000Z"),
+          }),
+        ],
+      }),
+    );
+    const text = screen.container.textContent ?? "";
+    expect(text).toContain("catching up on older mail");
     screen.unmount();
   });
 

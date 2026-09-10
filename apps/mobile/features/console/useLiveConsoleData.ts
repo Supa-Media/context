@@ -144,6 +144,8 @@ interface GoogleConnectionSummary {
   sync: {
     intervalMinutes: number;
     everSynced: boolean;
+    cursorReady: boolean;
+    catchingUp: boolean;
     lastAttemptAt?: number;
     nextDueAt?: number;
     lastFailureAt?: number;

@@ -22,8 +22,20 @@ export const SYNC_INTERVAL_CHOICES = [5, 15, 30, 60, 240, 1440] as const;
 
 export interface GoogleSyncSchedule {
   intervalMinutes: number;
-  /** Has a pass ever actually read from this account? */
+  /** Has a pass ever actually read mail from this account? */
   everSynced: boolean;
+  /**
+   * A cursor exists, so the next pass will read whatever arrives.
+   *
+   * Separate from `everSynced` because forward-only makes them genuinely
+   * different: the pass that establishes a cursor reads nothing, by design,
+   * and a card that treated it as a sync would show a mailbox as current
+   * before a single message had been read — the same confusion this block
+   * exists to end, one state later.
+   */
+  cursorReady: boolean;
+  /** The last pass ran out of history pages and there is more to drain. */
+  catchingUp: boolean;
   /** When a pass last finished, successfully or not. */
   lastAttemptAt?: number;
   nextDueAt?: number;
@@ -575,10 +587,17 @@ function intervalLabel(minutes: number): string {
 function describeSchedule(sync: GoogleSyncSchedule): string {
   const every = `Every ${intervalLabel(sync.intervalMinutes)}`;
   const next = sync.nextDueAt === undefined ? "due now" : `next ${formatWhen(sync.nextDueAt)}`;
+  // Still working through a backlog: the interval is not what happens next.
+  if (sync.catchingUp) return `${every} · catching up on older mail · next pass shortly`;
   if (!sync.everSynced) {
-    return sync.lastAttemptAt === undefined
-      ? `${every} · never synced yet · ${next}`
-      : `${every} · has not synced successfully yet · ${next}`;
+    if (sync.lastFailureAt !== undefined && !sync.cursorReady) {
+      return `${every} · has not synced successfully yet · ${next}`;
+    }
+    // A cursor and no mail read is its own state, and saying "never synced"
+    // over it would be as wrong as saying nothing: this account is watching,
+    // it has simply had nothing to read since it was connected.
+    if (sync.cursorReady) return `${every} · watching for new mail; none read yet · ${next}`;
+    return `${every} · never synced yet · ${next}`;
   }
   return `${every} · ${next}`;
 }

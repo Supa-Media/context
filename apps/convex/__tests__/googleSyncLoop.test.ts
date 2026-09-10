@@ -44,6 +44,7 @@ import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import {
   DEFAULT_SYNC_INTERVAL_MINUTES,
+  MAX_SYNC_BACKOFF_MS,
   MAX_SYNC_INTERVAL_MINUTES,
   MIN_SYNC_INTERVAL_MINUTES,
   SYNC_FAILURE_BACKOFF_MS,
@@ -490,8 +491,12 @@ describe("what a pass writes back onto the row", () => {
     expect(row.errorCode).toBe("GOOGLE_RATE_LIMITED");
     expect(row.lastSyncFailureCode).toBe("GOOGLE_RATE_LIMITED");
     expect(row.syncStartedAt).toBeUndefined();
-    // Thirty-minute interval, fifteen-minute backoff floor: the longer wins.
-    expect(row.nextSyncAt).toBe(row.lastSyncAt! + 30 * MINUTE);
+    // Thirty-minute interval, fifteen-minute backoff floor: the longer wins,
+    // plus this connection's own spread, so a deployment's connections do not
+    // all wake in the same minute after an outage ends.
+    const wait = row.nextSyncAt! - row.lastSyncAt!;
+    expect(wait).toBeGreaterThanOrEqual(30 * MINUTE);
+    expect(wait).toBeLessThan(31 * MINUTE);
   });
 
   test("...and a five-minute interval still waits out the failure backoff", async () => {
@@ -504,7 +509,9 @@ describe("what a pass writes back onto the row", () => {
       error: "Google did not answer reliably.",
     });
     const row = await readConnection(t, connectionId);
-    expect(row.nextSyncAt).toBe(row.lastSyncAt! + SYNC_FAILURE_BACKOFF_MS);
+    const wait = row.nextSyncAt! - row.lastSyncAt!;
+    expect(wait).toBeGreaterThanOrEqual(SYNC_FAILURE_BACKOFF_MS);
+    expect(wait).toBeLessThan(SYNC_FAILURE_BACKOFF_MS + MINUTE);
   });
 
   test("the last failure survives a later success, because that is the question being asked", async () => {
@@ -566,6 +573,65 @@ describe("what a pass writes back onto the row", () => {
     );
     expect(accepted).toEqual({ accepted: false });
     expect((await readConnection(t, connectionId)).gmail?.historyId).toBeUndefined();
+  });
+});
+
+describe("a writer with nobody present still leaves a record", () => {
+  beforeEach(() => enableMailSync());
+
+  test("a pass that wrote days is audited against the person whose grant it used", async () => {
+    const { t, owner, connectionId, workspaceId } = await scenario();
+    await patchConnection(t, connectionId, { syncStartedAt: Date.now() });
+    await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId,
+      status: "synced",
+      historyId: "1200",
+      daysTouched: 2,
+      bytesWritten: 4096,
+    });
+    const events = await t.run((ctx) =>
+      ctx.db
+        .query("auditEvents")
+        .filter((q) => q.eq(q.field("action"), "google_sync_wrote"))
+        .collect(),
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0]!.workspaceId).toBe(workspaceId);
+    // Non-negotiable #4: the acting identity, not just the scope. Nobody is
+    // present, so it is the person whose grant every write was made on.
+    expect(events[0]!.actorUserId).toBe(owner);
+    expect(events[0]!.details).toMatchObject({ product: "gmail", days: 2, bytes: 4096 });
+    // Counts only — never an address, a subject, or a path.
+    const written = JSON.stringify(events[0]);
+    expect(written).not.toContain("person@example.invalid");
+    expect(written).not.toContain("0-inbox");
+  });
+
+  test("a poll that found nothing is not an event", async () => {
+    const { t, connectionId } = await scenario();
+    await patchConnection(t, connectionId, { syncStartedAt: Date.now() });
+    await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId,
+      status: "synced",
+      historyId: "1200",
+      daysTouched: 0,
+    });
+    await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId,
+      status: "skipped",
+      errorCode: "GOOGLE_RECONNECT_REQUIRED",
+    });
+    /*
+      288 rows a day per connection saying "looked, nothing there" is not an
+      audit trail, it is a way to lose the rows that matter inside one.
+    */
+    const events = await t.run((ctx) =>
+      ctx.db
+        .query("auditEvents")
+        .filter((q) => q.eq(q.field("action"), "google_sync_wrote"))
+        .collect(),
+    );
+    expect(events).toHaveLength(0);
   });
 });
 
@@ -716,6 +782,148 @@ describe("the pass re-asks every gate before it opens a credential", () => {
     });
     expect(JSON.stringify(job)).not.toContain("refresh");
     expect(JSON.stringify(job)).not.toContain("example-google-refresh-token-not-real");
+  });
+});
+
+describe("a pass that ran out of history pages", () => {
+  beforeEach(() => enableMailSync());
+
+  test("stays due immediately rather than waiting out its interval", async () => {
+    const { t, connectionId } = await scenario();
+    await patchConnection(t, connectionId, { syncIntervalMinutes: 60, syncStartedAt: Date.now() });
+    await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId,
+      status: "synced",
+      historyId: "1200",
+      catchUp: true,
+    });
+    const row = await readConnection(t, connectionId);
+    // The cursor moved to the record boundary the walk actually reached, and
+    // the row says there is more behind it.
+    expect(row.gmail?.historyId).toBe("1200");
+    expect(row.syncCatchUp).toBe(true);
+    expect(row.nextSyncAt).toBeLessThanOrEqual(Date.now());
+    // An hourly connection is due on the very next tick, because the interval
+    // is about how often to *check* and this pass already knows there is work.
+    expect((await sweep(t)).started).toBe(1);
+  });
+
+  test("...and a pass that finished clears the flag, so it is not due forever", async () => {
+    const { t, connectionId } = await scenario();
+    await patchConnection(t, connectionId, {
+      syncIntervalMinutes: 60,
+      syncCatchUp: true,
+      syncStartedAt: Date.now(),
+    });
+    await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId,
+      status: "synced",
+      historyId: "1300",
+    });
+    const row = await readConnection(t, connectionId);
+    expect(row.syncCatchUp).toBeUndefined();
+    expect(row.nextSyncAt).toBe(row.lastSyncAt! + 60 * MINUTE);
+    expect((await sweep(t)).started).toBe(0);
+  });
+
+  test("the console says it is catching up rather than claiming it is current", async () => {
+    const { t, owner, workspaceId, connectionId } = await scenario();
+    await patchConnection(t, connectionId, { syncStartedAt: Date.now() });
+    await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId,
+      status: "synced",
+      historyId: "1200",
+      catchUp: true,
+    });
+    const view = (
+      await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+        workspaceId,
+      })
+    )[0]!;
+    expect(view.sync.catchingUp).toBe(true);
+  });
+});
+
+describe("a grant Google has refused stays refused", () => {
+  beforeEach(() => enableMailSync());
+
+  test("a failed pass does not overwrite reconnect_required with a plain error", async () => {
+    const { t, connectionId } = await scenario();
+    // The real sequence: minting marks the row, the pass then reports.
+    await t.mutation(internal.functions.googleConnect.markReconnectRequired, { connectionId });
+    await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId,
+      status: "failed",
+      errorCode: "GOOGLE_RECONNECT_REQUIRED",
+      error: "Google needs to be reconnected before this mailbox can sync.",
+    });
+    const row = await readConnection(t, connectionId);
+    expect(row.health).toBe("reconnect_required");
+    // ...which is what makes the pass's own skip gate fire on the next tick,
+    // instead of asking Google for a token it has already refused, forever.
+    expect(
+      await t.query(internal.functions.googleSync.googleForwardSyncJob, {
+        workspaceId: row.workspaceId,
+        connectionId,
+      }),
+    ).toEqual({ kind: "skip", reason: "GOOGLE_RECONNECT_REQUIRED" });
+  });
+
+  test("an ordinary failure still moves a healthy connection to error", async () => {
+    const { t, connectionId } = await scenario();
+    await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId,
+      status: "failed",
+      errorCode: "GOOGLE_UNAVAILABLE",
+      error: "Google did not answer reliably.",
+    });
+    expect((await readConnection(t, connectionId)).health).toBe("error");
+  });
+
+  test("repeated failures back off further each time, and a success resets the ladder", async () => {
+    const { t, connectionId } = await scenario();
+    await patchConnection(t, connectionId, { syncIntervalMinutes: 5 });
+    const waits: number[] = [];
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+        connectionId,
+        status: "failed",
+        errorCode: "GOOGLE_RATE_LIMITED",
+        error: "Google rate-limited this mailbox.",
+      });
+      const row = await readConnection(t, connectionId);
+      waits.push(row.nextSyncAt! - row.lastSyncAt!);
+    }
+    // Strictly increasing: a connection Google is refusing is not asked again
+    // every fifteen minutes forever.
+    expect(waits[1]).toBeGreaterThan(waits[0]!);
+    expect(waits[2]).toBeGreaterThan(waits[1]!);
+    expect(waits[3]).toBeGreaterThan(waits[2]!);
+    expect((await readConnection(t, connectionId)).syncFailures).toBe(4);
+
+    await patchConnection(t, connectionId, { syncStartedAt: Date.now() });
+    await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId,
+      status: "synced",
+      historyId: "2200",
+    });
+    const healthy = await readConnection(t, connectionId);
+    expect(healthy.syncFailures).toBeUndefined();
+    expect(healthy.nextSyncAt).toBe(healthy.lastSyncAt! + 5 * MINUTE);
+  });
+
+  test("the ladder is capped, so a dead connection is still checked daily", async () => {
+    const { t, connectionId } = await scenario();
+    await patchConnection(t, connectionId, { syncFailures: 40 });
+    await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId,
+      status: "failed",
+      errorCode: "GOOGLE_RATE_LIMITED",
+      error: "Google rate-limited this mailbox.",
+    });
+    const row = await readConnection(t, connectionId);
+    expect(row.nextSyncAt! - row.lastSyncAt!).toBeLessThanOrEqual(MAX_SYNC_BACKOFF_MS + MINUTE);
+    expect(row.nextSyncAt! - row.lastSyncAt!).toBeGreaterThanOrEqual(MAX_SYNC_BACKOFF_MS);
   });
 });
 
@@ -968,6 +1176,58 @@ async function runPass(t: TestConvex, workspaceId: Id<"workspaces">, connectionI
 describe("one pass, end to end, through the credential barrier", () => {
   beforeEach(() => enableMailSync());
 
+  test("a baselined connection is not reported as having synced mail", async () => {
+    const { t, owner, workspaceId, connectionId, backend } = await endToEnd();
+    const google = googleAndBucket({ backend, profileHistoryId: "7000" });
+    vi.stubGlobal("fetch", google.fetchImpl);
+
+    await runPass(t, workspaceId, connectionId);
+
+    const view = (
+      await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+        workspaceId,
+      })
+    )[0]!;
+    /*
+      A baseline pass reads no mail — that is what forward-only means — so it
+      must not turn "connected, nothing read yet" into a card that looks
+      identical to a mailbox syncing fine. It is the same defect the schedule
+      block was written to close, arriving one state later.
+    */
+    expect(view.sync.everSynced).toBe(false);
+    expect(view.sync.cursorReady).toBe(true);
+    expect(view.gmail?.lastSyncedAt).toBeUndefined();
+
+    // ...and an ordinary pass afterwards, even one that finds nothing new, is
+    // a real sync: the mailbox was actually read.
+    await patchConnection(t, connectionId, { syncStartedAt: Date.now() });
+    const quiet = googleAndBucket({ backend, history: { messageIds: [], historyId: "7100" } });
+    vi.stubGlobal("fetch", quiet.fetchImpl);
+    await runPass(t, workspaceId, connectionId);
+    const after = (
+      await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+        workspaceId,
+      })
+    )[0]!;
+    expect(after.sync.everSynced).toBe(true);
+  });
+
+  test("re-baselining after a gap does not invent a sync that never read anything", async () => {
+    const { t, owner, workspaceId, connectionId, backend } = await endToEnd({ historyId: "1000" });
+    const google = googleAndBucket({ backend, history: { expired: true }, profileHistoryId: "8000" });
+    vi.stubGlobal("fetch", google.fetchImpl);
+
+    await runPass(t, workspaceId, connectionId);
+
+    const view = (
+      await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+        workspaceId,
+      })
+    )[0]!;
+    expect(view.sync.everSynced).toBe(false);
+    expect(view.sync.lastFailureCode).toBe("GOOGLE_SYNC_GAP");
+  });
+
   test("a connection with no cursor takes a baseline and fetches no mail", async () => {
     const { t, workspaceId, connectionId, backend } = await endToEnd();
     const google = googleAndBucket({ backend, profileHistoryId: "7000" });
@@ -1072,6 +1332,46 @@ describe("one pass, end to end, through the credential barrier", () => {
     expect(row.lastSyncFailureCode).toBe("GOOGLE_SYNC_GAP");
   });
 
+  test("bytes written before a quota ceiling are counted, or the ceiling never arrives", async () => {
+    const { t, workspaceId, connectionId, backend } = await endToEnd({
+      historyId: "1000",
+      // Room for the first day and not the second: the pass writes, then stops.
+      quotaBytes: 2_400,
+    });
+    const google = googleAndBucket({
+      backend,
+      history: { messageIds: ["msg-1", "msg-2"], historyId: "1100" },
+      messages: [
+        {
+          id: "msg-1",
+          date: "2026-09-08T09:14:00.000Z",
+          subject: "Quarterly numbers",
+          text: "The numbers are attached.",
+        },
+        {
+          id: "msg-2",
+          date: "2026-09-09T09:14:00.000Z",
+          subject: "Follow-up",
+          text: "And the follow-up.",
+        },
+      ],
+    });
+    vi.stubGlobal("fetch", google.fetchImpl);
+
+    const result = await runPass(t, workspaceId, connectionId);
+
+    expect(result).toMatchObject({ status: "failed", errorCode: "MAIL_QUOTA_EXCEEDED" });
+    const row = await readConnection(t, connectionId);
+    /*
+      The whole point of the ceiling. A failed pass that wrote real bytes and
+      then dropped the count leaves `bytesAlreadyUsed` frozen below the limit,
+      so every later pass re-writes the same day, re-counts nothing, and the
+      ceiling is never crossed — a quota that cannot be reached is decoration.
+    */
+    expect(row.syncBytesWritten).toBeGreaterThan(0);
+    expect(row.gmail?.historyId).toBe("1000");
+  });
+
   test("a quota ceiling stops the pass and does NOT advance the cursor past unwritten mail", async () => {
     const { t, workspaceId, connectionId, backend } = await endToEnd({
       historyId: "1000",
@@ -1098,6 +1398,50 @@ describe("one pass, end to end, through the credential barrier", () => {
     expect(row.gmail?.historyId).toBe("1000");
     expect(row.errorCode).toBe("MAIL_QUOTA_EXCEEDED");
   });
+
+  test.each([
+    [429, {}, "GOOGLE_RATE_LIMITED"],
+    [403, { reason: "userRateLimitExceeded" }, "GOOGLE_RATE_LIMITED"],
+    [403, {}, "GOOGLE_ACCESS_REFUSED"],
+    [503, {}, "GOOGLE_UNAVAILABLE"],
+    [418, {}, "GMAIL_HTTP_418"],
+  ])(
+    "Gmail answering %i is classified, not flattened into one sentence",
+    async (status, detail, expected) => {
+      const { t, workspaceId, connectionId, backend } = await endToEnd({ historyId: "1000" });
+      const google = googleAndBucket({ backend });
+      vi.stubGlobal("fetch", async (input: URL | RequestInfo, init: RequestInit = {}) => {
+        const url = new URL(typeof input === "string" ? input : String(input));
+        if (url.hostname === "gmail.googleapis.com") {
+          return new Response(
+            JSON.stringify({
+              error: {
+                code: status,
+                message: "denied",
+                errors: "reason" in detail ? [{ reason: detail.reason }] : undefined,
+              },
+            }),
+            { status, headers: { "content-type": "application/json" } },
+          );
+        }
+        return await google.fetchImpl(input, init);
+      });
+
+      const result = await runPass(t, workspaceId, connectionId);
+
+      expect(result).toMatchObject({ status: "failed", errorCode: expected });
+      const row = await readConnection(t, connectionId);
+      expect(row.lastSyncFailureCode).toBe(expected);
+      // The advice has to match the cause: telling somebody to reconnect and
+      // re-approve Gmail for a rate limit that clears itself is worse than
+      // saying nothing.
+      if (expected === "GOOGLE_RATE_LIMITED" || expected === "GOOGLE_UNAVAILABLE") {
+        expect(row.lastSyncFailure).not.toContain("Reconnect");
+      }
+      // Nothing that failed advanced the cursor.
+      expect(row.gmail?.historyId).toBe("1000");
+    },
+  );
 
   test("Gmail refusing the account is recorded as a failure a person can read", async () => {
     const { t, workspaceId, connectionId, backend } = await endToEnd({ historyId: "1000" });

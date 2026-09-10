@@ -1077,6 +1077,25 @@ const schema = defineSchema({
     lastSyncFailureCode: v.optional(v.string()),
     lastSyncFailure: v.optional(v.string()),
     /**
+     * The last pass ran out of history pages before it ran out of history.
+     *
+     * Gmail's `history.list` is paged and the walk is bounded, so a connection
+     * whose cursor is weeks old cannot be caught up in one pass. The cursor
+     * still moves — to the last record actually walked, never to the mailbox
+     * head — and this says the interval must not be waited out, because the
+     * pass already knows there is more. `isDue` reads it; a pass that finishes
+     * clears it, which is what stops a connection being due forever.
+     */
+    syncCatchUp: v.optional(v.boolean()),
+    /**
+     * Consecutive failed passes, cleared by the first good one.
+     *
+     * The backoff ladder's input. A flat retry means a mailbox Google is
+     * rate-limiting is asked again ~96 times a day, which is the request
+     * pattern most likely to keep it rate-limited.
+     */
+    syncFailures: v.optional(v.number()),
+    /**
      * Bytes the forward loop has written into the bucket for this connection.
      *
      * `gmail.quotaBytes` is a lifetime ceiling on what one connection may

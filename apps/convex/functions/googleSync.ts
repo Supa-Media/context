@@ -82,8 +82,8 @@ import {
   DEFAULT_SYNC_INTERVAL_MINUTES,
   MAX_SYNC_INTERVAL_MINUTES,
   MIN_SYNC_INTERVAL_MINUTES,
-  SYNC_FAILURE_BACKOFF_MS,
   SYNC_STALL_MS,
+  failureBackoffMs,
   isDue,
   syncIntervalMinutesOf,
   syncableProductsOf,
@@ -376,6 +376,19 @@ export const recordGoogleForwardSyncPass = internalMutation({
     bytesWritten: v.optional(v.number()),
     /** Gmail expired the cursor. Forward-only: it is re-baselined and the gap is recorded, not backfilled. */
     gapDetected: v.optional(v.boolean()),
+    /**
+     * The history walk ran out of pages. The cursor still moves — to the last
+     * record walked — and the connection stays due, so the next pass drains
+     * further instead of waiting out an interval it already knows is wrong.
+     */
+    catchUp: v.optional(v.boolean()),
+    /**
+     * This pass established a cursor rather than reading mail: a first
+     * baseline, or a re-baseline after a gap. It is a successful pass and it
+     * read nothing, so `gmail.lastSyncedAt` — the console's "has this ever
+     * actually synced" — deliberately does not move.
+     */
+    baseline: v.optional(v.boolean()),
     errorCode: v.optional(v.string()),
     error: v.optional(v.string()),
   },
@@ -401,11 +414,37 @@ export const recordGoogleForwardSyncPass = internalMutation({
     }
 
     if (args.status === "failed") {
+      const failures = (connection.syncFailures ?? 0) + 1;
       await ctx.db.patch(args.connectionId, {
         syncStartedAt: undefined,
         lastSyncAt: now,
-        nextSyncAt: now + Math.max(intervalMs, SYNC_FAILURE_BACKOFF_MS),
-        health: "error" as const,
+        nextSyncAt: now + failureBackoffMs(intervalMs, failures, args.connectionId),
+        syncFailures: failures,
+        /*
+          BYTES ARE COUNTED ON THE PATH THAT ACTUALLY WRITES THEM.
+
+          The one caller that reports a non-zero figure here is the quota path,
+          which stops *after* writing whole days. Dropping the count froze
+          `bytesAlreadyUsed` below the ceiling, so every later pass re-listed,
+          re-rendered and re-wrote the same days and dropped the bytes again —
+          a ceiling that could never be crossed, which is what the schema
+          comment calls decoration.
+        */
+        syncBytesWritten: (connection.syncBytesWritten ?? 0) + (args.bytesWritten ?? 0),
+        /*
+          `reconnect_required` SURVIVES A FAILED PASS.
+
+          `mintGoogleAccessToken` sets it when Google refuses the grant
+          outright, and the pass's own skip gate keys on it — so overwriting it
+          with a plain `error` here meant the gate never fired again and a dead
+          grant was offered to Google's token endpoint every backoff, forever.
+          It also erased the one state the console renders as "needs
+          reconnect", which is the only thing the owner can act on.
+        */
+        health:
+          connection.health === "reconnect_required"
+            ? ("reconnect_required" as const)
+            : ("error" as const),
         lastError: error ?? "This Google account did not sync.",
         errorCode: args.errorCode ?? "GOOGLE_SYNC_FAILED",
         lastSyncFailureAt: now,
@@ -420,7 +459,9 @@ export const recordGoogleForwardSyncPass = internalMutation({
       ? {
           ...connection.gmail,
           historyId: args.historyId ?? connection.gmail.historyId,
-          lastSyncedAt: now,
+          // A baseline or a re-baseline read no mail, so it does not claim to
+          // have. `cursorReady` is what those passes make true.
+          lastSyncedAt: args.baseline === true ? connection.gmail.lastSyncedAt : now,
         }
       : connection.gmail;
     /*
@@ -435,11 +476,17 @@ export const recordGoogleForwardSyncPass = internalMutation({
       succeeded and the connection is healthy from here on.
     */
     const gap = args.gapDetected === true;
+    const catchUp = args.catchUp === true;
     await ctx.db.patch(args.connectionId, {
       gmail,
       syncStartedAt: undefined,
       lastSyncAt: now,
-      nextSyncAt: now + intervalMs,
+      // A pass that knows it left work behind is due at once; anything else
+      // waits its interval. `syncCatchUp` is cleared either way, so a
+      // connection that has caught up stops being due every tick.
+      nextSyncAt: catchUp ? now : now + intervalMs,
+      syncCatchUp: catchUp ? true : undefined,
+      syncFailures: undefined,
       syncBytesWritten: (connection.syncBytesWritten ?? 0) + (args.bytesWritten ?? 0),
       health: "active" as const,
       lastError: undefined,
@@ -454,6 +501,36 @@ export const recordGoogleForwardSyncPass = internalMutation({
         : {}),
       updatedAt: now,
     });
+
+    /*
+      A PASS THAT WROTE INTO SOMEBODY'S BUCKET LEAVES A ROW SAYING SO.
+
+      This is the first writer in the codebase with no person present, and
+      non-negotiable #4 says the audit records the acting identity rather than
+      just the scope. The identity here is `boundBy` — whoever connected the
+      account, on whose grant every one of these writes is made. Naming them is
+      more honest than an empty actor, and it is the name an owner needs when
+      the question is "who set this up".
+
+      Only passes that actually wrote something. A poll that found nothing is
+      not an event, and recording 288 of those a day per connection would bury
+      the ones that matter. Counts only: no subject, no address, no path — the
+      day notes' own paths are `gmail.destinationFolder` plus a date, which the
+      row already carries.
+    */
+    if ((args.daysTouched ?? 0) > 0) {
+      await recordAudit(ctx, {
+        workspaceId: connection.workspaceId,
+        actorUserId: connection.boundBy,
+        action: "google_sync_wrote",
+        details: {
+          connectionId: args.connectionId,
+          product: "gmail",
+          days: args.daysTouched ?? 0,
+          bytes: args.bytesWritten ?? 0,
+        },
+      });
+    }
     return { accepted: true };
   },
 });
