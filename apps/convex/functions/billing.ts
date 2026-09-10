@@ -623,8 +623,17 @@ export const sessionForAction = internalQuery({
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.sessionId);
     if (row === null) return null;
-    const plan = await planFor(ctx, row.workspaceId);
     const workspace = await ctx.db.get(row.workspaceId);
+    /*
+      No workspace, no attempt. The return URL is built from its name, and a
+      context deleted between opening a checkout and minting the page would
+      otherwise produce `/console/@?settings=premium` — a URL that resolves to
+      nothing, handed to Stripe as the place to send somebody after they pay.
+      The action reads this `null` as "skipped", which is what it is: there is
+      nothing left to upgrade.
+    */
+    if (workspace === null) return null;
+    const plan = await planFor(ctx, row.workspaceId);
     return {
       workspaceId: row.workspaceId,
       kind: row.kind,
@@ -634,7 +643,7 @@ export const sessionForAction = internalQuery({
       // A row written before `origin` existed is a settings attempt: it is
       // where the only checkout this product had could be started from.
       origin: row.origin ?? "settings",
-      slug: workspace?.slug ?? "",
+      slug: workspace.slug,
     };
   },
 });

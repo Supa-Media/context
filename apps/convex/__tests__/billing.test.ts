@@ -1333,7 +1333,11 @@ describe("nothing here gates the exit", () => {
  */
 describe("the return from Stripe", () => {
   /** What Stripe was asked for, as the form parameters it received. */
-  function captureStripe(): { params: () => URLSearchParams; calls: () => number } {
+  function captureStripe(): {
+    params: () => URLSearchParams;
+    all: () => URLSearchParams[];
+    calls: () => number;
+  } {
     const seen: URLSearchParams[] = [];
     vi.stubGlobal("fetch", async (_url: string, init: { body: string }) => {
       seen.push(new URLSearchParams(init.body));
@@ -1343,7 +1347,7 @@ describe("the return from Stripe", () => {
         text: async () => JSON.stringify({ url: "https://checkout.invalid/session" }),
       };
     });
-    return { params: () => seen[seen.length - 1], calls: () => seen.length };
+    return { params: () => seen[seen.length - 1], all: () => seen, calls: () => seen.length };
   }
 
   async function sellingContext(t: TestConvex, slug: string) {
@@ -1426,6 +1430,45 @@ describe("the return from Stripe", () => {
       await t.action(internal.functions.billingStripe.createCheckoutSession, { sessionId });
 
       expect(stripe.params().get("success_url")).toContain("/console/@return-legacy?settings=premium");
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("a context deleted mid-checkout is not sent anywhere at all", async () => {
+    /*
+      The return URL is built from the context's name. Without this the slug
+      falls back to an empty string and Stripe is handed
+      `/console/@?settings=premium` — a URL that resolves to nothing — as the
+      place to send somebody after they have paid. There is nothing left to
+      upgrade, so the attempt is skipped instead.
+    */
+    const t = setupTest();
+    const stripe = captureStripe();
+    try {
+      const { owner, workspaceId } = await sellingContext(t, "vanished");
+      await chooseBoth(t, owner, workspaceId);
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId },
+      );
+      await t.run((ctx) => ctx.db.delete(workspaceId));
+      const result = await t.action(
+        internal.functions.billingStripe.createCheckoutSession,
+        { sessionId },
+      );
+
+      expect(result.status).toBe("skipped");
+      /*
+        Every call, not a count: `startCheckout` also schedules this action, and
+        the scheduled run happens with the workspace still present. What must
+        never happen is a URL naming no context reaching Stripe at all.
+      */
+      for (const params of stripe.all()) {
+        expect(params.get("success_url")).not.toContain("/@?");
+        expect(params.get("cancel_url")).not.toContain("/@?");
+      }
     } finally {
       vi.unstubAllEnvs();
       vi.unstubAllGlobals();
