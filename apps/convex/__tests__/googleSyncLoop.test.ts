@@ -630,6 +630,100 @@ describe("the pass re-asks every gate before it opens a credential", () => {
   });
 });
 
+describe("what the console is told, so the two states stop looking alike", () => {
+  beforeEach(() => enableMailSync());
+
+  async function listed(t: TestConvex, owner: Id<"users">, workspaceId: Id<"workspaces">) {
+    const rows = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+      workspaceId,
+    });
+    return rows[0]!;
+  }
+
+  test("a connection that has never synced says so, and is due now", async () => {
+    const { t, owner, workspaceId } = await scenario();
+    const view = await listed(t, owner, workspaceId);
+    expect(view.sync).toMatchObject({
+      everSynced: false,
+      intervalMinutes: DEFAULT_SYNC_INTERVAL_MINUTES,
+    });
+    expect(view.sync.lastAttemptAt).toBeUndefined();
+    expect(view.sync.nextDueAt).toBeUndefined();
+  });
+
+  test("...and one that has synced reports when, and when it is next due", async () => {
+    const { t, owner, workspaceId, connectionId } = await scenario();
+    await patchConnection(t, connectionId, { syncIntervalMinutes: 30, syncStartedAt: Date.now() });
+    await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId,
+      status: "synced",
+      historyId: "2000",
+    });
+    const view = await listed(t, owner, workspaceId);
+    expect(view.sync.everSynced).toBe(true);
+    expect(view.sync.intervalMinutes).toBe(30);
+    expect(view.sync.nextDueAt).toBe(view.sync.lastAttemptAt! + 30 * MINUTE);
+    expect(view.gmail?.lastSyncedAt).toBeTypeOf("number");
+  });
+
+  test("a pass that only ever failed is not reported as having synced", async () => {
+    const { t, owner, workspaceId, connectionId } = await scenario();
+    await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId,
+      status: "failed",
+      errorCode: "GOOGLE_ACCESS_REFUSED",
+      error: "Google refused access to this mailbox.",
+    });
+    const view = await listed(t, owner, workspaceId);
+    expect(view.sync.everSynced).toBe(false);
+    expect(view.sync.lastAttemptAt).toBeTypeOf("number");
+    expect(view.sync.lastFailureCode).toBe("GOOGLE_ACCESS_REFUSED");
+    expect(view.syncStatus).toBe("error");
+  });
+
+  test("the last failure is still visible after a later pass succeeded", async () => {
+    const { t, owner, workspaceId, connectionId } = await scenario();
+    await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId,
+      status: "failed",
+      errorCode: "GOOGLE_UNAVAILABLE",
+      error: "Google did not answer reliably.",
+    });
+    await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId,
+      status: "synced",
+      historyId: "2100",
+    });
+    const view = await listed(t, owner, workspaceId);
+    expect(view.syncStatus).toBe("active");
+    expect(view.sync.everSynced).toBe(true);
+    expect(view.sync.lastFailureCode).toBe("GOOGLE_UNAVAILABLE");
+  });
+
+  test("a disconnected account has no next due time to show", async () => {
+    const { t, owner, workspaceId, connectionId } = await scenario();
+    await patchConnection(t, connectionId, {
+      lastSyncAt: Date.now(),
+      nextSyncAt: Date.now() + 15 * MINUTE,
+      disconnectedAt: Date.now(),
+    });
+    const view = await listed(t, owner, workspaceId);
+    expect(view.syncStatus).toBe("disconnected");
+    expect(view.sync.nextDueAt).toBeUndefined();
+  });
+
+  test("nobody but the owner sees any of it", async () => {
+    const { t, owner, workspaceId } = await scenario();
+    const editor = await createUser(t, "editor@example.invalid");
+    await addMember(t, workspaceId, editor, "editor", owner);
+    expect(
+      await asUser(t, editor).query(api.functions.googleConnect.listGoogleConnections, {
+        workspaceId,
+      }),
+    ).toEqual([]);
+  });
+});
+
 /* -------------------------------------------------------------------------- */
 /*                   end to end, through the credential barrier               */
 /* -------------------------------------------------------------------------- */

@@ -64,6 +64,11 @@ import { hashToken } from "./lib/crypto";
 import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
+// The scheduling half of a connection lives in `googleSync.ts` — the loop that
+// advances it — and the console reads both halves off one row. Importing the
+// view rather than re-deriving it here keeps "when is this next due" from
+// having two implementations that can disagree.
+import { syncStatusOf } from "./googleSync";
 import {
   createPkcePair,
   exchangeGoogleCode,
@@ -775,6 +780,25 @@ export const listGoogleConnections = query({
       syncStatus: v.string(),
       lastSyncStartedAt: v.optional(v.number()),
       lastSyncCompletedAt: v.optional(v.number()),
+      /**
+       * THE ANSWER TO "IS THIS THING ACTUALLY RUNNING?"
+       *
+       * `syncStatus` above is the connection's health, which a freshly
+       * connected account and a happily syncing one both report as fine —
+       * which is exactly how a mailbox that never synced once looked identical
+       * to one working. These five fields are the difference: how often it is
+       * polled, whether it has *ever* read mail, when it is next due, and what
+       * went wrong last, kept after a later pass succeeded.
+       */
+      sync: v.object({
+        intervalMinutes: v.number(),
+        everSynced: v.boolean(),
+        lastAttemptAt: v.optional(v.number()),
+        nextDueAt: v.optional(v.number()),
+        lastFailureAt: v.optional(v.number()),
+        lastFailureCode: v.optional(v.string()),
+        lastFailure: v.optional(v.string()),
+      }),
       errorCode: v.optional(v.string()),
       lastError: v.optional(v.string()),
       gmail: v.optional(
@@ -877,6 +901,7 @@ export const listGoogleConnections = query({
       out.push({
         connectionId: row._id,
         email: row.address,
+        sync: syncStatusOf(row),
         syncServices: {
           gmail: gmail !== undefined,
           calendar: calendar !== undefined,
