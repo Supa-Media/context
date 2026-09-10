@@ -16,7 +16,7 @@ import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { leaveTo } from "../../consent/leave";
-import { describeMachine, machineTitle } from "../thisMachine";
+import { describeMachine, machineTitle, type MachineAction } from "../thisMachine";
 import {
   decideMachineApproval,
   machineApprovalLine,
@@ -65,10 +65,36 @@ import {
  * `apps/desktop/src/core/shell/autoGrant.ts` is the other half, and
  * `docs/decisions/desktop.md` is the argument.
  */
-export function ThisMachineCard() {
+/**
+ * Which half of this Mac a settings panel is asking about.
+ *
+ * The card is one machine and two unrelated jobs — recording meetings, and
+ * importing Messages — and settings now asks about them under two different
+ * headings, because a person looking for their texts does not think
+ * "meetings". `undefined` is both, which is the un-sectioned settings pane and
+ * every existing caller.
+ *
+ * The two are not symmetrical, and that is why this is a prop rather than two
+ * components. Both need the same machine grant: `apps/desktop`'s iMessage
+ * import writes through `write_note` with *this machine's* token, exactly as
+ * the meetings routes do. So "Chats" cannot simply drop the connection state —
+ * an unconnected machine is precisely why somebody's messages are not
+ * arriving, and that sentence has to be reachable from the panel they opened.
+ * What it drops is the machine's meetings *copy* and its Disconnect button,
+ * both of which belong under Meetings and would be a second copy here.
+ */
+export type MachineFocus = "meetings" | "chats";
+
+/*
+  No default for the props object, deliberately: `= {}` makes the parameter
+  itself optional, and `createElement(ThisMachineCard, { focus })` then stops
+  type-checking against `focus` at all. React always passes a props object, so
+  the default was never doing anything at runtime.
+*/
+export function ThisMachineCard({ focus }: { focus?: MachineFocus }) {
   const bridge = useDesktopBridge();
   if (bridge === null) return null;
-  return <MachineCard bridge={bridge} />;
+  return <MachineCard bridge={bridge} focus={focus} />;
 }
 
 /**
@@ -84,7 +110,7 @@ function useDesktopBridge(): DesktopBridge | null {
   return bridge;
 }
 
-function MachineCard({ bridge }: { bridge: DesktopBridge }) {
+function MachineCard({ bridge, focus }: { bridge: DesktopBridge; focus?: MachineFocus }) {
   const styles = useThemedStyles(makeStyles);
   const [connection, setConnection] = useState<ConnectionView | null>(null);
   const imessage = useImessageStatus(bridge);
@@ -121,6 +147,14 @@ function MachineCard({ bridge }: { bridge: DesktopBridge }) {
 
   const title = machineTitle(bridge.shell);
 
+  /*
+    A shell with no iMessage support has nothing for a Chats panel to say, and
+    a card headed with this Mac's name over one blank line is a worse answer
+    than no card — the same rule the settings sections follow. Meetings still
+    draws, because the machine's own connection is the subject there.
+  */
+  if (focus === "chats" && bridge.imessage === undefined) return null;
+
   if (connection === null) {
     return (
       <Card>
@@ -142,7 +176,7 @@ function MachineCard({ bridge }: { bridge: DesktopBridge }) {
             {title}
           </Text>
           <Text variant="rowSub" style={styles.sub} testID="this-machine-sentence">
-            {view.sentence}
+            {focus === "chats" ? imessageMachineSentence(view) : view.sentence}
           </Text>
         </View>
         <Pill tone={view.tone} leading={<Dot tone={view.tone} />}>
@@ -162,7 +196,15 @@ function MachineCard({ bridge }: { bridge: DesktopBridge }) {
         </Text>
       )}
 
-      {view.action === null || view.actionLabel === null ? null : (
+      {/*
+        Under Chats, only the control that unblocks Messages. Disconnecting
+        this machine stops meetings too, so the button that does it lives on
+        the panel that says so — one button, one place, one sentence about
+        what it costs.
+      */}
+      {view.action === null ||
+      view.actionLabel === null ||
+      (focus === "chats" && view.action === "disconnect") ? null : (
         <View style={styles.actions}>
           <Button
             label={view.actionLabel}
@@ -177,7 +219,7 @@ function MachineCard({ bridge }: { bridge: DesktopBridge }) {
         </View>
       )}
 
-      {imessage === null ? null : (
+      {focus === "meetings" || imessage === null ? null : (
         <View style={styles.imessage} testID="this-machine-imessage">
           <View style={styles.imessageText}>
             <Text variant="rowTitle">iMessage</Text>
@@ -206,6 +248,23 @@ function MachineCard({ bridge }: { bridge: DesktopBridge }) {
       )}
     </Card>
   );
+}
+
+/**
+ * The machine, said in the words of the panel that is asking.
+ *
+ * `describeMachine` writes about meetings, because that is what the machine's
+ * grant was built for and what every other caller of it is about. Under a
+ * Chats heading those sentences are answers to a question nobody asked — and
+ * the fact that matters there is a different one: Messages import spends the
+ * *same* grant (`apps/desktop/src/core/imessage/gatewayNotes.ts`), so an
+ * unconnected machine is exactly why somebody's texts are not arriving.
+ */
+function imessageMachineSentence(view: { action: MachineAction }): string {
+  if (view.action === "connect") {
+    return "Messages are read on this Mac and sent with this machine's own grant, so nothing arrives until it is connected.";
+  }
+  return "Messages are read on this Mac and sent with this machine's own grant — never through a browser, and never copied from another device.";
 }
 
 function useImessageStatus(

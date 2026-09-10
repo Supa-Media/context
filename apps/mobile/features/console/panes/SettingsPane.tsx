@@ -12,20 +12,16 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { relativeTime } from "../format";
 import { PaneHead } from "../ConsoleShell";
 import { atName } from "../format";
-import { loadedFolders } from "../files/browser";
-import { IngestionCard } from "../ingestion/IngestionCard";
-import { GoogleConnectionsCard } from "../google/GoogleConnectionsCard";
-/*
-  The component's own path rather than the meetings barrel, deliberately: that
-  barrel re-exports `useMeetingFlow`, which imports `expo-router`, and pulling a
-  navigator into the settings pane makes every console test that renders this
-  pane mock a router it has nothing to do with. This card needs React and a
-  bridge and nothing else.
-*/
-import { ThisMachineCard } from "../../meetings/components/ThisMachineCard";
+import { EmailPanel } from "../settings/panels/EmailPanel";
+import { CalendarPanel } from "../settings/panels/CalendarPanel";
+import { ChatsPanel } from "../settings/panels/ChatsPanel";
+import { MeetingsPanel } from "../settings/panels/MeetingsPanel";
 import { FastSearchCard } from "../search/FastSearchCard";
 import { MembersSection } from "../members/MembersSection";
+import { PrivacyPanel } from "../settings/panels/PrivacyPanel";
 import { shareBackSuggestions } from "../members/members";
+import { SharedLinksPanel } from "../settings/panels/SharedLinksPanel";
+import { AdvancedPanel } from "../settings/panels/AdvancedPanel";
 import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
 import { settingsSectionLabel, type SettingsSectionKey } from "../settings/sections";
 import { useArming } from "../useArming";
@@ -89,7 +85,6 @@ export function SettingsPane({
   const storage = data.storage;
   const actions = data.storageActions;
   const current = selectedContext(data);
-  const hasIngestion = data.ingestion.availability === "available";
   const [rebinding, setRebinding] = useState(false);
 
   /**
@@ -299,82 +294,44 @@ export function SettingsPane({
       </>
       ) : null}
 
-      {show("sources") ? (
+      {show("shares") ? (
       <>
       <Text
-        /*
-          In the overlay one block is the whole panel, so its name is the
-          panel's title rather than a label separating it from the block above
-          — there is no block above. An eyebrow at 11pt uppercase over a page
-          of cards reads as a category marker, which is what it was when this
-          pane was one scroll of eight of them.
-        */
         variant={section === undefined ? "eyebrow" : "paneTitle"}
         style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}
       >
-        {settingsSectionLabel("sources")}
+        {settingsSectionLabel("shares")}
       </Text>
       <Text variant="paneSub" style={styles.sectionSub}>
-        {current?.kind === "personal"
-          ? "Bring private communications into this personal brain: email, calendars, and chats from Google. The desktop app also shows this Mac's iMessage setup here."
-          : "Private communications import is only available on personal brains. Workspaces should not receive somebody's email, chats, calendar, or iMessages."}
+        Every note you have handed to somebody outside this context, one link at a
+        time — with a Revoke beside each.
       </Text>
-      {current?.kind === "personal" ? (
-        <>
-          <GoogleConnectionsCard
-            connections={data.googleConnections}
-            actions={data.googleActions}
-            loading={data.loading}
-          />
-          {/*
-            The machine this console is running on — drawn only inside the
-            desktop shell, and by the component itself rather than by a check
-            here.
-
-            It belongs with integrations now: meetings and iMessage both come
-            from this Mac, while Google comes from OAuth. A browser still draws
-            nothing here, but the surrounding section finally tells a person
-            why a local-only integration may be absent.
-          */}
-          <ThisMachineCard />
-        </>
-      ) : (
-        <Card>
-          <Text variant="rowTitle">Personal integrations unavailable</Text>
-          <Text variant="rowSub" style={styles.rowSub}>
-            Switch to a personal brain to connect Gmail, Calendar, Chat, or iMessage.
-          </Text>
-        </Card>
-      )}
-
-      {/*
-        The blurb describes a setting, so it is shown only where there is one.
-        A shared context has no capture address at all, and telling a team to
-        forward mail into this context — above a card explaining that they
-        cannot — would be the same lie one line higher up. The heading then
-        carries the sub's bottom margin, so the card does not ride up against it.
-      */}
-      <Text
-        variant="eyebrow"
-        style={[styles.sectionHeadLater, hasIngestion ? null : styles.sectionHeadAlone]}
-      >
-        Email ingestion
-      </Text>
-      {hasIngestion ? (
-        <Text variant="paneSub" style={styles.sectionSub}>
-          Forward mail into this context. The address is semi-public once it is in a
-          forwarding rule, so who may send to it is the setting that matters.
-        </Text>
-      ) : null}
-
-      <IngestionCard
-        state={data.ingestion}
-        fallbackAddress={data.ingestionAddress}
-        folders={loadedFolders(data.files.listings)}
-      />
-
+      <SharedLinksPanel view={data.shares} />
       </>
       ) : null}
+
+      {/*
+        Its own file, and its own module beneath that. Privacy is the section
+        whose every sentence is a claim about who can read somebody's notes, so
+        the rows, the words and the one control all come from pure modules a
+        test can drive — see `features/console/privacy/`.
+      */}
+      {show("privacy") ? <PrivacyPanel data={data} inline={section === undefined} /> : null}
+
+      {/*
+        Four panels where there was one section, each in its own file.
+
+        "Mail, calendar & chats" was one block because a Google *account*
+        carries Gmail, Calendar and Chat together — our plumbing, not
+        anybody's question. Each of these answers one question a person
+        actually has, and the bodies live under `settings/panels/` so this file
+        gains four `show()` branches rather than four screens of copy. See
+        `settings/sections.ts` for the argument.
+      */}
+      {show("email") ? <EmailPanel data={data} sectioned={section !== undefined} /> : null}
+      {show("calendar") ? <CalendarPanel data={data} sectioned={section !== undefined} /> : null}
+      {show("chats") ? <ChatsPanel data={data} sectioned={section !== undefined} /> : null}
+      {show("meetings") ? <MeetingsPanel data={data} sectioned={section !== undefined} /> : null}
 
       {show("search") ? (
       <>
@@ -398,6 +355,21 @@ export function SettingsPane({
         for all of them.
       */}
       <FastSearchCard view={data.fastSearch} demo={data.demo} />
+      </>
+      ) : null}
+
+      {show("advanced") ? (
+      <>
+      <Text
+        variant={section === undefined ? "eyebrow" : "paneTitle"}
+        style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}
+      >
+        {settingsSectionLabel("advanced")}
+      </Text>
+      <Text variant="paneSub" style={styles.sectionSub}>
+        Audit trail and key export. Most people never need this.
+      </Text>
+      <AdvancedPanel view={data.advanced} demo={data.demo} />
       </>
       ) : null}
 
@@ -793,7 +765,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   headActions: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
   sectionHead: { marginBottom: 4 },
   sectionHeadLater: { marginTop: 30, marginBottom: 4 },
-  sectionHeadAlone: { marginBottom: 12 },
   sectionSub: { marginBottom: 12, maxWidth: 546 },
   rowSub: { marginTop: 2 },
   checks: {
