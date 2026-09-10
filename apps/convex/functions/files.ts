@@ -1327,21 +1327,29 @@ async function runGoogleForwardSync(
   store: FileStore,
   job: Extract<ForwardSyncJob, { kind: "run" }>,
 ): Promise<ForwardSyncResult> {
-  const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, {
-    connectionId: job.connectionId,
-  });
-  if (minted === null) {
-    // `mintGoogleAccessToken` has already marked the row `reconnect_required`
-    // if Google refused the grant outright; this records the pass itself.
-    return await failForwardSync(
-      ctx,
-      job.connectionId,
-      "GOOGLE_RECONNECT_REQUIRED",
-      "Google needs to be reconnected before this mailbox can sync.",
-    );
-  }
-
   try {
+    /*
+     * Inside the try, deliberately. Minting can *throw* as well as answer
+     * `null` — a deployment with no Google client id configured, an envelope
+     * that will not open — and a throw that escapes this function leaves the
+     * scheduler holding the failure and the row holding its claim, so the
+     * connection goes quiet for fifteen minutes with nothing on it to say why.
+     */
+    const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, {
+      connectionId: job.connectionId,
+    });
+    if (minted === null) {
+      // `mintGoogleAccessToken` has already marked the row
+      // `reconnect_required` if Google refused the grant outright; this
+      // records the pass itself.
+      return await failForwardSync(
+        ctx,
+        job.connectionId,
+        "GOOGLE_RECONNECT_REQUIRED",
+        "Google needs to be reconnected before this mailbox can sync.",
+      );
+    }
+
     if (job.historyId === undefined) {
       const historyId = await getProfileHistoryId({
         fetchImpl: timeoutFetch,

@@ -475,6 +475,11 @@ describe("what a pass writes back onto the row", () => {
     await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
       connectionId,
       status: "failed",
+      // A cursor offered by a pass that did not finish. The mutation is where
+      // this is refused, not the call site: a failed pass that advanced the
+      // cursor would skip whatever it could not write, permanently and
+      // silently, which is the one defect in this design that loses mail.
+      historyId: "2000",
       errorCode: "GOOGLE_RATE_LIMITED",
       error: "Google rate-limited this mailbox.",
     });
@@ -1047,6 +1052,34 @@ describe("one pass, end to end, through the credential barrier", () => {
     const row = await readConnection(t, connectionId);
     expect(row.syncStartedAt).toBeUndefined();
     // Nothing was asked of Google, because nothing could have been written.
+    expect(google.calls).toEqual([]);
+  });
+
+  test("a pass that cannot mint a token records it, rather than stranding the claim", async () => {
+    const { t, workspaceId, connectionId, backend } = await endToEnd({ historyId: "1000" });
+    // No cached token to fall back on and nothing configured to mint a new
+    // one. What matters is not which of the two codes comes back but that the
+    // pass *reports*: a throw escaping here would leave the row claimed and
+    // silent for fifteen minutes with nothing on it to explain why.
+    await t.run((ctx) =>
+      ctx.db.patch(connectionId, {
+        encryptedAccessToken: undefined,
+        accessTokenExpiresAt: undefined,
+      }),
+    );
+    vi.stubEnv("GOOGLE_OAUTH_CLIENT_ID", "");
+    const google = googleAndBucket({ backend });
+    vi.stubGlobal("fetch", google.fetchImpl);
+
+    const result = await runPass(t, workspaceId, connectionId);
+
+    expect(result).toMatchObject({ status: "failed", errorCode: "GOOGLE_RECONNECT_REQUIRED" });
+    const row = await readConnection(t, connectionId);
+    expect(row.syncStartedAt).toBeUndefined();
+    expect(row.gmail?.historyId).toBe("1000");
+    expect(row.lastSyncFailureCode).toBe("GOOGLE_RECONNECT_REQUIRED");
+    // The sentence shown never quotes this deployment's own configuration.
+    expect(row.lastSyncFailure).not.toContain("client");
     expect(google.calls).toEqual([]);
   });
 
