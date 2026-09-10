@@ -2153,6 +2153,86 @@ note (see **A URL is a context and a note**), so a press that clears `?note=`
 files the context at its root by construction, and the relaunch after it does
 not reopen what was just closed.
 
+**Amendment: the first fix did not hold, because `router.replace` to the same
+screen is a remount, not a no-op.** Everything above is right, `deselect` is
+still the missing verb, and it shipped with `onOpenRoot={() =>
+router.replace(browseHref(current.slug))}` in `_layout.tsx`. On a native
+build the pill still did nothing — reported again, this time filmed on an
+iPhone rather than described from a screenshot.
+
+`router.replace` dispatches a React Navigation `REPLACE` action, and
+`@react-navigation/routers`' `StackRouter` answers every `REPLACE` by calling
+`createRouteFromAction`, which mints a route key from `` `${name}-${nanoid()}` ``
+**unconditionally** — there is no branch that reuses the current key because
+the params did not change. A fresh key remounts whatever that key names, and
+what it names here is `ContextBrowseRoute` — not `_layout`, not
+`ConsoleDataProvider`, not the `FileBrowser` instance underneath it, all of
+which are mounted a layer up and do not move when a child's key changes.
+`useNoteAddress`'s `seen` ref lives on the side that remounts. So the press
+that was supposed to close the note instead: cleared the URL's `?note=`
+(correct), remounted the hook watching it (not requested by anything in the
+fix), reset `seen` to `null`, and handed `nextAddressStep` a "fresh" instance
+holding a leftover selection — which it read as a cold load whose URL simply
+had not caught up yet, and answered `address`, writing the note straight back
+before the closed screen was ever visible. The round trip landed exactly
+where it started, silently, once per press.
+
+Nothing about the first fix's *reasoning* was wrong: `deselect` is still
+exactly the missing verb, and the symmetric rule — a URL that changed is a
+navigation, honoured whichever way it went — is still the right rule for a
+URL that actually needs to *go* somewhere. What was wrong is that the pill's
+press never needed to be a navigation at all: there is no route to leave and
+none to arrive at, only a selection to clear in the browser standing above the
+route. So the call site changed to `onOpenRoot={() => { data.files.deselect();
+}}` — no `router` call, no `REPLACE` action, no remount, no `seen` reset,
+identical on web (where this was never visibly broken; see below) and native.
+`useNoteAddress` sees the selection change under an unchanged URL and takes
+the same "address" step a tapped-closed tab already takes, and the address
+lands one commit later with nothing in between for a remount to corrupt.
+
+Because the *reason* the shipped fix broke — a `seen` reset while the browser
+survives — is a property of `nextAddressStep` and not only of this one call
+site, `noteAddress.ts`'s `fresh` branch no longer trusts the assumption the
+remount violated ("the selection is empty by construction"). It now closes a
+leftover selection instead of re-addressing it, which is provably safe rather
+than merely reasonable: `useFileBrowser` clears `selectedPath` in the same
+commit it adopts a new `contextId`, so a *genuinely* fresh instance can never
+reach that branch holding a non-null selection in the first place — the
+combination is unreachable except through exactly the remount this amendment
+describes. `noteAddress.test.ts`'s "a fresh instance holding a leftover
+selection closes it rather than re-addressing it" pins the new answer, and
+`breadcrumbRoot.test.ts`'s "closes the open note even if the route remounts
+under the press" reproduces the composed bug directly — a route remounted in
+the same commit the URL drops its note — as a standing guard against a future
+call site making the same round trip for the same reason.
+
+**This is not native-only, and the source says so rather than a screenshot
+from the field.** `expo-router`'s `<Slot/>` (`views/Navigator.js`) renders the
+focused route as `descriptors[state.routes[state.index].key].render()`, and
+that `render` — `@react-navigation/core`'s `useDescriptors.js`, one
+implementation, no `.native.js`/`.web.js` split — wraps every screen's element
+in `key: route.key` before handing it back. `StackRouter`'s `REPLACE` handler
+mints that key from `` `${name}-${nanoid()}` `` unconditionally, with no
+branch that reuses the current key when the params it carries are otherwise
+identical. None of this is platform code: it is the same `@react-navigation/
+core` and `@react-navigation/routers` packages under both the native-stack
+view and the web bundle, and React's own reconciliation-by-`key` does not
+special-case a browser. A changed key is a new element on every renderer React
+has. So the remount is not a maybe to be masked by timing — it is a guaranteed
+consequence of calling `router.replace` on this route on **any** platform this
+app ships to, and the symptom it produces (the still-open note, because
+`nextAddressStep` writes it straight back) is not a race either, so there is
+no window in which a faster or slower browser would come out differently.
+
+What is genuinely unverified is only whether anybody happened to *notice*: no
+test in this repository mounts the real `expo-router` navigator against a
+real browser history, and the owner's report came from a native build. Given
+the mechanism, the honest expectation is that a web session pressing the same
+pill hit the identical silent round trip and nobody was looking — not that
+the web platform was ever exempt from it. Treat that absence of a web report
+as absence of evidence, and not as license to reintroduce a `router.replace`
+here on the reasoning that nobody saw it fail in a browser.
+
 #### 2. The path stopped one segment short of where you were
 
 **A phone gets a path bar** (above) argues the leaf away: the note names itself

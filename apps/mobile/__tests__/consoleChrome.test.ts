@@ -116,6 +116,7 @@ function mockConsoleData(): never {
     toggleFolder: () => {},
     selectedPath: null,
     select: () => {},
+    deselect: () => true,
     editor: emptyEditor,
     setDraft: () => {},
     save: () => {},

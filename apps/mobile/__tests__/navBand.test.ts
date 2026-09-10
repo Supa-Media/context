@@ -142,15 +142,26 @@ describe("the context you are in", () => {
 
   /**
    * The way up, which is the whole reason the button exists rather than a
-   * label. Pressing it opens the context at its **root** — not at the place the
-   * device last had open there, which for the context you are standing in is
-   * where you already are.
+   * label. `onOpenRoot` stays `() => void` at this layer regardless of what a
+   * caller does with the press — `NavBand`/`ContextStrip` do not know or care
+   * whether that is a navigation or not — so this only proves the wiring:
+   * exactly one press, exactly one call.
    *
-   * SABOTAGE: `onOpenRoot` wired to `contextHrefFrom` instead of `browseHref`
-   * in the layout. Not caught here (this test owns the press, not the href) —
-   * `lastPlaceConsole.test.ts` owns that half, which is why both exist.
+   * **What used to be asserted here was stronger than the prop actually
+   * promises**, and the strength was wrong: this test's own name read "presses
+   * to somewhere, and that somewhere is asked for", on the assumption that
+   * `onOpenRoot` necessarily produces a navigation. It no longer does —
+   * `console/_layout.tsx` calls `data.files.deselect()` directly, and there is
+   * no "somewhere" to ask for, on purpose (see `breadcrumbRoot.test.ts`, "the
+   * press calls deselect and makes no router call"). A test at this layer
+   * cannot see that distinction either way, since `mountBand` supplies its own
+   * stub handler rather than the layout's real one — which is exactly why it
+   * must not claim more than "the button calls its prop".
+   *
+   * SABOTAGE: the press handler wired to fire twice (once on `mousedown`,
+   * once on `click`). Fails here.
    */
-  test("presses to somewhere, and that somewhere is asked for", () => {
+  test("presses call the handler once, whatever it does", () => {
     const opened: number[] = [];
     const band = mountBand({}, () => opened.push(1));
     band.press("nav-context-seyi");

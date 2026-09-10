@@ -61,7 +61,6 @@ import { NavBandProvider } from "../../../features/console/NavBand";
 import { useContextHref, useContextPlaces } from "../../../features/console/useLastPlace";
 import { useMeetingFlow } from "../../../features/meetings/useMeetingFlow";
 import {
-  browseHref,
   hrefFor,
   resolveContextRoute,
   routeForPath,
@@ -751,13 +750,38 @@ export default function ConsoleLayout() {
                 <CurrentContextPill
                   context={current}
                   /*
-                    The root, and never `contextHrefFrom`. That resolves to the
-                    place this device last had open in the context — which, for
-                    the context you are standing in, is where you already are.
-                    This is the press that takes somebody up from a top-level
-                    folder, so it is the root by construction.
+                    `deselect()`, not `router.replace(browseHref(slug))`. That
+                    was the shipped fix's own words for "open the root", and it
+                    is exactly right about *where* the root is and exactly
+                    wrong about how to get there while already standing in it:
+                    `router.replace` is a `REPLACE` action, `StackRouter`
+                    mints a fresh route key for every one regardless of
+                    whether the params actually changed, and a fresh key
+                    remounts `ContextBrowseRoute` — while `ConsoleDataProvider`
+                    and `FileBrowser` stay mounted here in `_layout` and do
+                    not. `useNoteAddress`'s `seen` ref lives on the remounted
+                    side, so it resets to `null` on every press, and the note
+                    it should have closed comes right back — see
+                    `docs/decisions/app-and-console.md`, "the first fix did
+                    not hold".
+
+                    There is nothing to navigate *to*: deselecting is the
+                    entire effect a round trip to the same route with no
+                    `?note=` was standing in for. `useNoteAddress` sees the
+                    selection change under an unchanged URL and mirrors it —
+                    the same "address" step a tapped-closed tab already takes
+                    — so the URL still ends up at the bare context, one commit
+                    later, with no remount and no `seen` reset anywhere. It
+                    also covers standing in a top-level *folder*:
+                    `selectedPath` names the folder, and `deselect` clears
+                    that exactly as it clears a note. `E2EFixtureScreen.tsx`
+                    already does this for the same reason — it is what the
+                    navigation *does* to this browser's state, and there is no
+                    router in that fixture to stand in for it.
                   */
-                  onOpenRoot={() => router.replace(browseHref(current.slug))}
+                  onOpenRoot={() => {
+                    data.files.deselect();
+                  }}
                   onSelect={(next) => {
                     if (!sameRoute(next, route)) router.replace(hrefFor(next));
                   }}
