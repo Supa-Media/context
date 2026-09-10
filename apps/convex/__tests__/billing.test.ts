@@ -254,6 +254,29 @@ describe("choosing what a context pays for", () => {
     ).rejects.toThrow(/at least one/i);
   });
 
+  test("nor while a checkout is in flight, which is where the gap was", async () => {
+    /*
+      The refusal used to read `planIsPaying`, and between pressing Upgrade and
+      the webhook landing the status is still `none` — so emptying both boxes
+      was allowed, and the plan then activated entitling nothing. $20 a month
+      for zero. Reviewer reproduced it as `active {fastSearch:false,
+      managedStorage:false}`.
+    */
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "inflight");
+    await chooseBoth(t, owner, workspaceId);
+    await asUser(t, owner).mutation(api.functions.billing.startCheckout, {
+      workspaceId,
+    });
+    await expect(
+      asUser(t, owner).mutation(api.functions.billing.setEntitlements, {
+        workspaceId,
+        managedStorage: false,
+        fastSearch: false,
+      }),
+    ).rejects.toThrow(/at least one/i);
+  });
+
   test("but is allowed on a context nobody is paying for", async () => {
     // Undoing a choice before you have paid for it is not a cancellation.
     const t = setupTest();
@@ -766,6 +789,166 @@ describe("the webhook", () => {
     }
   });
 
+  test("a cancellation is not undone by a retry stamped in the same second", async () => {
+    /*
+      THE ONE THE STRICT COMPARISON LET THROUGH.
+
+      Two decisions cancelled each other out at a second boundary — which is
+      exactly where Stripe stamps a cancellation pair, because `updated` and
+      `deleted` are emitted together. `lastEventId` remembered ONE id, and the
+      ordering check was strict `<`, so an event created in the same second as
+      the last one applied was neither a duplicate nor out of order:
+
+        evt_upd (T, active)  → applied.  lastEventId = evt_upd
+        evt_del (T, deleted) → applied.  lastEventId = evt_del, plan canceled
+        evt_upd (T) retried  → id differs, and T < T is false → APPLIED
+                             → plan active again, both entitlements restored.
+
+      Delivery is at-least-once and a retry is freshly signed, so the
+      signature's five-minute tolerance does not bound this: it can arrive at
+      any point in Stripe's retry schedule, days later, and it re-activates a
+      subscription somebody cancelled.
+
+      `<=` is not the fix — it drops the legitimate `deleted` when `updated`
+      arrives first in the same second, which is the ordinary ordering. The fix
+      is to remember every id applied *at* `lastEventAt`.
+    */
+    const t = setupTest();
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", SIGNING_SECRET);
+    try {
+      const { owner, workspaceId } = await context(t, "resurrection");
+      await chooseBoth(t, owner, workspaceId);
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId },
+      );
+      await postWebhook(t, checkoutCompleted(sessionId));
+
+      // The pair Stripe emits together, both stamped in the same second.
+      const sameSecond = 1_780_000_500;
+      await postWebhook(
+        t,
+        subscriptionEvent({ id: "evt_upd", created: sameSecond, status: "active" }),
+      );
+      await postWebhook(
+        t,
+        subscriptionEvent({
+          id: "evt_del",
+          type: "customer.subscription.deleted",
+          created: sameSecond,
+          status: "canceled",
+        }),
+      );
+      expect(
+        (await asUser(t, owner).query(api.functions.billing.status, { workspaceId }))
+          .status,
+      ).toBe("canceled");
+
+      // Stripe retries the earlier one. It must change nothing.
+      await postWebhook(
+        t,
+        subscriptionEvent({ id: "evt_upd", created: sameSecond, status: "active" }),
+      );
+      const after = await asUser(t, owner).query(api.functions.billing.status, {
+        workspaceId,
+      });
+      expect(after.status).toBe("canceled");
+      expect(after.active).toEqual({ managedStorage: false, fastSearch: false });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("...and the legitimate second half of that pair is still applied", async () => {
+    /*
+      The direction `<=` would have broken, and the reason the fix is a set of
+      ids rather than a wider comparison. `updated` then `deleted` in one second
+      is the ORDINARY ordering, and the cancellation must land.
+    */
+    const t = setupTest();
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", SIGNING_SECRET);
+    try {
+      const { owner, workspaceId } = await context(t, "same-second-pair");
+      await chooseBoth(t, owner, workspaceId);
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId },
+      );
+      await postWebhook(t, checkoutCompleted(sessionId));
+
+      const sameSecond = 1_780_000_500;
+      await postWebhook(
+        t,
+        subscriptionEvent({ id: "evt_a", created: sameSecond, status: "active" }),
+      );
+      await postWebhook(
+        t,
+        subscriptionEvent({
+          id: "evt_b",
+          type: "customer.subscription.deleted",
+          created: sameSecond,
+          status: "canceled",
+        }),
+      );
+      expect(
+        (await asUser(t, owner).query(api.functions.billing.status, { workspaceId }))
+          .status,
+      ).toBe("canceled");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("a retry from an older second is still dropped, and does not clear the set", async () => {
+    // The half that already worked, kept: remembering ids *at* `lastEventAt`
+    // must not weaken the ordering check that covers everything before it.
+    const t = setupTest();
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", SIGNING_SECRET);
+    try {
+      const { owner, workspaceId } = await context(t, "older-second");
+      await chooseBoth(t, owner, workspaceId);
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId },
+      );
+      await postWebhook(t, checkoutCompleted(sessionId));
+      await postWebhook(
+        t,
+        subscriptionEvent({
+          id: "evt_cancel",
+          type: "customer.subscription.deleted",
+          created: 1_780_000_900,
+          status: "canceled",
+        }),
+      );
+      await postWebhook(
+        t,
+        subscriptionEvent({ id: "evt_old", created: 1_780_000_200, status: "active" }),
+      );
+      expect(
+        (await asUser(t, owner).query(api.functions.billing.status, { workspaceId }))
+          .status,
+      ).toBe("canceled");
+      // …and a retry of the id that IS at the current second is still caught,
+      // which is what a naive "reset the set on every apply" would break.
+      await postWebhook(
+        t,
+        subscriptionEvent({
+          id: "evt_cancel",
+          type: "customer.subscription.deleted",
+          created: 1_780_000_900,
+          status: "canceled",
+        }),
+      );
+      const audit = await t.run((ctx) => ctx.db.query("auditEvents").collect());
+      expect(
+        audit.filter((row) => row.action === "billing.plan_updated"),
+      ).toHaveLength(2);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   test("a lapse loses the entitlements and keeps the choice", async () => {
     const t = setupTest();
     vi.stubEnv("STRIPE_WEBHOOK_SECRET", SIGNING_SECRET);
@@ -789,6 +972,45 @@ describe("the webhook", () => {
       expect(view.active).toEqual({ managedStorage: false, fastSearch: false });
       // Resuming is a payment, not a re-selection.
       expect(view.selected).toEqual({ managedStorage: true, fastSearch: true });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("a plan never activates entitling nothing, even if the selection was emptied", async () => {
+    /*
+      The belt to the refusal's braces, for the race the refusal cannot catch —
+      two tabs, or a mutation landing between the press and the webhook. What a
+      person paid for is what they chose **at checkout**, so that selection is
+      snapshotted on the attempt row and restored if the live one is empty when
+      the plan activates. Nobody ends up paying $20 for nothing.
+    */
+    const t = setupTest();
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", SIGNING_SECRET);
+    try {
+      const { owner, workspaceId } = await context(t, "emptied-mid-flight");
+      await asUser(t, owner).mutation(api.functions.billing.setEntitlements, {
+        workspaceId,
+        managedStorage: true,
+        fastSearch: false,
+      });
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId },
+      );
+      // Straight to the row, because the mutation now refuses this — the point
+      // is that the webhook is safe even if the state is reached some other way.
+      await t.run(async (ctx) => {
+        const plan = await ctx.db.query("workspacePlans").unique();
+        await ctx.db.patch(plan!._id, { managedStorage: false, fastSearch: false });
+      });
+
+      await postWebhook(t, checkoutCompleted(sessionId));
+      const view = await asUser(t, owner).query(api.functions.billing.status, {
+        workspaceId,
+      });
+      expect(view.status).toBe("active");
+      expect(view.active).toEqual({ managedStorage: true, fastSearch: false });
     } finally {
       vi.unstubAllEnvs();
     }

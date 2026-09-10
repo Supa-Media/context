@@ -153,6 +153,28 @@ function deploymentSells(): boolean {
   }
 }
 
+/**
+ * Is there a checkout attempt out there that somebody may be paying on?
+ *
+ * A `pending` row is one the minting action has not answered; a `ready` one is
+ * a hosted page a person may be looking at. Either way a subscription can
+ * appear at any moment, so the context is not free to be emptied. `failed` and
+ * expired rows are neither.
+ */
+async function hasLiveCheckout(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<boolean> {
+  const now = Date.now();
+  const rows = await ctx.db
+    .query("billingSessions")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  return rows.some(
+    (row) => row.kind === "checkout" && row.status !== "failed" && row.expiresAt > now,
+  );
+}
+
 const statusValidator = v.union(
   v.literal("none"),
   v.literal("active"),
@@ -283,7 +305,21 @@ export const setEntitlements = mutation({
     const plan = await planFor(ctx, args.workspaceId);
     const planStatus = statusOf(plan);
 
-    if (!hasAnyEntitlement(selected) && planIsPaying(planStatus)) {
+    /*
+      Refused while anybody is on the hook for a payment — which is not the
+      same question as "is this plan paying right now".
+
+      It used to read `planIsPaying` alone, and between pressing Upgrade and
+      the webhook landing the status is still `none`: emptying both boxes was
+      allowed, and the plan then activated entitling nothing. $20 a month for
+      zero, and the window is however long Stripe takes.
+
+      A live checkout attempt is therefore part of the condition. The snapshot
+      in `applyStripeEvent` is the belt to this refusal's braces, for the race
+      no mutation-time check can catch.
+    */
+    const owing = planIsPaying(planStatus) || (await hasLiveCheckout(ctx, args.workspaceId));
+    if (!hasAnyEntitlement(selected) && owing) {
       throw new ConvexError({
         code: "ENTITLEMENTS_EMPTY",
         message:
@@ -388,6 +424,8 @@ export const startCheckout = mutation({
       workspaceId: args.workspaceId,
       userId,
       kind: "checkout",
+      // What this attempt is buying, frozen now. See `selectedAtCheckout`.
+      selected: selectionOf(plan),
     });
 
     await ctx.scheduler.runAfter(
@@ -442,6 +480,8 @@ async function openSession(
     workspaceId: Id<"workspaces">;
     userId: Id<"users">;
     kind: "checkout" | "portal";
+    /** The selection this attempt is buying. Absent for a portal attempt. */
+    selected?: Entitlements;
   },
 ): Promise<Id<"billingSessions">> {
   const now = Date.now();
@@ -450,6 +490,7 @@ async function openSession(
     startedBy: input.userId,
     kind: input.kind,
     status: "pending",
+    selectedAtCheckout: input.selected,
     expiresAt: now + SESSION_TTL_MS,
     createdAt: now,
     updatedAt: now,
@@ -587,14 +628,25 @@ export const applyStripeEvent = internalMutation({
       return { applied: false, reason: "unhandled_type" };
     }
 
-    const plan = await resolvePlan(ctx, args);
-    if (plan === null) return { applied: false, reason: "no_context" };
+    const resolved = await resolvePlan(ctx, args);
+    if (resolved === null) return { applied: false, reason: "no_context" };
+    const { plan, session } = resolved;
 
-    if (plan.lastEventId === args.id) {
-      return { applied: false, reason: "already_applied" };
-    }
-    if (plan.lastEventAt !== undefined && args.createdSeconds < plan.lastEventAt) {
+    /*
+      Two halves of one guard, and the first one used to be a single id.
+
+      `lastEventAt` drops anything created before the newest event applied.
+      `lastEventIds` drops a redelivery of anything applied *at* that second —
+      which is where Stripe stamps `updated` and `deleted` together, and where
+      one remembered id plus a strict `<` let a retried `updated` re-activate a
+      plan somebody had cancelled. See the schema for the full sequence.
+    */
+    if (args.createdSeconds < (plan.lastEventAt ?? Number.NEGATIVE_INFINITY)) {
       return { applied: false, reason: "out_of_order" };
+    }
+    const atSameSecond = plan.lastEventAt === args.createdSeconds;
+    if (atSameSecond && (plan.lastEventIds ?? []).includes(args.id)) {
+      return { applied: false, reason: "already_applied" };
     }
 
     /*
@@ -624,13 +676,45 @@ export const applyStripeEvent = internalMutation({
       return { applied: false, reason: "not_paid" };
     }
 
+    /*
+      NOBODY EVER PAYS FOR NOTHING.
+
+      `setEntitlements` refuses an empty selection while a checkout is in
+      flight, which closes the ordinary path. This is the belt to that: two
+      tabs, or a mutation landing between the press and the webhook, can still
+      leave the plan empty at the moment it activates — $20 a month entitling
+      nothing.
+
+      What somebody paid for is what they chose **at checkout**, so the attempt
+      row's snapshot is restored, and only when the live selection is empty. A
+      person who unticked one of two between pressing Upgrade and paying meant
+      that, and keeps it; a person who ended up with neither cannot have meant
+      it, because the mutation would have refused them.
+    */
+    const emptyAtActivation =
+      planIsPaying(status) && !hasAnyEntitlement(selectionOf(plan));
+    const restored =
+      emptyAtActivation && session?.selectedAtCheckout !== undefined
+        ? session.selectedAtCheckout
+        : null;
+    if (restored !== null) {
+      console.error("billing.selection_restored_from_checkout");
+    }
+
     await ctx.db.patch(plan._id, {
       status,
+      managedStorage: restored?.managedStorage ?? plan.managedStorage,
+      fastSearch: restored?.fastSearch ?? plan.fastSearch,
       stripeCustomerId: args.customerId ?? plan.stripeCustomerId,
       stripeSubscriptionId: args.subscriptionId ?? plan.stripeSubscriptionId,
       currentPeriodEnd: args.currentPeriodEndSeconds ?? plan.currentPeriodEnd,
       cancelAtPeriodEnd: args.cancelAtPeriodEnd ?? plan.cancelAtPeriodEnd,
-      lastEventId: args.id,
+      // Appended while the second matches, replaced when it moves. That reset
+      // is what bounds the set: it never holds more than the events Stripe
+      // emits for one subscription inside one second.
+      lastEventIds: atSameSecond
+        ? [...(plan.lastEventIds ?? []), args.id]
+        : [args.id],
       lastEventAt: args.createdSeconds,
       updatedAt: Date.now(),
     });
@@ -659,14 +743,18 @@ export const applyStripeEvent = internalMutation({
 async function resolvePlan(
   ctx: MutationCtx,
   facts: { checkoutRef?: string; subscriptionId?: string },
-): Promise<Doc<"workspacePlans"> | null> {
+): Promise<{
+  plan: Doc<"workspacePlans">;
+  /** The attempt this event came home through, where it came through one. */
+  session: Doc<"billingSessions"> | null;
+} | null> {
   if (facts.checkoutRef !== undefined) {
     const sessionId = ctx.db.normalizeId("billingSessions", facts.checkoutRef);
     if (sessionId !== null) {
       const session = await ctx.db.get(sessionId);
       if (session !== null) {
         const existing = await planFor(ctx, session.workspaceId);
-        if (existing !== null) return existing;
+        if (existing !== null) return { plan: existing, session };
         // A context that pressed Upgrade always has a row — `startCheckout`
         // refuses an empty selection, and an empty selection is the only way
         // to get here without one. Handled anyway rather than thrown: a
@@ -681,18 +769,35 @@ async function resolvePlan(
           createdAt: now,
           updatedAt: now,
         });
-        return await ctx.db.get(planId);
+        const created = await ctx.db.get(planId);
+        return created === null ? null : { plan: created, session };
       }
     }
   }
 
   if (facts.subscriptionId !== undefined) {
-    return await ctx.db
+    /*
+      `.first()` and not `.unique()`.
+
+      Two plans can only carry one subscription id through a bug of ours, and
+      `.unique()` turns that into a throw — which the route answers with a 500,
+      which Stripe retries on a schedule that runs for days. A permanent 500
+      loop on a webhook is a worse operational state than acting on the row we
+      found: it blocks every *other* event for that endpoint behind a failure
+      nobody can clear without a deploy. The duplicate is logged instead, which
+      is the signal, and the first row still gets its update.
+    */
+    const matches = await ctx.db
       .query("workspacePlans")
       .withIndex("by_subscription", (q) =>
         q.eq("stripeSubscriptionId", facts.subscriptionId),
       )
-      .unique();
+      .take(2);
+    if (matches.length > 1) {
+      console.error("billing.duplicate_subscription_rows");
+    }
+    const found = matches[0];
+    return found === undefined ? null : { plan: found, session: null };
   }
 
   return null;

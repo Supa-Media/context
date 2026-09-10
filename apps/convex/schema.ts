@@ -2156,16 +2156,36 @@ const schema = defineSchema({
     /** True where Stripe says the subscription stops at the period end. */
     cancelAtPeriodEnd: v.optional(v.boolean()),
     /**
-     * The last event applied, and when Stripe created it.
+     * When Stripe created the newest event applied, in seconds, and **every**
+     * event id applied at that second.
      *
-     * Webhook delivery is at-least-once and out of order. Both are stored
-     * because they answer different questions: the id makes a redelivery of
-     * the *same* event a no-op, and the timestamp makes an older event
-     * arriving after a newer one a no-op too. Without the second, a retried
-     * `subscription.updated` from before a cancellation re-activates a
-     * cancelled plan.
+     * Webhook delivery is at-least-once and out of order, and the two fields
+     * answer the two halves of that: the timestamp drops anything created
+     * before the newest applied, and the set drops a redelivery of anything
+     * applied *at* it.
+     *
+     * ## Why a set and not one id
+     *
+     * One id plus a strict `<` left a hole precisely where Stripe stamps a
+     * cancellation pair, because `updated` and `deleted` are emitted together
+     * in the same second:
+     *
+     *   evt_upd (T, active)  applied → last id = evt_upd
+     *   evt_del (T, deleted) applied → last id = evt_del, plan canceled
+     *   evt_upd (T) retried  → a different id, and T < T is false → APPLIED,
+     *                          and the cancelled plan is active again.
+     *
+     * A retry is freshly signed, so the signature's five-minute tolerance does
+     * not bound it — it can arrive days later, anywhere in Stripe's retry
+     * schedule. Widening the comparison to `<=` is not the fix either: it
+     * drops the legitimate `deleted` when `updated` arrives first in the same
+     * second, which is the ordinary ordering.
+     *
+     * So the set holds every id at `lastEventAt` and is **reset when the
+     * second moves**, which is what keeps it bounded: its size is the number
+     * of events Stripe emits for one subscription within one second.
      */
-    lastEventId: v.optional(v.string()),
+    lastEventIds: v.optional(v.array(v.string())),
     lastEventAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2200,6 +2220,18 @@ const schema = defineSchema({
     ),
     /** Stripe's hosted page, once it exists. */
     url: v.optional(v.string()),
+    /**
+     * What the owner had chosen when this attempt was opened.
+     *
+     * **What somebody paid for is what they chose at checkout**, not whatever
+     * the toggles happen to say when the webhook lands minutes later. Stored
+     * so a plan can never activate entitling nothing: if the live selection is
+     * empty at activation, this is restored. Absent on a portal attempt, which
+     * buys nothing.
+     */
+    selectedAtCheckout: v.optional(
+      v.object({ managedStorage: v.boolean(), fastSearch: v.boolean() }),
+    ),
     /** Ours, from a closed set — never Stripe's text, which can name an account. */
     errorCode: v.optional(v.string()),
     /**
