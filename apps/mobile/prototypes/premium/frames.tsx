@@ -87,6 +87,17 @@ export interface ProtoFrame {
   /** One line under the frame in the prototype: what this frame is deciding. */
   note: string;
   evidence: ReadonlyArray<Evidence>;
+  /**
+   * Where this frame goes on its own, with nothing pressed.
+   *
+   * `settling` and `provisioning` are waits: in the product they advance when a
+   * webhook lands or a bucket is made, and there is no control on them because
+   * there is nothing for a person to do. A prototype still has to be walkable,
+   * so the prototype's *chrome* advances them — clicking anywhere on the frame —
+   * and says so above the frame. It is deliberately not a button inside the
+   * frame: a button there would be a control this design does not propose.
+   */
+  next?: string;
   body: () => ReactElement;
 }
 
@@ -708,6 +719,7 @@ export const FRAMES: ReadonlyArray<ProtoFrame> = [
       { label: "A return route, and a way to watch a plan turn active", state: "backend" },
       { label: "This screen", state: "proposed" },
     ],
+    next: "provisioning",
     body: () => <Settling slow={false} />,
   },
   {
@@ -720,6 +732,7 @@ export const FRAMES: ReadonlyArray<ProtoFrame> = [
       { label: "Server-side completion independent of the tab", state: "built" },
       { label: "A support path that can finish it by hand", state: "proposed" },
     ],
+    next: "provisioning",
     body: () => <Settling slow />,
   },
   {
@@ -733,6 +746,7 @@ export const FRAMES: ReadonlyArray<ProtoFrame> = [
       { label: "The provisioning action itself", state: "backend" },
       { label: "This screen", state: "proposed" },
     ],
+    next: "ready",
     body: () => <Provisioning />,
   },
   {

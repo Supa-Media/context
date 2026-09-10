@@ -359,6 +359,7 @@ const CHROME_CSS = `
   .toggle button { background: none; border: 0; color: #c9c9d2; padding: 5px 11px; cursor: pointer; font: inherit; }
   .toggle button[aria-pressed="true"] { background: #3a3a45; color: #fff; }
   #title { font-size: 14px; font-weight: 600; }
+  #waits { color: #fcd34d; margin: 0 0 10px; font-size: 12px; }
   #stage { display: inline-block; border: 1px solid #2a2a31; border-radius: 10px; overflow: hidden;
     box-shadow: 0 18px 44px rgba(0,0,0,.45); }
   .viewport { overflow: auto; }
@@ -405,6 +406,9 @@ const CHROME_JS = `
       button.setAttribute("aria-pressed", String(state[key] === value));
     }
     document.getElementById("title").textContent = titles.get(state.frame) ?? "";
+    const shown = frames.find((node) => !node.hidden);
+    const next = shown === undefined ? null : shown.dataset.next ?? null;
+    document.getElementById("waits").hidden = next === null;
     const hash = state.frame + "/" + state.density + "/" + state.theme;
     if (location.hash.slice(1) !== hash) history.replaceState(null, "", "#" + hash);
   }
@@ -430,7 +434,16 @@ const CHROME_JS = `
     if (hot !== null) {
       event.preventDefault();
       go(hot.dataset.testid.slice("goto-".length));
+      return;
     }
+    /*
+      A frame that advances on its own advances on a click anywhere in it. The
+      product has no control here — the wait ends when a webhook lands — so the
+      prototype's chrome moves it on rather than a button inside the frame
+      pretending to.
+    */
+    const frame = event.target.closest(".viewport[data-next]");
+    if (frame !== null && !frame.hidden) go(frame.dataset.next);
   });
 
   const fromHash = location.hash.slice(1).split("/");
@@ -466,6 +479,8 @@ function document_(bodies: string, css: string): string {
         <button data-set="theme:light">Light</button>
       </span>
     </div>
+    <p id="waits" hidden>This screen waits on something rather than on you — click anywhere in it to
+      see what comes next.</p>
     <div id="stage">${bodies}</div>
     ${evidenceHtml()}
     <p id="hint">Frames marked <em>ships today</em> are the running product rendered against a
@@ -490,8 +505,8 @@ describe("premium ux prototype", () => {
           const markup = renderFrame(frame, density, scheme);
           rendered.push(
             `<div class="viewport" hidden data-frame="${frame.id}" data-density="${density}" ` +
-              `data-theme="${scheme}" style="width:${size.width}px;height:${size.height}px">` +
-              `${markup}</div>`,
+              `data-theme="${scheme}"${frame.next === undefined ? "" : ` data-next="${frame.next}"`} ` +
+              `style="width:${size.width}px;height:${size.height}px">${markup}</div>`,
           );
           expect(markup.length).toBeGreaterThan(500);
         });

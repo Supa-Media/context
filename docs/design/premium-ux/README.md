@@ -17,8 +17,12 @@ pictures.
   Twenty frames, an index down the side, a **Desktop / Phone** toggle and a
   **Dark / Light** toggle, and every button wired to the frame it would
   navigate to. Open it and press things: the first-run path reaches "storage
-  ready" without touching the index. Under each frame is what that frame is
-  deciding and which of its controls actually exist today.
+  ready" without touching the index, which is checked in a browser rather than
+  assumed. Two frames — settling and provisioning — wait on something rather
+  than on you, and the chrome says so and advances them on a click anywhere in
+  the frame; there is deliberately no button inside them, because the design
+  does not propose one. Under each frame is what it is deciding and which of
+  its controls actually exist today.
 - **`shots/`** — the same frames as stills, dark, at 390pt and 1440px, whole
   rather than cropped at the fold, so a state can be commented on without
   replaying the flow.

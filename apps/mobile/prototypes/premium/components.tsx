@@ -79,7 +79,17 @@ export function ChoiceCard({
   const styles = useThemedStyles(makeStyles);
   return (
     <Pressable
-      testID={testID ?? hotspot(goto)}
+      /*
+        The hotspot wins over the descriptive id, and it has to.
+
+        Written the other way round first (`testID ?? hotspot(goto)`), which
+        type-checked, rendered correctly, and silently made every choice card in
+        the pack unclickable — the frames all pass a descriptive `testID`, so
+        the hotspot was never emitted and the one path the prototype exists to
+        demonstrate went nowhere. Found by grepping the generated document for
+        `goto-` rather than by reading this line.
+      */
+      testID={hotspot(goto) ?? testID}
       accessibilityRole="button"
       accessibilityState={{ selected, disabled, busy }}
       disabled={disabled}
