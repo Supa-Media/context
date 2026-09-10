@@ -8,6 +8,7 @@
 
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
+import { MAX_GRANTS_RETURNED } from "../functions/grants";
 import { MAX_ACCESS_TOKEN_TTL_MS } from "../functions/lib/consentScopes";
 import {
   addMember,
@@ -168,6 +169,62 @@ describe("listGrants", () => {
       "Claude Desktop",
     );
   });
+
+  /**
+   * The cap keeps the newest grants, not the oldest.
+   *
+   * Convex's default order is ascending by `_creationTime`. A bare
+   * `.take(MAX_GRANTS_RETURNED)` with no `.order("desc")` therefore keeps the
+   * *oldest* rows this context has ever issued — silently hiding the client
+   * connected five minutes ago behind ones connected (or revoked) years ago,
+   * on a screen whose entire job is showing what can *currently* capture into
+   * this context and letting somebody revoke it. Nothing sweeps `oauthGrants`,
+   * so a busy context really does accumulate past the cap over time.
+   */
+  test(`more than ${MAX_GRANTS_RETURNED} clients: the ${MAX_GRANTS_RETURNED} most recently connected are what's returned`, async () => {
+    const t = setupTest();
+    const user = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, user, "atlas");
+
+    const total = MAX_GRANTS_RETURNED + 5;
+    for (let i = 0; i < total; i += 1) {
+      await seedGrant(t, workspaceId, user, `client-${i}`, `hash-${i}`);
+    }
+
+    const grants = await asUser(t, user).query(api.functions.grants.listGrants, {
+      workspaceId,
+    });
+    expect(grants).toHaveLength(MAX_GRANTS_RETURNED);
+    const clientIds = new Set(grants.map((g) => g.clientId));
+    // The 5 inserted first are the oldest, and must have been dropped —
+    // exactly what a bare ascending `.take()` would keep instead.
+    for (let i = 0; i < 5; i += 1) {
+      expect(clientIds.has(`client-${i}`)).toBe(false);
+    }
+    // The most recently inserted must be the ones kept.
+    for (let i = total - MAX_GRANTS_RETURNED; i < total; i += 1) {
+      expect(clientIds.has(`client-${i}`)).toBe(true);
+    }
+  });
+
+  /**
+   * SABOTAGE RECORD.
+   *
+   * Run as a temporary local edit — `.order("desc")` removed from both
+   * branches of `listGrants`, reverting to Convex's ascending default — and
+   * reverted (the file was copied aside first, never restored with
+   * `git checkout --`).
+   *
+   *   dropping `.order("desc")` on both branches                              1
+   *
+   * Only this new test fails. The three-grant tests above (`threeClients`)
+   * stay green under the sabotage: with just three rows nothing crosses
+   * `MAX_GRANTS_RETURNED`, so the cap direction never gets exercised, and
+   * "shows the connected clients without their token hashes" re-sorts the
+   * returned `clientId`s itself before asserting, which hides order entirely.
+   * This test is the one that actually forces the cap, which is why it is the
+   * one that catches the regression.
+   */
 });
 
 describe("registerClient (RFC 7591, internal)", () => {
