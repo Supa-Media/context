@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, test } from "@jest/globals";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { CurrentContextPill } from "../features/console/ContextStrip";
+import { ContextStrip, CurrentContextPill } from "../features/console/ContextStrip";
 import { NavBand, NavBandProvider } from "../features/console/NavBand";
 import type { ConsoleContext } from "../features/console/types";
 
@@ -52,6 +52,8 @@ interface Mounted {
   need: (testID: string) => HTMLElement;
   text: () => string;
   press: (testID: string) => void;
+  /** Re-render the same root with new props — the same DOM node stays, unless a `key` says otherwise. */
+  rerender: (node: ReactElement) => void;
   unmount: () => void;
 }
 
@@ -97,15 +99,24 @@ function mount(node: ReactElement): Mounted {
         node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
     },
+    rerender: (node) => {
+      act(() => {
+        root.render(node);
+      });
+    },
     unmount: close,
   };
 }
 
-/** The band as the console layout builds it, with a stub path row. */
-function mountBand(
-  over: { current?: ReactElement | null; contexts?: ReactElement | null; path?: ReactElement | null } = {},
-  onOpenRoot: () => void = () => {},
-): Mounted {
+interface BandOver {
+  current?: ReactElement | null;
+  contexts?: ReactElement | null;
+  path?: ReactElement | null;
+  trailKey?: string;
+}
+
+/** The element `mountBand` mounts, exposed so a test can `rerender` with new `over`. */
+function bandElement(over: BandOver = {}, onOpenRoot: () => void = () => {}): ReactElement {
   const current =
     over.current === undefined
       ? createElement(CurrentContextPill, {
@@ -114,15 +125,15 @@ function mountBand(
           onSelect: () => {},
         })
       : over.current;
-  return mount(
-    createElement(
-      NavBandProvider,
-      {
-        nodes: { contexts: over.contexts ?? null, current },
-        children: createElement(NavBand, { path: over.path ?? null }),
-      },
-    ),
-  );
+  return createElement(NavBandProvider, {
+    nodes: { contexts: over.contexts ?? null, current },
+    children: createElement(NavBand, { path: over.path ?? null, trailKey: over.trailKey }),
+  });
+}
+
+/** The band as the console layout builds it, with a stub path row. */
+function mountBand(over: BandOver = {}, onOpenRoot: () => void = () => {}): Mounted {
+  return mount(bandElement(over, onOpenRoot));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -142,15 +153,26 @@ describe("the context you are in", () => {
 
   /**
    * The way up, which is the whole reason the button exists rather than a
-   * label. Pressing it opens the context at its **root** — not at the place the
-   * device last had open there, which for the context you are standing in is
-   * where you already are.
+   * label. `onOpenRoot` stays `() => void` at this layer regardless of what a
+   * caller does with the press — `NavBand`/`ContextStrip` do not know or care
+   * whether that is a navigation or not — so this only proves the wiring:
+   * exactly one press, exactly one call.
    *
-   * SABOTAGE: `onOpenRoot` wired to `contextHrefFrom` instead of `browseHref`
-   * in the layout. Not caught here (this test owns the press, not the href) —
-   * `lastPlaceConsole.test.ts` owns that half, which is why both exist.
+   * **What used to be asserted here was stronger than the prop actually
+   * promises**, and the strength was wrong: this test's own name read "presses
+   * to somewhere, and that somewhere is asked for", on the assumption that
+   * `onOpenRoot` necessarily produces a navigation. It no longer does —
+   * `console/_layout.tsx` calls `data.files.deselect()` directly, and there is
+   * no "somewhere" to ask for, on purpose (see `breadcrumbRoot.test.ts`, "the
+   * press calls deselect and makes no router call"). A test at this layer
+   * cannot see that distinction either way, since `mountBand` supplies its own
+   * stub handler rather than the layout's real one — which is exactly why it
+   * must not claim more than "the button calls its prop".
+   *
+   * SABOTAGE: the press handler wired to fire twice (once on `mousedown`,
+   * once on `click`). Fails here.
    */
-  test("presses to somewhere, and that somewhere is asked for", () => {
+  test("presses call the handler once, whatever it does", () => {
     const opened: number[] = [];
     const band = mountBand({}, () => opened.push(1));
     band.press("nav-context-seyi");
@@ -227,6 +249,53 @@ describe("the band's two rows", () => {
     expect(getComputedStyle(fade).pointerEvents).toBe("none");
   });
 
+  /**
+   * **The scroll position is a property of the DOM node, not of the path it
+   * happens to show.** Nothing about re-rendering with a new (or a shorter)
+   * `path` resets it on its own — a browser tab's scroll position does not
+   * reset just because the page's content changed under it either — so a
+   * caller that wants "the same position" to keep its scroll and "a new
+   * position" to start over has to say which this render is, which is what
+   * `trailKey` is for.
+   *
+   * `scrollLeft` rather than a real drag: jsdom does no layout at all, so
+   * there is nothing here for a real gesture to be clamped against — but the
+   * property is real state on the element, which is exactly the state a
+   * `key` change has to throw away.
+   *
+   * SABOTAGE: `key={trailKey}` dropped from `NavBand`'s `ScrollView`. Fails on
+   * the second assertion — the same DOM node survives every render regardless
+   * of `trailKey`, so `scrollLeft` would still read 120 after "leaf-two".
+   */
+  test("a new position resets the row's scroll; the same position keeps it", () => {
+    const band = mountBand({
+      trailKey: "a/b",
+      path: createElement("span", { "data-testid": "stub-path" }, "leaf-one"),
+    });
+    const trail = band.need("nav-band-trail");
+    trail.scrollLeft = 120;
+
+    // Same position, re-rendered — the note's own draft changing, say. The
+    // row is the same DOM node, so the scroll survives.
+    band.rerender(
+      bandElement({
+        trailKey: "a/b",
+        path: createElement("span", { "data-testid": "stub-path" }, "leaf-one, redrawn"),
+      }),
+    );
+    expect(band.need("nav-band-trail").scrollLeft).toBe(120);
+
+    // A different position — a shallower note opened next. A fresh row, and a
+    // fresh row's scroll starts at zero exactly as a newly opened tab's does.
+    band.rerender(
+      bandElement({
+        trailKey: "c",
+        path: createElement("span", { "data-testid": "stub-path" }, "leaf-two"),
+      }),
+    );
+    expect(band.need("nav-band-trail").scrollLeft).toBe(0);
+  });
+
   test("the band draws nothing at all when it has neither row", () => {
     // Every pointer density, and the landing page's picture of the console.
     const band = mountBand({ current: null, contexts: null, path: null });
@@ -242,5 +311,47 @@ describe("the band's two rows", () => {
     const band = mountBand({ contexts: null });
     expect(band.find("nav-band")).not.toBeNull();
     expect(band.find("nav-context-seyi")).not.toBeNull();
+  });
+
+  /**
+   * **The head of the path is quieter than the switcher above it.**
+   *
+   * Row one means "go there"; the head at the front of row two means "you are
+   * here" — the same fact `pillCurrent`'s fill already states in colour, which
+   * is what made drawing both at the same size and with the same shadow read
+   * as one control repeated rather than two different ones. Both rows are
+   * mounted for real here — `ContextStrip` for the switcher, `NavBand` for the
+   * head — rather than compared against a literal, so a change to either
+   * pill's actual rendered style is what this reads.
+   *
+   * SABOTAGE: `head && styles.pillHead` dropped from `Pill`'s style array —
+   * the whole variant reverted, as if `head` were accepted and never drawn.
+   * Fails here, and only here: `head` and `current` set disjoint properties
+   * (size/shadow/radius versus background), so — checked, not assumed —
+   * reordering the two against each other changes nothing this test or any
+   * other can see; dropping the styles entirely is the mutation this guard
+   * actually answers for.
+   */
+  test("the head of the path is quieter than the switcher above it", () => {
+    const strip = mount(
+      createElement(ContextStrip, {
+        contexts: [context({ slug: "supa", id: "ws_supa" })],
+        currentSlug: null,
+        recent: [],
+        loading: false,
+        onOpen: () => {},
+        onSelect: () => {},
+      }),
+    );
+    const stripMark = strip.need("mark-context-strip-supa");
+
+    const band = mountBand();
+    const headMark = band.need("mark-nav-context-seyi");
+
+    const stripHeight = Number.parseFloat(getComputedStyle(stripMark).height);
+    const headHeight = Number.parseFloat(getComputedStyle(headMark).height);
+    expect(headHeight).toBeLessThan(stripHeight);
+
+    expect(getComputedStyle(headMark).boxShadow).toBe("none");
   });
 });

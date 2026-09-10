@@ -77,10 +77,29 @@ describe("the rule that keeps ?note= and the open note in step", () => {
     expect(end.writes).toEqual([]);
   });
 
-  test("a selection with no link in the URL is addressed", () => {
+  test("a fresh instance holding a leftover selection closes it rather than re-addressing it", () => {
+    /**
+     * This used to read "a selection with no link in the URL is addressed",
+     * asserting `writes: [A]` — treating a fresh pass that already holds a
+     * selection as a cold load whose URL simply had not caught up yet.
+     *
+     * It never was one. `useFileBrowser` clears `selectedPath` in the same
+     * commit it adopts a new `contextId`, so a *genuinely* fresh instance's
+     * first commit always pairs an empty URL with an empty selection — which
+     * is `hold`, not this. The only way to reach `fresh` with `note: null`
+     * and a non-null `selected` is a route that remounted (a fresh `seen`)
+     * under a browser that did not (a `selectedPath` that survived it) — see
+     * `breadcrumbRoot.test.ts`'s remount case and `nextAddressStep`'s own
+     * comment. Re-addressing the leftover was the shipped bug: the URL had
+     * just been told to drop its note, and this wrote the note straight back.
+     *
+     * SABOTAGE: reverting the `fresh` branch's `note === null` arm to
+     * `{ action: "address", note: selected }`. Fails here.
+     */
     const end = settle({ note: null, selected: A });
     expect(end.settled).toBe(true);
-    expect(end.writes).toEqual([A]);
+    expect(end.closed).toBe(1);
+    expect(end.writes).toEqual([]);
     expect(end.opened).toEqual([]);
   });
 

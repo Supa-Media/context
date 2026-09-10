@@ -72,8 +72,21 @@ export type MenuActionId =
   | "restore"
   | "delete";
 
-export interface MenuItem {
-  id: MenuActionId;
+/**
+ * One row's data, generic in its own id.
+ *
+ * Parameterised — defaulting to `MenuActionId` — so that `Menu.tsx` and
+ * `Menu.web.tsx` are a **disclosure menu component**, not "the file menu's
+ * renderer": the account menu (`ConsoleRail.tsx`'s `AccountBlock`) draws with
+ * the exact same two files against its own two-item id union. Widening
+ * `MenuActionId` itself to fit a caller with nothing to do with files was the
+ * alternative, and it is the wrong one — `Explorer.tsx`'s `runAction` switches
+ * on every member of that union, so an unrelated id added there is a case
+ * that dispatcher must now also not mishandle, forever, for a menu it never
+ * draws.
+ */
+export interface MenuItem<Id extends string = MenuActionId> {
+  id: Id;
   label: string;
   /**
    * A second line under the label, for an outcome a verb cannot carry alone.
@@ -90,7 +103,16 @@ export interface MenuItem {
   /** Items after this one start a new visual group. */
   separatorBefore?: boolean;
   /** A submenu (Visibility ▸). Only ever one level deep. */
-  items?: MenuItem[];
+  items?: MenuItem<Id>[];
+  /**
+   * Overrides the row's default `menu-item-<id>` testID.
+   *
+   * For a caller whose id is chrome-internal (short, reused across menus) but
+   * whose row is cited elsewhere by a stable name — the account menu's
+   * `account-settings` / `account-sign-out`, which predate this menu and are
+   * asserted directly rather than through the `menu-item-` convention.
+   */
+  testID?: string;
 }
 
 export type MenuTarget =

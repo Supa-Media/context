@@ -166,14 +166,41 @@ export function nextAddressStep(inputs: AddressInputs): AddressStep {
   if (note === selected) return { action: "hold" };
 
   /*
-    A context this rule has not reconciled yet — a cold load, or the first
-    commit after switching contexts. The URL is the instruction: it is the only
-    thing that survived getting here, and the selection is empty by
-    construction (the browser clears it when the workspace changes).
+    A context this rule has not reconciled yet — a cold load, the first
+    commit after switching contexts, or a route that remounted under a
+    browser that did not. The URL is the instruction: it is the only thing
+    that survived getting here.
+
+    **`selected` is empty by construction only for the first two.**
+    `useFileBrowser` clears `selectedPath` in the very same commit it adopts
+    a new `contextId` (its context-reset effect sets both), so a genuinely
+    fresh instance's first non-`wait` commit always pairs "the URL has
+    nothing" with "neither does the browser" — and that pair is `hold`,
+    above, before this line ever runs. So reaching here with `note === null`
+    means `selected` cannot be `null` too (ruled out by the same `hold`) and
+    cannot be a value *this* instance produced (it has produced nothing yet):
+    it is the browser's, surviving from before `seen` was wiped.
+
+    That is exactly what a route remount looks like from in here.
+    `ConsoleDataProvider` and `FileBrowser` live above the route and do not
+    remount with it, so `files.selectedPath` is still whatever was open while
+    this hook's own `seen` ref resets to `null`. The shipped fix for "the lit
+    pill does nothing" first read as `router.replace(browseHref(slug))`,
+    which is a `REPLACE` action — and `StackRouter` mints a fresh route key
+    for every `REPLACE` regardless of whether the params it carries actually
+    differ, remounting the very hook trying to close the note. Answering
+    `address` here re-opened the note it was told to close. The call site is
+    fixed (`_layout.tsx` deselects directly and never asks the router to
+    revisit this route), but the rule itself no longer trusts an assumption
+    its own caller once violated: whatever remounted it, the URL's silence is
+    still the instruction, and a leftover selection is answered by closing it
+    rather than by re-minting an address for it. See
+    `docs/decisions/app-and-console.md`, "the first fix did not hold".
   */
   const fresh = seen === null || seen.contextId !== contextId;
   if (fresh) {
-    return note === null ? { action: "address", note: selected } : { action: "open", path: note };
+    if (note === null) return { action: "close" };
+    return { action: "open", path: note };
   }
 
   /*

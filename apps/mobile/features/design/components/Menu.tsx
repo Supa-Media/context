@@ -55,13 +55,19 @@ import { Text } from "./Text";
  *    discoverable, and on a sheet whose last item is destructive the visible
  *    way out matters.
  */
-export interface MenuProps {
-  items: MenuItem[];
+export interface MenuProps<Id extends string = MenuActionId> {
+  items: MenuItem<Id>[];
   /** Where the pointer was. Web anchors a popover here; touch ignores it. */
   anchor?: { x: number; y: number };
   /** Sheet heading on touch — the file name. Web shows no heading. */
   title?: string;
-  onSelect: (id: MenuActionId) => void;
+  /**
+   * A second line under `title` — the account menu's email under the
+   * signed-in name. Absent from every file menu, which has nothing to put
+   * there; `title` alone is unchanged for them.
+   */
+  titleDetail?: string;
+  onSelect: (id: Id) => void;
   onDismiss: () => void;
 }
 
@@ -81,6 +87,7 @@ function SheetRow({
   trailing,
   align = "left",
   onPress,
+  testID,
 }: {
   id: string;
   label: string;
@@ -100,6 +107,8 @@ function SheetRow({
   trailing?: ReactNode;
   align?: "left" | "center";
   onPress: () => void;
+  /** `MenuItem.testID`, or the `menu-item-<id>` default. */
+  testID?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
@@ -107,7 +116,7 @@ function SheetRow({
       accessibilityLabel={accessibilityLabel ?? label}
       onPress={onPress}
       radius={radii.md}
-      testID={`menu-item-${id}`}
+      testID={testID ?? `menu-item-${id}`}
       // `PressRow` takes one style object rather than an array, so the two
       // shapes are merged here rather than layered.
       style={StyleSheet.flatten([styles.row, align === "center" && styles.rowCentered])}
@@ -147,7 +156,13 @@ function Separator() {
   return <View aria-hidden style={styles.separator} />;
 }
 
-export function Menu({ items, title, onSelect, onDismiss }: MenuProps) {
+export function Menu<Id extends string = MenuActionId>({
+  items,
+  title,
+  titleDetail,
+  onSelect,
+  onDismiss,
+}: MenuProps<Id>) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   /**
@@ -158,7 +173,7 @@ export function Menu({ items, title, onSelect, onDismiss }: MenuProps) {
    * copy of a page on screen: the parent is looked up again every render, and
    * an id that no longer exists collapses back to the first page.
    */
-  const [openId, setOpenId] = useState<MenuActionId | null>(null);
+  const [openId, setOpenId] = useState<Id | null>(null);
   const insets = useSafeAreaInsets();
 
   const parent = items.find((item) => item.id === openId && item.items !== undefined) ?? null;
@@ -185,16 +200,28 @@ export function Menu({ items, title, onSelect, onDismiss }: MenuProps) {
 
           {parent === null ? (
             title === undefined ? null : (
-              <Text
-                variant="rowSub"
-                numberOfLines={1}
-                role="heading"
-                aria-level={2}
-                testID="menu-title"
-                style={styles.title}
-              >
-                {title}
-              </Text>
+              <View style={styles.titleBlock}>
+                <Text
+                  variant="rowSub"
+                  numberOfLines={1}
+                  role="heading"
+                  aria-level={2}
+                  testID="menu-title"
+                  style={styles.title}
+                >
+                  {title}
+                </Text>
+                {titleDetail === undefined ? null : (
+                  <Text
+                    variant="treeMeta"
+                    numberOfLines={1}
+                    testID="menu-title-detail"
+                    style={styles.titleDetail}
+                  >
+                    {titleDetail}
+                  </Text>
+                )}
+              </View>
             )
           ) : (
             /**
@@ -235,6 +262,7 @@ export function Menu({ items, title, onSelect, onDismiss }: MenuProps) {
                   label={item.label}
                   detail={item.detail}
                   danger={item.danger === true}
+                  testID={item.testID}
                   trailing={
                     item.items === undefined ? null : (
                       <Icon name="chevronRight" size={16} color={colors.muted} />
@@ -294,11 +322,13 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     backgroundColor: colors.lineStrong,
     marginBottom: space.x2,
   },
-  title: {
+  titleBlock: {
     paddingHorizontal: space.x5,
     paddingBottom: space.x2,
-    color: colors.muted,
+    gap: 2,
   },
+  title: { color: colors.muted },
+  titleDetail: { color: colors.muted },
   list: { flexGrow: 0 },
   listContent: { paddingVertical: space.x1 },
   row: {

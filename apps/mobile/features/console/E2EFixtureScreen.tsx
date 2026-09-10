@@ -117,16 +117,24 @@ export function E2EFixtureScreen() {
     <View style={{ flex: 1 }}>
       {/*
         The phone top bar's account slot, reduced to the block itself:
-        `AppFrame` is not mounted here (see this file's header), and the gear
-        is the one settings control that is on screen at every density.
+        `AppFrame` is not mounted here (see this file's header), and the
+        account menu is the one settings control that is on screen at every
+        density.
 
         `compact` and `touch` at every width, which the real console does not
         do — it draws this block compact in the phone's top bar and full in
         the pointer layout's rail, and neither of those two containers exists
-        on this screen. Both forms draw the same gear, labelled "Settings",
-        opening the same overlay (`ConsoleRail.AccountBlock`), so the shape
-        that needs no container is the honest one to mount here; a case about
-        the rail's own layout would need the rail, not this.
+        on this screen. Both forms opened the same gear, labelled "Settings",
+        for as long as `compact` drew one of its own; it no longer does
+        (`ConsoleRail.tsx`'s own comment: "the compact corner used to be two
+        controls, and one of them signed you out on one press"), so what this
+        screen offers at every width now is the account menu's "Settings…"
+        row rather than a standalone gear — `settings.spec.ts`'s pointer-width
+        case goes through that same menu for exactly this reason, not through
+        the rail's untouched `rail-settings` control, which this screen never
+        mounts. The shape that needs no container is still the honest one to
+        mount here; a case about the rail's own layout would need the rail,
+        not this.
       */}
       <View style={styles.account}>
         <AccountBlock

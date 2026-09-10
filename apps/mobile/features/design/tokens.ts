@@ -633,6 +633,45 @@ export const layout = {
    */
   stripPill: 34,
   /**
+   * The height of the breadcrumb's own head mark — the `@seyi` at the front
+   * of row two, not a `stripPill` copy.
+   *
+   * The two used to be the identical object: same `stripPill` 34, same
+   * `radii.md`, same `shadows.floating`, same `wsSwitch` 13px label. That was
+   * right for as long as the pill *was* the switcher, moved down a row —
+   * `docs/decisions/app-and-console.md`'s "A context pill's target is not its
+   * mark" argues `stripPill` down to 34 and keeps the shadow for exactly that
+   * reason, and it was correct about the object it was arguing over. It
+   * stopped being the same object when that same file's "The contexts moved
+   * into the scroller" put the two rows on different jobs: row one switches
+   * *to* a context, row two's head names the one you are already in, and a
+   * switcher pill drawn a second time one row down is two objects claiming to
+   * be the same control. See that doc's "The breadcrumb head stopped being a
+   * switcher pill" for the measurement and the rest of the argument.
+   *
+   * `stripPill` is untouched — the switcher row still needs the whole target
+   * a phone's only route between contexts has always needed. This token is
+   * for the one caller that draws a *quieter* mark: `Pill`'s `head` variant.
+   */
+  crumbPill: 26,
+  /**
+   * A breadcrumb folder segment's own **drawn** height on a phone — short of
+   * the touch floor, exactly the shape `explorerRow` names below.
+   *
+   * `Breadcrumb.tsx`'s `folder`/`leaf` styles set `fontSize: 11` and never
+   * touch `lineHeight`, so what actually reaches the screen underneath that
+   * font size is still `Text`'s `mono` variant's own line height —
+   * `leading(13, 1.55)`, 20.15pt, at the 13px the variant is defined for
+   * rather than the 11px it is drawn at here. Add `segment`'s own 1pt of
+   * padding on each edge, for legibility rather than for a thumb, and the row
+   * is 22.15: half of 44.
+   *
+   * This is what somebody **sees**, not what they can press — see
+   * `Breadcrumb.tsx`'s folder `PressRow` for why the pressable itself is
+   * `minTouchTarget` tall regardless.
+   */
+  crumbSegmentHeight: leading(13, 1.55) + 1 * 2,
+  /**
    * The account mark pinned at the leading end of a phone's top row.
    *
    * 34, and **below `minTouchTarget` on purpose**, which is legal for the same

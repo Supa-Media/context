@@ -407,6 +407,15 @@ export function BrowsePane({
         gives: only the caller knows what the band is sitting above.
       */
       gutter={layout.readingMargin}
+      /*
+        A fresh row, not a scrolled one, whenever "where you are" changes.
+        `files.contextId` as well as the path: a switch that happens to land on
+        a note or folder with the same name in the new context (`index.md`, an
+        `@lk`/`@seyi` `1-projects` folder) is still a different position, and
+        the row's own scroll offset has no way to tell those apart on its own.
+        See `NavBand`'s `trailKey` for what not doing this costs.
+      */
+      trailKey={`${files.contextId ?? ""}:${selected?.path ?? ""}`}
       path={
         selected === null || !settled ? null : (
           <Breadcrumb
