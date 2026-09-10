@@ -199,7 +199,12 @@ describe("provisioning a managed bucket", () => {
         token it came from is a live Cloudflare API credential.
       */
       const row = await binding(t);
-      const stored = await decryptSecret(row!.encryptedSecretAccessKey, requireKeyset(), {
+      // Asserted rather than asserted-away: `encryptedSecretAccessKey` is
+      // optional on the row (a Dropbox binding has none), so a run that wrote
+      // no secret at all would otherwise reach the decrypt below as
+      // `undefined` and this test would be about nothing.
+      expect(row?.encryptedSecretAccessKey).toBeDefined();
+      const stored = await decryptSecret(row!.encryptedSecretAccessKey!, requireKeyset(), {
         workspaceId: row!.workspaceId,
       });
       expect(stored).toBe(await deriveS3SecretAccessKey(MINTED_TOKEN));
