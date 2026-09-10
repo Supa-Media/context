@@ -146,4 +146,39 @@ crons.interval(
   {},
 );
 
+/**
+ * Poll every connected Google account that is due.
+ *
+ * **The second job here that starts work rather than deleting it**, and it owes
+ * the same argument the search sweep above makes. It holds no decision:
+ * whether a connection may sync at all — is it still connected, is its context
+ * personal, does it enable a product this engine can advance, does this
+ * deployment allow reading a restricted scope — is the connection's own state,
+ * re-asked by `googleForwardSyncJob` inside the pass, before a credential is
+ * opened. What this decides is only *when to look*.
+ *
+ * It exists because nothing else ever looked. Connecting a mailbox recorded a
+ * grant and a `historyId` and then nothing advanced it: no cron, no webhook —
+ * Google's push path is deliberately not built (`docs/decisions/communications.md`)
+ * — and the gateway's `scheduled()` handler has no trigger configured. A
+ * person connected Gmail and their mail never arrived.
+ *
+ * **Five minutes because that is the floor**, not because every account is
+ * polled that often. `syncIntervalMinutes` is per connection and defaults to
+ * fifteen; the sweep starts a pass only where `now >= lastSyncAt + interval`,
+ * which is how one fixed tick serves many different frequencies. Below five
+ * the tick would be finer than the shortest interval anybody may choose, and
+ * every extra tick is a transaction that reads an index to find nothing.
+ *
+ * And, as above: each run only touches connections nothing has written to in
+ * fifteen minutes, so a pass that is still running is never overtaken by a
+ * second one.
+ */
+crons.interval(
+  "sync due Google accounts",
+  { minutes: 5 },
+  internal.functions.googleSync.sweepDueGoogleSyncs,
+  {},
+);
+
 export default crons;

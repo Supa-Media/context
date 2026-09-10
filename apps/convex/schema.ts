@@ -1035,6 +1035,58 @@ const schema = defineSchema({
     lastError: v.optional(v.string()),
     errorCode: v.optional(v.string()),
     /**
+     * HOW OFTEN THIS ACCOUNT IS POLLED, AND WHEN IT IS NEXT DUE.
+     *
+     * These five fields are the whole scheduling state of the forward sync
+     * loop (`functions/googleSync.ts`), and they are **per account, not per
+     * product**: one Google account is one grant, so one pass mints one
+     * access token and walks whichever products the row enables. A per-product
+     * schedule would mint the same credential three times an hour to ask three
+     * questions of the same account.
+     *
+     * They sit at the top level rather than inside `gmail` for that reason and
+     * for one more: `nextSyncAt` is indexed, and an index over a field nested
+     * inside an optional object is a shape this schema does not otherwise use.
+     *
+     *  - `syncIntervalMinutes` — the owner's choice, floored at
+     *    `MIN_SYNC_INTERVAL_MINUTES` server-side. Absent means the default
+     *    (`DEFAULT_SYNC_INTERVAL_MINUTES`), so a row written before this
+     *    existed is scheduled rather than stalled.
+     *  - `lastSyncAt` — when a pass last **finished**, successfully or not.
+     *    Absent means this connection has never synced, which the console
+     *    must be able to say out loud: "connected" and "syncing" looking
+     *    identical is the defect this loop exists to close.
+     *  - `nextSyncAt` — `lastSyncAt + interval`, materialized so the sweep can
+     *    ask the index for due rows instead of reading every connection.
+     *    Absent means due now, which is what a never-synced row is.
+     *  - `syncStartedAt` — set when a pass is claimed, cleared when it
+     *    reports. It is the not-overtaking guard: a pass still running is
+     *    never started a second time until it has been silent long enough to
+     *    be considered lost.
+     *  - `lastSyncFailure*` — the last failure this connection had, kept
+     *    **after** a later pass succeeds. `lastError` / `errorCode` describe
+     *    the connection's health right now and are cleared by a good pass;
+     *    somebody asking "did this break overnight?" is asking a different
+     *    question, and clearing the answer is how it stopped being askable.
+     */
+    syncIntervalMinutes: v.optional(v.number()),
+    lastSyncAt: v.optional(v.number()),
+    /**
+     * Bytes the forward loop has written into the bucket for this connection.
+     *
+     * `gmail.quotaBytes` is a lifetime ceiling on what one connection may
+     * write, and a ceiling with nothing counting against it is decoration. The
+     * historical backfill counted on its run row; a forward loop has no run,
+     * so the total lives here and every pass is handed it as
+     * `bytesAlreadyUsed`.
+     */
+    syncBytesWritten: v.optional(v.number()),
+    nextSyncAt: v.optional(v.number()),
+    syncStartedAt: v.optional(v.number()),
+    lastSyncFailureAt: v.optional(v.number()),
+    lastSyncFailureCode: v.optional(v.string()),
+    lastSyncFailure: v.optional(v.string()),
+    /**
      * Set by disconnect. The row is kept — never deleted outright — so a
      * disconnected connection's sync job can be told apart from one that
      * simply has not synced yet, and so the notes it already wrote are
@@ -1049,7 +1101,20 @@ const schema = defineSchema({
   })
     .index("by_workspace", ["workspaceId"])
     /** One connection per address per context — the uniqueness `chooseMailboxSlug` assumes for Gmail. */
-    .index("by_workspace_address", ["workspaceId", "address"]),
+    .index("by_workspace_address", ["workspaceId", "address"])
+    /**
+     * The sweep's index: connections that are still connected, oldest due
+     * first.
+     *
+     * `disconnectedAt` leads so a disconnected row is outside the range
+     * entirely rather than filtered out after being read — a disconnected
+     * connection with an old `nextSyncAt` would otherwise sit at the head of
+     * every bounded batch forever and starve the live ones behind it.
+     *
+     * A row with no `nextSyncAt` sorts before every number, so a never-synced
+     * connection is at the front of the queue rather than invisible to it.
+     */
+    .index("by_sync_due", ["disconnectedAt", "nextSyncAt"]),
 
   /**
    * User-visible Google sync work.

@@ -66,6 +66,7 @@ import type * as functions_lib_verification from "../functions/lib/verification.
 import type * as functions_lib_workspaceAuth from "../functions/lib/workspaceAuth.js";
 import type * as functions_calendarConnect from "../functions/calendarConnect.js";
 import type * as functions_googleConnect from "../functions/googleConnect.js";
+import type * as functions_googleSync from "../functions/googleSync.js";
 import type * as functions_meetings_transcribe from "../functions/meetings/transcribe.js";
 import type * as functions_names from "../functions/names.js";
 import type * as functions_provisioning from "../functions/provisioning.js";
@@ -141,6 +142,7 @@ declare const fullApi: ApiFromModules<{
   "functions/lib/workspaceAuth": typeof functions_lib_workspaceAuth;
   "functions/calendarConnect": typeof functions_calendarConnect;
   "functions/googleConnect": typeof functions_googleConnect;
+  "functions/googleSync": typeof functions_googleSync;
   "functions/meetings/transcribe": typeof functions_meetings_transcribe;
   "functions/names": typeof functions_names;
   "functions/provisioning": typeof functions_provisioning;

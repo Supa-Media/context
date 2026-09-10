@@ -83,6 +83,22 @@ import { storeForBinding } from "../../mcp/src/store/factory.js";
 // which is Convex's runtime too. It holds the write token for the life of one
 // call and puts it in exactly one place, an `Authorization` header.
 import { createD1Client } from "../../mcp/src/search/d1/client.js";
+/*
+ * The Gmail pipeline, imported rather than ported, for exactly the reason the
+ * two imports above are: `apps/mcp` targets the Workers runtime, which is
+ * Convex's runtime too, and this module takes its socket, its access token and
+ * its store as parameters — it opens nothing itself.
+ *
+ * It came back with the forward sync loop. #388 removed the historical
+ * backfill that used to import it and left the module reachable from nothing
+ * at all, which is how a complete, fixture-tested mail pipeline sat in the
+ * repository while connected mailboxes synced nothing.
+ */
+import {
+  getProfileHistoryId,
+  GmailApiError,
+  runIncrementalSync,
+} from "../../mcp/src/communications/gmailSync.js";
 import {
   D1_ACCOUNT_SECRET,
   D1_TOKEN_SECRET,
@@ -441,6 +457,23 @@ const googleSyncRunValidator = v.object({
   continue: v.boolean(),
 });
 
+/**
+ * One forward sync pass, as the scheduler sees it. No mail, no path, no
+ * cursor — the cursor is written to the connection row by
+ * `recordGoogleForwardSyncPass`, and a scheduled action's return value is read
+ * by nobody but a test.
+ */
+const googleForwardSyncValidator = v.object({
+  kind: v.literal("googleForwardSync"),
+  connectionId: v.id("googleConnections"),
+  status: v.union(v.literal("synced"), v.literal("skipped"), v.literal("failed")),
+  daysTouched: v.number(),
+  bytesWritten: v.number(),
+  cursorAdvanced: v.boolean(),
+  gapDetected: v.boolean(),
+  errorCode: v.optional(v.string()),
+});
+
 const operationResultValidator = v.union(
   listingValidator,
   fileValidator,
@@ -457,6 +490,7 @@ const operationResultValidator = v.union(
   indexMaintainedValidator,
   indexProjectedValidator,
   googleSyncRunValidator,
+  googleForwardSyncValidator,
 );
 
 const operationValidator = v.union(
@@ -507,6 +541,13 @@ const operationValidator = v.union(
    */
   v.object({ kind: v.literal("projectIndex"), passes: v.optional(v.number()) }),
   v.object({ kind: v.literal("googleGmailBackfill"), runId: v.id("googleSyncRuns") }),
+  /**
+   * Advance one connected Google account from its own cursor. Scheduled by
+   * `googleSync.sweepDueGoogleSyncs` and by nothing else — there is no public
+   * action that reaches this variant, and no argument on it a caller could use
+   * to name a context: the workspace comes from the connection row.
+   */
+  v.object({ kind: v.literal("googleForwardSync"), connectionId: v.id("googleConnections") }),
   v.object({
     kind: v.literal("write"),
     path: v.string(),
@@ -613,6 +654,16 @@ type OperationResult =
       daysWithMail: number;
       bytesWritten: number;
       continue: boolean;
+    }
+  | {
+      kind: "googleForwardSync";
+      connectionId: Id<"googleConnections">;
+      status: "synced" | "skipped" | "failed";
+      daysTouched: number;
+      bytesWritten: number;
+      cursorAdvanced: boolean;
+      gapDetected: boolean;
+      errorCode?: string;
     }
   | {
       kind: "listing";
@@ -878,12 +929,47 @@ export const runFileOperation = internalAction({
       );
     }
 
+    /*
+     * A FORWARD SYNC PASS ASKS THE ROW BEFORE IT ASKS FOR A CREDENTIAL.
+     *
+     * Same ordering, same reason, as the projection pass above. The sweep that
+     * scheduled this holds no decision and ran minutes ago; in between, the
+     * account can have been disconnected, its product turned off, or its grant
+     * refused by Google. Asking first means none of those decrypt a customer's
+     * storage secret on the way to doing nothing.
+     *
+     * A `null` job means there is no connection row to report against at all,
+     * so there is also no claim to release.
+     */
+    let forwardSyncJob: ForwardSyncJob = null;
+    if (args.operation.kind === "googleForwardSync") {
+      forwardSyncJob = await ctx.runQuery(
+        internal.functions.googleSync.googleForwardSyncJob,
+        { connectionId: args.operation.connectionId },
+      );
+      if (forwardSyncJob === null || forwardSyncJob.kind === "skip") {
+        return await releaseForwardSync(
+          ctx,
+          args.operation.connectionId,
+          forwardSyncJob === null ? undefined : forwardSyncJob.reason,
+        );
+      }
+    }
+
     let credential: GatewayCredential | null;
     try {
       credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
         workspaceId: args.workspaceId,
       });
     } catch {
+      if (args.operation.kind === "googleForwardSync") {
+        return await failForwardSync(
+          ctx,
+          args.operation.connectionId,
+          "STORAGE_UNUSABLE",
+          "This context's bucket configuration could not be used. Reconnect storage.",
+        );
+      }
       throw new ConvexError({
         code: "STORAGE_UNUSABLE",
         message:
@@ -891,6 +977,14 @@ export const runFileOperation = internalAction({
       });
     }
     if (credential === null) {
+      if (args.operation.kind === "googleForwardSync") {
+        return await failForwardSync(
+          ctx,
+          args.operation.connectionId,
+          "STORAGE_NOT_CONNECTED",
+          "This context has no bucket connected yet. Connect storage before syncing Google.",
+        );
+      }
       throw new ConvexError({
         code: "STORAGE_NOT_CONNECTED",
         message:
@@ -932,11 +1026,23 @@ export const runFileOperation = internalAction({
       // The constructor's message can quote the endpoint the customer typed.
       // Nothing it says helps here, and re-throwing it would put provider text
       // in front of the user with no way to know what else is in it.
+      if (args.operation.kind === "googleForwardSync") {
+        return await failForwardSync(
+          ctx,
+          args.operation.connectionId,
+          "STORAGE_UNUSABLE",
+          "This context's bucket configuration could not be used. Reconnect storage.",
+        );
+      }
       throw new ConvexError({
         code: "STORAGE_UNUSABLE",
         message:
           "This context's bucket configuration could not be used. Reconnect storage.",
       });
+    }
+
+    if (args.operation.kind === "googleForwardSync" && forwardSyncJob?.kind === "run") {
+      return await runGoogleForwardSync(ctx, store, forwardSyncJob, Date.now());
     }
 
     const result = await executeOperation(
@@ -1045,6 +1151,320 @@ function timeoutFetch(
       ? AbortSignal.timeout(REQUEST_TIMEOUT_MS)
       : undefined;
   return globalThis.fetch(input, timeout ? { ...init, signal: timeout } : init);
+}
+
+/* -------------------------------------------------------------------------- */
+/*                    the forward sync pass, one connection                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What `googleSync.googleForwardSyncJob` answered.
+ *
+ * Written out rather than inferred because the inference would run through
+ * `internal.functions.googleSync`, which is the cycle every annotated handler
+ * in this file exists to avoid.
+ */
+type ForwardSyncJob =
+  | null
+  | { kind: "skip"; reason: string }
+  | {
+      kind: "run";
+      connectionId: Id<"googleConnections">;
+      product: "gmail";
+      address: string;
+      mailboxSlug: string;
+      destinationFolder: string;
+      folders: ("inbox" | "sent")[];
+      quotaBytes: number;
+      bytesAlreadyUsed: number;
+      attachmentMode: "metadata-only" | "store";
+      attachmentRetentionDays?: number | "forever";
+      historyId?: string;
+    };
+
+type ForwardSyncResult = Extract<OperationResult, { kind: "googleForwardSync" }>;
+
+/**
+ * Nothing to do, and the claim released.
+ *
+ * A skipped pass must leave `lastSyncAt` alone — a connection that has never
+ * synced and one whose pass was skipped are the same connection, and making
+ * the second look synced is precisely the confusion this whole loop exists to
+ * remove.
+ */
+async function releaseForwardSync(
+  ctx: ActionCtx,
+  connectionId: Id<"googleConnections">,
+  reason: string | undefined,
+): Promise<ForwardSyncResult> {
+  await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+    connectionId,
+    status: "skipped",
+    errorCode: reason,
+  });
+  return {
+    kind: "googleForwardSync",
+    connectionId,
+    status: "skipped",
+    daysTouched: 0,
+    bytesWritten: 0,
+    cursorAdvanced: false,
+    gapDetected: false,
+    errorCode: reason,
+  };
+}
+
+/** A pass that could not run, recorded where the owner can read it. */
+async function failForwardSync(
+  ctx: ActionCtx,
+  connectionId: Id<"googleConnections">,
+  errorCode: string,
+  error: string,
+): Promise<ForwardSyncResult> {
+  await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+    connectionId,
+    status: "failed",
+    errorCode,
+    error,
+  });
+  return {
+    kind: "googleForwardSync",
+    connectionId,
+    status: "failed",
+    daysTouched: 0,
+    bytesWritten: 0,
+    cursorAdvanced: false,
+    gapDetected: false,
+    errorCode,
+  };
+}
+
+const GMAIL_RATE_LIMIT_REASONS = new Set([
+  "dailyLimitExceeded",
+  "rateLimitExceeded",
+  "userRateLimitExceeded",
+  "quotaExceeded",
+]);
+
+/**
+ * Turn whatever went wrong into a code and a sentence a person can act on.
+ *
+ * Trimmed from the classifier #388 removed with the historical backfill: the
+ * retry ladder went with it (a forward pass is retried by the sweep on its own
+ * interval, with `SYNC_FAILURE_BACKOFF_MS` as the floor), but the
+ * classification did not, because "Google refused this account" and "Google
+ * was briefly unavailable" are still different sentences to show somebody.
+ */
+function classifyForwardSyncError(error: unknown): { code: string; message: string } {
+  if (error instanceof GmailApiError) {
+    const reason = typeof error.reason === "string" ? error.reason : undefined;
+    const googleStatus = typeof error.googleStatus === "string" ? error.googleStatus : undefined;
+    if (
+      error.status === 429 ||
+      (error.status === 403 &&
+        (GMAIL_RATE_LIMIT_REASONS.has(reason ?? "") || googleStatus === "RESOURCE_EXHAUSTED"))
+    ) {
+      return {
+        code: "GOOGLE_RATE_LIMITED",
+        message: "Google rate-limited this mailbox. The next scheduled pass will try again.",
+      };
+    }
+    if (error.status === 401 || error.status === 403) {
+      return {
+        code: "GOOGLE_ACCESS_REFUSED",
+        message: "Google refused access to this mailbox. Reconnect the account and approve Gmail access.",
+      };
+    }
+    if (error.status >= 500) {
+      return {
+        code: "GOOGLE_UNAVAILABLE",
+        message: "Google did not answer reliably. The next scheduled pass will try again.",
+      };
+    }
+    return {
+      code: `GMAIL_HTTP_${error.status}`,
+      message: `Gmail answered with ${error.status}. The next scheduled pass will try again.`,
+    };
+  }
+  if (
+    error instanceof Error &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  ) {
+    return {
+      code: "GOOGLE_SYNC_TIMEOUT",
+      message: "Gmail or storage took too long. The next scheduled pass resumes from the same cursor.",
+    };
+  }
+  return {
+    code: "GOOGLE_SYNC_FAILED",
+    message: "This mailbox did not sync. The next scheduled pass resumes from the same cursor.",
+  };
+}
+
+/**
+ * ONE FORWARD PASS: advance this connection's cursor, write whatever changed.
+ *
+ * Forward-only, per #388 and `docs/decisions/communications.md`. Three shapes:
+ *
+ *  - **No cursor yet.** The connection was bound before a baseline could be
+ *    read, so one is taken now from `users.getProfile` and stored. Nothing is
+ *    fetched: forward-only means the mail from before this moment is not this
+ *    loop's to collect.
+ *  - **A cursor.** `history.list` from it, rebuild every day a changed message
+ *    landed on from Gmail's live state, store the new cursor.
+ *  - **An expired cursor.** Gmail's 404 comes back as `gapDetected` rather
+ *    than an error. The documented recovery was a reconcile over the backfill
+ *    window, which forward-only does not have — so the cursor is re-baselined
+ *    and the gap is recorded on the row as a failure a person can read.
+ *
+ * **The cursor is never advanced past mail that was not written.** A quota
+ * ceiling reached mid-pass, or anything thrown, leaves `historyId` exactly
+ * where it was, so the next pass asks Gmail the same question again. Advancing
+ * it would be the one bug in this file that loses somebody's mail silently.
+ */
+async function runGoogleForwardSync(
+  ctx: ActionCtx,
+  store: FileStore,
+  job: Extract<ForwardSyncJob, { kind: "run" }>,
+  now: number,
+): Promise<ForwardSyncResult> {
+  const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, {
+    connectionId: job.connectionId,
+  });
+  if (minted === null) {
+    // `mintGoogleAccessToken` has already marked the row `reconnect_required`
+    // if Google refused the grant outright; this records the pass itself.
+    return await failForwardSync(
+      ctx,
+      job.connectionId,
+      "GOOGLE_RECONNECT_REQUIRED",
+      "Google needs to be reconnected before this mailbox can sync.",
+    );
+  }
+
+  try {
+    if (job.historyId === undefined) {
+      const historyId = await getProfileHistoryId({
+        fetchImpl: timeoutFetch,
+        accessToken: minted.accessToken,
+      });
+      await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+        connectionId: job.connectionId,
+        status: "synced",
+        historyId,
+        daysTouched: 0,
+        bytesWritten: 0,
+      });
+      return {
+        kind: "googleForwardSync",
+        connectionId: job.connectionId,
+        status: "synced",
+        daysTouched: 0,
+        bytesWritten: 0,
+        cursorAdvanced: true,
+        gapDetected: false,
+      };
+    }
+
+    const result = await runIncrementalSync({
+      store,
+      fetchImpl: timeoutFetch,
+      accessToken: minted.accessToken,
+      mailboxSlug: job.mailboxSlug,
+      address: job.address,
+      folders: job.folders,
+      startHistoryId: job.historyId,
+      folder: job.destinationFolder,
+      // The same nonce the backfill used, so a day rewritten by either path
+      // keeps its message anchors — see `packages/communications/src/note.js`.
+      nonce: `gmail:${job.connectionId}`,
+      now: new Date(now).toISOString(),
+      quotaBytes: job.quotaBytes,
+      bytesAlreadyUsed: job.bytesAlreadyUsed,
+      attachmentMode: job.attachmentMode,
+      attachmentRetentionDays: job.attachmentRetentionDays,
+    });
+
+    if (result.gapDetected) {
+      const historyId = await getProfileHistoryId({
+        fetchImpl: timeoutFetch,
+        accessToken: minted.accessToken,
+      });
+      await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+        connectionId: job.connectionId,
+        status: "synced",
+        historyId,
+        daysTouched: 0,
+        bytesWritten: 0,
+        gapDetected: true,
+      });
+      return {
+        kind: "googleForwardSync",
+        connectionId: job.connectionId,
+        status: "synced",
+        daysTouched: 0,
+        bytesWritten: 0,
+        cursorAdvanced: true,
+        gapDetected: true,
+      };
+    }
+
+    if (result.quotaExceeded) {
+      // Whatever was written stays written and is counted; the cursor does
+      // not move, so the days this pass could not afford are asked for again
+      // once the connection has room.
+      await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+        connectionId: job.connectionId,
+        status: "failed",
+        daysTouched: result.daysTouched.length,
+        bytesWritten: result.bytesWritten,
+        errorCode: "MAIL_QUOTA_EXCEEDED",
+        error: "This connection reached its storage quota before the pass finished.",
+      });
+      return {
+        kind: "googleForwardSync",
+        connectionId: job.connectionId,
+        status: "failed",
+        daysTouched: result.daysTouched.length,
+        bytesWritten: result.bytesWritten,
+        cursorAdvanced: false,
+        gapDetected: false,
+        errorCode: "MAIL_QUOTA_EXCEEDED",
+      };
+    }
+
+    await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId: job.connectionId,
+      status: "synced",
+      historyId: result.historyId,
+      daysTouched: result.daysTouched.length,
+      bytesWritten: result.bytesWritten,
+    });
+    return {
+      kind: "googleForwardSync",
+      connectionId: job.connectionId,
+      status: "synced",
+      daysTouched: result.daysTouched.length,
+      bytesWritten: result.bytesWritten,
+      cursorAdvanced: result.historyId !== undefined,
+      gapDetected: false,
+    };
+  } catch (error) {
+    const { code, message } = classifyForwardSyncError(error);
+    // Structured, and carrying no mail: an identifier, a code, and the name of
+    // whatever was thrown.
+    console.log(
+      JSON.stringify({
+        event: "google.forward_sync_failed",
+        connectionId: job.connectionId,
+        product: job.product,
+        errorCode: code,
+        errorName: error instanceof Error ? error.name : typeof error,
+        gmailStatus: error instanceof GmailApiError ? error.status : undefined,
+      }),
+    );
+    return await failForwardSync(ctx, job.connectionId, code, message);
+  }
 }
 
 async function runGoogleGmailBackfill(

@@ -217,7 +217,14 @@ function validateBackfillDays(value: number | undefined): number {
   return days;
 }
 
-function defaultGoogleDestinationFolder(
+/**
+ * Where a product's daily notes land when nobody has chosen a folder.
+ *
+ * Exported for `googleSync.ts`, which needs the same answer when it hands a
+ * pass its destination — one implementation, so a synced day and the console's
+ * own "daily file pattern" can never name two different folders.
+ */
+export function defaultGoogleDestinationFolder(
   service: GoogleSyncService,
   mailboxSlug: string | undefined,
 ): string {
