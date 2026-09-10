@@ -18,6 +18,8 @@ import { visibilityTierForRole } from "./visibility";
 import { useIngestionSettings } from "./ingestion/useIngestionSettings";
 import { useMembers } from "./members/useMembers";
 import { useFastSearch } from "./search/useFastSearch";
+import { useShares } from "./shares/useShares";
+import { useAdvanced } from "./advanced/useAdvanced";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
 import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
 import { ownPersonalContext, viewerIdentity } from "./identity";
@@ -516,6 +518,15 @@ export function useLiveConsoleData(): ConsoleData {
   // answer, and a second one derived here could disagree with it.
   const fastSearch = useFastSearch({ workspaceId: selectedContextId });
 
+  // Shared links — owner-only on the backend (`listShares`/`revokeShare`), so
+  // this hook decides for itself, from `role`, whether to subscribe at all.
+  // See `useShares` for why that is stricter than `useMembers`'s own gate.
+  const shares = useShares({ workspaceId: selectedContextId, role: selected?.role });
+
+  // Both halves are owner-only in the console — see `useAdvanced` for why the
+  // audit trail is stricter here than `listEvents` allows on the backend.
+  const advanced = useAdvanced({ workspaceId: selectedContextId, role: selected?.role });
+
   const files = useFileBrowser({
     slug: selected?.slug,
     workspaceId: selectedContextId,
@@ -660,6 +671,8 @@ export function useLiveConsoleData(): ConsoleData {
     ingestion,
     files,
     members,
+    shares,
+    advanced,
     fastSearch,
     // A query that threw is not "still loading". Leaving the console spinning
     // forever on an answer that already arrived — and is an error — is the
