@@ -310,10 +310,10 @@ function indexHtml(): string {
       const rows = FRAMES.filter((frame) => frame.group === group)
         .map(
           (frame) =>
-            `<button class="row" data-goto="${frame.id}">${escapeHtml(frame.title)}</button>`,
+            `<button class="row" data-goto="${frame.id}"><span class="rowName">${escapeHtml(frame.title)}</span></button>`,
         )
         .join("");
-      return `<div class="group"><h2>${escapeHtml(group)}</h2>${rows}</div>`;
+      return `<section class="group"><h2>${escapeHtml(group)}</h2>${rows}</section>`;
     })
     .join("");
 }
@@ -323,71 +323,204 @@ function evidenceHtml(): string {
     const items = frame.evidence
       .map(
         (item) =>
-          `<li><span class="tag ${item.state}">${EVIDENCE_WORDS[item.state]}</span>${escapeHtml(item.label)}</li>`,
+          `<li><span class="tag ${item.state}">${EVIDENCE_WORDS[item.state]}</span><span>${escapeHtml(item.label)}</span></li>`,
       )
       .join("");
-    return `<div class="evidence" data-for="${frame.id}" hidden><p class="note">${escapeHtml(frame.note)}</p><ul>${items}</ul></div>`;
+    return (
+      `<article class="evidence" data-for="${frame.id}" hidden>` +
+      `<p class="note">${escapeHtml(frame.note)}</p>` +
+      `<ul>${items}</ul></article>`
+    );
   }).join("");
 }
 
 /**
  * The prototype's own chrome.
  *
- * Plain CSS and plain DOM, deliberately: it is the frame around the product,
- * not part of it, and a reviewer must never be in doubt about which pixels are
- * which. It paints itself in a neutral grey in both themes for the same reason.
+ * ## It is a bezel, and it is dressed like one
+ *
+ * The product inside these frames has a design system, and this is not it.
+ * The shell is deliberately a different world — IBM Plex against the app's
+ * system stack, a cooler neutral than either app palette, its own accent —
+ * because the single worst outcome for a review harness is a reviewer unsure
+ * which pixels are the proposal. Everything here is chrome; everything inside
+ * a `.viewport` is the app.
+ *
+ * ## One theme control, two worlds
+ *
+ * The shell follows the frame's own light/dark toggle rather than carrying a
+ * second one, and starts on whichever the reader's system asks for. A dark
+ * bezel around a light screenshot is a lightbox; a dark bezel around a light
+ * screenshot *while the reader is in light mode and never asked for either* is
+ * just a page that ignored them.
+ *
+ * ## Sizes
+ *
+ * A frame is a fixed 390x844 or 1440x900 box, which is what makes it a device
+ * rather than a responsive column. On a narrow screen the 1440 box cannot
+ * shrink and must not push the page sideways, so the stage is its own
+ * horizontal scroller and everything else stacks.
  */
 const CHROME_CSS = `
-  :root { color-scheme: dark; }
+  @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;450;500;600&display=swap");
+
+  :root {
+    --ground: #EFEFF3;
+    --panel: #FFFFFF;
+    --sunk: #E4E4EA;
+    --line: rgba(18,18,28,0.13);
+    --text: #16161C;
+    --muted: #63636E;
+    --accent: #2E5FD0;
+    --accent-wash: rgba(46,95,208,0.10);
+    --built: #17805C;
+    --built-wash: rgba(23,128,92,0.12);
+    --backend: #8A6100;
+    --backend-wash: rgba(138,97,0,0.12);
+    --proposed: #2E5FD0;
+    --proposed-wash: rgba(46,95,208,0.10);
+    --shadow: 0 20px 44px rgba(20,20,35,0.14);
+    color-scheme: light;
+  }
+  :root[data-shell="dark"] {
+    --ground: #131318;
+    --panel: #1B1B22;
+    --sunk: #101015;
+    --line: rgba(255,255,255,0.10);
+    --text: #EAEAF0;
+    --muted: #8E8E9A;
+    --accent: #7AA2F7;
+    --accent-wash: rgba(122,162,247,0.14);
+    --built: #5FD7A6;
+    --built-wash: rgba(95,215,166,0.13);
+    --backend: #E9B949;
+    --backend-wash: rgba(233,185,73,0.13);
+    --proposed: #8FB3F5;
+    --proposed-wash: rgba(143,179,245,0.13);
+    --shadow: 0 22px 50px rgba(0,0,0,0.5);
+    color-scheme: dark;
+  }
+
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #17171b; color: #e7e7ea;
-    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  #shell { display: flex; min-height: 100vh; align-items: flex-start; }
-  #side { width: 268px; flex: none; padding: 18px 14px 40px; border-right: 1px solid #2a2a31;
-    position: sticky; top: 0; max-height: 100vh; overflow: auto; }
-  #side h1 { font-size: 14px; margin: 0 0 4px; }
-  #side p.sub { color: #9a9aa5; margin: 0 0 16px; font-size: 12px; }
-  .group h2 { font-size: 10px; text-transform: uppercase; letter-spacing: .09em;
-    color: #83838f; margin: 16px 0 6px; }
+  html { background: var(--ground); }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font: 450 14px/1.55 "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #wrap { padding: 0 20px 72px; max-width: 1860px; margin: 0 auto; }
+
+  header#head { padding-block: 26px 18px; display: grid; gap: 6px; }
+  header#head h1 {
+    margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.015em; text-wrap: balance;
+  }
+  header#head p { margin: 0; color: var(--muted); max-width: 62ch; }
+  header#head .v { font: 500 11px/1 "IBM Plex Mono", ui-monospace, monospace;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+
+  #cols { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 26px; align-items: start; }
+
+  #side { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto;
+    padding-right: 4px; }
+  .group { margin-bottom: 16px; }
+  .group h2 { margin: 0 0 5px; font: 500 10px/1 "IBM Plex Mono", ui-monospace, monospace;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
   button.row { display: block; width: 100%; text-align: left; background: none; border: 0;
-    color: #d5d5dc; padding: 6px 8px; border-radius: 6px; cursor: pointer; font: inherit; }
-  button.row:hover { background: #232329; }
-  button.row[aria-current="true"] { background: #2f2f38; color: #fff; }
-  #main { flex: 1; min-width: 0; padding: 18px 22px 60px; }
-  #bar { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
-  .toggle { display: inline-flex; border: 1px solid #33333c; border-radius: 8px; overflow: hidden; }
-  .toggle button { background: none; border: 0; color: #c9c9d2; padding: 5px 11px; cursor: pointer; font: inherit; }
-  .toggle button[aria-pressed="true"] { background: #3a3a45; color: #fff; }
-  #title { font-size: 14px; font-weight: 600; }
-  #waits { color: #fcd34d; margin: 0 0 10px; font-size: 12px; }
-  #stage { display: inline-block; border: 1px solid #2a2a31; border-radius: 10px; overflow: hidden;
-    box-shadow: 0 18px 44px rgba(0,0,0,.45); }
-  .viewport { overflow: auto; }
+    color: var(--text); padding: 6px 9px; border-radius: 7px; cursor: pointer;
+    font: inherit; font-size: 13px; }
+  button.row:hover { background: var(--accent-wash); }
+  button.row[aria-current="true"] { background: var(--accent); color: #fff; }
+  :root:not([data-shell="dark"]) button.row[aria-current="true"] { color: #fff; }
+
+  #bar { display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap;
+    padding-bottom: 12px; }
+  #frameName { font-weight: 600; font-size: 15px; margin-right: auto; }
+  #count { font: 400 12px/1 "IBM Plex Mono", ui-monospace, monospace; color: var(--muted);
+    font-variant-numeric: tabular-nums; }
+  .toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 9px;
+    overflow: hidden; background: var(--panel); }
+  .toggle button, .step {
+    background: none; border: 0; color: var(--muted); padding: 6px 12px; cursor: pointer;
+    font: inherit; font-size: 12.5px;
+  }
+  .toggle button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .step { border: 1px solid var(--line); border-radius: 9px; background: var(--panel);
+    color: var(--text); min-width: 34px; }
+  .step:hover, .toggle button:hover:not([aria-pressed="true"]) { color: var(--text); background: var(--accent-wash); }
+  :where(button, a):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  #waits { margin: 0 0 10px; padding: 8px 12px; border-radius: 9px; font-size: 12.5px;
+    color: var(--backend); background: var(--backend-wash); max-width: 72ch; }
+
+  #track { overflow-x: auto; padding-bottom: 6px; }
+  #stage { display: block; border: 1px solid var(--line); border-radius: 12px;
+    overflow: hidden; box-shadow: var(--shadow); background: var(--sunk); }
+  /*
+    THE TRANSFORM IS LOAD-BEARING, TWICE OVER.
+
+    A settings frame contains a react-native-web \`Modal\`, which is
+    \`position: fixed\` — and a fixed element is positioned against the *browser
+    window* unless an ancestor establishes a containing block. Without this the
+    settings overlay escaped its device box entirely and sized itself to
+    whatever window the page happened to be open in: a 1440-wide frame drawing
+    a 1500-wide overlay, which looks plausible and is not the screen under
+    review. A transform (any transform) makes \`.viewport\` that containing block.
+
+    The same property then earns its keep a second time: the scale factor the
+    runtime sets is what fits a 1440x900 frame on a laptop or a phone without
+    the page scrolling sideways.
+  */
+  .viewport { overflow: hidden; transform-origin: top left; transform: scale(1); }
   .viewport > div { height: 100% !important; max-height: 100% !important; }
-  .evidence { margin-top: 18px; max-width: 720px; }
-  .evidence p.note { color: #b6b6c0; margin: 0 0 10px; }
-  .evidence ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
-  .evidence li { color: #c9c9d2; }
-  .tag { display: inline-block; min-width: 148px; margin-right: 10px; padding: 1px 8px;
-    border-radius: 999px; font-size: 11px; }
-  .tag.built { background: rgba(52,211,153,.16); color: #6ee7b7; }
-  .tag.backend { background: rgba(251,191,36,.16); color: #fcd34d; }
-  .tag.proposed { background: rgba(59,130,246,.16); color: #9dc0fb; }
-  #hint { color: #83838f; margin-top: 22px; max-width: 720px; font-size: 12px; }
+  #scale { margin: 8px 0 0; font: 400 12px/1 "IBM Plex Mono", ui-monospace, monospace;
+    color: var(--muted); }
+
+  #below { display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    margin-top: 22px; max-width: 1100px; }
+  .evidence p.note { margin: 0 0 12px; color: var(--text); max-width: 64ch; }
+  .evidence ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+  .evidence li { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px;
+    align-items: baseline; color: var(--muted); font-size: 13px; }
+  .tag { justify-self: start; padding: 2px 9px; border-radius: 999px;
+    font: 500 11px/1.5 "IBM Plex Mono", ui-monospace, monospace; }
+  .tag.built { background: var(--built-wash); color: var(--built); }
+  .tag.backend { background: var(--backend-wash); color: var(--backend); }
+  .tag.proposed { background: var(--proposed-wash); color: var(--proposed); }
+  #hint { margin: 0; color: var(--muted); font-size: 13px; max-width: 60ch; }
+  #hint strong { color: var(--text); font-weight: 500; }
+
+  @media (max-width: 900px) {
+    #cols { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+    /*
+      One scrolling line, not a row of columns of different heights: grouped
+      vertically the tallest group set the height and the frame — the thing the
+      page is for — started 180px down the screen.
+    */
+    #side { position: static; max-height: none; overflow-x: auto; overflow-y: hidden;
+      display: flex; gap: 14px; padding-bottom: 8px; align-items: center; }
+    .group { margin: 0; flex: none; display: flex; align-items: center; gap: 6px; }
+    .group h2 { margin: 0 2px 0 0; }
+    button.row { white-space: nowrap; padding: 5px 10px; border: 1px solid var(--line);
+      border-radius: 999px; }
+    #below { grid-template-columns: minmax(0, 1fr); }
+  }
 `;
 
 /**
- * The runtime: an index, two toggles, and click routing.
+ * The runtime: an index, three controls, and click routing.
  *
  * Routing is by `data-testid` prefix rather than by a hand-kept map, so a
  * hotspot cannot exist in a frame and be missing from the prototype — the
  * frames declare where a press goes (`hotspot()`), and this reads it.
  */
 const CHROME_JS = `
-  const state = { frame: null, density: "desktop", theme: "dark" };
+  const state = { frame: null, density: "desktop", theme: null };
   const frames = [...document.querySelectorAll("#stage .viewport")];
-  const titles = new Map([...document.querySelectorAll("#side button.row")]
-    .map((b) => [b.dataset.goto, b.textContent]));
+  const rows = [...document.querySelectorAll("#side button.row")];
+  const order = rows.map((b) => b.dataset.goto);
+  const titles = new Map(rows.map((b) => [b.dataset.goto, b.textContent]));
 
   function apply() {
     for (const node of frames) {
@@ -395,7 +528,7 @@ const CHROME_JS = `
         && node.dataset.density === state.density
         && node.dataset.theme === state.theme);
     }
-    for (const button of document.querySelectorAll("#side button.row")) {
+    for (const button of rows) {
       button.setAttribute("aria-current", String(button.dataset.goto === state.frame));
     }
     for (const node of document.querySelectorAll(".evidence")) {
@@ -405,19 +538,52 @@ const CHROME_JS = `
       const [key, value] = button.dataset.set.split(":");
       button.setAttribute("aria-pressed", String(state[key] === value));
     }
-    document.getElementById("title").textContent = titles.get(state.frame) ?? "";
+    // The shell follows the frame rather than carrying a second theme control.
+    document.documentElement.dataset.shell = state.theme;
+    document.getElementById("frameName").textContent = titles.get(state.frame) ?? "";
+    const at = order.indexOf(state.frame);
+    document.getElementById("count").textContent = (at + 1) + " / " + order.length;
     const shown = frames.find((node) => !node.hidden);
     const next = shown === undefined ? null : shown.dataset.next ?? null;
     document.getElementById("waits").hidden = next === null;
+    fit(shown);
     const hash = state.frame + "/" + state.density + "/" + state.theme;
     if (location.hash.slice(1) !== hash) history.replaceState(null, "", "#" + hash);
+  }
+
+  /*
+    Fit the device to the space there is, and say so when it is not 1:1.
+
+    A 1440x900 frame does not fit beside an index on a laptop, and does not fit
+    at all on a phone. Scaling it down keeps the whole screen visible — which is
+    what a reviewer is here for — and the caption stops anybody reading the
+    result as the real size of the type.
+  */
+  function fit(shown) {
+    const stage = document.getElementById("stage");
+    const caption = document.getElementById("scale");
+    if (shown === undefined || shown === null) return;
+    const w = parseFloat(shown.style.width);
+    const h = parseFloat(shown.style.height);
+    const room = document.getElementById("track").clientWidth - 2;
+    const k = Math.min(1, room / w);
+    shown.style.transform = "scale(" + k + ")";
+    stage.style.width = Math.floor(w * k) + "px";
+    stage.style.height = Math.floor(h * k) + "px";
+    caption.textContent = k < 0.999
+      ? w + "×" + h + ", shown at " + Math.round(k * 100) + "%"
+      : w + "×" + h;
   }
 
   function go(frame) {
     if (!titles.has(frame)) return;
     state.frame = frame;
     apply();
-    window.scrollTo(0, 0);
+  }
+
+  function step(by) {
+    const at = order.indexOf(state.frame);
+    go(order[(at + by + order.length) % order.length]);
   }
 
   document.addEventListener("click", (event) => {
@@ -428,6 +594,8 @@ const CHROME_JS = `
       apply();
       return;
     }
+    const stepper = event.target.closest("[data-step]");
+    if (stepper !== null) { step(Number(stepper.dataset.step)); return; }
     const row = event.target.closest("#side button.row");
     if (row !== null) { go(row.dataset.goto); return; }
     const hot = event.target.closest('[data-testid^="goto-"]');
@@ -446,6 +614,12 @@ const CHROME_JS = `
     if (frame !== null && !frame.hidden) go(frame.dataset.next);
   });
 
+  document.addEventListener("keydown", (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key === "ArrowRight") { step(1); event.preventDefault(); }
+    if (event.key === "ArrowLeft") { step(-1); event.preventDefault(); }
+  });
+
   /*
     The address is readable as well as written.
 
@@ -458,52 +632,74 @@ const CHROME_JS = `
   function fromHash() {
     const parts = location.hash.slice(1).split("/");
     if (titles.has(parts[0])) state.frame = parts[0];
-    else if (state.frame === null) state.frame = [...titles.keys()][0];
+    else if (state.frame === null) state.frame = order[0];
     if (parts[1] === "phone" || parts[1] === "desktop") state.density = parts[1];
     if (parts[2] === "dark" || parts[2] === "light") state.theme = parts[2];
+    else if (state.theme === null) {
+      // Neither the address nor a press has said: follow the reader's system.
+      state.theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
     apply();
   }
 
   window.addEventListener("hashchange", fromHash);
+  window.addEventListener("resize", () => fit(frames.find((node) => !node.hidden)));
   fromHash();
 `;
 
+/** The page itself, without the document wrapper an Artifact supplies. */
+function pageHtml(bodies: string, css: string): string {
+  return `<title>Premium Review Pack</title>
+<style>${CHROME_CSS}</style>
+<style id="rnw">${css}</style>
+<div id="wrap">
+  <header id="head">
+    <span class="v">Context.LC · review pack v1</span>
+    <h1>Premium and managed storage, end to end</h1>
+    <p>Twenty frames of the journey from "I want Context to handle this" to "my notes have a
+      working home". Press anything — every button goes where it would go. Arrow keys step
+      through in order.</p>
+  </header>
+  <div id="cols">
+    <nav id="side" aria-label="Frames">${indexHtml()}</nav>
+    <main id="main">
+      <div id="bar">
+        <span id="frameName"></span>
+        <span id="count"></span>
+        <button class="step" data-step="-1" aria-label="Previous frame">←</button>
+        <button class="step" data-step="1" aria-label="Next frame">→</button>
+        <span class="toggle" role="group" aria-label="Size">
+          <button data-set="density:desktop">Desktop</button>
+          <button data-set="density:phone">Phone</button>
+        </span>
+        <span class="toggle" role="group" aria-label="Appearance">
+          <button data-set="theme:light">Light</button>
+          <button data-set="theme:dark">Dark</button>
+        </span>
+      </div>
+      <p id="waits" hidden>This screen waits on something rather than on you — click anywhere in
+        it to see what comes next.</p>
+      <div id="track"><div id="stage">${bodies}</div></div>
+      <p id="scale"></p>
+      <div id="below">
+        ${evidenceHtml()}
+        <p id="hint">Frames marked <strong>ships today</strong> are the running product rendered
+          against a fixture — the real console, the real settings overlay, the real Premium panel —
+          not a drawing of it. Everything else is a proposal and says so. Nothing here can reach an
+          account, a bucket or a card: there is no backend behind this page at all.</p>
+      </div>
+    </main>
+  </div>
+</div>
+<script>${CHROME_JS}</script>`;
+}
+
+/** The standalone file, for opening from a checkout. */
 function document_(bodies: string, css: string): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Context.LC — Premium and managed storage, v1</title>
-<style>${CHROME_CSS}</style>
-<style id="rnw">${css}</style>
-</head><body>
-<div id="shell">
-  <aside id="side">
-    <h1>Premium &amp; managed storage</h1>
-    <p class="sub">Review pack v1. Press anything — the buttons go where they would go.</p>
-    ${indexHtml()}
-  </aside>
-  <main id="main">
-    <div id="bar">
-      <span id="title"></span>
-      <span class="toggle">
-        <button data-set="density:desktop">Desktop</button>
-        <button data-set="density:phone">Phone</button>
-      </span>
-      <span class="toggle">
-        <button data-set="theme:dark">Dark</button>
-        <button data-set="theme:light">Light</button>
-      </span>
-    </div>
-    <p id="waits" hidden>This screen waits on something rather than on you — click anywhere in it to
-      see what comes next.</p>
-    <div id="stage">${bodies}</div>
-    ${evidenceHtml()}
-    <p id="hint">Frames marked <em>ships today</em> are the running product rendered against a
-      fixture, not a drawing of it. Nothing in this document can reach an account, a bucket or a
-      card: it has no backend behind it at all.</p>
-  </main>
-</div>
-<script>${CHROME_JS}</script>
+${pageHtml(bodies, css)}
 </body></html>`;
 }
 
@@ -534,12 +730,21 @@ describe("premium ux prototype", () => {
     const injected = [...document.head.querySelectorAll("style")]
       .map((node) => node.textContent ?? "")
       .join("\n");
+    const css = `${StyleSheet.getSheet().textContent}\n${injected}`;
+    const bodies = rendered.join("\n");
     const file = resolve(OUT, "prototype.html");
     mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(
-      file,
-      document_(rendered.join("\n"), `${StyleSheet.getSheet().textContent}\n${injected}`),
-      "utf8",
-    );
+    writeFileSync(file, document_(bodies, css), "utf8");
+    /*
+      The same page without the `<html>`/`<head>`/`<body>` wrapper, for
+      publishing where the host supplies one. Off by default and never written
+      into the repository: it is the identical document, and committing it
+      twice would double the pack's weight to say the same thing.
+    */
+    const fragment = process.env.PREMIUM_UX_FRAGMENT;
+    if (fragment !== undefined && fragment !== "") {
+      mkdirSync(dirname(resolve(fragment)), { recursive: true });
+      writeFileSync(resolve(fragment), pageHtml(bodies, css), "utf8");
+    }
   });
 });
