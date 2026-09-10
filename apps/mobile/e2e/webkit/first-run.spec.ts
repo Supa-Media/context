@@ -112,6 +112,25 @@ test("and a wait that has gone on too long offers a way out", async ({ page }) =
   await expect(page.getByTestId("managed-settling-carry-on")).toBeVisible();
 });
 
+test("provisioning that failed says the money is safe, and offers both ways on", async ({
+  page,
+}) => {
+  /*
+    Money taken and nothing delivered — the state this whole flow is judged on.
+    In a browser because the previous two defects in this work were layouts,
+    and because a person reading this one is already unhappy: the sentences and
+    the buttons have to be on screen together, not one below a fold.
+  */
+  await page.goto(`${STORAGE}&at=settling&failed=yes`);
+  const body = page.locator("body");
+  await expect(page.getByTestId("managed-settling-own")).toBeVisible();
+  await expect(body).toContainText("Your payment went through");
+  await expect(body).toContainText("will not create a second copy");
+  await expect(page.getByTestId("managed-settling-retry")).toBeVisible();
+  // Not still pretending to work.
+  await expect(page.getByTestId("managed-settling-steps")).toHaveCount(0);
+});
+
 test.describe("at a pointer width", () => {
   test.use({ viewport: { width: 1280, height: 900 }, isMobile: false, hasTouch: false });
 

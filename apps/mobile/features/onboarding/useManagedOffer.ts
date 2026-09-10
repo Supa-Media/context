@@ -6,6 +6,7 @@ import type { CheckoutOutcome } from "@context/shared";
 import { leaveTo } from "../consent/leave";
 import {
   formatPrice,
+  managedFailureCopy,
   type PremiumEntitlements,
   type PremiumSession,
   type PremiumStatus,
@@ -44,10 +45,10 @@ import type { ManagedConfirmState } from "./steps/ManagedConfirm";
  * Stripe returns to `/welcome?checkout=done` — a path built by
  * `@context/shared` from the origin recorded on the session row, so first run
  * comes back to first run rather than to a console with no storage in it. The
- * screen then waits on two facts it can actually observe: the plan turning
- * active, and a storage binding appearing. There is no provisioning state to
- * read yet, so this never claims a failure it cannot see — it says the wait
- * has stopped being ordinary and offers the ways out that always work.
+ * screen then follows three facts the control plane reports: the plan turning
+ * active, a storage binding appearing, and whether provisioning gave up. The
+ * third is the one that matters — without it a person whose bucket was never
+ * going to appear sits in front of a spinner until they give up.
  */
 
 /** How long before "a few seconds" stops being true. */
@@ -64,8 +65,16 @@ export interface ManagedOffer {
   mode: "choose" | "confirm" | "settling";
   /** Where the attempt to open Stripe has got to. */
   session: ManagedConfirmState;
-  /** Our sentence for a failure, never Stripe's. */
+  /** Our sentence for a failure opening Stripe, never Stripe's own. */
   failure?: string;
+  /**
+   * Provisioning reported that the bucket will not appear.
+   *
+   * Separate from `failure` above, which is about opening a payment page —
+   * these are different moments with different next steps, and a person who
+   * has *paid* and has no storage is owed the second one specifically.
+   */
+  provisionFailure?: { title: string; body: string; canRetry: boolean };
   /** The plan has turned active. */
   paid: boolean;
   /** The wait has stopped being ordinary. */
@@ -75,6 +84,8 @@ export interface ManagedOffer {
   toggle: (value: string, next: boolean) => void;
   /** Ask for a URL, then — once there is one — leave for it. */
   proceed: () => void;
+  /** Another go at making the bucket. Safe: the run adopts what it made before. */
+  retry: () => void;
 }
 
 export function useManagedOffer(options: {
@@ -194,6 +205,13 @@ export function useManagedOffer(options: {
       .finally(() => setOpening(false));
   }, [convex, session, workspaceId]);
 
+  const retry = useCallback(() => {
+    if (workspaceId === null) return;
+    void convex
+      .mutation(api.functions.managedProvisioning.retryManagedProvisioning, { workspaceId })
+      .catch(() => setFailure("That did not go through. Check your connection and try again."));
+  }, [convex, workspaceId]);
+
   const sessionState: ManagedConfirmState =
     session?.status === "failed"
       ? "failed"
@@ -215,10 +233,15 @@ export function useManagedOffer(options: {
         ? "That did not go through. Nothing has been charged — try again."
         : undefined),
     paid: status?.status === "active",
+    provisionFailure:
+      status?.managedProvisioning === "failed"
+        ? managedFailureCopy(status.managedProvisioningError)
+        : undefined,
     slow,
     choose,
     back,
     toggle,
     proceed,
+    retry,
   };
 }

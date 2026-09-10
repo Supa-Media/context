@@ -87,10 +87,16 @@ export function StorageStepBody({
   if (managed !== null && managed.mode === "settling") {
     return (
       <ManagedSettling
-        state={{ paid: managed.paid, storageReady, slow: managed.slow }}
+        state={{
+          paid: managed.paid,
+          storageReady,
+          slow: managed.slow,
+          failure: managed.provisionFailure,
+        }}
         contextName={contextName}
         onUseOwnStorage={managed.back}
         onCarryOn={onSkip}
+        onRetry={managed.retry}
       />
     );
   }
