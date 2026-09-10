@@ -45,7 +45,9 @@ import { describeCreateFailure, describeStructureFailure, type CreateFailure } f
 import { afterStorage, afterStructure, type FlowShape, type StepKey, type StorageOutcome } from "./flow";
 import { seedPromptFor } from "./agents";
 import { canClaim, nameStatus, normalizedName, shouldCheckAvailability, type NameAvailability, type NameStatus } from "./name";
+import type { CheckoutOutcome } from "@context/shared";
 import { ownedContexts } from "./route";
+import { useManagedOffer, type ManagedOffer } from "./useManagedOffer";
 import {
   canApplyStructure,
   emptyCustomFolders,
@@ -128,6 +130,13 @@ export interface OnboardingController {
   // ── Step 2 ────────────────────────────────────────────────────────────────
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   connectState: ConnectState;
+  /**
+   * The managed-storage offer, or `null` on a deployment that cannot make one.
+   *
+   * Never `undefined`: a step that cannot tell "no offer" from "not asked yet"
+   * draws the card for a moment and takes it away, which is worse than either.
+   */
+  managed: ManagedOffer | null;
   skipStorage: () => void;
   /**
    * Move on with a binding that failed or timed out.
@@ -175,7 +184,17 @@ export function useOnboarding(
      * person left — so `claimed` is recovered from `listMyWorkspaces` rather
      * than from a create that happened on a page that no longer exists.
      */
-    resume?: "structure";
+    resume?: "structure" | "storage";
+    /**
+     * What a return from Stripe said, from `/welcome?checkout=…`.
+     *
+     * A person coming back from a payment is mid-flow with a claimed name and
+     * no storage, so the flow has to be re-entered rather than the console —
+     * which is what `resume: "storage"` beside this is for.
+     */
+    checkout?: CheckoutOutcome | null;
+    /** Test seam for the settling copy's later wording. */
+    settlingSlowAfter?: number;
   } = {},
 ): OnboardingController {
   const workspaces = useQuery(api.functions.workspaces.listMyWorkspaces) as
@@ -190,7 +209,7 @@ export function useOnboarding(
   // moved on their own is never yanked back.
   const resumed = useRef(false);
   useEffect(() => {
-    if (options.resume !== "structure") return;
+    if (options.resume === undefined) return;
     if (resumed.current || claimed !== null) return;
     if (workspaces === undefined) return;
     const own = workspaces.find(
@@ -199,7 +218,7 @@ export function useOnboarding(
     if (own === undefined) return;
     resumed.current = true;
     setClaimed({ workspaceId: own.workspaceId, slug: own.slug });
-    setStep("structure");
+    setStep(options.resume);
   }, [claimed, options.resume, workspaces]);
   // Starts at `connected` because that is the run the step rail should draw
   // before anything has gone wrong: the full four steps. It is only ever
@@ -298,6 +317,17 @@ export function useOnboarding(
       : (rawBinding as (WatchedBinding & { scaffoldReason?: string }) | null);
 
   const connectState = connectProgress({ submitted, binding, timedOut });
+
+  /*
+    The third answer on this step, and the two screens behind it. A person who
+    never presses that card subscribes to none of it: the hook reads one query
+    for the claimed context and nothing else until it is pressed.
+  */
+  const managed = useManagedOffer({
+    workspaceId: claimed?.workspaceId ?? null,
+    returned: options.checkout ?? null,
+    slowAfter: options.settlingSlowAfter,
+  });
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearTimer = useCallback(() => {
@@ -453,6 +483,7 @@ export function useOnboarding(
 
     connect,
     connectState,
+    managed: managed.available || managed.mode !== "choose" ? managed : null,
     skipStorage,
     continuePastStorage,
 

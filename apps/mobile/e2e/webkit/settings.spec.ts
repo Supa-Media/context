@@ -232,3 +232,74 @@ test.describe("at a pointer width", () => {
     await expect(page.getByTestId("settings-sections")).toBeVisible();
   });
 });
+
+/**
+ * COMING BACK FROM A PAYMENT, IN A REAL BROWSER.
+ *
+ * The state this covers had no design and no screen at all until now, and the
+ * URL that produces it did not resolve: `billingStripe.ts` sent a completed
+ * payment to `/settings?settings=premium&checkout=done`, and `/settings` is
+ * not a route in this app. `checkoutReturn.test.ts` proves the new path is one
+ * the router has; `premiumPanelRender.test.ts` proves the panel's words. What
+ * neither can prove is that the notice is *on the screen* when somebody
+ * arrives on that URL, drawn above the plan and legible — which is the class
+ * of defect this directory exists for, and the reason the two examples in this
+ * file's header shipped past a green suite.
+ *
+ * The fixture reads `?checkout=` exactly as `(app)/console/_layout.tsx` does,
+ * and hands it to the same overlay.
+ */
+test.describe("back from Stripe", () => {
+  test("the payment is acknowledged before the plan has caught up", async ({ page }) => {
+    await page.goto(`/e2e-fixture?checkout=done`);
+    await page.getByTestId("breadcrumb-leaf").waitFor();
+    await tap(page, ACCOUNT_MENU);
+    await page.getByTestId(ACCOUNT_SETTINGS).tap();
+    await expect(page.getByTestId("settings-overlay")).toBeVisible();
+    await page.getByLabel("Back", { exact: true }).tap();
+    await page.getByTestId("settings-section-premium").tap();
+
+    const notice = page.getByTestId("premium-checkout-return");
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText("Payment received");
+
+    /*
+      Above the plan card, not below it. Somebody who has just paid reads the
+      first thing on the section; a reassurance under a card that still says
+      "free plan" is a reassurance they meet second, after the alarm.
+    */
+    const noticeBox = await notice.boundingBox();
+    const titleBox = await page.getByTestId("premium-title").boundingBox();
+    expect(noticeBox).not.toBeNull();
+    expect(titleBox).not.toBeNull();
+    expect(noticeBox!.y).toBeLessThan(titleBox!.y);
+
+    // And the promise that may never be conditional is still there beneath it.
+    await expect(page.getByTestId("premium-export-promise")).toBeVisible();
+  });
+
+  test("coming back without paying says so, and sells nothing", async ({ page }) => {
+    await page.goto(`/e2e-fixture?checkout=cancelled`);
+    await page.getByTestId("breadcrumb-leaf").waitFor();
+    await tap(page, ACCOUNT_MENU);
+    await page.getByTestId(ACCOUNT_SETTINGS).tap();
+    await page.getByLabel("Back", { exact: true }).tap();
+    await page.getByTestId("settings-section-premium").tap();
+
+    const notice = page.getByTestId("premium-checkout-return");
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText("No payment was taken");
+  });
+
+  test("an ordinary visit shows no such notice", async ({ page }) => {
+    // The negative, in a browser: a section reached without a return URL must
+    // not tell somebody anything about a payment they did not make.
+    await openConsole(page);
+    await tap(page, ACCOUNT_MENU);
+    await page.getByTestId(ACCOUNT_SETTINGS).tap();
+    await page.getByLabel("Back", { exact: true }).tap();
+    await page.getByTestId("settings-section-premium").tap();
+    await expect(page.getByTestId("premium-title")).toBeVisible();
+    await expect(page.getByTestId("premium-checkout-return")).toHaveCount(0);
+  });
+});

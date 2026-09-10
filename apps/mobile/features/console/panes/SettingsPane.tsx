@@ -17,6 +17,7 @@ import { CalendarPanel } from "../settings/panels/CalendarPanel";
 import { ChatsPanel } from "../settings/panels/ChatsPanel";
 import { MeetingsPanel } from "../settings/panels/MeetingsPanel";
 import { FastSearchCard } from "../search/FastSearchCard";
+import type { CheckoutOutcome } from "@context/shared";
 import { PremiumPanel } from "../settings/panels/PremiumPanel";
 import { MembersSection } from "../members/MembersSection";
 import { PrivacyPanel } from "../settings/panels/PrivacyPanel";
@@ -67,6 +68,7 @@ export function SettingsPane({
   data,
   onClose,
   section,
+  returned = null,
 }: {
   data: ConsoleData;
   onClose: () => void;
@@ -80,6 +82,8 @@ export function SettingsPane({
    * only the block it was asked for.
    */
   section?: SettingsSectionKey;
+  /** What a return from Stripe said, from the route. Only Premium reads it. */
+  returned?: CheckoutOutcome | null;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -258,7 +262,9 @@ export function SettingsPane({
       </>
       ) : null}
 
-      {show("premium") ? <PremiumPanel data={data} section={section} /> : null}
+      {show("premium") ? (
+        <PremiumPanel data={data} section={section} returned={returned} />
+      ) : null}
 
       {show("people") ? (
       <>

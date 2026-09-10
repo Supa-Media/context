@@ -49,7 +49,7 @@
  * read, and the assertion that the sentence is identical everywhere.
  */
 
-import { afterEach, describe, expect, test } from "@jest/globals";
+import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -71,7 +71,10 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function mount(view: PremiumView): HTMLElement {
+function mount(
+  view: PremiumView,
+  extra: { returned?: "done" | "cancelled" | null; slowAfter?: number } = {},
+): HTMLElement {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, {
@@ -83,7 +86,7 @@ function mount(view: PremiumView): HTMLElement {
     container.remove();
   });
   act(() => {
-    root.render(createElement(PremiumBody, { view, section: "premium" }));
+    root.render(createElement(PremiumBody, { view, section: "premium", ...extra }));
   });
   return container;
 }
@@ -323,5 +326,116 @@ describe("what the section says about itself", () => {
     // They were separate strings once and drifted: a row that said "Mail,
     // calendar & chats" opened a panel headed "Integrations".
     expect(mount(view()).textContent ?? "").toContain("Premium");
+  });
+});
+
+/**
+ * COMING BACK FROM STRIPE, ON THE SCREEN.
+ *
+ * `checkoutReturn.test.ts` proves the URL lands on this section; these prove
+ * the section then says something true when it does. The state that matters is
+ * the middle one: paid, and the webhook has not landed. It must not say
+ * "failed", must not spin without a sentence, and must say the work finishes
+ * without this tab — because it does, and somebody who has just been charged
+ * is entitled to know they can close it.
+ *
+ * ## Sabotage record
+ *
+ *   the settling notice rendered only when the plan is already active     1
+ *   the slow copy replacing the spinner rather than the words             1
+ *   `checkoutReturnCopy` treating an unknown outcome as "done"            1
+ */
+describe("the return from Stripe", () => {
+  test("paid, and the plan has not caught up: reassurance, not a failure", () => {
+    const container = mount(view(), { returned: "done" });
+    const notice = container.querySelector('[data-testid="premium-checkout-return"]');
+    expect(notice).not.toBeNull();
+    const words = notice?.textContent ?? "";
+    expect(words).toContain("Payment received");
+    expect(words).toContain("a few seconds");
+    expect(words.toLowerCase()).not.toContain("failed");
+    expect(words.toLowerCase()).not.toContain("error");
+  });
+
+  test("and it does not say they are on the free plan in the same breath", () => {
+    /*
+      THE DEFECT THIS CASE EXISTS FOR, FOUND BY LOOKING AT THE SCREEN.
+
+      The settling copy was a notice drawn *above* the plan card, and the card
+      went on saying what it always says — so "Payment received. Setting up
+      this context." sat directly on top of "This context is on the free
+      plan". Two statements about somebody's money, contradicting each other,
+      three seconds after they were charged. Every unit test passed: each
+      sentence is correct on its own, and only the two together are wrong.
+
+      The plan genuinely has not changed yet, so the fix is to stop asserting
+      the old state while telling them the new one is coming.
+    */
+    const container = mount(view(), { returned: "done" });
+    const words = container.textContent ?? "";
+    expect(words).toContain("Payment received");
+    expect(words).not.toContain("This context is on the free plan");
+  });
+
+  test("a cancelled return may say it, because the two agree", () => {
+    // "No payment was taken" and "you are on the free plan" are the same fact
+    // told twice, which is reassurance rather than contradiction.
+    const container = mount(view(), { returned: "cancelled" });
+    const words = container.textContent ?? "";
+    expect(words).toContain("No payment was taken");
+    expect(words).toContain("This context is on the free plan");
+  });
+
+  test("still waiting: different words, same spinner, and permission to leave", () => {
+    jest.useFakeTimers();
+    try {
+      const container = mount(view(), { returned: "done", slowAfter: 20 });
+      act(() => {
+        jest.advanceTimersByTime(25);
+      });
+      const words =
+        container.querySelector('[data-testid="premium-checkout-return"]')?.textContent ?? "";
+      expect(words).toContain("Still working");
+      expect(words).toContain("You can close this");
+      expect(words.toLowerCase()).not.toContain("failed");
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("paid, and the plan is active: said once, out of the way", () => {
+    const container = mount(
+      view({ status: status({ status: "active", hasStripeCustomer: true }) }),
+      { returned: "done" },
+    );
+    const words =
+      container.querySelector('[data-testid="premium-checkout-return"]')?.textContent ?? "";
+    expect(words).toContain("Payment received");
+    expect(words).toContain("Premium is on");
+    expect(words).not.toContain("a few seconds");
+  });
+
+  test("came back without paying: nothing was charged, and no second pitch", () => {
+    const container = mount(view(), { returned: "cancelled" });
+    const words =
+      container.querySelector('[data-testid="premium-checkout-return"]')?.textContent ?? "";
+    expect(words).toContain("No payment was taken");
+    expect(words).toContain("nothing was charged");
+    // A cancelled checkout is not an opportunity. There is no discount to offer
+    // and offering one would be a different product.
+    expect(words.toLowerCase()).not.toContain("discount");
+    expect(words.toLowerCase()).not.toContain("are you sure");
+  });
+
+  test("an ordinary visit says nothing about a checkout at all", () => {
+    const container = mount(view());
+    expect(container.querySelector('[data-testid="premium-checkout-return"]')).toBeNull();
+  });
+
+  test("and the export promise survives every one of them", () => {
+    for (const returned of ["done", "cancelled", null] as const) {
+      const container = mount(view(), { returned });
+      expect(container.textContent ?? "").toContain(EXPORT_PROMISE);
+    }
   });
 });

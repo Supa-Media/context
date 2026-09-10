@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Slot, useRouter, usePathname } from "expo-router";
+import { checkoutOutcomeFrom } from "@context/shared";
 import { SettingsOverlay } from "../../../features/console/settings/SettingsOverlay";
 import {
   DEFAULT_ACCOUNT_SETTINGS_SECTION,
@@ -132,8 +133,22 @@ export default function ConsoleLayout() {
     this layout is above the `[slug]` route that owns them, and reading the
     local ones here returns nothing.
   */
-  const settingsParams = useOptionalGlobalSearchParams<{ settings?: string | string[] }>();
+  const settingsParams = useOptionalGlobalSearchParams<{
+    settings?: string | string[];
+    checkout?: string | string[];
+  }>();
   const openSettingsSection = settingsFromQuery(settingsParams.settings);
+  /*
+    Where Stripe put them. `?checkout=done` says the payment page handed the
+    browser back — which is a different fact from "the plan is active", because
+    the webhook that decides that may not have landed yet. Read here with every
+    other parameter this console acts on, and carried to the one panel that has
+    anything to say about the gap. Anything we did not write is nothing.
+  */
+  const rawCheckout = settingsParams.checkout;
+  const checkoutReturn = checkoutOutcomeFrom(
+    Array.isArray(rawCheckout) ? rawCheckout[0] : rawCheckout,
+  );
   /*
     Ending the session, asked for from either the rail's account block or the
     settings overlay's Sign out row. One flow, because it decides whether
@@ -892,6 +907,14 @@ export default function ConsoleLayout() {
           <SettingsOverlay
             data={data}
             section={openSettingsSection}
+            /*
+              What Stripe's return URL said, read here because this is where
+              every other query parameter this console acts on is read. It is a
+              different fact from "the plan is active" — the webhook that
+              decides that may not have landed yet — and Premium is the only
+              panel that has anything to say about the gap.
+            */
+            returned={checkoutReturn}
             onSelect={(next) => router.setParams({ settings: next })}
             onOpenSection={(key) => router.push(appSectionHref(key))}
             /*

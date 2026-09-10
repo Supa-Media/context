@@ -14,10 +14,29 @@ import { useThemedStyles, type Colors } from "../theme";
  * it and nothing inside it but rows, and a tight corner on a full-width card is
  * the detail that reads as a desktop window rather than as a grouped list.
  */
-export function Card({ children, style }: { children: ReactNode; style?: ViewStyle }) {
+export function Card({
+  children,
+  style,
+  testID,
+}: {
+  children: ReactNode;
+  style?: ViewStyle;
+  /**
+   * So a test can find the card itself rather than something inside it.
+   *
+   * A rule of the form "these two statements are never on screen together"
+   * cannot be checked by reading text — both are ordinary copy — so the
+   * container has to be findable, the same reason `Notice` takes one.
+   */
+  testID?: string;
+}) {
   const styles = useThemedStyles(makeStyles);
   const compact = densityFor(useWindowDimensions().width) === "compact";
-  return <View style={[styles.card, compact && styles.cardCompact, style]}>{children}</View>;
+  return (
+    <View style={[styles.card, compact && styles.cardCompact, style]} testID={testID}>
+      {children}
+    </View>
+  );
 }
 
 /** `.row` — the horizontal group used inside cards. */

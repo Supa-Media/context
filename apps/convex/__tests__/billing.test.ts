@@ -76,6 +76,7 @@ import {
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
+import { MANAGED_R2_ACCOUNT_ID_ENV_VAR } from "../functions/lib/managedStorage";
 import {
   STRIPE_API_KEY_SECRET,
   STRIPE_PRICE_ID_ENV_VAR,
@@ -1307,5 +1308,271 @@ describe("nothing here gates the exit", () => {
       exits,
       "a plan must never decide whether somebody can leave with their notes",
     ).toEqual([]);
+  });
+});
+
+/**
+ * WHERE STRIPE SENDS SOMEBODY BACK TO.
+ *
+ * The one moment this product cannot afford to get wrong is the one it did:
+ * `success_url` was `/settings?settings=premium&checkout=done`, and
+ * `/settings` is not a route in the app — settings became an overlay over a
+ * context's own page. A completed payment landed on `+not-found`.
+ *
+ * These tests pin the exact strings sent to Stripe, because that is the only
+ * place the mistake was visible. The *other* half of the guard is in the app
+ * (`apps/mobile/__tests__/checkoutReturn.test.ts`): a path this file says is
+ * right and the router does not resolve is still a 404, and only that side can
+ * ask the router.
+ *
+ * ## Sabotage record
+ *
+ *   `createCheckoutSession` back to the literal `/settings?...` path        1
+ *   `sessionForAction` reporting "settings" for an onboarding attempt       1
+ *   `portalReturnPath` swapped for the old literal                         1
+ */
+describe("the return from Stripe", () => {
+  /** What Stripe was asked for, as the form parameters it received. */
+  function captureStripe(): {
+    params: () => URLSearchParams;
+    all: () => URLSearchParams[];
+    calls: () => number;
+  } {
+    const seen: URLSearchParams[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: { body: string }) => {
+      seen.push(new URLSearchParams(init.body));
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ url: "https://checkout.invalid/session" }),
+      };
+    });
+    return { params: () => seen[seen.length - 1], all: () => seen, calls: () => seen.length };
+  }
+
+  async function sellingContext(t: TestConvex, slug: string) {
+    await seedAppSecret(t, STRIPE_API_KEY_SECRET, "sk_test_obviously_fake_key");
+    vi.stubEnv(STRIPE_PRICE_ID_ENV_VAR, FAKE_PRICE_ID);
+    vi.stubEnv("APP_ORIGIN", "https://app.example.invalid");
+    return await context(t, slug);
+  }
+
+  test("a checkout from settings returns to that context's Premium section", async () => {
+    const t = setupTest();
+    const stripe = captureStripe();
+    try {
+      const { owner, workspaceId } = await sellingContext(t, "return-settings");
+      await chooseBoth(t, owner, workspaceId);
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId },
+      );
+      await t.action(internal.functions.billingStripe.createCheckoutSession, { sessionId });
+
+      expect(stripe.calls()).toBe(1);
+      expect(stripe.params().get("success_url")).toBe(
+        "https://app.example.invalid/console/@return-settings?settings=premium&checkout=done",
+      );
+      expect(stripe.params().get("cancel_url")).toBe(
+        "https://app.example.invalid/console/@return-settings?settings=premium&checkout=cancelled",
+      );
+      // The path that shipped, and the reason this file has a section.
+      expect(stripe.params().get("success_url")).not.toContain("/settings?");
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("a checkout from first run returns to first run", async () => {
+    /*
+      Somebody thirty seconds into their first session has no context page to
+      be sent to — they are mid-flow, with a name claimed and no storage — so
+      sending them to a console that has neither is sending them to a dead end
+      wearing a different URL.
+    */
+    const t = setupTest();
+    const stripe = captureStripe();
+    try {
+      const { owner, workspaceId } = await sellingContext(t, "return-firstrun");
+      await chooseBoth(t, owner, workspaceId);
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId, origin: "onboarding" },
+      );
+      await t.action(internal.functions.billingStripe.createCheckoutSession, { sessionId });
+
+      expect(stripe.params().get("success_url")).toBe(
+        "https://app.example.invalid/welcome?checkout=done",
+      );
+      expect(stripe.params().get("cancel_url")).toBe(
+        "https://app.example.invalid/welcome?checkout=cancelled",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("a row written before origin existed is read as a settings attempt", async () => {
+    // The field is optional because rows predate it, and the fallback has to be
+    // the origin the product actually had — not a crash, and not first run.
+    const t = setupTest();
+    const stripe = captureStripe();
+    try {
+      const { owner, workspaceId } = await sellingContext(t, "return-legacy");
+      await chooseBoth(t, owner, workspaceId);
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId, origin: "onboarding" },
+      );
+      await t.run((ctx) => ctx.db.patch(sessionId, { origin: undefined }));
+      await t.action(internal.functions.billingStripe.createCheckoutSession, { sessionId });
+
+      expect(stripe.params().get("success_url")).toContain("/console/@return-legacy?settings=premium");
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("a context deleted mid-checkout is not sent anywhere at all", async () => {
+    /*
+      The return URL is built from the context's name. Without this the slug
+      falls back to an empty string and Stripe is handed
+      `/console/@?settings=premium` — a URL that resolves to nothing — as the
+      place to send somebody after they have paid. There is nothing left to
+      upgrade, so the attempt is skipped instead.
+    */
+    const t = setupTest();
+    const stripe = captureStripe();
+    try {
+      const { owner, workspaceId } = await sellingContext(t, "vanished");
+      await chooseBoth(t, owner, workspaceId);
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId },
+      );
+      await t.run((ctx) => ctx.db.delete(workspaceId));
+      const result = await t.action(
+        internal.functions.billingStripe.createCheckoutSession,
+        { sessionId },
+      );
+
+      expect(result.status).toBe("skipped");
+      /*
+        Every call, not a count: `startCheckout` also schedules this action, and
+        the scheduled run happens with the workspace still present. What must
+        never happen is a URL naming no context reaching Stripe at all.
+      */
+      for (const params of stripe.all()) {
+        expect(params.get("success_url")).not.toContain("/@?");
+        expect(params.get("cancel_url")).not.toContain("/@?");
+      }
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("the billing portal returns to the section it was opened from", async () => {
+    const t = setupTest();
+    const stripe = captureStripe();
+    try {
+      const { owner, workspaceId } = await sellingContext(t, "return-portal");
+      await t.run(async (ctx) => {
+        await ctx.db.insert("workspacePlans", {
+          workspaceId,
+          managedStorage: true,
+          fastSearch: false,
+          status: "active",
+          stripeCustomerId: "cus_FAKE0000",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      });
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startPortal,
+        { workspaceId },
+      );
+      await t.action(internal.functions.billingStripe.createPortalSession, { sessionId });
+
+      expect(stripe.params().get("return_url")).toBe(
+        "https://app.example.invalid/console/@return-portal?settings=premium",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+/**
+ * WHAT THIS DEPLOYMENT CAN ACTUALLY GIVE SOMEBODY.
+ *
+ * Selling and delivering are different questions, and the console has to ask
+ * the second one before it draws a managed-storage option. A deployment with a
+ * Stripe price and no customer-data account can take $20 and has nowhere to
+ * put the bucket that money buys — which is the worst failure this flow has,
+ * because it happens *after* the payment.
+ *
+ * ## Sabotage record
+ *
+ *   `managedStorageAvailable` answering `deploymentSells()` alone         1
+ *   the malformed account id thrown rather than caught                    1
+ */
+describe("whether managed storage can be offered at all", () => {
+  const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
+
+  async function availability(t: TestConvex, slug: string): Promise<boolean> {
+    const { owner, workspaceId } = await context(t, slug);
+    const row = await asUser(t, owner).query(api.functions.billing.status, { workspaceId });
+    return row.managedStorageAvailable;
+  }
+
+  test("a deployment that sells nothing offers nothing", async () => {
+    const t = setupTest();
+    expect(await availability(t, "offers-nothing")).toBe(false);
+  });
+
+  test("a price with nowhere to put a bucket is still not an offer", async () => {
+    // The case worth having a test for: everything Stripe needs is present and
+    // the thing being sold cannot be delivered.
+    const t = setupTest();
+    vi.stubEnv(STRIPE_PRICE_ID_ENV_VAR, FAKE_PRICE_ID);
+    try {
+      expect(await availability(t, "sells-only")).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("both, and it is an offer", async () => {
+    const t = setupTest();
+    vi.stubEnv(STRIPE_PRICE_ID_ENV_VAR, FAKE_PRICE_ID);
+    vi.stubEnv(MANAGED_R2_ACCOUNT_ID_ENV_VAR, ACCOUNT_ID);
+    try {
+      expect(await availability(t, "sells-and-holds")).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("an operator's typo does not take the status query down for every member", async () => {
+    /*
+      `managedAccountId` throws on set-but-malformed, which is right where
+      provisioning reads it and wrong here: this query is called by every
+      member of every context, and one bad environment variable would answer
+      all of them with an exception. It reads as "cannot offer it", which is
+      both true and survivable.
+    */
+    const t = setupTest();
+    vi.stubEnv(STRIPE_PRICE_ID_ENV_VAR, FAKE_PRICE_ID);
+    vi.stubEnv(MANAGED_R2_ACCOUNT_ID_ENV_VAR, "not-an-account-id");
+    try {
+      expect(await availability(t, "typo")).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

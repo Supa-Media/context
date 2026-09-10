@@ -2232,6 +2232,16 @@ const schema = defineSchema({
     selectedAtCheckout: v.optional(
       v.object({ managedStorage: v.boolean(), fastSearch: v.boolean() }),
     ),
+    /**
+     * Where the attempt started, which decides where finishing returns to.
+     *
+     * Optional because rows written before this existed have no answer, and
+     * "settings" is the right reading of those: it is where the only checkout
+     * the product had could be started from. Never taken from a client as a
+     * URL — it selects one of two shapes we wrote, which is the same rule
+     * `expectedWorkspaceId` follows at the gateway.
+     */
+    origin: v.optional(v.union(v.literal("settings"), v.literal("onboarding"))),
     /** Ours, from a closed set — never Stripe's text, which can name an account. */
     errorCode: v.optional(v.string()),
     /**

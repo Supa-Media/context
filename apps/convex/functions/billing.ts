@@ -70,7 +70,7 @@ import {
   type Entitlements,
   type PlanStatus,
 } from "./lib/premium";
-import { MANAGED_BUCKET_PREFIX } from "./lib/managedStorage";
+import { MANAGED_BUCKET_PREFIX, managedAccountId } from "./lib/managedStorage";
 import { isHandledEventType, type StripeEventFacts } from "./lib/stripe";
 
 /** How long a minted checkout or portal URL stays usable from our side. */
@@ -154,6 +154,32 @@ function deploymentSells(): boolean {
 }
 
 /**
+ * Can this deployment actually *give* somebody managed storage?
+ *
+ * Selling is not the same question. A deployment with a price id can take a
+ * payment; one without a customer-data account has nowhere to put the bucket
+ * that payment buys. Offering managed storage on such a deployment would be
+ * taking $20 for something that cannot be delivered, which is the worst
+ * failure this flow has — so the answer is a fact the console reads *before*
+ * drawing the option, and a first run simply does not show it where this is
+ * false.
+ *
+ * Malformed is false rather than a throw, for the reason the price id learned
+ * the hard way: this is read by `status`, which every member of every context
+ * calls, and an operator's typo must not take that query down for all of them.
+ * The throw is still the right behaviour where provisioning itself reads it.
+ */
+function deploymentProvidesManagedStorage(): boolean {
+  if (!deploymentSells()) return false;
+  try {
+    return managedAccountId() !== null;
+  } catch {
+    console.error("billing.managed_account_malformed");
+    return false;
+  }
+}
+
+/**
  * Is there a checkout attempt out there that somebody may be paying on?
  *
  * A `pending` row is one the minting action has not answered; a `ready` one is
@@ -231,6 +257,12 @@ export const status = query({
     notesCountedAt: v.optional(v.number()),
     /** Whether this context's storage is a bucket we run. */
     storageIsManaged: v.boolean(),
+    /**
+     * Whether this deployment can provide managed storage at all — a price to
+     * charge *and* somewhere to put the bucket. The console does not offer
+     * what cannot be delivered.
+     */
+    managedStorageAvailable: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
@@ -269,6 +301,7 @@ export const status = query({
       notesTruncated: isOwner ? binding?.noteCountTruncated : undefined,
       notesCountedAt: isOwner ? binding?.noteCountedAt : undefined,
       storageIsManaged: bindingIsManaged(binding, args.workspaceId),
+      managedStorageAvailable: deploymentProvidesManagedStorage(),
     };
   },
 });
@@ -387,7 +420,15 @@ export const setEntitlements = mutation({
  * anybody but its owner.
  */
 export const startCheckout = mutation({
-  args: { workspaceId: v.id("workspaces") },
+  args: {
+    workspaceId: v.id("workspaces"),
+    /**
+     * Where this attempt started. It decides where Stripe returns to, and
+     * nothing else — a first run comes back to the flow it is standing in,
+     * settings comes back to the section it was opened from.
+     */
+    origin: v.optional(v.union(v.literal("settings"), v.literal("onboarding"))),
+  },
   returns: v.object({ sessionId: v.id("billingSessions") }),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
@@ -445,6 +486,7 @@ export const startCheckout = mutation({
       kind: "checkout",
       // What this attempt is buying, frozen now. See `selectedAtCheckout`.
       selected: selectionOf(plan),
+      origin: args.origin,
     });
 
     await ctx.scheduler.runAfter(
@@ -501,6 +543,8 @@ async function openSession(
     kind: "checkout" | "portal";
     /** The selection this attempt is buying. Absent for a portal attempt. */
     selected?: Entitlements;
+    /** Where it started, which decides where Stripe returns to. */
+    origin?: "settings" | "onboarding";
   },
 ): Promise<Id<"billingSessions">> {
   const now = Date.now();
@@ -510,6 +554,7 @@ async function openSession(
     kind: input.kind,
     status: "pending",
     selectedAtCheckout: input.selected,
+    origin: input.origin,
     expiresAt: now + SESSION_TTL_MS,
     createdAt: now,
     updatedAt: now,
@@ -566,11 +611,28 @@ export const sessionForAction = internalQuery({
       status: v.union(v.literal("pending"), v.literal("ready"), v.literal("failed")),
       stripeCustomerId: v.optional(v.string()),
       selected: entitlementsValidator,
+      /**
+       * What the return URL is built from: where the attempt started, and the
+       * name of the context it is for. The slug rather than the id, because a
+       * URL addresses a context by name and never by a raw workspace id.
+       */
+      origin: v.union(v.literal("settings"), v.literal("onboarding")),
+      slug: v.string(),
     }),
   ),
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.sessionId);
     if (row === null) return null;
+    const workspace = await ctx.db.get(row.workspaceId);
+    /*
+      No workspace, no attempt. The return URL is built from its name, and a
+      context deleted between opening a checkout and minting the page would
+      otherwise produce `/console/@?settings=premium` — a URL that resolves to
+      nothing, handed to Stripe as the place to send somebody after they pay.
+      The action reads this `null` as "skipped", which is what it is: there is
+      nothing left to upgrade.
+    */
+    if (workspace === null) return null;
     const plan = await planFor(ctx, row.workspaceId);
     return {
       workspaceId: row.workspaceId,
@@ -578,6 +640,10 @@ export const sessionForAction = internalQuery({
       status: row.status,
       stripeCustomerId: plan?.stripeCustomerId,
       selected: selectionOf(plan),
+      // A row written before `origin` existed is a settings attempt: it is
+      // where the only checkout this product had could be started from.
+      origin: row.origin ?? "settings",
+      slug: workspace.slug,
     };
   },
 });

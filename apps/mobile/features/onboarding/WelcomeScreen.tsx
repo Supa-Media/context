@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, Redirect, useRouter } from "expo-router";
+import { checkoutOutcomeFrom } from "@context/shared";
 import { ScreenScroll } from "../app/Screen";
 import { Text } from "../design/components/Text";
 import { StageBackdrop } from "../design/components/StageBackdrop";
@@ -36,10 +37,22 @@ import { DoneStep } from "./steps/DoneStep";
 export function WelcomeScreen() {
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
-  const params = useLocalSearchParams<{ resume?: string | string[] }>();
+  const params = useLocalSearchParams<{ resume?: string | string[]; checkout?: string | string[] }>();
   const resumeParam = Array.isArray(params.resume) ? params.resume[0] : params.resume;
-  const resuming = resumeParam === "structure";
-  const controller = useOnboarding(resuming ? { resume: "structure" } : {});
+  /*
+    Back from Stripe. The payment page returns to `/welcome?checkout=…` —
+    built by `@context/shared` from the origin recorded on the session row —
+    and that has to re-enter the flow rather than be treated as a fresh visit:
+    the person has a claimed name and no storage, so the gate below would
+    otherwise send them to a console with nothing in it. It is a resume signal
+    as much as a result, and it resumes the step it left from.
+  */
+  const rawCheckout = Array.isArray(params.checkout) ? params.checkout[0] : params.checkout;
+  const checkout = checkoutOutcomeFrom(rawCheckout);
+  const resume =
+    resumeParam === "structure" ? "structure" : checkout !== null ? "storage" : undefined;
+  const resuming = resume !== undefined;
+  const controller = useOnboarding({ resume, checkout });
 
   const decision = resolveWelcomeRoute({
     owned: controller.owned,
@@ -133,7 +146,8 @@ export function WelcomeChrome({
         <View style={styles.card}>{children}</View>
 
         <Text variant="foot" style={styles.foot}>
-          Your notes stay in a bucket you own. Nothing here moves a file you already have.
+          Your notes are plain files, in storage that answers to you. Nothing here moves a
+        file you already have, and everything here leaves with you.
         </Text>
       </View>
     </ScreenScroll>

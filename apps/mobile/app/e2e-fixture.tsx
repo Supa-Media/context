@@ -1,5 +1,5 @@
-import { Redirect } from "expo-router";
-import { E2EFixtureScreen } from "../features/console/E2EFixtureScreen";
+import { Redirect, useLocalSearchParams } from "expo-router";
+import { FixtureScreen, type FixtureParams } from "../features/e2e/FixtureScreen";
 
 /**
  * `/e2e-fixture` — the console on demo data, editable, for `apps/mobile/e2e/webkit` alone.
@@ -14,12 +14,18 @@ import { E2EFixtureScreen } from "../features/console/E2EFixtureScreen";
  * shipped anywhere.
  *
  * The flag decides *whether this route can render at all* rather than
- * anything about the data on it — the fixture itself is `useDemoConsoleData`
- * with three capability flags flipped (`e2eFixtureData.ts`), the same
- * literals the landing page already ships to every visitor. Nothing this
- * screen can do reaches a customer's bucket: there is no bucket behind it.
+ * anything about the data on it — the fixtures themselves are
+ * `useDemoConsoleData` with three capability flags flipped
+ * (`e2eFixtureData.ts`) and a first-run step driven by `useState`, both of
+ * which are the same literals the landing page already ships to every visitor.
+ * Nothing this screen can do reaches a customer's bucket: there is no bucket
+ * behind it.
+ *
+ * Which fixture, and how it is configured, is `FixtureScreen`'s: a route file
+ * reads the URL and mounts something, and holds no logic of its own.
  */
 export default function E2EFixtureRoute() {
+  const params = useLocalSearchParams() as FixtureParams;
   if (process.env.EXPO_PUBLIC_E2E_FIXTURE !== "1") return <Redirect href="/" />;
-  return <E2EFixtureScreen />;
+  return <FixtureScreen params={params} />;
 }
