@@ -264,6 +264,46 @@ export function StateBanner({
   );
 }
 
+/**
+ * A plausible context around a frame that is really one component.
+ *
+ * The read-only banner belongs at the head of a context, above the folder
+ * listing — and drawn on its own in the middle of a 1440x900 box it read as a
+ * card floating in a void, which is not what it will look like and not a fair
+ * thing to ask somebody to judge. This puts the two rows of chrome it will
+ * actually sit under around it, dimmed, so the banner is reviewed in the place
+ * it lives. The rows are a sketch and say so; the banner is the proposal.
+ */
+export function ContextSketch({
+  name,
+  children,
+}: {
+  name: string;
+  children: ReactNode;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <View style={styles.sketch}>
+      <View style={styles.sketchTop}>
+        <Pill tone="neutral">{name}</Pill>
+        <Text variant="rowSub" style={styles.sketchPath}>
+          1-projects / context-lc / overview.md
+        </Text>
+      </View>
+      {children}
+      <View style={styles.sketchList} aria-hidden>
+        {["0-inbox", "1-projects", "2-areas", "3-resources"].map((row) => (
+          <View key={row} style={styles.sketchRow}>
+            <Text variant="rowSub" style={styles.sketchRowText}>
+              {row}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 /** A titled block inside a panel — the shape the settings panels already use. */
 export function Block({
   title,
@@ -335,6 +375,24 @@ const makeStyles = (colors: Colors) =>
     bannerBody: { marginTop: space.x2, lineHeight: leading(13, 1.6) },
     bannerActions: { marginTop: space.x3, gap: space.x2, flexWrap: "wrap" },
 
+    sketch: { gap: space.x3 },
+    sketchTop: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: space.x3,
+      paddingBottom: space.x3,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.line,
+      flexWrap: "wrap",
+    },
+    sketchPath: { color: colors.muted },
+    sketchList: { marginTop: space.x2, opacity: 0.45 },
+    sketchRow: {
+      paddingVertical: space.x3,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.line,
+    },
+    sketchRowText: { color: colors.muted },
     block: { marginTop: space.x3 },
     blockSub: { marginTop: space.x1, lineHeight: leading(13, 1.6) },
     blockBody: { marginTop: space.x3 },

@@ -192,6 +192,10 @@ const ConsoleLayout = (
 const { WelcomeChrome } = require("../features/onboarding/WelcomeScreen") as {
   WelcomeChrome: (props: { step: string; shape: unknown; children: unknown }) => unknown;
 };
+const { darkColors, lightColors } = require("../features/design/tokens") as {
+  darkColors: { ground: string };
+  lightColors: { ground: string };
+};
 const { ThemeProvider, useColors } = require("../features/design/theme") as {
   ThemeProvider: (props: { scheme: "light" | "dark"; children: unknown }) => unknown;
   useColors: () => { ground: string };
@@ -303,15 +307,29 @@ const EVIDENCE_WORDS: Record<string, string> = {
   proposed: "proposed here",
 };
 
+/** Two words for what a reviewer is looking at, from the frame's own evidence. */
+function frameKind(frame: (typeof FRAMES)[number]): { label: string; state: string } {
+  const states = frame.evidence.map((item) => item.state);
+  if (states.every((state) => state === "built")) return { label: "the product", state: "built" };
+  if (states.includes("built")) return { label: "product + proposal", state: "backend" };
+  return { label: "proposal", state: "proposed" };
+}
+
 function indexHtml(): string {
   const groups = [...new Set(FRAMES.map((frame) => frame.group))];
+  let n = 0;
   return groups
     .map((group) => {
       const rows = FRAMES.filter((frame) => frame.group === group)
-        .map(
-          (frame) =>
-            `<button class="row" data-goto="${frame.id}"><span class="rowName">${escapeHtml(frame.title)}</span></button>`,
-        )
+        .map((frame) => {
+          n += 1;
+          const num = String(n).padStart(2, "0");
+          return (
+            `<button class="row" data-goto="${frame.id}">` +
+            `<span class="num">${num}</span>` +
+            `<span class="rowName">${escapeHtml(frame.title)}</span></button>`
+          );
+        })
         .join("");
       return `<section class="group"><h2>${escapeHtml(group)}</h2>${rows}</section>`;
     })
@@ -323,13 +341,15 @@ function evidenceHtml(): string {
     const items = frame.evidence
       .map(
         (item) =>
-          `<li><span class="tag ${item.state}">${EVIDENCE_WORDS[item.state]}</span><span>${escapeHtml(item.label)}</span></li>`,
+          `<li><span class="tag ${item.state}">${EVIDENCE_WORDS[item.state]}</span>` +
+          `<span>${escapeHtml(item.label)}</span></li>`,
       )
       .join("");
     return (
       `<article class="evidence" data-for="${frame.id}" hidden>` +
-      `<p class="note">${escapeHtml(frame.note)}</p>` +
-      `<ul>${items}</ul></article>`
+      `<div class="col"><h3>What this frame decides</h3><p class="note">${escapeHtml(frame.note)}</p></div>` +
+      `<div class="col"><h3>What is real here</h3><ul>${items}</ul></div>` +
+      `</article>`
     );
   }).join("");
 }
@@ -339,12 +359,20 @@ function evidenceHtml(): string {
  *
  * ## It is a bezel, and it is dressed like one
  *
- * The product inside these frames has a design system, and this is not it.
- * The shell is deliberately a different world — IBM Plex against the app's
- * system stack, a cooler neutral than either app palette, its own accent —
- * because the single worst outcome for a review harness is a reviewer unsure
- * which pixels are the proposal. Everything here is chrome; everything inside
- * a `.viewport` is the app.
+ * The product inside these frames has a design system, and this is not it. The
+ * shell is deliberately a different world — Archivo and IBM Plex against the
+ * app's system stack, and a **monochrome** one — because the single worst
+ * outcome for a review harness is a reviewer unsure which pixels are the
+ * proposal. The only colour the shell spends is on the three evidence chips,
+ * where colour is carrying meaning rather than decoration. Everything else
+ * coloured on this page belongs to the product.
+ *
+ * ## A frame is drawn as a device, not as a div
+ *
+ * Each frame sits in a window or a phone: a title bar with the frame's id, a
+ * clipped screen, a caption with the real pixel size and the scale it is being
+ * shown at. Before that it was a bordered box, and a bordered box full of app
+ * chrome reads as a broken page rather than as a screenshot of one.
  *
  * ## One theme control, two worlds
  *
@@ -354,185 +382,265 @@ function evidenceHtml(): string {
  * screenshot *while the reader is in light mode and never asked for either* is
  * just a page that ignored them.
  *
- * ## Sizes
+ * ## Two views, because review is two jobs
  *
- * A frame is a fixed 390x844 or 1440x900 box, which is what makes it a device
- * rather than a responsive column. On a narrow screen the 1440 box cannot
- * shrink and must not push the page sideways, so the stage is its own
- * horizontal scroller and everything else stacks.
+ * **Frames** is walking the journey. **Overview** is the contact sheet — every
+ * frame at once, which is the only way to see whether twenty screens look like
+ * one product. Reviewers do both, and a tool that only does the first makes
+ * them open twenty tabs.
  */
 const CHROME_CSS = `
-  @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;450;500;600&display=swap");
-
   :root {
-    --ground: #EFEFF3;
-    --panel: #FFFFFF;
-    --sunk: #E4E4EA;
-    --line: rgba(18,18,28,0.13);
-    --text: #16161C;
-    --muted: #63636E;
-    --accent: #2E5FD0;
-    --accent-wash: rgba(46,95,208,0.10);
-    --built: #17805C;
-    --built-wash: rgba(23,128,92,0.12);
-    --backend: #8A6100;
-    --backend-wash: rgba(138,97,0,0.12);
-    --proposed: #2E5FD0;
-    --proposed-wash: rgba(46,95,208,0.10);
-    --shadow: 0 20px 44px rgba(20,20,35,0.14);
+    --paper: #F6F6F8;
+    --card: #FFFFFF;
+    --canvas: #E8E8EC;
+    --ink: #0E0E12;
+    --ink2: #5C5C68;
+    --line: rgba(14,14,18,0.12);
+    --line2: rgba(14,14,18,0.07);
+    --sel: #0E0E12;
+    --sel-ink: #FFFFFF;
+    --built: #0F7B57;
+    --built-wash: rgba(15,123,87,0.10);
+    --backend: #8A5A00;
+    --backend-wash: rgba(138,90,0,0.10);
+    --proposed: #2A56C6;
+    --proposed-wash: rgba(42,86,198,0.09);
+    --lift: 0 1px 2px rgba(14,14,20,0.06), 0 18px 40px rgba(14,14,20,0.13);
+    --display: "Archivo", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --ui: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     color-scheme: light;
   }
   :root[data-shell="dark"] {
-    --ground: #131318;
-    --panel: #1B1B22;
-    --sunk: #101015;
-    --line: rgba(255,255,255,0.10);
-    --text: #EAEAF0;
-    --muted: #8E8E9A;
-    --accent: #7AA2F7;
-    --accent-wash: rgba(122,162,247,0.14);
-    --built: #5FD7A6;
-    --built-wash: rgba(95,215,166,0.13);
-    --backend: #E9B949;
-    --backend-wash: rgba(233,185,73,0.13);
-    --proposed: #8FB3F5;
-    --proposed-wash: rgba(143,179,245,0.13);
-    --shadow: 0 22px 50px rgba(0,0,0,0.5);
+    --paper: #0D0D11;
+    --card: #16161B;
+    --canvas: #07070A;
+    --ink: #EFEFF3;
+    --ink2: #92929E;
+    --line: rgba(255,255,255,0.11);
+    --line2: rgba(255,255,255,0.06);
+    --sel: #EFEFF3;
+    --sel-ink: #0E0E12;
+    --built: #57D3A0;
+    --built-wash: rgba(87,211,160,0.12);
+    --backend: #E6B54A;
+    --backend-wash: rgba(230,181,74,0.12);
+    --proposed: #8CB0F3;
+    --proposed-wash: rgba(140,176,243,0.12);
+    --lift: 0 1px 2px rgba(0,0,0,0.5), 0 24px 54px rgba(0,0,0,0.55);
     color-scheme: dark;
   }
 
   * { box-sizing: border-box; }
-  html { background: var(--ground); }
+  html { background: var(--paper); }
   body {
-    margin: 0;
-    background: var(--ground);
-    color: var(--text);
-    font: 450 14px/1.55 "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 400 14px/1.55 var(--ui);
     -webkit-font-smoothing: antialiased;
   }
-  #wrap { padding: 0 20px 72px; max-width: 1860px; margin: 0 auto; }
+  h1, h2, h3 { margin: 0; }
 
-  header#head { padding-block: 26px 18px; display: grid; gap: 6px; }
+  /* ── the bar that is always reachable ─────────────────────────────────── */
+  #tools {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap;
+    padding: 10px 20px;
+    background: color-mix(in srgb, var(--paper) 88%, transparent);
+    backdrop-filter: saturate(1.4) blur(9px);
+    border-bottom: 1px solid var(--line2);
+  }
+  #mark { font: 600 13px/1 var(--display); letter-spacing: -0.01em; }
+  #mark span { color: var(--ink2); font-weight: 400; }
+  #tools .spacer { margin-left: auto; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px;
+    overflow: hidden; background: var(--card); }
+  .seg button {
+    background: none; border: 0; color: var(--ink2); cursor: pointer;
+    font: 500 12px/1 var(--ui); padding: 7px 13px;
+  }
+  .seg button[aria-pressed="true"] { background: var(--sel); color: var(--sel-ink); }
+  .seg button:hover:not([aria-pressed="true"]) { color: var(--ink); }
+  .icon {
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    border-radius: 999px; width: 30px; height: 30px; cursor: pointer;
+    font: 400 14px/1 var(--ui);
+  }
+  .icon:hover { background: var(--canvas); }
+  :where(button, a):focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+  #wrap { padding: 0 20px 80px; max-width: 1900px; margin: 0 auto; }
+
+  /* ── the header ───────────────────────────────────────────────────────── */
+  header#head { padding-block: 34px 26px; display: grid; gap: 10px; max-width: 74ch; }
   header#head h1 {
-    margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.015em; text-wrap: balance;
+    font: 600 clamp(26px, 3.4vw, 38px)/1.06 var(--display);
+    letter-spacing: -0.028em; text-wrap: balance;
   }
-  header#head p { margin: 0; color: var(--muted); max-width: 62ch; }
-  header#head .v { font: 500 11px/1 "IBM Plex Mono", ui-monospace, monospace;
-    letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+  header#head p { margin: 0; color: var(--ink2); font-size: 15px; max-width: 62ch; }
+  #meta { display: flex; gap: 16px; flex-wrap: wrap; font: 400 11.5px/1 var(--mono);
+    color: var(--ink2); letter-spacing: .04em; text-transform: uppercase; }
+  #meta b { font-weight: 500; color: var(--ink); }
 
-  #cols { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 26px; align-items: start; }
-
-  #side { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto;
-    padding-right: 4px; }
-  .group { margin-bottom: 16px; }
-  .group h2 { margin: 0 0 5px; font: 500 10px/1 "IBM Plex Mono", ui-monospace, monospace;
-    letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
-  button.row { display: block; width: 100%; text-align: left; background: none; border: 0;
-    color: var(--text); padding: 6px 9px; border-radius: 7px; cursor: pointer;
-    font: inherit; font-size: 13px; }
-  button.row:hover { background: var(--accent-wash); }
-  button.row[aria-current="true"] { background: var(--accent); color: #fff; }
-  :root:not([data-shell="dark"]) button.row[aria-current="true"] { color: #fff; }
-
-  #bar { display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap;
-    padding-bottom: 12px; }
-  #frameName { font-weight: 600; font-size: 15px; margin-right: auto; }
-  #count { font: 400 12px/1 "IBM Plex Mono", ui-monospace, monospace; color: var(--muted);
+  /* ── index + stage ────────────────────────────────────────────────────── */
+  #cols { display: grid; grid-template-columns: 244px minmax(0, 1fr); gap: 32px;
+    align-items: start; }
+  #side { position: sticky; top: 62px; max-height: calc(100vh - 74px); overflow: auto;
+    padding-right: 6px; }
+  .group + .group { margin-top: 18px; }
+  .group h2 { font: 500 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink2); padding: 0 0 7px 9px; border-bottom: 1px solid var(--line2);
+    margin-bottom: 5px; }
+  button.row {
+    display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: baseline;
+    width: 100%; text-align: left; background: none; border: 0; color: var(--ink);
+    padding: 6px 9px; border-radius: 8px; cursor: pointer; font: 400 13px/1.35 var(--ui);
+  }
+  button.row .num { font: 400 11px/1.4 var(--mono); color: var(--ink2);
     font-variant-numeric: tabular-nums; }
-  .toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 9px;
-    overflow: hidden; background: var(--panel); }
-  .toggle button, .step {
-    background: none; border: 0; color: var(--muted); padding: 6px 12px; cursor: pointer;
-    font: inherit; font-size: 12.5px;
+  button.row:hover { background: var(--canvas); }
+  button.row[aria-current="true"] { background: var(--sel); color: var(--sel-ink); }
+  button.row[aria-current="true"] .num { color: var(--sel-ink); opacity: .65; }
+
+  #bar { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    padding-bottom: 14px; }
+  #frameName { font: 600 20px/1.2 var(--display); letter-spacing: -0.018em; }
+  #count { font: 400 12px/1 var(--mono); color: var(--ink2); font-variant-numeric: tabular-nums; }
+  .kind { padding: 3px 9px; border-radius: 999px; font: 500 11px/1.4 var(--mono); }
+  .kind.built { background: var(--built-wash); color: var(--built); }
+  .kind.backend { background: var(--backend-wash); color: var(--backend); }
+  .kind.proposed { background: var(--proposed-wash); color: var(--proposed); }
+
+  #waits { margin: 0 0 14px; padding: 9px 13px; border-radius: 10px; font-size: 13px;
+    color: var(--backend); background: var(--backend-wash); max-width: 74ch; }
+
+  #track { overflow-x: auto; padding: 2px 2px 8px; }
+  #stage { display: flex; flex-wrap: wrap; gap: 30px; align-items: flex-start; }
+  #stage[data-view="frame"] { display: block; }
+
+  .cell { margin: 0; }
+  .device { border: 1px solid var(--line); border-radius: 13px; overflow: hidden;
+    background: var(--card); box-shadow: var(--lift); width: max-content; }
+  .device .barbar {
+    display: flex; align-items: center; gap: 9px; padding: 0 11px; height: 30px;
+    border-bottom: 1px solid var(--line2); background: var(--card);
   }
-  .toggle button[aria-pressed="true"] { background: var(--accent); color: #fff; }
-  .step { border: 1px solid var(--line); border-radius: 9px; background: var(--panel);
-    color: var(--text); min-width: 34px; }
-  .step:hover, .toggle button:hover:not([aria-pressed="true"]) { color: var(--text); background: var(--accent-wash); }
-  :where(button, a):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-  #waits { margin: 0 0 10px; padding: 8px 12px; border-radius: 9px; font-size: 12.5px;
-    color: var(--backend); background: var(--backend-wash); max-width: 72ch; }
-
-  #track { overflow-x: auto; padding-bottom: 6px; }
-  #stage { display: block; border: 1px solid var(--line); border-radius: 12px;
-    overflow: hidden; box-shadow: var(--shadow); background: var(--sunk); }
-  /*
-    THE TRANSFORM IS LOAD-BEARING, TWICE OVER.
-
-    A settings frame contains a react-native-web \`Modal\`, which is
-    \`position: fixed\` — and a fixed element is positioned against the *browser
-    window* unless an ancestor establishes a containing block. Without this the
-    settings overlay escaped its device box entirely and sized itself to
-    whatever window the page happened to be open in: a 1440-wide frame drawing
-    a 1500-wide overlay, which looks plausible and is not the screen under
-    review. A transform (any transform) makes \`.viewport\` that containing block.
-
-    The same property then earns its keep a second time: the scale factor the
-    runtime sets is what fits a 1440x900 frame on a laptop or a phone without
-    the page scrolling sideways.
-  */
+  .device[data-kind="phone"] .barbar { height: 26px; justify-content: center; }
+  .dots { display: inline-flex; gap: 5px; }
+  .dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--line);
+    display: block; }
+  .device .fid { font: 400 11px/1 var(--mono); color: var(--ink2); }
+  /* The ground is the app's own, set per cell by the renderer, so a frame
+     shorter than its box does not show the shell through the bottom of it. */
+  .screen { overflow: hidden; }
   .viewport { overflow: hidden; transform-origin: top left; transform: scale(1); }
   .viewport > div { height: 100% !important; max-height: 100% !important; }
-  #scale { margin: 8px 0 0; font: 400 12px/1 "IBM Plex Mono", ui-monospace, monospace;
-    color: var(--muted); }
+  .cell figcaption { margin-top: 9px; font: 400 11.5px/1.5 var(--mono); color: var(--ink2);
+    max-width: 300px; }
+  #stage[data-view="overview"] .cell { cursor: pointer; }
+  #stage[data-view="overview"] .cell:hover .device { border-color: var(--ink2); }
 
-  #below { display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    margin-top: 22px; max-width: 1100px; }
-  .evidence p.note { margin: 0 0 12px; color: var(--text); max-width: 64ch; }
-  .evidence ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
-  .evidence li { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px;
-    align-items: baseline; color: var(--muted); font-size: 13px; }
+  /* ── what the frame is, under it ──────────────────────────────────────── */
+  #below { margin-top: 30px; max-width: 1100px; }
+  .evidence { display: grid; gap: 26px; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+    padding-top: 22px; border-top: 1px solid var(--line2); }
+  .evidence h3 { font: 500 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink2); margin-bottom: 10px; }
+  .evidence p.note { margin: 0; font-size: 14px; max-width: 46ch; }
+  .evidence ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .evidence li { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 11px;
+    align-items: baseline; color: var(--ink2); font-size: 13px; }
   .tag { justify-self: start; padding: 2px 9px; border-radius: 999px;
-    font: 500 11px/1.5 "IBM Plex Mono", ui-monospace, monospace; }
+    font: 500 11px/1.5 var(--mono); }
   .tag.built { background: var(--built-wash); color: var(--built); }
   .tag.backend { background: var(--backend-wash); color: var(--backend); }
   .tag.proposed { background: var(--proposed-wash); color: var(--proposed); }
-  #hint { margin: 0; color: var(--muted); font-size: 13px; max-width: 60ch; }
-  #hint strong { color: var(--text); font-weight: 500; }
+  #hint { margin: 26px 0 0; padding-top: 20px; border-top: 1px solid var(--line2);
+    color: var(--ink2); font-size: 13px; max-width: 68ch; }
+  #hint strong { color: var(--ink); font-weight: 500; }
 
   @media (max-width: 900px) {
-    #cols { grid-template-columns: minmax(0, 1fr); gap: 14px; }
-    /*
-      One scrolling line, not a row of columns of different heights: grouped
-      vertically the tallest group set the height and the frame — the thing the
-      page is for — started 180px down the screen.
-    */
-    #side { position: static; max-height: none; overflow-x: auto; overflow-y: hidden;
-      display: flex; gap: 14px; padding-bottom: 8px; align-items: center; }
-    .group { margin: 0; flex: none; display: flex; align-items: center; gap: 6px; }
-    .group h2 { margin: 0 2px 0 0; }
-    button.row { white-space: nowrap; padding: 5px 10px; border: 1px solid var(--line);
-      border-radius: 999px; }
-    #below { grid-template-columns: minmax(0, 1fr); }
+    #cols { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+    #side {
+      position: static; max-height: none; display: flex; gap: 12px; align-items: center;
+      overflow-x: auto; overflow-y: hidden; padding-bottom: 8px;
+    }
+    .group + .group { margin: 0; }
+    .group { display: flex; align-items: center; gap: 6px; flex: none; }
+    .group h2 { border: 0; padding: 0 4px 0 0; margin: 0; }
+    button.row { white-space: nowrap; border: 1px solid var(--line); border-radius: 999px;
+      padding: 6px 12px; width: auto; }
+    header#head { padding-block: 24px 18px; }
   }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 `;
 
 /**
- * The runtime: an index, three controls, and click routing.
+ * The runtime: two views, an index, three controls, and click routing.
  *
  * Routing is by `data-testid` prefix rather than by a hand-kept map, so a
  * hotspot cannot exist in a frame and be missing from the prototype — the
  * frames declare where a press goes (`hotspot()`), and this reads it.
  */
 const CHROME_JS = `
-  const state = { frame: null, density: "desktop", theme: null };
-  const frames = [...document.querySelectorAll("#stage .viewport")];
+  const state = { frame: null, density: "desktop", theme: null, view: "frame" };
+  const cells = [...document.querySelectorAll("#stage .cell")];
   const rows = [...document.querySelectorAll("#side button.row")];
   const order = rows.map((b) => b.dataset.goto);
-  const titles = new Map(rows.map((b) => [b.dataset.goto, b.textContent]));
+  const titles = new Map(rows.map((b) => [b.dataset.goto, b.querySelector(".rowName").textContent]));
+  const THUMB = 288;
+
+  function shownCells() {
+    return cells.filter((cell) => !cell.hidden);
+  }
+
+  /*
+    Fit each visible device to the space there is, and say what it is being
+    shown at.
+
+    A 1440x900 frame does not fit beside an index on a laptop and does not fit
+    at all on a phone; a contact sheet needs twenty of them at thumbnail size.
+    Both are the same arithmetic, and the caption is what stops a scaled frame
+    being read as the real size of the type.
+  */
+  function fit() {
+    const room = document.getElementById("track").clientWidth - 4;
+    for (const cell of shownCells()) {
+      const view = cell.querySelector(".viewport");
+      const screen = cell.querySelector(".screen");
+      const w = parseFloat(view.style.width);
+      const h = parseFloat(view.style.height);
+      const target = state.view === "overview" ? Math.min(THUMB, w) : Math.min(room, w);
+      const k = target / w;
+      view.style.transform = "scale(" + k + ")";
+      screen.style.width = Math.floor(w * k) + "px";
+      screen.style.height = Math.floor(h * k) + "px";
+      const caption = cell.querySelector("figcaption");
+      caption.textContent = state.view === "overview"
+        ? titles.get(cell.dataset.frame)
+        : (k < 0.999 ? w + "×" + h + " · shown at " + Math.round(k * 100) + "%" : w + "×" + h);
+    }
+  }
 
   function apply() {
-    for (const node of frames) {
-      node.hidden = !(node.dataset.frame === state.frame
-        && node.dataset.density === state.density
-        && node.dataset.theme === state.theme);
+    const overview = state.view === "overview";
+    document.getElementById("stage").dataset.view = state.view;
+    for (const cell of cells) {
+      const right = cell.dataset.density === state.density && cell.dataset.theme === state.theme;
+      cell.hidden = !(right && (overview || cell.dataset.frame === state.frame));
     }
     for (const button of rows) {
-      button.setAttribute("aria-current", String(button.dataset.goto === state.frame));
+      const current = !overview && button.dataset.goto === state.frame;
+      button.setAttribute("aria-current", String(current));
+      /*
+        Keep the current row in view. On a phone the index is one scrolling
+        line, so stepping past frame four otherwise marks a row nobody can see;
+        on a pointer layout the list is longer than the rail.
+      */
+      if (current) button.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
     for (const node of document.querySelectorAll(".evidence")) {
-      node.hidden = node.dataset.for !== state.frame;
+      node.hidden = overview || node.dataset.for !== state.frame;
     }
     for (const button of document.querySelectorAll("[data-set]")) {
       const [key, value] = button.dataset.set.split(":");
@@ -540,50 +648,35 @@ const CHROME_JS = `
     }
     // The shell follows the frame rather than carrying a second theme control.
     document.documentElement.dataset.shell = state.theme;
-    document.getElementById("frameName").textContent = titles.get(state.frame) ?? "";
     const at = order.indexOf(state.frame);
-    document.getElementById("count").textContent = (at + 1) + " / " + order.length;
-    const shown = frames.find((node) => !node.hidden);
-    const next = shown === undefined ? null : shown.dataset.next ?? null;
+    document.getElementById("frameName").textContent = overview
+      ? "Every frame"
+      : titles.get(state.frame) ?? "";
+    document.getElementById("count").textContent = overview
+      ? order.length + " frames"
+      : (at + 1) + " / " + order.length;
+    const kind = document.getElementById("kind");
+    const meta = KINDS[state.frame];
+    kind.hidden = overview || meta === undefined;
+    if (!kind.hidden) { kind.textContent = meta.label; kind.className = "kind " + meta.state; }
+    const next = overview ? null : (shownCells()[0]?.dataset.next ?? null);
     document.getElementById("waits").hidden = next === null;
-    fit(shown);
-    const hash = state.frame + "/" + state.density + "/" + state.theme;
+    document.getElementById("bar").querySelectorAll("[data-step]").forEach((b) => { b.hidden = overview; });
+    fit();
+    const hash = state.frame + "/" + state.density + "/" + state.theme + (overview ? "/all" : "");
     if (location.hash.slice(1) !== hash) history.replaceState(null, "", "#" + hash);
   }
 
-  /*
-    Fit the device to the space there is, and say so when it is not 1:1.
-
-    A 1440x900 frame does not fit beside an index on a laptop, and does not fit
-    at all on a phone. Scaling it down keeps the whole screen visible — which is
-    what a reviewer is here for — and the caption stops anybody reading the
-    result as the real size of the type.
-  */
-  function fit(shown) {
-    const stage = document.getElementById("stage");
-    const caption = document.getElementById("scale");
-    if (shown === undefined || shown === null) return;
-    const w = parseFloat(shown.style.width);
-    const h = parseFloat(shown.style.height);
-    const room = document.getElementById("track").clientWidth - 2;
-    const k = Math.min(1, room / w);
-    shown.style.transform = "scale(" + k + ")";
-    stage.style.width = Math.floor(w * k) + "px";
-    stage.style.height = Math.floor(h * k) + "px";
-    caption.textContent = k < 0.999
-      ? w + "×" + h + ", shown at " + Math.round(k * 100) + "%"
-      : w + "×" + h;
-  }
-
-  function go(frame) {
+  function go(frame, view) {
     if (!titles.has(frame)) return;
     state.frame = frame;
+    if (view !== undefined) state.view = view;
     apply();
   }
 
   function step(by) {
     const at = order.indexOf(state.frame);
-    go(order[(at + by + order.length) % order.length]);
+    go(order[(at + by + order.length) % order.length], "frame");
   }
 
   document.addEventListener("click", (event) => {
@@ -597,7 +690,13 @@ const CHROME_JS = `
     const stepper = event.target.closest("[data-step]");
     if (stepper !== null) { step(Number(stepper.dataset.step)); return; }
     const row = event.target.closest("#side button.row");
-    if (row !== null) { go(row.dataset.goto); return; }
+    if (row !== null) { go(row.dataset.goto, "frame"); return; }
+    // In the contact sheet a frame is a link to itself, not a working screen.
+    if (state.view === "overview") {
+      const cell = event.target.closest(".cell");
+      if (cell !== null) { go(cell.dataset.frame, "frame"); window.scrollTo(0, 0); }
+      return;
+    }
     const hot = event.target.closest('[data-testid^="goto-"]');
     if (hot !== null) {
       event.preventDefault();
@@ -610,7 +709,7 @@ const CHROME_JS = `
       prototype's chrome moves it on rather than a button inside the frame
       pretending to.
     */
-    const frame = event.target.closest(".viewport[data-next]");
+    const frame = event.target.closest(".cell[data-next]");
     if (frame !== null && !frame.hidden) go(frame.dataset.next);
   });
 
@@ -639,51 +738,69 @@ const CHROME_JS = `
       // Neither the address nor a press has said: follow the reader's system.
       state.theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     }
+    state.view = parts[3] === "all" ? "overview" : "frame";
     apply();
   }
 
   window.addEventListener("hashchange", fromHash);
-  window.addEventListener("resize", () => fit(frames.find((node) => !node.hidden)));
+  window.addEventListener("resize", fit);
   fromHash();
 `;
 
 /** The page itself, without the document wrapper an Artifact supplies. */
 function pageHtml(bodies: string, css: string): string {
+  const kinds = JSON.stringify(
+    Object.fromEntries(FRAMES.map((frame) => [frame.id, frameKind(frame)])),
+  );
   return `<title>Premium Review Pack</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
 <style>${CHROME_CSS}</style>
 <style id="rnw">${css}</style>
+<div id="tools">
+  <span id="mark">Context<span>.lc</span> — review pack v1</span>
+  <span class="spacer"></span>
+  <span class="seg" role="group" aria-label="View">
+    <button data-set="view:frame">Frames</button>
+    <button data-set="view:overview">Overview</button>
+  </span>
+  <span class="seg" role="group" aria-label="Size">
+    <button data-set="density:desktop">Desktop</button>
+    <button data-set="density:phone">Phone</button>
+  </span>
+  <span class="seg" role="group" aria-label="Appearance">
+    <button data-set="theme:light">Light</button>
+    <button data-set="theme:dark">Dark</button>
+  </span>
+</div>
 <div id="wrap">
   <header id="head">
-    <span class="v">Context.LC · review pack v1</span>
     <h1>Premium and managed storage, end to end</h1>
-    <p>Twenty frames of the journey from "I want Context to handle this" to "my notes have a
-      working home". Press anything — every button goes where it would go. Arrow keys step
-      through in order.</p>
+    <p>The journey from “I want Context to handle this” to “my notes have a working home”,
+      drawn for a new person and for an owner upgrading a context they already have. Press
+      anything — every button goes where it would go.</p>
+    <div id="meta">
+      <span><b>${FRAMES.length}</b> frames</span>
+      <span><b>Nothing</b> implemented</span>
+      <span>← → steps through</span>
+    </div>
   </header>
   <div id="cols">
     <nav id="side" aria-label="Frames">${indexHtml()}</nav>
     <main id="main">
       <div id="bar">
         <span id="frameName"></span>
+        <span id="kind" class="kind" hidden></span>
         <span id="count"></span>
-        <button class="step" data-step="-1" aria-label="Previous frame">←</button>
-        <button class="step" data-step="1" aria-label="Next frame">→</button>
-        <span class="toggle" role="group" aria-label="Size">
-          <button data-set="density:desktop">Desktop</button>
-          <button data-set="density:phone">Phone</button>
-        </span>
-        <span class="toggle" role="group" aria-label="Appearance">
-          <button data-set="theme:light">Light</button>
-          <button data-set="theme:dark">Dark</button>
-        </span>
+        <button class="icon" data-step="-1" aria-label="Previous frame">←</button>
+        <button class="icon" data-step="1" aria-label="Next frame">→</button>
       </div>
       <p id="waits" hidden>This screen waits on something rather than on you — click anywhere in
         it to see what comes next.</p>
-      <div id="track"><div id="stage">${bodies}</div></div>
-      <p id="scale"></p>
+      <div id="track"><div id="stage" data-view="frame">${bodies}</div></div>
       <div id="below">
         ${evidenceHtml()}
-        <p id="hint">Frames marked <strong>ships today</strong> are the running product rendered
+        <p id="hint">Frames marked <strong>the product</strong> are the running app rendered
           against a fixture — the real console, the real settings overlay, the real Premium panel —
           not a drawing of it. Everything else is a proposal and says so. Nothing here can reach an
           account, a bucket or a card: there is no backend behind this page at all.</p>
@@ -691,6 +808,7 @@ function pageHtml(bodies: string, css: string): string {
     </main>
   </div>
 </div>
+<script>const KINDS = ${kinds};</script>
 <script>${CHROME_JS}</script>`;
 }
 
@@ -715,9 +833,16 @@ describe("premium ux prototype", () => {
           const size = density === "phone" ? PHONE : DESKTOP;
           const markup = renderFrame(frame, density, scheme);
           rendered.push(
-            `<div class="viewport" hidden data-frame="${frame.id}" data-density="${density}" ` +
-              `data-theme="${scheme}"${frame.next === undefined ? "" : ` data-next="${frame.next}"`} ` +
-              `style="width:${size.width}px;height:${size.height}px">${markup}</div>`,
+            `<figure class="cell" hidden data-frame="${frame.id}" data-density="${density}" ` +
+              `data-theme="${scheme}"${frame.next === undefined ? "" : ` data-next="${frame.next}"`}>` +
+              `<div class="device" data-kind="${density}">` +
+              `<div class="barbar">` +
+              (density === "desktop" ? `<span class="dots"><i></i><i></i><i></i></span>` : "") +
+              `<span class="fid">${frame.id}</span></div>` +
+              `<div class="screen" style="background:${scheme === "dark" ? darkColors.ground : lightColors.ground}">` +
+              `<div class="viewport" ` +
+              `style="width:${size.width}px;height:${size.height}px">${markup}</div></div>` +
+              `</div><figcaption></figcaption></figure>`,
           );
           expect(markup.length).toBeGreaterThan(500);
         });
