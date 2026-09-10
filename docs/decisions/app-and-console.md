@@ -2748,6 +2748,56 @@ regression the old sentence would suggest on a literal reading.
 which is a rail foot with room, not a 44×44 corner with none. Merging them
 too would be solving a problem that surface does not have.
 
+#### The popover this menu draws had to learn to portal, on its first real caller
+
+`Menu.web.tsx` existed before the account menu — `Explorer.tsx`'s right-click
+and long-press were already drawing its `Sheet`/`Popover` pair, mounted the
+same way: as a child of the tree's own root `View`, which is itself an earlier
+sibling of the editor region in `AppFrame.tsx`'s `styles.body`. Nothing here
+rules out the same defect already being live there — a menu anchored near the
+right edge of a narrow explorer column has the same `MIN_WIDTH: 200` to spill
+past the boundary with — it is simply not the call site that happened to get
+measured against overlapping content first. `AccountMenuTrigger` is the one
+that did: it sits at the foot of the rail, itself an earlier sibling of the
+same editor region, and its popover has to spill out past the rail's own
+(narrower still) width to show ~200pt of menu — straight into the editor
+region's screen space, where this branch's own "Make private" / "Share…" pair
+happened to be sitting.
+
+That is exactly **Every react-native-web `View` is a stacking context** (above)
+with a new subject. `Popover`'s box carried `position: fixed` and `zIndex:
+1000` from the start, and both are true and irrelevant: they order this popover
+among the *descendants* of whichever `View` it renders inside, because that
+`View` carries RNW's base `position: relative; z-index: 0` like every other
+one, and the editor region is a later sibling competing at the *parent's*
+level, not this one's. `Sheet`, the touch presentation right above this in the
+same file, never had the problem — it is a `Modal`, and `react-native-web`'s
+`Modal` already portals to `document.body` for this exact reason, which is why
+`SettingsOverlay` and every touch case in `settings.spec.ts` were never at
+risk. `Popover` was the one presentation in this file that skipped `Modal`
+and grew its own `position: fixed` box instead, so it was the one presentation
+that still owed itself a portal.
+
+Found by `settings.spec.ts`'s pointer-width case, not by anything in
+`__tests__/`: jsdom lays nothing out, so no unit suite can see one region paint
+over another, and `menuRender.test.ts`'s own popover queries already read from
+`document.body` rather than the mount `container` — which happened to make
+that file agnostic to whether the popover was portaled, so it stayed green on
+both sides of this fix and proved nothing about it either way. Only a real
+engine, hit-testing a real click at a real coordinate, produced a Chromium
+timeout naming the actual culprit: "`<div>Make private</div>` … subtree
+intercepts pointer events." `Popover` now renders through `createPortal(...,
+document.body)`, the same escape `ModalPortal` already uses, so it stacks at
+the true top level rather than within whichever `View` happens to be its
+parent. `Sheet` is untouched — it already had this for free.
+
+What a "simplification" of this costs: reverting to an inline `Popover` puts
+this exact defect back — for the account menu, demonstrably, and possibly for
+`Explorer.tsx`'s own context menu too, which nothing here has gone back to
+verify one way or the other. The portal is a property of the component rather
+than a fact about any one caller, which is the point of fixing it here instead
+of working around it at the account menu's own call site.
+
 ### The breadcrumb head stopped being a switcher pill when it moved rows
 
 "the button for @seyi is too big." Measured at 390×844: the head mark was

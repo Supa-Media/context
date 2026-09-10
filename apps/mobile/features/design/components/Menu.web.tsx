@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   Modal,
   Pressable,
@@ -718,7 +719,26 @@ function Popover<Id extends string = MenuActionId>({
     return () => document.removeEventListener("keydown", onKeyDown, true);
   });
 
-  return (
+  /*
+    `document.body`, not the DOM this component would otherwise mount into —
+    `docs/decisions/app-and-console.md`'s "every react-native-web `View` is a
+    stacking context" applies to this box exactly as it does to the rail's own
+    context menu: `position: fixed` and `zIndex: 1000` only order this popover
+    among the *descendants* of whichever `View` it happens to render inside,
+    because that `View` carries RNW's base `position: relative; z-index: 0`
+    like every other one. `AccountMenuTrigger` is the case that found it —
+    the trigger sits at the foot of the rail, an *earlier* sibling of the
+    editor region in `AppFrame.tsx`'s tree, so a later sibling with its own
+    content at that point on screen painted over the box and ate its clicks,
+    silently, measured live as a Chromium e2e timeout rather than anything a
+    jsdom suite could see. `Modal` (the sheet's own presentation, just below)
+    never had this problem — `react-native-web`'s implementation already
+    portals to `document.body` for exactly this reason — so this is the
+    popover catching up to what the sheet already had for free, not a new
+    idea. `Sheet` above stays where it renders; only this presentation needed
+    it, because only this one skips `Modal`.
+  */
+  return createPortal(
     <>
       <Panel
         items={items}
@@ -770,7 +790,8 @@ function Popover<Id extends string = MenuActionId>({
           }}
         />
       )}
-    </>
+    </>,
+    document.body,
   );
 }
 

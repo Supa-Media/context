@@ -62,8 +62,35 @@ import { tap } from "./helpers";
  * stop moving first, which is the half the helper cannot do.
  */
 
-/** The gear in the fixture's account block — the phone console's own way in. */
-const GEAR = "Settings";
+/**
+ * The way into Settings, now that the fixture's account block has no
+ * standalone gear.
+ *
+ * There used to be one press: `GEAR` named a `PressRow` labelled exactly
+ * "Settings", right beside sign-out. `AccountBlock`'s compact form merged
+ * that gear into the avatar's own disclosure menu — "the compact corner used
+ * to be two controls, and one of them signed you out on one press" is
+ * `ConsoleRail.tsx`'s own account of why — so what is beside sign-out now is
+ * one control that opens a menu, and Settings is a row in it labelled
+ * "Settings…", not "Settings". Two presses where the fixture's account
+ * corner needed one, everywhere this file runs: `E2EFixtureScreen.tsx` mounts
+ * `AccountBlock`'s compact form "at every width" (its own header explains why
+ * — there is no `AppFrame` rail here to draw the pointer layout's separate
+ * gear), so the pointer-width test below reaches Settings through this same
+ * menu rather than through `ConsoleRail`'s untouched `rail-settings` control,
+ * which this fixture never mounts at all.
+ *
+ * The account menu trigger is itself at rest when this file presses it —
+ * nothing has opened a panel yet — so it is reached the same way `GEAR` was,
+ * through the real-touch coordinate helper below. `ACCOUNT_SETTINGS` is not:
+ * it is a row inside `Menu.web.tsx`'s own sliding sheet at a phone width
+ * (`Sheet`, `animationType="slide"`, same shape as `SettingsOverlay`'s), so it
+ * is pressed with `locator.tap()` for the reason already given above — the
+ * actionability wait the coordinate helper cannot do.
+ */
+const ACCOUNT_MENU = "@seyi — account menu";
+/** `MenuItem.testID` for the Settings row in that menu, Sheet and Popover alike. */
+const ACCOUNT_SETTINGS = "account-settings";
 
 async function openConsole(page: Page): Promise<void> {
   await page.goto("/e2e-fixture");
@@ -101,13 +128,14 @@ async function labelOffset(row: Locator, label: string): Promise<number> {
 
 test("a phone opens settings on a section, and Back is the way to the list", async ({ page }) => {
   await openConsole(page);
-  await tap(page, GEAR);
+  await tap(page, ACCOUNT_MENU);
+  await page.getByTestId(ACCOUNT_SETTINGS).tap();
 
   /*
-    Opening from the gear is somebody asking for a *thing*, not for a menu —
-    `SettingsOverlay`'s own rule — so the first level is the default section,
-    and the list is one press back from it. Both halves are asserted: the
-    panel is up, and the list it was pushed over is not.
+    Choosing Settings… from the account menu is somebody asking for a *thing*,
+    not for a menu — `SettingsOverlay`'s own rule — so the first level is the
+    default section, and the list is one press back from it. Both halves are
+    asserted: the panel is up, and the list it was pushed over is not.
   */
   await expect(page.getByTestId("settings-overlay")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
@@ -134,7 +162,8 @@ test("a phone opens settings on a section, and Back is the way to the list", asy
 
 test("the phone's section labels are left-aligned, not centred", async ({ page }) => {
   await openConsole(page);
-  await tap(page, GEAR);
+  await tap(page, ACCOUNT_MENU);
+  await page.getByTestId(ACCOUNT_SETTINGS).tap();
   await expect(page.getByTestId("settings-overlay")).toBeVisible();
   await page.getByLabel("Back", { exact: true }).tap();
   await expect(page.getByTestId("settings-sections")).toBeVisible();
@@ -171,7 +200,18 @@ test.describe("at a pointer width", () => {
 
   test("the list and the panel are on screen together", async ({ page }) => {
     await openConsole(page);
-    await page.getByLabel(GEAR, { exact: true }).click();
+    /*
+      Not a click on `ConsoleRail`'s pointer rail — that `rail-settings` gear
+      is still exactly what it was (`AccountBlock`'s non-`compact` form is
+      untouched), but this fixture never mounts it: `E2EFixtureScreen.tsx`
+      draws the account block `compact` "at every width" because there is no
+      `AppFrame` here to own a rail at all, so widening the viewport does not
+      change which form of the block is on screen, only which presentation
+      `Menu.web.tsx` gives its menu — a popover here rather than the phone's
+      sheet. `hasTouch: false` above rules the coordinate helper out.
+    */
+    await page.getByTestId("account-menu").click();
+    await page.getByTestId(ACCOUNT_SETTINGS).click();
 
     // Both at once, which is the whole difference from the phone: no Back,
     // because there is no level to pop.
