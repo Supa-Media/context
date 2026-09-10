@@ -1467,6 +1467,16 @@ Three ways out were available, and the third is taken:
    pass collected and regenerated. The cursor moves, nothing is skipped, and
    the next pass starts where this one stopped.
 
+**That third option rests on one assumption, and it is the sentence in this
+file most worth checking against a real mailbox first**: that Google accepts a
+`History.id` where it accepts a `historyId`. Google's own documentation says
+`startHistoryId` "should be obtained from the historyId of a message, thread,
+or previous list response", and a history record's id is that same mailbox
+sequence value — but nothing here has asked Google. If it is wrong, the symptom
+is a 404 on the next pass, which this code already reads as an expired cursor
+and handles as a gap: wrong in the safe direction, and visible on the row
+rather than silent.
+
 Which is why `listAllHistory` reports `truncated` and carries `lastRecordId`,
 why `runIncrementalSync` hands back the record boundary rather than the head
 when truncated, and why the pass then sets `syncCatchUp` on the row. That flag
