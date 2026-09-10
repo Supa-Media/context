@@ -987,6 +987,27 @@ describe("no public function can reach a storage secret", () => {
       // behaviourally that the token appears in no table and in no public
       // return value.
       "functions.cloudflare.provisionCloudflareStorage",
+      // THE SAME KIND, POINTED AT OUR OWN ACCOUNT.
+      //
+      // Managed storage: the bucket a Premium customer paid for, created in an
+      // account we run rather than one they named. It opens
+      // `MANAGED_R2_API_TOKEN` from `appSecrets` — an operator credential,
+      // never a customer's storage key — long enough to create a bucket and
+      // mint a key scoped to that one bucket.
+      //
+      // What bounds it: the token is ours, so nothing here can reach a
+      // customer's own account, and the only thing it *writes* is an encrypted
+      // per-bucket key that is indistinguishable from a pasted one. It is an
+      // internalAction reached by two schedule edges — the webhook that turns a
+      // plan active, and an owner's retry — and it stores neither the operator
+      // token nor the minted token, only the SHA-256 the S3 API expects as a
+      // secret access key. `__tests__/managedProvisioning.test.ts` asserts
+      // behaviourally that neither value appears in any table.
+      //
+      // The reason this exists at all is non-negotiable #1: a person who does
+      // not have and does not want a Cloudflare account still has to be able
+      // to own their notes, and somebody has to create the bucket.
+      "functions.managedProvisioning.provisionManagedStorage",
       // THE THIRD KIND, AND THE WEAKEST ONE.
       //
       // Opens the parked PKCE verifier so the authorization code can be

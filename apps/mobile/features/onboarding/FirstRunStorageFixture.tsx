@@ -2,7 +2,7 @@ import { useState } from "react";
 import { WelcomeChrome } from "./WelcomeScreen";
 import { StorageStepBody } from "./steps/StorageStep";
 import type { ManagedOffer } from "./useManagedOffer";
-import type { PremiumStatus } from "../console/settings/panels/premium";
+import { managedFailureCopy, type PremiumStatus } from "../console/settings/panels/premium";
 
 /**
  * The storage step, in a real browser, with the control plane replaced by
@@ -49,10 +49,13 @@ export function FirstRunStorageFixture({
   available = true,
   /** Drop straight into the settling screen's later wording. */
   slow = false,
+  /** Or into the state where provisioning has given up. */
+  failed = false,
 }: {
   start?: "choose" | "confirm" | "settling";
   available?: boolean;
   slow?: boolean;
+  failed?: boolean;
 }) {
   const [mode, setMode] = useState<"choose" | "confirm" | "settling">(start);
   const [selected, setSelected] = useState(FIXTURE_STATUS.selected);
@@ -64,6 +67,7 @@ export function FirstRunStorageFixture({
     mode,
     session: "choosing",
     paid: mode === "settling",
+    provisionFailure: failed ? managedFailureCopy(undefined) : undefined,
     slow,
     choose: () => setMode("confirm"),
     back: () => setMode("choose"),
@@ -73,6 +77,7 @@ export function FirstRunStorageFixture({
         ...(value === "managedStorage" ? { managedStorage: next } : { fastSearch: next }),
       })),
     proceed: () => setMode("settling"),
+    retry: () => {},
   };
 
   return (

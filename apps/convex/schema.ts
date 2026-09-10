@@ -1044,6 +1044,30 @@ const schema = defineSchema({
      */
     disconnectedAt: v.optional(v.number()),
     boundBy: v.id("users"),
+    /**
+     * Where provisioning the managed bucket has got to, for the one context
+     * this plan is for.
+     *
+     * On the plan rather than on the binding, because until it succeeds there
+     * *is* no binding — and the screen that has to say "creating your storage"
+     * is looking at somebody who has paid and has nothing yet. Absent is the
+     * ordinary state: a context that never bought managed storage has no
+     * answer here and needs none.
+     *
+     * `failed` is the state that has to exist. Without it the console can only
+     * wait, and a person who paid two minutes ago cannot tell a slow webhook
+     * from a bucket that will never appear.
+     */
+    managedProvisioning: v.optional(
+      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    ),
+    /**
+     * Why it failed, from **our** closed set — never Cloudflare's text, which
+     * can name an account. The console maps it to a sentence and a next step.
+     */
+    managedProvisioningError: v.optional(v.string()),
+    /** When the last attempt ended, so a retry can be rate-limited by a human. */
+    managedProvisioningAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -1089,6 +1113,30 @@ const schema = defineSchema({
     lastError: v.optional(v.string()),
     errorCode: v.optional(v.string()),
     transientFailures: v.optional(v.number()),
+    /**
+     * Where provisioning the managed bucket has got to, for the one context
+     * this plan is for.
+     *
+     * On the plan rather than on the binding, because until it succeeds there
+     * *is* no binding — and the screen that has to say "creating your storage"
+     * is looking at somebody who has paid and has nothing yet. Absent is the
+     * ordinary state: a context that never bought managed storage has no
+     * answer here and needs none.
+     *
+     * `failed` is the state that has to exist. Without it the console can only
+     * wait, and a person who paid two minutes ago cannot tell a slow webhook
+     * from a bucket that will never appear.
+     */
+    managedProvisioning: v.optional(
+      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    ),
+    /**
+     * Why it failed, from **our** closed set — never Cloudflare's text, which
+     * can name an account. The console maps it to a sentence and a next step.
+     */
+    managedProvisioningError: v.optional(v.string()),
+    /** When the last attempt ended, so a retry can be rate-limited by a human. */
+    managedProvisioningAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -1929,6 +1977,30 @@ const schema = defineSchema({
     /** Backfill progress, so the settings screen can be honest about it. */
     notesIndexed: v.optional(v.number()),
     notesPending: v.optional(v.number()),
+    /**
+     * Where provisioning the managed bucket has got to, for the one context
+     * this plan is for.
+     *
+     * On the plan rather than on the binding, because until it succeeds there
+     * *is* no binding — and the screen that has to say "creating your storage"
+     * is looking at somebody who has paid and has nothing yet. Absent is the
+     * ordinary state: a context that never bought managed storage has no
+     * answer here and needs none.
+     *
+     * `failed` is the state that has to exist. Without it the console can only
+     * wait, and a person who paid two minutes ago cannot tell a slow webhook
+     * from a bucket that will never appear.
+     */
+    managedProvisioning: v.optional(
+      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    ),
+    /**
+     * Why it failed, from **our** closed set — never Cloudflare's text, which
+     * can name an account. The console maps it to a sentence and a next step.
+     */
+    managedProvisioningError: v.optional(v.string()),
+    /** When the last attempt ended, so a retry can be rate-limited by a human. */
+    managedProvisioningAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -2187,6 +2259,30 @@ const schema = defineSchema({
      */
     lastEventIds: v.optional(v.array(v.string())),
     lastEventAt: v.optional(v.number()),
+    /**
+     * Where provisioning the managed bucket has got to, for the one context
+     * this plan is for.
+     *
+     * On the plan rather than on the binding, because until it succeeds there
+     * *is* no binding — and the screen that has to say "creating your storage"
+     * is looking at somebody who has paid and has nothing yet. Absent is the
+     * ordinary state: a context that never bought managed storage has no
+     * answer here and needs none.
+     *
+     * `failed` is the state that has to exist. Without it the console can only
+     * wait, and a person who paid two minutes ago cannot tell a slow webhook
+     * from a bucket that will never appear.
+     */
+    managedProvisioning: v.optional(
+      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    ),
+    /**
+     * Why it failed, from **our** closed set — never Cloudflare's text, which
+     * can name an account. The console maps it to a sentence and a next step.
+     */
+    managedProvisioningError: v.optional(v.string()),
+    /** When the last attempt ended, so a retry can be rate-limited by a human. */
+    managedProvisioningAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -2249,6 +2345,30 @@ const schema = defineSchema({
      * somebody abandoned, and a live checkout URL is a live capability.
      */
     expiresAt: v.number(),
+    /**
+     * Where provisioning the managed bucket has got to, for the one context
+     * this plan is for.
+     *
+     * On the plan rather than on the binding, because until it succeeds there
+     * *is* no binding — and the screen that has to say "creating your storage"
+     * is looking at somebody who has paid and has nothing yet. Absent is the
+     * ordinary state: a context that never bought managed storage has no
+     * answer here and needs none.
+     *
+     * `failed` is the state that has to exist. Without it the console can only
+     * wait, and a person who paid two minutes ago cannot tell a slow webhook
+     * from a bucket that will never appear.
+     */
+    managedProvisioning: v.optional(
+      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    ),
+    /**
+     * Why it failed, from **our** closed set — never Cloudflare's text, which
+     * can name an account. The console maps it to a sentence and a next step.
+     */
+    managedProvisioningError: v.optional(v.string()),
+    /** When the last attempt ended, so a retry can be rate-limited by a human. */
+    managedProvisioningAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

@@ -99,6 +99,19 @@ export const MANAGED_R2_ACCOUNT_ID_ENV_VAR = "MANAGED_R2_ACCOUNT_ID";
 export const MANAGED_BUCKET_PREFIX = "ctx-";
 
 /**
+ * The operator credential that creates managed buckets, by name in `appSecrets`.
+ *
+ * A credential, so it is encrypted at rest, set in the staff console,
+ * fingerprint-displayed and rotatable — exactly where `SEARCH_D1_API_TOKEN`
+ * lives, and deliberately not beside `MANAGED_R2_ACCOUNT_ID` in an environment
+ * variable. The id is needed by guards on public paths that may never reach a
+ * decryptable secret; the token is needed by one internal action. One value
+ * could not do both jobs, and a rotation of the token must not make those
+ * guards fail open.
+ */
+export const MANAGED_R2_API_TOKEN_SECRET = "MANAGED_R2_API_TOKEN";
+
+/**
  * The name of the one bucket belonging to this workspace.
  *
  * Deterministic and total: the same workspace always resolves to the same

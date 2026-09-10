@@ -796,7 +796,22 @@ describe("the webhook", () => {
 
       await postWebhook(t, checkoutCompleted(sessionId));
       const second = await t.run((ctx) => ctx.db.query("workspacePlans").unique());
-      expect(second!.updatedAt).toBe(first!.updatedAt);
+      /*
+        What "no-op" means here, stated as the fields the event writes rather
+        than as `updatedAt`.
+
+        It was `updatedAt`, which was a fair proxy while this event was the
+        only thing that ever touched the row — and stopped being one when a
+        paid plan started scheduling its own bucket, because recording where
+        *that* got to is a legitimate later write to the same row. Asserting
+        the applied event's own fields is both narrower and stronger: a second
+        application would move the status, the event id and the audit trail,
+        and none of them moves.
+      */
+      expect(second!.status).toBe(first!.status);
+      expect(second!.lastEventIds).toEqual(first!.lastEventIds);
+      expect(second!.lastEventAt).toBe(first!.lastEventAt);
+      expect(second!.stripeSubscriptionId).toBe(first!.stripeSubscriptionId);
       // And no second audit row claiming the plan changed twice.
       const audit = await t.run((ctx) => ctx.db.query("auditEvents").collect());
       expect(audit.filter((row) => row.action === "billing.plan_updated")).toHaveLength(1);

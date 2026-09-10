@@ -90,6 +90,7 @@ function offer(over: Partial<ManagedOffer> = {}): ManagedOffer {
     back: () => {},
     toggle: () => {},
     proceed: () => {},
+    retry: () => {},
     ...over,
   };
 }
@@ -203,6 +204,58 @@ describe("back from Stripe, mid-flow", () => {
     expect(steps?.textContent ?? "").toContain("Payment confirmed");
     expect(steps?.textContent ?? "").toContain("Creating your storage");
     expect(container.textContent ?? "").not.toMatch(/\\d+%/);
+  });
+
+  test("provisioning that gave up says so, instead of spinning for ever", () => {
+    /*
+      THE WORST STATE IN THE PRODUCT: money taken, nothing delivered.
+
+      Three things this screen owes, in this order — the payment and the notes
+      are safe, a retry cannot duplicate anything, and here is the free path
+      out. The third is not a punishment: somebody stuck here has already
+      waited long enough.
+
+      "Trying again is safe" is a statement of fact rather than reassurance.
+      Provisioning adopts the bucket named for this workspace, and
+      `apps/convex/__tests__/managedProvisioning.test.ts` holds it to that.
+    */
+    const container = mount(
+      offer({
+        mode: "settling",
+        paid: true,
+        provisionFailure: {
+          title: "We could not finish setting up your storage",
+          body: "Your payment went through and nothing has been lost. This is our end, not yours — trying again is safe and will not create a second copy of anything.",
+          canRetry: true,
+        },
+      }),
+    );
+    const words = container.textContent ?? "";
+    expect(words).toContain("Your payment went through");
+    expect(words).toContain("nothing has been lost");
+    expect(words).toContain("will not create a second copy");
+    expect(container.querySelector('[data-testid="managed-settling-retry"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="managed-settling-own"]')).not.toBeNull();
+    // And it is no longer pretending to be busy.
+    expect(container.querySelector('[data-testid="managed-settling-steps"]')).toBeNull();
+  });
+
+  test("a failure nothing can retry does not offer a button that cannot help", () => {
+    // `NOT_CONFIGURED` is an operator error: pressing again will fail the same
+    // way, and a retry that cannot work is worse than no retry.
+    const container = mount(
+      offer({
+        mode: "settling",
+        paid: true,
+        provisionFailure: {
+          title: "We cannot set up storage on this deployment yet",
+          body: "Your payment went through and nothing has been lost.",
+          canRetry: false,
+        },
+      }),
+    );
+    expect(container.querySelector('[data-testid="managed-settling-retry"]')).toBeNull();
+    expect(container.querySelector('[data-testid="managed-settling-own"]')).not.toBeNull();
   });
 
   test("a wait that stops being ordinary offers two ways out, neither a dead end", () => {

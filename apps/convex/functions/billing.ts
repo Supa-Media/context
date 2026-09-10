@@ -263,6 +263,19 @@ export const status = query({
      * what cannot be delivered.
      */
     managedStorageAvailable: v.boolean(),
+    /**
+     * Where making this context's managed bucket got to, when it was asked
+     * for. Absent for every context that never bought managed storage.
+     *
+     * The `failed` case is the one that has to reach the screen: without it a
+     * person who paid two minutes ago cannot tell a slow webhook from a bucket
+     * that is never going to appear.
+     */
+    managedProvisioning: v.optional(
+      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    ),
+    /** Ours, from a closed set — never Cloudflare's text. Owner only. */
+    managedProvisioningError: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
@@ -302,6 +315,10 @@ export const status = query({
       notesCountedAt: isOwner ? binding?.noteCountedAt : undefined,
       storageIsManaged: bindingIsManaged(binding, args.workspaceId),
       managedStorageAvailable: deploymentProvidesManagedStorage(),
+      managedProvisioning: plan?.managedProvisioning,
+      // Owner only, with the rest of the money fields: a member cannot act on
+      // it and does not need to know which of our systems refused.
+      managedProvisioningError: isOwner ? plan?.managedProvisioningError : undefined,
     };
   },
 });
@@ -812,6 +829,37 @@ export const applyStripeEvent = internalMutation({
       action: "billing.plan_updated",
       details: { status, eventType: args.type },
     });
+
+    /*
+      THE PAYMENT IS WHAT STARTS THE BUCKET.
+
+      Scheduled from inside the same transaction that turned the plan active,
+      so there is no window where somebody has paid for managed storage and
+      nothing has been asked to create it. Scheduling rather than calling: this
+      runs in a mutation, and the action it starts opens the operator
+      credential.
+
+      Every precondition is re-read by the action itself — entitlement, an
+      existing binding, the configuration — because a redelivered event can
+      schedule this twice and a cancellation can land in between. Running it
+      twice is safe by construction: the second run adopts the bucket the first
+      one made.
+    */
+    const wantsManaged = restored?.managedStorage ?? plan.managedStorage;
+    if (planIsPaying(status) && wantsManaged) {
+      const bound = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", plan.workspaceId))
+        .unique();
+      if (bound === null) {
+        await ctx.db.patch(plan._id, { managedProvisioning: "running" });
+        await ctx.scheduler.runAfter(
+          0,
+          internal.functions.managedProvisioning.provisionManagedStorage,
+          { workspaceId: plan.workspaceId },
+        );
+      }
+    }
 
     return { applied: true, reason: status };
   },

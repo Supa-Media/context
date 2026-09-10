@@ -70,6 +70,10 @@ export interface PremiumStatus {
    * created, and that one happens *after* the payment.
    */
   managedStorageAvailable?: boolean;
+  /** Where making this context's managed bucket got to, when it was asked for. */
+  managedProvisioning?: "running" | "ready" | "failed";
+  /** Ours, from a closed set. Owner only. */
+  managedProvisioningError?: string;
 }
 
 /** Where an opened Checkout or portal attempt has got to. */
@@ -179,6 +183,47 @@ export function checkoutReturnCopy(
 
 /** How long before the settling copy stops saying "a few seconds". */
 export const CHECKOUT_SETTLING_SLOW_MS = 20_000;
+
+/**
+ * Storage was paid for and could not be made.
+ *
+ * The worst state in the product — money taken, nothing delivered — and the
+ * three things this copy has to do, in order:
+ *
+ * 1. **Say the payment and the notes are safe**, before anything else.
+ * 2. **Say a retry cannot duplicate anything.** That is a fact rather than
+ *    reassurance: provisioning adopts the bucket named for this workspace, and
+ *    `apps/convex/__tests__/managedProvisioning.test.ts` holds it to that.
+ * 3. **Offer the free path out** — connect storage of your own — because it
+ *    always works, and somebody stuck here has already waited long enough.
+ *
+ * The error code is ours and is never rendered: a person reading this cannot
+ * act on which of our systems refused, and a provider's own text can name an
+ * account. It picks the sentence, and the sentence names the next safe action.
+ */
+export function managedFailureCopy(errorCode: string | undefined): {
+  title: string;
+  body: string;
+  canRetry: boolean;
+} {
+  if (errorCode === "NOT_CONFIGURED") {
+    return {
+      title: "We cannot set up storage on this deployment yet",
+      body:
+        "Your payment went through and nothing has been lost. This one is at our " +
+        "end and trying again will not fix it — get in touch and we will sort it " +
+        "out, or connect storage you own and we will stop the subscription.",
+      canRetry: false,
+    };
+  }
+  return {
+    title: "We could not finish setting up your storage",
+    body:
+      "Your payment went through and nothing has been lost. This is our end, not " +
+      "yours — trying again is safe and will not create a second copy of anything.",
+    canRetry: true,
+  };
+}
 
 /**
  * Read a plan status off the wire.

@@ -19,6 +19,7 @@ export interface FixtureParams {
   screen?: string | string[];
   at?: string | string[];
   slow?: string | string[];
+  failed?: string | string[];
   available?: string | string[];
 }
 
@@ -40,6 +41,7 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
         start={at === "confirm" || at === "settling" ? at : "choose"}
         available={first(params.available) !== "no"}
         slow={first(params.slow) === "yes"}
+        failed={first(params.failed) === "yes"}
       />
     );
   }

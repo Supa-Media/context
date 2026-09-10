@@ -2,7 +2,7 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Dot } from "../../design/components/Dot";
 import { Card, Row } from "../../design/components/Card";
-import { Notice } from "../../design/components/Input";
+import { FormError, Notice } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { leading, space } from "../../design/tokens";
@@ -30,12 +30,18 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
  * webhook that arrives when it arrives. Naming the steps says what is
  * happening, which is what somebody who has just paid is actually asking.
  *
- * ## What it does when it cannot tell
+ * ## Three outcomes, and they are not the same screen
  *
- * Provisioning has no failure signal yet, so this screen must never claim one
- * — and must never trap somebody either. After a while it stops saying "a few
- * seconds", says plainly that this is taking longer than it should, and offers
- * the two ways out that always work: use storage of your own, or ask a person.
+ * **Waiting** is the ordinary case. **Slow** is the same wait once "a few
+ * seconds" has stopped being true — different words, same spinner, and the two
+ * ways out that always work. **Failed** is an answer rather than a wait: the
+ * control plane says provisioning will not finish, and the screen says the
+ * payment and the notes are safe, that a retry cannot duplicate anything, and
+ * offers the free path out.
+ *
+ * The distinction is load-bearing. Before there was a failure signal this
+ * screen could only ever say "still working", so somebody whose bucket was
+ * never going to appear sat in front of a spinner until they gave up.
  */
 export interface ManagedSettlingState {
   /** The plan has turned active — the webhook landed. */
@@ -44,6 +50,15 @@ export interface ManagedSettlingState {
   storageReady: boolean;
   /** Long enough that "a few seconds" has stopped being true. */
   slow: boolean;
+  /**
+   * Provisioning reported a failure, with our own code for it.
+   *
+   * Distinct from `slow`: a wait that has gone on too long is a wait, and this
+   * is an answer. Before the control plane could tell them apart this screen
+   * could only ever say "still working", and somebody whose bucket was never
+   * going to appear sat in front of a spinner.
+   */
+  failure?: { title: string; body: string; canRetry: boolean };
 }
 
 export function ManagedSettling({
@@ -51,6 +66,7 @@ export function ManagedSettling({
   contextName,
   onUseOwnStorage,
   onCarryOn,
+  onRetry,
 }: {
   state: ManagedSettlingState;
   contextName: string;
@@ -58,9 +74,44 @@ export function ManagedSettling({
   onUseOwnStorage: () => void;
   /** Leave the flow; the work finishes without this tab. */
   onCarryOn: () => void;
+  /** Another go at making the bucket. Safe by construction — see the action. */
+  onRetry: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+
+  if (state.failure !== undefined) {
+    return (
+      <View>
+        <FormError
+          headline={state.failure.title}
+          next={state.failure.body}
+          style={styles.failure}
+        />
+        <Row style={styles.actions}>
+          {state.failure.canRetry ? (
+            <Button
+              label="Try again"
+              variant="decision"
+              onPress={onRetry}
+              testID="managed-settling-retry"
+            />
+          ) : null}
+          <Button
+            label="Connect storage I own"
+            variant={state.failure.canRetry ? "ghost" : "decision"}
+            onPress={onUseOwnStorage}
+            testID="managed-settling-own"
+          />
+        </Row>
+        <Text variant="foot" style={styles.foot}>
+          If a second attempt fails too, get in touch and we will set it up by hand. You
+          should not pay for storage you are not using — tell us if you connect your own
+          and we will stop the subscription.
+        </Text>
+      </View>
+    );
+  }
 
   const steps: Array<{ label: string; state: "done" | "working" | "waiting" }> = [
     {
@@ -157,4 +208,6 @@ const makeStyles = (colors: Colors) =>
     stepLabel: { flex: 1, minWidth: 0 },
     waiting: { color: colors.muted },
     actions: { marginTop: space.x4, gap: space.x3, flexWrap: "wrap" },
+    failure: { marginBottom: space.x2 },
+    foot: { marginTop: space.x4, lineHeight: leading(12.5, 1.7), color: colors.muted },
   });
