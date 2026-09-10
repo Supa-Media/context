@@ -204,6 +204,16 @@ export const settling = {
   body: "Setting up storage for {context}. This usually takes a few seconds.",
   steps: {
     paid: "Payment confirmed",
+    /**
+     * The same step while it is still running, and it needs its own words.
+     *
+     * Drawn with a "Paid" pill beside it — because Stripe *has* taken the
+     * money — a spinning step labelled "Payment confirmed" reads as a
+     * contradiction: the badge says done and the row says working. What is
+     * still in flight is our confirmation, not their payment, so the row says
+     * that. Visible only on the rendered screen.
+     */
+    confirming: "Confirming your payment",
     provisioning: "Creating your storage",
     scaffolding: "Laying out your folders",
     ready: "Ready",

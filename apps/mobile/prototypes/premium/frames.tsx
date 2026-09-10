@@ -423,7 +423,10 @@ function Settling({ slow }: { slow: boolean }): ReactElement {
       <StepList
         testID="proto-steps"
         steps={[
-          { label: settling.steps.paid, state: slow ? "working" : "done" },
+          {
+            label: slow ? settling.steps.confirming : settling.steps.paid,
+            state: slow ? "working" : "done",
+          },
           { label: settling.steps.provisioning, state: slow ? "waiting" : "working" },
           { label: settling.steps.scaffolding, state: "waiting" },
           { label: settling.steps.ready, state: "waiting" },
