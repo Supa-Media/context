@@ -1121,6 +1121,18 @@ describe("no public function can reach a storage secret", () => {
       // `functions/lib/premium.ts` for why that placement is load-bearing.
       "functions.billingStripe.createCheckoutSession",
       "functions.billingStripe.createPortalSession",
+      // THE THIRD, AND THE ONLY ONE NOBODY PRESSED A BUTTON FOR.
+      //
+      // Opens the same payment key to cancel a subscription whose context is
+      // being deleted. Reached by a schedule edge from `deleteWorkspaceCascade`
+      // — a *public* mutation, which is exactly why it is a schedule and not a
+      // call: `account.deleteAccount` must not be a path to the payment key.
+      //
+      // It is here rather than folded into the portal because the portal is the
+      // customer choosing to cancel and this is the product noticing it must.
+      // Without it, deleting a context leaves the card being charged with no
+      // route in the product to stop it.
+      "functions.billingStripe.cancelSubscription",
       // THE GOOGLE CONNECT FLOW'S FOUR, THE SAME SHAPE AS DROPBOX'S TWO PLUS
       // product-specific and combined binders. See the `functions/googleConnect.ts`
       // entry in `DECRYPT_IMPORTERS` for why OAuth-connect modules exist rather

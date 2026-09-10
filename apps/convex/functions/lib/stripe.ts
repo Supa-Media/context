@@ -357,6 +357,36 @@ export class StripeApiError extends Error {
  * sentence. The status is kept because "declined" and "we are misconfigured"
  * need different operator responses.
  */
+/**
+ * One DELETE to Stripe. Cancelling a subscription, and nothing else so far.
+ *
+ * Same rules as `stripePost`: the key rides in the header, and Stripe's own
+ * message is never forwarded to a caller — the status is kept because
+ * "already cancelled" and "we are misconfigured" need different responses from
+ * an operator.
+ */
+export async function stripeDelete(
+  apiKey: string,
+  path: string,
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`${STRIPE_API_BASE}${path}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Stripe-Version": STRIPE_API_VERSION,
+    },
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new StripeApiError(response.status, "Stripe refused the request.");
+  }
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new StripeApiError(response.status, "Stripe returned something unreadable.");
+  }
+}
+
 export async function stripePost(
   apiKey: string,
   path: string,

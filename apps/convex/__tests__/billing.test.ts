@@ -1101,6 +1101,75 @@ describe("the webhook", () => {
   });
 });
 
+describe("deleting a context stops the money", () => {
+  /*
+    WORSE THAN "WE FORGOT TO CANCEL".
+
+    `startPortal` is the only cancellation path in the product, and it is
+    reached from that context's Premium section. Delete the context and the
+    customer is billed every month with no route in the product to stop it —
+    that is a chargeback, not a loose end.
+
+    `cascadeCoverage.test.ts` could not have caught this: it derives its
+    obligation from `encrypted*` field names, and neither billing table has one.
+    Both are swept now, and that test has been widened so a table carrying an
+    external obligation cannot pass by having no credential in it.
+  */
+  async function deleteTheContext(t: TestConvex, owner: Id<"users">) {
+    // The real teardown, through the real public mutation.
+    await asUser(t, owner).mutation(api.functions.account.deleteAccount, {});
+  }
+
+  test("a live subscription is scheduled for cancellation, then the rows go", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "teardown");
+    await chooseBoth(t, owner, workspaceId);
+    await t.run(async (ctx) => {
+      const plan = await ctx.db.query("workspacePlans").unique();
+      await ctx.db.patch(plan!._id, {
+        status: "active",
+        stripeCustomerId: "cus_FAKE",
+        stripeSubscriptionId: "sub_FAKE",
+      });
+    });
+
+    await deleteTheContext(t, owner);
+
+    // Nothing left pointing at a subscription nobody can reach any more…
+    const plans = await t.run((ctx) => ctx.db.query("workspacePlans").collect());
+    const sessions = await t.run((ctx) => ctx.db.query("billingSessions").collect());
+    expect(plans).toHaveLength(0);
+    expect(sessions).toHaveLength(0);
+    // …and the cancellation was queued before the row carrying its id was
+    // deleted, which is the whole reason it is scheduled with the id in the
+    // args rather than looked up afterwards.
+    expect(
+      await t.run(async (ctx) => await ctx.db.system.query("_scheduled_functions").collect()),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: expect.stringContaining("cancelSubscription"),
+        }),
+      ]),
+    );
+  });
+
+  test("a context that never paid schedules nothing", async () => {
+    // No subscription, nothing to cancel. A schedule here would be a call to
+    // Stripe about an id we do not have.
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "teardown-free");
+    await chooseBoth(t, owner, workspaceId);
+    await deleteTheContext(t, owner);
+    const scheduled = await t.run(
+      async (ctx) => await ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    expect(
+      scheduled.filter((row) => row.name.includes("cancelSubscription")),
+    ).toHaveLength(0);
+  });
+});
+
 describe("nothing here gates the exit", () => {
   test("no billing function names an export, a download or a hand-off", async () => {
     /*

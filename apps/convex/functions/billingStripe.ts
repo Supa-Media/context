@@ -40,7 +40,7 @@ import type { Id } from "../_generated/dataModel";
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { APP_ORIGIN_ENV_VAR } from "./lib/gatewayAuth";
 import { STRIPE_API_KEY_SECRET, stripePriceId } from "./lib/premium";
-import { StripeApiError, stripePost } from "./lib/stripe";
+import { StripeApiError, stripeDelete, stripePost } from "./lib/stripe";
 
 /**
  * Our own reasons, from a closed set. The console turns each into a sentence;
@@ -154,6 +154,56 @@ export const createCheckoutSession = internalAction({
         status: error instanceof StripeApiError ? error.status : 0,
       });
       return await fail(ctx, args.sessionId, "STRIPE_REFUSED");
+    }
+  },
+});
+
+/**
+ * Cancel a subscription, because the context it paid for is being deleted.
+ *
+ * **The one call here that is not started by somebody pressing a button.**
+ * `startPortal` is the only cancellation path in the product and it is reached
+ * from that context's Premium section — so deleting the context would otherwise
+ * bill the customer every month with no route in the product to stop it. That
+ * is a chargeback, not a loose end.
+ *
+ * Scheduled from `deleteWorkspaceCascade` with the subscription id **in the
+ * args**, before the row carrying it is deleted, exactly as the Dropbox
+ * revocation twelve lines above it is. Scheduled and not called: that mutation
+ * is public and must not reach the payment key.
+ *
+ * ## Failure is a log line and nothing else
+ *
+ * There is no row left to record a status on — the point of this action is that
+ * the context is going away. A throw would be retried by the scheduler against
+ * a workspace that no longer exists, so a refusal is logged with its status and
+ * swallowed. That is a real residual: a cancellation Stripe refused leaves a
+ * live subscription nobody here can see. It is named in `billing.md` and it is
+ * strictly better than the alternative, which was not trying at all.
+ *
+ * `invoice_now=false` and `prorate=false` are deliberate: this is somebody
+ * leaving, and issuing them a final invoice on the way out would be a bill for
+ * the act of deleting their own context.
+ */
+export const cancelSubscription = internalAction({
+  args: { subscriptionId: v.string() },
+  handler: async (ctx, args): Promise<{ status: string }> => {
+    const key = await apiKey(ctx);
+    if (key === null) {
+      // A self-hoster with no payment key never had a subscription either.
+      console.error("billing.cancel_not_configured");
+      return { status: "skipped" };
+    }
+    try {
+      await stripeDelete(key, `/subscriptions/${encodeURIComponent(args.subscriptionId)}`);
+      return { status: "canceled" };
+    } catch (error) {
+      // Never the subscription id: it is not a secret, and a log line that
+      // names one customer's subscription is still a log line about a customer.
+      console.error("billing.cancel_failed", {
+        status: error instanceof StripeApiError ? error.status : 0,
+      });
+      return { status: "failed" };
     }
   },
 });

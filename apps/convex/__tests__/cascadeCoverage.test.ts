@@ -120,12 +120,110 @@ export function credentialBearingWorkspaceTables(
   return found.sort();
 }
 
+/**
+ * Field names that mean **an obligation to somebody outside this deployment**.
+ *
+ * `credentialBearingWorkspaceTables` asks "does deleting this row strand a
+ * secret", which is the question the cascade was written for. It is not the
+ * only question the cascade has to answer, and `workspacePlans` is the proof:
+ * it holds a Stripe subscription id, no credential of any kind, and deleting
+ * its workspace without cancelling bills the customer every month with no route
+ * in the product to stop it. It passed the guard above on the day it was
+ * declared, and nothing would have raised it again.
+ *
+ * So the second derivation looks for an identifier issued by somebody else that
+ * keeps costing or keeps existing after our row is gone. `stripe*` is the
+ * shape that exists today; the list is here to be added to, and adding to it is
+ * the diff a reviewer sees.
+ *
+ * **What still escapes**, and is therefore not claimed: an obligation whose
+ * field is named for the thing rather than the provider (`subscriptionId`,
+ * `externalId`), and one nested inside an object field. Same convention this
+ * file already depends on for `encrypted*`, and the same caveat.
+ */
+const EXTERNAL_OBLIGATION_PATTERNS: readonly RegExp[] = [/^stripe[A-Z]/];
+
+/**
+ * Workspace-scoped tables holding a live obligation to an outside service.
+ *
+ * Deliberately a separate derivation from the credential one rather than a
+ * widened regex: the two ask different questions, they are satisfied by
+ * different things — a credential can be deleted, an obligation has to be
+ * *ended* — and folding them together would mean one of them is documented
+ * wrong.
+ */
+export function obligationBearingWorkspaceTables(
+  tables: Record<string, { validator: unknown }> = schema.tables as unknown as Record<
+    string,
+    { validator: unknown }
+  >,
+): string[] {
+  const found: string[] = [];
+  for (const [tableName, table] of Object.entries(tables)) {
+    const fields = fieldNamesOf(table.validator);
+    if (!fields.includes("workspaceId")) continue;
+    if (!fields.some((field) => EXTERNAL_OBLIGATION_PATTERNS.some((p) => p.test(field)))) {
+      continue;
+    }
+    found.push(tableName);
+  }
+  return found.sort();
+}
+
 function isSwept(tableName: string): boolean {
   return (
     CASCADE_SOURCE.includes(`query("${tableName}")`) ||
     (CONNECT_ATTEMPT_TABLES as readonly string[]).includes(tableName)
   );
 }
+
+describe("every workspace-scoped table holding an outside obligation ends it", () => {
+  /*
+    The second question, and the one `workspacePlans` proved the first could not
+    answer. Deleting a row that names somebody else's subscription does not
+    strand a secret — it strands a *charge*, on a card, with the only
+    cancellation path in the product deleted alongside it.
+  */
+  test("the derivation finds the tables that exist today", () => {
+    expect(obligationBearingWorkspaceTables()).toEqual(["workspacePlans"]);
+  });
+
+  test("each one is swept, and ends the obligation before the row goes", () => {
+    for (const tableName of obligationBearingWorkspaceTables()) {
+      expect(
+        isSwept(tableName),
+        `${tableName} names an obligation to an outside service and is not swept by ` +
+          `deleteWorkspaceCascade — deleting the workspace would leave it running`,
+      ).toBe(true);
+    }
+    // Swept is not enough on its own: the cascade must *end* the thing, and it
+    // must do it before deleting the row that names it. Ordering, not presence.
+    const cancelAt = CASCADE_SOURCE.indexOf("cancelSubscription");
+    const deleteAt = CASCADE_SOURCE.indexOf("ctx.db.delete(plan._id)");
+    expect(cancelAt, "the cascade never cancels a subscription").toBeGreaterThan(-1);
+    expect(deleteAt, "the cascade never deletes the plan row").toBeGreaterThan(-1);
+    expect(
+      cancelAt,
+      "the cancellation must be scheduled before the row carrying its id is deleted",
+    ).toBeLessThan(deleteAt);
+  });
+
+  test("the derivation catches a table this codebase does not have", () => {
+    // Non-vacuity, in the shape the next one would arrive in: a second payment
+    // provider, or a per-workspace subscription to anything billed.
+    const withVendor = {
+      ...(schema.tables as unknown as Record<string, { validator: unknown }>),
+      vendorSeats: defineTable({
+        workspaceId: v.id("workspaces"),
+        stripeSubscriptionId: v.string(),
+      }),
+    };
+    expect(obligationBearingWorkspaceTables(withVendor)).toContain("vendorSeats");
+    // …and that it is not satisfied by the credential derivation, which is the
+    // whole reason there are two.
+    expect(credentialBearingWorkspaceTables(withVendor)).not.toContain("vendorSeats");
+  });
+});
 
 describe("every sealed, workspace-scoped table is swept or explained", () => {
   test("the derivation finds the tables that exist today", () => {
