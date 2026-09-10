@@ -38,6 +38,20 @@ import { tap } from "./helpers";
  * router — see `E2EFixtureScreen`'s header), so the sign-out row, the
  * invitation answer and the "Elsewhere in the console" card are not on this
  * screen to be pressed.
+ *
+ * ## Why the presses inside the overlay are `locator.tap()`
+ *
+ * `helpers.ts`'s `tap` reads a `boundingBox()` and then taps that point, and
+ * everything it is used on here — the console behind the scrim — is already
+ * at rest. The overlay is not: `Overlay` mounts a `Modal` with
+ * `animationType="slide"`, so for a few hundred milliseconds after it becomes
+ * visible its head is still travelling up the screen and a coordinate read
+ * before the press lands somewhere the button has already left. Measured
+ * here, on this export: a tap through the helper at that moment did nothing
+ * at all, silently, and the list never appeared. `locator.tap()` is the same
+ * real touch through the same input pipeline — it is Playwright's own
+ * `Touchscreen` under an actionability check that waits for the element to
+ * stop moving first, which is the half the helper cannot do.
  */
 
 /** The gear in the fixture's account block — the phone console's own way in. */
@@ -45,10 +59,14 @@ const GEAR = "Settings";
 
 async function openConsole(page: Page): Promise<void> {
   await page.goto("/e2e-fixture");
-  // The default note has to be painted before anything is pressed, for the
-  // reason `helpers.ts`'s own walk gives: a slow first paint otherwise races
-  // the press.
-  await page.getByTestId("note-scroll").waitFor();
+  /*
+    The breadcrumb rather than `note-scroll`: the fixture's default note is
+    drawn by a scroller on a phone and by the live editor at a pointer width,
+    and this file runs at both. The leaf is the one landmark both layouts
+    paint, and painting it means the demo data and the tree behind it have
+    already resolved.
+  */
+  await page.getByTestId("breadcrumb-leaf").waitFor();
 }
 
 /**
@@ -89,27 +107,28 @@ test("a phone opens settings on a section, and Back is the way to the list", asy
   await expect(page.getByTestId("settings-sections")).toHaveCount(0);
 
   // Back pops that level rather than closing the overlay.
-  await tap(page, "Back");
+  await page.getByLabel("Back", { exact: true }).tap();
   await expect(page.getByTestId("settings-sections")).toBeVisible();
   await expect(page.getByText("Personal brain", { exact: true })).toHaveCount(0);
 
   // And a row from the list draws its own section, which is the `onSelect`
   // wiring the fixture stands in for `router.setParams({ settings })` with.
-  await tap(page, "Storage");
+  await page.getByTestId("settings-section-storage").tap();
   await expect(page.getByText(/Your bucket, your credentials/)).toBeVisible();
   await expect(page.getByTestId("settings-sections")).toHaveCount(0);
 
   // Closing leaves the console exactly where it was — the note behind the
   // overlay was never navigated away from.
-  await tap(page, "Close settings");
+  await page.getByLabel("Close settings", { exact: true }).tap();
   await expect(page.getByTestId("settings-overlay")).toHaveCount(0);
-  await expect(page.getByTestId("note-scroll")).toBeVisible();
+  await expect(page.getByTestId("breadcrumb-leaf")).toBeVisible();
 });
 
 test("the phone's section labels are left-aligned, not centred", async ({ page }) => {
   await openConsole(page);
   await tap(page, GEAR);
-  await tap(page, "Back");
+  await expect(page.getByTestId("settings-overlay")).toBeVisible();
+  await page.getByLabel("Back", { exact: true }).tap();
   await expect(page.getByTestId("settings-sections")).toBeVisible();
 
   /*
