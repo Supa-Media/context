@@ -346,6 +346,25 @@ export const setEntitlements = mutation({
       });
     }
 
+    /*
+      A live attempt's snapshot follows the choice.
+
+      `startCheckout` reuses a live attempt rather than opening a second, so
+      without this the snapshot stayed whatever had been chosen at the FIRST
+      press — and a restore would then put back something the owner had since
+      changed their mind about, which is worse than putting back the right one.
+      It means "the last thing they chose while this attempt was open".
+    */
+    const openAttempts = await ctx.db
+      .query("billingSessions")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    for (const attempt of openAttempts) {
+      if (attempt.kind !== "checkout") continue;
+      if (attempt.status === "failed" || attempt.expiresAt <= now) continue;
+      await ctx.db.patch(attempt._id, { selectedAtCheckout: selected });
+    }
+
     await recordAudit(ctx, {
       workspaceId: args.workspaceId,
       actorUserId: userId,

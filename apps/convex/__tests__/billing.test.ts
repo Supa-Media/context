@@ -45,6 +45,7 @@
  *   the cascade deleting the plan row without cancelling                 2
  *   the cascade not sweeping the plan table at all                       3
  *   `returnUrl` falling back to an empty origin again                0 → 1
+ *   a live attempt's snapshot not following a changed selection          1
  *
  * **The `returnUrl` row is 0 → 1 and the 0 is a finding about this file.** The
  * test seeded no payment key, so the action answered `NOT_CONFIGURED` for the
@@ -1076,6 +1077,60 @@ describe("the webhook", () => {
       });
       expect(view.status).toBe("active");
       expect(view.active).toEqual({ managedStorage: true, fastSearch: false });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("the snapshot follows the choice while the attempt is live", async () => {
+    /*
+      Found reading my own fix rather than by the review.
+
+      A live attempt is reused rather than joined by a second one, so the
+      snapshot was whatever had been chosen at the FIRST press. Change the
+      selection afterwards — allowed, as long as it is not emptied — and the
+      snapshot names something the owner has since changed their mind about. If
+      the restore then fires, it restores the wrong one, which is worse than
+      restoring the right one.
+
+      So the snapshot tracks the selection for as long as the attempt is live:
+      it means "the last thing they chose while this was open", not "the first".
+    */
+    const t = setupTest();
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", SIGNING_SECRET);
+    try {
+      const { owner, workspaceId } = await context(t, "changed-mind");
+      await asUser(t, owner).mutation(api.functions.billing.setEntitlements, {
+        workspaceId,
+        managedStorage: true,
+        fastSearch: false,
+      });
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId },
+      );
+      // Second thoughts, while the attempt is still open.
+      await asUser(t, owner).mutation(api.functions.billing.setEntitlements, {
+        workspaceId,
+        managedStorage: false,
+        fastSearch: true,
+      });
+      const row = await t.run((ctx) => ctx.db.get(sessionId));
+      expect(row?.selectedAtCheckout).toEqual({
+        managedStorage: false,
+        fastSearch: true,
+      });
+
+      // And if the restore fires, it restores the newer choice.
+      await t.run(async (ctx) => {
+        const plan = await ctx.db.query("workspacePlans").unique();
+        await ctx.db.patch(plan!._id, { managedStorage: false, fastSearch: false });
+      });
+      await postWebhook(t, checkoutCompleted(sessionId));
+      const view = await asUser(t, owner).query(api.functions.billing.status, {
+        workspaceId,
+      });
+      expect(view.active).toEqual({ managedStorage: false, fastSearch: true });
     } finally {
       vi.unstubAllEnvs();
     }
