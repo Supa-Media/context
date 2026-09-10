@@ -41,6 +41,7 @@ import { createRoot } from "react-dom/client";
 import type { ConsoleData } from "../features/console/types";
 import type { FileBrowser } from "../features/console/files/browser";
 import type { FolderListing } from "../features/console/files/types";
+import { layout } from "../features/design/tokens";
 
 const mockInsets = { top: 59, bottom: 34, left: 0, right: 0 };
 
@@ -534,6 +535,35 @@ describe("the path bar", () => {
 
     app.press(app.find2("Open a/b/c"));
     expect(select).toHaveBeenCalledWith("a/b/c");
+  });
+
+  /**
+   * **Every folder segment is a real 44pt target**, checked against the box a
+   * browser actually hit-tests rather than a constant fed to a prop that never
+   * reaches it.
+   *
+   * This used to be `hitSlop`, asserted in `breadcrumbPath.test.ts` by holding
+   * the exact object passed to it — the only thing a jsdom test *could* hold,
+   * because react-native-web's `View` drops `hitSlop` from what it forwards to
+   * the DOM before any hit-testing happens. Measured live in a real Chromium
+   * build of this page: pressing a few pixels above a segment's visible box
+   * landed on the row's plain container, never the segment, all the way to the
+   * box's own edge — the slop bought nothing there. `minHeight` is a real
+   * layout property instead, so it is what both platforms actually hit-test
+   * against, and — because it is real — a rendered assertion can finally see
+   * it, here, rather than re-deriving a number `Breadcrumb.tsx` already owns.
+   *
+   * SABOTAGE: `segment`'s `minHeight: layout.minTouchTarget` dropped in
+   * `Breadcrumb.tsx`. Fails here.
+   */
+  test("every folder segment is a real 44pt target, not just a visible one", () => {
+    const deep = "a/b/c/d/the-lean-startup.md";
+    const app = mountConsole(dataWith({}, { path: deep, name: "the-lean-startup.md" }));
+
+    const segment = app.find("breadcrumb-folder-a/b/c");
+    expect(segment).not.toBeNull();
+    const minHeight = Number.parseFloat(getComputedStyle(segment!).minHeight);
+    expect(minHeight).toBeGreaterThanOrEqual(layout.minTouchTarget);
   });
 
   test("the context is a button at the head of the path, not a segment", () => {

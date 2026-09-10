@@ -655,9 +655,8 @@ export const layout = {
    */
   crumbPill: 26,
   /**
-   * A breadcrumb folder segment's own drawn height on a phone — short of the
-   * touch floor, exactly the shape `explorerRow`/`explorerRowSlop` already
-   * names below.
+   * A breadcrumb folder segment's own **drawn** height on a phone — short of
+   * the touch floor, exactly the shape `explorerRow` names below.
    *
    * `Breadcrumb.tsx`'s `folder`/`leaf` styles set `fontSize: 11` and never
    * touch `lineHeight`, so what actually reaches the screen underneath that
@@ -666,17 +665,12 @@ export const layout = {
    * rather than the 11px it is drawn at here. Add `segment`'s own 1pt of
    * padding on each edge, for legibility rather than for a thumb, and the row
    * is 22.15: half of 44.
+   *
+   * This is what somebody **sees**, not what they can press — see
+   * `Breadcrumb.tsx`'s folder `PressRow` for why the pressable itself is
+   * `minTouchTarget` tall regardless.
    */
   crumbSegmentHeight: leading(13, 1.55) + 1 * 2,
-  /**
-   * `(minTouchTarget - crumbSegmentHeight) / 2`, `explorerRowSlop`'s own
-   * shape: the visual stays short of the floor on purpose and a pressable's
-   * `hitSlop` buys the rest back rather than growing the drawn box.
-   * `Breadcrumb.tsx`'s folder segment (`NAV_BAND_SEGMENT_HIT_SLOP`) is the
-   * one reader — it matters more since the elision that used to cap how many
-   * of these a row ever drew is gone; see `crumbs.ts`.
-   */
-  navBandSegmentSlop: (MIN_TOUCH_TARGET - (leading(13, 1.55) + 1 * 2)) / 2,
   /**
    * The account mark pinned at the leading end of a phone's top row.
    *

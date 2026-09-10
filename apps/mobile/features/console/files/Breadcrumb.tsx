@@ -205,7 +205,7 @@ export function Breadcrumb({
                 The leaf is the only thing on a phone naming what is open once
                 the document has scrolled, so it carries the weight — and the
                 body face when it is a *title* somebody wrote rather than a file
-                name. See `leafText`.
+                name. See `Segment`'s own `titled` prop, below.
               */
               leafStyle={styles.pathLeaf}
               titled={title !== undefined}
@@ -296,7 +296,11 @@ function Segment({
   crumb: Crumb;
   onSelectFolder?: (folder: string) => void;
   leafStyle: StyleProp<TextStyle>;
-  /** Whether the leaf's label is a title somebody wrote. See `leafText`. */
+  /**
+   * Whether the leaf's label is a title somebody wrote rather than the note's
+   * filename — decides the body face below, where `crumb.kind === "leaf"` is
+   * drawn.
+   */
   titled: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -327,18 +331,6 @@ function Segment({
       radius={radii.xs}
       style={styles.segment}
       hoverStyle={styles.segmentHover}
-      /*
-        The drawn box is `layout.crumbSegmentHeight` — an 11px mono label
-        inside `segment`'s own 1pt of vertical padding — which is short of
-        `layout.minTouchTarget` by design: `segment` pads for legibility, not
-        for a thumb. `layout.navBandSegmentSlop` is `explorerRowSlop`'s own
-        shape, `(minTouchTarget - crumbSegmentHeight) / 2`, and buys the rest
-        of the floor back on the pressable rather than growing the visual —
-        `PressRow`'s own rule, "pad the pressable, never the visual". This
-        matters more now than it used to: with the elision gone there are more
-        of these on the row to hit, not fewer.
-      */
-      hitSlop={NAV_BAND_SEGMENT_HIT_SLOP}
       testID={`breadcrumb-folder-${crumb.path}`}
     >
       <Text variant="mono" style={styles.folder} numberOfLines={1}>
@@ -347,21 +339,6 @@ function Segment({
     </PressRow>
   );
 }
-
-/**
- * Exported so `breadcrumbPath.test.ts` can hold the exact object `Segment`
- * passes to `PressRow`, rather than re-deriving it: react-native-web's `View`
- * drops `hitSlop` from the props it forwards to the DOM (see `forwardedProps`
- * in `View`'s own source) before it ever reaches an element a test could
- * inspect, so this is the one thing a jsdom test can actually hold to prove
- * the slop is still wired up. What it buys is real only on the platforms
- * whose `Pressable` honours `hitSlop` for hit-testing — today, everywhere
- * except the web build.
- */
-export const NAV_BAND_SEGMENT_HIT_SLOP = {
-  top: layout.navBandSegmentSlop,
-  bottom: layout.navBandSegmentSlop,
-};
 
 function Separator() {
   const styles = useThemedStyles(makeStyles);
@@ -454,7 +431,40 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   barPath: { paddingTop: 0, paddingBottom: space.x2, paddingHorizontal: 0, minHeight: 0 },
   context: { color: colors.text2, fontSize: 11 },
   separator: { color: colors.heroDim, fontSize: 11 },
-  segment: { paddingHorizontal: 3, paddingVertical: 1, borderRadius: radii.xs },
+  /**
+   * The folder segment's own pressable — `layout.crumbSegmentHeight` tall to
+   * the eye (an 11px mono label inside 1pt of vertical padding, 22.15pt), but
+   * `minHeight: layout.minTouchTarget` genuinely: 44, centred, so the drawn
+   * label sits exactly where it did before.
+   *
+   * **This used to be `hitSlop`, and it stopped being that.** `hitSlop` is a
+   * `Pressable` prop, and react-native-web's `View` drops it from what it
+   * forwards to the DOM before it ever reaches an element the platform hit-tests
+   * against — checked live in a real Chromium build of this page:
+   * `document.elementFromPoint` a few pixels above a folder segment's visible
+   * box returned the row's plain container, never the segment, at every offset
+   * up to the box's own edge. `hitSlop` was real on native and a no-op on the
+   * one build this product actually ships to phones as — see
+   * `features/design/components/Menu.web.tsx`'s own header. `explorerRowSlop`
+   * (`FolderView.tsx`) has the identical hole and is not fixed here; this file
+   * only owns the breadcrumb.
+   *
+   * `minHeight` is a real layout property on both platforms, so hit-testing
+   * (native and web) is against the pressable's own actual box rather than a
+   * platform-specific extension of it — no asterisk. It does not grow
+   * `NavBand`'s row: `CurrentContextPill`'s own target (`ContextStrip.tsx`) is
+   * already `minTouchTarget` tall, so the row's cross-axis size — the tallest
+   * child of a `alignItems: "center"` flex row — was 44 before this segment
+   * ever grew to match it; this only stops being the one child shorter than
+   * the row it sits in.
+   */
+  segment: {
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    borderRadius: radii.xs,
+    minHeight: layout.minTouchTarget,
+    justifyContent: "center",
+  },
   segmentHover: { backgroundColor: colors.surface3 },
   folder: { color: colors.muted, fontSize: 11 },
   leaf: { color: colors.text, fontSize: 11 },

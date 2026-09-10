@@ -52,8 +52,6 @@
 
 import { describe, expect, test } from "@jest/globals";
 import { crumbsFor } from "../features/console/files/crumbs";
-import { NAV_BAND_SEGMENT_HIT_SLOP } from "../features/console/files/Breadcrumb";
-import { layout, leading } from "../features/design/tokens";
 
 /** The labels, in order. */
 function labels(path: string, options?: Parameters<typeof crumbsFor>[1]): string[] {
@@ -169,31 +167,16 @@ describe("what a title does to the last segment", () => {
   });
 });
 
-/**
- * **Every folder segment is a target a thumb can hit**, even though the row
- * draws it well short of the floor.
- *
- * `Breadcrumb`'s `folder`/`leaf` styles set `fontSize: 11` on `Text`'s `mono`
- * variant without touching its `lineHeight` — so the box that actually reaches
- * the screen is still the variant's own 13px line height, not the 11px it is
- * drawn at — plus `segment`'s 1pt of padding on each edge: 22.15pt, half of
- * the 44pt floor. `NAV_BAND_SEGMENT_HIT_SLOP` is the exact object `Segment`
- * passes to `PressRow`'s `hitSlop`, exported for this: react-native-web's
- * `View` drops `hitSlop` from what it forwards to the DOM, so a rendered
- * assertion cannot see it at all, and this is the one thing a test can hold
- * that is not a second copy of the number.
- *
- * With the elision gone there are more of these on a row than there used to
- * be, never fewer, so a target missing the floor now costs more than it did.
- *
- * SABOTAGE: `NAV_BAND_SEGMENT_HIT_SLOP` zeroed to `{ top: 0, bottom: 0 }` in
- * `Breadcrumb.tsx` — the shape a deleted slop would leave behind. Fails here.
- */
-test("every folder segment is a target a thumb can hit", () => {
-  const drawnHeight = leading(13, 1.55) + 1 * 2;
-  expect(drawnHeight).toBeLessThan(layout.minTouchTarget);
-  expect(
-    drawnHeight + NAV_BAND_SEGMENT_HIT_SLOP.top + NAV_BAND_SEGMENT_HIT_SLOP.bottom,
-  ).toBeGreaterThanOrEqual(layout.minTouchTarget);
-});
+/*
+  The touch-target claim — "every folder segment is a target a thumb can
+  hit" — moved to `noteChrome.test.ts`, which mounts the real component tree.
+  It used to live here as an assertion over a `hitSlop` object this module
+  never touches, which was a workaround for react-native-web dropping
+  `hitSlop` before it reaches the DOM (see `Breadcrumb.tsx`'s `segment`
+  style): a jsdom test could hold the constant fed to `hitSlop`, but never see
+  whether the box a browser actually hit-tests against grew to match it — and,
+  measured live in a real Chromium build of this page, it never did. The fix
+  is `segment`'s own `minHeight`, a real layout property a rendered assertion
+  can see, so the claim now belongs where rendering happens.
+*/
 
