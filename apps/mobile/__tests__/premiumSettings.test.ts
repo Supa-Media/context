@@ -107,6 +107,12 @@ describe("reading a plan off the wire", () => {
 
     // …and the owner still gets the actionable version, because they can act.
     expect(describePremium("past_due", true).blurb).toMatch(/card/i);
+
+    // The pill is part of what a member is told, and it was missed first time:
+    // the paragraph narrowed while the chip beside it still read "Payment
+    // failed".
+    expect(premiumPill("past_due", false)?.label).not.toMatch(/payment/i);
+    expect(premiumPill("past_due", true)?.label).toMatch(/payment/i);
   });
 
   test("the states that are legitimately everybody's business do not narrow", () => {

@@ -204,7 +204,21 @@ export interface PremiumPill {
   label: string;
 }
 
-export function premiumPill(state: PremiumState): PremiumPill | null {
+export function premiumPill(
+  state: PremiumState,
+  /** False for a member. Defaults to the owner's view. */
+  canManage = true,
+): PremiumPill | null {
+  /*
+    The pill narrows with the copy, and it was missed the first time.
+
+    `describePremium` stopped telling a member the owner's card was declined,
+    and the chip beside it went on saying "Payment failed" — the same
+    disclosure, two words instead of two sentences, and visible only by looking
+    at the rendered screen. A member is told the state that affects them, which
+    is that Premium is not on.
+  */
+  if (state === "past_due" && !canManage) return { tone: "warn", label: "Not active" };
   switch (state) {
     case "premium":
       return { tone: "ok", label: "Premium" };

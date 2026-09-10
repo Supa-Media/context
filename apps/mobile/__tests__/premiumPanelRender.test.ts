@@ -39,6 +39,7 @@
  * Added after the adversarial review, run against a committed tree:
  *
  *   `describePremium` telling a member the owner's card was declined       2
+ *   `premiumPill` still labelling a member's screen "Payment failed"      2
  *
  * **The first row is 0 → 3 and the 0 is the finding.** The first attempt at it
  * produced unbalanced JSX, so the suite failed to compile rather than failing a
@@ -264,6 +265,15 @@ describe("what each screen offers", () => {
     const text = host.textContent ?? "";
     expect(text).not.toMatch(/update the card/i);
     expect(text).not.toMatch(/payment did not go through/i);
+    /*
+      THE PILL COUNTS AS TELLING THEM.
+
+      The copy narrowed and the chip beside it went on reading "Payment
+      failed" — the same disclosure in two words instead of two sentences.
+      Nothing caught it until the screen was rendered and looked at, which is
+      why this assertion is over the whole text rather than over the paragraph.
+    */
+    expect(text).not.toMatch(/payment failed/i);
     // …while the owner's own screen still says exactly that, because they can
     // act on it.
     const owner = mount(

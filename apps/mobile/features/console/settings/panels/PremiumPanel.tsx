@@ -148,7 +148,7 @@ export function PremiumBody({
   const status = view.status;
   const state = premiumStateOf(status?.status);
   const copy = describePremium(state, status?.canManage ?? true);
-  const pill = premiumPill(state);
+  const pill = premiumPill(state, status?.canManage ?? true);
   const control = premiumControl(view);
   const session = view.session;
 
