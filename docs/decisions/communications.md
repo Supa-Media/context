@@ -1336,8 +1336,8 @@ the day it stopped on is picked up again once the connection's usage has room,
 by the next scheduled pass.
 
 **What phase 1 did NOT wire up — closed 2026-09-10 by the forward sync loop
-below, and left here because the gap it describes was real for three days and
-the shape of the fix is the argument.** `apps/mcp/src/communications/gmailSync.js`
+below, and left here rather than deleted because the gap it describes was real
+and the shape of the fix is the argument.** `apps/mcp/src/communications/gmailSync.js`
 takes its Gmail socket, its access token and its `ContextStore` as parameters
 and is tested end to end against a fixture Gmail server and an in-memory store
 — but for a while nothing called it at all: the historical backfill that used
