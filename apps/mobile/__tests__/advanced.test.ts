@@ -10,10 +10,13 @@ import {
 } from "../features/console/advanced/advanced";
 
 describe("who may read the audit trail through the console", () => {
-  // `listEvents` itself is member-readable on the backend — this gate is
-  // deliberately stricter than that, because `paths` on every row is an open
-  // leak `docs/decisions/privacy-and-sharing.md` names and the server has not
-  // closed. See `canReadAuditTrail`'s own doc comment for the measured attack.
+  // `listEvents` itself is member-readable on the backend, and `paths` is now
+  // gated server-side to the reader's own clearance or their own rows. This
+  // gate is deliberately stricter still: a member reading the trail keeps
+  // every row's incidence and whatever `details` the allow-list publishes,
+  // and this console gate holds that narrower residual signal at `owner`
+  // until a product decision opens it. See `canReadAuditTrail`'s own doc
+  // comment for the current reasoning.
   test("only the owner, never a member or an editor", () => {
     expect(canReadAuditTrail("owner")).toBe(true);
     expect(canReadAuditTrail("editor")).toBe(false);
