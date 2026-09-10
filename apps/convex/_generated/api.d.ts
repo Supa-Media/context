@@ -13,6 +13,8 @@ import type * as crons from "../crons.js";
 import type * as functions_admin from "../functions/admin.js";
 import type * as functions_account from "../functions/account.js";
 import type * as functions_audit from "../functions/audit.js";
+import type * as functions_billing from "../functions/billing.js";
+import type * as functions_billingStripe from "../functions/billingStripe.js";
 import type * as functions_authorizations from "../functions/authorizations.js";
 import type * as functions_cardAssets from "../functions/cardAssets.js";
 import type * as functions_cardRender from "../functions/cardRender.js";
@@ -86,6 +88,8 @@ declare const fullApi: ApiFromModules<{
   "functions/admin": typeof functions_admin;
   "functions/account": typeof functions_account;
   "functions/audit": typeof functions_audit;
+  "functions/billing": typeof functions_billing;
+  "functions/billingStripe": typeof functions_billingStripe;
   "functions/authorizations": typeof functions_authorizations;
   "functions/cardAssets": typeof functions_cardAssets;
   "functions/cardRender": typeof functions_cardRender;

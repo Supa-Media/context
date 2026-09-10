@@ -25,6 +25,14 @@ jest.mock("convex/react", () => ({
   useAction: () => async () => {
     throw new Error("not used in this test");
   },
+  /*
+    The real `useConvex` returns `undefined` when there is no provider in the
+    tree, which is exactly this harness. `PremiumPanel` asks the question and
+    renders its non-subscribing half on that answer — so the stub returns what
+    the real hook would, rather than a fake client that would then be asked for
+    a subscription nothing here can serve.
+  */
+  useConvex: () => undefined,
 }));
 
 jest.mock("react-native-safe-area-context", () => ({

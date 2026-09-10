@@ -62,25 +62,25 @@ export interface AuditView {
  *
  * `listEvents` itself is member-readable on the backend, deliberately — its
  * own header says the point of a trail is that the people whose notes are
- * involved can see what touched them, and the `details` field is allow-listed
- * per action (`MEMBER_VISIBLE_DETAIL_ACTIONS`) precisely so that read can be
- * safe. But `docs/decisions/privacy-and-sharing.md`'s **"The audit trail's
- * `details` are allow-listed, and its `paths` are not gated at all"** records
- * a second, separate hole the `details` gate does nothing about: `paths` is
- * unconditional on every row, and a read-only member whose `listFiles` on a
- * private folder correctly returns nothing can still recover that note's full
- * path three times over — from `file.create`, from `visibility.note`, and from
- * `file.delete`, which names every private sibling via `keysUnder` expanded at
- * the *actor's* clearance.
+ * involved can see what touched them, `paths` is gated to the reader's own
+ * clearance or their own rows (`readsEveryPath` in `apps/convex/functions/
+ * audit.ts`), and `details` is allow-listed per action
+ * (`MEMBER_VISIBLE_DETAIL_ACTIONS`) precisely so that read can be safe. See
+ * `docs/decisions/privacy-and-sharing.md`'s **"A row's paths are the reader's
+ * own clearance, or the reader's own hands"** for the server-side fix and
+ * what it cost — this comment used to describe that fix as still open on the
+ * server; it landed, and this gate did not go away with it.
  *
- * That section calls the fix a design decision rather than a line, and leaves
- * it open on the server. This is not that fix and does not claim to be — it is
- * the console's own, strictly narrower gate: until `listEvents` withholds
- * `paths` itself, nothing under `features/console/` may subscribe to it for
- * anyone but the owner. A future server-side fix that lets `listEvents` filter
- * `paths` by the caller's own visibility is what would make this gate
- * loosenable again; removing it before that lands reopens the exact leak this
- * function exists to keep out of the console.
+ * This gate now does **independent** work rather than standing in for the
+ * server one. Even with `paths` closed, a member reading the trail still sees
+ * every row's *incidence* — action, actor, and timestamp, ungated by design,
+ * named in that same doc section as a residual signal — and whatever
+ * `details` the allow-list publishes. Both are weaker than a path, but they
+ * are still more than this console currently chooses to hand a non-owner in
+ * a settings panel, so the gate stays at `owner` until a product decision
+ * says a member should see the trail's incidence here too. Loosening it is a
+ * UI choice now, not a race against an open server-side leak — and is not
+ * this change.
  */
 export function canReadAuditTrail(role: string | undefined): boolean {
   return role === "owner";
