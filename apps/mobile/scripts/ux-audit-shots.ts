@@ -6,14 +6,13 @@
  * Every console surface, in both palettes and at both densities, rendered to
  * standalone HTML so a browser can photograph it.
  *
- * ## Why a third shot script
+ * ## Why a second shot script
  *
  * `design-shots.ts` photographs five phone states against the Obsidian
- * reference and `breadcrumb-shots.ts` photographs one band. Both answer a
- * question that was already asked. This one exists for the question nobody had
- * a picture for: **does the whole app look like one app** — are its buttons the
- * same size, its menus the same shape, its chrome the same weight, in light as
- * in dark, on a phone as on a pointer.
+ * reference, which answers a question that was already asked. This one exists
+ * for the question nobody had a picture for: **does the whole app look like
+ * one app** — are its buttons the same size, its menus the same shape, its
+ * chrome the same weight, in light as in dark, on a phone as on a pointer.
  *
  * That question cannot be answered a screen at a time, which is why this is one
  * file that walks the surfaces rather than a shot added to each feature's own
@@ -286,6 +285,17 @@ function press(node: Element | null): void {
 const find = (_container: HTMLElement, testId: string) =>
   document.body.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
 
+/**
+ * By accessible name — how `deep-path`, below, presses down through a folder
+ * listing, whose rows carry no `testID` of their own (`FolderView`'s labels
+ * are `"<name>, folder"` for a folder and the plain name for a file).
+ */
+function byLabel(label: string): HTMLElement {
+  const node = document.body.querySelector<HTMLElement>(`[aria-label="${label}"]`);
+  if (node === null) throw new Error(`no control labelled ${label}`);
+  return node;
+}
+
 /** The same, but a missing one says which one rather than "nothing to press". */
 function need(container: HTMLElement, testId: string): HTMLElement {
   const node = find(container, testId);
@@ -402,6 +412,61 @@ const SHOTS: readonly Shot[] = [
       */
       need(container, "breadcrumb-leaf");
     },
+  },
+  {
+    /*
+      Evidence for a deletion. Before this change, a path this deep — four
+      real folders beside a title — would have folded three of them into a
+      `…` and protected the leaf with a character budget (`crumbs.ts`'s
+      `MAX_FOLDER_CRUMBS`, `Breadcrumb`'s `phoneRowBudget`). Both are gone:
+      the row is a `ScrollView`, so it draws every segment and simply runs
+      long rather than eliding one. Phone only — the pointer layout never
+      elided in the first place, so it has nothing to demonstrate here beyond
+      what "reading" already shows.
+    */
+    name: "deep-path",
+    prepare: (container, settle) => {
+      /*
+        Pressed down through the tree rather than addressed by `?note=`
+        directly. The demo browser resets its own selection to
+        `tree.defaultSelection` in an effect keyed on the tree object
+        (`useDemoFileBrowser`, "switching context means a different bucket") —
+        harmless for a real navigation, where that effect only ever fires
+        beside an actual context switch, but on a *mount* it fires in the same
+        pass as any effect that tried to open a different note by address and
+        wins the race, silently putting the default note back. Walking down by
+        press is the same route a person takes and does not hit that reset at
+        all — `NavBand`'s own before/after `breadcrumb-shots.ts` shot used to
+        take exactly this path for the same reason before it was deleted with
+        the elision it existed to photograph.
+      */
+      press(need(container, "nav-context-seyi"));
+      settle();
+      need(container, "folder-row");
+      for (const folder of [
+        "3-resources, folder",
+        "books, folder",
+        "reading-notes, folder",
+        "2026, folder",
+      ]) {
+        press(byLabel(folder));
+        settle();
+      }
+      press(byLabel("the-lean-startup"));
+      settle();
+
+      need(container, "breadcrumb-leaf");
+      // Every ancestor is its own live target — nothing folded into a gap.
+      for (const folder of [
+        "3-resources",
+        "3-resources/books",
+        "3-resources/books/reading-notes",
+        "3-resources/books/reading-notes/2026",
+      ]) {
+        need(container, `breadcrumb-folder-${folder}`);
+      }
+    },
+    sizes: ["phone"],
   },
   {
     name: "context-root",

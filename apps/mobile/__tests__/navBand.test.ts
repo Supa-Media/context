@@ -52,6 +52,8 @@ interface Mounted {
   need: (testID: string) => HTMLElement;
   text: () => string;
   press: (testID: string) => void;
+  /** Re-render the same root with new props — the same DOM node stays, unless a `key` says otherwise. */
+  rerender: (node: ReactElement) => void;
   unmount: () => void;
 }
 
@@ -97,15 +99,24 @@ function mount(node: ReactElement): Mounted {
         node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
     },
+    rerender: (node) => {
+      act(() => {
+        root.render(node);
+      });
+    },
     unmount: close,
   };
 }
 
-/** The band as the console layout builds it, with a stub path row. */
-function mountBand(
-  over: { current?: ReactElement | null; contexts?: ReactElement | null; path?: ReactElement | null } = {},
-  onOpenRoot: () => void = () => {},
-): Mounted {
+interface BandOver {
+  current?: ReactElement | null;
+  contexts?: ReactElement | null;
+  path?: ReactElement | null;
+  trailKey?: string;
+}
+
+/** The element `mountBand` mounts, exposed so a test can `rerender` with new `over`. */
+function bandElement(over: BandOver = {}, onOpenRoot: () => void = () => {}): ReactElement {
   const current =
     over.current === undefined
       ? createElement(CurrentContextPill, {
@@ -114,15 +125,15 @@ function mountBand(
           onSelect: () => {},
         })
       : over.current;
-  return mount(
-    createElement(
-      NavBandProvider,
-      {
-        nodes: { contexts: over.contexts ?? null, current },
-        children: createElement(NavBand, { path: over.path ?? null }),
-      },
-    ),
-  );
+  return createElement(NavBandProvider, {
+    nodes: { contexts: over.contexts ?? null, current },
+    children: createElement(NavBand, { path: over.path ?? null, trailKey: over.trailKey }),
+  });
+}
+
+/** The band as the console layout builds it, with a stub path row. */
+function mountBand(over: BandOver = {}, onOpenRoot: () => void = () => {}): Mounted {
+  return mount(bandElement(over, onOpenRoot));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -236,6 +247,53 @@ describe("the band's two rows", () => {
     // It lies over the last segment, so it must not be able to eat a press.
     expect(fade.getAttribute("aria-hidden")).toBe("true");
     expect(getComputedStyle(fade).pointerEvents).toBe("none");
+  });
+
+  /**
+   * **The scroll position is a property of the DOM node, not of the path it
+   * happens to show.** Nothing about re-rendering with a new (or a shorter)
+   * `path` resets it on its own — a browser tab's scroll position does not
+   * reset just because the page's content changed under it either — so a
+   * caller that wants "the same position" to keep its scroll and "a new
+   * position" to start over has to say which this render is, which is what
+   * `trailKey` is for.
+   *
+   * `scrollLeft` rather than a real drag: jsdom does no layout at all, so
+   * there is nothing here for a real gesture to be clamped against — but the
+   * property is real state on the element, which is exactly the state a
+   * `key` change has to throw away.
+   *
+   * SABOTAGE: `key={trailKey}` dropped from `NavBand`'s `ScrollView`. Fails on
+   * the second assertion — the same DOM node survives every render regardless
+   * of `trailKey`, so `scrollLeft` would still read 120 after "leaf-two".
+   */
+  test("a new position resets the row's scroll; the same position keeps it", () => {
+    const band = mountBand({
+      trailKey: "a/b",
+      path: createElement("span", { "data-testid": "stub-path" }, "leaf-one"),
+    });
+    const trail = band.need("nav-band-trail");
+    trail.scrollLeft = 120;
+
+    // Same position, re-rendered — the note's own draft changing, say. The
+    // row is the same DOM node, so the scroll survives.
+    band.rerender(
+      bandElement({
+        trailKey: "a/b",
+        path: createElement("span", { "data-testid": "stub-path" }, "leaf-one, redrawn"),
+      }),
+    );
+    expect(band.need("nav-band-trail").scrollLeft).toBe(120);
+
+    // A different position — a shallower note opened next. A fresh row, and a
+    // fresh row's scroll starts at zero exactly as a newly opened tab's does.
+    band.rerender(
+      bandElement({
+        trailKey: "c",
+        path: createElement("span", { "data-testid": "stub-path" }, "leaf-two"),
+      }),
+    );
+    expect(band.need("nav-band-trail").scrollLeft).toBe(0);
   });
 
   test("the band draws nothing at all when it has neither row", () => {

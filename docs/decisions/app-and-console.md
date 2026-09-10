@@ -2270,6 +2270,21 @@ row that is *bounded* instead of one that grows with the tree, and the segment
 it drops is the middle of the path, which is the part a breadcrumb is least read
 for.
 
+**Superseded, 2026-09-10.** The cap this argues for is gone — `MAX_FOLDER_CRUMBS`,
+the "first, gap, last" reshaping, `crumbs.ts`'s `{ kind: "gap" }` crumb — deleted
+along with the character budget it grew into (§4, below), because the constraint
+both existed to solve was *width*, and width stopped being a constraint the day
+row two of `NavBand` became a horizontal `ScrollView`: the owner's own words,
+once that scroller existed to make the question worth asking again, were "I feel
+like we shouldn't even show `...` ellipses, we should just show the full path but
+allow a horizontal scroll." Removing the cap makes strictly **more** of the path
+reachable than "two, not three" ever kept — every segment is its own pressable
+target now, not only the root and the immediate parent a cap kept live — so the
+reachability this section argues for is satisfied rather than reversed. What
+expired is only the reason a cap was thought necessary at all; the measurements
+below are kept as the record of why it once was one. See `crumbs.ts` and
+`features/console/files/Breadcrumb.tsx`.
+
 The row stays anchored at its **leading** edge when it does overflow, and that
 is a choice about what may go off screen. The pill is a control — the way up,
 and the thing this whole change is about — while the leaf is a statement the
@@ -2299,6 +2314,17 @@ which is honest and is where the switch is going. Restoring the other context's
 place is unchanged and is still the good half.
 
 #### 4. A count cannot guarantee a fit, so a width budget does
+
+**Superseded, 2026-09-10 — everything in this section is deleted.** `budget`,
+`phoneRowBudget`, `CHAR_WIDTH_PX`, `SEPARATOR_CHARS`, the leaf's `fullLabel`,
+`SLACK_PX` — all of it, along with the cap it topped up (§ above). The scroller
+this section spent its whole argument working around answers "does the leaf
+fit" for free, correctly, at every width and every font size, which a
+pixel-width estimate could only ever approximate from one browser's rendering
+of one font stack. Kept below as the record of why a budget seemed necessary at
+the time and what it cost to get right; the sabotage table at the end of this
+section is no longer a live guard, since the code and the tests it names do not
+exist any more.
 
 **Two, not three** (above) said the honest thing about `MAX_FOLDER_CRUMBS`: a
 cap bounds the row, it does not fit it, because segment names are the

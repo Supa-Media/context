@@ -11,7 +11,7 @@ import { PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { fonts, layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
-import { CHAR_WIDTH_PX, crumbsFor, type Crumb } from "./crumbs";
+import { crumbsFor, type Crumb } from "./crumbs";
 import type { Visibility } from "./types";
 
 /**
@@ -74,8 +74,7 @@ import type { Visibility } from "./types";
  *
  * - **The leaf, and the folders, and nothing else.** This is a *position*: the
  *   line answers "where am I" completely, or it does not answer it. See the
- *   header for what deleting the leaf cost, and `crumbs.ts` for the cap that
- *   keeps a deep path a bounded row rather than one that grows with the tree.
+ *   header for what deleting the leaf cost.
  * - **No visibility chip.** A note carries it as a Properties row and a folder
  *   states it in a sentence directly beneath. Both are fuller than the brief
  *   chip, and both are already on screen.
@@ -101,83 +100,26 @@ import type { Visibility } from "./types";
  * unchanged — **no label is ever shortened**, the row gets longer, the scroll
  * absorbs it.
  *
- * What the row cannot absorb is **depth**, and that is a different question the
- * same rule was answering badly. The segment that scrolls off the trailing edge
- * is the leaf, which is the one this line exists to state. So `crumbs.ts` caps
- * the **count** at `MAX_FOLDER_CRUMBS` and elides the middle to `…`; every
- * label that is drawn is drawn whole. The cap bounds the row rather than
- * guaranteeing a fit — names are the customer's, so no count is a width, and
- * `crumbs.ts` records what was measured at 390pt and what it actually buys.
+ * **What the row used to be unable to absorb was depth, and that expired.**
+ * The segment that scrolls off the trailing edge can be the leaf, and for a
+ * while that was answered by capping the folder count and eliding the middle
+ * to `…` — `crumbs.ts` carried `MAX_FOLDER_CRUMBS`, and a caller that needed
+ * the leaf's fit *guaranteed* rather than merely bounded passed it a character
+ * budget (`phoneRowBudget`, once below this comment). Both are gone: the row
+ * is already a `ScrollView`, so it answers "what fits" for free, correctly, at
+ * every width and every font size — a question the elision was only ever
+ * approximating. `crumbs.ts`'s header has the fuller argument and
+ * `docs/decisions/app-and-console.md`'s "Two, not three" and "A count cannot
+ * guarantee a fit" record what this supersedes and why it is not a reversal:
+ * every segment is reachable now, where a cap only kept two of them so.
  *
  * The scroller is one level up because the context button scrolls **with** these
  * segments: they are one line, and a button that stayed still while its own path
- * slid out from under it is two controls pretending to be one.
+ * slid out from under it is two controls pretending to be one. It starts at its
+ * leading edge — the pill and the ancestors nearest it — because the leaf is
+ * already stated a line below, as the note's own inline title; a control you
+ * cannot reach is worse than a fact you may have to scroll to.
  */
-/**
- * The characters `crumbsFor` may spend on the phone's row, given the screen
- * it is drawn on and the pill in front of it.
- *
- * A pixel budget rather than a character one is what the screen actually
- * offers, so this is the one place that converts — everything downstream of
- * it, in `crumbs.ts`, is plain arithmetic on a number of characters and has no
- * idea a screen exists. Every constant here is an estimate of a real style
- * elsewhere, kept in points and named for what it stands for rather than
- * folded into one guess, so the next person to retune it can tell which piece
- * moved:
- *
- * - **The band's own margin**, `layout.readingMargin` on both sides —
- *   `NavBand`'s `gutter` prop, which is what `BrowsePane` passes it.
- * - **The trailing fade**, 24pt — `NavBand`'s own number for the same falloff,
- *   duplicated with a comment rather than imported because it is a decoration
- *   this module has no other reason to depend on.
- * - **The pill**, estimated rather than measured: 6pt of padding on each
- *   side (`layout.crumbPill`'s own `head` chrome — see `ContextStrip.tsx`'s
- *   `Pill`), and the label itself at 11px mono, the same face and size as the
- *   leaf beside it.
- *
- *   **This used to budget for the switcher pill** — `space.x2` padding, a 6pt
- *   gap, an 8pt dot, a 13px body label — because the head *was* a switcher
- *   pill drawn a second time. It is `layout.crumbPill` now: no dot, no gap for
- *   one, `radii.xs` padding rather than `radii.md`'s, and a label matching the
- *   leaf's own size rather than running wider than it. Carrying the old,
- *   larger budget forward here would still be *safe* — an overestimate costs a
- *   folder, never the leaf — but it would spend characters this row now
- *   genuinely has, which is the whole visible payoff of the smaller head: a
- *   few more characters of the note's own title before it has to elide.
- *   `CHAR_WIDTH_PX` carries the same bias for the row's own glyphs, mono
- *   against mono, so this estimate is not generous in the way the old one had
- *   to be to cover a wider, different-faced pill.
- * - **A flat safety margin**, `SLACK_PX`. `breadcrumb-shots.ts` photographed
- *   this against the real font before that constant existed and the leaf was
- *   still fading out under `NavBand`'s gradient — every other number here was
- *   individually a fair estimate, and the row still ran 18pt over, which is
- *   what a flex row's own gaps cost between segments and none of these
- *   estimates were charged for. The margin is what stops the next rounding
- *   error from being a fade nobody sees coming; `crumbs.ts`'s `SEPARATOR_CHARS`
- *   is the corresponding correction on the *characters* side of the divide.
- *
- * Conservative is the only direction this is allowed to be wrong in: the
- * whole point is that the leaf fits, so a number that overestimates the room
- * available is the one defect this function must never have. `CHAR_WIDTH_PX`
- * carries the same bias for the row's own glyphs. `breadcrumb-shots.ts` is
- * where this gets checked against a real browser rather than arithmetic.
- */
-/**
- * Exported for `breadcrumbPath.test.ts`, which is otherwise free of
- * `react-native` (see that file's own header) — this is the one function in
- * here that is plain arithmetic over numbers, so it is the one worth pulling
- * out of a component file and testing directly rather than re-deriving its
- * formula as a second copy in the test.
- */
-export function phoneRowBudget(windowWidthPx: number, contextLabel: string): { chars: number } {
-  const gutterPx = layout.readingMargin * 2;
-  const fadePx = 24;
-  const pillChromePx = 6 * 2; // `layout.crumbPill`'s own horizontal padding
-  const pillLabelPx = contextLabel.length * 7.0; // 11px mono, same face as the leaf
-  const slackPx = 12;
-  const availablePx = windowWidthPx - gutterPx - fadePx - pillChromePx - pillLabelPx - slackPx;
-  return { chars: Math.max(0, Math.floor(availablePx / CHAR_WIDTH_PX)) };
-}
 
 export function Breadcrumb({
   path,
@@ -221,9 +163,8 @@ export function Breadcrumb({
    * Draw the path and nothing else — see the header. The phone's shape.
    *
    * The whole path — every ancestor **and** the place itself, whichever kind
-   * it names — capped in the middle at `MAX_FOLDER_CRUMBS` so the leaf is on
-   * screen without scrolling. What it drops is the context segment and the
-   * visibility chip, both of which the surfaces around it already carry.
+   * it names. What it drops is the context segment and the visibility chip,
+   * both of which the surfaces around it already carry.
    */
   pathOnly?: boolean;
 }) {
@@ -231,25 +172,13 @@ export function Breadcrumb({
   const windowWidth = useWindowDimensions().width;
   const compact = densityFor(windowWidth) === "compact";
   /*
-    The whole path, leaf included, and capped only where the width demands it.
-
-    `pathOnly` is the phone: a context pill, then this, on a 390pt row that
-    scrolls. `MAX_FOLDER_CRUMBS` keeps the leaf reachable without dragging —
-    see `crumbs.ts` for why scrolling is not an answer for the one segment that
-    says where you are. The pointer layout asks for no cap: it has the width for
-    the whole path and a visibility chip beside it.
-
-    A cap **bounds** the row; it does not fit it — a scroll is still how a long
-    but ordinary path is read. `budget` is the difference: on a phone the leaf's
-    fit is not left to a scroll and a fade, it is guaranteed, so it is passed
-    only here. `phoneRowBudget` turns the screen this is actually drawn on into
-    the characters `crumbsFor` spends.
+    The whole path, leaf included, on both densities. `pathOnly` is the phone:
+    a context pill, then this, on a `ScrollView` row — see the header for why
+    that scroller is the answer to "does the leaf fit" rather than a folder
+    count or a character budget. The pointer layout draws the same crumbs
+    beside a visibility chip it has the width for.
   */
-  const crumbs = crumbsFor(path, {
-    title,
-    maxFolders: pathOnly === true ? undefined : null,
-    budget: pathOnly === true ? phoneRowBudget(windowWidth, contextLabel) : null,
-  });
+  const crumbs = crumbsFor(path, { title });
 
   if (pathOnly === true) {
     /*
@@ -260,8 +189,8 @@ export function Breadcrumb({
     if (crumbs.length === 0) return null;
     return (
       <>
-        {crumbs.map((crumb, index) => (
-          <Fragment key={keyFor(crumb, index)}>
+        {crumbs.map((crumb) => (
+          <Fragment key={keyFor(crumb)}>
             {/*
               A separator in front of every crumb, the first included — because
               the thing to its left is the context button, and `@seyi 1-projects`
@@ -296,7 +225,7 @@ export function Breadcrumb({
       )}
 
       {crumbs.map((crumb, index) => (
-        <Fragment key={keyFor(crumb, index)}>
+        <Fragment key={keyFor(crumb)}>
           {/*
             A separator joins two things. With the context segment dropped at
             `compact` there is nothing to the left of the first crumb, and an
@@ -344,13 +273,11 @@ export function Breadcrumb({
 }
 
 /**
- * A React key that survives elision.
- *
- * The folder path is unique and stable, and the gap has no path of its own —
- * it stands for several — so it is keyed by position. There is at most one.
+ * A React key. The path is unique and stable, so there is no need for the
+ * index this once fell back to for a gap that stood for several at once.
  */
-function keyFor(crumb: Crumb, index: number): string {
-  return crumb.kind === "gap" ? `gap-${index}` : `${crumb.kind}:${crumb.path}`;
+function keyFor(crumb: Crumb): string {
+  return `${crumb.kind}:${crumb.path}`;
 }
 
 /**
@@ -358,9 +285,7 @@ function keyFor(crumb: Crumb, index: number): string {
  *
  * A folder is a control — pressing it lists that folder, which is what a
  * breadcrumb is *for*; a path you can only read is a label. The leaf is not:
- * pressing it would re-select what is already open. The gap is neither, and
- * says out loud which folders it stands for so a screen reader is not handed a
- * bare ellipsis.
+ * pressing it would re-select what is already open.
  */
 function Segment({
   crumb,
@@ -376,26 +301,6 @@ function Segment({
 }) {
   const styles = useThemedStyles(makeStyles);
 
-  if (crumb.kind === "gap") {
-    return (
-      <Text
-        variant="mono"
-        style={styles.folder}
-        /*
-          Not `aria-hidden`. It is standing in for real folders and a reader
-          that skipped it would be told a path that is missing its middle with
-          nothing marking the join.
-        */
-        accessibilityLabel={`${crumb.hidden.length} more ${
-          crumb.hidden.length === 1 ? "folder" : "folders"
-        }: ${crumb.hidden.join(", ")}`}
-        testID="breadcrumb-gap"
-      >
-        …
-      </Text>
-    );
-  }
-
   if (crumb.kind === "leaf") {
     return (
       <Text
@@ -409,14 +314,6 @@ function Segment({
         style={leafStyle}
         numberOfLines={1}
         testID="breadcrumb-leaf"
-        /*
-          Only set when a width budget shortened the label — a screen reader
-          gets the whole name, which the screen itself no longer has room for.
-          `undefined` rather than always passing `crumb.label` twice: a real
-          `accessibilityLabel` on a plain word is a second thing that can drift
-          from the visible one.
-        */
-        accessibilityLabel={crumb.fullLabel}
       >
         {crumb.label}
       </Text>
@@ -430,6 +327,18 @@ function Segment({
       radius={radii.xs}
       style={styles.segment}
       hoverStyle={styles.segmentHover}
+      /*
+        The drawn box is `layout.crumbSegmentHeight` — an 11px mono label
+        inside `segment`'s own 1pt of vertical padding — which is short of
+        `layout.minTouchTarget` by design: `segment` pads for legibility, not
+        for a thumb. `layout.navBandSegmentSlop` is `explorerRowSlop`'s own
+        shape, `(minTouchTarget - crumbSegmentHeight) / 2`, and buys the rest
+        of the floor back on the pressable rather than growing the visual —
+        `PressRow`'s own rule, "pad the pressable, never the visual". This
+        matters more now than it used to: with the elision gone there are more
+        of these on the row to hit, not fewer.
+      */
+      hitSlop={NAV_BAND_SEGMENT_HIT_SLOP}
       testID={`breadcrumb-folder-${crumb.path}`}
     >
       <Text variant="mono" style={styles.folder} numberOfLines={1}>
@@ -438,6 +347,21 @@ function Segment({
     </PressRow>
   );
 }
+
+/**
+ * Exported so `breadcrumbPath.test.ts` can hold the exact object `Segment`
+ * passes to `PressRow`, rather than re-deriving it: react-native-web's `View`
+ * drops `hitSlop` from the props it forwards to the DOM (see `forwardedProps`
+ * in `View`'s own source) before it ever reaches an element a test could
+ * inspect, so this is the one thing a jsdom test can actually hold to prove
+ * the slop is still wired up. What it buys is real only on the platforms
+ * whose `Pressable` honours `hitSlop` for hit-testing — today, everywhere
+ * except the web build.
+ */
+export const NAV_BAND_SEGMENT_HIT_SLOP = {
+  top: layout.navBandSegmentSlop,
+  bottom: layout.navBandSegmentSlop,
+};
 
 function Separator() {
   const styles = useThemedStyles(makeStyles);
