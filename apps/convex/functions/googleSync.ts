@@ -74,8 +74,9 @@ import { defaultGoogleDestinationFolder, mailConnectEnabled, requireActor } from
 /*
  * The arithmetic lives in a leaf module rather than here, because
  * `googleConnect.ts` reads it too and a cycle between these two files fails as
- * an intermittently missing export rather than as an error. See that file's
- * own comment; it cost a full afternoon of a flaky test in a different suite.
+ * an intermittently missing export rather than as an error — see that file's
+ * own comment for the shape it took: a test about deleting an account, failing
+ * one full-suite run in six, naming a function neither file mentions.
  */
 import {
   DEFAULT_SYNC_INTERVAL_MINUTES,

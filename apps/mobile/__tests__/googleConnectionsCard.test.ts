@@ -364,6 +364,32 @@ describe("the sync schedule on a connected account", () => {
     screen.unmount();
   });
 
+  test("a Calendar panel is not shown a schedule that only advances mail", () => {
+    const account = connection(neverSynced);
+    const screen = render(
+      createElement(GoogleConnectionsCard, {
+        service: "calendar",
+        connections: [
+          {
+            ...account,
+            syncServices: { gmail: true, calendar: true, chat: false },
+            calendar: {
+              destinationFolder: "0-inbox/calendar",
+              destinationPath: "0-inbox/calendar/YYYY-MM-DD.md",
+              syncCursorReady: false,
+            },
+          },
+        ],
+      }),
+    );
+    const text = screen.container.textContent ?? "";
+    expect(text).not.toContain("Sync schedule");
+    expect(text).not.toContain("Every 15 min");
+    // Calendar's own honest sentence is still there.
+    expect(text).toContain("Connected; upcoming event sync setup is pending");
+    screen.unmount();
+  });
+
   test("the picker is the owner's alone — absent for anybody else, not disabled", () => {
     const withoutActions = render(
       createElement(GoogleConnectionsCard, {

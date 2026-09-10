@@ -1037,7 +1037,7 @@ const schema = defineSchema({
     /**
      * HOW OFTEN THIS ACCOUNT IS POLLED, AND WHEN IT IS NEXT DUE.
      *
-     * These five fields are the whole scheduling state of the forward sync
+     * The fields below are the whole scheduling state of the forward sync
      * loop (`functions/googleSync.ts`), and they are **per account, not per
      * product**: one Google account is one grant, so one pass mints one
      * access token and walks whichever products the row enables. A per-product
@@ -1071,6 +1071,11 @@ const schema = defineSchema({
      */
     syncIntervalMinutes: v.optional(v.number()),
     lastSyncAt: v.optional(v.number()),
+    nextSyncAt: v.optional(v.number()),
+    syncStartedAt: v.optional(v.number()),
+    lastSyncFailureAt: v.optional(v.number()),
+    lastSyncFailureCode: v.optional(v.string()),
+    lastSyncFailure: v.optional(v.string()),
     /**
      * Bytes the forward loop has written into the bucket for this connection.
      *
@@ -1081,11 +1086,6 @@ const schema = defineSchema({
      * `bytesAlreadyUsed`.
      */
     syncBytesWritten: v.optional(v.number()),
-    nextSyncAt: v.optional(v.number()),
-    syncStartedAt: v.optional(v.number()),
-    lastSyncFailureAt: v.optional(v.number()),
-    lastSyncFailureCode: v.optional(v.string()),
-    lastSyncFailure: v.optional(v.string()),
     /**
      * Set by disconnect. The row is kept — never deleted outright — so a
      * disconnected connection's sync job can be told apart from one that

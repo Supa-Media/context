@@ -438,11 +438,21 @@ function ConnectedGoogleRow({
             />
           ) : null}
         </View>
-        <GoogleSyncScheduleBlock
-          connectionId={connection.connectionId}
-          sync={connection.sync}
-          saveSyncInterval={actions?.saveSyncInterval}
-        />
+        {/*
+          The schedule is the *account's* — one grant, one pass — but only
+          Gmail is advanced by that pass today, so it is drawn only where Gmail
+          is in view. A Calendar or Chat panel showing "every 15 minutes, next
+          due at 10:15" would be a promise this loop does not yet keep for
+          those two; their own status lines already say their sync is pending.
+          When they join the loop, this condition is what goes.
+        */}
+        {connection.syncServices.gmail && showBlock("gmail") ? (
+          <GoogleSyncScheduleBlock
+            connectionId={connection.connectionId}
+            sync={connection.sync}
+            saveSyncInterval={actions?.saveSyncInterval}
+          />
+        ) : null}
         {showAccountError ? (
           <FormError
             headline={inlineErrorCode ? statusLabel(inlineErrorCode) : "Google needs attention"}
