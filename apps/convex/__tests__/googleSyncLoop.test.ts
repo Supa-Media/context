@@ -1036,7 +1036,16 @@ describe("what the console is told, so the two states stop looking alike", () =>
 function googleAndBucket(options: {
   backend: MemoryS3;
   profileHistoryId?: string;
-  history?: { messageIds: string[]; historyId: string } | { expired: true };
+  history?:
+    | { messageIds: string[]; historyId: string }
+    | { expired: true }
+    /**
+     * A paged history, one entry per page, each carrying a record id — the
+     * shape that exposes whether the walk's page limit is handled. Without
+     * this the fixture could never return a `nextPageToken`, and paging was
+     * the part of the real client nothing exercised.
+     */
+    | { pages: { recordId: string; messageIds?: string[] }[]; historyId: string };
   messages?: { id: string; date: string; subject: string; text: string }[];
 }) {
   const calls: string[] = [];
@@ -1065,6 +1074,23 @@ function googleAndBucket(options: {
     }
     if (url.pathname === "/gmail/v1/users/me/history") {
       if (options.history && "expired" in options.history) return json({ error: { code: 404 } }, 404);
+      if (options.history && "pages" in options.history) {
+        const index = Number(url.searchParams.get("pageToken") ?? "0");
+        const page = options.history.pages[index];
+        if (!page) return json({ history: [], historyId: options.history.historyId });
+        const body: Record<string, unknown> = {
+          history: [
+            {
+              id: page.recordId,
+              messagesAdded: (page.messageIds ?? []).map((id) => ({ message: { id } })),
+            },
+          ],
+          // Every page carries the MAILBOX head, which is the whole trap.
+          historyId: options.history.historyId,
+        };
+        if (index + 1 < options.history.pages.length) body.nextPageToken = String(index + 1);
+        return json(body);
+      }
       const history = options.history ?? { messageIds: [], historyId: "1000" };
       return json({
         history: history.messageIds.map((id) => ({ messagesAdded: [{ message: { id } }] })),
@@ -1313,6 +1339,49 @@ describe("one pass, end to end, through the credential barrier", () => {
     });
     await runPass(t, workspaceId, connectionId);
     expect(backend.snapshot()).toEqual(first);
+  });
+
+  test("a walk that runs out of pages stores the record boundary, not the head", async () => {
+    const { t, workspaceId, connectionId, backend } = await endToEnd({ historyId: "1000" });
+    // Fifty-one pages against a fifty-page walk: the client stops one short of
+    // the end, and every page has claimed the mailbox head all along.
+    const pages = Array.from({ length: 51 }, (_, index) => ({
+      recordId: String(1100 + index),
+    }));
+    const google = googleAndBucket({ backend, history: { pages, historyId: "999999" } });
+    vi.stubGlobal("fetch", google.fetchImpl);
+
+    const result = await runPass(t, workspaceId, connectionId);
+
+    expect(result).toMatchObject({ status: "synced", truncated: true });
+    const row = await readConnection(t, connectionId);
+    /*
+      The head would say "caught up" while fifty-one pages of history had been
+      read and everything behind them skipped forever. The last record actually
+      walked says where to resume, and the row says there is more.
+    */
+    expect(row.gmail?.historyId).toBe("1149");
+    expect(row.gmail?.historyId).not.toBe("999999");
+    expect(row.syncCatchUp).toBe(true);
+    expect(row.nextSyncAt).toBeLessThanOrEqual(Date.now());
+    expect((await sweep(t)).started).toBe(1);
+  });
+
+  test("...and the next pass carries on from there rather than repeating itself", async () => {
+    const { t, workspaceId, connectionId, backend } = await endToEnd({ historyId: "1149" });
+    const google = googleAndBucket({
+      backend,
+      history: { pages: [{ recordId: "1150" }], historyId: "999999" },
+    });
+    vi.stubGlobal("fetch", google.fetchImpl);
+
+    const result = await runPass(t, workspaceId, connectionId);
+
+    expect(result).toMatchObject({ status: "synced", truncated: false });
+    const row = await readConnection(t, connectionId);
+    // A walk that reached the end may store the head, and only then.
+    expect(row.gmail?.historyId).toBe("999999");
+    expect(row.syncCatchUp).toBeUndefined();
   });
 
   test("an expired cursor re-baselines forward and records the gap", async () => {
