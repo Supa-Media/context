@@ -7,10 +7,14 @@
  * question a person is asking rather than the subsystem that answers it:
  *
  *  - **What comes in** — everything that fills a brain without being typed
- *    into it: the mailboxes and calendars we read, this Mac, and the address
- *    mail can be forwarded to. It is one section because it is one question,
- *    and the nesting people used to have to learn — a Google *account*, which
- *    has an Email *sub-card* — is our plumbing rather than their question.
+ *    into it: the mailboxes and calendars we read, the chats, this Mac, and
+ *    the address mail can be forwarded to. It was one section, on the argument
+ *    that it is one question. It is four now, because it is four: a person
+ *    asks "why isn't my mail here", not "what does my Google account do", and
+ *    the nesting they had to learn — a Google *account*, which has an Email
+ *    *sub-card*, beside a separate Email capture block — was our plumbing
+ *    rather than their question. Each of the four answers one question on one
+ *    page, however many mechanisms that takes.
 
  *  - **Who can see it** — the people in this context. Previously three clicks
  *    away on an app-level pane that was not about this context at all.
@@ -20,10 +24,11 @@
  *    chip in the top bar, so demoting the section hides nothing.
  *
  * `group: null` sits above the first heading, ungrouped. Sections are absent
- * rather than disabled where they do not apply: a shared workspace has no
- * capture address at all, so "What comes in" does not appear for one — an
- * empty section with an explanation is a better answer than a greyed row, and
- * no answer at all is better still where the concept does not exist.
+ * rather than disabled where they do not apply — a greyed row inviting
+ * somebody to press it is a worse answer than no row. The line that rule stops
+ * at is the *explanation*: a shared workspace has no capture address at all,
+ * and the sentence saying so is worth a section of its own, so "What comes in"
+ * is listed for one and every panel under it refuses in its own words.
  */
 
 export type SettingsGroup =
@@ -143,21 +148,66 @@ export const SETTINGS_SECTIONS = [
     group: null,
     personalOnly: false,
   },
+  /*
+    Four sections where there was one, and the one is worth remembering.
+
+    "Mail, calendar & chats" held everything that fills a brain without being
+    typed into it, and what those things had in common was **our plumbing**: a
+    Google *account* carries Gmail, Calendar and Chat together, so a card built
+    around an account had to carry all three, and a section built around that
+    card had to hold everything else nearby. Nobody opens settings asking "what
+    does my Google account do". They ask "why isn't my mail here" — and that
+    question had two answers in two places, because a mailbox reaches a brain
+    either through a Google account or through the forwarding address, and
+    those are two different mechanisms. The nesting was ours; the question is
+    theirs.
+
+    So: one section per question a person actually has, each answered on one
+    page whatever number of mechanisms it takes. Email is the one that was
+    genuinely split in two before. Chats is two unrelated mechanisms — Google
+    Chat and this Mac's iMessages — under the one word somebody recognises.
+
+    All four are shown on a shared workspace, and deliberately. The controls
+    are personal-only (`CLAUDE.md`: only a personal context has an ingestion
+    alias, and nobody's mailbox belongs to a shared bucket) and each panel
+    gates its own — but the sentence explaining **why** a workspace cannot
+    connect Gmail lives in these same blocks, and hiding them takes the
+    explanation with it. "Absent, not disabled" is right for a control that
+    would be refused; it is wrong for the sentence that says why.
+  */
   {
-    key: "sources",
-    keywords: "email gmail mailbox inbox forward calendar chat imessage messages google mac meetings capture",
+    key: "email",
+    keywords:
+      "email gmail mailbox inbox forward forwarding address capture ingestion sender allowed attachment spam mail google",
     scope: "context",
-    label: "Mail, calendar & chats",
+    label: "Email",
     group: "What comes in",
-    /*
-      Shown on a shared workspace too, and deliberately. The *capture address*
-      is personal-only (`CLAUDE.md`: only a personal context has an ingestion
-      alias) and the pane gates that card itself — but the card explaining
-      **why** a workspace cannot connect Gmail lives in this same block, and
-      hiding the section takes the explanation with it. "Absent, not disabled"
-      is right for a control that would be refused; it is wrong for the
-      sentence that says why.
-    */
+    personalOnly: false,
+  },
+  {
+    key: "calendar",
+    keywords: "calendar calendars ical events event schedule agenda appointments google",
+    scope: "context",
+    label: "Calendar",
+    group: "What comes in",
+    personalOnly: false,
+  },
+  {
+    key: "chats",
+    keywords:
+      "chat chats imessage messages texts sms google spaces dm direct conversation threads mac",
+    scope: "context",
+    label: "Chats",
+    group: "What comes in",
+    personalOnly: false,
+  },
+  {
+    key: "meetings",
+    keywords:
+      "meeting meetings recording record transcript zoom call huddle audio microphone notes mac desktop",
+    scope: "context",
+    label: "Meetings",
+    group: "What comes in",
     personalOnly: false,
   },
   {
@@ -228,9 +278,12 @@ export const DEFAULT_ACCOUNT_SETTINGS_SECTION: SettingsSectionKey = "apps";
 /**
  * The sections this context actually has.
  *
- * `kind` decides one thing today and will decide more: only a personal brain
- * has an address mail can be sent to, so only a personal brain has an Email
- * section. Everything else is common to both.
+ * `kind` decides nothing today and is kept because it will. Only a personal
+ * brain has an address mail can be sent to — but Email, Calendar, Chats and
+ * Meetings are all *listed* for a workspace, because each carries the sentence
+ * saying why it cannot do that here, and a section removed takes its
+ * explanation with it. `personalOnly` is the switch for a section that would
+ * be nothing but a refused control; nothing sets it yet.
  */
 export function settingsSectionsFor(
   kind: "personal" | "shared" | null | undefined,
