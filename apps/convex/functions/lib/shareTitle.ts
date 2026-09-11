@@ -224,11 +224,15 @@ export function boundPreviewChildren(raw: readonly string[]): string[] {
  * and re-publish an identical picture to every unfurler that had cached it.
  */
 export function previewChildrenFrom(
-  entries: ReadonlyArray<{
-    kind: "file" | "folder";
-    name: string;
-    visibility?: Visibility;
-  }>,
+  entries: ReadonlyArray<
+    // A union rather than one shape with an optional field, so that a **folder**
+    // entry cannot reach here without the visibility the filter below reads.
+    // `FileEntry` already requires it, so the real caller is unaffected; what
+    // this refuses is a fixture that omits it and is then silently dropped —
+    // which is how a test measuring ordering would come to measure filtering.
+    | { kind: "file"; name: string; visibility?: Visibility }
+    | { kind: "folder"; name: string; visibility: Visibility }
+  >,
 ): string[] {
   // A folder reaches a `team` listing two ways: its own rule says `team`, or
   // `folderVisibleAtScope` let it through because something NESTED under it is
@@ -244,8 +248,17 @@ export function previewChildrenFrom(
   // `visibility: visibilityOf(child, rules)` — this reads the engine's answer
   // to that question rather than adding a predicate of its own, which is the
   // rule the two search dialects follow for the same reason.
+  //
+  // **Spelled `=== "team"`, never `!== "private"`.** Those were the same
+  // predicate while `Visibility` was two-valued, and stopped being when a rule
+  // gained the right to name a group. A group is strictly narrower than `team`,
+  // so `!== "private"` published the name of a folder its owner had held back
+  // to named people — onto an anonymous card, permanently. Anything this
+  // function cannot positively identify as `team` is not this audience's to
+  // read, which is also why an entry arriving with no visibility at all is
+  // dropped rather than assumed.
   const visible = entries.filter(
-    (entry) => entry.kind !== "folder" || entry.visibility !== "private",
+    (entry) => entry.kind !== "folder" || entry.visibility === "team",
   );
   const ordered = [...visible].sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;

@@ -239,7 +239,7 @@ describe("deterministic, because it is a cache key", () => {
     expect(
       previewChildrenFrom([
         { kind: "file", name: "b.md" },
-        { kind: "folder", name: "zed" },
+        { kind: "folder", name: "zed", visibility: "team" },
         { kind: "file", name: "a.md" },
       ]),
     ).toEqual(["zed/", "a.md", "b.md"]);
@@ -248,7 +248,7 @@ describe("deterministic, because it is a cache key", () => {
   test("the same folder in a different listing order is the same list", () => {
     const entries = [
       { kind: "file" as const, name: "b.md" },
-      { kind: "folder" as const, name: "zed" },
+      { kind: "folder" as const, name: "zed", visibility: "team" as const },
       { kind: "file" as const, name: "a.md" },
     ];
     expect(previewChildrenFrom(entries)).toEqual(
@@ -263,9 +263,13 @@ describe("deterministic, because it is a cache key", () => {
    * follows on the same table.
    */
   test("a folder child is marked by its own name, not by a second field", () => {
-    expect(previewChildrenFrom([{ kind: "folder", name: "interviews" }])).toEqual([
-      "interviews/",
-    ]);
+    expect(
+      previewChildrenFrom([
+        // `team` in its own right, because that is now the only thing a folder
+        // entry can be for it to be named at all — see the filter's comment.
+        { kind: "folder", name: "interviews", visibility: "team" },
+      ]),
+    ).toEqual(["interviews/"]);
     expect(previewChildrenFrom([{ kind: "file", name: "interviews" }])).toEqual([
       "interviews",
     ]);
@@ -643,6 +647,66 @@ describe("a private subfolder is not named by an upward-visible child", () => {
       scope: "private",
     });
     expect(await childrenOf(store, "1-projects/transition")).toContain("interviews/");
+  });
+
+  /**
+   * A GROUP IS NARROWER THAN TEAM, SO IT IS NOT A TEAM READER'S TO PUBLISH
+   * EITHER.
+   *
+   * `previewChildrenFrom`'s filter has always been spelled
+   * `entry.visibility !== "private"`, and while `Visibility` was two-valued
+   * that was the same predicate as its own comment: "team-visible in its own
+   * right". A rule naming a group is a third value strictly between the two,
+   * and `!== "private"` admits it — so the folder the owner held back to
+   * `@supa-leads` is named on a card an anonymous crawler reads at an address
+   * anybody can type, and that cannot be retracted once unfurled.
+   *
+   * Nothing in the product writes a group rule yet: both setters stay
+   * two-valued. A hand-edited manifest is how one arrives, and it is the
+   * ordinary way — the same bucket is synced to Obsidian, and `privacy.md` is
+   * a supported file a customer edits. So the manifest here is written the way
+   * a customer would write it, not through a setter that cannot express it.
+   */
+  test("a group subfolder holding one team note is not published", async () => {
+    const store = await bucket();
+    // Neither setter can express this: both stay two-valued, on purpose. A
+    // hand-edited manifest is how a group rule arrives, and it is the ordinary
+    // way — the same bucket is synced to Obsidian and `privacy.md` is a
+    // supported file a customer edits.
+    const manifest = store.snapshot()[PRIVACY_KEY];
+    store.seed(
+      PRIVACY_KEY,
+      manifest
+        .replace(
+          "folder_defaults:\n",
+          "folder_defaults:\n  1-projects/transition/interviews: @supa-leads\n",
+        )
+        .replace(
+          "note_overrides:\n",
+          "note_overrides:\n  1-projects/transition/interviews/first.md: team\n",
+        ),
+    );
+
+    // Non-vacuity, twice over: the rule really parsed as the folder's own
+    // visibility, and `folderVisibleAtScope` really still admits the folder on
+    // the strength of the one note inside it — so what follows is the card's
+    // filter refusing, not a manifest that parsed to nothing or a folder that
+    // was already gone.
+    const listing = await listFolder(store, {
+      path: "1-projects/transition/interviews",
+      scope: "team",
+    });
+    expect(listing.entries.map((entry) => entry.name)).toContain("first.md");
+    const parent = await listFolder(store, {
+      path: "1-projects/transition",
+      scope: "team",
+    });
+    expect(parent.entries.find((entry) => entry.name === "interviews")?.visibility).toBe(
+      "@supa-leads",
+    );
+
+    // …and the group folder's own name is still not on the card.
+    expect(await childrenOf(store, "1-projects/transition")).not.toContain("interviews/");
   });
 });
 
