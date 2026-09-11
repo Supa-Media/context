@@ -20,6 +20,7 @@ import { FastSearchCard } from "../search/FastSearchCard";
 import type { CheckoutOutcome } from "@context/shared";
 import { PremiumPanel } from "../settings/panels/PremiumPanel";
 import { MembersSection } from "../members/MembersSection";
+import { GroupsPanel } from "../settings/panels/GroupsPanel";
 import { PrivacyPanel } from "../settings/panels/PrivacyPanel";
 import { shareBackSuggestions } from "../members/members";
 import { SharedLinksPanel } from "../settings/panels/SharedLinksPanel";
@@ -325,6 +326,19 @@ export function SettingsPane({
         the rows, the words and the one control all come from pure modules a
         test can drive — see `features/console/privacy/`.
       */}
+      {/*
+        Between People and Shared links, which is where it belongs: the three
+        answer "who is here", "who is named as a set", and "what did I hand
+        out one note at a time" in widening order.
+      */}
+      {show("groups") ? (
+        <GroupsPanel
+          view={data.groups}
+          members={data.members.members}
+          slug={current?.slug.replace(/^@/, "") ?? ""}
+        />
+      ) : null}
+
       {show("privacy") ? <PrivacyPanel data={data} inline={section === undefined} /> : null}
 
       {/*

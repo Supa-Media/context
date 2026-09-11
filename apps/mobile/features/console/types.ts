@@ -9,6 +9,7 @@ import type {
 import type { ViewerIdentity } from "./identity";
 import type { IngestionState } from "./ingestion/settings";
 import type { MapGraph } from "./map/layout";
+import type { GroupsView } from "./groups/groups";
 import type { MembersView } from "./members/members";
 import type { FastSearchView } from "./search/fastSearch";
 import type { SharesView } from "./shares/shares";
@@ -319,6 +320,14 @@ export interface ConsoleData {
    * backend.
    */
   shares: SharesView;
+  /**
+   * The named sets of people a folder rule can point at.
+   *
+   * Owner-only, like `shares` — `listGroups` is owner-only on the backend for
+   * the reason the note census is — so this is an empty view with no `actions`
+   * for anybody else rather than a query that refuses.
+   */
+  groups: GroupsView;
   /**
    * This context's audit trail, and the owner-only export that keeps
    * encryption honest about non-negotiable #1 — a customer who revokes our

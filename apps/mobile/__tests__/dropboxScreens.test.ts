@@ -394,6 +394,7 @@ function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
       file is not about.
     */
     shares: { shares: [], loading: false, failure: null },
+    groups: { groups: [], loading: false },
     advanced: { audit: { events: [], loading: false, failure: null } },
     fastSearch: { status: { state: "off", canChange: false }, loading: false },
     loading: false,
