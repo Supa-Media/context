@@ -76,7 +76,13 @@ export function useTabs(
   const status = files.editor.status;
 
   useEffect(() => {
-    if (openPath === null) return;
+    // `""` as well as `null`. The empty path is the bucket root, which is a
+    // folder and can never be a note — `emptyEditor` uses `null` and nothing in
+    // `useFileBrowser` writes `""`, but a tab opened for it is a nameless row
+    // that the prune below deletes a commit later, and the flicker is the least
+    // of it: with the last-tab rule added at the foot of this file, a phantom
+    // tab appearing and vanishing is a *deselect* nobody asked for.
+    if (openPath === null || openPath === "") return;
     dispatch({ type: "opened", path: openPath, mode: "preview" });
   }, [openPath]);
 
@@ -201,6 +207,35 @@ export function useTabs(
     // identity change would fight the selection it just made.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
+
+  /**
+   * Closing the **last** tab has to move the editor too, and did not.
+   *
+   * `without` leaves `activePath` null when nothing is left, and the effect
+   * above only follows a non-null one — so ⌘W on the last tab, or the × on the
+   * last row of the mobile switcher this predates, emptied the strip and left
+   * the note sitting in the editor. The control ran, the chrome updated, and
+   * the thing it claimed to close was still on screen. "How do you close a note
+   * here" was the honest question.
+   *
+   * Guarded on the *transition* rather than on `length === 0`, which is also
+   * true at mount and on every render before anything opens. A cold load with
+   * `?note=` in the URL puts a note in the editor before the strip has caught
+   * up (`useNoteAddress`), and an ungated deselect would throw that away — the
+   * bug wearing its own fix's clothes.
+   *
+   * A context switch reaches this too, through `reset`, and `deselect` there is
+   * a no-op that costs nothing: `useFileBrowser` clears the selection on the
+   * same key, in the same commit.
+   */
+  const hadTabs = useRef(false);
+  useEffect(() => {
+    const has = state.tabs.length > 0;
+    if (!has && hadTabs.current) files.deselect();
+    hadTabs.current = has;
+    // Same reason as above: keyed on the count, not on the browser's identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.tabs.length]);
 
   return { state, activate, pin, close, closeOthers, reopen };
 }

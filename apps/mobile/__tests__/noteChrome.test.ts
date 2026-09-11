@@ -185,6 +185,9 @@ function dataWith(
     toggleFolder: () => {},
     selectedPath: path,
     select: () => {},
+    // `useTabs` calls this when the last tab closes — see the last-tab rule at
+    // the foot of that file. A stub missing it is a crash, not a quiet no-op.
+    deselect: () => false,
     editor: { ...emptyEditor, status: "clean", path, baseline: FILE, draft: FILE },
     setDraft: () => {},
     save: () => {},

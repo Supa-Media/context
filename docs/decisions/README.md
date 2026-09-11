@@ -163,6 +163,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A note's anchor is a query parameter, not a URL fragment
 - A message body is rendered, never linkified
 - A diagram lives in the note, and the browser is the only thing that makes it safe
+- A phone gets Recent, because it could never get a second tab
 
 ## [Meetings](./meetings.md)
 

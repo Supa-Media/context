@@ -55,6 +55,69 @@ export function visited(state: HistoryState, path: string): HistoryState {
   return { entries: [...kept, path], at: kept.length };
 }
 
+/**
+ * How many rows the Recent sheet offers.
+ *
+ * A sheet is `maxHeight: 70%` and scrolls, so the cap is not about fitting —
+ * it is about what is still recognisable. Past a dozen or so the rows are
+ * somewhere you were this morning, which is a search, not a jump.
+ */
+export const MAX_RECENT = 15;
+
+/**
+ * Where you have been, as a list — newest first, each place once.
+ *
+ * The phone's `‹` reaches the previous note; this reaches the previous fifteen,
+ * and it is what the Recent sheet draws. **Derived from `entries` rather than
+ * kept beside them**, which is the whole point: the tab switcher this replaced
+ * was a second model of "which notes am I working with" living on the same
+ * toolbar as this one, and it could not be reconciled with navigation — closing
+ * its last row left the note on screen, because a tab set knows nothing about
+ * where you are. One array, walked forwards by `‹ ›` and backwards by this, has
+ * no second answer to disagree with.
+ *
+ * It inherits the cost of that, and the cost is real: stepping back and then
+ * visiting somewhere new truncates the forward tail, so a note you looked at two
+ * minutes ago can leave this list. That is `visited`'s browser rule, argued at
+ * the top of this file, and a non-truncating log beside it would buy those rows
+ * back at the price of the thing being removed.
+ *
+ * Duplicates are collapsed even though `entries` keeps them — a repeat visit is
+ * a real step for `‹`, and two identical rows in a sheet is a list that reads as
+ * broken. Folders are kept: history records the *selection*, and "back to the
+ * folder I was in" is a destination a phone reaches constantly.
+ */
+export function recentPaths(state: HistoryState): string[] {
+  const seen = new Set<string>();
+  const recent: string[] = [];
+  for (let index = state.entries.length - 1; index >= 0; index -= 1) {
+    const path = state.entries[index];
+    if (seen.has(path)) continue;
+    seen.add(path);
+    recent.push(path);
+    if (recent.length === MAX_RECENT) break;
+  }
+  return recent;
+}
+
+/**
+ * Whether the Recent sheet has anywhere to send you.
+ *
+ * Not `recentPaths(state).length > 0`. The list always contains the note on
+ * screen — the sheet marks that row rather than hiding it, so a person opening
+ * it can see where they stand — which makes "one entry, and it is the one I am
+ * looking at" the real empty case. It is also the *ordinary* case on the first
+ * note of a session, and a control that offers to take somebody where they
+ * already are is one they learn to stop pressing.
+ *
+ * `selected` is the selection rather than the editor's path, because a folder is
+ * a place this list holds too: standing in `1-projects` with `1-projects` as the
+ * only entry is the same dead end.
+ */
+export function hasSomewhereToGo(state: HistoryState, selected: string | null): boolean {
+  return state.entries.some((path) => path !== selected);
+}
+
 export function canGoBack(state: HistoryState): boolean {
   return state.at > 0;
 }

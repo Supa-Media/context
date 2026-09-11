@@ -35,9 +35,14 @@ import { useTabs } from "../features/console/files/useTabs";
  */
 
 const roots: (() => void)[] = [];
+
+/** Every `deselect` the hook asked the browser for, in order. */
+let deselects = 0;
+
 afterEach(() => {
   while (roots.length > 0) roots.pop()!();
   document.body.innerHTML = "";
+  deselects = 0;
 });
 
 const noop = () => {};
@@ -78,7 +83,10 @@ function browser(
     // `select` answers whether the unsaved-changes guard let go; these
     // fixtures have no draft, so it always does.
     select: () => true,
-    deselect: () => true,
+    deselect: () => {
+      deselects += 1;
+      return true;
+    },
     search: async () => ({
       hits: [],
       indexMissing: false,
@@ -385,5 +393,77 @@ describe("the console frame keys its tabs on the open context", () => {
       expect(arg).toMatch(/^[A-Za-z_$][\w$]*$/);
       expect(code).toMatch(new RegExp(`\\b${arg}\\s*=\\s*data\\.selectedContextId\\b`));
     }
+  });
+});
+
+/**
+ * **Closing the last tab has to move the editor too, and did not.**
+ *
+ * `without` leaves `activePath` null when nothing is left, and the effect that
+ * follows the active tab only follows a non-null one — so ⌘W on the last tab,
+ * and the × on the last row of the mobile switcher that used to exist, emptied
+ * the strip and left the note sitting in the editor. The control ran, the
+ * chrome updated, and the thing it claimed to close was still on screen. That
+ * is the "how do you even close a note here" this change came from.
+ *
+ * Mounted rather than reduced, for `#102`'s reason and this file's: the reducer
+ * is already right — `emptyTabs` is what it returns — and nothing about that
+ * says a `deselect` is ever sent. Only reaching the hook does.
+ */
+describe("the last tab closing takes the note with it", () => {
+  const NOTE = "1-projects/plan.md";
+  const OTHER = "1-projects/notes.md";
+  const LISTINGS = { "1-projects": listing("1-projects", ["plan.md", "notes.md"]) };
+
+  test("closing the last one deselects; closing one of two does not", () => {
+    const probe = mountTabs();
+
+    probe.render("w1", LISTINGS, NOTE);
+    probe.open(OTHER);
+    expect(probe.openPaths()).toEqual([NOTE, OTHER]);
+
+    probe.close(OTHER);
+    // A tab is left, so the effect that follows `activePath` has somewhere to
+    // go and the editor is never asked to empty.
+    expect(probe.openPaths()).toEqual([NOTE]);
+    expect(deselects).toBe(0);
+
+    probe.close(NOTE);
+    expect(probe.openPaths()).toEqual([]);
+    expect(deselects).toBe(1);
+  });
+
+  test("a cold load with a note open does not deselect it", () => {
+    /*
+      The guard, and the reason it is a transition rather than `length === 0`:
+      that is also true at mount and on every render before anything opens. A
+      reload on a `?note=` URL puts the note in the editor before the strip has
+      caught up, and an ungated deselect would throw it away — this fix wearing
+      its own bug's clothes.
+    */
+    const probe = mountTabs();
+    probe.render("w1", LISTINGS, NOTE);
+    expect(probe.openPaths()).toEqual([NOTE]);
+    expect(deselects).toBe(0);
+  });
+
+  test("a console that has opened nothing at all never deselects", () => {
+    const probe = mountTabs();
+    probe.render("w1", LISTINGS, null);
+    expect(probe.openPaths()).toEqual([]);
+    expect(deselects).toBe(0);
+  });
+
+  test("the bucket root is not a note, so it opens no tab to close", () => {
+    /*
+      `""` is the root folder, and `emptyEditor` uses `null` — but a tab opened
+      for an empty path is a nameless row that the prune deletes a commit later,
+      and with the rule above in place that flicker is a *deselect* nobody
+      asked for. Guarded at the source, in the `opened` effect.
+    */
+    const probe = mountTabs();
+    probe.render("w1", { "": listing("", ["index.md"]) }, "");
+    expect(probe.openPaths()).toEqual([]);
+    expect(deselects).toBe(0);
   });
 });

@@ -5,6 +5,7 @@ import { Icon, type IconName } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { bottomBarGeometry, layout, radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
+import { LONG_PRESS_MS } from "./files/rowInteractionContract";
 
 /**
  * The compact toolbar: the verbs, within thumb reach.
@@ -14,7 +15,7 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
  * is what goes in that slot: the phone's answer to the right-click menu and the
  * keyboard chord. There is no keyboard here and no hover: if a *verb* is not on
  * this strip, on a phone it does not exist. That is why the shape is copied
- * from Obsidian mobile — back, forward, search, new, tab count, menu — rather
+ * from Obsidian mobile — back, forward, search, new, recent, menu — rather
  * than invented: it is the arrangement the people most likely to arrive at this
  * product already have muscle memory for.
  *
@@ -165,14 +166,13 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
  * top of the first, which is what the original rule exists to forbid. A
  * *positive* margin or outer padding here is still a bug.
  *
- * **It does not reimplement the tab count.** `TabCountButton` in
- * `files/TabSwitcher.tsx` already owns the count square, its unsaved dot and
- * the phrasing a screen reader hears ("2 notes open, 1 with unsaved changes"),
- * and it opens the switcher sheet. Where the count belongs on this bar, that
- * phrasing is what goes in `label` and `badge`/`marker` carry the visuals — the
- * numbers stay one implementation in `tabs.ts` (`dirtyCount`), presented twice,
- * rather than two implementations that can disagree about how many notes are
- * open.
+ * **It drew a tab count once, and no longer does.** A `count` prop rendered a
+ * number inside an outlined square — Obsidian's, Safari's, Chrome's — in place
+ * of the icon, and a `badge` drew one on the corner before that. Both are gone
+ * with the control they existed for: nothing on a phone could open a second
+ * tab, so the number was always `1` (see `files/RecentSheet.tsx`). `marker` is
+ * what survives, because Save still has something momentary to say. A row of
+ * icons is what this bar draws.
  */
 
 /**
@@ -220,24 +220,38 @@ export interface BottomBarAction {
    */
   title?: string;
   onPress: () => void;
-  /** A count badge, e.g. open tabs. `0` draws nothing, rather than "0". */
-  badge?: number;
   /**
-   * A count drawn **as** the control, inside an outlined box, in place of the
-   * icon.
+   * A second, held gesture on the same target.
    *
-   * Obsidian's tab control on mobile is exactly this: a rounded square with the
-   * number of open notes inside it, and no icon at all. Ours was a document
-   * icon with a filled accent badge stuck on its corner, which reads as a
-   * notification — something has happened that you should attend to — rather
-   * than as a count of things you already have open. The number is the whole
-   * message, so it is the whole control.
+   * Exactly one control uses it — `‹`, held, opens the Recent sheet, the way
+   * every browser on every platform opens its history from the back button —
+   * and it is here rather than in the console's own wiring so the accessible
+   * name can carry it. A gesture a screen reader is never told about is one
+   * only sighted people have.
    *
-   * `icon` is still required and still the accessible fallback; nothing draws
-   * it while a count is present.
+   * **Never the only route to something.** The same sheet has its own target in
+   * this row; this is the convention arriving where a thumb already is, not a
+   * feature hidden behind a hold. `hint` is what the row says about it, and it
+   * is required alongside this for that reason.
    */
-  count?: number;
-  /** A dot, e.g. unsaved changes. */
+  onLongPress?: () => void;
+  /**
+   * What the held gesture does, as a phrase ("Hold for recent").
+   *
+   * Announced after `label`, and mandatory whenever `onLongPress` is set: the
+   * pair is one control with two verbs, and a second verb nobody is told about
+   * does not exist. Drawn nowhere — a toolbar has no room for it and a hold has
+   * no visual state to attach it to.
+   */
+  hint?: string;
+  /**
+   * A dot on the leading top corner — Save, while there is something to save.
+   *
+   * The last of three overlays this bar drew. It is also the one that is still
+   * honest: a `marker` says a control has something momentary to tell you,
+   * which is what a dot is for, and the caller puts the same fact in `label`
+   * so it is not a state only sighted people get.
+   */
   marker?: boolean;
   disabled?: boolean;
   /**
@@ -373,14 +387,26 @@ export function BottomBar({ actions }: { actions: BottomBarAction[] }): JSX.Elem
 function BottomBarButton({ action }: { action: BottomBarAction }): JSX.Element {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  const { label, icon, title, onPress, badge, count, marker, disabled = false } = action;
+  const {
+    label,
+    icon,
+    title,
+    onPress,
+    onLongPress,
+    hint,
+    marker,
+    disabled = false,
+  } = action;
   const [focused, setFocused] = useState(false);
-  const showBadge = badge !== undefined && badge > 0;
 
   return (
     <Pressable
       role="button"
-      accessibilityLabel={label}
+      // The hold is part of the name, not an `accessibilityHint`: a hint is
+      // announced late, is suppressed entirely by a common VoiceOver setting,
+      // and this one describes a second action rather than elaborating on the
+      // first. `hint` is required whenever `onLongPress` is — see the type.
+      accessibilityLabel={onLongPress !== undefined && hint !== undefined ? `${label}. ${hint}` : label}
       // Written as an ARIA attribute rather than through `accessibilityState`.
       // react-native-web 0.21 dropped the mapping for parts of that prop — the
       // codebase has already been bitten once by `accessibilityState.selected`
@@ -393,6 +419,11 @@ function BottomBarButton({ action }: { action: BottomBarAction }): JSX.Element {
       // unavailable and fires anyway.
       disabled={disabled}
       onPress={onPress}
+      // `LONG_PRESS_MS`, the same 400ms the file rows hold to — React Native's
+      // 500ms default is long enough that a person lets go first and reports
+      // the gesture as absent.
+      onLongPress={onLongPress}
+      delayLongPress={onLongPress === undefined ? undefined : LONG_PRESS_MS}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
       style={({ pressed }) => [
@@ -403,25 +434,7 @@ function BottomBarButton({ action }: { action: BottomBarAction }): JSX.Element {
       testID={`bottom-bar-${action.id}`}
     >
       <View style={styles.mark}>
-        {count === undefined ? (
-          <Icon name={icon} size={title === undefined ? 22 : 20} color={colors.text2} />
-        ) : (
-          <View style={styles.count} aria-hidden testID={`bottom-bar-${action.id}-count`}>
-            <Text style={styles.countLabel}>{count}</Text>
-          </View>
-        )}
-
-        {/*
-          The badge sits on the trailing top corner and the marker on the
-          leading one, so an action carrying both — the tab count with unsaved
-          work, which is the case this exists for — draws them side by side
-          rather than one on top of the other.
-        */}
-        {showBadge ? (
-          <View style={styles.badge} aria-hidden testID={`bottom-bar-${action.id}-badge`}>
-            <Text style={styles.badgeLabel}>{badge}</Text>
-          </View>
-        ) : null}
+        <Icon name={icon} size={title === undefined ? 22 : 20} color={colors.text2} />
 
         {marker ? (
           <View style={styles.marker} aria-hidden testID={`bottom-bar-${action.id}-marker`} />
@@ -588,10 +601,10 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   targetDisabled: { opacity: 0.38 },
 
   /**
-   * The icon's own box, which the badge and the marker hang off. Without it
-   * they would be positioned against the target, which is as wide as the screen
-   * divided by the number of actions — so the badge would drift further from
-   * its icon on every phone that is not the one it was eyeballed on.
+   * The icon's own box, which the marker hangs off. Without it the dot would be
+   * positioned against the target, which is as wide as the screen divided by
+   * the number of actions — so it would drift further from its icon on every
+   * phone that is not the one it was eyeballed on.
    */
   mark: {
     minWidth: 28,
@@ -606,51 +619,6 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     marginTop: 1,
     color: colors.muted,
     textAlign: "center",
-  },
-
-  /**
-   * The tab count, drawn as Obsidian draws it: an outlined rounded square with
-   * the number inside. Sized so the box is the same optical weight as the
-   * monoline icons beside it rather than a filled chip competing with them.
-   */
-  count: {
-    minWidth: 21,
-    height: 21,
-    paddingHorizontal: 3,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radii.xs,
-    borderWidth: 1.5,
-    borderColor: colors.text2,
-  },
-
-  countLabel: {
-    fontSize: 11.5,
-    lineHeight: 14,
-    fontWeight: "600",
-    color: colors.text2,
-    fontVariant: ["tabular-nums"],
-  },
-
-  badge: {
-    position: "absolute",
-    top: -3,
-    right: -9,
-    minWidth: 16,
-    height: 16,
-    paddingHorizontal: 4,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radii.pill,
-    backgroundColor: colors.accent,
-  },
-
-  badgeLabel: {
-    fontSize: 10.5,
-    lineHeight: 13,
-    fontWeight: "700",
-    color: colors.ink,
-    fontVariant: ["tabular-nums"],
   },
 
   marker: {
