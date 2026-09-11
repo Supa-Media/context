@@ -29,7 +29,7 @@ import { itemsFor, type MenuActionId } from "./menu";
 import { baseName, parentPath, restoreTargetFor } from "./paths";
 import { itemsFromListings, rank } from "./palette";
 import { buildTreeRows, findEntry, targetFolder, type TreeRow } from "./tree";
-import type { AccessMember } from "./access";
+import type { AccessMember, AccessRow, RemovalRoute } from "./access";
 import type { RecipientGroup } from "./recipients";
 import { isGroupVisibility } from "./types";
 import type { Visibility } from "./types";
@@ -102,6 +102,32 @@ export function Explorer({
     members: readonly AccessMember[];
     groups?: readonly RecipientGroup[];
     onShareWithGroup?: (path: string, group: string) => void;
+    /**
+     * What a row in the people list can do about somebody, for one path.
+     *
+     * A factory rather than a handler, because narrowing a note names the
+     * note and this component is rendered once for a tree with many. Returns
+     * `undefined` for a caller that can do none of it — see `removalHandler`
+     * — and the dialog then draws roles rather than controls.
+     */
+    removalRouteFor?: (
+      path: string,
+      /** Decides which visibility mutation the narrow route means. */
+      kind: "file" | "folder",
+    ) => ((route: RemovalRoute, row: AccessRow) => void) | undefined;
+    /** The workspace's slug, for showing the name a new group's label becomes. */
+    groupSlug?: string;
+    /**
+     * Make a group and point this path at it. Owner-only upstream.
+     *
+     * Answers, so the sheet can show a refusal from the control plane where
+     * the person can read it — the notice line sits behind the modal.
+     */
+    onCreateGroup?: (
+      path: string,
+      label: string,
+      userIds: readonly string[],
+    ) => Promise<unknown>;
   };
   /** "@seyi" — named in the empty state so it is obvious whose tree this is. */
   contextLabel: string;
@@ -712,6 +738,32 @@ export function ExplorerDialogs({
     members: readonly AccessMember[];
     groups?: readonly RecipientGroup[];
     onShareWithGroup?: (path: string, group: string) => void;
+    /**
+     * What a row in the people list can do about somebody, for one path.
+     *
+     * A factory rather than a handler, because narrowing a note names the
+     * note and this component is rendered once for a tree with many. Returns
+     * `undefined` for a caller that can do none of it — see `removalHandler`
+     * — and the dialog then draws roles rather than controls.
+     */
+    removalRouteFor?: (
+      path: string,
+      /** Decides which visibility mutation the narrow route means. */
+      kind: "file" | "folder",
+    ) => ((route: RemovalRoute, row: AccessRow) => void) | undefined;
+    /** The workspace's slug, for showing the name a new group's label becomes. */
+    groupSlug?: string;
+    /**
+     * Make a group and point this path at it. Owner-only upstream.
+     *
+     * Answers, so the sheet can show a refusal from the control plane where
+     * the person can read it — the notice line sits behind the modal.
+     */
+    onCreateGroup?: (
+      path: string,
+      label: string,
+      userIds: readonly string[],
+    ) => Promise<unknown>;
   };
 }) {
   if (dialog === null) return null;
@@ -830,6 +882,34 @@ export function ExplorerDialogs({
                 }
           }
           groups={access?.groups}
+          /*
+            The audience control, wired straight from the browser rather than
+            threaded through `access`: `setScope` is already the single point
+            every surface goes through — its group guard lives there — and this
+            component holds `files` anyway. Owner-only, absent otherwise.
+          */
+          entryKind={findEntry(files.listings, dialog.path)?.kind ?? "file"}
+          onSetScope={
+            files.canSetVisibility
+              ? (from, to) =>
+                  files.setScope(
+                    dialog.path,
+                    findEntry(files.listings, dialog.path)?.kind ?? "file",
+                    from,
+                    to,
+                  )
+              : undefined
+          }
+          onRemovalRoute={access?.removalRouteFor?.(
+            dialog.path,
+            findEntry(files.listings, dialog.path)?.kind ?? "file",
+          )}
+          groupSlug={access?.groupSlug}
+          onCreateGroup={
+            access?.onCreateGroup === undefined
+              ? undefined
+              : (label, userIds) => access.onCreateGroup!(dialog.path, label, userIds)
+          }
           onShareWithGroup={
             access?.onShareWithGroup === undefined
               ? undefined

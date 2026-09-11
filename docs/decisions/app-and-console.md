@@ -3097,3 +3097,111 @@ of the current row. The one worth recording is #5: writing the deselect as
 `if (!has)` rather than as a transition failed **four** tests rather than one,
 which is the shape of a guard whose absence is load-bearing in more than the
 case it was written for.
+
+### The share sheet is one control, and the padlock beside it is gone
+
+The owner, looking at the sheet on a phone: *"the lock and the share icon can
+be collapsed, they're essentially the same thing… it's confusing how to make
+groups, it's confusing how to revoke access… when I type names there's not even
+an autocomplete."* Four complaints, one root cause, and one of them turned out
+to be a safety bug rather than an annoyance.
+
+**They were not merely similar — they overlapped on the dangerous state.** The
+padlock cycled `private → team → anyone-with-a-link`, and that third position
+minted exactly the share row (`audience: "anyone"`) the sheet's own "Create
+link" button minted. One object, two mints, and nothing on screen relating
+them. Because most notes are `team` already by folder inheritance, an ordinary
+note sat **one tap on an unlabelled 20pt icon** away from a link needing no
+account, with a glyph changing to a globe as the only feedback.
+
+`scope.ts` had argued that widening should be one deliberate step at a time and
+that `private → anyone` in a single press is "the accident worth making
+impossible". That is right about the rule and wrong about where the risk sits:
+`team → anyone` was also a single press, from the state nearly everything is
+in. The fix is not a fourth position or a longer cycle — it is that a decision
+this size does not belong on an unlabelled icon at all.
+
+So: one icon in the bar, and audience becomes named positions inside the sheet,
+with the public step confirmed in words. **`scope.ts` is untouched** —
+`scopeOf`, `nextScope` and `stepsTo` remain the pure model, and `setScope`
+remains the single point every surface goes through, group guard included.
+Only the control driving it changed.
+
+**A simplification of this would put the padlock back** for the keystroke it
+saves. What it would cost is the property the confirmation exists for: that
+nothing publishes a note without a sentence saying what publishing means. The
+test that fails is *going public asks first, and mints nothing until it is
+answered* in `noteChrome.test.ts`, which asserts on the absence of a `setScope`
+call, not on what the screen then shows.
+
+#### Revoking one person's access has two routes, and they differ by a context
+
+The sheet listed people with access as three strings — name, role, reason —
+with no control on any of them. It diagnosed ("the folder it is in is shared
+with the workspace") and left the cure three screens away in Settings.
+
+The reason it had no Remove button is real and worth stating, because it is the
+first thing a reasonable person would add: **`team` means every member, so one
+person cannot be peeled off a team-visible note.** There is no per-note role and
+no per-person exception — `privacy.md` is folder defaults plus exact-note
+overrides, and an override is still one of the two tiers or a group. "Stop Kola
+reading this" therefore has exactly two honest answers:
+
+- **Narrow the note** to `private` with an exact-note rule. Per-note,
+  reversible, and what most people mean.
+- **Remove Kola from the context** with `removeMember`, closing every note and
+  folder at once.
+
+A single Remove beside one name would have to silently pick one. The small one
+does not do what the button says; the big one closes an entire context from a
+control labelled with one note's name. So the row carries **routes**, each
+stating how far it reaches, ordered narrowest first, the wide one drawn
+destructive. A group row gets the one route the console can honestly offer —
+where the group is defined — because it cannot resolve group membership and
+`access.ts` opens by refusing to guess.
+
+**A simplification would collapse the routes into "Remove".** The test that
+fails is *each route says how far it reaches* in `noteAccess.test.ts`.
+
+#### A group is made where the group was needed
+
+`GroupsPanel`'s own header says "Nobody should have to come here first" — and
+it was the only door. Sharing one note with three people meant leaving the
+note, opening Settings, typing a label, adding three members one at a time,
+coming back, and typing the group's name. Eight steps for the thing groups
+exist to make cheap, which is why nobody made one. The sheet offers it now; the
+panel keeps what its header says it is for — renaming one, and dropping
+somebody from every folder at once.
+
+`GroupActions.createWith` exists because `createGroup` always returned the new
+group's id and the console threw it away, so populating a group you had just
+made meant re-reading a subscription that had not necessarily delivered.
+Deliberately not atomic: a partial failure leaves a real group with some of the
+people in it, which the panel shows and can finish — better than rolling back a
+group a folder may already point at.
+
+#### The autocomplete was shipped and unreachable
+
+`ShareDialog` handed `recipientsFor` an exclusion set containing **every member
+of the context**, so a matching colleague was filtered out of their own
+suggestion list. On a team note that is everybody, and since the invite row
+needs a *complete* address, typing a partial name produced an empty box. The
+type-ahead had shipped in #425 and had never been visible for the common case.
+
+Two separable mistakes. **What the set measured**: members of the *workspace*,
+where what matters is who reaches *this note* — opposites on a private note, so
+the field was blankest exactly where it had most to offer. It derives from
+`accessRows` now, so one function decides who reaches a note and both the list
+and the suggestions read it. **And hiding was the wrong answer anyway**: "no
+rows" cannot distinguish "they already have it" from "no such person" from
+"this field is broken", and those want different next moves. Somebody who
+already reaches the note is shown, marked, sorted below the offers, and drawn
+without a press behind it.
+
+**A simplification would restore the exclusion** on the grounds that offering
+somebody who already has access is offering to do nothing — true of the
+*press*, false of the *row*. The test that fails is *a note everybody reaches
+still answers the query* in `shareRecipients.test.ts`.
+
+Shots of every state: `docs/design/share-sheet/`.
+

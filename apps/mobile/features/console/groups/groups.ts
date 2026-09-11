@@ -48,6 +48,22 @@ export interface ConsoleGroup {
 
 export interface GroupActions {
   create: (label: string) => Promise<void>;
+  /**
+   * Make a group and put people in it in one step, answering with the full
+   * name `privacy.md` will carry (no `@`).
+   *
+   * Its own action rather than the caller looping `create` then `addMember`,
+   * because the caller that needs it — the share sheet — then has to find the
+   * new group's id by re-reading a list that has not necessarily arrived. The
+   * control plane already returns the id from `createGroup`; this is the one
+   * place that stops throwing it away.
+   *
+   * Not atomic, and that is visible rather than hidden: a failure partway
+   * leaves a real group with some of the people in it, which the Groups panel
+   * shows and can finish. The alternative — rolling back a group somebody may
+   * already have pointed a folder at — is worse.
+   */
+  createWith: (label: string, userIds: readonly string[]) => Promise<string>;
   addMember: (groupId: string, userId: string) => Promise<void>;
   removeMember: (groupId: string, userId: string) => Promise<void>;
   remove: (groupId: string) => Promise<void>;
@@ -89,8 +105,16 @@ export function groupSummary(group: ConsoleGroup): string {
   return `${people} · ${dangling} no longer ${dangling === 1 ? "a member" : "members"}`;
 }
 
-/** What to call somebody in a chip. */
-export function memberLabel(member: ConsoleGroupMember): string {
+/**
+ * What to call somebody in a chip.
+ *
+ * Structural rather than `ConsoleGroupMember`, because the share sheet labels
+ * people from `AccessMember` and there should be exactly one rule for how a
+ * person with no display name is written down. `live` is irrelevant to it.
+ */
+export function memberLabel<T extends { userId: string; name?: string; email?: string }>(
+  member: T,
+): string {
   return member.name ?? member.email ?? member.userId;
 }
 
@@ -139,4 +163,40 @@ export function addableMembers<T extends { userId: string }>(
 ): T[] {
   const named = new Set(group.members.map((member) => member.userId));
   return members.filter((member) => !named.has(member.userId));
+}
+
+/**
+ * Whether the share sheet may offer to make a group out of what is picked.
+ *
+ * `GroupsPanel` used to be the only place a group could be born, and its own
+ * header calls that out: "Nobody should have to come here first." The moment a
+ * group should exist is the moment somebody is looking at a note and picking
+ * the same two people again — so the sheet offers it there, and this is the
+ * check that stops it offering a request certain to fail.
+ *
+ * As thin as `canSubmitLabel`, and for the same reason: `buildGroupName` in the
+ * control plane decides what a name may be and the server refuses anybody who
+ * is not an owner. This adds exactly one rule of its own — a group of nobody is
+ * not a group — because that one is about the *selection*, which the control
+ * plane never sees.
+ */
+export function canMakeGroup(label: string, userIds: readonly string[]): boolean {
+  return canSubmitLabel(label) && userIds.length > 0;
+}
+
+/**
+ * The name that will exist, shown while the label is being typed.
+ *
+ * **The prefix is not the typist's to enter.** `buildGroupName` derives it from
+ * the workspace slug, so a field that silently prepends it while accepting
+ * `supa-leads` produces `@supa-supa-leads`. Showing the assembled name is the
+ * interface telling the truth about where the name comes from — the same thing
+ * `GroupsPanel` does with its greyed prefix.
+ *
+ * Not a validator and never the authority: the server may still refuse this
+ * name, and it says so in its own words.
+ */
+export function previewGroupName(slug: string, label: string): string {
+  const trimmed = label.trim();
+  return `@${slug}-${trimmed.length === 0 ? "…" : trimmed}`;
 }

@@ -83,6 +83,22 @@ export function useGroups(options: {
       create: async (label: string) => {
         await createGroup({ workspaceId, label });
       },
+      /*
+        The id comes straight back from `createGroup`, so the members go on
+        without re-reading `listGroups` — which, from the share sheet, would
+        mean waiting for a subscription to deliver a group made a moment ago.
+
+        Sequential rather than `Promise.all`: `addGroupMember` enforces
+        `MAX_MEMBERS_PER_GROUP`, and a parallel burst against a near-full group
+        would decide which of them failed by arrival order.
+      */
+      createWith: async (label: string, userIds: readonly string[]) => {
+        const { groupId, name } = await createGroup({ workspaceId, label });
+        for (const userId of userIds) {
+          await addGroupMember({ workspaceId, groupId, userId: userId as Id<"users"> });
+        }
+        return name;
+      },
       addMember: async (groupId: string, userId: string) => {
         await addGroupMember({
           workspaceId,

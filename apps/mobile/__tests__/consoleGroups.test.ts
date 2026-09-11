@@ -12,6 +12,8 @@
 
 import { describe, expect, test } from "@jest/globals";
 import {
+  canMakeGroup,
+  previewGroupName,
   addableMembers,
   canSubmitLabel,
   danglingNote,
@@ -149,5 +151,51 @@ describe("how somebody is named in a chip", () => {
     expect(memberLabel({ userId: "u1", name: "seyi", email: "s@x.invalid", live: true })).toBe("seyi");
     expect(memberLabel({ userId: "u1", email: "s@x.invalid", live: true })).toBe("s@x.invalid");
     expect(memberLabel({ userId: "u1", live: true })).toBe("u1");
+  });
+});
+
+/**
+ * ## Making a group where groups are actually born
+ *
+ * `GroupsPanel` opens by admitting "Nobody should have to come here first" —
+ * and it was the only door. A group is what you get when you have handed the
+ * same two people the same folder three times, so the moment one should exist
+ * is the moment you are looking at a note and picking those people; going to
+ * Settings, typing a label, adding them one at a time and coming back is the
+ * detour that stops anybody bothering.
+ *
+ * The sheet can now do it. What it may not do is offer a button that is
+ * certain to fail, so this is the same thin check `canSubmitLabel` is — the
+ * control plane's `buildGroupName` remains the authority on what a name may
+ * be, and duplicating its rules here would be a second place for them to
+ * drift.
+ */
+describe("offering to make a group from the share sheet", () => {
+  test("needs a usable label and somebody to put in it", () => {
+    expect(canMakeGroup("leads", ["u1"])).toBe(true);
+    expect(canMakeGroup("leads", ["u1", "u2"])).toBe(true);
+  });
+
+  test("a group of nobody is not a group", () => {
+    expect(canMakeGroup("leads", [])).toBe(false);
+  });
+
+  /** The same floor `canSubmitLabel` sets, read through one function. */
+  test("a label the panel would refuse is refused here too", () => {
+    expect(canMakeGroup("l", ["u1"])).toBe(false);
+    expect(canMakeGroup("  ", ["u1"])).toBe(false);
+    expect(canMakeGroup("", ["u1"])).toBe(false);
+  });
+
+  /**
+   * The prefix belongs to the workspace, never to the person typing —
+   * `buildGroupName` derives it from the slug. The sheet shows it for the same
+   * reason the panel does: an interface that lets you type `supa-` into a
+   * field that already prepends it produces `@supa-supa-leads`.
+   */
+  test("the name shown while typing is the name that will exist", () => {
+    expect(previewGroupName("supa", "leads")).toBe("@supa-leads");
+    expect(previewGroupName("supa", "  leads  ")).toBe("@supa-leads");
+    expect(previewGroupName("supa", "")).toBe("@supa-…");
   });
 });

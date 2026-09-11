@@ -81,11 +81,8 @@ import { selectedContext, type ConsoleData } from "../../../features/console/typ
 import { useKeymap } from "../../../features/design/useKeymap";
 import type { FileBrowser } from "../../../features/console/files/browser";
 import {
-  SCOPE_ICON,
-  nextScope,
-  scopeActionLabel,
-  scopeOf,
 } from "../../../features/console/files/scope";
+import { removalHandler } from "../../../features/console/files/access";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
 import { MEETINGS_ROUTE } from "../../../features/meetings/route";
 import { WELCOME_ROUTE } from "../../../features/onboarding/route";
@@ -428,20 +425,6 @@ export default function ConsoleLayout() {
       ? selectedEntry.path
       : null;
 
-  /**
-   * Visibility, as the second action in the same group.
-   *
-   * Owner-only, like every visibility control — `canSetVisibility` is the
-   * server's rule and `FolderView`'s own comment records what offering it to
-   * an editor cost. `readOnly` is excluded because `privacy.md` *is* the
-   * access map: a control that offered to change its visibility would be
-   * offering to edit the file that decides everybody else's.
-   */
-  const visibilityTarget =
-    browsing && data.files.canSetVisibility && selectedEntry !== null && !selectedEntry.readOnly
-      ? selectedEntry
-      : null;
-
   const places = useContextPlaces();
   const contextHrefFrom = useContextHref(data.contexts);
   const { startMeetingFlow, sheet: meetingSheet } = useMeetingFlow({
@@ -471,11 +454,6 @@ export default function ConsoleLayout() {
    * A folder has two positions, not three: `createLinkShare` is note-only, so
    * offering a third would be a press that always fails. `scope.ts` states it.
    */
-  const visibilityScope = scopeOf(
-    visibilityTarget?.visibility ?? "private",
-    visibilityTarget !== null && data.files.openLinkPaths.has(visibilityTarget.path),
-  );
-  const visibilityNext = nextScope(visibilityScope, visibilityTarget?.kind === "file");
 
   return (
     <ConsoleDataProvider value={data}>
@@ -572,50 +550,32 @@ export default function ConsoleLayout() {
               `ShareDialog` mounted here would be a second contract for one
               offer.
             */
-            shareTarget === null && visibilityTarget === null ? undefined : (
-              <>
-                {visibilityTarget === null ? null : (
-                  <FrameIconButton
-                    /*
-                      The label is the *destination*, because that is what a
-                      screen reader has to announce about a button, while the
-                      icon is the current state — see `ICON_NAMES`. The two
-                      disagreeing is the point rather than a slip: one is read
-                      aloud before the press and the other is looked at.
+            /*
+              One control, not two.
 
-                      Three positions rather than two now, and every decision
-                      about which is which is in `files/scope.ts` — a pure
-                      module, for the reason `shareViewer.test.ts` records: in a
-                      sabotage sweep of this codebase, every guard written as a
-                      pure module held and every guard written inside a
-                      component did not. This one composes the privacy manifest
-                      with a share row, which is exactly the sort of thing that
-                      rots into "is it team? then it must be public".
-                    */
-                    label={scopeActionLabel(visibilityNext)}
-                    icon={SCOPE_ICON[visibilityScope]}
-                    grouped
-                    onPress={() =>
-                      data.files.setScope(
-                        visibilityTarget.path,
-                        visibilityTarget.kind,
-                        visibilityScope,
-                        visibilityNext,
-                      )
-                    }
-                    testID="note-visibility"
-                  />
-                )}
-                {shareTarget === null ? null : (
-                  <FrameIconButton
-                    label="Share this"
-                    icon="share"
-                    grouped
-                    onPress={() => setBarDialog({ kind: "share", path: shareTarget })}
-                    testID="note-share"
-                  />
-                )}
-              </>
+              This group used to carry a padlock beside the share icon. They
+              were two controls for one question — and worse, they overlapped
+              on the dangerous state: the padlock cycled private → team →
+              *link anyone can open*, minting exactly the share row the sheet's
+              own "Create link" minted. Most notes sit at `team` already by
+              folder inheritance, so a note was one tap on an unlabelled 20pt
+              icon away from a link that needs no account.
+
+              Audience lives inside the sheet now, as named positions with the
+              public step confirmed in words — `ShareDialog`'s `onSetScope`
+              carries the full argument. `scope.ts` is untouched: it is still
+              the pure model of what the positions are and how to move between
+              them, and `setScope` is still the single point every surface goes
+              through. Only the control that drove it changed.
+            */
+            shareTarget === null ? undefined : (
+              <FrameIconButton
+                label="Share this"
+                icon="share"
+                grouped
+                onPress={() => setBarDialog({ kind: "share", path: shareTarget })}
+                testID="note-share"
+              />
             )
           ) : (
             <>
@@ -1017,6 +977,34 @@ export default function ConsoleLayout() {
               data.groups?.actions === undefined
                 ? undefined
                 : (path, group) => data.files.shareWithGroup(path, group),
+            /*
+              The same three halves the pane passes, each present only where
+              this caller holds it. Built per path rather than once, because
+              narrowing a note names the note — see `removalHandler`.
+            */
+            groupSlug: current?.slug,
+            onCreateGroup:
+              data.groups?.actions === undefined
+                ? undefined
+                : (path, label, userIds) =>
+                    data
+                      .groups!.actions!.createWith(label, userIds)
+                      .then((name) => data.files.shareWithGroup(path, name)),
+            removalRouteFor: (path, kind) =>
+              removalHandler({
+                path,
+                kind,
+                setPrivate: (target, targetKind) =>
+                  data.files.setVisibility(target, targetKind, "private"),
+                removeMember: data.members?.actions?.remove,
+                openGroups:
+                  data.groups?.actions === undefined || !insideContext
+                    ? undefined
+                    : () => {
+                        setBarDialog(null);
+                        router.setParams({ settings: "groups" });
+                      },
+              }),
           }}
         />
 

@@ -10,6 +10,7 @@
 
 import { describe, expect, test } from "@jest/globals";
 import {
+  noMatchHint,
   recipientsFor,
   type RecipientGroup,
   type RecipientMember,
@@ -95,24 +96,113 @@ describe("the invite row", () => {
     expect(rows[0].userId).toBe("u1");
   });
 
-  test("it is always last, so a real match is never displaced by it", () => {
+  /**
+   * Last among the things you can act on, which is what "never displaced a real
+   * match" always meant. Informational rows — somebody who already reaches the
+   * note — sort below it without being offers at all.
+   */
+  test("it is last of the offers, so a real match is never displaced by it", () => {
     const rows = recipientsFor("kolade@example.invalid", MEMBERS, GROUPS);
     expect(rows[rows.length - 1].kind).toBe("invite");
+
+    const mixed = recipientsFor("kola@example.invalid", MEMBERS, GROUPS, {
+      reachingUserIds: new Set(["u1"]),
+    });
+    const offers = mixed.filter((row) => row.reaches !== true);
+    expect(offers.every((row) => row.kind !== "invite")).toBe(true);
   });
 });
 
-describe("what is already on the note is not offered again", () => {
-  test("a member who already has it", () => {
+/**
+ * ## The defect this block exists for
+ *
+ * The dialog used to hand this function **every member of the workspace** as an
+ * exclusion set, so a matching colleague was filtered out of their own
+ * suggestion list. On a team-visible note that is everybody, and because the
+ * invite row needs a *complete* address, typing `dim` produced an empty box —
+ * which read, correctly, as "there is no autocomplete here".
+ *
+ * Two things were wrong and they are separable.
+ *
+ * **What the set measures.** It excluded members of the *workspace*; what
+ * matters is who reaches *this note*. On a private note those are opposite: the
+ * owner reaches it and nobody else does, yet every member was filtered out, so
+ * the field was blank exactly where it had the most to offer.
+ *
+ * **That hiding was the wrong answer anyway.** Somebody typing a name wants to
+ * know where that person stands, and "no rows" cannot say "they already have
+ * it" — it looks identical to "no such person" and to "this field is broken".
+ * So a person who already reaches the note is *shown and marked*, never
+ * dropped, and the dialog renders that row as an answer rather than an offer.
+ */
+describe("somebody who already reaches the note", () => {
+  test("is shown rather than hidden, and marked", () => {
     const rows = recipientsFor("kola", MEMBERS, GROUPS, {
-      excludeUserIds: new Set(["u1"]),
+      reachingUserIds: new Set(["u1"]),
     });
-    expect(rows.some((row) => row.userId === "u1")).toBe(false);
+    const kola = rows.find((row) => row.userId === "u1");
+    expect(kola).toBeDefined();
+    expect(kola!.reaches).toBe(true);
+    expect(kola!.detail).toMatch(/already/i);
   });
 
-  test("a group that is already the note's rule", () => {
-    const rows = recipientsFor("leads", MEMBERS, GROUPS, {
-      excludeGroups: new Set(["supa-leads"]),
+  test("sorts below the people you can actually add", () => {
+    const rows = recipientsFor("k", MEMBERS, GROUPS, {
+      reachingUserIds: new Set(["u1"]),
     });
-    expect(rows.some((row) => row.kind === "group")).toBe(false);
+    const offered = rows.findIndex((row) => row.reaches !== true);
+    const reaching = rows.findIndex((row) => row.reaches === true);
+    expect(offered).toBeGreaterThanOrEqual(0);
+    expect(reaching).toBeGreaterThan(offered);
+  });
+
+  test("a group already named on the note is shown the same way", () => {
+    const rows = recipientsFor("leads", MEMBERS, GROUPS, {
+      reachingGroups: new Set(["supa-leads"]),
+    });
+    const group = rows.find((row) => row.kind === "group");
+    expect(group).toBeDefined();
+    expect(group!.reaches).toBe(true);
+  });
+
+  /**
+   * The case in the screenshot that started this: a team-visible note, every
+   * member reaching it through the folder. The field must still answer.
+   */
+  test("a note everybody reaches still answers the query", () => {
+    const rows = recipientsFor("k", MEMBERS, GROUPS, {
+      reachingUserIds: new Set(["u1", "u2", "u3"]),
+    });
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.reaches === true)).toBe(true);
+  });
+
+  /**
+   * The exclusion that survives, because it is the one that was right: an
+   * address belonging to somebody already here is not an invitation. Offering
+   * to invite them would be offering to do nothing, and the row says the
+   * opposite — that it also adds them to the workspace.
+   */
+  test("is never offered as an invitation", () => {
+    const rows = recipientsFor("kola@example.invalid", MEMBERS, GROUPS, {
+      reachingUserIds: new Set(["u1"]),
+    });
+    expect(rows.some((row) => row.kind === "invite")).toBe(false);
+  });
+});
+
+/**
+ * What the dialog draws when the list comes back empty. A blank box is the
+ * failure this whole change is about, so "no rows" must never be the last word
+ * the interface says.
+ */
+describe("no match", () => {
+  test("a partial name that matches nobody is distinguishable from an empty query", () => {
+    expect(recipientsFor("", MEMBERS, GROUPS)).toEqual([]);
+    expect(recipientsFor("zzz", MEMBERS, GROUPS)).toEqual([]);
+    // The dialog tells these apart by the query, not the rows — pinned here so
+    // a future "return a placeholder row" does not break that contract.
+    expect(noMatchHint("zzz")).toMatch(/full email address/i);
+    expect(noMatchHint("")).toBeUndefined();
   });
 });
