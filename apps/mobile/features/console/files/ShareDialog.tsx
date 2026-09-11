@@ -36,7 +36,13 @@ import { Text } from "../../design/components/Text";
 import { fonts, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { baseName } from "./paths";
-import { accessRows, accessSummary, type AccessMember } from "./access";
+import {
+  accessRows,
+  accessSummary,
+  type AccessMember,
+  type AccessRow,
+  type RemovalRoute,
+} from "./access";
 import { noMatchHint, recipientsFor, type RecipientGroup } from "./recipients";
 import { isGroupVisibility, type Visibility } from "./types";
 import {
@@ -62,6 +68,7 @@ export function ShareDialog({
   advanced,
   access,
   onShareWithGroup,
+  onRemovalRoute,
   groups,
 }: {
   path: string;
@@ -81,6 +88,21 @@ export function ShareDialog({
   onShareWithGroup?: (group: string) => void;
   /** The groups this context has, for the field to offer. Owner-only upstream. */
   groups?: readonly RecipientGroup[];
+  /**
+   * Take somebody's access away, by the route they picked.
+   *
+   * Routes rather than a `remove(userId)`, because **one person cannot be
+   * peeled off a team-visible note** — `team` means every member, and
+   * `privacy.md` has no per-person exception. `access.ts` carries the full
+   * argument; the short version is that the two real answers are "narrow this
+   * note" and "remove them from the context", they differ by an entire
+   * context, and a single Remove button would have to silently pick one.
+   *
+   * Absent where the caller cannot do it — the demo, and anybody who is not an
+   * owner — and then no row draws a control at all, which is this console's
+   * standing rule for a control somebody may not use.
+   */
+  onRemovalRoute?: (route: RemovalRoute, row: AccessRow) => void;
   /**
    * A section drawn under everything else here, behind its own "ADVANCED"
    * label — today, whatever `EncryptionAdvancedSection` in
@@ -136,6 +158,15 @@ export function ShareDialog({
    * and repeating a symptom over a real refusal is worse than saying nothing.
    */
   const [problem, setProblem] = useState<string | null>(null);
+  /**
+   * The row whose removal routes are open, by `AccessRow.key`, or `null`.
+   *
+   * Expanded in place rather than in a second `Modal`. A modal over a modal is
+   * a known iOS problem, and the thing being confirmed is *which* route — a
+   * question about a row, next to the row, where the reason line that explains
+   * why they reach the note at all is still on screen to read.
+   */
+  const [removing, setRemoving] = useState<string | null>(null);
 
   /**
    * Copy, and get out of the way.
@@ -362,17 +393,74 @@ export function ShareDialog({
                   <Text variant="paneSub">
                     {accessSummary(access.visibility, access.exception)}
                   </Text>
-                  {rows.map((row) => (
-                    <View key={row.key} style={styles.accessRow}>
-                      <View style={styles.accessMain}>
-                        <Text variant="rowTitle">{row.label}</Text>
-                        <Text variant="meta" style={styles.accessReason}>
-                          {row.reason}
-                        </Text>
+                  {rows.map((row) => {
+                    /*
+                      A verb only where one is real. An owner has no removal
+                      route — the server refuses both mutations outright — and
+                      a caller with no handler is a non-owner or the demo. Both
+                      draw the plain role, which is what this list always was.
+                    */
+                    const canRemove =
+                      row.removal.length > 0 && onRemovalRoute !== undefined;
+                    const open = removing === row.key;
+
+                    return (
+                      <View key={row.key} style={styles.accessGroup}>
+                        <View style={styles.accessRow}>
+                          <View style={styles.accessMain}>
+                            <Text variant="rowTitle">{row.label}</Text>
+                            <Text variant="meta" style={styles.accessReason}>
+                              {row.reason}
+                            </Text>
+                          </View>
+                          {canRemove ? (
+                            <Button
+                              label={open ? "Cancel" : "Remove…"}
+                              variant="white"
+                              onPress={() => setRemoving(open ? null : row.key)}
+                              testID={`share-access-remove-${row.key}`}
+                            />
+                          ) : (
+                            <Text variant="meta">{row.role}</Text>
+                          )}
+                        </View>
+
+                        {!open || !canRemove ? null : (
+                          <View style={styles.routes} testID={`share-routes-${row.key}`}>
+                            {/*
+                              Each route states how far it reaches, because the
+                              two differ by an entire context and the label
+                              alone cannot carry that. `access.ts` orders them
+                              narrowest first, so the safe one is the one under
+                              the thumb.
+                            */}
+                            {row.removal.map((route) => (
+                              <Pressable
+                                key={route.id}
+                                style={styles.route}
+                                accessibilityLabel={route.label}
+                                testID={`share-route-${route.id}`}
+                                onPress={() => {
+                                  setRemoving(null);
+                                  onRemovalRoute(route, row);
+                                }}
+                              >
+                                <Text
+                                  variant="rowTitle"
+                                  style={route.danger ? styles.routeDanger : undefined}
+                                >
+                                  {route.label}
+                                </Text>
+                                <Text variant="meta" style={styles.accessReason}>
+                                  {route.detail}
+                                </Text>
+                              </Pressable>
+                            ))}
+                          </View>
+                        )}
                       </View>
-                      <Text variant="meta">{row.role}</Text>
-                    </View>
-                  ))}
+                    );
+                  })}
                 </View>
               )}
 
@@ -578,6 +666,19 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   accessMain: { flexGrow: 1, flexShrink: 1, minWidth: 0, gap: 1 },
   accessReason: { color: colors.muted },
+  /* Row plus whatever it has expanded, so the divider stays on the row. */
+  accessGroup: { gap: 0 },
+  routes: {
+    gap: 2,
+    marginBottom: 8,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.well,
+    overflow: "hidden",
+  },
+  route: { paddingVertical: 9, paddingHorizontal: 10, gap: 1 },
+  routeDanger: { color: colors.crit },
   linkRow: { flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" },
   linkMain: { flexGrow: 1, flexShrink: 1, minWidth: 160, gap: 1 },
   linkNote: { color: colors.muted },

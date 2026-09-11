@@ -29,7 +29,7 @@ import { itemsFor, type MenuActionId } from "./menu";
 import { baseName, parentPath, restoreTargetFor } from "./paths";
 import { itemsFromListings, rank } from "./palette";
 import { buildTreeRows, findEntry, targetFolder, type TreeRow } from "./tree";
-import type { AccessMember } from "./access";
+import type { AccessMember, AccessRow, RemovalRoute } from "./access";
 import type { RecipientGroup } from "./recipients";
 import { isGroupVisibility } from "./types";
 import type { Visibility } from "./types";
@@ -102,6 +102,17 @@ export function Explorer({
     members: readonly AccessMember[];
     groups?: readonly RecipientGroup[];
     onShareWithGroup?: (path: string, group: string) => void;
+    /**
+     * What a row in the people list can do about somebody, for one path.
+     *
+     * A factory rather than a handler, because narrowing a note names the
+     * note and this component is rendered once for a tree with many. Returns
+     * `undefined` for a caller that can do none of it — see `removalHandler`
+     * — and the dialog then draws roles rather than controls.
+     */
+    removalRouteFor?: (
+      path: string,
+    ) => ((route: RemovalRoute, row: AccessRow) => void) | undefined;
   };
   /** "@seyi" — named in the empty state so it is obvious whose tree this is. */
   contextLabel: string;
@@ -712,6 +723,17 @@ export function ExplorerDialogs({
     members: readonly AccessMember[];
     groups?: readonly RecipientGroup[];
     onShareWithGroup?: (path: string, group: string) => void;
+    /**
+     * What a row in the people list can do about somebody, for one path.
+     *
+     * A factory rather than a handler, because narrowing a note names the
+     * note and this component is rendered once for a tree with many. Returns
+     * `undefined` for a caller that can do none of it — see `removalHandler`
+     * — and the dialog then draws roles rather than controls.
+     */
+    removalRouteFor?: (
+      path: string,
+    ) => ((route: RemovalRoute, row: AccessRow) => void) | undefined;
   };
 }) {
   if (dialog === null) return null;
@@ -830,6 +852,7 @@ export function ExplorerDialogs({
                 }
           }
           groups={access?.groups}
+          onRemovalRoute={access?.removalRouteFor?.(dialog.path)}
           onShareWithGroup={
             access?.onShareWithGroup === undefined
               ? undefined

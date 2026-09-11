@@ -29,6 +29,8 @@ import { InboxView } from "../communications/InboxView";
 import { MAIL_CONNECT_ENABLED } from "../communications/flags";
 import { classifyCommsPath } from "../communications/paths";
 import { isGroupVisibility } from "../files/types";
+import { removalHandler } from "../files/access";
+import type { SettingsSectionKey } from "../settings/sections";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -78,7 +80,13 @@ export function BrowsePane({
   onOpenComms,
 }: {
   data: ConsoleData;
-  onOpenSettings?: () => void;
+  /**
+   * Optionally at a named section — which is what lets a control deep-link to
+   * the place its own answer lives: the share dialog's group row sends you to
+   * `groups`, because who is in a group is decided there and nowhere else.
+   * Called with nothing, it opens where the gear always did.
+   */
+  onOpenSettings?: (section?: SettingsSectionKey) => void;
   /**
    * The note this URL names, if it names one.
    *
@@ -900,6 +908,22 @@ export function BrowsePane({
             exception: selected.exception,
             members: data.members?.members,
           }}
+          /*
+            What a row can actually do about somebody. Each half is present
+            only where this caller holds it: `setPrivate` needs write access to
+            the manifest, `removeMember` is owner-only in `apps/convex`, and
+            `removalHandler` returns `undefined` when neither is — so a
+            non-owner's rows draw their role, exactly as they always did.
+          */
+          onRemovalRoute={removalHandler({
+            path: sharing,
+            setPrivate: (path) => files.setVisibility(path, "file", "private"),
+            removeMember: data.members?.actions?.remove,
+            openGroups:
+              data.groups?.actions === undefined || onOpenSettings === undefined
+                ? undefined
+                : () => onOpenSettings("groups"),
+          })}
           /*
             Only when the editor is actually holding this note — the same
             guard the breadcrumb's title uses, for the same reason: the

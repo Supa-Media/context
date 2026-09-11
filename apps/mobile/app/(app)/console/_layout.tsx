@@ -83,6 +83,7 @@ import {
   scopeActionLabel,
   scopeOf,
 } from "../../../features/console/files/scope";
+import { removalHandler } from "../../../features/console/files/access";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
 import { MEETINGS_ROUTE } from "../../../features/meetings/route";
 import { WELCOME_ROUTE } from "../../../features/onboarding/route";
@@ -972,6 +973,25 @@ export default function ConsoleLayout() {
               data.groups?.actions === undefined
                 ? undefined
                 : (path, group) => data.files.shareWithGroup(path, group),
+            /*
+              The same three halves the pane passes, each present only where
+              this caller holds it. Built per path rather than once, because
+              narrowing a note names the note — see `removalHandler`.
+            */
+            removalRouteFor: (path) =>
+              removalHandler({
+                path,
+                setPrivate: (target) =>
+                  data.files.setVisibility(target, "file", "private"),
+                removeMember: data.members?.actions?.remove,
+                openGroups:
+                  data.groups?.actions === undefined || !insideContext
+                    ? undefined
+                    : () => {
+                        setBarDialog(null);
+                        router.setParams({ settings: "groups" });
+                      },
+              }),
           }}
         />
 
