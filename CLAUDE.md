@@ -40,14 +40,9 @@ breaking one, stop and say so rather than working around it.
    boundary). **This now also carries non-negotiable #1's exit promise**: a
    bucket holding one workspace can be handed over, and a shared bucket with a
    prefix per customer can only ever be exported from — so managed buckets are
-   one per workspace, named from the immutable workspace id, in the Cloudflare
+   one per workspace, named from the immutable workspace id, in a Cloudflare
    account that holds customer data — those buckets, and the per-context
-   search databases. That account is the Context.LC one, which also runs our
-   Workers: the owner decided that on 2026-09-10, so **no R2 bucket of ours
-   may ever join it** and the deploy credential must carry no R2 or D1 scope —
-   the reasoning, and what the amendment gave up, is in
-   [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
-   A store's per-account resource
+   search databases — and nothing of ours. A store's per-account resource
    ceiling is therefore a constraint on the product, not a detail: R2 allows a
    million buckets, and anything low forces prefix tenancy and ends the exit
    promise with it.
