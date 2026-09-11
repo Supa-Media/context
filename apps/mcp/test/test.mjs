@@ -22,6 +22,7 @@ import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
 import { runPluginChecks } from "./plugins.test.mjs";
 import { runPrivacyGroupChecks } from "./privacyGroups.test.mjs";
+import { runPathInjectionChecks } from "./pathInjection.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
 import { runToolArgumentChecks } from "./toolArguments.test.mjs";
 import { runLinkChecks } from "./links.test.mjs";
@@ -4186,6 +4187,11 @@ await runOrientationChecks(check);
 // team folder with a group-scoped note inside it — the arrangement where a
 // guard that tests `=== "private"` instead of `!== "team"` actually leaks.
 await runPrivacyGroupChecks(check);
+
+// A path is not a place to write privacy rules. Its own bucket, because the
+// fixture is one named private note and one forged path that tries to publish
+// it without ever naming it.
+await runPathInjectionChecks(check);
 
 // The two communications reads, against their own bucket for the same reason:
 // the fixture here is two mailboxes with different visibilities, which is the
