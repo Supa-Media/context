@@ -51,8 +51,9 @@
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(
+  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -86,7 +87,9 @@ function mount(
     container.remove();
   });
   act(() => {
-    root.render(createElement(PremiumBody, { view, section: "premium", ...extra }));
+    root.render(
+      createElement(PremiumBody, { view, section: "premium", ...extra }),
+    );
   });
   return container;
 }
@@ -120,7 +123,9 @@ const EVERY_SCREEN: Array<[string, PremiumView]> = [
   ["free", view()],
   [
     "free with something chosen",
-    view({ status: status({ selected: { managedStorage: true, fastSearch: false } }) }),
+    view({
+      status: status({ selected: { managedStorage: true, fastSearch: false } }),
+    }),
   ],
   [
     "premium",
@@ -148,18 +153,36 @@ const EVERY_SCREEN: Array<[string, PremiumView]> = [
       }),
     }),
   ],
-  ["a member", view({ status: status({ canManage: false }), choose: undefined, upgrade: undefined, manageBilling: undefined })],
   [
-    "a member on a context whose payment failed",
+    "a member",
     view({
-      status: status({ status: "past_due", canManage: false, hasStripeCustomer: true }),
+      status: status({ canManage: false }),
       choose: undefined,
       upgrade: undefined,
       manageBilling: undefined,
     }),
   ],
-  ["a deployment that does not sell", view({ status: status({ configured: false }) })],
-  ["a status this build does not know", view({ status: status({ status: "paused" }) })],
+  [
+    "a member on a context whose payment failed",
+    view({
+      status: status({
+        status: "past_due",
+        canManage: false,
+        hasStripeCustomer: true,
+      }),
+      choose: undefined,
+      upgrade: undefined,
+      manageBilling: undefined,
+    }),
+  ],
+  [
+    "a deployment that does not sell",
+    view({ status: status({ configured: false }) }),
+  ],
+  [
+    "a status this build does not know",
+    view({ status: status({ status: "paused" }) }),
+  ],
   ["still loading", view({ status: null, loading: true })],
   ["unreadable", unreadablePremiumView()],
   ["the landing page's demo", demoPremiumView()],
@@ -178,7 +201,9 @@ describe("the export promise is on every one of these screens", () => {
       nothing, and on the two screens where nothing could be read at all.
     */
     const host = mount(current);
-    const promise = host.querySelector('[data-testid="premium-export-promise"]');
+    const promise = host.querySelector(
+      '[data-testid="premium-export-promise"]',
+    );
     expect(promise).not.toBeNull();
     expect(host.textContent ?? "").toContain(EXPORT_PROMISE);
   });
@@ -188,7 +213,8 @@ describe("the export promise is on every one of these screens", () => {
       EVERY_SCREEN.map(([, current]) => {
         const host = mount(current);
         return (
-          host.querySelector('[data-testid="premium-export-promise"]')?.textContent ?? ""
+          host.querySelector('[data-testid="premium-export-promise"]')
+            ?.textContent ?? ""
         );
       }),
     );
@@ -201,18 +227,51 @@ describe("the export promise is on every one of these screens", () => {
       const text = mount(current).textContent ?? "";
       // The upsell shapes: an export that is "included", one that "requires" a
       // plan, one that is "available on" one.
-      expect(text).not.toMatch(/export[^.]{0,40}(included|requires|available on)/i);
-      expect(text).not.toMatch(/(upgrade|premium)[^.]{0,30}to (export|download)/i);
+      expect(text).not.toMatch(
+        /export[^.]{0,40}(included|requires|available on)/i,
+      );
+      expect(text).not.toMatch(
+        /(upgrade|premium)[^.]{0,30}to (export|download)/i,
+      );
     }
+  });
+});
+
+describe("managed-storage migration", () => {
+  test("a failed copy keeps the original-storage promise and offers the owner retry", () => {
+    const host = mount(
+      view({
+        status: status({
+          status: "active",
+          selected: { managedStorage: true, fastSearch: false },
+          active: { managedStorage: true, fastSearch: false },
+          managedProvisioning: "failed",
+        }),
+        retryManagedStorage: async () => {},
+      }),
+    );
+    expect(
+      host.querySelector('[data-testid="managed-storage-migration"]')
+        ?.textContent,
+    ).toMatch(/original remains connected and untouched/i);
+    expect(
+      host.querySelector('[data-testid="managed-storage-retry"]'),
+    ).not.toBeNull();
   });
 });
 
 describe("what each screen offers", () => {
   test("an owner on the free plan with a choice made is offered the upgrade", () => {
     const host = mount(
-      view({ status: status({ selected: { managedStorage: true, fastSearch: false } }) }),
+      view({
+        status: status({
+          selected: { managedStorage: true, fastSearch: false },
+        }),
+      }),
     );
-    expect(host.querySelector('[data-testid="premium-upgrade"]')).not.toBeNull();
+    expect(
+      host.querySelector('[data-testid="premium-upgrade"]'),
+    ).not.toBeNull();
     expect(host.querySelector('[data-testid="premium-manage"]')).toBeNull();
   });
 
@@ -232,7 +291,10 @@ describe("what each screen offers", () => {
   test("a member gets the plan and no controls at all", () => {
     const host = mount(
       view({
-        status: status({ canManage: false, selected: { managedStorage: true, fastSearch: false } }),
+        status: status({
+          canManage: false,
+          selected: { managedStorage: true, fastSearch: false },
+        }),
         choose: undefined,
         upgrade: undefined,
         manageBilling: undefined,
@@ -241,7 +303,9 @@ describe("what each screen offers", () => {
     expect(host.querySelector('[data-testid="premium-upgrade"]')).toBeNull();
     expect(host.querySelector('[data-testid="premium-manage"]')).toBeNull();
     // No switches either — the two entitlements are read out instead.
-    expect(host.querySelector('[data-testid="premium-entitlement-fastSearch"]')).toBeNull();
+    expect(
+      host.querySelector('[data-testid="premium-entitlement-fastSearch"]'),
+    ).toBeNull();
     expect(host.textContent ?? "").toContain("Managed storage");
   });
 
@@ -259,7 +323,11 @@ describe("what each screen offers", () => {
     // money fields were owner-only on the wire and this sentence was not.
     const host = mount(
       view({
-        status: status({ status: "past_due", canManage: false, hasStripeCustomer: true }),
+        status: status({
+          status: "past_due",
+          canManage: false,
+          hasStripeCustomer: true,
+        }),
         choose: undefined,
         upgrade: undefined,
         manageBilling: undefined,
@@ -294,18 +362,30 @@ describe("what each screen offers", () => {
   test("a ready checkout hands over the second press rather than navigating on its own", () => {
     const host = mount(
       view({
-        status: status({ selected: { managedStorage: true, fastSearch: false } }),
-        session: { status: "ready", kind: "checkout", url: "https://checkout.invalid/x" },
+        status: status({
+          selected: { managedStorage: true, fastSearch: false },
+        }),
+        session: {
+          status: "ready",
+          kind: "checkout",
+          url: "https://checkout.invalid/x",
+        },
       }),
     );
-    expect(host.querySelector('[data-testid="premium-continue"]')).not.toBeNull();
+    expect(
+      host.querySelector('[data-testid="premium-continue"]'),
+    ).not.toBeNull();
   });
 
   test("a failed attempt says so in our words", () => {
     const host = mount(
       view({
         status: status(),
-        session: { status: "failed", kind: "checkout", errorCode: "NOT_CONFIGURED" },
+        session: {
+          status: "failed",
+          kind: "checkout",
+          errorCode: "NOT_CONFIGURED",
+        },
       }),
     );
     expect(host.textContent ?? "").toContain("not set up on this deployment");
@@ -348,7 +428,9 @@ describe("what the section says about itself", () => {
 describe("the return from Stripe", () => {
   test("paid, and the plan has not caught up: reassurance, not a failure", () => {
     const container = mount(view(), { returned: "done" });
-    const notice = container.querySelector('[data-testid="premium-checkout-return"]');
+    const notice = container.querySelector(
+      '[data-testid="premium-checkout-return"]',
+    );
     expect(notice).not.toBeNull();
     const words = notice?.textContent ?? "";
     expect(words).toContain("Payment received");
@@ -394,7 +476,8 @@ describe("the return from Stripe", () => {
         jest.advanceTimersByTime(25);
       });
       const words =
-        container.querySelector('[data-testid="premium-checkout-return"]')?.textContent ?? "";
+        container.querySelector('[data-testid="premium-checkout-return"]')
+          ?.textContent ?? "";
       expect(words).toContain("Still working");
       expect(words).toContain("You can close this");
       expect(words.toLowerCase()).not.toContain("failed");
@@ -409,7 +492,8 @@ describe("the return from Stripe", () => {
       { returned: "done" },
     );
     const words =
-      container.querySelector('[data-testid="premium-checkout-return"]')?.textContent ?? "";
+      container.querySelector('[data-testid="premium-checkout-return"]')
+        ?.textContent ?? "";
     expect(words).toContain("Payment received");
     expect(words).toContain("Premium is on");
     expect(words).not.toContain("a few seconds");
@@ -418,7 +502,8 @@ describe("the return from Stripe", () => {
   test("came back without paying: nothing was charged, and no second pitch", () => {
     const container = mount(view(), { returned: "cancelled" });
     const words =
-      container.querySelector('[data-testid="premium-checkout-return"]')?.textContent ?? "";
+      container.querySelector('[data-testid="premium-checkout-return"]')
+        ?.textContent ?? "";
     expect(words).toContain("No payment was taken");
     expect(words).toContain("nothing was charged");
     // A cancelled checkout is not an opportunity. There is no discount to offer
@@ -429,7 +514,9 @@ describe("the return from Stripe", () => {
 
   test("an ordinary visit says nothing about a checkout at all", () => {
     const container = mount(view());
-    expect(container.querySelector('[data-testid="premium-checkout-return"]')).toBeNull();
+    expect(
+      container.querySelector('[data-testid="premium-checkout-return"]'),
+    ).toBeNull();
   });
 
   test("and the export promise survives every one of them", () => {

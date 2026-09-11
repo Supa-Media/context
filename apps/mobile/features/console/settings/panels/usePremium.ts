@@ -40,7 +40,9 @@ export function usePremium(options: {
   const convex = useConvex();
   const { workspaceId } = options;
   const asking = shouldReadPremium({ workspaceId });
-  const [sessionId, setSessionId] = useState<Id<"billingSessions"> | null>(null);
+  const [sessionId, setSessionId] = useState<Id<"billingSessions"> | null>(
+    null,
+  );
 
   // The spec may be empty, which is what lets this subscribe conditionally
   // without a conditional hook. `api.…` is reached for inside the memo and
@@ -49,7 +51,10 @@ export function usePremium(options: {
   const spec = useMemo<RequestForQueries>(() => {
     const requests: RequestForQueries = {};
     if (asking && workspaceId !== null) {
-      requests.status = { query: api.functions.billing.status, args: { workspaceId } };
+      requests.status = {
+        query: api.functions.billing.status,
+        args: { workspaceId },
+      };
     }
     if (sessionId !== null) {
       requests.session = {
@@ -90,6 +95,16 @@ export function usePremium(options: {
     setSessionId(started.sessionId);
   }, [convex, workspaceId]);
 
+  const retryManagedStorage = useCallback(async () => {
+    if (workspaceId === null) return;
+    await convex.mutation(
+      api.functions.managedProvisioning.retryManagedProvisioning,
+      {
+        workspaceId,
+      },
+    );
+  }, [convex, workspaceId]);
+
   const raw = results.status;
   const answered = raw !== undefined && !(raw instanceof Error) && raw !== null;
   const status = answered ? (raw as PremiumStatus) : null;
@@ -97,7 +112,9 @@ export function usePremium(options: {
 
   const rawSession = results.session;
   const session =
-    rawSession !== undefined && !(rawSession instanceof Error) && rawSession !== null
+    rawSession !== undefined &&
+    !(rawSession instanceof Error) &&
+    rawSession !== null
       ? (rawSession as PremiumSession)
       : null;
 
@@ -112,5 +129,6 @@ export function usePremium(options: {
     choose: canManage ? choose : undefined,
     upgrade: canManage ? upgrade : undefined,
     manageBilling: canManage ? manageBilling : undefined,
+    retryManagedStorage: canManage ? retryManagedStorage : undefined,
   };
 }

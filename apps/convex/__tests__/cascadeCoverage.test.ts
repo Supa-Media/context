@@ -70,14 +70,18 @@ const CASCADE_SOURCE = (() => {
   }) as Record<string, string>;
   const source = Object.values(sources)[0];
   if (typeof source !== "string") {
-    throw new Error("cascadeCoverage.test.ts could not read functions/account.ts");
+    throw new Error(
+      "cascadeCoverage.test.ts could not read functions/account.ts",
+    );
   }
   // The cascade only — a mention in the file's header prose must not count as
   // a sweep. The header is exactly where an unswept table gets *described*.
   const start = source.indexOf("async function deleteWorkspaceCascade");
   const end = source.indexOf("async function voidCapabilitiesAddressedTo");
   if (start < 0 || end < 0 || end <= start) {
-    throw new Error("cascadeCoverage.test.ts could not locate deleteWorkspaceCascade");
+    throw new Error(
+      "cascadeCoverage.test.ts could not locate deleteWorkspaceCascade",
+    );
   }
   return source.slice(start, end);
 })();
@@ -93,14 +97,23 @@ const DELIBERATE_EXCEPTIONS: Record<string, string> = {
   // who never exported their keys — an open product decision, not an
   // oversight. `docs/decisions/encryption.md`, "What a teardown deletes, and
   // what it keeps", and the comment at the sweep site in `account.ts`.
-  workspaceDataKeys: "kept deliberately: deleting it would destroy unexported notes",
+  workspaceDataKeys:
+    "kept deliberately: deleting it would destroy unexported notes",
 };
 
 /** Field names a table declares, across object and union validators. */
 function fieldNamesOf(validator: unknown): string[] {
   if (typeof validator !== "object" || validator === null) return [];
-  const shape = validator as { kind?: string; fields?: unknown; members?: unknown };
-  if (shape.kind === "object" && typeof shape.fields === "object" && shape.fields !== null) {
+  const shape = validator as {
+    kind?: string;
+    fields?: unknown;
+    members?: unknown;
+  };
+  if (
+    shape.kind === "object" &&
+    typeof shape.fields === "object" &&
+    shape.fields !== null
+  ) {
     return Object.keys(shape.fields as Record<string, unknown>);
   }
   // A table may be declared as a union of object variants; a credential in
@@ -118,10 +131,10 @@ function fieldNamesOf(validator: unknown): string[] {
  * codebase does not have — the same reason `connectAttemptTables` takes one.
  */
 export function credentialBearingWorkspaceTables(
-  tables: Record<string, { validator: unknown }> = schema.tables as unknown as Record<
+  tables: Record<
     string,
     { validator: unknown }
-  >,
+  > = schema.tables as unknown as Record<string, { validator: unknown }>,
 ): string[] {
   const found: string[] = [];
   for (const [tableName, table] of Object.entries(tables)) {
@@ -166,16 +179,20 @@ const EXTERNAL_OBLIGATION_PATTERNS: readonly RegExp[] = [/^stripe[A-Z]/];
  * wrong.
  */
 export function obligationBearingWorkspaceTables(
-  tables: Record<string, { validator: unknown }> = schema.tables as unknown as Record<
+  tables: Record<
     string,
     { validator: unknown }
-  >,
+  > = schema.tables as unknown as Record<string, { validator: unknown }>,
 ): string[] {
   const found: string[] = [];
   for (const [tableName, table] of Object.entries(tables)) {
     const fields = fieldNamesOf(table.validator);
     if (!fields.includes("workspaceId")) continue;
-    if (!fields.some((field) => EXTERNAL_OBLIGATION_PATTERNS.some((p) => p.test(field)))) {
+    if (
+      !fields.some((field) =>
+        EXTERNAL_OBLIGATION_PATTERNS.some((p) => p.test(field)),
+      )
+    ) {
       continue;
     }
     found.push(tableName);
@@ -213,8 +230,13 @@ describe("every workspace-scoped table holding an outside obligation ends it", (
     // must do it before deleting the row that names it. Ordering, not presence.
     const cancelAt = CASCADE_SOURCE.indexOf("cancelSubscription");
     const deleteAt = CASCADE_SOURCE.indexOf("ctx.db.delete(plan._id)");
-    expect(cancelAt, "the cascade never cancels a subscription").toBeGreaterThan(-1);
-    expect(deleteAt, "the cascade never deletes the plan row").toBeGreaterThan(-1);
+    expect(
+      cancelAt,
+      "the cascade never cancels a subscription",
+    ).toBeGreaterThan(-1);
+    expect(deleteAt, "the cascade never deletes the plan row").toBeGreaterThan(
+      -1,
+    );
     expect(
       cancelAt,
       "the cancellation must be scheduled before the row carrying its id is deleted",
@@ -231,10 +253,14 @@ describe("every workspace-scoped table holding an outside obligation ends it", (
         stripeSubscriptionId: v.string(),
       }),
     };
-    expect(obligationBearingWorkspaceTables(withVendor)).toContain("vendorSeats");
+    expect(obligationBearingWorkspaceTables(withVendor)).toContain(
+      "vendorSeats",
+    );
     // …and that it is not satisfied by the credential derivation, which is the
     // whole reason there are two.
-    expect(credentialBearingWorkspaceTables(withVendor)).not.toContain("vendorSeats");
+    expect(credentialBearingWorkspaceTables(withVendor)).not.toContain(
+      "vendorSeats",
+    );
   });
 });
 
@@ -247,6 +273,7 @@ describe("every sealed, workspace-scoped table is swept or explained", () => {
       "dropboxConnectAttempts",
       "googleConnectAttempts",
       "googleConnections",
+      "managedStorageMigrations",
       "storageBindings",
       "workspaceDataKeys",
     ]);
@@ -254,7 +281,8 @@ describe("every sealed, workspace-scoped table is swept or explained", () => {
 
   test("each one is swept by the cascade, or listed as a deliberate exception", () => {
     for (const tableName of credentialBearingWorkspaceTables()) {
-      const accounted = isSwept(tableName) || tableName in DELIBERATE_EXCEPTIONS;
+      const accounted =
+        isSwept(tableName) || tableName in DELIBERATE_EXCEPTIONS;
       expect(
         accounted,
         `${tableName} holds sealed material scoped to a workspace but is neither swept by ` +
@@ -283,7 +311,9 @@ describe("every sealed, workspace-scoped table is swept or explained", () => {
         encryptedRefreshToken: v.string(),
       }),
     };
-    expect(credentialBearingWorkspaceTables(withSlack)).toContain("slackConnections");
+    expect(credentialBearingWorkspaceTables(withSlack)).toContain(
+      "slackConnections",
+    );
     // And it is not swept, so the guard above would fail on it — which is the
     // day somebody has to decide what a teardown does with it.
     expect(isSwept("slackConnections")).toBe(false);
@@ -299,9 +329,13 @@ describe("every sealed, workspace-scoped table is swept or explained", () => {
         expiresAt: v.number(),
       }),
     };
-    expect(credentialBearingWorkspaceTables(tables)).toEqual(["notionConnectAttempts"]);
+    expect(credentialBearingWorkspaceTables(tables)).toEqual([
+      "notionConnectAttempts",
+    ]);
     expect(
-      (CONNECT_ATTEMPT_TABLES as readonly string[]).includes("notionConnectAttempts"),
+      (CONNECT_ATTEMPT_TABLES as readonly string[]).includes(
+        "notionConnectAttempts",
+      ),
     ).toBe(false);
   });
 
@@ -309,7 +343,10 @@ describe("every sealed, workspace-scoped table is swept or explained", () => {
     const tables = {
       variantConnection: defineTable(
         v.union(
-          v.object({ workspaceId: v.id("workspaces"), kind: v.literal("empty") }),
+          v.object({
+            workspaceId: v.id("workspaces"),
+            kind: v.literal("empty"),
+          }),
           v.object({
             workspaceId: v.id("workspaces"),
             kind: v.literal("live"),
@@ -318,13 +355,18 @@ describe("every sealed, workspace-scoped table is swept or explained", () => {
         ),
       ),
     };
-    expect(credentialBearingWorkspaceTables(tables)).toEqual(["variantConnection"]);
+    expect(credentialBearingWorkspaceTables(tables)).toEqual([
+      "variantConnection",
+    ]);
   });
 
   test("an unscoped credential and a scoped plain row are both left alone", () => {
     const tables = {
       platformSecret: defineTable({ encryptedValue: v.string() }),
-      plainWorkspaceRow: defineTable({ workspaceId: v.id("workspaces"), at: v.number() }),
+      plainWorkspaceRow: defineTable({
+        workspaceId: v.id("workspaces"),
+        at: v.number(),
+      }),
     };
     expect(credentialBearingWorkspaceTables(tables)).toEqual([]);
   });

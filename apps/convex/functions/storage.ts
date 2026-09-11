@@ -61,7 +61,10 @@ import {
 import { recordAudit } from "./lib/audit";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { redactSigningArtifacts } from "./lib/verification";
-import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAuth";
+import {
+  requireWorkspaceAccess,
+  requireWorkspaceRole,
+} from "./lib/workspaceAuth";
 import { managedAccountId, refuseManagedEndpoint } from "./lib/managedStorage";
 
 const providerValidator = v.union(
@@ -211,6 +214,18 @@ export interface RekeyResult {
   platformSecretsRekeyed: number;
   platformSecretsSkipped: number;
   platformSecretsUnreadable: number;
+  managedMigrationsRekeyed: number;
+  managedMigrationsSkipped: number;
+  managedMigrationsUnreadable: number;
+}
+
+export interface ManagedMigrationRekeyCandidates {
+  candidates: {
+    rowId: Id<"managedStorageMigrations">;
+    workspaceId: Id<"workspaces">;
+    envelope: string;
+  }[];
+  unreadable: number;
 }
 
 /** Platform-scoped envelopes, one per `appSecrets` row. */
@@ -315,7 +330,9 @@ function assertUsableEndpoint(endpoint: string): void {
  * emphatically NOT tenancy, so it must never be derived from a workspace id.
  * Normalized to `foo/bar/` (no leading slash, one trailing slash).
  */
-function normalizeRootPrefix(rootPrefix: string | undefined): string | undefined {
+function normalizeRootPrefix(
+  rootPrefix: string | undefined,
+): string | undefined {
   if (rootPrefix === undefined) return undefined;
   const trimmed = rootPrefix.trim().replace(/^\/+/, "").replace(/\/+$/, "");
   if (trimmed.length === 0) return undefined;
@@ -358,7 +375,10 @@ function normalizeRootPrefix(rootPrefix: string | undefined): string | undefined
  * `URL` lowercases the hostname; the bucket is compared as given, which is the
  * same comparison `S3Store` makes.
  */
-export function addressingIsAmbiguous(endpoint: string, bucket: string): boolean {
+export function addressingIsAmbiguous(
+  endpoint: string,
+  bucket: string,
+): boolean {
   let hostname: string;
   try {
     hostname = new URL(endpoint).hostname;
@@ -449,7 +469,10 @@ export const bindStorage = action({
         message: "A bucket name is required.",
       });
     }
-    if (args.accessKeyId.trim().length === 0 || args.secretAccessKey.length === 0) {
+    if (
+      args.accessKeyId.trim().length === 0 ||
+      args.secretAccessKey.length === 0
+    ) {
       throw new ConvexError({
         code: "INVALID_CREDENTIAL",
         message: "Both an access key id and a secret access key are required.",
@@ -460,7 +483,10 @@ export const bindStorage = action({
     // there is still a person and a form to answer the question. Left to the
     // probe it becomes a permanently-`error` binding whose only documented cure
     // is re-pasting a credential that was never the problem.
-    if (args.forcePathStyle === undefined && addressingIsAmbiguous(args.endpoint, bucket)) {
+    if (
+      args.forcePathStyle === undefined &&
+      addressingIsAmbiguous(args.endpoint, bucket)
+    ) {
       throw ambiguousAddressingError(bucket);
     }
     const rootPrefix = normalizeRootPrefix(args.rootPrefix);
@@ -611,11 +637,18 @@ export const applyBinding = internalMutation({
     // re-encrypts a field into itself without touching `provider`). Removing
     // it changes no test, which is the honest signal — and a reader meeting it
     // cannot tell that without running the sabotage, so it is written here.
-    if (existing?.provider === "dropbox" && existing.encryptedRefreshToken !== undefined) {
-      await ctx.scheduler.runAfter(0, internal.functions.dropboxConnect.revokeDropboxGrant, {
-        workspaceId: args.workspaceId,
-        encryptedRefreshToken: existing.encryptedRefreshToken,
-      });
+    if (
+      existing?.provider === "dropbox" &&
+      existing.encryptedRefreshToken !== undefined
+    ) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.dropboxConnect.revokeDropboxGrant,
+        {
+          workspaceId: args.workspaceId,
+          encryptedRefreshToken: existing.encryptedRefreshToken,
+        },
+      );
     }
 
     let bindingId: Id<"storageBindings">;
@@ -993,7 +1026,11 @@ export const getBindingForGateway = internalAction({
     //    behind; spread, that reaches the gateway as a credential for storage
     //    this binding no longer points at.
     if (binding.provider === "dropbox") {
-      const accessToken = await dropboxAccessToken(ctx, args.workspaceId, binding);
+      const accessToken = await dropboxAccessToken(
+        ctx,
+        args.workspaceId,
+        binding,
+      );
       return {
         provider: "dropbox",
         accessToken,
@@ -1111,7 +1148,11 @@ async function dropboxAccessToken(
 
   let refreshToken: string;
   try {
-    refreshToken = await decryptSecret(binding.encryptedRefreshToken, keyset, context);
+    refreshToken = await decryptSecret(
+      binding.encryptedRefreshToken,
+      keyset,
+      context,
+    );
   } catch (error) {
     if (error instanceof CredentialCryptoError) {
       throw new ConvexError({
@@ -1138,7 +1179,11 @@ async function dropboxAccessToken(
 
   let refreshed;
   try {
-    refreshed = await refreshDropboxToken({ clientId, clientSecret, refreshToken });
+    refreshed = await refreshDropboxToken({
+      clientId,
+      clientSecret,
+      refreshToken,
+    });
   } catch (error) {
     // A revoked grant is not a transient failure, and the two need different
     // words: one is "reconnect Dropbox", the other is "try again".
@@ -1159,7 +1204,11 @@ async function dropboxAccessToken(
     internal.functions.storage.recordDropboxRefresh as never,
     {
       workspaceId,
-      encryptedAccessToken: await encryptSecret(refreshed.accessToken, keyset, context),
+      encryptedAccessToken: await encryptSecret(
+        refreshed.accessToken,
+        keyset,
+        context,
+      ),
       accessTokenExpiresAt: refreshed.expiresAt,
       encryptedRefreshToken: refreshed.refreshToken
         ? await encryptSecret(refreshed.refreshToken, keyset, context)
@@ -1272,6 +1321,7 @@ export const ROTATED_ENVELOPE_COLUMNS = [
   ...ENVELOPE_FIELDS,
   "encryptedDataKey",
   "encryptedValue",
+  "encryptedTargetSecretAccessKey",
 ] as const;
 
 /**
@@ -1285,7 +1335,7 @@ export const ROTATED_ENVELOPE_COLUMNS = [
  *
  *  - `cloudflareProvisioning.encryptedSetupCredential` — one in-flight bucket
  *    creation, alive for seconds, deleted in the transaction that writes the
-  *    binding and cleared on failure. A rotation landing inside that window
+ *    binding and cleared on failure. A rotation landing inside that window
  *    fails that one attempt, which the owner retries. There is nothing here to
  *    carry forward: by design the row is gone before a pass would reach it.
  *
@@ -1428,7 +1478,11 @@ export const listDataKeyRekeyCandidates = internalQuery({
         continue;
       }
       if (keyId === args.currentKeyId) continue;
-      candidates.push({ rowId: row._id, workspaceId: row.workspaceId, envelope });
+      candidates.push({
+        rowId: row._id,
+        workspaceId: row.workspaceId,
+        envelope,
+      });
     }
     return { candidates, unreadable };
   },
@@ -1483,7 +1537,8 @@ const googleConnectionEnvelopeField = v.union(
   v.literal("encryptedRefreshToken"),
   v.literal("encryptedAccessToken"),
 );
-type GoogleConnectionEnvelopeField = "encryptedRefreshToken" | "encryptedAccessToken";
+type GoogleConnectionEnvelopeField =
+  "encryptedRefreshToken" | "encryptedAccessToken";
 
 /** Candidate envelopes on `googleConnections`, one per field. */
 export interface GoogleConnectionRekeyCandidates {
@@ -1514,7 +1569,10 @@ export const listGoogleConnectionRekeyCandidates = internalQuery({
     const candidates = [];
     let unreadable = 0;
     for (const row of rows) {
-      for (const field of ["encryptedRefreshToken", "encryptedAccessToken"] as const) {
+      for (const field of [
+        "encryptedRefreshToken",
+        "encryptedAccessToken",
+      ] as const) {
         const envelope = row[field];
         // A disconnected mailbox's refresh token is the empty string, not a
         // missing envelope — see `disconnectGoogleConnection`. Empty is never a
@@ -1528,7 +1586,12 @@ export const listGoogleConnectionRekeyCandidates = internalQuery({
           continue;
         }
         if (keyId === args.currentKeyId) continue;
-        candidates.push({ connectionId: row._id, workspaceId: row.workspaceId, field, envelope });
+        candidates.push({
+          connectionId: row._id,
+          workspaceId: row.workspaceId,
+          field,
+          envelope,
+        });
       }
     }
     return { candidates, unreadable };
@@ -1553,8 +1616,14 @@ export const applyGoogleConnectionRekey = internalMutation({
     const connection = await ctx.db.get(args.connectionId);
     if (connection === null) return false;
     if (connection[args.field] !== args.expectedEnvelope) return false;
-    await ctx.db.patch(args.connectionId, { [args.field]: args.envelope, updatedAt: Date.now() });
-    await recordAudit(ctx, { workspaceId: connection.workspaceId, action: "mail.rekeyed" });
+    await ctx.db.patch(args.connectionId, {
+      [args.field]: args.envelope,
+      updatedAt: Date.now(),
+    });
+    await recordAudit(ctx, {
+      workspaceId: connection.workspaceId,
+      action: "mail.rekeyed",
+    });
     return true;
   },
 });
@@ -1625,6 +1694,73 @@ export const applyPlatformSecretRekey = internalMutation({
   },
 });
 
+/** Destination credentials parked while a managed-storage copy is in flight. */
+export const listManagedMigrationRekeyCandidates = internalQuery({
+  args: { currentKeyId: v.string(), limit: v.number() },
+  returns: v.object({
+    candidates: v.array(
+      v.object({
+        rowId: v.id("managedStorageMigrations"),
+        workspaceId: v.id("workspaces"),
+        envelope: v.string(),
+      }),
+    ),
+    unreadable: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("managedStorageMigrations")
+      .take(args.limit);
+    const candidates = [];
+    let unreadable = 0;
+    for (const row of rows) {
+      const envelope = row.encryptedTargetSecretAccessKey;
+      let keyId: string;
+      try {
+        keyId = envelopeKeyId(envelope);
+      } catch {
+        unreadable += 1;
+        continue;
+      }
+      if (keyId !== args.currentKeyId) {
+        candidates.push({
+          rowId: row._id,
+          workspaceId: row.workspaceId,
+          envelope,
+        });
+      }
+    }
+    return { candidates, unreadable };
+  },
+});
+
+export const applyManagedMigrationRekey = internalMutation({
+  args: {
+    rowId: v.id("managedStorageMigrations"),
+    expectedEnvelope: v.string(),
+    envelope: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.rowId);
+    if (
+      row === null ||
+      row.encryptedTargetSecretAccessKey !== args.expectedEnvelope
+    ) {
+      return false;
+    }
+    await ctx.db.patch(row._id, {
+      encryptedTargetSecretAccessKey: args.envelope,
+      updatedAt: Date.now(),
+    });
+    await recordAudit(ctx, {
+      workspaceId: row.workspaceId,
+      action: "storage.rekeyed",
+    });
+    return true;
+  },
+});
+
 /**
  * Re-encrypt bindings still on an older key. INTERNAL ACTION — decrypts.
  *
@@ -1649,6 +1785,9 @@ export const rekeyStorageBindings = internalAction({
     platformSecretsRekeyed: v.number(),
     platformSecretsSkipped: v.number(),
     platformSecretsUnreadable: v.number(),
+    managedMigrationsRekeyed: v.number(),
+    managedMigrationsSkipped: v.number(),
+    managedMigrationsUnreadable: v.number(),
   }),
   handler: async (ctx, args): Promise<RekeyResult> => {
     const keyset = requireKeyset();
@@ -1726,10 +1865,11 @@ export const rekeyStorageBindings = internalAction({
     // is the same class of miss `encryptedDataKey` was before its own pass
     // existed, and it gets the same fix: a dedicated candidate query, wired in
     // here, not merely a column name added to a list somewhere.
-    const googleConnections: GoogleConnectionRekeyCandidates = await ctx.runQuery(
-      internal.functions.storage.listGoogleConnectionRekeyCandidates,
-      { currentKeyId: keyset.current.id, limit },
-    );
+    const googleConnections: GoogleConnectionRekeyCandidates =
+      await ctx.runQuery(
+        internal.functions.storage.listGoogleConnectionRekeyCandidates,
+        { currentKeyId: keyset.current.id, limit },
+      );
 
     let googleConnectionsRekeyed = 0;
     let googleConnectionsSkipped = 0;
@@ -1772,7 +1912,11 @@ export const rekeyStorageBindings = internalAction({
     for (const candidate of platform.candidates) {
       let value: string;
       try {
-        value = await decryptSecret(candidate.envelope, keyset, platformContext);
+        value = await decryptSecret(
+          candidate.envelope,
+          keyset,
+          platformContext,
+        );
       } catch {
         platformSecretsUnreadable += 1;
         continue;
@@ -1789,6 +1933,35 @@ export const rekeyStorageBindings = internalAction({
       else platformSecretsSkipped += 1;
     }
 
+    const managedMigrations: ManagedMigrationRekeyCandidates =
+      await ctx.runQuery(
+        internal.functions.storage.listManagedMigrationRekeyCandidates,
+        { currentKeyId: keyset.current.id, limit },
+      );
+    let managedMigrationsRekeyed = 0;
+    let managedMigrationsSkipped = 0;
+    let managedMigrationsUnreadable = managedMigrations.unreadable;
+    for (const candidate of managedMigrations.candidates) {
+      const context = { workspaceId: candidate.workspaceId as string };
+      let plaintext: string;
+      try {
+        plaintext = await decryptSecret(candidate.envelope, keyset, context);
+      } catch {
+        managedMigrationsUnreadable += 1;
+        continue;
+      }
+      const applied: boolean = await ctx.runMutation(
+        internal.functions.storage.applyManagedMigrationRekey,
+        {
+          rowId: candidate.rowId,
+          expectedEnvelope: candidate.envelope,
+          envelope: await encryptSecret(plaintext, keyset, context),
+        },
+      );
+      if (applied) managedMigrationsRekeyed += 1;
+      else managedMigrationsSkipped += 1;
+    }
+
     return {
       rekeyed,
       skipped,
@@ -1802,6 +1975,9 @@ export const rekeyStorageBindings = internalAction({
       platformSecretsRekeyed,
       platformSecretsSkipped,
       platformSecretsUnreadable,
+      managedMigrationsRekeyed,
+      managedMigrationsSkipped,
+      managedMigrationsUnreadable,
     };
   },
 });
@@ -1899,7 +2075,11 @@ export const getStorageBinding = query({
   ),
   handler: async (ctx, args) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
-    const { membership } = await requireWorkspaceAccess(ctx, args.workspaceId, userId);
+    const { membership } = await requireWorkspaceAccess(
+      ctx,
+      args.workspaceId,
+      userId,
+    );
     const isOwner = membership.role === "owner";
 
     const binding = await ctx.db
@@ -2090,11 +2270,18 @@ export const disconnectStorage = mutation({
     // instead of asking. Scheduled, not called: this public mutation must not
     // reach the decrypt. Best-effort, and the envelope travels in the args
     // because the row is deleted on the next line.
-    if (binding.provider === "dropbox" && binding.encryptedRefreshToken !== undefined) {
-      await ctx.scheduler.runAfter(0, internal.functions.dropboxConnect.revokeDropboxGrant, {
-        workspaceId: args.workspaceId,
-        encryptedRefreshToken: binding.encryptedRefreshToken,
-      });
+    if (
+      binding.provider === "dropbox" &&
+      binding.encryptedRefreshToken !== undefined
+    ) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.dropboxConnect.revokeDropboxGrant,
+        {
+          workspaceId: args.workspaceId,
+          encryptedRefreshToken: binding.encryptedRefreshToken,
+        },
+      );
     }
 
     await ctx.db.delete(binding._id);

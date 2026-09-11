@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import {
   internalAction,
   internalMutation,
@@ -10,7 +10,7 @@ import {
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { QueryCtx } from "../_generated/server";
 import { requireWorkspaceRole } from "./lib/workspaceAuth";
-import { encryptSecret, requireKeyset } from "./lib/crypto";
+import { decryptSecret, encryptSecret, requireKeyset } from "./lib/crypto";
 import { recordAudit } from "./lib/audit";
 import {
   CloudflareApiError,
@@ -21,7 +21,19 @@ import {
   resolvePermissionGroupId,
   scopedTokenName,
 } from "./lib/cloudflare";
-import { MANAGED_R2_API_TOKEN_SECRET, managedAccountId, managedBucketName } from "./lib/managedStorage";
+import {
+  MANAGED_R2_API_TOKEN_SECRET,
+  managedAccountId,
+  managedBucketName,
+} from "./lib/managedStorage";
+import { storeForBinding } from "../../mcp/src/store/factory.js";
+import {
+  reconcileMigrationObject,
+  type MigrationStore,
+} from "./lib/managedMigration";
+
+const MIGRATION_PAGE_SIZE = 25;
+const MIGRATION_OBJECT_BYTE_CAP = 25 * 1024 * 1024;
 
 /**
  * Creating the bucket a Premium customer paid for.
@@ -98,7 +110,10 @@ const R2_BUCKET_WRITE_PERMISSION_GROUP = "Workers R2 Storage Bucket Item Write";
 async function requireUserId(ctx: QueryCtx): Promise<Id<"users">> {
   const userId = await getAuthUserId(ctx);
   if (userId === null) {
-    throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Sign in first." });
+    throw new ConvexError({
+      code: "NOT_AUTHENTICATED",
+      message: "Sign in first.",
+    });
   }
   return userId;
 }
@@ -114,10 +129,7 @@ async function requireUserId(ctx: QueryCtx): Promise<Id<"users">> {
 export const provisionManagedStorage = internalAction({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ ok: v.boolean(), errorCode: v.optional(v.string()) }),
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ ok: boolean; errorCode?: string }> => {
+  handler: async (ctx, args): Promise<{ ok: boolean; errorCode?: string }> => {
     const fail = async (errorCode: ManagedProvisionError) => {
       await ctx.runMutation(
         internal.functions.managedProvisioning.recordManagedProvisioning,
@@ -139,16 +151,23 @@ export const provisionManagedStorage = internalAction({
     );
     if (standing === null || standing.ownerId === null) return { ok: false };
     if (!standing.entitled) return await fail("NOT_ENTITLED");
-    if (standing.hasBinding) {
-      /*
-        Already storage here. Not a failure and not something to overwrite: a
-        binding is what a person's notes are behind, and replacing one because
-        a webhook arrived twice is the one mistake in this file that loses
-        data. Recorded as ready, because from the customer's side it is.
-      */
+    if (standing.bindingIsManaged) {
       await ctx.runMutation(
         internal.functions.managedProvisioning.recordManagedProvisioning,
         { workspaceId: args.workspaceId, state: "ready" },
+      );
+      return { ok: true };
+    }
+    if (standing.migrationStatus !== undefined) {
+      const resumed: boolean = await ctx.runMutation(
+        internal.functions.managedProvisioning.resumeManagedStorageMigration,
+        { workspaceId: args.workspaceId, actorUserId: standing.ownerId },
+      );
+      if (!resumed) return await fail("PROVISION_FAILED");
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.managedProvisioning.runManagedStorageMigration,
+        { workspaceId: args.workspaceId },
       );
       return { ok: true };
     }
@@ -161,10 +180,17 @@ export const provisionManagedStorage = internalAction({
       // this deployment cannot do it rather than blaming Cloudflare.
       return await fail("NOT_CONFIGURED");
     }
-    const apiToken = await ctx.runAction(internal.functions.admin.readIntegrationSecret, {
-      name: MANAGED_R2_API_TOKEN_SECRET,
-    });
-    if (accountId === null || typeof apiToken !== "string" || apiToken.length === 0) {
+    const apiToken = await ctx.runAction(
+      internal.functions.admin.readIntegrationSecret,
+      {
+        name: MANAGED_R2_API_TOKEN_SECRET,
+      },
+    );
+    if (
+      accountId === null ||
+      typeof apiToken !== "string" ||
+      apiToken.length === 0
+    ) {
       return await fail("NOT_CONFIGURED");
     }
 
@@ -177,7 +203,12 @@ export const provisionManagedStorage = internalAction({
       });
 
       try {
-        await createR2Bucket({ apiToken, accountId, bucket, jurisdiction: "default" });
+        await createR2Bucket({
+          apiToken,
+          accountId,
+          bucket,
+          jurisdiction: "default",
+        });
       } catch (error) {
         /*
           A taken name in our own account is this workspace's own bucket — see
@@ -209,21 +240,40 @@ export const provisionManagedStorage = internalAction({
         and was opened for this call alone.
       */
       const secretAccessKey = await deriveS3SecretAccessKey(minted.value);
-      const encryptedSecretAccessKey = await encryptSecret(secretAccessKey, requireKeyset(), {
-        workspaceId: args.workspaceId,
-      });
-
-      await ctx.runMutation(
-        internal.functions.managedProvisioning.completeManagedProvisioning,
+      const encryptedSecretAccessKey = await encryptSecret(
+        secretAccessKey,
+        requireKeyset(),
         {
           workspaceId: args.workspaceId,
-          actorUserId: standing.ownerId,
-          endpoint: r2Endpoint(accountId, "default"),
-          bucket,
-          accessKeyId: minted.id,
-          encryptedSecretAccessKey,
         },
       );
+
+      if (standing.bindingId === null) {
+        await ctx.runMutation(
+          internal.functions.managedProvisioning.completeManagedProvisioning,
+          {
+            workspaceId: args.workspaceId,
+            actorUserId: standing.ownerId,
+            endpoint: r2Endpoint(accountId, "default"),
+            bucket,
+            accessKeyId: minted.id,
+            encryptedSecretAccessKey,
+          },
+        );
+      } else {
+        await ctx.runMutation(
+          internal.functions.managedProvisioning.beginManagedStorageMigration,
+          {
+            workspaceId: args.workspaceId,
+            actorUserId: standing.ownerId,
+            sourceBindingId: standing.bindingId,
+            endpoint: r2Endpoint(accountId, "default"),
+            bucket,
+            accessKeyId: minted.id,
+            encryptedSecretAccessKey,
+          },
+        );
+      }
       return { ok: true };
     } catch (error) {
       /*
@@ -235,10 +285,13 @@ export const provisionManagedStorage = internalAction({
       */
       console.error("managed_storage.provision_failed", {
         workspaceId: args.workspaceId,
-        stage: error instanceof CloudflareApiError ? error.errorCode : "unknown",
+        stage:
+          error instanceof CloudflareApiError ? error.errorCode : "unknown",
       });
       return await fail(
-        error instanceof CloudflareApiError ? "CLOUDFLARE_REFUSED" : "PROVISION_FAILED",
+        error instanceof CloudflareApiError
+          ? "CLOUDFLARE_REFUSED"
+          : "PROVISION_FAILED",
       );
     }
   },
@@ -256,7 +309,11 @@ export const provisioningStanding = internalQuery({
     v.null(),
     v.object({
       entitled: v.boolean(),
-      hasBinding: v.boolean(),
+      bindingId: v.union(v.null(), v.id("storageBindings")),
+      migrationStatus: v.optional(
+        v.union(v.literal("copying"), v.literal("failed")),
+      ),
+      bindingIsManaged: v.boolean(),
       /**
        * Who this is being done for.
        *
@@ -280,6 +337,10 @@ export const provisioningStanding = internalQuery({
       .query("storageBindings")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique();
+    const migration = await ctx.db
+      .query("managedStorageMigrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
     const owner = await ctx.db
       .query("workspaceMembers")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -288,7 +349,9 @@ export const provisioningStanding = internalQuery({
       // Both halves: chosen *and* paying. `activeEntitlements` is the one place
       // that computes it, and this asks the same question the same way.
       entitled: plan?.managedStorage === true && plan.status === "active",
-      hasBinding: binding !== null,
+      bindingId: binding?._id ?? null,
+      migrationStatus: migration?.status,
+      bindingIsManaged: binding?.bucket === managedBucketName(args.workspaceId),
       ownerId: owner.find((member) => member.role === "owner")?.userId ?? null,
     };
   },
@@ -298,7 +361,11 @@ export const provisioningStanding = internalQuery({
 export const recordManagedProvisioning = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
-    state: v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    state: v.union(
+      v.literal("running"),
+      v.literal("ready"),
+      v.literal("failed"),
+    ),
     errorCode: v.optional(v.string()),
   },
   returns: v.null(),
@@ -315,6 +382,418 @@ export const recordManagedProvisioning = internalMutation({
       updatedAt: Date.now(),
     });
     return null;
+  },
+});
+
+/** Park the managed destination without changing which storage is live. */
+export const beginManagedStorageMigration = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    sourceBindingId: v.id("storageBindings"),
+    endpoint: v.string(),
+    bucket: v.string(),
+    accessKeyId: v.string(),
+    encryptedSecretAccessKey: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireWorkspaceRole(
+      ctx,
+      args.workspaceId,
+      args.actorUserId,
+      "owner",
+    );
+    const current = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (current?._id !== args.sourceBindingId) return null;
+
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("managedStorageMigrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    const fields = {
+      workspaceId: args.workspaceId,
+      sourceBindingId: args.sourceBindingId,
+      targetEndpoint: args.endpoint,
+      targetBucket: args.bucket,
+      targetAccessKeyId: args.accessKeyId,
+      encryptedTargetSecretAccessKey: args.encryptedSecretAccessKey,
+      status: "copying" as const,
+      phase: "copy" as const,
+      cursor: undefined,
+      objectsCopied: 0,
+      changesInPass: 0,
+      readyToCutover: false,
+      errorCode: undefined,
+      startedBy: args.actorUserId,
+      updatedAt: now,
+    };
+    if (existing === null) {
+      await ctx.db.insert("managedStorageMigrations", {
+        ...fields,
+        createdAt: now,
+      });
+    } else if (existing.sourceBindingId === args.sourceBindingId) {
+      // A retry resumes the destination it already created. Do not reset the
+      // cursor or replace the credential with a second minted token.
+      await ctx.db.patch(existing._id, {
+        status: "copying",
+        errorCode: undefined,
+        readyToCutover: false,
+        updatedAt: now,
+      });
+    }
+    await ctx.scheduler.runAfter(
+      0,
+      internal.functions.managedProvisioning.runManagedStorageMigration,
+      { workspaceId: args.workspaceId },
+    );
+    return null;
+  },
+});
+
+/** Resume the parked destination; a newly connected source restarts its scan. */
+export const resumeManagedStorageMigration = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("managedStorageMigrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (row === null) return false;
+    const current = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (current === null) return false;
+    const sourceChanged = current._id !== row.sourceBindingId;
+    await ctx.db.patch(row._id, {
+      sourceBindingId: current._id,
+      startedBy: args.actorUserId,
+      status: "copying",
+      errorCode: undefined,
+      readyToCutover: false,
+      ...(sourceChanged
+        ? {
+            phase: "copy" as const,
+            cursor: undefined,
+            objectsCopied: 0,
+            changesInPass: 0,
+          }
+        : {}),
+      updatedAt: Date.now(),
+    });
+    return true;
+  },
+});
+
+/** Record a closed error code while keeping the source binding live. */
+export const failManagedStorageMigration = internalMutation({
+  args: { workspaceId: v.id("workspaces"), errorCode: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("managedStorageMigrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (row !== null && row.status === "copying") {
+      await ctx.db.patch(row._id, {
+        status: "failed",
+        errorCode: args.errorCode,
+        updatedAt: Date.now(),
+      });
+    }
+    const plan = await ctx.db
+      .query("workspacePlans")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (plan !== null) {
+      await ctx.db.patch(plan._id, {
+        managedProvisioning: "failed",
+        managedProvisioningError: args.errorCode,
+        managedProvisioningAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    }
+    return null;
+  },
+});
+
+/** The encrypted destination and progress, visible only to the copy action. */
+export const migrationForCopy = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args): Promise<Doc<"managedStorageMigrations"> | null> =>
+    await ctx.db
+      .query("managedStorageMigrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique(),
+});
+
+/** Advance exactly the page the action read; stale duplicate pages are no-ops. */
+export const recordMigrationPage = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    expectedCursor: v.optional(v.string()),
+    nextCursor: v.optional(v.string()),
+    copied: v.number(),
+    changes: v.number(),
+  },
+  returns: v.object({ applied: v.boolean(), cutover: v.boolean() }),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("managedStorageMigrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (
+      row === null ||
+      row.status !== "copying" ||
+      row.readyToCutover === true ||
+      row.cursor !== args.expectedCursor ||
+      !Number.isInteger(args.copied) ||
+      args.copied < 0 ||
+      !Number.isInteger(args.changes) ||
+      args.changes < 0
+    ) {
+      return { applied: false, cutover: false };
+    }
+    if (
+      args.nextCursor !== undefined &&
+      args.nextCursor === args.expectedCursor
+    ) {
+      await ctx.db.patch(row._id, {
+        status: "failed",
+        errorCode: "CURSOR_STALLED",
+        updatedAt: Date.now(),
+      });
+      return { applied: false, cutover: false };
+    }
+    const changesInPass = row.changesInPass + args.changes;
+    if (args.nextCursor === undefined) {
+      if (row.phase === "copy") {
+        await ctx.db.patch(row._id, {
+          phase: "verify_source",
+          cursor: undefined,
+          objectsCopied: row.objectsCopied + args.copied,
+          changesInPass: 0,
+          updatedAt: Date.now(),
+        });
+        return { applied: true, cutover: false };
+      }
+      if (row.phase === "verify_source") {
+        await ctx.db.patch(row._id, {
+          phase: "verify_target",
+          cursor: undefined,
+          objectsCopied: row.objectsCopied + args.copied,
+          changesInPass,
+          updatedAt: Date.now(),
+        });
+        return { applied: true, cutover: false };
+      }
+      if (changesInPass > 0) {
+        await ctx.db.patch(row._id, {
+          phase: "verify_source",
+          cursor: undefined,
+          objectsCopied: row.objectsCopied + args.copied,
+          changesInPass: 0,
+          readyToCutover: false,
+          updatedAt: Date.now(),
+        });
+        return { applied: true, cutover: false };
+      }
+      await ctx.db.patch(row._id, {
+        readyToCutover: true,
+        updatedAt: Date.now(),
+      });
+      return { applied: true, cutover: true };
+    }
+    await ctx.db.patch(row._id, {
+      cursor: args.nextCursor,
+      objectsCopied: row.objectsCopied + args.copied,
+      changesInPass,
+      updatedAt: Date.now(),
+    });
+    return { applied: true, cutover: false };
+  },
+});
+
+/** Atomically replace only the exact source binding the copy began from. */
+export const finishManagedStorageMigration = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ cutover: v.boolean() }),
+  handler: async (ctx, args) => {
+    const migration = await ctx.db
+      .query("managedStorageMigrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    const current = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (
+      migration === null ||
+      migration.status !== "copying" ||
+      migration.phase !== "verify_target" ||
+      migration.readyToCutover !== true ||
+      current?._id !== migration.sourceBindingId
+    ) {
+      if (migration !== null) {
+        await ctx.db.patch(migration._id, {
+          status: "failed",
+          errorCode: "SOURCE_CHANGED",
+          updatedAt: Date.now(),
+        });
+      }
+      return { cutover: false };
+    }
+
+    await ctx.runMutation(internal.functions.storage.applyBinding, {
+      workspaceId: args.workspaceId,
+      actorUserId: migration.startedBy,
+      provider: "r2",
+      endpoint: migration.targetEndpoint,
+      region: "auto",
+      bucket: migration.targetBucket,
+      accessKeyId: migration.targetAccessKeyId,
+      encryptedSecretAccessKey: migration.encryptedTargetSecretAccessKey,
+    });
+    await ctx.db.delete(migration._id);
+    const plan = await ctx.db
+      .query("workspacePlans")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (plan !== null) {
+      await ctx.db.patch(plan._id, {
+        managedProvisioning: "ready",
+        managedProvisioningError: undefined,
+        managedProvisioningAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    }
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: migration.startedBy,
+      action: "storage.managed_migrated",
+      details: { objectsCopied: migration.objectsCopied },
+    });
+    return { cutover: true };
+  },
+});
+
+/** Copy one resumable page and verify every object before advancing. */
+export const runManagedStorageMigration = internalAction({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ copied: v.number(), complete: v.boolean() }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ copied: number; complete: boolean }> => {
+    const migration: Doc<"managedStorageMigrations"> | null =
+      await ctx.runQuery(
+        internal.functions.managedProvisioning.migrationForCopy,
+        { workspaceId: args.workspaceId },
+      );
+    if (migration === null || migration.status !== "copying") {
+      return { copied: 0, complete: false };
+    }
+    try {
+      const sourceCredential = await ctx.runAction(
+        internal.functions.storage.getBindingForGateway,
+        { workspaceId: args.workspaceId },
+      );
+      if (sourceCredential === null) throw new Error("SOURCE_UNAVAILABLE");
+
+      const secretAccessKey = await decryptSecret(
+        migration.encryptedTargetSecretAccessKey,
+        requireKeyset(),
+        { workspaceId: args.workspaceId },
+      );
+      const source = storeForBinding(sourceCredential);
+      const target = storeForBinding({
+        provider: "r2",
+        endpoint: migration.targetEndpoint,
+        region: "auto",
+        bucket: migration.targetBucket,
+        accessKeyId: migration.targetAccessKeyId,
+        secretAccessKey,
+        capabilities: { conditionalWrite: true },
+        status: "connected",
+      });
+      const listingStore =
+        migration.phase === "verify_target" ? target : source;
+      const page = await listingStore.list({
+        cursor: migration.cursor,
+        limit: MIGRATION_PAGE_SIZE,
+      });
+      let copied = 0;
+      let changes = 0;
+      for (const object of page.objects) {
+        if (
+          typeof object.size === "number" &&
+          object.size > MIGRATION_OBJECT_BYTE_CAP
+        ) {
+          throw new Error("OBJECT_TOO_LARGE");
+        }
+        const result = await reconcileMigrationObject({
+          source: source as unknown as MigrationStore,
+          target: target as unknown as MigrationStore,
+          key: object.key,
+          listedFromTarget: migration.phase === "verify_target",
+          byteCap: MIGRATION_OBJECT_BYTE_CAP,
+        });
+        copied += result.copied;
+        changes += result.changes;
+      }
+      const progress = await ctx.runMutation(
+        internal.functions.managedProvisioning.recordMigrationPage,
+        {
+          workspaceId: args.workspaceId,
+          expectedCursor: migration.cursor,
+          nextCursor: page.truncated ? page.cursor : undefined,
+          copied,
+          changes,
+        },
+      );
+      if (!progress.applied) return { copied: 0, complete: false };
+      if (progress.cutover) {
+        const result: { cutover: boolean } = await ctx.runMutation(
+          internal.functions.managedProvisioning.finishManagedStorageMigration,
+          { workspaceId: args.workspaceId },
+        );
+        return { copied, complete: result.cutover };
+      }
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.managedProvisioning.runManagedStorageMigration,
+        { workspaceId: args.workspaceId },
+      );
+      return { copied, complete: false };
+    } catch (error) {
+      const errorCode =
+        error instanceof Error &&
+        ["SOURCE_UNAVAILABLE", "OBJECT_TOO_LARGE", "VERIFY_FAILED"].includes(
+          error.message,
+        )
+          ? error.message
+          : "COPY_FAILED";
+      console.error("managed_storage.migration_failed", {
+        workspaceId: args.workspaceId,
+        phase: migration.phase,
+        errorCode,
+      });
+      await ctx.runMutation(
+        internal.functions.managedProvisioning.failManagedStorageMigration,
+        { workspaceId: args.workspaceId, errorCode },
+      );
+      return { copied: 0, complete: false };
+    }
   },
 });
 
@@ -429,7 +908,12 @@ export const retryManagedProvisioning = mutation({
  * webhook path has no authorization to perform — it is not acting for a user.
  */
 export async function startManagedProvisioning(
-  ctx: { db: unknown; scheduler: { runAfter: (ms: number, fn: unknown, args: unknown) => Promise<unknown> } },
+  ctx: {
+    db: unknown;
+    scheduler: {
+      runAfter: (ms: number, fn: unknown, args: unknown) => Promise<unknown>;
+    };
+  },
   workspaceId: Id<"workspaces">,
 ): Promise<void> {
   await ctx.scheduler.runAfter(

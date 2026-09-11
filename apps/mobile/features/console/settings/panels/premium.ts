@@ -74,6 +74,8 @@ export interface PremiumStatus {
   managedProvisioning?: "running" | "ready" | "failed";
   /** Ours, from a closed set. Owner only. */
   managedProvisioningError?: string;
+  /** Files verified while moving from customer-owned storage. Owner only. */
+  managedMigrationObjectsCopied?: number;
 }
 
 /** Where an opened Checkout or portal attempt has got to. */
@@ -92,6 +94,39 @@ export interface PremiumView {
   choose?: (next: PremiumEntitlements) => Promise<void>;
   upgrade?: () => Promise<void>;
   manageBilling?: () => Promise<void>;
+  retryManagedStorage?: () => Promise<void>;
+}
+
+export function managedMigrationCopy(status: PremiumStatus): {
+  title: string;
+  body: string;
+  failed: boolean;
+} | null {
+  if (
+    status.status !== "active" ||
+    !status.selected.managedStorage ||
+    status.storageIsManaged
+  ) {
+    return null;
+  }
+  if (status.managedProvisioning === "failed") {
+    return {
+      title: "Your notes are still in your original storage",
+      body:
+        "The copy into managed storage stopped before we switched anything. " +
+        "Your original remains connected and untouched. You can safely try again.",
+      failed: true,
+    };
+  }
+  const progress = status.managedMigrationObjectsCopied;
+  return {
+    title: "Copying into managed storage",
+    body:
+      `Your original storage stays connected and untouched until the copy is verified.` +
+      (progress === undefined ? "" : ` ${progress} files checked so far.`) +
+      " You can keep using this context; new edits may make verification take longer.",
+    failed: false,
+  };
 }
 
 /**
@@ -161,7 +196,8 @@ export function checkoutReturnCopy(
       working: false,
     };
   }
-  const where = options.context === undefined ? "this context" : options.context;
+  const where =
+    options.context === undefined ? "this context" : options.context;
   if (options.slow === true) {
     return {
       tone: "neutral",
@@ -349,7 +385,8 @@ export function premiumPill(
     at the rendered screen. A member is told the state that affects them, which
     is that Premium is not on.
   */
-  if (state === "past_due" && !canManage) return { tone: "warn", label: "Not active" };
+  if (state === "past_due" && !canManage)
+    return { tone: "warn", label: "Not active" };
   switch (state) {
     case "premium":
       return { tone: "ok", label: "Premium" };
@@ -389,7 +426,8 @@ export function premiumControl(view: PremiumView): PremiumControl {
   }
   if (!status.configured) return "none";
   if (view.upgrade === undefined) return "none";
-  if (!status.selected.managedStorage && !status.selected.fastSearch) return "choose";
+  if (!status.selected.managedStorage && !status.selected.fastSearch)
+    return "choose";
   return "upgrade";
 }
 
@@ -488,7 +526,10 @@ export function formatBytes(bytes: number): string {
     value /= 1000;
     unit += 1;
   }
-  const rendered = value >= 100 || Number.isInteger(value) ? Math.round(value) : Number(value.toFixed(1));
+  const rendered =
+    value >= 100 || Number.isInteger(value)
+      ? Math.round(value)
+      : Number(value.toFixed(1));
   return `${rendered} ${units[unit]}`;
 }
 
@@ -504,13 +545,17 @@ export function formatBytes(bytes: number): string {
  */
 export function usageLine(status: PremiumStatus): string | null {
   if (status.notes === undefined) return null;
-  const counted = status.notesTruncated === true ? `${status.notes}+` : `${status.notes}`;
+  const counted =
+    status.notesTruncated === true ? `${status.notes}+` : `${status.notes}`;
   const notes = `${counted} ${status.notes === 1 && status.notesTruncated !== true ? "note" : "notes"}`;
   return `${notes} in this context. The ${formatBytes(status.ceilingBytes)} ceiling is on stored bytes, which are not metered yet.`;
 }
 
 /** When the current period ends, in a sentence, or `null`. */
-export function renewalLine(status: PremiumStatus, now = Date.now()): string | null {
+export function renewalLine(
+  status: PremiumStatus,
+  now = Date.now(),
+): string | null {
   if (status.currentPeriodEnd === undefined) return null;
   const at = new Date(status.currentPeriodEnd * 1000);
   if (Number.isNaN(at.getTime())) return null;
@@ -552,7 +597,9 @@ export function describeSessionFailure(errorCode: string | undefined): string {
  * id, so it never subscribes and renders the free-plan copy with no controls —
  * which is the honest picture of what somebody signing up would see.
  */
-export function shouldReadPremium(options: { workspaceId: string | null }): boolean {
+export function shouldReadPremium(options: {
+  workspaceId: string | null;
+}): boolean {
   return options.workspaceId !== null;
 }
 
