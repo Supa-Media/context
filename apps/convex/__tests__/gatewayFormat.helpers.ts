@@ -48,39 +48,60 @@ if (typeof gatewaySource !== "string") {
   );
 }
 
+import type { Visibility } from "../functions/lib/privacy";
+
 export interface PrivacyRule {
   prefix: string;
-  vis: "team" | "private";
+  /**
+   * The port's own union, imported rather than restated.
+   *
+   * A rule may name a group, so this cannot be the two tiers — and it is the
+   * port's `Visibility` rather than a local `string` so gateway rules can be
+   * fed straight into port functions in the differential test. The types
+   * agreeing is not the assertion; the VALUES agreeing is, and that is checked
+   * at runtime over the whole manifest corpus.
+   */
+  vis: Visibility;
 }
 
 export interface ParsedPrivacyManifest {
   rules: PrivacyRule[];
-  overrides: Map<string, "team" | "private">;
+  /**
+   * `string` rather than the two tiers: a rule may also name a group
+   * (`@supa-leads`), and typing this narrowly here would make the differential
+   * test unable to *see* the value the engines disagree about.
+   */
+  overrides: Map<string, Visibility>;
 }
 
 interface GatewayInternals {
   parsePrivacyManifest(text: string): ParsedPrivacyManifest;
-  visibilityOf(key: string, rules: PrivacyRule[]): "team" | "private";
+  visibilityOf(key: string, rules: PrivacyRule[]): Visibility;
   effectiveVisibility(
     key: string,
     rules: PrivacyRule[],
-    overrides: Map<string, string>,
-  ): "team" | "private";
+    overrides: ReadonlyMap<string, string>,
+  ): Visibility;
   isPlumbing(key: string): boolean;
   canSee(
     key: string,
     scope: string,
     rules: PrivacyRule[],
-    overrides: Map<string, string>,
+    overrides: ReadonlyMap<string, string>,
+    grantedGroups?: ReadonlySet<string>,
   ): boolean;
+  /** The narrowing order the fold and every move now resolve through. */
+  narrowerVisibility(a?: Visibility, b?: Visibility): Visibility | undefined;
+  /** Exposed so the fold itself can be compared, not only its consequences. */
+  overrideFor(overrides: ReadonlyMap<string, string>, key: string): Visibility | undefined;
   renderPrivacyRulesBlock(
     rules: PrivacyRule[],
-    overrides: Map<string, string>,
+    overrides: ReadonlyMap<string, string>,
   ): string;
   replacePrivacyRulesBlock(
     text: string,
     rules: PrivacyRule[],
-    overrides: Map<string, string>,
+    overrides: ReadonlyMap<string, string>,
   ): string;
 }
 
@@ -155,6 +176,8 @@ export function gatewayInternals(): GatewayInternals {
       effectiveVisibility,
       isPlumbing,
       canSee,
+      narrowerVisibility,
+      overrideFor,
       renderPrivacyRulesBlock,
       replacePrivacyRulesBlock,
     };`,

@@ -353,7 +353,17 @@ export function Explorer({
           // rather than writing a redundant line — see `setVisibility` in
           // `functions/lib/fileOps.ts`. So "follow folder" is expressible with
           // the interface as it stands, and there is nothing to add.
-          files.setVisibility(path, kind, inheritedOf(files, path));
+          {
+            // A folder whose rule names a group has no "follow" this control
+            // can express: `setVisibility` takes the two tiers, and writing
+            // `private` or `team` here would change what the note reaches
+            // rather than make it follow. Doing nothing is the honest answer
+            // until the group controls land.
+            const inherited = inheritedOf(files, path);
+            if (inherited === "private" || inherited === "team") {
+              files.setVisibility(path, kind, inherited);
+            }
+          }
           return;
         case "visibility":
           // The submenu's parent. It opens a submenu and dispatches nothing;

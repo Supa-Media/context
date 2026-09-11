@@ -246,10 +246,50 @@ describe("the control on a row", () => {
   });
 });
 
+describe("a folder the two-position control cannot describe", () => {
+  /**
+   * `folderControl` answers "the other of the two words". A folder whose rule
+   * names a group has no other word, and the guess it would otherwise make is
+   * `team` — a single press that publishes what the owner held back. Absent
+   * rather than disabled, the rule this console already follows for every
+   * owner-only control.
+   */
+  test("a group-scoped folder offers no toggle at all", () => {
+    expect(
+      folderControl(true, { path: "2-areas/feedback", name: "feedback", visibility: "@supa-owners" }),
+    ).toBeNull();
+  });
+
+  test("...while the two tiers still both offer one, in their own directions", () => {
+    expect(folderControl(true, { path: "2-areas", name: "2-areas", visibility: "team" })).toEqual({
+      to: "private",
+      arm: false,
+    });
+    expect(folderControl(true, { path: "2-areas", name: "2-areas", visibility: "private" })).toEqual({
+      to: "team",
+      arm: true,
+    });
+  });
+});
+
 describe("the words", () => {
   test("there are two of them, and no surface can produce a third", () => {
     expect(BOTH.map(visibilityWord)).toEqual(["Private", "Team"]);
     expect(new Set(BOTH.map(visibilityWord)).size).toBe(2);
+  });
+
+  /**
+   * Two TIERS, and then the group's own name.
+   *
+   * `visibilityWord` used to end in a `!== "team"` fall through to "Private",
+   * which is why this is asserted rather than assumed: a note two colleagues
+   * can read, labelled as reaching nobody but its owner, is the overstatement
+   * this module's header opens by forbidding.
+   */
+  test("a group rule is named, never flattened into `Private`", () => {
+    expect(visibilityWord("@supa-leads")).toBe("@supa-leads");
+    expect(visibilityWord("@supa-leads")).not.toBe("Private");
+    expect(visibilityWord("@kola")).toBe("@kola");
   });
 
   test("nothing here says a setting can publish to the internet", () => {

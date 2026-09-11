@@ -21,6 +21,7 @@ import { runSearchV2IntegrationChecks } from "./searchV2Integration.test.mjs";
 import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
 import { runPluginChecks } from "./plugins.test.mjs";
+import { runPrivacyGroupChecks } from "./privacyGroups.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
 import { runToolArgumentChecks } from "./toolArguments.test.mjs";
 import { runLinkChecks } from "./links.test.mjs";
@@ -4179,6 +4180,12 @@ runStoreFactoryChecks(check);
 // paginates and delimits honestly. Its own control plane, so it runs beside the
 // tenancy suite rather than against the shared fixture.
 await runOrientationChecks(check);
+
+// A privacy rule that names a group: what the tools do when they meet one.
+// Its own control plane and bucket, like orientation, because the fixture is a
+// team folder with a group-scoped note inside it — the arrangement where a
+// guard that tests `=== "private"` instead of `!== "team"` actually leaks.
+await runPrivacyGroupChecks(check);
 
 // The two communications reads, against their own bucket for the same reason:
 // the fixture here is two mailboxes with different visibilities, which is the

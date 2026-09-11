@@ -49,9 +49,26 @@ export function contextKindOf(kind: string | null | undefined): ContextKind | nu
   return kind === "personal" || kind === "shared" ? kind : null;
 }
 
-/** The label on a pill. Two, and the type is what stops there being a third. */
-export function visibilityWord(visibility: Visibility): "Private" | "Team" {
-  return visibility === "team" ? "Team" : "Private";
+/**
+ * The label on a pill.
+ *
+ * Two words, and then the group's own name — which is not a third *tier* (see
+ * the header: `Scope` is two-valued and stays that way) but is a third thing
+ * this pill has to be able to say. The alternative was the `!== "team"` fall
+ * through to "Private" that this function used to be, and it is the exact
+ * defect the header opens by naming: a note readable by two colleagues,
+ * labelled as reaching nobody but its owner. Overstating privacy is the same
+ * class of bug as publishing something, and quieter.
+ *
+ * The name is printed as the manifest carries it, `@` and all, because that is
+ * what the owner typed and what the file says. Nothing here resolves it to
+ * people: this module knows the rule, and only the control plane knows who is
+ * currently in it.
+ */
+export function visibilityWord(visibility: Visibility): string {
+  if (visibility === "team") return "Team";
+  if (visibility === "private") return "Private";
+  return visibility;
 }
 
 /**

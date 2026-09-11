@@ -19,7 +19,7 @@
  */
 
 import type { IconName } from "../../design/components/Icon";
-import type { Visibility } from "./types";
+import type { SettableVisibility, Visibility } from "./types";
 
 /** The three positions, widest last. */
 export type NoteScope = "private" | "team" | "anyone";
@@ -38,6 +38,11 @@ export type NoteScope = "private" | "team" | "anyone";
  * back is what pressing through to `private` already does.
  */
 export function scopeOf(visibility: Visibility, hasOpenLink: boolean): NoteScope {
+  // A group rule lands here as "private", which is the right POSITION for this
+  // three-way control — it is not team, and the step out of it is a deliberate
+  // widening the owner presses. It is not the right WORD, and this function
+  // does not produce one: `visibilityWord` names the group, and the two must
+  // not be confused. A control position is not a label.
   if (visibility !== "team") return "private";
   return hasOpenLink ? "anyone" : "team";
 }
@@ -102,7 +107,7 @@ export function scopeActionLabel(next: NoteScope): string {
  * detail; see below.
  */
 export type ScopeStep =
-  | { kind: "visibility"; to: Visibility }
+  | { kind: "visibility"; to: SettableVisibility }
   | { kind: "openLink"; on: boolean };
 
 /**

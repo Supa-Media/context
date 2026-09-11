@@ -126,7 +126,7 @@ import {
   writeImage,
   readImage,
 } from "./lib/fileOps";
-import type { Scope } from "./lib/privacy";
+import type { Scope, Visibility } from "./lib/privacy";
 import {
   type WorkspaceRole,
   requireWorkspaceAccess,
@@ -179,14 +179,36 @@ export { DELETE_CONFIRMATION };
 /*                                 validators                                 */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * What a console caller may ASK for. Two-valued, and it stays that way.
+ *
+ * A rule naming a group reaches `privacy.md` from the console's own group
+ * controls or a person's editor — never from `setNoteVisibility` or
+ * `setFolderVisibility`, whose whole job is the two tiers. Widening this
+ * would make every path that takes a visibility a way to mint a rule, which
+ * is the opposite of the gateway's position that no AI client can.
+ */
 const visibilityValidator = v.union(v.literal("private"), v.literal("team"));
+
+/**
+ * What a visibility may be on the way OUT.
+ *
+ * `v.string()` rather than the two literals, because a rule may name a group
+ * and a bucket can already hold one. The narrow validator did not merely
+ * mislabel such a note — it **threw at the boundary**, so one hand-edited rule
+ * took the whole console listing down. What a group name may contain is
+ * enforced where it is parsed (`GROUP_SCOPE_PATTERN` in `lib/privacy.ts`),
+ * which fails the manifest closed rather than per response; there is nothing
+ * left for this validator to check that the parser has not.
+ */
+const visibilityReadValidator = v.string();
 
 const entryValidator = v.object({
   kind: v.union(v.literal("file"), v.literal("folder")),
   path: v.string(),
   name: v.string(),
-  visibility: visibilityValidator,
-  inherited: visibilityValidator,
+  visibility: visibilityReadValidator,
+  inherited: visibilityReadValidator,
   exception: v.boolean(),
   readOnly: v.boolean(),
   size: v.optional(v.number()),
@@ -196,7 +218,7 @@ const entryValidator = v.object({
 const listingValidator = v.object({
   kind: v.literal("listing"),
   path: v.string(),
-  folderDefault: visibilityValidator,
+  folderDefault: visibilityReadValidator,
   entries: v.array(entryValidator),
   truncated: v.boolean(),
   manifestUsable: v.boolean(),
@@ -218,8 +240,8 @@ const fileValidator = v.object({
   path: v.string(),
   text: v.string(),
   etag: v.string(),
-  visibility: visibilityValidator,
-  inherited: visibilityValidator,
+  visibility: visibilityReadValidator,
+  inherited: visibilityReadValidator,
   exception: v.boolean(),
   readOnly: v.boolean(),
   /**
@@ -265,8 +287,8 @@ const deletedValidator = v.object({
 const visibilityResultValidator = v.object({
   kind: v.literal("visibility"),
   path: v.string(),
-  visibility: visibilityValidator,
-  inherited: visibilityValidator,
+  visibility: visibilityReadValidator,
+  inherited: visibilityReadValidator,
   exception: v.boolean(),
 });
 
@@ -591,6 +613,16 @@ type FileOperation =
   | { kind: "readImage"; leaf: string }
   | { kind: "resetPrivacy" };
 
+/**
+ * What a file operation hands back to the console.
+ *
+ * `visibility`, `inherited` and `folderDefault` are `Visibility` rather than
+ * the two literals they used to be: a rule may name a group, and typing these
+ * narrowly meant the control plane silently re-tiered one on the way out —
+ * which is the same class of bug as the gateway writing `"private"` over a
+ * group rule on a move. The console renders the extra case explicitly; see
+ * `features/console/privacy/words.ts`.
+ */
 type OperationResult =
   | ({ kind: "searchResults" } & SearchResults)
   | { kind: "notePaths"; paths: string[] | null }
@@ -617,13 +649,13 @@ type OperationResult =
   | {
       kind: "listing";
       path: string;
-      folderDefault: "private" | "team";
+      folderDefault: Visibility;
       entries: Array<{
         kind: "file" | "folder";
         path: string;
         name: string;
-        visibility: "private" | "team";
-        inherited: "private" | "team";
+        visibility: Visibility;
+        inherited: Visibility;
         exception: boolean;
         readOnly: boolean;
         size?: number;
@@ -637,8 +669,8 @@ type OperationResult =
       path: string;
       text: string;
       etag: string;
-      visibility: "private" | "team";
-      inherited: "private" | "team";
+      visibility: Visibility;
+      inherited: Visibility;
       exception: boolean;
       readOnly: boolean;
       /** Stored encrypted; `text` is the ciphertext and the note is not editable here. */
@@ -655,8 +687,8 @@ type OperationResult =
   | {
       kind: "visibility";
       path: string;
-      visibility: "private" | "team";
-      inherited: "private" | "team";
+      visibility: Visibility;
+      inherited: Visibility;
       exception: boolean;
     }
   | { kind: "folderCreated"; path: string; readme: string }

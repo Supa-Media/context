@@ -63,7 +63,7 @@ import { NOT_CACHED, cachedNotice } from "../../offline/copy";
 import { KEEP_MINE_OFFLINE } from "../../offline/resolution";
 import { useConflictReview } from "./useConflictReview";
 import { findEntry, foldersToRefresh, namesIn } from "./tree";
-import type { FolderListing, OpenNote, Visibility } from "./types";
+import type { FolderListing, OpenNote, SettableVisibility } from "./types";
 import { canResetPrivacy, canSetVisibility, canShare } from "../capabilities";
 import type { VisibilityTier } from "../visibility";
 
@@ -1817,7 +1817,7 @@ export function useFileBrowser(options: {
   );
 
   const setVisibility = useCallback(
-    (path: string, kind: "file" | "folder", visibility: Visibility) => {
+    (path: string, kind: "file" | "folder", visibility: SettableVisibility) => {
       void run(async () => {
         if (kind === "folder") {
           await setDirectoryVisibility({ workspaceId: workspaceId!, path, visibility });
