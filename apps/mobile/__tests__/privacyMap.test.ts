@@ -31,11 +31,14 @@ import {
   privacyViewOf,
   type PrivacyFolderView,
 } from "../features/console/privacy/map";
+import { scopeOf } from "../features/console/files/scope";
+import { isGroupVisibility } from "../features/console/files/types";
 import {
   BROKEN_MANIFEST_HEADLINE,
   brokenManifestNext,
   exceptionLine,
   folderDefaultLine,
+  noExceptionsLine,
   linkExceptionLine,
   manifestFootLine,
   privateMeans,
@@ -388,5 +391,55 @@ describe("the words", () => {
     expect(brokenManifestNext(true)).toMatch(/browse/i);
     expect(brokenManifestNext(false)).toMatch(/owner/i);
     expect(brokenManifestNext(false)).not.toMatch(/browse/i);
+  });
+});
+
+/**
+ * The console may not retier a group note, from any surface.
+ *
+ * This is the regression an adversarial review found, and it is worth stating
+ * exactly because the shape is instructive. Before groups, a hand-edited group
+ * rule made the control plane's read validator *throw* — loud, and nobody saw
+ * a wrong label. Widening the validator replaced that with a quiet mislabel:
+ * `scopeOf` maps a group to the `private` POSITION, so the three-way control
+ * drew a closed padlock, offered "Share this with your team", and pressing it
+ * wrote `team` — which deletes the group rule and publishes the note.
+ *
+ * The guard now lives in `useFileBrowser`'s `setVisibility` and `setScope`,
+ * which every surface goes through, rather than on the one control that was
+ * fixed first. What is asserted here is the pure half: the position is still
+ * `private` (that part was right), and every control-level predicate that
+ * decides whether to OFFER a step refuses.
+ */
+describe("a group rule is never a position the console can press through", () => {
+  test("scopeOf still answers `private`, because a group is not team", () => {
+    expect(scopeOf("@supa-leads", false)).toBe("private");
+    expect(scopeOf("@supa-leads", true)).toBe("private");
+  });
+
+  test("...and the two tiers are unchanged", () => {
+    expect(scopeOf("private", false)).toBe("private");
+    expect(scopeOf("team", false)).toBe("team");
+    expect(scopeOf("team", true)).toBe("anyone");
+  });
+
+  test("isGroupVisibility is the one predicate every surface asks", () => {
+    expect(isGroupVisibility("@supa-leads")).toBe(true);
+    expect(isGroupVisibility("@kola")).toBe(true);
+    expect(isGroupVisibility("private")).toBe(false);
+    expect(isGroupVisibility("team")).toBe(false);
+  });
+
+  test("no copy about a group folder calls it private or claims it is yours alone", () => {
+    const said = [
+      folderDefaultLine("@supa-leads"),
+      rootDefaultLine("@supa-leads"),
+      noExceptionsLine("@supa-leads"),
+      visibilityWord("@supa-leads"),
+    ].join(" ");
+    expect(said).not.toMatch(/yours alone/i);
+    expect(said).not.toMatch(/\bprivate\b/i);
+    expect(folderDefaultLine("@supa-leads")).toContain("@supa-leads");
+    expect(rootDefaultLine("@supa-leads")).toContain("@supa-leads");
   });
 });

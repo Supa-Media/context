@@ -1039,3 +1039,101 @@ describe("the narrowing order is the one both engines move notes by", () => {
     });
   }
 });
+
+/* -------------------------------------------------------------------------- */
+/*                a malformed group name fails the manifest closed             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The differential loop above proves the two engines AGREE about the invalid
+ * manifests in the corpus. It does not prove either one REJECTS them, and for
+ * five rounds it did not: deleting `GROUP_SCOPE_PATTERN`'s check from both
+ * engines left `privacyEngine.test.ts`, the whole 2,393-test control-plane
+ * suite and the whole gateway suite green, while `@Supa-Owners`, `@supa_owners`,
+ * `@a` and `@-supa` were carried as visibility values.
+ *
+ * That is the shape this file exists to catch, found in this file: agreement is
+ * not correctness, and a corpus entry named "invalid" asserts nothing unless
+ * something asserts the rejection. `toThrow` is that something.
+ *
+ * Rejecting matters because the throw is what fails the manifest CLOSED. A name
+ * waved through is a rule nothing can resolve being treated as a tier — and
+ * since `canSee` answers a group by asking whether the grant carries that exact
+ * string, an unresolvable name is a note nobody can read through any client,
+ * with no error anywhere saying why.
+ */
+describe("a group name the namespace could never mint is rejected by both engines", () => {
+  const REJECTED: Array<[string, string]> = [
+    ["no name at all", "@"],
+    ["uppercase, which no username may carry", "@Supa-Owners"],
+    ["an underscore, which is outside [a-z0-9-]", "@supa_owners"],
+    ["one character, under the two-character floor", "@a"],
+    ["opening with a hyphen", "@-supa"],
+    ["a name longer than a slug-prefixed pair can be", `@${"a".repeat(80)}`],
+  ];
+
+  for (const [why, value] of REJECTED) {
+    test(`${why}: ${value.slice(0, 24)}`, () => {
+      const text = manifest(
+        block([
+          "default_visibility: private",
+          "",
+          "folder_defaults:",
+          `  1-projects: ${value}`,
+          "",
+          "note_overrides:",
+          "  # No exact-note overrides.",
+        ]),
+      );
+      expect(() => parsePrivacyManifest(text)).toThrow();
+      expect(() => gateway.parsePrivacyManifest(text)).toThrow();
+    });
+  }
+
+  /**
+   * Trailing whitespace is TOLERATED, not rejected, and that is deliberate:
+   * the line is trimmed before the value is matched, so a stray space in a
+   * hand-edited file normalizes away instead of bricking every note in the
+   * bucket. Pinned here because it was written as a rejection first, and the
+   * failure is what showed the parser was kinder than the test assumed.
+   */
+  test("a stray trailing space normalizes away rather than failing closed", () => {
+    const text = manifest(
+      block([
+        "default_visibility: private",
+        "",
+        "folder_defaults:",
+        "  1-projects: @supa-owners   ",
+        "",
+        "note_overrides:",
+        "  # No exact-note overrides.",
+      ]),
+    );
+    expect(parsePrivacyManifest(text).rules).toEqual([
+      { prefix: "1-projects", vis: "@supa-owners" },
+    ]);
+    expect(gateway.parsePrivacyManifest(text).rules).toEqual([
+      { prefix: "1-projects", vis: "@supa-owners" },
+    ]);
+  });
+
+  test("the valid one in the same shape parses, so the rejections are not vacuous", () => {
+    const text = manifest(
+      block([
+        "default_visibility: private",
+        "",
+        "folder_defaults:",
+        "  1-projects: @supa-owners",
+        "",
+        "note_overrides:",
+        "  # No exact-note overrides.",
+      ]),
+    );
+    expect(parsePrivacyManifest(text).rules).toEqual([
+      { prefix: "1-projects", vis: "@supa-owners" },
+    ]);
+    expect(gateway.parsePrivacyManifest(text).rules).toEqual([
+      { prefix: "1-projects", vis: "@supa-owners" },
+    ]);
+  });
+});

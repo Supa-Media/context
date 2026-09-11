@@ -85,6 +85,7 @@ import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { densityFor } from "../../app/frame";
 import { baseName, displayName } from "./paths";
+import { isGroupVisibility } from "./types";
 import type { FileEntry, FolderListing } from "./types";
 
 export function FolderView({
@@ -134,6 +135,10 @@ export function FolderView({
   */
   const compact = densityFor(useWindowDimensions().width) === "compact";
   const isTeam = entry.visibility === "team";
+  // A group rule is neither of the two sentences below, and the `private` one
+  // would be the overstatement `privacy/words.ts` forbids — "yours alone" about
+  // a folder two colleagues can read.
+  const groupRule = isGroupVisibility(entry.visibility) ? entry.visibility : null;
   const rows = listing?.entries ?? [];
 
   return (
@@ -159,9 +164,11 @@ export function FolderView({
         forty listings. What is left says what is true of this folder.
       */}
       <Text variant="treeMeta" style={styles.rule}>
-        {isTeam
-          ? "team — visible to the people you granted access, unless a note is held back"
-          : "private — yours alone, unless a note is shared as an exception"}
+        {groupRule
+          ? `${groupRule} — visible to that group, and to nobody else in this context`
+          : isTeam
+            ? "team — visible to the people you granted access, unless a note is held back"
+            : "private — yours alone, unless a note is shared as an exception"}
       </Text>
 
       <View style={styles.contents}>
@@ -258,8 +265,23 @@ function FolderRow({ row, onSelect }: { row: FileEntry; onSelect: (path: string)
       */}
       {row.exception ? (
         <View
-          style={[styles.pip, row.visibility === "team" ? styles.pipTeam : styles.pipPrivate]}
-          accessibilityLabel={row.visibility === "team" ? "shared" : "private"}
+          style={[
+            styles.pip,
+            row.visibility === "team"
+              ? styles.pipTeam
+              : isGroupVisibility(row.visibility)
+                ? styles.pipGroup
+                : styles.pipPrivate,
+          ]}
+          // The label is a claim, and "private" is a false one about a note a
+          // group can read. It names the group instead.
+          accessibilityLabel={
+            row.visibility === "team"
+              ? "shared"
+              : isGroupVisibility(row.visibility)
+                ? `shared with ${row.visibility}`
+                : "private"
+          }
           testID="folder-row-exception"
         />
       ) : null}
@@ -317,6 +339,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   pip: { width: 7, height: 7, borderRadius: 4 },
   pipTeam: { backgroundColor: colors.accent },
   pipPrivate: { backgroundColor: colors.muted },
+  /* The violet this palette already defines as "somebody else's access". */
+  pipGroup: { backgroundColor: colors.sharedText },
 
   aside: { paddingVertical: space.x2 },
   /** The caption at the foot of the context's own page. See the file header. */

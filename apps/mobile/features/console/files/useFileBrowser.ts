@@ -63,6 +63,7 @@ import { NOT_CACHED, cachedNotice } from "../../offline/copy";
 import { KEEP_MINE_OFFLINE } from "../../offline/resolution";
 import { useConflictReview } from "./useConflictReview";
 import { findEntry, foldersToRefresh, namesIn } from "./tree";
+import { isGroupVisibility } from "./types";
 import type { FolderListing, OpenNote, SettableVisibility } from "./types";
 import { canResetPrivacy, canSetVisibility, canShare } from "../capabilities";
 import type { VisibilityTier } from "../visibility";
@@ -1818,6 +1819,24 @@ export function useFileBrowser(options: {
 
   const setVisibility = useCallback(
     (path: string, kind: "file" | "folder", visibility: SettableVisibility) => {
+      /*
+        The backstop, beside the one in `setScope`.
+
+        `setScope` refuses up front so no link work happens first; this catches
+        every caller that reaches the setter directly — the Browse pane's
+        button, the Explorer's cycle, the Privacy panel's folder toggle. Both
+        exist because the first version of this guard was on one surface and
+        the escalation was on three: a group rule is not one of the two words
+        this setter can write, so writing either DELETES it, and the note it
+        held back is published to the whole workspace.
+      */
+      const current = findEntry(listings, path)?.visibility;
+      if (current !== undefined && isGroupVisibility(current)) {
+        setNotice(
+          `${path} is shared with ${current}. Changing that is not something this control can do.`,
+        );
+        return;
+      }
       void run(async () => {
         if (kind === "folder") {
           await setDirectoryVisibility({ workspaceId: workspaceId!, path, visibility });
@@ -1827,7 +1846,7 @@ export function useFileBrowser(options: {
         return { touched: [path] };
       });
     },
-    [run, setDirectoryVisibility, setNoteVisibility, workspaceId],
+    [listings, run, setDirectoryVisibility, setNoteVisibility, workspaceId],
   );
 
   /**
@@ -2189,6 +2208,34 @@ export function useFileBrowser(options: {
   const setScope = useCallback(
     (path: string, kind: "file" | "folder", from: NoteScope, to: NoteScope) => {
       void (async () => {
+        /*
+          The one guard for every surface that drives this control.
+
+          `scopeOf` maps a group rule to the `private` POSITION — correct, since
+          a group is not team — and the three-way control then offers the step
+          out of it as an ordinary "share with your team". Pressing it wrote
+          `team`, which deletes the group rule: a note two colleagues could read
+          published to the whole workspace, from a control drawing a padlock,
+          with nothing anywhere naming what was being given away.
+
+          `folderControl` was taught to withhold its toggle for the same reason,
+          and that fix reached one surface while the toolbar, the Browse pane
+          and the Explorer's cycle kept theirs. So the guard lives HERE, at the
+          single point all of them go through, rather than three times.
+
+          Absent-not-disabled is the console's rule for a control somebody may
+          not use; this one is reachable, so it refuses in words instead of
+          doing nothing — the position it starts from is a lie the caller
+          cannot see, and silence would leave them pressing it again.
+        */
+        const current = findEntry(listings, path)?.visibility;
+        if (current !== undefined && isGroupVisibility(current)) {
+          setNotice(
+            `${path} is shared with ${current}, which this control cannot change. ` +
+              "Use the group settings for this context.",
+          );
+          return;
+        }
         for (const step of stepsTo(from, to)) {
           if (step.kind === "visibility") {
             setVisibility(path, kind, step.to);
@@ -2229,6 +2276,7 @@ export function useFileBrowser(options: {
     },
     [
       createLinkShareAction,
+      listings,
       revokeShareMutation,
       runShare,
       setVisibility,

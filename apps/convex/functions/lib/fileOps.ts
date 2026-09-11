@@ -50,6 +50,7 @@ import {
   canSee,
   clearedOverrides,
   effectiveVisibility,
+  narrowerVisibility,
   foldPath,
   hasOverride,
   isPlumbing,
@@ -1646,15 +1647,32 @@ function rulesSurvivorsRestOn(
  *
  * The collision has no right answer - the arriving folder and the one already
  * there both have a claim - so it is resolved in the only direction that
- * cannot leak.
+ * cannot leak: the narrower of the two survives.
+ *
+ * That used to be spelled `existing.vis === "team" && rule.vis === "private"`,
+ * which was the same thing while there were two values and stopped being it
+ * the day a rule could name a group. Nothing in that test narrows `team` to a
+ * group, and nothing narrows a group to `private`, so renaming a folder whose
+ * subfolder was held back to `@supa-leads` over one whose matching subfolder
+ * was `team` kept `team` - every note under it readable by the whole
+ * workspace, from a rename. `narrowerVisibility` is the engine's own order and
+ * is identical to the old test on the two tiers.
  */
 function oneRulePerPrefix(rules: readonly PrivacyRule[]): PrivacyRule[] {
   const byPrefix = new Map<string, PrivacyRule>();
   for (const rule of rules) {
     const existing = byPrefix.get(rule.prefix);
-    if (existing === undefined || (existing.vis === "team" && rule.vis === "private")) {
+    if (existing === undefined) {
       byPrefix.set(rule.prefix, rule);
+      continue;
     }
+    const narrower = narrowerVisibility(existing.vis, rule.vis);
+    // Keep the rule object whose value won, and prefer the incumbent on a tie
+    // so the pass stays stable. Two different groups narrow to `private`, which
+    // is neither rule's object - it is written as a fresh one rather than
+    // dropped, because "neither claim survives" must still leave a rule.
+    if (narrower === existing.vis) continue;
+    byPrefix.set(rule.prefix, narrower === rule.vis ? rule : { prefix: rule.prefix, vis: narrower as Visibility });
   }
   return [...byPrefix.values()];
 }

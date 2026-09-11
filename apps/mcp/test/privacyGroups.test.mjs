@@ -53,6 +53,7 @@
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { FTS_TABLE, upsertStatements } from "../src/search/d1/project.js";
 
 const OWNER_TOKEN = `cat_groups_owner_${"0".repeat(16)}`;
 const TEAM_TOKEN = `cat_groups_team_${"0".repeat(17)}`;
@@ -145,6 +146,28 @@ async function callTool(env, token, name, args) {
   const body = await response.json();
   await settle();
   return body?.result?.content?.[0]?.text ?? "";
+}
+
+async function meetingRequest(env, token, path, body) {
+  const { ctx, settle } = createWorkerCtx();
+  const response = await worker.fetch(
+    new Request(`https://mcp.context.test${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    env,
+    ctx
+  );
+  const text = await response.text();
+  await settle();
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = null;
+  }
+  return { status: response.status, body: parsed };
 }
 
 export async function runPrivacyGroupChecks(check) {
@@ -294,6 +317,53 @@ export async function runPrivacyGroupChecks(check) {
       !bucket.text("privacy.md").includes("1-projects/roadmap.md")
     );
 
+    /* -- (3b) publishing a group note is a publication ---------------------- */
+
+    // `write_note` decided "is this a publication?" with
+    // `existingVisibility === "private"`. A note held back to a group is not
+    // that string, so `@supa-leads` -> `team` was treated as an ordinary write
+    // and asked for nothing — while `set_visibility` gated the same transition
+    // unconditionally. Two tools disagreeing about one publication, and the
+    // ungated one is the default an agent reaches.
+    const unconfirmed = await callTool(env, OWNER_TOKEN, "write_note", {
+      path: "1-projects/rates.md",
+      content: "# rates\n\nRATESECRET what we charge",
+      visibility: "team",
+    });
+    check(
+      "publishing a group-held note to team requires the same confirmation a private one does",
+      /confirmation required/i.test(unconfirmed)
+    );
+    check(
+      "...and the group rule is untouched while it is refused",
+      bucket.text("privacy.md").includes("1-projects/rates.md: @supa-leads")
+    );
+    // The positive control: the confirmation is a real gate, not a refusal.
+    const confirmed = await callTool(env, OWNER_TOKEN, "write_note", {
+      path: "1-projects/rates.md",
+      content: "# rates\n\nRATESECRET what we charge",
+      visibility: "team",
+      confirm_team_publish: true,
+    });
+    check("...and it goes through once the owner confirms", /written/i.test(confirmed));
+
+    /* -- (3c) a group name is not a team connection's to learn --------------- */
+
+    // Names live in one global namespace with usernames, so `@kola` on a folder
+    // would tell a team connection that a named individual has access to
+    // something it cannot read — the oracle this branch already refuses to be
+    // about note existence.
+    const probe = await callTool(env, TEAM_TOKEN, "scope_info", { path: "2-areas/feedback" });
+    check(
+      "scope_info never hands a group's name to a team connection",
+      !probe.includes("@supa-owners") && /folder default: not team/.test(probe)
+    );
+    const ownerProbe = await callTool(env, OWNER_TOKEN, "scope_info", { path: "2-areas/feedback" });
+    check(
+      "...while the owner is told exactly which group it is",
+      ownerProbe.includes("@supa-owners")
+    );
+
     /* -- (4) a folder change may not quietly drop or publish a group -------- */
 
     // `3-resources/board/Minutes.md: @supa-owners` sits under
@@ -329,6 +399,24 @@ export async function runPrivacyGroupChecks(check) {
       /team_publication_confirmation_required: true/.test(widen)
     );
 
+    // `publicationConfirmationRequired` is `futureTeamExposure || newlyTeamVisible.length`,
+    // and the check above rides entirely on the right-hand side: `2-areas/feedback`
+    // has a note in it, so reverting `futureTeamExposure` alone failed NOTHING.
+    // `3-resources/board` is a group folder with no objects under it, which is
+    // the only arrangement where the left-hand side is load-bearing — the
+    // folder's own DEFAULT would start governing whatever lands there next,
+    // and that is a publication with no note to count yet.
+    const widenEmpty = await callTool(env, OWNER_TOKEN, "set_folder_visibility", {
+      path: "3-resources/board",
+      visibility: "team",
+      dry_run: true,
+    });
+    check(
+      "widening an empty group folder still asks for confirmation, with nothing to count",
+      /newly_team_visible_notes: 0/.test(widenEmpty) &&
+        /team_publication_confirmation_required: true/.test(widenEmpty)
+    );
+
     /* -- (5) a move carries the narrower of the two, never the wider -------- */
 
     const move = await callTool(env, OWNER_TOKEN, "move_note", {
@@ -346,6 +434,84 @@ export async function runPrivacyGroupChecks(check) {
     check(
       "...so the team connection still cannot read it at its new path",
       !teamReadsMoved.includes("FEEDBACKSECRET")
+    );
+    /* -- (5b) the projection puts a group note where no team caller reads --- */
+
+    // Pure, so it runs here rather than needing a D1. Two things are asserted
+    // because the bug was two bugs: the note must reach `upsertStatements` at
+    // all (the backfill used to `skip` it, which returns BEFORE the deletes and
+    // strands its old team-tier rows forever, and never counts it as indexed so
+    // the workspace sits at "Preparing" for good), and its chunks must land in
+    // the PRIVATE table — a private-tier caller reads both, a team-tier caller
+    // reads only the team one, which is the split's whole purpose.
+    const projected = upsertStatements("2-areas/feedback/q3.md", {
+      note: {
+        path: "2-areas/feedback/q3.md",
+        version: "e1",
+        visibility: "@supa-owners",
+        title: "q3",
+        uploaded: 0,
+        chunks: 1,
+        indexed_at: 0,
+      },
+      chunks: [{ path: "2-areas/feedback/q3.md", ord: 0, title: "q3", headings: "", tags: "", body: "FEEDBACKSECRET" }],
+    });
+    const sql = projected.map((statement) => statement.sql).join("\n");
+    check(
+      "a group note's old team-tier rows are deleted like any other note's",
+      sql.includes(`DELETE FROM ${FTS_TABLE.team}`) && sql.includes(`DELETE FROM ${FTS_TABLE.private}`)
+    );
+    check(
+      "...and its body is indexed in the private table, never the team one",
+      sql.includes(`INSERT INTO ${FTS_TABLE.private}`) && !sql.includes(`INSERT INTO ${FTS_TABLE.team}`)
+    );
+    // The control: a team note still goes in the team table, so the assertion
+    // above is the group's routing and not a function that never inserts.
+    const teamProjected = upsertStatements("1-projects/roadmap.md", {
+      note: { path: "1-projects/roadmap.md", version: "e2", visibility: "team", title: "r", uploaded: 0, chunks: 1, indexed_at: 0 },
+      chunks: [{ path: "1-projects/roadmap.md", ord: 0, title: "r", headings: "", tags: "", body: "roadmap" }],
+    });
+    check(
+      "...while a team note is still indexed in the team table",
+      teamProjected.map((statement) => statement.sql).join("\n").includes(`INSERT INTO ${FTS_TABLE.team}`)
+    );
+
+    /* -- (6) the same escalation through the meetings surface --------------- */
+
+    // `write_note` is not the only writer with a destination guard, and fixing
+    // one is how the other survives. `publishMeetingNote` had the identical
+    // `=== "private"` test, reachable with a CLIENT-SUPPLIED `notePath`: a
+    // team-tier meetings connection names the note the owner reserved for a
+    // group, finalizes, and the body is overwritten while
+    // `persistExactVisibility` deletes the group rule and publishes the path.
+    const SESSION = `mtg_${"g".repeat(20)}`;
+    const opened = await meetingRequest(env, TEAM_TOKEN, "/meetings/sessions", {
+      id: SESSION,
+      title: "Rates",
+      notePath: "1-projects/reserved.md",
+      startedAt: "2026-09-02T10:00:00.000Z",
+      notes: "the meeting itself",
+      events: [{ type: "start", at: "2026-09-02T10:00:00.000Z" }],
+    });
+    check("a team connection may open a meeting session", opened.status === 200);
+
+    const finalized = await meetingRequest(
+      env,
+      TEAM_TOKEN,
+      `/meetings/sessions/${SESSION}/finalize`,
+      { endedAt: "2026-09-02T10:30:00.000Z" }
+    );
+    check(
+      "a team connection cannot file a meeting over a note reserved for a group",
+      finalized.status === 403
+    );
+    check(
+      "...and the owner's group rule survives the attempt",
+      bucket.text("privacy.md").includes("1-projects/reserved.md: @supa-leads")
+    );
+    check(
+      "...and nothing was written at the reserved path",
+      bucket.text("1-projects/reserved.md") === undefined
     );
   } finally {
     restore?.();

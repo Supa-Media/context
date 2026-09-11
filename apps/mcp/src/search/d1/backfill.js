@@ -347,9 +347,18 @@ export async function projectPass(
       if (result.projected >= cap) return "budget";
       if (!afford(1)) return "budget";
       const visibility = visibilityOf(path);
-      // Fail closed on a visibility this module does not know: a note with no
-      // table is a note we decline to copy, never a note we guess a table for.
-      if (visibility !== "private" && visibility !== "team") return "skip";
+      // A group rule (`@supa-leads`) is projected like any other note and
+      // `upsertStatements` decides its table. Skipping it here — which is what
+      // this did while the two tiers were the only values — was wrong twice
+      // over: the skip returns BEFORE the two `DELETE FROM notes_*_fts`
+      // statements, so a note narrowed from `team` to a group kept its full
+      // body in the team FTS table forever, skewing every team caller's bm25
+      // corpus; and the skipped note never counts as indexed, so `notesPending`
+      // never reaches zero and the workspace sits at "Preparing" for good. One
+      // hand-edited rule disabled fast search for the whole context.
+      if (visibility !== "private" && visibility !== "team" && !visibility.startsWith("@")) {
+        return "skip";
+      }
 
       budget.take(floor);
       let object;

@@ -34,7 +34,7 @@
  * their co-lead — which is why the manifest and `index.md` say it too.
  */
 
-import type { Visibility } from "../files/types";
+import { isGroupVisibility, type Visibility } from "../files/types";
 import type { PrivacyNoteRow } from "./map";
 
 /**
@@ -80,6 +80,9 @@ export function visibilityWord(visibility: Visibility): string {
  * next month, which is the part worth saying out loud.
  */
 export function rootDefaultLine(visibility: Visibility): string {
+  if (isGroupVisibility(visibility)) {
+    return `A note at the top of this context, and any folder nobody has given a rule — including one added tomorrow — is readable by ${visibility} and nobody else.`;
+  }
   return visibility === "team"
     ? "A note at the top of this context, and any folder nobody has given a rule, is readable by the people on People."
     : "A note at the top of this context, and any folder nobody has given a rule — including one added tomorrow — is private.";
@@ -87,6 +90,9 @@ export function rootDefaultLine(visibility: Visibility): string {
 
 /** What a folder's default does to the notes inside it. */
 export function folderDefaultLine(visibility: Visibility): string {
+  if (isGroupVisibility(visibility)) {
+    return `Every note in here is readable by ${visibility}, and by nobody else in this context, unless it is named otherwise.`;
+  }
   return visibility === "team"
     ? "Every note in here is readable by the people on People, unless it is held back by name."
     : "Every note in here is private, unless it is shared by name.";
@@ -197,6 +203,7 @@ export function exceptionLine(row: PrivacyNoteRow): string {
 
 /** The empty state under a folder whose notes all follow it. */
 export function noExceptionsLine(visibility: Visibility): string {
+  if (isGroupVisibility(visibility)) return "No note in here is named separately.";
   return visibility === "team"
     ? "No note in here is held back by name."
     : "No note in here is shared by name.";

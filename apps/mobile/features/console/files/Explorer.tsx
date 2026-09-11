@@ -29,6 +29,7 @@ import { itemsFor, type MenuActionId } from "./menu";
 import { baseName, parentPath, restoreTargetFor } from "./paths";
 import { itemsFromListings, rank } from "./palette";
 import { buildTreeRows, findEntry, targetFolder, type TreeRow } from "./tree";
+import { isGroupVisibility } from "./types";
 import type { Visibility } from "./types";
 
 /**
@@ -856,6 +857,11 @@ function IconButton({
 function cycleVisibility(files: FileBrowser, row: TreeRow): void {
   if (row.readOnly) return;
   const current = row.marker ?? inheritedOf(files, row.path);
+  // There is no next position to cycle to from a group rule, and the one this
+  // would have picked is `team` — the single press that publishes it.
+  // `setVisibility` refuses this too; returning here keeps the control from
+  // producing a notice for a press that could never have been meaningful.
+  if (isGroupVisibility(current)) return;
   files.setVisibility(
     row.path,
     row.kind === "folder" ? "folder" : "file",

@@ -1470,7 +1470,11 @@ function overrideFor(overrides, key) {
   // reason it runs at all.
   const folded = foldPath(key);
   let narrow;
-  if (typeof overrides.narrowingFolds === "function") {
+  // `instanceof`, not a duck-typed `typeof … === "function"`. The port uses
+  // `instanceof PrivacyOverrides` and the two must not differ in what they
+  // TRUST: a duck-typed check hands the privacy answer to any object carrying
+  // a method of that name, and the accelerator may never be the authority.
+  if (overrides instanceof PrivacyOverrides) {
     narrow = overrides.narrowingFolds().get(folded);
   } else {
     for (const [existing, visibility] of overrides) {
@@ -4430,7 +4434,8 @@ function scopeInfoText(scope, rules) {
       overrideList +
       "\n\nExact private or team notes may override a folder default through privacy.md. " +
       "Frontmatter is never access control. Publishing private content to team requires explicit confirmation. " +
-      "Visibility is private or team. The owner may separately have handed out an unlisted link to a note; you are not told which. " +
+      "A note reads as team, or it does not; what holds a note back is not disclosed here. " +
+    "The owner may separately have handed out an unlisted link to a note; you are not told which. " +
       "A link you add to a note can widen one already sent, because such a link also serves what the note links to. " +
       "Personal reviewers can process queued proposals."
     );
@@ -4448,7 +4453,8 @@ function scopeInfoText(scope, rules) {
     "Write and move destinations outside the surface return permission denied without confirming whether anything exists there.\n\n" +
     "If the PARA-correct destination is not writable, use propose_note. A personal connection must approve it before the note is filed. " +
     "Archive paths never encode visibility. Exact archive visibility is enforced through privacy.md. " +
-    "Visibility is private or team. The owner may separately have handed out an unlisted link to a note; you are not told which. " +
+    "A note reads as team, or it does not; what holds a note back is not disclosed here. " +
+    "The owner may separately have handed out an unlisted link to a note; you are not told which. " +
     "A link you add to a note can widen one already sent, because such a link also serves what the note links to."
   );
 }
@@ -4471,8 +4477,15 @@ async function toolScopeInfo(store, scope, rules, overrides, pathArg) {
     } else {
       // Deliberately do not inspect the object or exact ACL here. Returning a
       // different answer for a guessed private-note path would be an oracle.
+      // The folder default is echoed only when it is one of the two tiers. A
+      // group rule's NAME is not this connection's to learn: names live in one
+      // global namespace with usernames, so `@kola` on a folder this caller
+      // cannot read would disclose that a named individual has access to it —
+      // an oracle of exactly the kind the branch above refuses to be. "not
+      // team" is the whole of what a team caller needs and all it gets.
+      const disclosed = folderDefault === "team" ? "team" : "not team";
       text +=
-        `\n\n## Destination inspection\npath: ${path}\nfolder default: ${folderDefault}\n` +
+        `\n\n## Destination inspection\npath: ${path}\nfolder default: ${disclosed}\n` +
         `team-writable: ${folderDefault === "team" ? "yes" : "no"}\n` +
         "Existing exact-note visibility is intentionally undisclosed.";
     }
@@ -4780,8 +4793,13 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   if (scope === "team" && existing && existingVisibility !== "team") {
     return writePermissionError("write destination");
   }
+  // `!== "team"` on the existing side. A note held back to a group is not
+  // `"private"`, so the old test called `@supa-leads` → `team` an ordinary
+  // write and asked for no confirmation, while `set_visibility` gated the same
+  // transition unconditionally — two tools disagreeing about one publication,
+  // with the ungated one the default an agent reaches.
   const isPublishing =
-    scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility === "private");
+    scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility !== "team");
   if (isPublishing && args.confirm_team_publish !== true) {
     return toolError(
       "confirmation required: publishing this note to team makes it readable by every team-access connection. Retry with confirm_team_publish=true only after explicit user approval."
@@ -8582,7 +8600,19 @@ async function publishMeetingNote(store, scope, { path, markdown, segmentCount }
   const { rules, overrides } = privacy;
   const visibility = scope === "private" ? "private" : "team";
   if (scope === "team") {
-    if (visibilityOf(notePath, rules) !== "team" || overrideFor(overrides, notePath) === "private") {
+    // `!== "team"` on the override, not `=== "private"`. This is the same
+    // escalation `toolWriteNote`'s own guard describes, reached through the
+    // meetings surface instead: `notePath` is client-supplied, so a team-tier
+    // grant could name a note the owner had held back to a group, pass this
+    // check because the value was neither `"private"` nor the folder default,
+    // overwrite the body, and have `persistExactVisibility` below delete the
+    // group rule and publish the path. `undefined` is spelled out so "no
+    // override at all" still falls through to the folder check beside it.
+    const noteOverride = overrideFor(overrides, notePath);
+    if (
+      visibilityOf(notePath, rules) !== "team" ||
+      (noteOverride !== undefined && noteOverride !== "team")
+    ) {
       throw new MeetingRefusal(
         403,
         "forbidden",

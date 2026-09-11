@@ -13,7 +13,7 @@ import { Text } from "../../design/components/Text";
 import { fonts, layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { crumbsFor, type Crumb } from "./crumbs";
-import type { Visibility } from "./types";
+import { isGroupVisibility, type Visibility } from "./types";
 
 /**
  * Where the open note lives, and who can see it.
@@ -260,7 +260,9 @@ export function Breadcrumb({
             ? styles.chipGenerated
             : visibility === "team"
               ? styles.chipTeam
-              : styles.chipPrivate,
+              : isGroupVisibility(visibility)
+                ? styles.chipGroup
+                : styles.chipPrivate,
         ]}
       >
         <Text
@@ -270,7 +272,9 @@ export function Breadcrumb({
               ? styles.chipGeneratedLabel
               : visibility === "team"
                 ? styles.chipTeamLabel
-                : styles.chipPrivateLabel,
+                : isGroupVisibility(visibility)
+                  ? styles.chipGroupLabel
+                  : styles.chipPrivateLabel,
           ]}
         >
           {describe({ visibility, inherited, exception, readOnly, brief: compact })}
@@ -530,6 +534,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   chipTeam: { backgroundColor: colors.okWash, borderColor: colors.okBorder },
   chipTeamLabel: { color: colors.okText },
   chipPrivate: { backgroundColor: colors.surface3, borderColor: colors.lineStrong },
+  /*
+    A third tone, because the text beside it already names a group and a chip
+    wearing the private colour would argue with its own label. The violet is the
+    one this palette defines as "somebody else's access".
+  */
+  chipGroup: { backgroundColor: colors.sharedWash, borderColor: colors.sharedText },
+  chipGroupLabel: { color: colors.sharedText },
   chipPrivateLabel: { color: colors.text2 },
   chipGenerated: { backgroundColor: "transparent", borderColor: colors.line },
   chipGeneratedLabel: { color: colors.muted },

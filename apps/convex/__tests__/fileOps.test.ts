@@ -47,6 +47,7 @@ import {
 } from "../functions/lib/fileOps";
 import { PRIVACY_KEY, isPlumbing, parsePrivacyManifest } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { replacePrivacyRulesBlock, type Visibility } from "../functions/lib/privacy";
 
 const NOW = 1_800_000_000_000;
 
@@ -5100,5 +5101,115 @@ describe("removeNoteEncryption: the one door that writes plaintext over an encry
       }),
     );
     expect(errorShape(hidden)).toBe(errorShape(missing));
+  });
+});
+
+/**
+ * Renaming a folder must not publish what the arriving one held back.
+ *
+ * `oneRulePerPrefix` resolves the collision a folder rename creates when both
+ * the source and the destination already carry a rule for the same subfolder.
+ * Its docblock says the collision "is resolved in the only direction that
+ * cannot leak", and the test it was written with was
+ * `existing.vis === "team" && rule.vis === "private"` — which WAS that
+ * direction while there were two values, and stopped being it the day a rule
+ * could name a group. Nothing in that test narrows `team` to a group.
+ *
+ * Found by an adversarial review of the change that introduced group rules,
+ * not by this suite, which is why it is pinned in the shape the review used:
+ * the natural alphabetical order `renderPrivacyRulesBlock` emits, no
+ * hand-editing beyond the group rule itself.
+ */
+describe("a folder rename keeps the narrower of two colliding rules", () => {
+  function manifestWith(lines: string[]): string {
+    return replacePrivacyRulesBlock(
+      renderPrivacyManifest("para"),
+      lines.map((line) => {
+        const [prefix, vis] = line.split(": ");
+        return { prefix, vis: vis as Visibility };
+      }),
+      new Map(),
+    );
+  }
+
+  test("a group rule arriving over a team one survives the move", async () => {
+    const store = bucket();
+    store.seed(
+      PRIVACY_KEY,
+      manifestWith([
+        "1-projects/dst: private",
+        "1-projects/dst/hr: team",
+        "1-projects/src: private",
+        "1-projects/src/hr: @supa-leads",
+      ]),
+    );
+    store.seed("1-projects/src/hr/comp.md", "# Comp\n");
+
+    await movePath(store, {
+      from: "1-projects/src",
+      to: "1-projects/dst",
+      scope: "private",
+      now: NOW,
+    });
+
+    const manifest = store.snapshot()[PRIVACY_KEY];
+    expect(manifest).toContain("1-projects/dst/hr: @supa-leads");
+    expect(manifest).not.toContain("1-projects/dst/hr: team");
+
+    // The consequence, stated as the thing that actually matters: a team
+    // connection still cannot read what moved.
+    const leak = await capture(() =>
+      readFile(store, { path: "1-projects/dst/hr/comp.md", scope: "team" }),
+    );
+    expect(leak.code).toBe("FILE_NOT_FOUND");
+  });
+
+  test("two different groups colliding resolve to private, not to whichever came first", async () => {
+    const store = bucket();
+    store.seed(
+      PRIVACY_KEY,
+      manifestWith([
+        "1-projects/dst: private",
+        "1-projects/dst/hr: @supa-owners",
+        "1-projects/src: private",
+        "1-projects/src/hr: @supa-leads",
+      ]),
+    );
+    store.seed("1-projects/src/hr/comp.md", "# Comp\n");
+
+    await movePath(store, {
+      from: "1-projects/src",
+      to: "1-projects/dst",
+      scope: "private",
+      now: NOW,
+    });
+
+    const manifest = store.snapshot()[PRIVACY_KEY];
+    expect(manifest).toContain("1-projects/dst/hr: private");
+    expect(manifest).not.toContain("@supa-owners");
+    expect(manifest).not.toContain("@supa-leads");
+  });
+
+  test("the two tiers still collide exactly as they did", async () => {
+    const store = bucket();
+    store.seed(
+      PRIVACY_KEY,
+      manifestWith([
+        "1-projects/dst: private",
+        "1-projects/dst/hr: team",
+        "1-projects/src: private",
+        "1-projects/src/hr: private",
+      ]),
+    );
+    store.seed("1-projects/src/hr/comp.md", "# Comp\n");
+
+    await movePath(store, {
+      from: "1-projects/src",
+      to: "1-projects/dst",
+      scope: "private",
+      now: NOW,
+    });
+
+    expect(store.snapshot()[PRIVACY_KEY]).toContain("1-projects/dst/hr: private");
   });
 });

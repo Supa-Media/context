@@ -28,6 +28,7 @@ import { ContactPageView } from "../communications/ContactPageView";
 import { InboxView } from "../communications/InboxView";
 import { MAIL_CONNECT_ENABLED } from "../communications/flags";
 import { classifyCommsPath } from "../communications/paths";
+import { isGroupVisibility } from "../files/types";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -770,7 +771,15 @@ export function BrowsePane({
             trailing group. What a share *means* still differs by kind, and
             that is `ShareDialog`'s to say rather than this button's.
           */}
-          {files.canSetVisibility && !selected.readOnly ? (
+          {/*
+            Absent for a group rule, the console's own rule for a control
+            somebody may not use. The two-word button has no true label for
+            `@supa-leads` — it said "Share with team", and pressing it did
+            exactly that to a note the owner had held back.
+          */}
+          {files.canSetVisibility &&
+          !selected.readOnly &&
+          !isGroupVisibility(selected.visibility) ? (
             <Button
               /*
                 A verb here and a padlock on a phone, which is the same control
