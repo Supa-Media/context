@@ -340,6 +340,15 @@ aimed at, that account is the wall.
    "move bucket between accounts" operation — only a copy (Super Slurper) and
    a repoint.
 
+   **That account exists (owner, 2026-09-10) and is empty by design.** Our own
+   Workers — the gateway, the edge router, the email and transcribe Workers —
+   stay in the Supa Media account, and they reach customer resources over the
+   API with a credential rather than through a binding: the gateway signs S3
+   requests with a per-bucket key, and Convex calls the Cloudflare API to
+   create buckets and D1 databases. Nothing about this rule requires a Worker
+   to sit beside the data, which is the thing that would otherwise pull our
+   infrastructure in.
+
    **"Customer data", deliberately, and not "buckets".** The per-context D1
    search databases (`context-search-<workspaceId>`, `lib/d1.ts`) are the same
    thing in a different Cloudflare product: one resource per workspace, built
@@ -349,42 +358,6 @@ aimed at, that account is the wall.
    of it derived from or holding one customer's content, none of it ours. What
    must never join it is anything of ours: a Worker, a queue, a bucket holding
    our own state.
-
-   **Amended 2026-09-10, by the owner: it is the Context.LC account, which
-   also runs our Workers.** The rule above asked for an account with nothing
-   of ours in it; the account chosen is the one dedicated to this product, and
-   it holds the gateway, the edge router, the email and transcribe Workers and
-   the `context-gateway-jobs` queue. So the second half of the sentence is now
-   aspiration rather than fact, and this paragraph exists so nobody reads the
-   rule and assumes it.
-
-   What survives the amendment, and why it is still defensible: **the R2 blast
-   radius is unchanged**, because no Worker of ours binds an R2 bucket — every
-   `[[r2_buckets]]` in the repo is commented out and self-host-only, and the
-   original single-tenant `brain` bucket is on a different account entirely.
-   A token scoped to "R2 in this account" therefore reaches customer buckets
-   and nothing else, which is exactly what it reaches under the stricter rule.
-   The cost priced in "what a simplification would cost" below — "a token
-   scoped to R2 in this account would then reach production buckets too" —
-   does not apply here, because there are no production buckets of ours to
-   reach.
-
-   **What is genuinely given up is the other direction, and it is now a policy
-   rather than a structure.** With a separate account, no deploy credential
-   could reach a customer's notes however it was scoped. With this one, a
-   deploy token carrying account-wide R2 permission would. That makes two
-   scoping rules load-bearing, and neither is enforced by anything in this
-   repo:
-
-   - `CLOUDFLARE_API_TOKEN`, which deploys the Workers, **must not carry R2
-     or D1 permissions.** Worth checking rather than assuming: broad templates
-     grant them.
-   - `MANAGED_R2_API_TOKEN` must carry R2 only — no Workers, no queues, no
-     Pages.
-
-   Separating the accounts later is the same operation it always was: a Super
-   Slurper copy and a repoint, one cutover per tenant, and cheapest while
-   there are no tenants.
 3. **Plain files, unchanged layout.** A managed bucket holds exactly what a
    BYO bucket holds: Markdown, PARA folders, `privacy.md`, attachments beside
    their notes. Nothing about the on-bucket format may become conditional on
@@ -498,13 +471,7 @@ one — a known limit, not an oversight.
 
 Putting managed buckets in the same Cloudflare account as our own
 infrastructure saves one account and costs the blast radius: a token scoped to
-"R2 in this account" would then reach production buckets too. **That sentence
-was written before the account was chosen, and it overstates the case for this
-deployment** — the amendment above explains why: nothing of ours binds an R2
-bucket, so there are no production buckets in the radius. What is actually
-paid for the saved account is the *reverse* direction — a deploy credential
-that could be scoped into customer data — which is now two token-scoping rules
-instead of a structural impossibility. Reusing one
+"R2 in this account" would then reach production buckets too. Reusing one
 bucket with a prefix per workspace saves a five-figure bucket count and costs
 the entire hand-off story, turning the product into every other SaaS that lets
 you export a zip. Deriving the bucket name from a slug instead of a workspace
