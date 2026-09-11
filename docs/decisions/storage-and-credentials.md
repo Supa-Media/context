@@ -392,22 +392,44 @@ dashboard stops being useful for browsing, and provisioning has to be code
 from the first bucket. That is the accepted cost of being able to hand
 somebody their storage.
 
-### One account id, not one per product
+### One customer-data account id, after the D1 migration
 
-Once D1 lives there too, `SEARCH_D1_ACCOUNT_ID` and `MANAGED_R2_ACCOUNT_ID`
-are the same value written down twice, in two different places — one in
-`appSecrets`, one an environment variable. Two copies of one fact drift, and
-the failure when they drift is silent: provisioning writes into whichever
-account its own copy names. Consolidating them onto a single
-customer-data account id is the follow-up, and the reason it is not done in
-this change is that moving `SEARCH_D1_ACCOUNT_ID` out of `appSecrets` is a
-migration for a live feature rather than a rename.
+The target state has one customer-data account id for both R2 and D1. Today the
+two values **must differ**: the four live search databases are still in the Supa
+Media compute account, so `SEARCH_D1_ACCOUNT_ID` still names that account while
+`MANAGED_R2_ACCOUNT_ID` names the empty Context.LC customer-data account.
 
-Until then, **they must be kept equal by hand**, and no test may assert they
-differ. That assertion looks obviously right — "our infrastructure account is
-not the customer-data account" — and it would be wrong here, because these two
-are both the customer-data account. The thing worth asserting is the opposite,
-once one id exists to assert it about.
+Changing the search account id or token before migrating the stored database
+ids would not move anything. It would strand every existing index behind a
+credential for the wrong account. Search is disposable, so the migration is a
+controlled reprovision and backfill rather than a data move: create replacement
+databases in Context.LC, apply the schema, rebuild them from the canonical
+files, switch the binding rows, and only then delete the old Supa Media
+databases with the legacy credential.
+
+After that cutover, keeping `SEARCH_D1_ACCOUNT_ID` in `appSecrets` and
+`MANAGED_R2_ACCOUNT_ID` in the environment would write the same fact down in
+two places. Consolidate them onto one customer-data account id then, not before.
+The failure mode for doing it early is a production search outage; the failure
+mode for never doing it is quiet configuration drift.
+
+### Cloudflare credentials follow the account boundary
+
+The Supa Media deploy credential and the Context.LC customer-data credential
+are not interchangeable:
+
+- `CLOUDFLARE_API_TOKEN` deploys Workers, queues and routes in the Supa Media
+  compute account. It must carry no D1 or R2 permission.
+- `SEARCH_D1_API_TOKEN` is the temporary legacy D1 credential for the Supa
+  Media account while the four existing indexes remain there.
+- The Context.LC customer-data operator credential needs D1 and R2 access plus
+  account-token management so managed provisioning can mint a key scoped to
+  one workspace bucket. It must carry no Workers, queues, Pages or routes.
+
+The last two can become one named customer-data credential only when D1 has
+moved and both consumers name the Context.LC account. Consolidating their names
+or values before the resource migration disguises two different account
+boundaries as one secret and fails only at runtime.
 
 ### One customer-data account per deployment, never shared
 
