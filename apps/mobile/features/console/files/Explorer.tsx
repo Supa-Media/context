@@ -29,6 +29,8 @@ import { itemsFor, type MenuActionId } from "./menu";
 import { baseName, parentPath, restoreTargetFor } from "./paths";
 import { itemsFromListings, rank } from "./palette";
 import { buildTreeRows, findEntry, targetFolder, type TreeRow } from "./tree";
+import type { AccessMember } from "./access";
+import type { RecipientGroup } from "./recipients";
 import { isGroupVisibility } from "./types";
 import type { Visibility } from "./types";
 
@@ -92,8 +94,15 @@ export function Explorer({
   contextLabel,
   onOpenPinned,
   onOverlayChange,
+  access,
 }: {
   files: FileBrowser;
+  /** Handed straight to the share dialog. See `ExplorerDialogs`. */
+  access?: {
+    members: readonly AccessMember[];
+    groups?: readonly RecipientGroup[];
+    onShareWithGroup?: (path: string, group: string) => void;
+  };
   /** "@seyi" — named in the empty state so it is obvious whose tree this is. */
   contextLabel: string;
   /**
@@ -639,7 +648,12 @@ export function Explorer({
         />
       ) : null}
 
-      <ExplorerDialogs files={files} dialog={dialog} onClose={() => setDialog(null)} />
+      <ExplorerDialogs
+        files={files}
+        dialog={dialog}
+        onClose={() => setDialog(null)}
+        access={access}
+      />
     </View>
   );
 }
@@ -679,10 +693,26 @@ export function ExplorerDialogs({
   files,
   dialog,
   onClose,
+  access,
 }: {
   files: FileBrowser;
   dialog: Dialog;
   onClose: () => void;
+  /**
+   * What the share dialog needs to list who can read a note, and to offer
+   * groups as you type.
+   *
+   * Passed in rather than subscribed here: the console holds one membership
+   * and one groups subscription, and a second of either in this component
+   * would make every Explorer render test reach for a Convex provider it does
+   * not have. Optional, so a caller that has neither draws the dialog without
+   * them — which is what it did before this existed.
+   */
+  access?: {
+    members: readonly AccessMember[];
+    groups?: readonly RecipientGroup[];
+    onShareWithGroup?: (path: string, group: string) => void;
+  };
 }) {
   if (dialog === null) return null;
 
@@ -784,6 +814,27 @@ export function ExplorerDialogs({
           // the first one makes them reopen it to check it worked — which is
           // also the moment they share it twice.
           onClose={onClose}
+          /*
+            The same two things Browse passes. The entry is looked up here
+            rather than threaded through `Dialog`, because the listing is the
+            authority on what this note currently reads as and the dialog is
+            opened from several places.
+          */
+          access={
+            access === undefined
+              ? undefined
+              : {
+                  visibility: findEntry(files.listings, dialog.path)?.visibility ?? "private",
+                  exception: findEntry(files.listings, dialog.path)?.exception ?? false,
+                  members: access.members,
+                }
+          }
+          groups={access?.groups}
+          onShareWithGroup={
+            access?.onShareWithGroup === undefined
+              ? undefined
+              : (group) => access.onShareWithGroup!(dialog.path, group)
+          }
         />
       );
     case "archive":

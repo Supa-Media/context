@@ -527,7 +527,11 @@ describe("the unlisted link has a control of its own", () => {
     pane.render(dataWith({ shares: [openShare] } as never));
     press("browse-share");
     const text = document.body.textContent ?? "";
-    expect(text).toContain("ANYONE WITH THE LINK");
+    // The heading was retired when the three link sections became one
+    // GENERAL ACCESS block — three eyebrows and a paragraph each was the
+    // dialog reading as a policy document. The control kept its name as a row
+    // title, and the two sentences below are what this test is actually about.
+    expect(text).toContain("Anyone with the link");
     expect(text).toMatch(/no account, no sign-in/i);
     expect(text).toMatch(/cannot take back a copy somebody already has/i);
   });
