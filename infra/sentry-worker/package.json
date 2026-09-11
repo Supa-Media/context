@@ -1,0 +1,15 @@
+{
+  "name": "@context/sentry-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test/worker.test.mjs",
+    "deploy": "wrangler deploy",
+    "typecheck": "echo \"no typecheck (plain JS worker)\"",
+    "lint": "echo \"no lint configured yet\""
+  },
+  "devDependencies": {
+    "wrangler": "^4.124.0"
+  }
+}
