@@ -27,6 +27,7 @@ import type * as functions_fastSearch from "../functions/fastSearch.js";
 import type * as functions_fastSearchProvision from "../functions/fastSearchProvision.js";
 import type * as functions_files from "../functions/files.js";
 import type * as functions_grants from "../functions/grants.js";
+import type * as functions_groups from "../functions/groups.js";
 import type * as functions_ingestion from "../functions/ingestion.js";
 import type * as functions_ingestionGateway from "../functions/ingestionGateway.js";
 import type * as functions_invitationEmail from "../functions/invitationEmail.js";
@@ -104,6 +105,7 @@ declare const fullApi: ApiFromModules<{
   "functions/fastSearchProvision": typeof functions_fastSearchProvision;
   "functions/files": typeof functions_files;
   "functions/grants": typeof functions_grants;
+  "functions/groups": typeof functions_groups;
   "functions/ingestion": typeof functions_ingestion;
   "functions/ingestionGateway": typeof functions_ingestionGateway;
   "functions/invitationEmail": typeof functions_invitationEmail;
