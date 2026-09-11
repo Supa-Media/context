@@ -1,8 +1,8 @@
 diff --git a/apps/convex/__tests__/fileOps.test.ts b/apps/convex/__tests__/fileOps.test.ts
-index 9de3d9f..6d65a8c 100644
+index 215da3e..dfd84e9 100644
 --- a/apps/convex/__tests__/fileOps.test.ts
 +++ b/apps/convex/__tests__/fileOps.test.ts
-@@ -4320,41 +4320,45 @@ describe("a rule no survivor needs, told truthfully", () => {
+@@ -4321,41 +4321,45 @@ describe("a rule no survivor needs, told truthfully", () => {
   * nothing, the manifest comes back identical, and the console reported the
   * publish as done over a note no team member could read.
   *
@@ -73,10 +73,10 @@ index 9de3d9f..6d65a8c 100644
      const store = bucket();
      await shareProjects(store);
 diff --git a/apps/convex/functions/lib/fileOps.ts b/apps/convex/functions/lib/fileOps.ts
-index 4db4ff1..06bff24 100644
+index f0a9b5b..edf8d1c 100644
 --- a/apps/convex/functions/lib/fileOps.ts
 +++ b/apps/convex/functions/lib/fileOps.ts
-@@ -2244,7 +2244,7 @@ export interface PrivacyResetResult {
+@@ -2262,7 +2262,7 @@ export interface PrivacyResetResult {
    /**
     * Where the unreadable file was kept, or `null` when there was nothing to
     * keep. A person whose manifest merely had a typo has not lost the other
@@ -85,7 +85,7 @@ index 4db4ff1..06bff24 100644
     */
    backedUpTo: string | null;
    /**
-@@ -2480,6 +2480,11 @@ export interface VisibilityResult {
+@@ -2498,6 +2498,11 @@ export interface VisibilityResult {
    exception: boolean;
  }
  
@@ -97,7 +97,7 @@ index 4db4ff1..06bff24 100644
  /**
   * Set one note's visibility, through the manifest.
   *
-@@ -2518,14 +2523,22 @@ export async function setVisibility(
+@@ -2536,14 +2541,22 @@ export async function setVisibility(
    const state = await mutateManifest(store, (current) => {
      if (!canSee(path, options.scope, current.rules, current.overrides)) throw notFound();
      const overrides = nextOverrides(path, options.visibility, current.rules, current.overrides);
@@ -124,7 +124,7 @@ index 4db4ff1..06bff24 100644
    return {
      path,
 diff --git a/apps/mcp/src/index.js b/apps/mcp/src/index.js
-index e921eb7..84d94bc 100644
+index 95915db..15ce1f5 100644
 --- a/apps/mcp/src/index.js
 +++ b/apps/mcp/src/index.js
 @@ -1283,6 +1283,30 @@ function effectiveVisibility(key, rules, overrides) {
@@ -174,10 +174,10 @@ index e921eb7..84d94bc 100644
      const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
      const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
      if (put) return;
-@@ -4780,6 +4813,13 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
-   if (scope === "team" && existing && existingVisibility !== "team") {
-     return writePermissionError("write destination");
-   }
+@@ -4798,6 +4831,13 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
+   // write and asked for no confirmation, while `set_visibility` gated the same
+   // transition unconditionally — two tools disagreeing about one publication,
+   // with the ungated one the default an agent reaches.
 +  // Refused here rather than left to the backstop in `persistExactVisibility`,
 +  // which throws — and a throw reaches the client as a protocol error instead
 +  // of a refusal it can read. Unreachable at team scope: a private fold was
@@ -186,9 +186,9 @@ index e921eb7..84d94bc 100644
 +    return toolError(FOLDED_TWIN_REFUSAL);
 +  }
    const isPublishing =
-     scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility === "private");
+     scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility !== "team");
    if (isPublishing && args.confirm_team_publish !== true) {
-@@ -5750,6 +5790,11 @@ async function toolSetVisibility(store, scope, rules, overrides, args) {
+@@ -5768,6 +5808,11 @@ async function toolSetVisibility(store, scope, rules, overrides, args) {
      );
    }
    const current = effectiveVisibility(path, rules, overrides);
@@ -200,21 +200,18 @@ index e921eb7..84d94bc 100644
    if (current === visibility) {
      return toolText(`unchanged: ${path}\nvisibility: ${visibility}\netag: ${obj.etag}`);
    }
-@@ -5826,9 +5871,10 @@ async function toolSetFolderVisibility(store, scope, args) {
-     // out-ranked for the note by the longer `private` rule this very call adds
-     // — widens the twin and passes the test. It needed no case-variant folder
-     // rule and no hand-edited manifest, and it shipped. Deciding who a
--    // narrowing protects means simulating the write, not reasoning about rules;
--    // a weaker copy of that reasoning is worth less than a redundant line of
--    // manifest.
+@@ -5852,6 +5897,10 @@ async function toolSetFolderVisibility(store, scope, args) {
+     // may be widening. Compacting one away is the same failure the paragraph
+     // above describes, with a group in place of `private`.
+     if (visibility !== "team") continue;
 +    // narrowing protects is what `foldedTwinBlocks` does by simulating the
 +    // write; a second, weaker copy of that reasoning is worth less than a
 +    // redundant line of manifest.
-+    //
-     // `!== "team"` rather than `=== "private"`: a group override is a narrowing
-     // too, and it is the only thing holding a note back from a folder this call
-     // may be widening. Compacting one away is the same failure the paragraph
-@@ -7296,6 +7342,24 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
++    if (visibility === "private") continue;
+     if (notePath.startsWith(`${path}/`) && visibility === visibilityOf(notePath, nextRules)) {
+       nextOverrides.delete(notePath);
+       compacted.push(notePath);
+@@ -7314,6 +7363,24 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
      return writePermissionError("archive destination");
    }
    if (await store.get(dest)) return toolError("conflict: archive destination already exists");
@@ -239,10 +236,10 @@ index e921eb7..84d94bc 100644
    const body = await obj.arrayBuffer();
    if (destinationVisibility === "private") {
      await persistExactVisibility(store, dest, "private", rules);
-@@ -7482,6 +7546,13 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
-     sourceVisibility,
-     visibilityOf(destination, rules)
-   );
+@@ -7507,6 +7574,13 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
+   // on every move. Neither branch firing at all was the first version of this
+   // and left the note on its new folder's default, which is exactly the
+   // publication the narrowing was computed to prevent.
 +  // Before anything is written. `persistExactVisibility`'s backstop would catch
 +  // this too, but only after the body had already been copied to the
 +  // destination — a torn move (fail-closed, since the fold makes the
@@ -250,10 +247,10 @@ index e921eb7..84d94bc 100644
 +  if (foldedTwinBlocks(destination, destinationVisibility, rules, overrides)) {
 +    return toolError(FOLDED_TWIN_REFUSAL);
 +  }
-   // `!== "team"` rather than `=== "private"`, and the computed value rather
-   // than the literal. Both halves matter: a group destination is a narrowing,
-   // so it must be installed BEFORE the bytes land like any other narrowing —
-@@ -7737,6 +7808,13 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
+   if (destinationVisibility !== "team") {
+     try {
+       await persistExactVisibility(store, destination, destinationVisibility, rules);
+@@ -7755,6 +7829,13 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
        sourceVisibility,
        destinationFolderVisibility
      );
@@ -267,7 +264,7 @@ index e921eb7..84d94bc 100644
      const fastArchiveCandidate =
        move.source.startsWith("4-archive/") &&
        move.destination.startsWith("4-archive/") &&
-@@ -7944,6 +8022,19 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
+@@ -7962,6 +8043,19 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
    if (scope === "team" && moves.some(({ destination: path }) => hasOverride(overrides, path))) {
      return writePermissionError("folder move destination");
    }
