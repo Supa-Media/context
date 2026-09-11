@@ -91,13 +91,29 @@ For staging first:
 7. Inspect both payloads and verify there is no email, context handle, note path,
    note body, OAuth code, share token, or storage credential.
 
-## Initial alerts and dashboards
+## Quiet incident inbox and alerts
+
+Sentry remains the diagnostic source, but a signed internal-integration webhook
+also files each newly created issue as one compact note under the configured
+Context incident prefix. The note starts with a single `What is happening`
+sentence and links back to Sentry; raw events, stack traces, note content, and
+request payloads are not copied. A stable issue id produces a stable note path,
+so retries and recurrences do not create a stream of duplicate files.
+
+`infra/sentry-worker` owns this adapter. Its request cannot choose a workspace
+or path, and a foreign Sentry project is ignored. A singleton Durable Object
+serializes Context OAuth refresh-token rotation. A failed Context write returns
+`503`, allowing Sentry to retry.
+
+Routine per-issue email notifications for the production Context project are
+disabled. The Context incident folder is the quiet review queue; urgent
+notifications should be reserved for an explicit outage or sustained-impact
+monitor, not every new exception.
+
+## Dashboards
 
 Create these after the first staging events establish the project schema:
 
-- Sentry: alert immediately on a new fatal issue; alert when the same error
-  affects at least 3 users in 30 minutes; alert when crash-free sessions fall
-  below 99.5% over 24 hours.
 - Sentry dashboard: crash-free sessions, affected users, top issues, p95 app
   start, and p95 screen/navigation duration by release.
 - PostHog dashboard: unique signed-in users, screen sequence, onboarding start

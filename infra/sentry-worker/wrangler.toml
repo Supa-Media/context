@@ -1,0 +1,22 @@
+name = "context-sentry-inbox"
+main = "src/worker.js"
+compatibility_date = "2026-08-01"
+
+[[durable_objects.bindings]]
+name = "CONTEXT_TOKEN_BROKER"
+class_name = "ContextTokenBroker"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ContextTokenBroker"]
+
+# All six string bindings are secrets because five identify a production deployment
+# or workspace and one is a credential. The repository is public and supports
+# self-hosting, so none belongs in this file:
+#
+#   SENTRY_WEBHOOK_CLIENT_SECRET  verifies Sentry-Hook-Signature
+#   CONTEXT_MCP_REFRESH_TOKEN     rotating dedicated service-user grant seed
+#   CONTEXT_MCP_CLIENT_ID         OAuth client bound to that grant
+#   CONTEXT_MCP_ENDPOINT          that workspace's named /mcp endpoint
+#   SENTRY_PROJECT_SLUG           the only Sentry project accepted
+#   SENTRY_INCIDENT_PREFIX        the fixed destination folder
