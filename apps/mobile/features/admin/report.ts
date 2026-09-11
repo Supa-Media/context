@@ -183,7 +183,7 @@ export interface KnownSecret {
 export const KNOWN_SECRETS: readonly KnownSecret[] = [
   {
     name: "SEARCH_D1_API_TOKEN",
-    description: "Cloudflare API token, scoped to D1:Edit, on the Supa Media account.",
+    description: "Cloudflare API token, scoped to D1:Edit, on the customer-data account.",
     unsetMeans: "Per-brain search databases cannot be provisioned.",
   },
   {
@@ -197,9 +197,10 @@ export const KNOWN_SECRETS: readonly KnownSecret[] = [
     unsetMeans: "Nothing can be charged.",
   },
   {
-    name: "STRIPE_WEBHOOK_SECRET",
-    description: "Verifies that a webhook delivery really came from Stripe.",
-    unsetMeans: "Stripe webhooks are refused, so payments never settle in-product.",
+    name: "MANAGED_R2_API_TOKEN",
+    description:
+      "Cloudflare API token that creates one managed bucket and one bucket-scoped key per context.",
+    unsetMeans: "Managed storage cannot be provisioned.",
   },
   {
     name: "RESEND_API_KEY_TRANSACTIONAL",

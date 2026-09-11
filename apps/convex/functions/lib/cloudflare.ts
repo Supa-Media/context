@@ -695,7 +695,7 @@ function describeErrors(envelope: CloudflareEnvelope<unknown>, raw: string): str
   return stripCredentialFields(raw).slice(0, 200);
 }
 
-/** One entry of `GET /user/tokens/permission_groups`. */
+/** One entry of `GET /accounts/:id/tokens/permission_groups`. */
 interface PermissionGroup {
   id?: string;
   name?: string;
@@ -703,6 +703,13 @@ interface PermissionGroup {
 
 /**
  * Resolve the write permission group's id, by name, at runtime.
+ *
+ * This is deliberately the account-owned-token endpoint. A real account token
+ * with permission to create and enumerate account tokens returns the groups
+ * here, while Cloudflare rejects that same credential at the similarly named
+ * `/user/tokens/permission_groups` endpoint with 403/9109. Managed storage
+ * uses an account-owned token, so the user-level endpoint makes every live
+ * provisioning attempt fail before bucket creation.
  *
  * Only the *read* group's id is published, so there is nothing to hardcode for
  * the write group even if hardcoding were wise. Refusing when the name is
@@ -712,12 +719,13 @@ interface PermissionGroup {
  */
 export async function resolvePermissionGroupId(options: {
   apiToken: string;
+  accountId: string;
   name: string;
 }): Promise<string> {
   const groups = await cloudflareRequest<PermissionGroup[]>({
     apiToken: options.apiToken,
     method: "GET",
-    path: "/user/tokens/permission_groups",
+    path: `/accounts/${options.accountId}/tokens/permission_groups`,
   });
   const match = (Array.isArray(groups) ? groups : []).find(
     (group) => group.name === options.name && typeof group.id === "string",
