@@ -82,6 +82,7 @@ import {
   STRIPE_PRICE_ID_ENV_VAR,
 } from "../functions/lib/premium";
 import { STRIPE_SIGNATURE_HEADER } from "../functions/lib/stripe";
+import { TEST_ACCOUNT_EMAIL } from "../functions/lib/testAccount";
 
 /** Obviously fake. This repository is public. */
 const SIGNING_SECRET = "whsec_obviously_fake_test_secret";
@@ -1564,6 +1565,35 @@ describe("the return from Stripe", () => {
  *   `managedStorageAvailable` answering `deploymentSells()` alone         1
  *   the malformed account id thrown rather than caught                    1
  */
+describe("production CUJ Premium bypass", () => {
+  test("the exact verified test account activates without Stripe", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, TEST_ACCOUNT_EMAIL);
+    const workspaceId = await createWorkspace(t, owner, "test-premium");
+    await asUser(t, owner).mutation(api.functions.billing.setEntitlements, {
+      workspaceId,
+      managedStorage: false,
+      fastSearch: true,
+    });
+
+    await expect(
+      asUser(t, owner).mutation(api.functions.billing.activateTestPremium, { workspaceId }),
+    ).resolves.toEqual({ active: true });
+    const status = await asUser(t, owner).query(api.functions.billing.status, { workspaceId });
+    expect(status).toMatchObject({ status: "active", isTestAccount: true });
+    expect(status.hasStripeCustomer).toBe(false);
+  });
+
+  test("an ordinary owner cannot use the test upgrade", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "not-test-premium");
+    await chooseBoth(t, owner, workspaceId);
+    await expect(
+      asUser(t, owner).mutation(api.functions.billing.activateTestPremium, { workspaceId }),
+    ).rejects.toMatchObject({ data: expect.objectContaining({ code: "FORBIDDEN" }) });
+  });
+});
+
 describe("whether managed storage can be offered at all", () => {
   const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 

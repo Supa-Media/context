@@ -66,6 +66,10 @@ export function usePremium(options: {
   }, [asking, workspaceId, sessionId]);
 
   const results = useQueries(spec);
+  const raw = results.status;
+  const answered = raw !== undefined && !(raw instanceof Error) && raw !== null;
+  const status = answered ? (raw as PremiumStatus) : null;
+  const canManage = status !== null && status.canManage;
 
   const choose = useCallback(
     async (next: PremiumEntitlements) => {
@@ -81,11 +85,17 @@ export function usePremium(options: {
 
   const upgrade = useCallback(async () => {
     if (workspaceId === null) return;
+    if (status?.isTestAccount === true) {
+      await convex.mutation(api.functions.billing.activateTestPremium, {
+        workspaceId,
+      });
+      return;
+    }
     const started = await convex.mutation(api.functions.billing.startCheckout, {
       workspaceId,
     });
     setSessionId(started.sessionId);
-  }, [convex, workspaceId]);
+  }, [convex, status?.isTestAccount, workspaceId]);
 
   const manageBilling = useCallback(async () => {
     if (workspaceId === null) return;
@@ -105,10 +115,12 @@ export function usePremium(options: {
     );
   }, [convex, workspaceId]);
 
-  const raw = results.status;
-  const answered = raw !== undefined && !(raw instanceof Error) && raw !== null;
-  const status = answered ? (raw as PremiumStatus) : null;
-  const canManage = status !== null && status.canManage;
+  const deleteTestWorkspace = useCallback(async () => {
+    if (workspaceId === null) return;
+    await convex.mutation(api.functions.account.deleteTestWorkspace, {
+      workspaceId,
+    });
+  }, [convex, workspaceId]);
 
   const rawSession = results.session;
   const session =
@@ -130,5 +142,9 @@ export function usePremium(options: {
     upgrade: canManage ? upgrade : undefined,
     manageBilling: canManage ? manageBilling : undefined,
     retryManagedStorage: canManage ? retryManagedStorage : undefined,
+    deleteTestWorkspace:
+      canManage && status?.isTestAccount === true
+        ? deleteTestWorkspace
+        : undefined,
   };
 }

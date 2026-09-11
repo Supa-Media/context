@@ -275,6 +275,53 @@ describe("what each screen offers", () => {
     expect(host.querySelector('[data-testid="premium-manage"]')).toBeNull();
   });
 
+  test("the CUJ account gets a no-charge activation and no Stripe control once active", () => {
+    const free = mount(
+      view({
+        status: status({
+          isTestAccount: true,
+          selected: { managedStorage: true, fastSearch: true },
+        }),
+      }),
+    );
+    expect(free.textContent ?? "").toContain("Activate test Premium");
+
+    const active = mount(
+      view({
+        status: status({
+          status: "active",
+          isTestAccount: true,
+          selected: { managedStorage: true, fastSearch: true },
+          active: { managedStorage: true, fastSearch: true },
+        }),
+      }),
+    );
+    expect(active.querySelector('[data-testid="premium-upgrade"]')).toBeNull();
+    expect(active.querySelector('[data-testid="premium-manage"]')).toBeNull();
+  });
+
+  test("only the CUJ view offers scoped two-step workspace cleanup", () => {
+    const ordinary = mount(view());
+    expect(
+      ordinary.querySelector('[data-testid="premium-test-cleanup"]'),
+    ).toBeNull();
+
+    const testAccount = mount(
+      view({
+        status: status({ isTestAccount: true }),
+        deleteTestWorkspace: async () => {},
+      }),
+    );
+    expect(
+      testAccount.querySelector(
+        '[data-testid="premium-delete-test-workspace"]',
+      ),
+    ).not.toBeNull();
+    expect(testAccount.textContent ?? "").toContain(
+      "Existing contexts and buckets are untouched",
+    );
+  });
+
   test("an owner with nothing chosen is told what to tick", () => {
     const host = mount(view());
     expect(host.querySelector('[data-testid="premium-upgrade"]')).toBeNull();

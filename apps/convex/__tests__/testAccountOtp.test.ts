@@ -85,6 +85,27 @@ async function requestThenVerify(t: TestConvex, email: string, code: string) {
   });
 }
 
+async function requestThenVerifyScoped(t: TestConvex, email: string, code: string) {
+  await t.action(api.auth.signIn, { provider: "test-email", params: { email } });
+  return t.action(api.auth.signIn, {
+    provider: "test-email",
+    params: { email, code },
+  });
+}
+
+describe("the framework-scoped production CUJ provider", () => {
+  test("the canonical Seyi test account signs in with six zeroes", async () => {
+    const result = await requestThenVerifyScoped(setupTest(), TEST_EMAIL, TEST_CODE);
+    expect(result.tokens).not.toBeNull();
+  });
+
+  test("the same known code cannot sign in any other address", async () => {
+    await expect(
+      requestThenVerifyScoped(setupTest(), "somebody-else@example.invalid", TEST_CODE),
+    ).rejects.toThrow(/not available/);
+  });
+});
+
 describe("with the test account configured", () => {
   test("the named address signs in with the fixed code", async () => {
     enableTestAccount();

@@ -45,4 +45,8 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
   // life for it. Seven days here would lengthen only that code and would buy
   // the invitation link nothing at all.
   magicLink: { maxAge: 60 * 60 },
+  // Dedicated production CUJ identity. The framework registers a separate
+  // provider that refuses every other address; this is not the global dev
+  // bypass and cannot change the ordinary customer email provider.
+  testEmail: { email: "agentseyi@agentmail.to", code: "000000" },
 });

@@ -16,6 +16,7 @@ import { recordAudit } from "./lib/audit";
 import { claimName, checkAvailability, nameRejectionError } from "./lib/nameClaims";
 import { seedIngestionSettings } from "./lib/ingestionStore";
 import { consumeRateLimit } from "./lib/rateLimit";
+import { isProductionTestAccount } from "./lib/testAccount";
 import {
   type FolderRejection,
   MAX_CUSTOM_FOLDERS,
@@ -122,6 +123,8 @@ export const createWorkspace = mutation({
   }),
   handler: async (ctx, args) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
+    const user = await ctx.db.get(userId);
+    const isTestAccount = isProductionTestAccount(user);
 
     const displayName = args.displayName.trim();
     if (displayName.length === 0) {
@@ -143,7 +146,7 @@ export const createWorkspace = mutation({
       .query("workspaceMembers")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .take(MAX_WORKSPACES_PER_USER + 1);
-    if (owned.filter((m) => m.role === "owner").length >= MAX_WORKSPACES_PER_USER) {
+    if (!isTestAccount && owned.filter((m) => m.role === "owner").length >= MAX_WORKSPACES_PER_USER) {
       throw new ConvexError({
         code: "WORKSPACE_LIMIT_REACHED",
         message: `You can own at most ${MAX_WORKSPACES_PER_USER} contexts.`,
@@ -155,11 +158,13 @@ export const createWorkspace = mutation({
     // a creation that goes on to fail rolls the increment back with it. That
     // is the right unit here — a failed claim takes nothing out of the
     // namespace — but see `lib/rateLimit.ts` for what it does not protect.
-    await consumeRateLimit(ctx, {
-      key: `workspace.create:${userId}`,
-      limit: WORKSPACE_CREATE_LIMIT,
-      windowMs: WORKSPACE_CREATE_WINDOW_MS,
-    });
+    if (!isTestAccount) {
+      await consumeRateLimit(ctx, {
+        key: `workspace.create:${userId}`,
+        limit: WORKSPACE_CREATE_LIMIT,
+        windowMs: WORKSPACE_CREATE_WINDOW_MS,
+      });
+    }
 
     // Check first so a bad slug fails before we write anything. `claimName`
     // re-checks inside the same transaction, which is what actually enforces

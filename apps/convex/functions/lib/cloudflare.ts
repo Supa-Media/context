@@ -952,3 +952,43 @@ export async function revokeApiToken(options: {
     return false;
   }
 }
+
+type R2ObjectRow = { key?: string };
+
+/**
+ * Empty and delete one R2 bucket through Cloudflare's account API.
+ * Re-listing the first page after each batch avoids trusting a pagination
+ * cursor whose contents are changing while objects are removed.
+ */
+export async function emptyAndDeleteR2Bucket(options: {
+  apiToken: string;
+  accountId: string;
+  bucket: string;
+}): Promise<void> {
+  const bucketPath = `/accounts/${options.accountId}/r2/buckets/${encodeURIComponent(options.bucket)}`;
+  for (;;) {
+    const objects = await cloudflareRequest<R2ObjectRow[]>({
+      apiToken: options.apiToken,
+      method: "GET",
+      path: `${bucketPath}/objects`,
+    });
+    const keys = objects.flatMap((row) => typeof row.key === "string" ? [row.key] : []);
+    if (keys.length === 0) break;
+    for (const key of keys) {
+      // Cloudflare requires slashes in object keys to remain literal.
+      const encodedKey = key.split("/").map(encodeURIComponent).join("/");
+      await cloudflareRequest<unknown>({
+        apiToken: options.apiToken,
+        method: "DELETE",
+        path: `${bucketPath}/objects/${encodedKey}`,
+        resultOptional: true,
+      });
+    }
+  }
+  await cloudflareRequest<unknown>({
+    apiToken: options.apiToken,
+    method: "DELETE",
+    path: bucketPath,
+    resultOptional: true,
+  });
+}
