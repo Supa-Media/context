@@ -43,11 +43,20 @@ const schema = defineSchema({
    */
   names: defineTable({
     name: v.string(),
-    kind: v.union(v.literal("user"), v.literal("workspace")),
+    kind: v.union(v.literal("user"), v.literal("workspace"), v.literal("group")),
     /** Set when `kind === "user"`. */
     userId: v.optional(v.id("users")),
     /** Set when `kind === "workspace"`. */
     workspaceId: v.optional(v.id("workspaces")),
+    /**
+     * Set when `kind === "group"`.
+     *
+     * A group claims a row here for the same reason a workspace does: a privacy
+     * rule names a person and a group with the same `@name` token, so the two
+     * cannot be allowed to collide. Keeping the third kind in this table makes
+     * that one lookup rather than three that could race past each other.
+     */
+    groupId: v.optional(v.id("workspaceGroups")),
     claimedBy: v.id("users"),
     claimedAt: v.number(),
   })
@@ -117,6 +126,54 @@ const schema = defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_user", ["userId"])
     .index("by_workspace_user", ["workspaceId", "userId"]),
+
+  /**
+   * A named set of people inside one workspace, for a folder rule to point at.
+   *
+   * `name` is the FULL, slug-prefixed name (`supa-leads`) exactly as
+   * `privacy.md` carries it after the `@` — assembled by `buildGroupName` from
+   * the workspace's own slug, never accepted from a caller. That is what stops
+   * one workspace minting a name inside another's space in a namespace they
+   * share with every username.
+   *
+   * The group is the control plane's object and the manifest holds only the
+   * reference, which is the whole split: a name in a file is not a fact, and
+   * removing somebody from the workspace closes every folder at once without
+   * the bucket being touched.
+   */
+  workspaceGroups: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** Normalized, slug-prefixed, and unique across the `names` table. */
+    name: v.string(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_name", ["name"]),
+
+  /**
+   * One person named in one group.
+   *
+   * **A row here grants nothing on its own.** Resolution intersects it with
+   * `workspaceMembers`, so a name left behind after somebody leaves the
+   * workspace is inert rather than a hole — see `resolveGroupMembers`. That is
+   * what lets the manifest keep a reference it cannot check.
+   *
+   * `workspaceId` is denormalized off the group so a workspace's rows can be
+   * swept without walking its groups first, and so every row carries the tenant
+   * it belongs to rather than inheriting it through a join.
+   */
+  workspaceGroupMembers: defineTable({
+    groupId: v.id("workspaceGroups"),
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    addedBy: v.id("users"),
+    addedAt: v.number(),
+  })
+    .index("by_group", ["groupId"])
+    .index("by_group_user", ["groupId", "userId"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_user", ["userId"]),
 
   /**
    * An outstanding offer of membership.
