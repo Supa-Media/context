@@ -71,10 +71,15 @@ export type AppSectionKey = (typeof APP_SECTIONS)[number]["key"];
  * The app sections to draw for one viewer.
  *
  * Search is the only conditional one, and the condition is whether anything
- * would answer: the blended page searches contexts whose owner has turned fast
- * search on, and a person with none of those has a destination that can only
- * apologise. So the row appears with the first eligible context and disappears
- * with the last.
+ * would answer: the blended page searches every context a person belongs to,
+ * so the row appears with their first context and disappears with their last.
+ *
+ * It used to be much narrower — the row was drawn only where a context had
+ * **fast search** on, because the page refused to search anything else. That
+ * made the navigation honest about a page that was not, and both halves are
+ * fixed together: the page searches every context now (from a hosted index
+ * where there is one and from the bucket where there is not), so the row is
+ * drawn for anybody with somewhere to look.
  *
  * **`undefined` means "nobody has told me yet", and draws the row.** That is
  * deliberate and it is the direction that fails safely: the eligible list
@@ -549,6 +554,37 @@ export function closeSettings(route: ConsoleRoute): ConsoleRoute {
   if (route.kind !== "context") return route;
   if (route.view === "browse") return route;
   return { kind: "context", slug: route.slug, view: "browse" };
+}
+
+/**
+ * What pressing the lit pill — the context you are *in* — has to do, given
+ * where you are standing.
+ *
+ * Two different presses wearing one control, and telling them apart in the
+ * component is how one of them came to do nothing at all.
+ *
+ *  - **Inside that context** it is `"deselect"`: the pill is the way up to the
+ *    root, you are already at that URL, and closing the open note is the
+ *    entire effect. Navigating instead remounts the route and the note comes
+ *    straight back — `docs/decisions/app-and-console.md`, "the first fix did
+ *    not hold".
+ *  - **On an app-level pane** — Search, Map, Connections — it is `"navigate"`,
+ *    because there *is* somewhere to go and deselecting was invisible. On a
+ *    phone that invisibility was the whole bug: `regionsFor` draws no rail at
+ *    `compact` and the console passes no bottom toolbar off Browse, so the
+ *    context strip is the only navigation on the glass, and the pill for the
+ *    context you are in was the one dead pill in it. You could walk into
+ *    Search and not walk out.
+ *
+ * A pure function rather than a ternary at the call site, for the reason
+ * `files/scope.ts` gives about itself: in a sabotage sweep of this codebase
+ * every guard written as a pure module held and every guard written inside a
+ * component did not.
+ */
+export type CurrentContextPress = "deselect" | "navigate";
+
+export function currentContextPress(route: ConsoleRoute): CurrentContextPress {
+  return route.kind === "context" ? "deselect" : "navigate";
 }
 
 /** Selecting a context in the rail lands on its Browse. */
