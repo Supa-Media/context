@@ -1283,6 +1283,51 @@ function effectiveVisibility(key, rules, overrides) {
   return overrideFor(overrides, key) || visibilityOf(key, rules);
 }
 
+const UNWRITABLE_PATH_REFUSAL =
+  "that path cannot be recorded in privacy.md: a note path may not contain a character " +
+  "the rule format uses. Rename the note and try again.";
+
+/**
+ * Would this path render as exactly one rule that reads back as itself?
+ *
+ * Nothing guarantees a key came through `normalizePath`: Obsidian's sync
+ * plugin, rclone and the provider's own console all write keys directly, so a
+ * note really can be called `2026: notes`. Rendering one rule and parsing it
+ * back with the real parser is the only check that cannot drift from what the
+ * parser actually does.
+ */
+function writesOneRule(path, visibility = "private") {
+  let parsed;
+  try {
+    parsed = parsePrivacyManifest(
+      [
+        PRIVACY_RULES_BEGIN,
+        "",
+        "```yaml",
+        "default_visibility: private",
+        "",
+        "folder_defaults:",
+        "  # none",
+        "",
+        "note_overrides:",
+        `  ${path}: ${visibility}`,
+        "```",
+        "",
+        PRIVACY_RULES_END,
+      ].join("\n")
+    );
+  } catch {
+    return false;
+  }
+  if (parsed.rules.length !== 0 || parsed.overrides.size !== 1) return false;
+  // Through `overrideFor` like every other override read in this file. The map
+  // here is a throwaway with one entry, so the fold cannot change the answer —
+  // which is exactly why reaching past the helper would be a harmless-looking
+  // exception, and `__tests__/privacyAccessors.test.ts` exists to have no
+  // harmless-looking exceptions to point at.
+  return overrideFor(parsed.overrides, path) === visibility;
+}
+
 async function persistExactVisibility(store, path, visibility, rules) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const state = await loadPrivacyState(store);
@@ -1300,6 +1345,15 @@ async function persistExactVisibility(store, path, visibility, rules) {
       return;
     }
     const inherited = visibilityOf(path, state.rules);
+    // Belt to `normalizePath`'s brace, and the same technique the control
+    // plane's `writableAsRule` uses: render the rule this write would add and
+    // parse it back with the REAL parser, accepting it only if exactly one rule
+    // comes out naming exactly this path. A character blacklist is a guess
+    // about a parser that has a comment stripper, a trailing-slash tolerance
+    // and a dot-segment rule; a round trip is not a guess.
+    if (visibility !== inherited && !writesOneRule(path, visibility)) {
+      throw new Error("that path cannot be written as a privacy rule");
+    }
     if (visibility === inherited) state.overrides.delete(path);
     else state.overrides.set(path, visibility);
     const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
@@ -3142,6 +3196,25 @@ function normalizePath(p) {
     .replace(/\/+$/, "")
     .trim();
   if (!clean || clean.includes("..") || clean.length > 512) return null;
+  // No control characters, and a newline is the one that mattered.
+  //
+  // `privacy.md` is a line-oriented format and `renderPrivacyRulesBlock`
+  // interpolates a path into it unescaped. A path carrying `\n` therefore wrote
+  // its own extra rules: `write_note` with
+  // `path: "1-projects/secret.md: team\n  1-projects/junk.md"` and
+  // `visibility: "private"` rendered a SECOND override for the real note, which
+  // the parser reads after the first and lets win — publishing a private note
+  // while the call declared `private`, so `isPublishing` was false and no
+  // confirmation was asked for. `set_folder_visibility` defeated its own impact
+  // report the same way, since `visibilityOf` matched the injected prefix
+  // exactly and reported `newly_team_visible_notes: 0`.
+  //
+  // Rejected here, at the one place every tool's path argument arrives, rather
+  // than escaped at the renderer: a path with a newline in it is not a path any
+  // store can hold, so there is nothing to preserve. `persistExactVisibility`
+  // round-trips the rendered rule as well — see `writableAsRule` in the control
+  // plane for why a blacklist alone is a guess about a parser.
+  if (/[\u0000-\u001F\u007F]/.test(clean)) return null;
   // A "." segment is rejected here on purpose. It was previously caught only as
   // a side effect of isPlumbing() hiding dot-prefixed folders, which is not a
   // path rule and could be relaxed without anyone noticing.
@@ -4770,6 +4843,10 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   if (scope === "team" && pathOverride !== undefined && pathOverride !== "team") {
     return writePermissionError("write destination");
   }
+  // Refused here rather than left to `persistExactVisibility`'s backstop, which
+  // throws — and a throw reaches the client as a protocol error instead of a
+  // refusal it can read and act on.
+  if (!writesOneRule(path)) return toolError(UNWRITABLE_PATH_REFUSAL);
 
   const existing = await store.get(path);
   const inheritedVisibility = visibilityOf(path, rules);
@@ -5760,6 +5837,7 @@ async function toolSetVisibility(store, scope, rules, overrides, args) {
   if (!["private", "team"].includes(visibility)) {
     return toolError("visibility must be private or team");
   }
+  if (!writesOneRule(path)) return toolError(UNWRITABLE_PATH_REFUSAL);
   const obj = await store.get(path);
   if (!obj) return toolError("not found");
   if (args.expected_etag && obj.etag !== args.expected_etag) {
