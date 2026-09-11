@@ -75,6 +75,7 @@ import {
 } from "./lib/premium";
 import { MANAGED_BUCKET_PREFIX, managedAccountId } from "./lib/managedStorage";
 import { isHandledEventType, type StripeEventFacts } from "./lib/stripe";
+import { isProductionTestAccount } from "./lib/testAccount";
 
 /** How long a minted checkout or portal URL stays usable from our side. */
 const SESSION_TTL_MS = 15 * 60 * 1000;
@@ -285,6 +286,8 @@ export const status = query({
     managedProvisioningError: v.optional(v.string()),
     /** Copy progress for an existing bucket moving into managed storage. */
     managedMigrationObjectsCopied: v.optional(v.number()),
+    /** Exact production CUJ account; owner only. */
+    isTestAccount: v.optional(v.boolean()),
   }),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
@@ -294,6 +297,7 @@ export const status = query({
       userId,
     );
     const isOwner = membership.role === "owner";
+    const user = await ctx.db.get(userId);
 
     const plan = await planFor(ctx, args.workspaceId);
     const planStatus = statusOf(plan);
@@ -343,7 +347,68 @@ export const status = query({
       managedMigrationObjectsCopied: isOwner
         ? migration?.objectsCopied
         : undefined,
+      isTestAccount: isOwner ? isProductionTestAccount(user) : undefined,
     };
+  },
+});
+
+/**
+ * Activate Premium without Stripe for the one dedicated production CUJ user.
+ * The exact verified identity is checked server-side; the client flag is only
+ * presentation. Every workspace is still independently selected and owned.
+ */
+export const activateTestPremium = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ active: v.boolean() }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
+    const user = await ctx.db.get(userId);
+    if (!isProductionTestAccount(user)) {
+      throw new ConvexError({ code: "FORBIDDEN", message: "This test upgrade is not available." });
+    }
+
+    const plan = await planFor(ctx, args.workspaceId);
+    const selected = selectionOf(plan);
+    if (!hasAnyEntitlement(selected)) {
+      throw new ConvexError({
+        code: "ENTITLEMENTS_EMPTY",
+        message: "Choose managed storage, fast search, or both before upgrading.",
+      });
+    }
+
+    const now = Date.now();
+    if (plan === null) {
+      throw new ConvexError({ code: "PLAN_MISSING", message: "Choose Premium features first." });
+    }
+    await ctx.db.patch(plan._id, { status: "active", updatedAt: now });
+
+    if (selected.managedStorage) {
+      const binding = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .unique();
+      if (!bindingIsManaged(binding, args.workspaceId)) {
+        await ctx.db.patch(plan._id, { managedProvisioning: "running" });
+        await ctx.scheduler.runAfter(
+          0,
+          internal.functions.managedProvisioning.provisionManagedStorage,
+          { workspaceId: args.workspaceId },
+        );
+      }
+    }
+    await ctx.scheduler.runAfter(
+      0,
+      internal.functions.fastSearch.syncPremiumSelection,
+      { workspaceId: args.workspaceId, actorUserId: userId },
+    );
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: userId,
+      action: "billing.test_plan_activated",
+      details: { managedStorage: selected.managedStorage, fastSearch: selected.fastSearch },
+    });
+    return { active: true };
   },
 });
 

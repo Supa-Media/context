@@ -243,6 +243,22 @@ deselecting it releases the current-generation database. A lapse removes the
 entitlement and schedules that same release. A webhook replay cannot create a
 second current-generation index.
 
+## Production CUJ account
+
+`agentseyi@agentmail.to` is the dedicated production journey-test identity.
+Its `000000` code runs through a separate exact-email provider contributed to
+`@supa-media/convex`; the ordinary email provider is unchanged for every other
+address. The same verified identity may own more than the ordinary workspace
+cap and activate its selected Premium entitlements without opening Stripe.
+
+This is test infrastructure, not a comped customer plan: the exception is
+checked server-side by normalized verified email and remains workspace-scoped.
+Deleting the test account through Settings removes its sole-owned contexts,
+releases their Fast Search databases, empties and deletes only their
+deterministically named managed R2 buckets, and revokes those buckets' scoped
+tokens. Ordinary account deletion continues to leave customer-owned storage
+untouched.
+
 ## What is deliberately not built
 
 - **Complete enforcement.** Fast Search consumes its paid entitlement and

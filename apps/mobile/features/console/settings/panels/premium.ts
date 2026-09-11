@@ -56,6 +56,8 @@ export interface PremiumStatus {
   currentPeriodEnd?: number;
   cancelAtPeriodEnd?: boolean;
   hasStripeCustomer?: boolean;
+  /** Dedicated production CUJ account; never trusted by the server. */
+  isTestAccount?: boolean;
   notes?: number;
   notesTruncated?: boolean;
   notesCountedAt?: number;
@@ -421,6 +423,7 @@ export function premiumControl(view: PremiumView): PremiumControl {
   const status = view.status;
   if (status === null) return "none";
   if (!status.canManage) return "none";
+  if (status.isTestAccount === true && status.status === "active") return "none";
   if (status.hasStripeCustomer === true) {
     return view.manageBilling === undefined ? "none" : "manage";
   }

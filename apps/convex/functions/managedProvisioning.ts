@@ -16,10 +16,12 @@ import {
   CloudflareApiError,
   createBucketScopedToken,
   createR2Bucket,
+  emptyAndDeleteR2Bucket,
   deriveS3SecretAccessKey,
   r2Endpoint,
   resolvePermissionGroupId,
   scopedTokenName,
+  revokeApiToken,
 } from "./lib/cloudflare";
 import {
   MANAGED_R2_API_TOKEN_SECRET,
@@ -34,6 +36,45 @@ import {
 
 const MIGRATION_PAGE_SIZE = 25;
 const MIGRATION_OBJECT_BYTE_CAP = 25 * 1024 * 1024;
+
+/**
+ * Tear down resources belonging to the dedicated CUJ account only.
+ * The mutation that schedules this proves the owner identity; this action
+ * re-proves the deterministic bucket name so malformed args cannot widen it.
+ */
+export const deleteManagedTestResources = internalAction({
+  args: {
+    workspaceId: v.id("workspaces"),
+    bucket: v.string(),
+    tokenId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (args.bucket !== managedBucketName(args.workspaceId)) {
+      throw new Error("Refusing to delete a bucket outside the managed test workspace boundary.");
+    }
+    const accountId = managedAccountId();
+    const apiToken = await ctx.runAction(internal.functions.admin.readIntegrationSecret, {
+      name: MANAGED_R2_API_TOKEN_SECRET,
+    });
+    if (accountId === null || typeof apiToken !== "string" || apiToken.length === 0) {
+      throw new Error("Managed R2 cleanup is not configured.");
+    }
+    let bucketFailure: unknown;
+    try {
+      await emptyAndDeleteR2Bucket({ apiToken, accountId, bucket: args.bucket });
+    } catch (error) {
+      bucketFailure = error;
+    }
+    // Revoke even when emptying fails: once the account metadata is gone,
+    // leaving a standing bucket credential is strictly worse than leaving an
+    // unreachable bucket for an operator cleanup.
+    const revoked = await revokeApiToken({ apiToken, accountId, tokenId: args.tokenId });
+    if (bucketFailure !== undefined) throw bucketFailure;
+    if (!revoked) throw new Error("Managed bucket was deleted but its scoped token could not be revoked.");
+    return null;
+  },
+});
 
 /**
  * Creating the bucket a Premium customer paid for.

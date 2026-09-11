@@ -275,6 +275,31 @@ describe("what each screen offers", () => {
     expect(host.querySelector('[data-testid="premium-manage"]')).toBeNull();
   });
 
+  test("the CUJ account gets a no-charge activation and no Stripe control once active", () => {
+    const free = mount(
+      view({
+        status: status({
+          isTestAccount: true,
+          selected: { managedStorage: true, fastSearch: true },
+        }),
+      }),
+    );
+    expect(free.textContent ?? "").toContain("Activate test Premium");
+
+    const active = mount(
+      view({
+        status: status({
+          status: "active",
+          isTestAccount: true,
+          selected: { managedStorage: true, fastSearch: true },
+          active: { managedStorage: true, fastSearch: true },
+        }),
+      }),
+    );
+    expect(active.querySelector('[data-testid="premium-upgrade"]')).toBeNull();
+    expect(active.querySelector('[data-testid="premium-manage"]')).toBeNull();
+  });
+
   test("an owner with nothing chosen is told what to tick", () => {
     const host = mount(view());
     expect(host.querySelector('[data-testid="premium-upgrade"]')).toBeNull();

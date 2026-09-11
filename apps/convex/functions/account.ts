@@ -52,6 +52,8 @@ import { internal } from "../_generated/api";
 import { mutation, type MutationCtx } from "../_generated/server";
 import type { Id, TableNames } from "../_generated/dataModel";
 import { CONNECT_ATTEMPT_TABLES } from "./lib/connectAttempts";
+import { isProductionTestAccount } from "./lib/testAccount";
+import { managedBucketName } from "./lib/managedStorage";
 
 /**
  * The minimal shape `deleteWorkspaceCascade` needs from a query over a table
@@ -312,6 +314,9 @@ async function deleteWorkspaceCascade(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<void> {
+  const workspace = await ctx.db.get(workspaceId);
+  const creator = workspace === null ? null : await ctx.db.get(workspace.createdBy);
+  const deleteManagedTestResources = isProductionTestAccount(creator);
   // A managed-storage copy parks a second encrypted bucket credential. Remove
   // it before its source binding so no orphan can survive account deletion.
   const managedMigration = await ctx.db
@@ -329,6 +334,17 @@ async function deleteWorkspaceCascade(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
   if (binding !== null) {
+    if (
+      deleteManagedTestResources &&
+      binding.bucket === managedBucketName(workspaceId) &&
+      binding.accessKeyId !== undefined
+    ) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.managedProvisioning.deleteManagedTestResources,
+        { workspaceId, bucket: binding.bucket, tokenId: binding.accessKeyId },
+      );
+    }
     if (
       binding.provider === "dropbox" &&
       binding.encryptedRefreshToken !== undefined

@@ -444,11 +444,15 @@ export function PremiumBody({
                 ? "Opening…"
                 : control === "manage"
                   ? "Manage billing"
+                  : status?.isTestAccount === true
+                    ? "Activate test Premium"
                   : "Upgrade this context"
             }
             accessibilityLabel={
               control === "manage"
                 ? "Open the billing portal, where the card, invoices and cancellation live"
+                : status?.isTestAccount === true
+                  ? "Activate Premium for this test context without a charge"
                 : "Start a subscription for this context"
             }
             variant={control === "manage" ? "mini" : "decision"}
