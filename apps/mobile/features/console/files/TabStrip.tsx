@@ -28,10 +28,13 @@ import { tabLabel, type Tab, type TabsState } from "./tabs";
  * that starts deciding *which* tab something happens to belongs in the reducer,
  * where it can be tested one action at a time.
  *
- * The mobile half is `TabSwitcher.tsx`, and it is a different component rather
- * than this one with a breakpoint in it. A strip and a sheet share no geometry,
- * no gesture and no affordance; the only thing they share is `TabsState`, which
- * is exactly the thing that was extracted so they could.
+ * **There is no mobile half any more.** `TabSwitcher.tsx` was a count button
+ * and a sheet at compact density, and nothing at that density could open a
+ * second tab — so the count read `1` for the life of the app and the sheet's ×
+ * closed a tab while leaving the note on screen. A phone gets `RecentSheet.tsx`
+ * over `history.ts` instead. Tabs are a pointer instrument now, which is what
+ * the gap in `menu.ts` had been quietly assuming all along: `openInNewTab` is
+ * offered to `platform === "web"` and to nothing else.
  *
  * Three behaviours here are copied from VS Code deliberately, because they are
  * the ones people already have in their hands:

@@ -20,13 +20,25 @@ function sanitizedCurrentUrl(defaultUrl: string): string {
   }
 }
 
-function cleanPostHogProperties(properties: Record<string, unknown>): Record<string, unknown> {
+export function cleanPostHogProperties(
+  properties: Record<string, unknown>,
+  projectKey: string,
+): Record<string, unknown> {
   // rrweb's snapshot payload is already protected by the recorder-level text,
   // element-attribute and URL masks below. Walking/rebuilding it here would be
   // expensive and can corrupt the replay format.
-  const { $snapshot_data: snapshot, ...ordinary } = properties;
+  //
+  // `token` is PostHog's own required ingest routing field. The shared
+  // redactor quite correctly treats every token-shaped property as sensitive,
+  // but replacing this one sends the event to no project at all. Do not trust
+  // the event's copy: restore the public write-only project key from the
+  // configuration closure after every ordinary property has been scrubbed.
+  // Nested/user-supplied token fields still pass through the redactor.
+  const { $snapshot_data: snapshot, token: _transportToken, ...ordinary } = properties;
   const clean = redactTelemetryValue(ordinary) as Record<string, unknown>;
-  return snapshot === undefined ? clean : { ...clean, $snapshot_data: snapshot };
+  return snapshot === undefined
+    ? { ...clean, token: projectKey }
+    : { ...clean, token: projectKey, $snapshot_data: snapshot };
 }
 
 export async function createAnalyticsClient({
@@ -51,7 +63,7 @@ export async function createAnalyticsClient({
       if (event === null) return null;
       return {
         ...event,
-        properties: cleanPostHogProperties(event.properties) as typeof event.properties,
+        properties: cleanPostHogProperties(event.properties, apiKey) as typeof event.properties,
       };
     },
     session_recording: {

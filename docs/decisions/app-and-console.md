@@ -2990,6 +2990,114 @@ test asserting "the note's `<script>` did not run" would pass with
 `apps/mobile/e2e/webkit/htmlPreview.spec.ts` against a real engine; the jsdom
 suite asserts only what it can actually see, which is the markup that was built.
 
+### A phone gets Recent, because it could never get a second tab
+
+The console's bottom toolbar carried a **tab count** — Obsidian's, Safari's and
+Chrome's number in a rounded square — and a press raised an **Open notes**
+sheet. Both were built carefully. Both were unreachable, and the owner's report
+is the whole of the evidence: *"It's like there's only ever one open note. I've
+tried so many times to get more open notes, and there's just not a way to do
+it… how do you even close a note on mobile here?"*
+
+He was right on both counts, and neither was a polish problem.
+
+**Nothing on a phone could open a second tab.** The only verb that produces one
+is `openInNewTab`, and it was gated twice over: `menu.ts` offered it to
+`platform === "web"` only, and its sole host — the Explorer's row menu — is not
+drawn at compact at all, where `frame.ts` answers `explorer: "hidden"`. Every
+phone open therefore arrived through `useTabs` as a `preview`, and `tabs.ts`'s
+`open()` makes a new preview *replace* the preview slot. One in, one out. The
+count could only ever read `1`, which falsifies the control's own stated
+affordance — "the number is the affordance, it is the only thing on the toolbar
+that changes as you work". The single path to a second row was an accident:
+`edited` pins a tab, so "Open notes" on a phone meant *notes you happened to
+type into this session*.
+
+**And the comment defending the gate had the causation backwards.** It read:
+"touch has a tab switcher rather than a pointer with a middle button, so the
+second item is web-and-file only." A switcher *displays* a set of tabs; it does
+not produce one. The line withholding the only verb that produces one cited, as
+its justification, the surface it was thereby leaving empty.
+
+**Closing did nothing, and that was structural rather than a missing call.**
+`without` leaves `activePath` null when the last tab goes, and `useTabs`' effect
+only follows a non-null one — so the × emptied the strip and left the note in
+the editor. The chrome updated and the thing it claimed to close was still on
+screen; `‹` then brought it back, because history is a separate stack. This is
+not a forgotten line. On a phone the note **is** the page, so closing it is a
+navigation, and `tabs.ts` is deliberately built knowing nothing about
+navigation. Two models of "which notes am I working with" on a 390pt screen, one
+of which owned display without owning navigation.
+
+**So the phone keeps the model it already had, and that model gets a list.**
+`history.ts` was already there, already pure, already what `‹` and `›` read.
+`recentPaths` is the same array walked backwards — deduplicated, capped at
+`MAX_RECENT`, folders included, because history records the *selection* and
+"back to the folder I was in" is a destination a phone reaches constantly.
+`RecentSheet` draws it, marks where you are, and has no × on any row, because
+there is nothing to close.
+
+The decisive property is not parity with Obsidian: **a tab list on a phone is
+empty exactly when you need it**, since you have to have curated it first, and a
+recents list is never empty because using the app fills it.
+
+Two placements follow from rules already written here rather than from taste.
+The key is **dimmed in place, never absent** — `‹` and `›` live by that rule two
+positions up, and the tab count's own defence for being conditional ("it is the
+last item on the bar") was false: Save, a rule and the meeting key all sat after
+it, so every one of them slid sideways the first time a note opened. And `‹`
+**held** opens the same sheet, which is where every browser on every platform
+keeps its history list; the hold is in the accessible name, because a gesture a
+screen reader is never told about is one only sighted people have.
+
+**What went with it.** `TabSwitcher.tsx`, `TabCountButton`, `tabCountLabel`, and
+`BottomBarAction`'s `count` and `badge` — the number-in-a-square and the
+corner badge both existed for that one key and had no other caller. `marker`
+stays: Save still has something momentary to say. The unsaved dot is not
+reproduced on Recent, and that is deliberate — the console autosaves at 2s idle
+and a 15s ceiling, so "unsaved" resolves itself while you read it; what does not
+resolve is `needsDecision` (a conflict, a failed save), which speaks in the
+notice line. Desktop tabs are untouched, and `menu.ts`'s gate now says what it
+always meant: a phone has no tab surface, so it is offered no tab verb.
+
+**One latent bug fell out of the close fix.** `useTabs` opened a tab for any
+non-null `editor.path`, and `""` — the bucket root, a folder — is not null. In
+production `emptyEditor` uses `null` and nothing writes `""`, so the phantom
+nameless row was invisible: the prune deleted it a commit later. With the
+last-tab rule in place that flicker becomes a **deselect nobody asked for**, so
+the `opened` effect now refuses `""` at the source.
+
+What a simplification of any of this costs, and the test that fails:
+
+- Deriving Recent from a second, non-truncating log beside `entries` buys back
+  the rows a branch drops and re-creates the two-models problem this removed.
+  The cost is stated in `recentPaths`' own comment and pinned by "a branch drops
+  the forward tail here too, because it is one array".
+- Asking `recentPaths(state).length > 0` instead of `hasSomewhereToGo` lights
+  the key on the first note of every session, offering to take somebody where
+  they already stand — "one entry, and it is where you already are, is nowhere
+  to go" fails.
+- Reverting the last-tab deselect returns the control that does nothing:
+  "closing the last one deselects; closing one of two does not" fails. Writing
+  it as `length === 0` rather than as a transition throws away a cold load's
+  `?note=` — three tests fail, "a cold load with a note open does not deselect
+  it" first.
+- Dropping the `""` guard brings the phantom root tab back, and with it a
+  deselect on landing: "the bucket root is not a note, so it opens no tab to
+  close" fails.
+- Dropping `hint` from the held gesture's accessible name, or the 400ms
+  `delayLongPress`, fails "the hold is in the accessible name, not only in the
+  handler" and "holding fires the second verb and not the first".
+
+**The sabotage run.** Nine invariants broken one at a time against the real
+suite; every one went red, and each in the test that names it — the two
+`recentPaths` rules, `hasSomewhereToGo`, the last-tab deselect in both its
+wrong shapes, the `""` guard, both halves of the hold, and the sheet's marking
+of the current row. The one worth recording is #5: writing the deselect as
+`if (!has)` rather than as a transition failed **four** tests rather than one,
+which is the shape of a guard whose absence is load-bearing in more than the
+case it was written for.
+
 ### The share sheet is one control, and the padlock beside it is gone
 
 The owner, looking at the sheet on a phone: *"the lock and the share icon can
@@ -3096,3 +3204,4 @@ somebody who already has access is offering to do nothing — true of the
 still answers the query* in `shareRecipients.test.ts`.
 
 Shots of every state: `docs/design/share-sheet/`.
+

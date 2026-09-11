@@ -529,13 +529,48 @@ export const syncPremiumSelection = internalMutation({
  */
 const SEARCHABLE_CONTEXT_CAP = 50;
 
-/** A context the blended search may include, and what the page renders it as. */
+/**
+ * A context the blended search will ask, and how it will be answered.
+ *
+ * **Every context the caller is a member of is in this list.** It used to hold
+ * only the ones serving from a hosted index, with the rest in a second list
+ * the page could do nothing with but apologise — which made the search page a
+ * dead end for the ordinary account, the one paying for nothing and owning a
+ * brain in its own bucket. `lib/fastSearch.ts` has always said what the right
+ * answer is: "either condition false means the existing R2 shard index serves
+ * the search, exactly as it does today… the fast path is an upgrade, and its
+ * absence is the product as it already is." The blended page is the one
+ * surface that did not believe it.
+ *
+ * So `search` says which way this one will be answered, and nothing is left
+ * out on account of it:
+ *
+ *  - `"fast"` — a projection the control plane calls `ready` answers from a
+ *    database, in a round trip.
+ *  - `"slow"` — the R2 shard index in the customer's own bucket answers, in
+ *    several. Bounded by `SOURCE_DEADLINE_MS` in `files.searchContexts` like
+ *    every other source, so a slow context costs its own row and never the
+ *    page.
+ *
+ * `fastSearch` carries *why* a slow one is slow, in the settings card's own
+ * vocabulary (`FastSearchState`), and `owner` says whether this viewer is the
+ * person who could change it. Together they are what the page's upsell is
+ * built from: "not paying" and "have not asked" are different sentences with
+ * different presses behind them, and that distinction is the reason
+ * `lib/fastSearch.ts` keeps entitlement and opt-in apart in the first place.
+ */
 export interface SearchableContext {
   workspaceId: Id<"workspaces">;
   slug: string;
   displayName: string;
   kind: string;
   role: string;
+  /** Which index answers this context — see above. */
+  search: "fast" | "slow";
+  /** Why it is not fast, in the settings card's words. `"on"` when it is. */
+  fastSearch: FastSearchState;
+  /** Whether this viewer may change that — an owner, and only an owner. */
+  owner: boolean;
 }
 
 const searchableContextValidator = v.object({
@@ -544,144 +579,97 @@ const searchableContextValidator = v.object({
   displayName: v.string(),
   kind: v.string(),
   role: v.string(),
-});
-
-/**
- * A context the caller belongs to that a blended search will **not** reach,
- * and why — for the search page's nudge rather than for the fan-out, which
- * only ever needs the eligible half.
- *
- * `state` reuses `FastSearchState`, the settings screen's own vocabulary,
- * rather than inventing a parallel one: "preparing" already means "opted in
- * and not yet actually serving" (`provisioning` or `backfilling` — see
- * `fastSearchState`), and the nudge says so in the same words the settings
- * card does. Never `"on"` — a context in that state is eligible instead.
- */
-export interface UnsearchableContext {
-  workspaceId: Id<"workspaces">;
-  slug: string;
-  displayName: string;
-  /** Whether this viewer may turn fast search on for it — an owner, and only an owner. */
-  owner: boolean;
-  state: Exclude<FastSearchState, "on">;
-}
-
-const unsearchableContextValidator = v.object({
-  workspaceId: v.id("workspaces"),
-  slug: v.string(),
-  displayName: v.string(),
-  owner: v.boolean(),
-  state: v.union(
+  search: v.union(v.literal("fast"), v.literal("slow")),
+  fastSearch: v.union(
     v.literal("off"),
     v.literal("preparing"),
+    v.literal("on"),
     v.literal("failed"),
     v.literal("unavailable"),
   ),
+  owner: v.boolean(),
 });
 
-/** What `searchScopeFor` answers: the fan-out's scope, and what is missing from it. */
-export interface SearchScope {
-  eligible: SearchableContext[];
-  notEligible: UnsearchableContext[];
-}
-
 /**
- * The contexts this person may run a blended search over, and — for the page
- * that draws a nudge rather than an oracle — the contexts they belong to that
- * it will not reach.
+ * Every context this person may run a blended search over, and how each one
+ * will answer.
  *
- * Two conditions decide the first half, and both are live:
+ * One condition decides membership of this list, and it is live: **a
+ * membership row exists right now.** Not "existed when the page loaded" — the
+ * search page re-asks this on every page of every query, so somebody removed
+ * from a workspace between two pages gets the second one without it.
  *
- *  1. **A membership row exists right now.** Not "existed when the page
- *     loaded" — the search page re-asks this on every page of every query, so
- *     somebody removed from a workspace between two pages stops being able to
- *     search it, rather than keeping the scope chip they already had.
- *  2. **Fast search is serving.** `searchProjectionState(...) === "ready"` is
- *     the same composed gate `projectionTargetForWorkspace` applies — owner
- *     opted in, entitled, provisioned, schema on it. A `backfilling` context
- *     is excluded on purpose: its projection answers a query about a note it
- *     has not copied yet with a silence a blended list would render as
- *     "nothing here", which is the one thing search must never say wrongly.
+ * ## What the second condition used to be, and why it is a field instead
  *
- * ## Why the fan-out is fast-search-only, and what it costs
+ * `searchProjectionState(...) === "ready"` used to gate the list, and the
+ * argument for it was cost: a context without a projection answers from the R2
+ * shard index in the customer's own bucket — a manifest read, some shard
+ * reads, a snippet read per hit — and eight of those inside one request is a
+ * lot of round trips for contexts the word is mostly not in.
  *
- * A context without a projection answers from the R2 shard index in the
- * customer's own bucket: a manifest read, some shard reads, and a snippet read
- * per hit. That is fine for one context with a person watching one spinner, and
- * it does not fan out — eight contexts is eight buckets' worth of round trips
- * inside one request's deadline, most of them for contexts the word is not in.
+ * That is a real cost and it is the wrong thing to spend a person's search on.
+ * The page it produced said "no context you can reach has fast search switched
+ * on, so nothing was searched" to somebody with four contexts and a question,
+ * and offered them a settings screen. **Nothing is a worse answer than slow**,
+ * and the cost is already bounded where costs belong: `files.searchContexts`
+ * gives every source its own deadline, so the slow ones cost their own rows
+ * and the page still renders whatever answered.
  *
- * So the blended page searches the contexts that can answer from a database.
- * The cost is honest and has to be said on screen rather than hidden: a
- * context whose owner has not turned fast search on is **not searched and not
- * silently missing** — the page names the eligible set it searched, names what
- * it left out and why, and offers an owner the press that turns it on rather
- * than sending them hunting for the setting. `docs/decisions/search.md` records
- * the trade and the nudge.
+ * A `preparing` context is included now for the same reason, and it is safe
+ * for a reason that is easy to miss: the gateway's projection reader
+ * (`search/d1/serve.js`) treats a miss as "go and ask the R2 index the
+ * expensive way" rather than as an answer — "only a *hit* short-circuits" — so
+ * a half-built index can never lose a result the slow path would have found.
+ * What it can do is be *slower* than a finished one, which is a row on the
+ * page and not a reason to leave a context out of somebody's search.
  *
- * A context is named here only because the caller is in it, so neither list is
- * an oracle: both enumerate the caller's own **live** memberships, which
- * `listMyWorkspaces` already returns in full — a workspace somebody is not a
- * member of cannot appear in either one, eligible or not.
+ * A context is named here only because the caller is in it, so this is not an
+ * oracle: it enumerates the caller's own **live** memberships, which
+ * `listMyWorkspaces` already returns in full.
  */
 async function searchScopeFor(
   ctx: QueryCtx,
   userId: Id<"users">,
-): Promise<SearchScope> {
+): Promise<SearchableContext[]> {
   const memberships = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .take(SEARCHABLE_CONTEXT_CAP);
 
-  const eligible: SearchableContext[] = [];
-  const notEligible: UnsearchableContext[] = [];
+  const contexts: SearchableContext[] = [];
   for (const membership of memberships) {
     const workspace = await ctx.db.get(membership.workspaceId);
     if (workspace === null) continue;
     const binding = await bindingFor(ctx, membership.workspaceId);
     const plan = await planFor(ctx, membership.workspaceId);
-    if (searchProjectionState(workspace, plan, binding) === "ready") {
-      eligible.push({
-        workspaceId: workspace._id,
-        slug: workspace.slug,
-        displayName: workspace.displayName,
-        kind: workspace.kind,
-        role: membership.role,
-      });
-      continue;
-    }
+    const serving = searchProjectionState(workspace, plan, binding) === "ready";
     const state = fastSearchState(workspace, plan, binding);
-    notEligible.push({
+    contexts.push({
       workspaceId: workspace._id,
       slug: workspace.slug,
       displayName: workspace.displayName,
-      owner: membership.role === "owner",
+      kind: workspace.kind,
+      role: membership.role,
+      search: serving ? "fast" : "slow",
       // `fastSearchState` can answer "on" for a binding whose status is
       // "ready" but has no recorded database id yet — a narrower window than
-      // `searchProjectionState` accepts, so that context lands here rather
-      // than above. "preparing" is the honest word for "opted in and not yet
-      // actually serving", which is exactly what that window is.
-      state: state === "on" ? "preparing" : state,
+      // `searchProjectionState` accepts. That context is searched slowly, so
+      // its own state must not claim otherwise: "preparing" is the honest word
+      // for "opted in and not yet actually serving", which is what the window
+      // is, and it is the word the settings card uses for it.
+      fastSearch: serving ? "on" : state === "on" ? "preparing" : state,
+      owner: membership.role === "owner",
     });
   }
 
-  eligible.sort((a, b) => a.slug.localeCompare(b.slug));
-  notEligible.sort((a, b) => a.slug.localeCompare(b.slug));
-  return { eligible, notEligible };
-}
-
-/** The eligible half alone, for the fan-out — see `searchScopeFor`. */
-async function searchableFor(
-  ctx: QueryCtx,
-  userId: Id<"users">,
-): Promise<SearchableContext[]> {
-  return (await searchScopeFor(ctx, userId)).eligible;
+  contexts.sort((a, b) => a.slug.localeCompare(b.slug));
+  return contexts;
 }
 
 /**
- * The scope picker's list, and the nudge beside it: every context this viewer
- * can search, and every context they belong to that they cannot search here
- * yet.
+ * The scope picker's list, and the upsell beside it: every context this viewer
+ * can search, and — per context — whether it answers from a hosted index or
+ * from its own bucket.
  *
  * Public, and readable by any member — it names contexts the caller belongs to
  * and nothing else. It carries no counts: how many notes a context holds is the
@@ -690,16 +678,18 @@ async function searchableFor(
  * read the caller already has everywhere else in this console (an owner sees
  * their own role on every context they belong to); it says nothing about who
  * else holds it.
+ *
+ * An object rather than the bare array, which is what it answered before the
+ * two-list split and what it would otherwise go back to: the page reads a
+ * second thing off this query every time the search model grows a field, and
+ * a wrapper is the difference between adding one and rewriting every caller.
  */
 export const searchableContexts = query({
   args: {},
-  returns: v.object({
-    eligible: v.array(searchableContextValidator),
-    notEligible: v.array(unsearchableContextValidator),
-  }),
-  handler: async (ctx): Promise<SearchScope> => {
+  returns: v.object({ contexts: v.array(searchableContextValidator) }),
+  handler: async (ctx): Promise<{ contexts: SearchableContext[] }> => {
     const userId = await requireUserId(ctx);
-    return await searchScopeFor(ctx, userId);
+    return { contexts: await searchScopeFor(ctx, userId) };
   },
 });
 
@@ -717,7 +707,7 @@ export const searchableContextsFor = internalQuery({
   args: { actorUserId: v.id("users") },
   returns: v.array(searchableContextValidator),
   handler: async (ctx, args): Promise<SearchableContext[]> =>
-    await searchableFor(ctx, args.actorUserId),
+    await searchScopeFor(ctx, args.actorUserId),
 });
 
 // -- internals ------------------------------------------------------------
