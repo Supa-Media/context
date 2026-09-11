@@ -29,7 +29,7 @@ import { ConvexError } from "convex/values";
 import type { NoteShare } from "./shares";
 import type { NoteScope } from "./scope";
 import type { ToastSpec } from "../../design/components/Toast";
-import type { FileError, FolderListing, Visibility } from "./types";
+import type { FileError, FolderListing, SettableVisibility } from "./types";
 import type { SyncFacts } from "../../offline/copy";
 import type { ConflictReview } from "./useConflictReview";
 
@@ -349,7 +349,7 @@ export interface FileBrowser {
   archive: (path: string) => void;
   /** Permanent. The UI must have confirmed it in words before calling this. */
   destroy: (path: string) => void;
-  setVisibility: (path: string, kind: "file" | "folder", visibility: Visibility) => void;
+  setVisibility: (path: string, kind: "file" | "folder", visibility: SettableVisibility) => void;
   /**
    * Move an entry between the three positions of the visibility control —
    * private, team, and a link anybody who has it can open.

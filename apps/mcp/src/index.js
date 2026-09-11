@@ -1097,6 +1097,57 @@ function parseLegacyScopeRules(text) {
   return rules;
 }
 
+/**
+ * What a privacy rule may name besides the two tiers.
+ *
+ * `@` plus a name from the one global namespace usernames and workspace slugs
+ * already share, so `@kola` (a person) and `@supa-leads` (a group) are one
+ * token here and deliberately so — sharing a note with one person needs no
+ * second mechanism. `[a-z0-9-]` is `ALLOWED_CHARS` in the control plane's
+ * `names.ts`, and the length spans a slug-prefixed name. This engine never
+ * resolves the name: it carries it, orders it against the two tiers, and hands
+ * it to `canSee`, which asks whether the caller's grant was issued with it.
+ */
+const GROUP_SCOPE_PATTERN = /^@[a-z0-9][a-z0-9-]{1,64}$/;
+
+/** Whether a visibility is a group rule rather than one of the two tiers. */
+function isGroupScope(visibility) {
+  return visibility !== "private" && visibility !== "team";
+}
+
+/**
+ * How wide each visibility is, for the one comparison this engine makes.
+ *
+ * `private` (owners) is inside every group and every group is inside `team`,
+ * so the three are ordered by reach with groups sharing a rank. Two *different*
+ * groups at that rank are not comparable, and `narrowerVisibility` resolves
+ * that the only way that cannot leak.
+ */
+function visibilityReach(visibility) {
+  if (visibility === "private") return 0;
+  if (visibility === "team") return 2;
+  return 1;
+}
+
+/**
+ * The narrower of two visibilities, tolerating `undefined` as "no opinion".
+ *
+ * Two distinct groups answer `private` — the same rule the case-fold has
+ * always followed, that two entries folding onto one object are a
+ * contradiction the owner never resolved and `private` is the only resolution
+ * that cannot hand a note to somebody who was not named. Reachable only from a
+ * hand-edited manifest; nothing in the product writes two case-variant rules.
+ */
+function narrowerVisibility(a, b) {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  if (a === b) return a;
+  const ra = visibilityReach(a);
+  const rb = visibilityReach(b);
+  if (ra !== rb) return ra < rb ? a : b;
+  return "private";
+}
+
 function parsePrivacyManifest(text) {
   const begin = text.indexOf(PRIVACY_RULES_BEGIN);
   const end = text.indexOf(PRIVACY_RULES_END);
@@ -1121,8 +1172,15 @@ function parsePrivacyManifest(text) {
       section = "notes";
       continue;
     }
-    const match = line.match(/^([^:]+?)\/?\s*:\s*(team|private)$/);
+    const match = line.match(/^([^:]+?)\/?\s*:\s*(team|private|@[^\s:]+)$/);
     if (!match || !section) throw new Error(`invalid privacy rule: ${line}`);
+    // A group rule is validated here rather than waved through, for the reason
+    // the whole parser throws: an unusable manifest makes everything private,
+    // and a malformed name accepted as a scope is a rule nothing can resolve
+    // being carried as though it were a tier.
+    if (match[2].startsWith("@") && !GROUP_SCOPE_PATTERN.test(match[2])) {
+      throw new Error(`invalid privacy group: ${match[2]}`);
+    }
     const path = match[1].trim().replace(/^\/+/, "");
     if (!path || path.split("/").some((part) => part.startsWith("."))) {
       throw new Error(`invalid reserved privacy path: ${path}`);
@@ -1355,8 +1413,16 @@ class PrivacyOverrides extends Map {
     return super.clear();
   }
 
-  /** The folded paths of every `private` override. */
-  privateFolds() {
+  /**
+   * The narrowest narrowing override at each folded path.
+   *
+   * Was `privateFolds`, a `Set` of the paths carrying `private`. A group is a
+   * narrowing too — a `team` folder with one note held back to `@supa-leads`
+   * is exactly the shape the fold exists for — so the index has to carry
+   * *which* narrowing rather than merely that there is one, and a `Map`
+   * replaces the `Set`. `team` is still the one value that never travels.
+   */
+  narrowingFolds() {
     if (!this.folds) {
       // Built whole, then published — never filled in place. A throw partway
       // through would otherwise cache a SHORT index, and a short index answers
@@ -1364,9 +1430,11 @@ class PrivacyOverrides extends Map {
       // must never fail in. `foldPath` cannot throw on a string today; the
       // control plane's copy is written the same way, and two copies of one
       // rule are held here by being identical rather than by a comment.
-      const folds = new Set();
+      const folds = new Map();
       for (const [key, visibility] of this) {
-        if (visibility === "private") folds.add(foldPath(key));
+        if (visibility === "team") continue;
+        const folded = foldPath(key);
+        folds.set(folded, narrowerVisibility(folds.get(folded), visibility));
       }
       this.folds = folds;
     }
@@ -1401,13 +1469,21 @@ function overrideFor(overrides, key) {
   // cannot leak. `foldPath` runs only over private entries for the same
   // reason it runs at all.
   const folded = foldPath(key);
-  if (typeof overrides.privateFolds === "function") {
-    return overrides.privateFolds().has(folded) ? "private" : exact;
+  let narrow;
+  // `instanceof`, not a duck-typed `typeof … === "function"`. The port uses
+  // `instanceof PrivacyOverrides` and the two must not differ in what they
+  // TRUST: a duck-typed check hands the privacy answer to any object carrying
+  // a method of that name, and the accelerator may never be the authority.
+  if (overrides instanceof PrivacyOverrides) {
+    narrow = overrides.narrowingFolds().get(folded);
+  } else {
+    for (const [existing, visibility] of overrides) {
+      if (visibility === "team") continue;
+      if (foldPath(existing) === folded) narrow = narrowerVisibility(narrow, visibility);
+    }
   }
-  for (const [existing, visibility] of overrides) {
-    if (visibility === "private" && foldPath(existing) === folded) return "private";
-  }
-  return exact;
+  if (narrow === undefined) return exact;
+  return narrowerVisibility(narrow, exact);
 }
 
 /**
@@ -1539,11 +1615,29 @@ function base64FromBytes(bytes) {
   return btoa(binary);
 }
 
-function canSee(key, scope, rules, overrides) {
+/**
+ * May this caller see this key at all?
+ *
+ * ## A group is reached by the grant, never by the role
+ *
+ * `grantedGroups` is the set of group names the caller's grant was **issued
+ * with**, and it defaults to none. A connection somebody added at team tier
+ * therefore cannot see, search or list a note scoped to a group *even when the
+ * person holding it is in that group*: to that connection the note is private,
+ * which is the answer somebody expects from a client they deliberately gave
+ * the narrower tier. Widening one client is a deliberate act that lands in the
+ * grant and in the audit trail — the rule `visibilityTierForGrant` already
+ * follows, applied to the third kind of audience — rather than an inference
+ * from a role, which is the read-time check nothing records.
+ */
+function canSee(key, scope, rules, overrides, grantedGroups) {
   if (foldPath(key) === PRIVACY_KEY) return scope === "private";
   if (isPlumbing(key)) return false; // plumbing is not part of the note surface for any tool
   if (scope === "private") return true;
-  return effectiveVisibility(key, rules, overrides) === "team";
+  const visibility = effectiveVisibility(key, rules, overrides);
+  if (visibility === "team") return true;
+  if (visibility === "private") return false;
+  return grantedGroups !== undefined && grantedGroups.has(visibility);
 }
 
 function teamWritableRules(rules) {
@@ -4340,7 +4434,8 @@ function scopeInfoText(scope, rules) {
       overrideList +
       "\n\nExact private or team notes may override a folder default through privacy.md. " +
       "Frontmatter is never access control. Publishing private content to team requires explicit confirmation. " +
-      "Visibility is private or team. The owner may separately have handed out an unlisted link to a note; you are not told which. " +
+      "A note reads as team, or it does not; what holds a note back is not disclosed here. " +
+    "The owner may separately have handed out an unlisted link to a note; you are not told which. " +
       "A link you add to a note can widen one already sent, because such a link also serves what the note links to. " +
       "Personal reviewers can process queued proposals."
     );
@@ -4358,7 +4453,8 @@ function scopeInfoText(scope, rules) {
     "Write and move destinations outside the surface return permission denied without confirming whether anything exists there.\n\n" +
     "If the PARA-correct destination is not writable, use propose_note. A personal connection must approve it before the note is filed. " +
     "Archive paths never encode visibility. Exact archive visibility is enforced through privacy.md. " +
-    "Visibility is private or team. The owner may separately have handed out an unlisted link to a note; you are not told which. " +
+    "A note reads as team, or it does not; what holds a note back is not disclosed here. " +
+    "The owner may separately have handed out an unlisted link to a note; you are not told which. " +
     "A link you add to a note can widen one already sent, because such a link also serves what the note links to."
   );
 }
@@ -4381,8 +4477,15 @@ async function toolScopeInfo(store, scope, rules, overrides, pathArg) {
     } else {
       // Deliberately do not inspect the object or exact ACL here. Returning a
       // different answer for a guessed private-note path would be an oracle.
+      // The folder default is echoed only when it is one of the two tiers. A
+      // group rule's NAME is not this connection's to learn: names live in one
+      // global namespace with usernames, so `@kola` on a folder this caller
+      // cannot read would disclose that a named individual has access to it —
+      // an oracle of exactly the kind the branch above refuses to be. "not
+      // team" is the whole of what a team caller needs and all it gets.
+      const disclosed = folderDefault === "team" ? "team" : "not team";
       text +=
-        `\n\n## Destination inspection\npath: ${path}\nfolder default: ${folderDefault}\n` +
+        `\n\n## Destination inspection\npath: ${path}\nfolder default: ${disclosed}\n` +
         `team-writable: ${folderDefault === "team" ? "yes" : "no"}\n` +
         "Existing exact-note visibility is intentionally undisclosed.";
     }
@@ -4654,7 +4757,17 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   if (await pathUnderActiveMovedSource(store, path)) {
     return toolError("conflict: that folder is being moved; write to the destination path instead");
   }
-  if (scope === "team" && overrideFor(overrides, path) === "private") {
+  // Any override that is not `team` is a destination a team connection may not
+  // write, and `!== "team"` rather than `=== "private"` is the whole of it.
+  // With only two tiers those were the same test; with a group rule they are
+  // not, and the gap was a privilege escalation: a note the owner had scoped
+  // to a group, sitting in a `team` folder and not yet created, passed this
+  // check and the `!existing` check below (which reads the FOLDER default),
+  // was written by a team connection, and `persistExactVisibility` then
+  // replaced the owner's group rule with `team`. `undefined` is spelled out
+  // because "no override at all" must keep falling through to the folder.
+  const pathOverride = overrideFor(overrides, path);
+  if (scope === "team" && pathOverride !== undefined && pathOverride !== "team") {
     return writePermissionError("write destination");
   }
 
@@ -4680,8 +4793,13 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   if (scope === "team" && existing && existingVisibility !== "team") {
     return writePermissionError("write destination");
   }
+  // `!== "team"` on the existing side. A note held back to a group is not
+  // `"private"`, so the old test called `@supa-leads` → `team` an ordinary
+  // write and asked for no confirmation, while `set_visibility` gated the same
+  // transition unconditionally — two tools disagreeing about one publication,
+  // with the ungated one the default an agent reaches.
   const isPublishing =
-    scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility === "private");
+    scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility !== "team");
   if (isPublishing && args.confirm_team_publish !== true) {
     return toolError(
       "confirmation required: publishing this note to team makes it readable by every team-access connection. Retry with confirm_team_publish=true only after explicit user approval."
@@ -5729,7 +5847,11 @@ async function toolSetFolderVisibility(store, scope, args) {
     // narrowing protects means simulating the write, not reasoning about rules;
     // a weaker copy of that reasoning is worth less than a redundant line of
     // manifest.
-    if (visibility === "private") continue;
+    // `!== "team"` rather than `=== "private"`: a group override is a narrowing
+    // too, and it is the only thing holding a note back from a folder this call
+    // may be widening. Compacting one away is the same failure the paragraph
+    // above describes, with a group in place of `private`.
+    if (visibility !== "team") continue;
     if (notePath.startsWith(`${path}/`) && visibility === visibilityOf(notePath, nextRules)) {
       nextOverrides.delete(notePath);
       compacted.push(notePath);
@@ -5739,10 +5861,14 @@ async function toolSetFolderVisibility(store, scope, args) {
     .map(({ key }) => key)
     .filter(
       (key) =>
-        effectiveVisibility(key, state.rules, state.overrides) === "private" &&
+        effectiveVisibility(key, state.rules, state.overrides) !== "team" &&
         effectiveVisibility(key, nextRules, nextOverrides) === "team"
     );
-  const futureTeamExposure = beforeDefault === "private" && afterDefault === "team";
+  // `!== "team"` on the before side: widening a group folder to team publishes
+  // it to everybody on People just as widening a private one does, and asking
+  // for no confirmation on that transition was the same hole as the compaction
+  // above.
+  const futureTeamExposure = beforeDefault !== "team" && afterDefault === "team";
   const publicationConfirmationRequired = futureTeamExposure || newlyTeamVisible.length > 0;
   const unchanged =
     currentDirectRules.length === (requested === "inherit" ? 0 : 1) &&
@@ -7366,19 +7492,30 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
   const body = await sourceObject.arrayBuffer();
   const sourceEtag = sourceObject.etag;
   const sourceVisibility = effectiveVisibility(source, rules, overrides);
-  const destinationVisibility =
-    sourceVisibility === "private" || visibilityOf(destination, rules) === "private"
-      ? "private"
-      : "team";
-  if (destinationVisibility === "private") {
+  // The narrower of what the note is and what the destination folder grants.
+  // Identical to the old "private if either is private, else team" on the two
+  // tiers, and it is what stops a move *widening*: a note held back to a group
+  // that lands in a team folder used to come out `team`, which published it.
+  const destinationVisibility = narrowerVisibility(
+    sourceVisibility,
+    visibilityOf(destination, rules)
+  );
+  // `!== "team"` rather than `=== "private"`, and the computed value rather
+  // than the literal. Both halves matter: a group destination is a narrowing,
+  // so it must be installed BEFORE the bytes land like any other narrowing —
+  // and writing `"private"` here would silently retier the owner's group rule
+  // on every move. Neither branch firing at all was the first version of this
+  // and left the note on its new folder's default, which is exactly the
+  // publication the narrowing was computed to prevent.
+  if (destinationVisibility !== "team") {
     try {
-      await persistExactVisibility(store, destination, "private", rules);
+      await persistExactVisibility(store, destination, destinationVisibility, rules);
     } catch (error) {
-      return toolError(`move aborted before creating private destination: ${error.message}`);
+      return toolError(`move aborted before tightening destination: ${error.message}`);
     }
   }
   const put = await store.put(destination, body, { onlyIf: { absent: true } });
-  if (!put && destinationVisibility === "private") await clearExactVisibilityIfAbsent(store, destination);
+  if (!put && destinationVisibility !== "team") await clearExactVisibilityIfAbsent(store, destination);
   if (!put) return toolError("conflict: destination already exists");
   try {
     if (destinationVisibility === "team") {
@@ -7488,6 +7625,14 @@ async function toolMoveNoteAcrossContexts(
       "confirm_team_publish=true is required to move a private note into team-visible destination scope"
     );
   }
+  // Cross-context, and a group name does not travel: `@supa-leads` means a
+  // group in the SOURCE workspace, and the destination's control plane
+  // resolves names in its own. Carrying the string over would write a rule the
+  // destination cannot resolve — harmless today, since an unresolvable group
+  // reaches nobody, and a trap the day the destination mints the same name.
+  // So a group-scoped note lands `private`, which is what the old expression
+  // already did by falling through; it is written down here rather than left
+  // as an accident of two equality tests.
   const destinationVisibility =
     publishesPrivateToTeam || (sourceVisibility === "team" && destinationFolderVisibility === "team")
       ? "team"
@@ -7604,10 +7749,12 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
     }
     const sourceVisibility = effectiveVisibility(move.source, rules, overrides);
     const destinationFolderVisibility = visibilityOf(move.destination, rules);
-    const destinationVisibility =
-      sourceVisibility === "private" || destinationFolderVisibility === "private"
-        ? "private"
-        : "team";
+    // See `toolMoveNote`: the narrower of the two, so a batched move cannot
+    // widen a note the single-note path would have held back.
+    const destinationVisibility = narrowerVisibility(
+      sourceVisibility,
+      destinationFolderVisibility
+    );
     const fastArchiveCandidate =
       move.source.startsWith("4-archive/") &&
       move.destination.startsWith("4-archive/") &&
@@ -7660,16 +7807,18 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
   const preparedAcls = [];
   try {
     for (const move of preflight) {
-      const preinstalledPrivateAcl =
-        !fastArchiveRelocation && !move.destinationExists && move.visibility === "private";
-      if (preinstalledPrivateAcl) {
-        await persistExactVisibility(store, move.destination, "private", rules);
+      // Any narrowing, installed before the bytes — see `move_note` on why
+      // this is `!== "team"` and why it persists the computed value.
+      const preinstalledNarrowAcl =
+        !fastArchiveRelocation && !move.destinationExists && move.visibility !== "team";
+      if (preinstalledNarrowAcl) {
+        await persistExactVisibility(store, move.destination, move.visibility, rules);
         preparedAcls.push(move.destination);
       }
       if (!move.destinationExists) {
         const put = await store.put(move.destination, move.body, { onlyIf: { absent: true } });
         if (!put) {
-          if (preinstalledPrivateAcl) await clearExactVisibilityIfAbsent(store, move.destination);
+          if (preinstalledNarrowAcl) await clearExactVisibilityIfAbsent(store, move.destination);
           throw new Error(`destination already exists: ${move.destination}`);
         }
         move.destinationEtag = put.etag;
@@ -7683,8 +7832,8 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
         // way, and it is what the refusals will need when they return.
         copied.push(move.destination);
       }
-      if (!fastArchiveRelocation && move.visibility === "private" && !preinstalledPrivateAcl) {
-        await persistExactVisibility(store, move.destination, "private", rules);
+      if (!fastArchiveRelocation && move.visibility !== "team" && !preinstalledNarrowAcl) {
+        await persistExactVisibility(store, move.destination, move.visibility, rules);
         preparedAcls.push(move.destination);
       }
       if (!fastArchiveRelocation && move.visibility === "team") {
@@ -7796,10 +7945,12 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
   const moves = allObjects.map(({ key }) => {
     const destinationPath = destinationPrefix + key.slice(sourcePrefix.length);
     const sourceVisibility = effectiveVisibility(key, rules, overrides);
-    const destinationVisibility =
-      sourceVisibility === "private" || visibilityOf(destinationPath, rules) === "private"
-        ? "private"
-        : "team";
+    // See `toolMoveNote`: the narrower of the two, so a folder move cannot
+    // widen a note inside it.
+    const destinationVisibility = narrowerVisibility(
+      sourceVisibility,
+      visibilityOf(destinationPath, rules)
+    );
     return { source: key, destination: destinationPath, visibility: destinationVisibility };
   });
   if (
@@ -7843,14 +7994,15 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
       if (!obj) throw new Error(`source changed during move: ${move.source}`);
       move.etag = obj.etag;
       const body = await obj.arrayBuffer();
-      const preinstalledPrivateAcl = move.visibility === "private";
-      if (preinstalledPrivateAcl) {
-        await persistExactVisibility(store, move.destination, "private", rules);
+      // See `move_note`: any narrowing, installed first, at its own value.
+      const preinstalledNarrowAcl = move.visibility !== "team";
+      if (preinstalledNarrowAcl) {
+        await persistExactVisibility(store, move.destination, move.visibility, rules);
         preparedAcls.push(move.destination);
       }
       const put = await store.put(move.destination, body, { onlyIf: { absent: true } });
       if (!put) {
-        if (preinstalledPrivateAcl) await clearExactVisibilityIfAbsent(store, move.destination);
+        if (preinstalledNarrowAcl) await clearExactVisibilityIfAbsent(store, move.destination);
         throw new Error(`destination already exists: ${move.destination}`);
       }
       move.destinationEtag = put.etag;
@@ -8448,7 +8600,19 @@ async function publishMeetingNote(store, scope, { path, markdown, segmentCount }
   const { rules, overrides } = privacy;
   const visibility = scope === "private" ? "private" : "team";
   if (scope === "team") {
-    if (visibilityOf(notePath, rules) !== "team" || overrideFor(overrides, notePath) === "private") {
+    // `!== "team"` on the override, not `=== "private"`. This is the same
+    // escalation `toolWriteNote`'s own guard describes, reached through the
+    // meetings surface instead: `notePath` is client-supplied, so a team-tier
+    // grant could name a note the owner had held back to a group, pass this
+    // check because the value was neither `"private"` nor the folder default,
+    // overwrite the body, and have `persistExactVisibility` below delete the
+    // group rule and publish the path. `undefined` is spelled out so "no
+    // override at all" still falls through to the folder check beside it.
+    const noteOverride = overrideFor(overrides, notePath);
+    if (
+      visibilityOf(notePath, rules) !== "team" ||
+      (noteOverride !== undefined && noteOverride !== "team")
+    ) {
       throw new MeetingRefusal(
         403,
         "forbidden",

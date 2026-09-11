@@ -8,7 +8,32 @@
  * take a plain interface, not a Convex query result.
  */
 
-export type Visibility = "private" | "team";
+/**
+ * What a note or folder reads as.
+ *
+ * The two tiers, plus a rule that names a group (`@supa-leads`). The third
+ * case is not a third tier — `Scope`, the caller's clearance, is still
+ * two-valued — but it is a distinct thing to SAY, and saying it wrong is the
+ * defect `privacy/words.ts` opens by naming: a group note rendered as
+ * "Private" tells an owner that nobody but them can read it, which is the
+ * overstatement that module exists to prevent.
+ */
+export type Visibility = "private" | "team" | `@${string}`;
+
+/**
+ * What the console may SET, as against what it may display.
+ *
+ * Two-valued, and it stays that way for the same reason the control plane's
+ * argument validator does: a group rule is written by the group controls, never
+ * by the private/team switch, so a widened setter would be a second way to mint
+ * one. The asymmetry with `Visibility` is deliberate — read wide, write narrow.
+ */
+export type SettableVisibility = "private" | "team";
+
+/** Whether a visibility names a group rather than one of the two tiers. */
+export function isGroupVisibility(visibility: Visibility): visibility is `@${string}` {
+  return visibility !== "private" && visibility !== "team";
+}
 
 export interface FileEntry {
   kind: "file" | "folder";

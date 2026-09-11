@@ -64,14 +64,94 @@ export const LEGACY_SCOPES_KEY = "scopes.yml";
  * deployment. It is a share row instead — see "An unlisted share is the third
  * audience" in `CLAUDE.md`, and `functions/shares.ts`.
  */
-export type Visibility = "private" | "team";
+export type Visibility = "private" | "team" | GroupScope;
+
+/**
+ * A rule that names a group instead of a tier.
+ *
+ * The shape is `@` plus a name from the one global namespace usernames and
+ * workspace slugs already share, so `@kola` (a person) and `@supa-leads` (a
+ * group) are the same token to this parser and deliberately so: sharing a note
+ * with one person needed no second mechanism. A group carries its workspace's
+ * slug as a prefix, which is what stops one workspace minting a name inside
+ * another's and what lets a reader of an exported manifest tell whose group it
+ * was — enforced where names are minted (`functions/lib/names.ts`), never here.
+ *
+ * **This engine does not resolve the name.** It carries it, orders it against
+ * the two tiers, and hands it to `canSee`, which asks whether the caller's
+ * grant was issued with that group. Resolution is the control plane's, because
+ * a name in a file is a reference and never the fact — a person removed from
+ * the workspace loses the note the same moment, whatever the manifest says.
+ */
+export type GroupScope = `@${string}`;
+
+/**
+ * What the parser will accept after `@`.
+ *
+ * `[a-z0-9-]` is `ALLOWED_CHARS` in `functions/lib/names.ts`, and the length
+ * spans a slug-prefixed name (two 32-character halves and the joining hyphen).
+ * Strict on purpose and for the reason the whole parser is strict: a value
+ * this rejects throws, which makes the manifest unusable and every note
+ * private, while a value it waved through would be a rule nobody can resolve
+ * being treated as a tier.
+ */
+export const GROUP_SCOPE_PATTERN = /^@[a-z0-9][a-z0-9-]{1,64}$/;
+
+/** Whether a visibility is a group rule rather than one of the two tiers. */
+export function isGroupScope(visibility: Visibility): visibility is GroupScope {
+  return visibility !== "private" && visibility !== "team";
+}
+
+/**
+ * How wide each visibility is, for the one comparison this engine makes.
+ *
+ * `private` (owners) is inside every group, and every group is inside `team`,
+ * so the three are totally ordered by reach with groups sharing a rank. Two
+ * *different* groups at that rank are not comparable, and `narrowerVisibility`
+ * resolves that the only way that cannot leak.
+ */
+function reach(visibility: Visibility): 0 | 1 | 2 {
+  if (visibility === "private") return 0;
+  if (visibility === "team") return 2;
+  return 1;
+}
+
+/**
+ * The narrower of two visibilities, tolerating `undefined` as "no opinion".
+ *
+ * Two distinct groups answer `private`. That is not a guess about what the
+ * owner meant — it is the same rule the case-fold has always followed: two
+ * manifest entries that fold onto one object are a contradiction the owner
+ * never resolved, and `private` is the only resolution that cannot hand a note
+ * to somebody who was not named. It is reachable only from a hand-edited
+ * manifest, since nothing in the product writes two case-variant rules.
+ */
+export function narrowerVisibility(
+  a: Visibility | undefined,
+  b: Visibility | undefined,
+): Visibility | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  if (a === b) return a;
+  const ra = reach(a);
+  const rb = reach(b);
+  if (ra !== rb) return ra < rb ? a : b;
+  return "private";
+}
 
 /**
  * What a caller is allowed to reach.
  *
- * The same two words as `Visibility`, but a different thing: this is the
+ * The same two words as the tiers, but a different thing: this is the
  * caller's clearance, that is a note's classification. A `private` caller sees
  * everything; a `team` caller sees only what is `team`.
+ *
+ * **A group is never a scope**, and that asymmetry is the clamp. Clearance
+ * stays two-valued so every grant already issued keeps its exact meaning, and
+ * a group rule — not being the string `team` — is out of reach of a team
+ * caller by construction rather than by a check somebody has to remember to
+ * write. What a team caller may additionally reach travels beside the scope as
+ * a set of group names on the grant, defaulting to none.
  */
 export type Scope = "private" | "team";
 
@@ -126,8 +206,15 @@ export function parsePrivacyManifest(text: string): PrivacyManifest {
       section = "notes";
       continue;
     }
-    const match = line.match(/^([^:]+?)\/?\s*:\s*(team|private)$/);
+    const match = line.match(/^([^:]+?)\/?\s*:\s*(team|private|@[^\s:]+)$/);
     if (!match || !section) throw new Error(`invalid privacy rule: ${line}`);
+    // A group rule is validated here rather than waved through, for the reason
+    // the whole parser throws: an unusable manifest makes everything private,
+    // and a malformed name accepted as a scope is a rule nothing can resolve
+    // being carried as though it were one.
+    if (match[2].startsWith("@") && !GROUP_SCOPE_PATTERN.test(match[2])) {
+      throw new Error(`invalid privacy group: ${match[2]}`);
+    }
     const path = match[1].trim().replace(/^\/+/, "");
     if (!path || path.split("/").some((part) => part.startsWith("."))) {
       throw new Error(`invalid reserved privacy path: ${path}`);
@@ -271,7 +358,7 @@ export function foldPath(key: string): string {
  * answer is the defect this PR shipped in its first version.
  */
 export class PrivacyOverrides extends Map<string, Visibility> {
-  private folds: Set<string> | null = null;
+  private folds: Map<string, Visibility> | null = null;
 
   override set(key: string, value: Visibility): this {
     this.folds = null;
@@ -290,12 +377,22 @@ export class PrivacyOverrides extends Map<string, Visibility> {
     super.clear();
   }
 
-  /** The folded paths of every `private` override. */
-  privateFolds(): Set<string> {
+  /**
+   * The narrowest narrowing override at each folded path.
+   *
+   * Was `privateFolds`, a `Set` of the paths carrying `private`. A group is a
+   * narrowing too — a `team` folder with one note held back to `@supa-leads`
+   * is exactly the shape the fold exists for — so the index has to carry
+   * *which* narrowing rather than merely that there is one, and a `Map`
+   * replaces the `Set`. `team` is still the one value that never travels.
+   */
+  narrowingFolds(): ReadonlyMap<string, Visibility> {
     if (!this.folds) {
-      const folds = new Set<string>();
+      const folds = new Map<string, Visibility>();
       for (const [key, visibility] of this) {
-        if (visibility === "private") folds.add(foldPath(key));
+        if (visibility === "team") continue;
+        const folded = foldPath(key);
+        folds.set(folded, narrowerVisibility(folds.get(folded), visibility) as Visibility);
       }
       this.folds = folds;
     }
@@ -321,13 +418,17 @@ export function overrideFor(
   const exact = overrides.get(key);
   if (exact === "private") return "private";
   const folded = foldPath(key);
+  let narrow: Visibility | undefined;
   if (overrides instanceof PrivacyOverrides) {
-    return overrides.privateFolds().has(folded) ? "private" : exact;
+    narrow = overrides.narrowingFolds().get(folded);
+  } else {
+    for (const [existing, visibility] of overrides) {
+      if (visibility === "team") continue;
+      if (foldPath(existing) === folded) narrow = narrowerVisibility(narrow, visibility);
+    }
   }
-  for (const [existing, visibility] of overrides) {
-    if (visibility === "private" && foldPath(existing) === folded) return "private";
-  }
-  return exact;
+  if (narrow === undefined) return exact;
+  return narrowerVisibility(narrow, exact);
 }
 
 /**
@@ -400,17 +501,37 @@ export function isPlumbing(key: string): boolean {
  * `privacy.md` is visible only at `private` scope — it is the access map, and
  * handing it to a team-scoped caller would enumerate every private folder by
  * name. Everything else dot-prefixed is invisible to everybody.
+ *
+ * ## A group is reached by the grant, never by the role
+ *
+ * `grantedGroups` is the set of group names the caller's grant was **issued
+ * with**, and it defaults to none. So a connection a person added at team tier
+ * cannot see, search or list a note scoped to a group *even when that person
+ * is in the group*: the note is private as far as that connection is
+ * concerned, which is the answer somebody expects from a client they
+ * deliberately gave the narrower tier.
+ *
+ * Widening one client is then a deliberate act that lands in the grant and in
+ * the audit trail, rather than an inference from a role — the rule
+ * `visibilityTierForGrant` already follows, applied to the third kind of
+ * audience. Passing the caller's *membership* here instead would be the
+ * read-time check that nothing records, which is the shape that eventually
+ * disagrees with what the console shows.
  */
 export function canSee(
   key: string,
   scope: Scope,
   rules: readonly PrivacyRule[],
   overrides: ReadonlyMap<string, Visibility> | undefined,
+  grantedGroups?: ReadonlySet<string>,
 ): boolean {
   if (foldPath(key) === PRIVACY_KEY) return scope === "private";
   if (isPlumbing(key)) return false;
   if (scope === "private") return true;
-  return effectiveVisibility(key, rules, overrides) === "team";
+  const visibility = effectiveVisibility(key, rules, overrides);
+  if (visibility === "team") return true;
+  if (visibility === "private") return false;
+  return grantedGroups !== undefined && grantedGroups.has(visibility);
 }
 
 /* -------------------------------------------------------------------------- */
