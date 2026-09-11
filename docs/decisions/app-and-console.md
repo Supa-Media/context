@@ -2885,3 +2885,107 @@ quieter than the switcher above it" and `breadcrumbPath.test.ts`'s new case
 each fail on their own piece of this and nothing else, and `contextStrip.
 test.ts:518` — the strip pill's own 34pt — is the positive control that
 proves the switcher itself was never touched.
+
+### A diagram lives in the note, and the browser is the only thing that makes it safe
+
+A fenced block tagged `html-preview` is drawn as the thing it describes, inside
+an iframe whose `sandbox` attribute is empty. **The fence tag is the entire
+convention** — no new file format, no frontmatter switch, no per-note setting,
+nothing in `privacy.md`. `cat`, `git diff`, GitHub and Obsidian all still show a
+labelled code block, which is non-negotiable #3 ("plain files stay canonical")
+applied to something richer than a paragraph: the diagram is *in* the file,
+portable and diffable, and the console merely draws it. The opposite of a
+proprietary canvas format.
+
+**The security model is one attribute, and it is not ours.** Anyone can email
+`<name>@context.lc` — that is the ingestion design, not a gap in it — so a note
+the console renders may have been written by a stranger, and the console holds a
+live authenticated Convex connection. The threat was never HTML or CSS; it is
+script execution inside that session. A bare `sandbox` denies everything the
+frame could do, script execution included. `allow-scripts` is never added (it
+runs the note's JavaScript, in an opaque origin that still reaches `fetch` and
+`postMessage` to the parent); `allow-same-origin` is never added; the two
+together are worse than either, because a frame that is both can reach
+`parent.document` and take its own `sandbox` off.
+
+**No sanitizer, deliberately.** Filtering tags and attributes ourselves is a
+list to maintain against everyone who has ever got past one, and it buys nothing
+the browser is not already enforcing for free, with no bypass surface of our
+making. A second mechanism nobody tests is not defence in depth. `previewDocument`
+therefore puts the fence's markup into the frame's document **verbatim**, and
+`htmlPreviewFrame.test.ts` asserts that it does, so a well-meaning filter cannot
+be added later without deleting a test that says why it must not be.
+
+**The CSP is on the frame for a different reason than script.**
+`default-src 'none'; style-src 'unsafe-inline'; img-src data:` is there because
+`background:url(https://…)` needs no JavaScript at all: a fetch out of a note
+somebody emailed you is a read receipt telling the sender the moment you opened
+it, and which note. That is a real privacy leak with no script anywhere in it.
+There is no `font-src`, because a webfont is a fetch like any other. Blocking
+inline script is a side effect of `default-src 'none'`, not its purpose.
+
+Two things the earlier draft of this design asked for are **deliberately not
+built**, and this is the reversal rather than an omission: a **separate origin**
+for the frame, and **owner-only rendering** (a note that arrived by ingestion
+never drawing). Both were priced against a frame that runs script. A frame that
+cannot run script has nothing to do with the console's origin — there is no code
+in it to be same-origin *with* — and "only render what the owner wrote" would
+have meant a provenance flag on every note, a rule in `privacy.md` that
+non-negotiable #5 does not have room for, and a diagram that silently refuses to
+draw with no way for the reader to tell why. Both come back the day scripts are
+allowed, which is a different project.
+
+**The reveal rule applies, and it needed `pointer-events: none` to.**
+`livePreview.ts`'s central argument is that you cannot edit syntax you cannot
+see, so a drawn diagram becomes its own fence again the instant the caret enters
+it, exactly as `## Heading` does. The frame is a separate document and swallows
+its own clicks, so without `pointer-events: none` on it there would be no
+pointer route back to the source at all — you could look at the diagram and
+never reach the markup that draws it, which is the "block editor with extra
+steps" failure that file exists to avoid. The preview has nothing to interact
+with anyway: no scripts, and a link in a bare-sandbox frame cannot navigate.
+
+**The frame's height is a number, and that is an honest gap.** Sizing an iframe
+to its content means script inside it reporting a height out, and script inside
+it is the one thing this never allows; the frame is cross-origin by
+construction, so the host cannot measure it either. So the box errs tall —
+`620px`, capped at `80vh` — because a diagram drawn short leaves empty space and
+a diagram drawn tall loses its bottom third, and only the second is a failure a
+reader notices. `overflow: hidden` on the wrapper is not tidying: markup from a
+stranger that escapes its box draws over the breadcrumb, the save state, a
+privacy control.
+
+**What the sabotage run actually showed**, recorded because it is not what was
+expected. Each guard was broken in turn against a real engine:
+`sandbox="allow-scripts"` with the CSP intact left "a script does not run"
+**green** — the CSP refused the inline script on its own; the CSP opened with
+`script-src 'unsafe-inline'` and `sandbox` left bare was **also green** — the
+sandbox refused it on its own, which is the claim this feature rests on and is
+now measured rather than assumed; **both broken together went red**, so that
+case is not vacuous. The reading is that each guard has a case that fails when
+*it* is removed — the attribute is asserted directly in
+`htmlPreviewFrame.test.ts` and in `e2e/webkit/htmlPreview.spec.ts`, the CSP
+directly beside it — rather than one case that stays green as long as either
+survives.
+
+What a simplification of any of this costs: adding `allow-scripts` puts a
+stranger's JavaScript in a session holding a live Convex connection, and
+`htmlPreviewFrame.test.ts`'s "carries a bare sandbox" plus the WebKit suite's
+"the frame's sandbox is bare in the shipped page" both go red on it; dropping
+the CSP restores the read receipt and takes "forbids every fetch a stylesheet
+could make" with it; rendering every `html` fence rather than only the tagged
+one makes every note that *quotes* markup start drawing it, and "a fence tagged
+`html` is not a preview" fails; dropping the reveal check makes the fence
+uneditable and "the caret entering the block gives the raw fence back" fails;
+dropping `overflow: hidden` or `pointer-events: none` fails "the preview stays
+inside the note's own column" and "tapping the diagram gives the raw fence back"
+respectively — both measured in a browser, because **two layout defects shipped
+past a fully green jsdom suite in the Premium work** and this is the same class.
+
+**jsdom cannot test the part that matters, and saying so is the point.** jsdom
+does not enforce iframe sandboxing at all and does not load `srcdoc`, so a jsdom
+test asserting "the note's `<script>` did not run" would pass with
+`allow-scripts` set. That is the exact false green
+[`testing.md`](./testing.md) exists to name. The execution case lives in
+`apps/mobile/e2e/webkit/htmlPreview.spec.ts` against a real engine; the jsdom
+suite asserts only what it can actually see, which is the markup that was built.
