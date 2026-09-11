@@ -1,13 +1,13 @@
 /**
- * Share a note with somebody who is not in this context.
+ * Who can read this note, and everything you can do about it — in one sheet.
  *
- * ## What this screen has to get across, and why it is wordier than a Share
- * sheet usually is
+ * ## What this screen is for, and why it is wordier than a Share sheet usually
+ * is
  *
- * A share is not "anyone with the link". It is a named person, who signs in,
- * and who can then read **this note and the notes it links to** — depth one,
- * decided in `functions/shares.ts`. Every part of that is something the owner
- * would guess wrong if the dialog just said "Share":
+ * A share here is not "anyone with the link". It is a named person, who signs
+ * in, and who can then read **this note and the notes it links to** — depth
+ * one, decided in `functions/shares.ts`. Every part of that is something an
+ * owner would guess wrong if the dialog just said "Share":
  *
  *  - They would expect a link anybody could open, and be surprised their
  *    colleague was asked to sign in.
@@ -16,17 +16,40 @@
  *  - They would not know the note's name travels to the unfurl before anybody
  *    signs in.
  *
- * So each of the three is stated in a sentence, next to the control it belongs
- * to, in the words it costs. `describeShare` and `describePreviewTitle` live in
- * `shares.ts` so the wording is testable and cannot drift from what the server
- * actually does.
+ * So each is stated next to the control it belongs to, in the words it costs.
+ * The wording lives in `shares.ts` and `scope.ts` — testable, and unable to
+ * drift from what the server actually does.
+ *
+ * ## Every line you can read here, you can act on
+ *
+ * That is the rule this sheet was rebuilt around, because it was the one thing
+ * it did not do. It listed the people with access as three strings with no
+ * control on them; it could point at a group but not make one; and whether a
+ * note had a public link was decided in two places — here, and by an
+ * unlabelled padlock in the top bar that minted the same share row on its
+ * third press. So the sheet explained the situation accurately and offered
+ * almost no way out of it.
+ *
+ * Now: the audience is a named control at the head of the people list; each
+ * person carries the routes that would actually take their access away, with
+ * the blast radius on each; a group can be made from the people in front of
+ * you; and the links section hands you a link rather than minting one.
+ *
+ * ## The order is the order somebody works in
+ *
+ * The field is first — it is what people come here to use — and everything
+ * else is context for it, so context goes after. No `autoFocus`: the sheet has
+ * to be readable before it is typed into, and a keyboard over it is not that.
+ * Then who can read it, then who it has been handed to, then links.
  *
  * ## Nothing here decides authorization
  *
  * Whether this dialog can be reached at all is `canShare` in `capabilities.ts`
- * (owner-only), and the server refuses anyone else with `minimum: "owner"`. The
- * validation below — a recipient that is not blank — is about not sending a
- * request that is certain to fail, never about permission.
+ * (owner-only), and the server refuses anyone else with `minimum: "owner"`.
+ * Every optional callback below follows the console's standing rule — a
+ * control somebody may not use is **absent, not disabled** — and the
+ * validation here is about not sending a request certain to fail, never about
+ * permission.
  */
 
 import { useState, type ReactNode } from "react";
@@ -364,6 +387,21 @@ export function ShareDialog({
             </View>
 
             {/*
+              What typing a name does, under the field that does it.
+
+              It used to be the last paragraph of the links section — three
+              headings away from the control it describes, and on a phone below
+              the fold entirely. The sentence did not change; where it sits
+              did. `shareLink.test.ts` pins all four facts in it, because each
+              is one this file's header names as something an owner guesses
+              wrong: they sign in, they get this note and what it links to,
+              nothing else, and you can take it back.
+            */}
+            <Text variant="meta" style={styles.linkNote}>
+              {describePersonalShare()}
+            </Text>
+
+            {/*
               One field, one list.
 
               A person and a group are the same kind of token in `privacy.md` —
@@ -387,15 +425,23 @@ export function ShareDialog({
               server would refuse.
             */}
             {onCreateGroup === undefined || groupSlug === undefined ? null : making === null ? (
+              /*
+                One quiet line, not a panel.
+
+                It was a dashed box with a title and a sentence, sitting under
+                the field — and in a photograph of the sheet it outshouted the
+                thing people came here to use. Making a group is the rarer
+                verb; it earns a line, and the explanation belongs inside the
+                maker it opens.
+              */
               <Pressable
                 style={styles.makeGroup}
                 accessibilityLabel="Make a group from people here"
                 testID="share-make-group"
                 onPress={() => setMaking({ label: recipient.trim(), picked: [] })}
               >
-                <Text variant="rowTitle">New group…</Text>
-                <Text variant="meta" style={styles.suggestionDetail}>
-                  Name the people you keep picking together, then point notes at the name.
+                <Text variant="meta" style={styles.makeGroupText}>
+                  New group from people here…
                 </Text>
               </Pressable>
             ) : (
@@ -537,7 +583,6 @@ export function ShareDialog({
                           {canRemove ? (
                             <Button
                               label={open ? "Cancel" : "Remove…"}
-                              variant="white"
                               onPress={() => setRemoving(open ? null : row.key)}
                               testID={`share-access-remove-${row.key}`}
                             />
@@ -606,7 +651,7 @@ export function ShareDialog({
               as a policy document.
             */}
             <View style={styles.section}>
-              <Text variant="eyebrow">GENERAL ACCESS</Text>
+              <Text variant="eyebrow">LINKS</Text>
               {problem === null ? null : (
                 <Text variant="meta" testID="share-copy-problem" selectable>
                   {problem}
@@ -615,14 +660,20 @@ export function ShareDialog({
 
               <View style={styles.linkRow}>
                 <View style={styles.linkMain}>
-                  <Text variant="rowTitle">People with access</Text>
+                  {/*
+                    "Workspace link", not "People with access" — that phrase is
+                    the heading of the section above now, and a row repeating
+                    it reads as a second answer to the same question. The two
+                    rows here are parallel: one link for members, one for
+                    anybody holding it.
+                  */}
+                  <Text variant="rowTitle">Workspace link</Text>
                   <Text variant="meta" style={styles.linkNote}>
                     {describeTeamLink()}
                   </Text>
                 </View>
                 <Button
                   label="Copy link"
-                  variant="white"
                   onPress={() => {
                     /*
                       Minted on demand rather than up front, and the minting
@@ -652,7 +703,7 @@ export function ShareDialog({
                   <View style={styles.linkMain}>
                     <Text variant="rowTitle">Anyone with the link</Text>
                     <Text variant="meta" style={styles.linkNote}>
-                      {describeOpenLink(true)}
+                      {describeOpenLink()}
                     </Text>
                   </View>
                   <View style={styles.row}>
@@ -671,15 +722,6 @@ export function ShareDialog({
                   </View>
                 </View>
               )}
-
-              {/*
-                What a typed name actually does, said once, where the field's
-                own outcome is decided — rather than as a third heading with a
-                paragraph under it.
-              */}
-              <Text variant="meta" style={styles.linkNote}>
-                {describePersonalShare()}
-              </Text>
             </View>
 
             {advanced !== undefined ? (
@@ -760,9 +802,17 @@ function AudienceControl({
         })}
       </View>
 
-      <Text variant="meta" style={styles.accessReason}>
-        {SCOPE_LABELS[scope].detail}
-      </Text>
+      {/*
+        No detail line under the control.
+
+        `SCOPE_LABELS[scope].detail` says who can read it; `accessSummary`,
+        immediately below, says who can read it AND where the rule came from —
+        which is the half a list cannot show and the difference between "this
+        is fine" and "wait, that folder?". Two sentences making one point read
+        as two points, which is the accumulation this sweep is about. The
+        labels keep their `detail` because the confirmation and future callers
+        want the words; this position does not need them twice.
+      */}
 
       {!confirming ? null : (
         <View style={styles.confirm} testID="share-confirm-public">
@@ -819,7 +869,7 @@ function GroupMaker({
 
   return (
     <View style={styles.maker} testID="share-group-maker">
-      <View style={styles.row}>
+      <View style={styles.makerRow}>
         <TextInput
           value={state.label}
           onChangeText={(label) => onChange({ ...state, label })}
@@ -830,12 +880,12 @@ function GroupMaker({
           placeholderTextColor={colors.muted}
           accessibilityLabel="Group name"
         />
-        <Button label="Create" variant="white" disabled={!ready} onPress={onCreate} />
+        <Button label="Create" disabled={!ready} onPress={onCreate} />
         <Button label="Cancel" onPress={onCancel} />
       </View>
 
       <Text variant="meta" style={styles.suggestionDetail}>
-        {`Will be ${previewGroupName(slug, state.label)} — the prefix is this context's, not yours to type.`}
+        {`Name the people you keep picking together. Will be ${previewGroupName(slug, state.label)} — the prefix is this context's, not yours to type.`}
       </Text>
 
       {/*
@@ -998,10 +1048,16 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   accessRow: {
     flexDirection: "row",
-    alignItems: "baseline",
+    alignItems: "center",
     gap: 8,
-    flexWrap: "wrap",
-    paddingVertical: 4,
+    /*
+      No `flexWrap`. It was harmless while the trailing slot was a one-word
+      role, and wrong the moment it became a control: a long reason line
+      pushed the button onto its own row, where it stretched full width and
+      read as the sheet's primary action rather than as this person's.
+      `accessMain` has `minWidth: 0`, so the text shrinks instead.
+    */
+    paddingVertical: 6,
     borderTopWidth: 1,
     borderTopColor: colors.line,
   },
@@ -1052,6 +1108,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   input: {
     flexGrow: 1,
     flexShrink: 1,
+    /*
+      Flexbox gives a form control `min-width: auto`, so `flexShrink` alone
+      does not let it go below its intrinsic width — which pushed the group
+      maker's Cancel button off the right edge of its own panel.
+    */
+    minWidth: 0,
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.lg,
@@ -1085,15 +1147,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     overflow: "hidden",
   },
   suggestion: { paddingVertical: 8, paddingHorizontal: 10, gap: 2 },
-  makeGroup: {
-    paddingVertical: 9,
-    paddingHorizontal: 10,
-    gap: 2,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: colors.lineStrong,
-  },
+  makeGroup: { paddingVertical: 2 },
+  makeGroupText: { color: colors.accent },
+  /* Wraps rather than clips: three controls on a 390pt phone, inside a panel. */
+  makerRow: { flexDirection: "row", gap: 8, alignItems: "center", flexWrap: "wrap" },
   maker: {
     gap: 8,
     padding: 10,

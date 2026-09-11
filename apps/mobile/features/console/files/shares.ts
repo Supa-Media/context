@@ -273,13 +273,19 @@ export function describeTeamLink(): string {
  * un-publishes a note will hand this out more freely than one who knows it
  * only closes the door.
  */
-export function describeOpenLink(exists: boolean): string {
-  const what =
+export function describeOpenLink(): string {
+  /*
+    One form, not two. It used to branch on whether a link existed, because the
+    row was drawn either way — "Create link" when there was none. That row does
+    not mint anything now (the audience control owns whether a link exists) and
+    is absent when there is none, so the `false` branch had no render left to
+    reach. Deleted rather than kept for symmetry.
+  */
+  return (
     "Anyone who has this link can read the note and the notes it links to — " +
-    "no account, no sign-in.";
-  return exists
-    ? `${what} Revoking stops anyone opening it from now on; it cannot take back a copy somebody already has.`
-    : `${what} You can revoke it at any time, though that cannot take back a copy somebody already has.`;
+    "no account, no sign-in. Revoking stops anyone opening it from now on; it " +
+    "cannot take back a copy somebody already has."
+  );
 }
 
 /**
