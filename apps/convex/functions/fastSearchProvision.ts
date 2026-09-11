@@ -84,7 +84,10 @@ async function configFor(ctx: ActionCtx): Promise<D1Config | null> {
  * second create.
  */
 export const provisionIndex = internalAction({
-  args: { workspaceId: v.id("workspaces") },
+  args: {
+    workspaceId: v.id("workspaces"),
+    generation: v.literal("premium-v1"),
+  },
   handler: async (ctx, args): Promise<{ status: string }> => {
     const binding = await ctx.runQuery(
       internal.functions.fastSearch.bindingForWorkspace,
@@ -92,12 +95,19 @@ export const provisionIndex = internalAction({
     );
     // Opted out, or never opted in, between the schedule and now. Nothing to
     // do, and creating a database here would be creating one nobody asked for.
-    if (binding === null || !binding.optedIn) return { status: "skipped" };
+    if (
+      binding === null ||
+      binding.generation !== args.generation ||
+      !binding.optedIn
+    ) {
+      return { status: "skipped" };
+    }
 
     const config = await configFor(ctx);
     if (config === null) {
       await ctx.runMutation(internal.functions.fastSearch.recordProvisionResult, {
         workspaceId: args.workspaceId,
+        generation: args.generation,
         status: "failed",
         errorCode: "NOT_CONFIGURED",
         error: messageFor("NOT_CONFIGURED"),
@@ -123,6 +133,7 @@ export const provisionIndex = internalAction({
           internal.functions.fastSearch.recordProvisionResult,
           {
             workspaceId: args.workspaceId,
+            generation: args.generation,
             status: "provisioning",
             databaseId,
             databaseName,
@@ -134,6 +145,7 @@ export const provisionIndex = internalAction({
 
       await ctx.runMutation(internal.functions.fastSearch.recordProvisionResult, {
         workspaceId: args.workspaceId,
+        generation: args.generation,
         status: "backfilling",
         databaseId,
         databaseName,
@@ -172,6 +184,7 @@ export const provisionIndex = internalAction({
       const code = error instanceof D1Error ? error.code : "REFUSED";
       await ctx.runMutation(internal.functions.fastSearch.recordProvisionResult, {
         workspaceId: args.workspaceId,
+        generation: args.generation,
         status: "failed",
         errorCode: code,
         error: messageFor(code),

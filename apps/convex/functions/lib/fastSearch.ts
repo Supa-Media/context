@@ -5,11 +5,9 @@
  *
  * A context gets the fast index only when **both** are true:
  *
- *  1. **Entitled** — may this context turn it on? Derived, never stored.
- *     `fastSearchEntitled` returns true for everyone today; it is the single
- *     line a paid tier later narrows, and it exists now so that narrowing is
- *     an edit to one function rather than a search for every place the
- *     question is asked.
+ *  1. **Entitled** — may this context turn it on? Derived from the active
+ *     workspace plan, never stored on the index row. The plan must be paying
+ *     and must select Fast Search.
  *  2. **Opted in** — has an owner turned it on? Stored per workspace, and
  *     **off by default**.
  *
@@ -50,31 +48,39 @@
  */
 
 import type { Doc } from "../../_generated/dataModel";
+import { activeEntitlements } from "./premium";
+
+/** The first paid generation. A row without it is legacy and fails closed. */
+export const FAST_SEARCH_GENERATION = "premium-v1" as const;
 
 /**
  * May this context turn the fast index on?
  *
- * True for everyone, deliberately and for now. **When this becomes a paid
- * feature, this function is the whole change** — it grows a plan lookup and
- * returns false for contexts without one. Callers already handle false,
- * because `optedIn` can be false today, so nothing downstream is written on
- * the assumption that entitlement is universal.
- *
- * Takes the workspace rather than an id so a plan lookup can be added without
- * changing a signature at every call site, and so this stays a pure function
- * that tests can drive directly.
+ * Both the known workspace kind and the active paid selection are required.
+ * Passing the row rather than an already-flattened boolean keeps the AND in
+ * the same pure function every caller and test uses.
  */
-export function fastSearchEntitled(workspace: Doc<"workspaces">): boolean {
-  // Referenced so the parameter is not merely decorative, and so the day this
-  // grows a plan check there is already a workspace in scope to check.
-  return workspace.kind === "personal" || workspace.kind === "shared";
+export function fastSearchEntitled(
+  workspace: Doc<"workspaces">,
+  plan: Doc<"workspacePlans"> | null,
+): boolean {
+  const knownKind = workspace.kind === "personal" || workspace.kind === "shared";
+  if (!knownKind || plan === null) return false;
+  return activeEntitlements(
+    { managedStorage: plan.managedStorage, fastSearch: plan.fastSearch },
+    plan.status,
+  ).fastSearch;
 }
 
 /** The stored half: has an owner asked for it? Absent means no. */
 export function fastSearchOptedIn(
   binding: Doc<"searchIndexes"> | null,
 ): boolean {
-  return binding !== null && binding.optedIn === true;
+  return (
+    binding !== null &&
+    binding.generation === FAST_SEARCH_GENERATION &&
+    binding.optedIn === true
+  );
 }
 
 /**
@@ -86,9 +92,10 @@ export function fastSearchOptedIn(
  */
 export function fastSearchActive(
   workspace: Doc<"workspaces">,
+  plan: Doc<"workspacePlans"> | null,
   binding: Doc<"searchIndexes"> | null,
 ): boolean {
-  return fastSearchEntitled(workspace) && fastSearchOptedIn(binding);
+  return fastSearchEntitled(workspace, plan) && fastSearchOptedIn(binding);
 }
 
 /**
@@ -109,14 +116,15 @@ export type FastSearchState =
   | "on"
   /** Asked for, and provisioning failed. Recoverable; the reason is stored. */
   | "failed"
-  /** Not entitled. Today nothing reaches this; a paid tier is what does. */
+  /** Not entitled: free, lapsed, deselected, or an unknown workspace kind. */
   | "unavailable";
 
 export function fastSearchState(
   workspace: Doc<"workspaces">,
+  plan: Doc<"workspacePlans"> | null,
   binding: Doc<"searchIndexes"> | null,
 ): FastSearchState {
-  if (!fastSearchEntitled(workspace)) return "unavailable";
+  if (!fastSearchEntitled(workspace, plan)) return "unavailable";
   if (!fastSearchOptedIn(binding)) return "off";
   // `optedIn` is true from here, so `binding` is non-null.
   switch (binding!.status) {
@@ -231,9 +239,10 @@ export type SearchProjectionState = "backfilling" | "ready";
 
 export function searchProjectionState(
   workspace: Doc<"workspaces">,
+  plan: Doc<"workspacePlans"> | null,
   binding: Doc<"searchIndexes"> | null,
 ): SearchProjectionState | null {
-  if (!fastSearchActive(workspace, binding)) return null;
+  if (!fastSearchActive(workspace, plan, binding)) return null;
   // `fastSearchActive` is true, so `binding` is non-null and `optedIn`.
   if (typeof binding!.databaseId !== "string" || binding!.databaseId.length === 0) {
     return null;

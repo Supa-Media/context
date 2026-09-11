@@ -251,10 +251,10 @@ makes it a decision we get to make for them.
 
 So it is **two independent conditions, and both must hold**:
 
-- **Entitled** — may this context turn it on? Derived, never stored, true for
-  everyone today. This is the single function a paid tier later narrows, and it
-  exists now so that narrowing is one edit rather than a search for every place
-  the question is asked.
+- **Entitled** — may this context turn it on? Derived, never stored, and true
+  only when the workspace has an active Premium plan that selected Fast
+  Search. A legacy row without the current generation is unservable even if it
+  says `ready`.
 - **Opted in** — has an *owner* turned it on? Stored, and **off by default**.
 
 Folding them into one flag is the obvious simplification and it loses the

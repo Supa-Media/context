@@ -958,9 +958,18 @@ describe("/gateway/binding — the search index", () => {
     },
   ): Promise<void> {
     const now = Date.now();
-    await t.run((ctx) =>
-      ctx.db.insert("searchIndexes", {
+    await t.run(async (ctx) => {
+      await ctx.db.insert("workspacePlans", {
         workspaceId: options.workspaceId,
+        managedStorage: false,
+        fastSearch: true,
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("searchIndexes", {
+        workspaceId: options.workspaceId,
+        generation: "premium-v1",
         optedIn: options.optedIn ?? true,
         optedInBy: options.optedInBy,
         optedInAt: now,
@@ -970,8 +979,8 @@ describe("/gateway/binding — the search index", () => {
           options.databaseId === undefined ? undefined : `context-search-${options.databaseId}`,
         createdAt: now,
         updatedAt: now,
-      }),
-    );
+      });
+    });
   }
 
   /** The deployment configured with both halves of the platform's credential. */
@@ -1853,9 +1862,24 @@ describe("/gateway/jobs/*", () => {
 describe("/gateway/search-index/progress", () => {
   async function enabledIndex(t: TestConvex, workspaceId: Id<"workspaces">, owner: Id<"users">) {
     const now = Date.now();
-    await t.run((ctx) =>
-      ctx.db.insert("searchIndexes", {
+    await t.run(async (ctx) => {
+      const plan = await ctx.db
+        .query("workspacePlans")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      if (plan === null) {
+        await ctx.db.insert("workspacePlans", {
+          workspaceId,
+          managedStorage: false,
+          fastSearch: true,
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      await ctx.db.insert("searchIndexes", {
         workspaceId,
+        generation: "premium-v1",
         optedIn: true,
         optedInBy: owner,
         optedInAt: now,
@@ -1864,8 +1888,8 @@ describe("/gateway/search-index/progress", () => {
         databaseName: "context-search-progress",
         createdAt: now,
         updatedAt: now,
-      }),
-    );
+      });
+    });
   }
 
   async function indexRow(t: TestConvex, workspaceId: Id<"workspaces">) {

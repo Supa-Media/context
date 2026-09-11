@@ -345,9 +345,18 @@ async function switchFastSearchOn(
   optedInBy: Id<"users">,
 ): Promise<void> {
   const now = Date.now();
-  await t.run((ctx) =>
-    ctx.db.insert("searchIndexes", {
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspacePlans", {
       workspaceId,
+      managedStorage: false,
+      fastSearch: true,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("searchIndexes", {
+      workspaceId,
+      generation: "premium-v1",
       optedIn: true,
       optedInBy,
       optedInAt: now,
@@ -362,8 +371,8 @@ async function switchFastSearchOn(
       databaseName: "context-search-example",
       createdAt: now,
       updatedAt: now,
-    }),
-  );
+    });
+  });
 }
 
 /** Build the R2 shard index until it converges, so a search has one to read. */

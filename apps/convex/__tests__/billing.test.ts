@@ -714,6 +714,12 @@ describe("the webhook", () => {
       expect(view.status).toBe("active");
       expect(view.active).toEqual({ managedStorage: true, fastSearch: true });
       expect(view.hasStripeCustomer).toBe(true);
+      const scheduled = await t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").collect(),
+      );
+      expect(
+        scheduled.filter((job) => job.name.includes("syncPremiumSelection")),
+      ).toHaveLength(1);
     } finally {
       vi.unstubAllEnvs();
     }
