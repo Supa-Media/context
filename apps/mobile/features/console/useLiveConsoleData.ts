@@ -18,6 +18,7 @@ import { visibilityTierForRole } from "./visibility";
 import { useIngestionSettings } from "./ingestion/useIngestionSettings";
 import { useMembers } from "./members/useMembers";
 import { useFastSearch } from "./search/useFastSearch";
+import { useGroups } from "./groups/useGroups";
 import { useShares } from "./shares/useShares";
 import { useAdvanced } from "./advanced/useAdvanced";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
@@ -526,6 +527,7 @@ export function useLiveConsoleData(): ConsoleData {
   // this hook decides for itself, from `role`, whether to subscribe at all.
   // See `useShares` for why that is stricter than `useMembers`'s own gate.
   const shares = useShares({ workspaceId: selectedContextId, role: selected?.role });
+  const groups = useGroups({ workspaceId: selectedContextId, role: selected?.role });
 
   // Both halves are owner-only in the console — see `useAdvanced` for why the
   // audit trail is stricter here than `listEvents` allows on the backend.
@@ -683,6 +685,7 @@ export function useLiveConsoleData(): ConsoleData {
     files,
     members,
     shares,
+    groups,
     advanced,
     fastSearch,
     // A query that threw is not "still loading". Leaving the console spinning
