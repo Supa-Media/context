@@ -324,3 +324,87 @@ export function describeRejection(reason: NameRejection): string {
       return "That name is already taken.";
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/*                              group names                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The longest a group's full name may be.
+ *
+ * A group is `<workspace slug>-<label>`, so it can be two 32-character halves
+ * and the joining hyphen. It is capped separately from `NAME_MAX_LENGTH`
+ * because the 32 there exists for things that must survive a DNS label and a
+ * mail local-part, and a group is neither: it is never a capture address (only
+ * a *personal* context has one) and never a subdomain. It shares the namespace
+ * because it shares the `@name` syntax, which is a collision concern, not a
+ * length one.
+ *
+ * It matches `GROUP_SCOPE_PATTERN` in the privacy engines, which accept
+ * `@` plus 2-65 characters. The two are the same rule stated in two places
+ * that cannot import each other, and `__tests__/groupNames.test.ts` pins them
+ * together.
+ */
+export const GROUP_NAME_MAX_LENGTH = NAME_MAX_LENGTH * 2 + 1;
+
+/**
+ * Build and validate a group's full name from its workspace and a label.
+ *
+ * **The prefix is structural, not a convention.** Group names live in the one
+ * global namespace usernames and workspace slugs share — `@kola` is a person
+ * and `@supa-leads` is a group, and a privacy rule names either with the same
+ * token — so an unprefixed group name would let one workspace claim `@leads`
+ * out from under everybody, and a workspace could mint a name inside another's
+ * space. Deriving it here, from the workspace's own slug, is what makes
+ * "@supa-* belongs to supa" true rather than hoped for; no caller passes the
+ * prefix in.
+ *
+ * The LABEL is validated as a name in its own right — charset, reserved words,
+ * the IDNA label form — because everything those rules protect against is
+ * still reachable through the half a person types. The assembled name is then
+ * length-checked as a whole.
+ */
+export function buildGroupName(
+  workspaceSlug: string,
+  rawLabel: string,
+): NameValidation {
+  const label = validateName(rawLabel);
+  if (!label.ok) return label;
+
+  const slug = normalizeName(workspaceSlug);
+  // A workspace whose own slug is malformed cannot mint anything. Reachable
+  // only from damaged data, and refusing is the direction that cannot produce
+  // a name nobody can account for.
+  if (!ALLOWED_CHARS.test(slug) || slug.length === 0) {
+    return { ok: false, reason: "invalid_characters", normalized: slug };
+  }
+
+  const normalized = `${slug}-${label.normalized}`;
+  if (normalized.length > GROUP_NAME_MAX_LENGTH) {
+    return { ok: false, reason: "too_long", normalized };
+  }
+  // Re-checked on the assembled name rather than trusted from the halves: the
+  // join introduces a `--` that neither half had, which is the IDNA reserved
+  // form and therefore a homograph vector. A one-character slug and a label
+  // opening with a hyphen cannot both pass on their own, but the rule is
+  // asserted on what actually gets stored.
+  if (RESERVED_LABEL_FORM.test(normalized)) {
+    return { ok: false, reason: "reserved_label_form", normalized };
+  }
+  if (RESERVED_NAMES.has(normalized)) {
+    return { ok: false, reason: "reserved", normalized };
+  }
+  return { ok: true, normalized };
+}
+
+/**
+ * The label half of a stored group name, for display beside its workspace.
+ *
+ * Returns the whole name when it does not carry the expected prefix, which is
+ * the honest answer for a row from another workspace or from before a rename:
+ * showing a truncated name would be worse than showing the full one.
+ */
+export function groupLabelOf(workspaceSlug: string, groupName: string): string {
+  const prefix = `${normalizeName(workspaceSlug)}-`;
+  return groupName.startsWith(prefix) ? groupName.slice(prefix.length) : groupName;
+}
