@@ -873,6 +873,28 @@ export function BrowsePane({
             provider it does not have — 96 of them. One subscription, read in
             two places.
           */
+          /*
+            Only what this caller may actually do. `data.groups.actions` is
+            absent for anybody who is not an owner — `listGroups` and
+            `setNoteGroup` are both owner-only — so the field offers no group
+            rows rather than offering a pick that would be refused. Optional
+            all the way down: a data shape without groups at all offers none,
+            which is the same answer and the right one.
+          */
+          groups={
+            data.groups?.actions === undefined
+              ? undefined
+              : data.groups.groups.map((group) => ({
+                  name: group.name,
+                  label: group.label,
+                  liveCount: group.members.filter((member) => member.live).length,
+                }))
+          }
+          onShareWithGroup={
+            data.groups?.actions === undefined
+              ? undefined
+              : (group) => files.shareWithGroup(sharing, group)
+          }
           access={{
             visibility: selected.visibility,
             exception: selected.exception,

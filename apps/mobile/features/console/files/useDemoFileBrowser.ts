@@ -182,6 +182,8 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       archive: noop,
       destroy: noop,
       setVisibility: noop,
+      // The demo presses nothing: sharing with a group writes a real rule.
+      shareWithGroup: () => {},
       setScope: noop,
       openLinkPaths: new Set<string>(),
       // The demo tree is built synchronously and whole — every note in it is

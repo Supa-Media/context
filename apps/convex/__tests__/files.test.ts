@@ -879,6 +879,18 @@ describe("a stranger cannot reach another workspace's files", () => {
       // broken `privacy.md`, so reaching it across tenants would rewrite
       // somebody else's access map to all-private.
       (workspaceId) => as.action(api.functions.files.resetPrivacy, { workspaceId }),
+      // Owner-only, and a writer of `privacy.md` like the two visibility
+      // setters beside it. The group name resolves against the workspace the
+      // caller names, so reaching this across tenants would point somebody
+      // else's note at a group — and the refusal has to come from the
+      // workspace check ahead of that resolution, not from the group lookup,
+      // or a stranger learns which names exist by the shape of the error.
+      (workspaceId) =>
+        as.action(api.functions.files.setNoteGroup, {
+          workspaceId,
+          path: "1-projects/shared.md",
+          group: "@supa-leads",
+        }),
     ];
 
     /**

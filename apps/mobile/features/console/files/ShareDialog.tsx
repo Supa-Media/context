@@ -37,6 +37,7 @@ import { fonts, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { baseName } from "./paths";
 import { accessRows, accessSummary, type AccessMember } from "./access";
+import { recipientsFor, type RecipientGroup } from "./recipients";
 import type { Visibility } from "./types";
 import {
   describeOpenLink,
@@ -60,6 +61,8 @@ export function ShareDialog({
   onClose,
   advanced,
   access,
+  onShareWithGroup,
+  groups,
 }: {
   path: string;
   /** Every share on this context, or `undefined` while the query is in flight. */
@@ -67,6 +70,17 @@ export function ShareDialog({
   /** Where this console is served from. See `shareUrl`. */
   origin: string;
   onShare: (recipient: string) => void;
+  /**
+   * Point this note at a group.
+   *
+   * A different verb from `onShare`, because it is a different thing: a share
+   * hands one note to somebody through a revocable row, and this writes a rule
+   * into `privacy.md` that the group's membership then resolves. Absent where
+   * the caller cannot do it — the demo, and anybody who is not an owner.
+   */
+  onShareWithGroup?: (group: string) => void;
+  /** The groups this context has, for the field to offer. Owner-only upstream. */
+  groups?: readonly RecipientGroup[];
   /**
    * A section drawn under everything else here, behind its own "ADVANCED"
    * label — today, whatever `EncryptionAdvancedSection` in
@@ -175,6 +189,24 @@ export function ShareDialog({
    */
   const openLink = mine?.find((share) => share.audience === "anyone");
   const ready = recipient.trim() !== "";
+
+  /*
+    Built from what the dialog already has: `access.members` is this context's
+    people and `groups` its groups. Anybody already on the note is excluded —
+    offering to share with somebody who can read it is offering to do nothing.
+  */
+  const suggestions = recipientsFor(
+    recipient,
+    access?.members ?? [],
+    groups ?? [],
+    {
+      excludeUserIds: new Set((access?.members ?? []).map((member) => member.userId)),
+      excludeGroups:
+        access !== undefined && access.visibility.startsWith("@")
+          ? new Set([access.visibility.slice(1)])
+          : undefined,
+    },
+  );
 
   const submit = () => {
     if (!ready) return;
@@ -313,13 +345,55 @@ export function ShareDialog({
                 autoCapitalize="none"
                 autoCorrect={false}
                 style={styles.input}
-                placeholder="@name or email"
+                placeholder="Name, group or email"
                 placeholderTextColor={colors.muted}
                 accessibilityLabel="Share with"
                 onSubmitEditing={submit}
               />
               <Button label="Share" variant="white" disabled={!ready} onPress={submit} />
             </View>
+
+            {/*
+              One field, one list.
+
+              A person and a group are the same kind of token in `privacy.md` —
+              `@kola` and `@supa-leads` are indistinguishable to the parser —
+              so this does not ask which KIND you mean before letting you type.
+              What it does keep separate is the invite row: choosing it is two
+              things, an invitation and then the access, and the row says so
+              before it happens rather than after.
+
+              Picking a group writes the rule; picking a person or an address
+              mints the share row that already existed. Different verbs, one
+              field, because the difference is ours and not theirs.
+            */}
+            {suggestions.length === 0 ? null : (
+              <View style={styles.suggestions} testID="share-suggestions">
+                {suggestions.map((row) => (
+                  <Pressable
+                    key={`${row.kind}:${row.key}`}
+                    style={styles.suggestion}
+                    accessibilityLabel={`Share with ${row.label}`}
+                    testID={`share-suggest-${row.key}`}
+                    onPress={() => {
+                      setRecipient("");
+                      if (row.kind === "group" && onShareWithGroup !== undefined) {
+                        onShareWithGroup(row.group!);
+                        return;
+                      }
+                      onShare(row.kind === "member" ? row.label : row.key);
+                    }}
+                  >
+                    <Text variant="rowTitle">{row.label}</Text>
+                    {row.detail === undefined ? null : (
+                      <Text variant="meta" style={styles.suggestionDetail}>
+                        {row.detail}
+                      </Text>
+                    )}
+                  </Pressable>
+                ))}
+              </View>
+            )}
 
             <SharedWith
               shares={mine}
@@ -496,6 +570,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   shareTop: { flexDirection: "row", alignItems: "center", gap: 10 },
   recipient: { flexGrow: 1, flexShrink: 1, color: colors.text },
+  suggestions: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    overflow: "hidden",
+  },
+  suggestion: { paddingVertical: 8, paddingHorizontal: 10, gap: 2 },
+  suggestionDetail: { color: colors.muted },
   previewRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   previewText: { flexGrow: 1, flexShrink: 1 },
   actions: { flexDirection: "row", justifyContent: "flex-end", gap: 10 },

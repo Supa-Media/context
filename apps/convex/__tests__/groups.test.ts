@@ -265,3 +265,73 @@ describe("deleting a group releases its name and touches no bucket", () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * Pointing one note at a group — the share dialog's verb.
+ *
+ * `setNoteVisibility` takes the two tiers and stays that way, so this is its
+ * own action. What is NEW here is the resolution: group names are globally
+ * unique, but a name belonging to somebody else's context has to be as
+ * unusable here as one that exists nowhere. That check runs before any file
+ * operation, which is why these tests need no bucket.
+ *
+ * The write itself — a group value reaching `privacy.md` — is covered where
+ * there is a store to write to: `fileOps.test.ts`, over the memory bucket that
+ * file already stands up. Driving it from here would mean standing up a second
+ * fake S3, and a test that proves the writer works belongs beside the writer.
+ */
+describe("handing one note to a group", () => {
+  /**
+   * The one that matters. `@other-leads` is a real, unique, existing name —
+   * and it is not this context's, so it must be refused exactly as a name
+   * nobody has ever claimed is. Writing it would not leak (the engines read an
+   * unresolvable group as reaching nobody) but it would put a rule in the
+   * customer's manifest that no owner of this context can account for.
+   */
+  test("a group belonging to another context is refused, like one that does not exist", async () => {
+    const { t, owner, outsider, workspaceId } = await workspace();
+    const otherWorkspace = await createWorkspace(t, outsider, "other", { kind: "shared" });
+    await asUser(t, outsider).mutation(api.functions.groups.createGroup, {
+      workspaceId: otherWorkspace,
+      label: "leads",
+    });
+
+    const borrowed = await captureError(() =>
+      asUser(t, owner).action(api.functions.files.setNoteGroup, {
+        workspaceId,
+        path: "1-projects/rates.md",
+        group: "@other-leads",
+      }),
+    );
+    const invented = await captureError(() =>
+      asUser(t, owner).action(api.functions.files.setNoteGroup, {
+        workspaceId,
+        path: "1-projects/rates.md",
+        group: "@supa-nothing",
+      }),
+    );
+    expect(String(borrowed)).toMatch(/GROUP_NOT_FOUND/);
+    expect(String(invented)).toMatch(/GROUP_NOT_FOUND/);
+    // Byte-identical, so a caller cannot use the refusal to discover that a
+    // name exists in a context they are not in.
+    expect(String(borrowed)).toBe(String(invented));
+  });
+
+  test("an editor cannot point a note at a group", async () => {
+    const { t, owner, editor, workspaceId } = await workspace();
+    await asUser(t, owner).mutation(api.functions.groups.createGroup, {
+      workspaceId,
+      label: "leads",
+    });
+    const refused = await captureError(() =>
+      asUser(t, editor).action(api.functions.files.setNoteGroup, {
+        workspaceId,
+        path: "1-projects/rates.md",
+        group: "@supa-leads",
+      }),
+    );
+    expect(refused).not.toBeNull();
+    // Refused for the role, before the group is even looked up.
+    expect(String(refused)).not.toMatch(/GROUP_NOT_FOUND/);
+  });
+});

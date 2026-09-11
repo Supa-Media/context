@@ -33,7 +33,7 @@
  */
 
 import { v } from "convex/values";
-import { mutation, query } from "../_generated/server";
+import { internalQuery, mutation, query } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { requireAuthId } from "@supa-media/convex/auth";
@@ -313,5 +313,30 @@ export const deleteGroup = mutation({
 
     await ctx.db.delete(args.groupId);
     return null;
+  },
+});
+
+/**
+ * One group of this workspace, by the name a manifest rule carries.
+ *
+ * Internal because it is a lookup for `setNoteGroup`, not a surface: the
+ * public read is `listGroups`, which is owner-only. Scoped to the workspace in
+ * the index rather than filtered afterwards, so a name that belongs to another
+ * context simply is not found — the namespace is global and the authority is
+ * not.
+ */
+export const groupByName = internalQuery({
+  args: { workspaceId: v.id("workspaces"), name: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({ groupId: v.id("workspaceGroups"), name: v.string() }),
+  ),
+  handler: async (ctx, args) => {
+    const group = await ctx.db
+      .query("workspaceGroups")
+      .withIndex("by_name", (q) => q.eq("name", args.name))
+      .unique();
+    if (group === null || group.workspaceId !== args.workspaceId) return null;
+    return { groupId: group._id, name: group.name };
   },
 });

@@ -5213,3 +5213,67 @@ describe("a folder rename keeps the narrower of two colliding rules", () => {
     expect(store.snapshot()[PRIVACY_KEY]).toContain("1-projects/dst/hr: private");
   });
 });
+
+/**
+ * A group value reaching `privacy.md` through the ordinary writer.
+ *
+ * `setNoteGroup` in `functions/files.ts` proves the NAME belongs to this
+ * workspace and then dispatches here; this is the other half — that the writer
+ * treats a group like any other narrowing, which it has since #418 taught
+ * `Visibility` a third case. Beside the writer because this is where there is
+ * a store to write to.
+ */
+describe("a note can be pointed at a group", () => {
+  test("the rule lands in the manifest as an exception", async () => {
+    const store = bucket();
+    await shareProjects(store);
+
+    const result = await setVisibility(store, {
+      path: "1-projects/context-lc.md",
+      visibility: "@supa-leads" as Visibility,
+      scope: "private",
+    });
+
+    expect(result.visibility).toBe("@supa-leads");
+    // An exception, because the folder is `team` and this is not.
+    expect(result.exception).toBe(true);
+    expect(store.snapshot()[PRIVACY_KEY]).toContain("1-projects/context-lc.md: @supa-leads");
+  });
+
+  test("and a team connection cannot read it afterwards", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    // Non-vacuity: readable by the team BEFORE the rule lands.
+    expect(
+      (await readFile(store, { path: "1-projects/context-lc.md", scope: "team" })).visibility,
+    ).toBe("team");
+
+    await setVisibility(store, {
+      path: "1-projects/context-lc.md",
+      visibility: "@supa-leads" as Visibility,
+      scope: "private",
+    });
+
+    const refused = await capture(() =>
+      readFile(store, { path: "1-projects/context-lc.md", scope: "team" }),
+    );
+    expect(refused.code).toBe("FILE_NOT_FOUND");
+  });
+
+  test("pointing it back at its folder's default removes the exception", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    await setVisibility(store, {
+      path: "1-projects/context-lc.md",
+      visibility: "@supa-leads" as Visibility,
+      scope: "private",
+    });
+    const back = await setVisibility(store, {
+      path: "1-projects/context-lc.md",
+      visibility: "team",
+      scope: "private",
+    });
+    expect(back.exception).toBe(false);
+    expect(store.snapshot()[PRIVACY_KEY]).not.toContain("@supa-leads");
+  });
+});

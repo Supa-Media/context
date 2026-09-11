@@ -190,6 +190,7 @@ export function useFileBrowser(options: {
   const archiveEntry = useAction(api.functions.files.archiveEntry);
   const deleteEntry = useAction(api.functions.files.deleteEntry);
   const setNoteVisibility = useAction(api.functions.files.setNoteVisibility);
+  const setNoteGroupAction = useAction(api.functions.files.setNoteGroup);
   const setDirectoryVisibility = useAction(api.functions.files.setDirectoryVisibility);
   const resetPrivacyAction = useAction(api.functions.files.resetPrivacy);
 
@@ -2205,6 +2206,25 @@ export function useFileBrowser(options: {
    * `run` for the manifest, `runShare` for the link — so a refusal arrives in
    * the notice line in the server's own words.
    */
+  /**
+   * Point one note at a group.
+   *
+   * Its own verb rather than a third value on `setVisibility`, which takes the
+   * two tiers and stays that way — see `SettableVisibility`. The server proves
+   * the group belongs to this context before anything is written, so a name
+   * from somebody else's workspace is refused here rather than landing in the
+   * customer's manifest as a rule nobody can account for.
+   */
+  const shareWithGroup = useCallback(
+    (path: string, group: string) => {
+      void run(async () => {
+        await setNoteGroupAction({ workspaceId: workspaceId!, path, group });
+        return { touched: [path] };
+      });
+    },
+    [run, setNoteGroupAction, workspaceId],
+  );
+
   const setScope = useCallback(
     (path: string, kind: "file" | "folder", from: NoteScope, to: NoteScope) => {
       void (async () => {
@@ -2280,6 +2300,7 @@ export function useFileBrowser(options: {
       revokeShareMutation,
       runShare,
       setVisibility,
+      shareWithGroup,
       shares,
       workspaceId,
     ],
@@ -2397,6 +2418,7 @@ export function useFileBrowser(options: {
       archive,
       destroy,
       setVisibility,
+      shareWithGroup,
       setScope,
       openLinkPaths,
       linkPaths,
@@ -2471,6 +2493,7 @@ export function useFileBrowser(options: {
       opening,
       setDraft,
       setVisibility,
+      shareWithGroup,
       setScope,
       openLinkPaths,
       share,
