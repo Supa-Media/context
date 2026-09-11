@@ -14,10 +14,11 @@
  * notes"). A page that spans several contexts has more ways to be empty and
  * each of them is a different thing to do next:
  *
- *  - **Nothing is searchable.** No context this person can reach has fast
- *    search on, so nothing looked. Saying "no matches" here would tell them
- *    their notes are not there, which is the one claim this feature exists to
- *    stop making wrongly. The way out is a setting, and the copy points at it.
+ *  - **There is nothing to search.** This person is in no context at all —
+ *    a brand-new account between signing in and finishing onboarding. It used
+ *    to be a much wider case and a much worse one: "no context you can reach
+ *    has fast search switched on, so nothing was searched", shown to somebody
+ *    with four contexts and a question. See below.
  *  - **The scope was narrowed to nothing that matched.** They have contexts;
  *    they searched two of five. Widening is one press away and the copy says so.
  *  - **Everything was searched and nothing matched.** The only case where "no
@@ -29,6 +30,21 @@
  * They are one enum rather than a chain of ternaries in a component, so each
  * one is a named case with a test, and adding a fifth cannot silently fall into
  * the "no matches" arm.
+ *
+ * ## Fast search is a speed, and it stopped being a gate
+ *
+ * Every context somebody belongs to is searched. The ones with a hosted index
+ * answer from a database; the rest answer from the R2 shard index in their own
+ * bucket, which is slower and is the product as it already is —
+ * `lib/fastSearch.ts` in the control plane has said so from the beginning:
+ * "the fast path is an upgrade, and its absence is the product as it already
+ * is, rather than a broken search waiting for a toggle."
+ *
+ * This page did not believe it, and what it drew instead is the reason this
+ * paragraph is here: an account with no Premium context got a page with a
+ * search field, four lines of apology, and no way to search anything. The
+ * upsell below is what that apology is *for* — an offer beside a working
+ * search, never instead of one.
  */
 
 /** One blended result, as the control plane sends it. */
@@ -58,31 +74,35 @@ export interface BlendedAnswer {
   matchCountIsFloor: boolean;
   cursor: string | null;
   sources: BlendedSource[];
-  eligibleCount: number;
+  /** How many contexts this viewer could search at all, whatever they selected. */
+  searchableCount: number;
 }
 
-/** A context the viewer may search, for the scope picker. */
+/**
+ * A context this page searches, and how it will be answered.
+ *
+ * Mirrors the control plane's own `SearchableContext` field for field —
+ * `search`, `fastSearch` and `owner` included — because a client that
+ * re-derived any of them would be a second place for this page to disagree
+ * with the settings card it points at.
+ */
 export interface SearchableContext {
   workspaceId: string;
   slug: string;
   displayName: string;
+  /** `"fast"` from a hosted index, `"slow"` from the context's own bucket. */
+  search: "fast" | "slow";
+  /** Why it is not fast, in the settings card's own words. `"on"` when it is. */
+  fastSearch: "off" | "preparing" | "on" | "failed" | "unavailable";
+  /** Whether this viewer may change that. */
+  owner: boolean;
 }
 
-/**
- * A context the viewer belongs to that this page will not reach, and why.
- *
- * Mirrors the control plane's own `UnsearchableContext` — same fields, same
- * `state` vocabulary (`FastSearchState`, minus `"on"`), because a client that
- * re-derived either would be a second place for the nudge to disagree with the
- * settings card it points at.
- */
-export interface UnsearchableContext {
-  workspaceId: string;
-  slug: string;
-  displayName: string;
-  /** Whether this viewer may turn fast search on for it. */
-  owner: boolean;
-  state: "off" | "preparing" | "failed" | "unavailable";
+/** The contexts answering the slow way — what the upsell is built from. */
+export function slowContexts(
+  contexts: readonly SearchableContext[],
+): SearchableContext[] {
+  return contexts.filter((context) => context.search === "slow");
 }
 
 /**
@@ -98,13 +118,13 @@ export const MIN_QUERY = 3;
 export type PageState =
   /** Nothing typed yet, or not enough of it. */
   | "idle"
-  /** No context this viewer can reach has fast search on. Nothing looked. */
+  /** This viewer is in no context at all, so there was nothing to ask. */
   | "no-contexts"
   /** In flight, with nothing to show underneath. */
   | "searching"
   /** The request itself did not arrive. Different from a source failing. */
   | "failed"
-  /** Answered, nothing matched, and everything eligible was searched. */
+  /** Answered, nothing matched, and every context in reach was searched. */
   | "empty"
   /** Answered, nothing matched, and the scope was narrower than everything. */
   | "filtered"
@@ -123,16 +143,16 @@ export function pageState(input: {
 }): PageState {
   if (input.failed) return "failed";
   if (input.query.trim().length < MIN_QUERY) {
-    // An eligible count of zero outranks "type something", because there is
+    // A searchable count of zero outranks "type something", because there is
     // nothing to type into. It is only known once an answer has arrived, which
     // is why this is not the first line of the function.
-    return input.answer !== null && input.answer.eligibleCount === 0 ? "no-contexts" : "idle";
+    return input.answer !== null && input.answer.searchableCount === 0 ? "no-contexts" : "idle";
   }
   if (input.answer === null) return input.loading ? "searching" : "idle";
-  if (input.answer.eligibleCount === 0) return "no-contexts";
+  if (input.answer.searchableCount === 0) return "no-contexts";
   if (input.answer.results.length === 0) {
     if (input.loading) return "searching";
-    return input.selected > 0 && input.selected < input.answer.eligibleCount
+    return input.selected > 0 && input.selected < input.answer.searchableCount
       ? "filtered"
       : "empty";
   }
@@ -151,10 +171,12 @@ export function pageState(input: {
 export function emptyMessage(state: PageState, query: string): string {
   switch (state) {
     case "no-contexts":
-      return (
-        "No context you can reach has fast search switched on, so nothing was " +
-        "searched. An owner can turn it on in a context's settings."
-      );
+      // Now a genuinely empty account rather than an unpaid one. The sentence
+      // it replaced — "no context you can reach has fast search switched on,
+      // so nothing was searched" — was the whole defect: true, unactionable,
+      // and shown to people whose notes were sitting in a bucket this page
+      // could have read the slow way.
+      return "You are not in a context yet, so there is nothing to search.";
     case "filtered":
       return `Nothing in the contexts you selected matches “${query.trim()}”. Widen the scope to search the rest.`;
     case "empty":
@@ -177,7 +199,7 @@ export function emptyMessage(state: PageState, query: string): string {
 /**
  * Turning a chip on or off.
  *
- * The empty selection means **all eligible contexts**, not none, and that is
+ * The empty selection means **every context in reach**, not none, and that is
  * the one thing about the scope worth stating: a picker whose empty state meant
  * "search nothing" would make "clear the filters" the button that empties the
  * page. Turning the last chip off therefore returns to everything, which is
@@ -193,18 +215,23 @@ export function toggleScope(selected: readonly string[], slug: string): string[]
 /**
  * What the scope control says it is set to.
  *
- * Always visible and always specific: "All fast-search contexts" or the names
+ * Always visible and always specific: "All your contexts" or the names
  * themselves up to three, then a count. A control that said "3 selected" would
  * make somebody open it to find out which three, every time.
+ *
+ * It read "All fast-search contexts" while the page searched only those, and
+ * the phrase is retired with the restriction: a label naming the index a search
+ * happens to use, on a page that searches everything either way, describes our
+ * plumbing rather than the person's scope.
  */
 export function scopeLabel(
   selected: readonly string[],
-  eligible: readonly SearchableContext[],
+  reachable: readonly SearchableContext[],
 ): string {
-  const live = selected.filter((slug) => eligible.some((context) => context.slug === slug));
-  if (live.length === 0 || live.length === eligible.length) return "All fast-search contexts";
+  const live = selected.filter((slug) => reachable.some((context) => context.slug === slug));
+  if (live.length === 0 || live.length === reachable.length) return "All your contexts";
   if (live.length <= 3) return live.map((slug) => `@${slug}`).join(", ");
-  return `${live.length} of ${eligible.length} contexts`;
+  return `${live.length} of ${reachable.length} contexts`;
 }
 
 /**
@@ -217,9 +244,9 @@ export function scopeLabel(
  */
 export function scopeIds(
   selected: readonly string[],
-  eligible: readonly SearchableContext[],
+  reachable: readonly SearchableContext[],
 ): string[] {
-  return eligible
+  return reachable
     .filter((context) => selected.includes(context.slug))
     .map((context) => context.workspaceId);
 }
@@ -287,102 +314,140 @@ export function noteworthySources(answer: BlendedAnswer | null): {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                        the nudge toward fast search                        */
+/*                        the upsell, beside a working search                 */
 /* -------------------------------------------------------------------------- */
 
 /**
- * A row in the nudge: which of the viewer's contexts is not searchable here,
- * what to say about it, and — only where there is something to press — where
- * that press goes.
+ * A row of the upsell: one context that answered the slow way, what to say
+ * about it, and — only where there is something to press — where that press
+ * goes.
+ *
+ * **This is an offer beside a working search, never a reason there is none.**
+ * The rows it replaced were an apology for a page that had searched nothing;
+ * these sit under results the same page has already produced, and the
+ * difference is the whole point of the change they belong to.
  *
  * `href` is deliberately absent rather than disabled for a context nobody can
- * act on right now (a member watching another owner's "off", or one that is
- * still `preparing`): the reviewer's own words about the page as a whole apply
- * here at the row level too — the fix is a nudge, never a control offered to
- * somebody it would refuse.
+ * act on right now: the fix is an offer, never a control offered to somebody
+ * it would refuse.
  */
-export interface NudgeRow {
+export interface UpsellRow {
   workspaceId: string;
   slug: string;
   message: string;
-  /** The context's own settings pane — reused, never a switch drawn here. */
+  /** What the press says it will do — absent wherever `href` is null. */
+  action: string | null;
+  /** A settings pane that already exists — never a switch drawn here. */
   href: string | null;
 }
 
 /**
- * Whether a context the viewer owns is sitting there un-searchable, is a
- * question worth answering on its own — it is the trigger for showing the
- * nudge in the scope picker even while other contexts already answer.
+ * Where an upsell row's press goes, by what is actually in the way.
  *
- * Zero eligible contexts is the other trigger, and it is asked at the call
- * site rather than folded in here: it is a fact about the *answer*
- * (`eligibleCount`), not about this list, and folding it in would make this
- * function need an argument it otherwise has no business with.
+ * Two destinations, because `lib/fastSearch.ts` keeps two conditions apart and
+ * this is the surface where that separation earns itself: "you are not paying
+ * for this" and "you have not asked for this" are different sentences with
+ * different next steps, and one of them must never be answered by the other's
+ * screen. An owner who has not paid is sent to Premium; an owner who has is
+ * sent to the switch.
  */
-export function ownsAnUnsearchableContext(
-  notEligible: readonly UnsearchableContext[],
-): boolean {
-  return notEligible.some((context) => context.owner);
+export type UpsellTarget = "premium" | "search";
+
+export function upsellTarget(context: SearchableContext): UpsellTarget | null {
+  if (!context.owner) return null;
+  switch (context.fastSearch) {
+    case "unavailable":
+      return "premium";
+    case "off":
+    case "failed":
+      return "search";
+    // Nothing to press. A backfill in progress is not sped up by opening its
+    // settings, and a context already serving is not in this list at all.
+    case "preparing":
+    case "on":
+      return null;
+  }
 }
 
 /**
- * The sentence for one context that cannot be searched here, in the second
- * person where the viewer can act and the third where only an owner can.
+ * The sentence for one context that answered from its own bucket, in the
+ * second person where the viewer can act and the third where only an owner can.
+ *
+ * Every one of them says the search **worked**, because it did. The old
+ * wording ("Fast search is off for @slug.") was written for a page where that
+ * meant the context had not been searched; said over a list of results from
+ * that same context it would read as a warning about answers a person is
+ * looking at.
  *
  * `preparing` reuses the settings card's own word for "opted in and not yet
  * actually serving" (`describeFastSearch`'s "Preparing the index") rather than
  * inventing "backfilling" as a second name for the same thing — one context
  * cannot be "backfilling" here and "preparing" on its own settings screen.
  */
-export function nudgeMessage(context: UnsearchableContext): string {
-  switch (context.state) {
+export function upsellMessage(context: SearchableContext): string {
+  switch (context.fastSearch) {
+    case "unavailable":
+      return context.owner
+        ? `@${context.slug} was searched from your own bucket, which is slower. Fast search is part of Premium.`
+        : `@${context.slug} was searched from its own bucket, which is slower.`;
     case "off":
       return context.owner
-        ? `Fast search is off for @${context.slug}.`
-        : `@${context.slug}'s owner has not turned fast search on.`;
+        ? `@${context.slug} was searched from your own bucket, which is slower. Fast search makes it instant.`
+        : `@${context.slug} was searched from its own bucket, which is slower. Its owner can turn fast search on.`;
     case "preparing":
-      // Never "nothing here": the same rule `noteworthySources` follows for a
-      // source mid-search applies before a search is even asked.
-      return `@${context.slug} is still being indexed.`;
+      return `@${context.slug}'s fast index is still being built, so this search read its bucket.`;
     case "failed":
       return context.owner
-        ? `@${context.slug}'s index could not be prepared.`
-        : `@${context.slug}'s index could not be prepared. Only its owner can try again.`;
-    case "unavailable":
-      return `Fast search is not available for @${context.slug}.`;
+        ? `@${context.slug}'s fast index could not be prepared, so this search read your bucket.`
+        : `@${context.slug}'s fast index could not be prepared. Only its owner can try again.`;
+    case "on":
+      // Not reachable: a context serving from the hosted index is never in
+      // this list. Named rather than defaulted so a sixth state cannot arrive
+      // here silently.
+      return `@${context.slug} is searched from the fast index.`;
+  }
+}
+
+/** The press's own label, or `null` where there is nothing to press. */
+export function upsellAction(context: SearchableContext): string | null {
+  switch (upsellTarget(context)) {
+    case "premium":
+      return "See Premium";
+    case "search":
+      return "Turn it on";
+    case null:
+      return null;
   }
 }
 
 /**
- * Whether this row has a press an owner can act on right now.
+ * The upsell's rows, built from the contexts that answered the slow way — the
+ * server's own list, so a workspace the viewer is not a member of cannot
+ * appear here any more than it can in the scope.
  *
- * Only `off` and `failed`, and only for an owner: `preparing` has nothing to
- * press — a backfill in progress is not sped up by opening its settings — and
- * `unavailable` has no switch to reach, because there is no entitlement to
- * turn on. A non-owner never gets a press: the card behind it refuses them,
- * and a button that reaches a permission error is worse than no button.
- */
-function actionable(context: UnsearchableContext): boolean {
-  return context.owner && (context.state === "off" || context.state === "failed");
-}
-
-/**
- * The nudge's rows, built from the contexts the viewer belongs to that this
- * page cannot reach — the server's own list, so a workspace the viewer is not
- * a member of cannot appear here any more than it can in `eligible`.
+ * `href` comes from the caller rather than being built here, because the two
+ * destinations are settings sections this console already routes to and a
+ * second copy of those URLs is a second thing to keep in step.
  *
- * `settingsHref` rather than a new switch: the task this exists for is
- * pointing at the one control that already changes this, not building a
- * second one three taps closer.
+ * **Every slow context gets a row, press or no press.** A row nobody can act
+ * on is still worth saying — it is what explains why an answer took a moment,
+ * and withholding it from the people who cannot change it would leave exactly
+ * them with an unexplained slow page. `noteworthySources` already draws its
+ * `indexing` row on the same rule, and for the same reason: what a person can
+ * do about a fact is not what decides whether they are told it.
  */
-export function nudgeRows(
-  notEligible: readonly UnsearchableContext[],
-  settingsHref: (slug: string) => string,
-): NudgeRow[] {
-  return notEligible.map((context) => ({
-    workspaceId: context.workspaceId,
-    slug: context.slug,
-    message: nudgeMessage(context),
-    href: actionable(context) ? settingsHref(context.slug) : null,
-  }));
+export function upsellRows(
+  contexts: readonly SearchableContext[],
+  href: (slug: string, target: UpsellTarget) => string,
+): UpsellRow[] {
+  return slowContexts(contexts).map((context) => {
+    const target = upsellTarget(context);
+    return {
+      workspaceId: context.workspaceId,
+      slug: context.slug,
+      message: upsellMessage(context),
+      action: upsellAction(context),
+      href: target === null ? null : href(context.slug, target),
+    };
+  });
 }

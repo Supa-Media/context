@@ -37,7 +37,6 @@ import {
   type BlendedResult,
   type PageState,
   type SearchableContext,
-  type UnsearchableContext,
 } from "./results";
 
 /**
@@ -57,9 +56,11 @@ export interface BlendedSearchView {
   state: PageState;
   results: BlendedResult[];
   answer: BlendedAnswer | null;
-  eligible: SearchableContext[];
-  /** The viewer's own contexts this page cannot reach, and why — for the nudge. */
-  notEligible: UnsearchableContext[];
+  /**
+   * Every context this page searches, and how each one is answered — the scope
+   * picker's list and the upsell's, which are now the same list.
+   */
+  contexts: SearchableContext[];
   /** Whether another page exists. */
   hasMore: boolean;
   loadingMore: boolean;
@@ -71,7 +72,7 @@ export interface BlendedSearchView {
 
 export function useBlendedSearch(options: {
   query: string;
-  /** Context slugs from the URL. Empty means every eligible context. */
+  /** Context slugs from the URL. Empty means every context in reach. */
   slugs: readonly string[];
 }): BlendedSearchView {
   const convex = useConvex();
@@ -80,8 +81,8 @@ export function useBlendedSearch(options: {
   /*
     `useQueries` rather than `useQuery`, for the reason `useLiveConsoleData`
     gives at length: a failed `useQuery` re-throws during render and would take
-    the whole console down from inside a pane. A thrown eligible list is an
-    empty one here, and the page then draws "nothing is searchable" — which is
+    the whole console down from inside a pane. A thrown context list is an
+    empty one here, and the page then draws "nothing to search" — which is
     wrong but survivable, and is corrected the moment the query recovers.
 
     `api.…` is reached for inside the memo and never in a dependency array: it
@@ -96,26 +97,16 @@ export function useBlendedSearch(options: {
   );
   const answers = useQueries(spec);
   /*
-    The query answers `{ eligible, notEligible }` rather than a bare array now
-    — see `fastSearch.searchScopeFor`. A thrown or not-yet-landed query is
-    `undefined` here (see the comment above `spec`), and both halves default to
-    empty exactly the way the bare array used to: an empty `eligible` draws
-    "nothing is searchable", which is wrong but survivable, and an empty
-    `notEligible` simply shows no nudge rather than a false one.
+    The query answers `{ contexts }` rather than a bare array — see
+    `fastSearch.searchScopeFor`. A thrown or not-yet-landed query is `undefined`
+    here (see the comment above `spec`) and defaults to empty exactly the way
+    the bare array used to: an empty list draws "nothing to search", which is
+    wrong but survivable, and is corrected the moment the query recovers.
   */
-  const known = useMemo<{ eligible: SearchableContext[]; notEligible: UnsearchableContext[] }>(() => {
-    const value = answers.contexts as
-      | { eligible?: unknown; notEligible?: unknown }
-      | undefined;
-    return {
-      eligible: Array.isArray(value?.eligible) ? (value.eligible as SearchableContext[]) : [],
-      notEligible: Array.isArray(value?.notEligible)
-        ? (value.notEligible as UnsearchableContext[])
-        : [],
-    };
+  const contexts = useMemo<SearchableContext[]>(() => {
+    const value = answers.contexts as { contexts?: unknown } | undefined;
+    return Array.isArray(value?.contexts) ? (value.contexts as SearchableContext[]) : [];
   }, [answers.contexts]);
-  const eligible = known.eligible;
-  const notEligible = known.notEligible;
 
   const [answer, setAnswer] = useState<BlendedAnswer | null>(null);
   const [results, setResults] = useState<BlendedResult[]>([]);
@@ -150,7 +141,7 @@ export function useBlendedSearch(options: {
    */
   const newestPage = useRef(0);
   const newestRetry = useRef(0);
-  const scope = useMemo(() => scopeIds(slugs, eligible), [slugs, eligible]);
+  const scope = useMemo(() => scopeIds(slugs, contexts), [slugs, contexts]);
   const question = useMemo(
     // The separator is an ESCAPE, never the character: a literal NUL makes
     // git treat the file as binary, so it has no diff and cannot be
@@ -164,7 +155,7 @@ export function useBlendedSearch(options: {
   const ask = useCallback(
     // `Id<"workspaces">` rather than `string`, so what this forwards is the
     // type the control plane's own validator names. `scopeIds` reads the ids
-    // off the eligible list the server sent, which is the only place a real
+    // off the context list the server sent, which is the only place a real
     // one comes from — so the cast sits at that boundary and nowhere else.
     async (args: { query: string; contexts?: Id<"workspaces">[]; cursor?: string }) =>
       await raceTimeout(
@@ -191,8 +182,8 @@ export function useBlendedSearch(options: {
       setResults([]);
       setLoading(false);
       setFailed(false);
-      // The answer is kept rather than cleared, and only for `eligibleCount`:
-      // it is what lets an emptied field still say "nothing is searchable"
+      // The answer is kept rather than cleared, and only for `searchableCount`:
+      // it is what lets an emptied field still say "nothing to search"
       // instead of falling back to "type something" for somebody who cannot.
       return;
     }
@@ -312,14 +303,13 @@ export function useBlendedSearch(options: {
       state,
       results,
       answer,
-      eligible,
-      notEligible,
+      contexts,
       hasMore: typeof answer?.cursor === "string",
       loadingMore,
       loadMore,
       retry,
       retrying,
     }),
-    [state, results, answer, eligible, notEligible, loadingMore, loadMore, retry, retrying],
+    [state, results, answer, contexts, loadingMore, loadMore, retry, retrying],
   );
 }
