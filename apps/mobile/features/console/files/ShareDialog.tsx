@@ -37,8 +37,8 @@ import { fonts, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { baseName } from "./paths";
 import { accessRows, accessSummary, type AccessMember } from "./access";
-import { recipientsFor, type RecipientGroup } from "./recipients";
-import type { Visibility } from "./types";
+import { noMatchHint, recipientsFor, type RecipientGroup } from "./recipients";
+import { isGroupVisibility, type Visibility } from "./types";
 import {
   describeOpenLink,
   describePersonalShare,
@@ -191,22 +191,34 @@ export function ShareDialog({
   const ready = recipient.trim() !== "";
 
   /*
-    Built from what the dialog already has: `access.members` is this context's
-    people and `groups` its groups. Anybody already on the note is excluded —
-    offering to share with somebody who can read it is offering to do nothing.
+    Who this note reaches, computed ONCE and read by both the list below and
+    the suggestions above it.
+
+    That sharing is the fix rather than a tidy-up. The suggestions used to take
+    their own exclusion set — every member of the workspace — while the list
+    took `accessRows`, so the two disagreed about who had the note and the
+    disagreement was invisible: on a team-visible note the list showed four
+    people and the field, having excluded all four, showed nothing at all for
+    any name you typed. One source, one answer.
   */
-  const suggestions = recipientsFor(
-    recipient,
-    access?.members ?? [],
-    groups ?? [],
-    {
-      excludeUserIds: new Set((access?.members ?? []).map((member) => member.userId)),
-      excludeGroups:
-        access !== undefined && access.visibility.startsWith("@")
-          ? new Set([access.visibility.slice(1)])
-          : undefined,
-    },
+  const rows =
+    access === undefined
+      ? []
+      : accessRows(access.visibility, access.exception, access.members);
+  const reachingUserIds = new Set(
+    rows.filter((row) => row.role !== "group").map((row) => row.key),
   );
+  const reachingGroups =
+    access !== undefined && isGroupVisibility(access.visibility)
+      ? new Set([access.visibility.slice(1)])
+      : undefined;
+
+  const suggestions = recipientsFor(recipient, access?.members ?? [], groups ?? [], {
+    reachingUserIds,
+    reachingGroups,
+  });
+  // Only when something was typed and nothing came back. See `noMatchHint`.
+  const emptyHint = suggestions.length === 0 ? noMatchHint(recipient) : undefined;
 
   const submit = () => {
     if (!ready) return;
@@ -274,31 +286,63 @@ export function ShareDialog({
               mints the share row that already existed. Different verbs, one
               field, because the difference is ours and not theirs.
             */}
+            {emptyHint === undefined ? null : (
+              <Text variant="meta" style={styles.suggestionDetail} testID="share-no-match">
+                {emptyHint}
+              </Text>
+            )}
+
             {suggestions.length === 0 ? null : (
               <View style={styles.suggestions} testID="share-suggestions">
-                {suggestions.map((row) => (
-                  <Pressable
-                    key={`${row.kind}:${row.key}`}
-                    style={styles.suggestion}
-                    accessibilityLabel={`Share with ${row.label}`}
-                    testID={`share-suggest-${row.key}`}
-                    onPress={() => {
-                      setRecipient("");
-                      if (row.kind === "group" && onShareWithGroup !== undefined) {
-                        onShareWithGroup(row.group!);
-                        return;
-                      }
-                      onShare(row.kind === "member" ? row.label : row.key);
-                    }}
-                  >
-                    <Text variant="rowTitle">{row.label}</Text>
-                    {row.detail === undefined ? null : (
-                      <Text variant="meta" style={styles.suggestionDetail}>
-                        {row.detail}
+                {suggestions.map((row) =>
+                  /*
+                    An answer, not an offer. A row for somebody who already
+                    reaches the note is drawn as a statement with no press
+                    behind it — pressing it would mint a share that grants
+                    nothing, and a control that does nothing is the defect this
+                    console keeps recording against itself. It is still SHOWN,
+                    which is the whole point: "no rows" could not tell
+                    "they already have it" from "no such person".
+                  */
+                  row.reaches === true ? (
+                    <View
+                      key={`${row.kind}:${row.key}`}
+                      style={[styles.suggestion, styles.suggestionReaching]}
+                      testID={`share-reaching-${row.key}`}
+                    >
+                      <Text variant="rowTitle" style={styles.suggestionMuted}>
+                        {row.label}
                       </Text>
-                    )}
-                  </Pressable>
-                ))}
+                      {row.detail === undefined ? null : (
+                        <Text variant="meta" style={styles.suggestionDetail}>
+                          {row.detail}
+                        </Text>
+                      )}
+                    </View>
+                  ) : (
+                    <Pressable
+                      key={`${row.kind}:${row.key}`}
+                      style={styles.suggestion}
+                      accessibilityLabel={`Share with ${row.label}`}
+                      testID={`share-suggest-${row.key}`}
+                      onPress={() => {
+                        setRecipient("");
+                        if (row.kind === "group" && onShareWithGroup !== undefined) {
+                          onShareWithGroup(row.group!);
+                          return;
+                        }
+                        onShare(row.kind === "member" ? row.label : row.key);
+                      }}
+                    >
+                      <Text variant="rowTitle">{row.label}</Text>
+                      {row.detail === undefined ? null : (
+                        <Text variant="meta" style={styles.suggestionDetail}>
+                          {row.detail}
+                        </Text>
+                      )}
+                    </Pressable>
+                  ),
+                )}
               </View>
             )}
 
@@ -318,7 +362,7 @@ export function ShareDialog({
                   <Text variant="paneSub">
                     {accessSummary(access.visibility, access.exception)}
                   </Text>
-                  {accessRows(access.visibility, access.exception, access.members).map((row) => (
+                  {rows.map((row) => (
                     <View key={row.key} style={styles.accessRow}>
                       <View style={styles.accessMain}>
                         <Text variant="rowTitle">{row.label}</Text>
@@ -599,6 +643,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     overflow: "hidden",
   },
   suggestion: { paddingVertical: 8, paddingHorizontal: 10, gap: 2 },
+  /* An answer rather than an offer: on the well, so it does not read as a button. */
+  suggestionReaching: { backgroundColor: colors.well },
+  suggestionMuted: { color: colors.text2 },
   suggestionDetail: { color: colors.muted },
   previewRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   previewText: { flexGrow: 1, flexShrink: 1 },
