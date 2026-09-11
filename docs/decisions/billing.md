@@ -223,14 +223,33 @@ rather than from `appSecrets`, and `unauthorized()` on failure. Folding the two
 kinds together would mean one of those questions being asked of a route it does
 not fit, which is how an enumeration stops meaning anything.
 
+## Fast Search is a paid, fresh derivative
+
+Fast Search is consumed from the plan: a workspace must be paying and its
+owner must have selected `fastSearch`. The paid selection is also the opt-in to
+keep derived note text in a database we operate; the old standalone endpoint
+cannot bypass billing.
+
+Rows created before this contract have no `generation` and are never served,
+even if they say `ready`. On the first paid opt-in the control plane clears the
+old database coordinates, records `premium-v1`, and provisions a fresh database
+from the canonical files. It deliberately does not send legacy coordinates to
+the current customer-data account's delete API: those coordinates name the
+retired account and must be retired there as an operator task.
+
+An owner changing an already-active plan schedules the same idempotent sync as
+the Stripe activation webhook. Selecting Fast Search starts the fresh index;
+deselecting it releases the current-generation database. A lapse removes the
+entitlement and schedules that same release. A webhook replay cannot create a
+second current-generation index.
+
 ## What is deliberately not built
 
-- **Enforcement.** The plan row records entitlements and nothing consumes them
-  yet: `fastSearchEntitled` still returns true for every context, managed
-  storage is not provisioned from a plan, and no write path is made read-only
-  by a lapse. Wiring any of those is a behaviour change to a live feature and
-  belongs in its own pull request — turning `fastSearchEntitled` into a plan
-  check would switch fast search off for everybody currently using it.
+- **Complete enforcement.** Fast Search consumes its paid entitlement and
+  managed storage is provisioned for a new unbound context, but no write path
+  is made read-only by a lapse yet. Existing BYO/Dropbox storage also still
+  needs the copy-and-cutover migration described in the UX contract; an
+  existing binding is never silently replaced.
 - **Metering.** `MANAGED_STORAGE_CEILING_BYTES` is stated and not measured.
   The console shows a note count and says in words that stored bytes are not
   metered yet, because a bar drawn against a denominator nobody measured is a

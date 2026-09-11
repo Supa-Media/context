@@ -396,6 +396,17 @@ export const setEntitlements = mutation({
       });
     }
 
+    // On an already-paying context, the owner's selection is the action. The
+    // sync re-reads this row, so scheduling it inside this transaction cannot
+    // race the old value and cannot let the client choose a workspace twice.
+    if (planIsPaying(planStatus)) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.fastSearch.syncPremiumSelection,
+        { workspaceId: args.workspaceId, actorUserId: userId },
+      );
+    }
+
     /*
       A live attempt's snapshot follows the choice.
 
@@ -859,6 +870,31 @@ export const applyStripeEvent = internalMutation({
           { workspaceId: plan.workspaceId },
         );
       }
+    }
+
+    /*
+      FAST SEARCH IS REBUILT FROM FILES AFTER THE PAID CHOICE.
+
+      Every active/canceled update schedules the same idempotent sync. Active
+      creates the current generation only where Fast Search was selected;
+      canceled or deselected releases it. A legacy row has no generation and
+      therefore cannot serve during the gap.
+    */
+    const owners = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", plan.workspaceId))
+      .collect();
+    const sessionOwner = owners.find(
+      (member) => member.role === "owner" && member.userId === session?.startedBy,
+    );
+    const premiumActor =
+      sessionOwner?.userId ?? owners.find((member) => member.role === "owner")?.userId;
+    if (premiumActor !== undefined) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.fastSearch.syncPremiumSelection,
+        { workspaceId: plan.workspaceId, actorUserId: premiumActor },
+      );
     }
 
     return { applied: true, reason: status };

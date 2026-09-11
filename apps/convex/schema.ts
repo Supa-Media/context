@@ -1931,6 +1931,14 @@ const schema = defineSchema({
   searchIndexes: defineTable({
     workspaceId: v.id("workspaces"),
     /**
+     * Which product contract created this derivative.
+     *
+     * Rows written before Premium launched have no generation and are never
+     * served. A paid opt-in replaces their remote coordinates and provisions a
+     * fresh database in the customer-data account; the files remain canonical.
+     */
+    generation: v.optional(v.literal("premium-v1")),
+    /**
      * The owner's answer, and the reason the row exists.
      *
      * Stored rather than implied by the row's existence because the two come

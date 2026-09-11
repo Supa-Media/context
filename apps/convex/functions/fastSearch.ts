@@ -3,7 +3,8 @@
  *
  * The gate itself — what "on" means and why it is two conditions — is
  * `lib/fastSearch.ts`. This file is the surface: one query the settings screen
- * reads, and two mutations an **owner** calls.
+ * reads, two owner mutations, and the internal sync that applies a paid
+ * Premium selection.
  *
  * ## Owner-only, and why that is not the same as write access
  *
@@ -41,6 +42,7 @@ import { recordAudit } from "./lib/audit";
 import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAuth";
 import {
   BACKFILL_STALL_MS,
+  FAST_SEARCH_GENERATION,
   PROJECTION_CHAIN,
   backfillPercent,
   fastSearchEntitled,
@@ -67,6 +69,16 @@ async function bindingFor(
 ): Promise<Doc<"searchIndexes"> | null> {
   return await ctx.db
     .query("searchIndexes")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+}
+
+async function planFor(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<Doc<"workspacePlans"> | null> {
+  return await ctx.db
+    .query("workspacePlans")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
 }
@@ -201,13 +213,14 @@ export const status = query({
       userId,
     );
     const binding = await bindingFor(ctx, args.workspaceId);
+    const plan = await planFor(ctx, args.workspaceId);
 
     const isOwner = membership.role === "owner";
-    const state = fastSearchState(workspace, binding);
+    const state = fastSearchState(workspace, plan, binding);
 
     return {
       state,
-      canChange: isOwner && fastSearchEntitled(workspace),
+      canChange: isOwner && fastSearchEntitled(workspace, plan),
       notesIndexed: isOwner ? binding?.notesIndexed : undefined,
       notesPending: isOwner ? binding?.notesPending : undefined,
       // `isOwner &&` rather than a ternary over the computed value, so the
@@ -251,7 +264,8 @@ export const enable = mutation({
       "owner",
     );
 
-    if (!fastSearchEntitled(workspace)) {
+    const plan = await planFor(ctx, args.workspaceId);
+    if (!fastSearchEntitled(workspace, plan)) {
       throw new ConvexError({
         code: "NOT_ENTITLED",
         message: "Fast search is not available for this context.",
@@ -275,7 +289,7 @@ export const enable = mutation({
       // Shipped that way, and found only by reading `updatedAt` on a row a
       // person had pressed the button on repeatedly: it still held the
       // timestamp of the original failure, hours earlier.
-      return { state: fastSearchState(workspace, existing) };
+      return { state: fastSearchState(workspace, plan, existing) };
     }
 
     if (existing !== null) {
@@ -284,17 +298,28 @@ export const enable = mutation({
       // lookup — and deliberately keeps `databaseId` if the release had not
       // finished, so the sweep still knows what to delete if this fails again.
       await ctx.db.patch(existing._id, {
+        generation: FAST_SEARCH_GENERATION,
         optedIn: true,
         optedInBy: userId,
         optedInAt: now,
         status: "provisioning",
         errorCode: undefined,
         error: undefined,
+        ...(existing.generation === FAST_SEARCH_GENERATION
+          ? {}
+          : {
+              databaseId: undefined,
+              databaseName: undefined,
+              schemaVersion: undefined,
+              notesIndexed: undefined,
+              notesPending: undefined,
+            }),
         updatedAt: now,
       });
     } else {
       await ctx.db.insert("searchIndexes", {
         workspaceId: args.workspaceId,
+        generation: FAST_SEARCH_GENERATION,
         optedIn: true,
         optedInBy: userId,
         optedInAt: now,
@@ -313,7 +338,7 @@ export const enable = mutation({
     await ctx.scheduler.runAfter(
       0,
       internal.functions.fastSearchProvision.provisionIndex,
-      { workspaceId: args.workspaceId },
+      { workspaceId: args.workspaceId, generation: FAST_SEARCH_GENERATION },
     );
 
     return { state: "preparing" };
@@ -340,11 +365,15 @@ export const disable = mutation({
     );
 
     const existing = await bindingFor(ctx, args.workspaceId);
-    if (existing === null) return { state: fastSearchState(workspace, null) };
+    const plan = await planFor(ctx, args.workspaceId);
+    if (existing === null) return { state: fastSearchState(workspace, plan, null) };
 
     const now = Date.now();
 
-    if (existing.databaseId === undefined) {
+    if (
+      existing.generation !== FAST_SEARCH_GENERATION ||
+      existing.databaseId === undefined
+    ) {
       // Nothing was ever created — a failed provision, or an opt-in that was
       // reversed before it got that far. There is nothing to delete, so the
       // row goes now and the context is back to "never asked".
@@ -369,6 +398,119 @@ export const disable = mutation({
     });
 
     return { state: "off" };
+  },
+});
+
+/**
+ * Apply the paid selection after Stripe activates it, or immediately when an
+ * owner changes an already-active plan.
+ *
+ * This is deliberately a mutation rather than an action: it never opens the
+ * D1 credential. It records the consent-backed generation and schedules the
+ * existing provisioner, preserving the credential boundary.
+ */
+export const syncPremiumSelection = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+  },
+  returns: v.object({ state: stateValidator }),
+  handler: async (ctx, args): Promise<{ state: FastSearchState }> => {
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (workspace === null) return { state: "unavailable" };
+    const membership = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace_user", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("userId", args.actorUserId),
+      )
+      .unique();
+    if (membership?.role !== "owner") return { state: "unavailable" };
+
+    const plan = await planFor(ctx, args.workspaceId);
+    const existing = await bindingFor(ctx, args.workspaceId);
+    const entitled = fastSearchEntitled(workspace, plan);
+
+    if (!entitled) {
+      if (existing === null) return { state: "unavailable" };
+      if (existing.generation !== FAST_SEARCH_GENERATION) {
+        // Legacy coordinates belong to the retired generation and account.
+        // They are intentionally not sent to the current account's delete API.
+        await ctx.db.delete(existing._id);
+        return { state: "unavailable" };
+      }
+      if (existing.databaseId === undefined) {
+        await ctx.db.delete(existing._id);
+      } else {
+        await ctx.db.patch(existing._id, {
+          optedIn: false,
+          status: "releasing",
+          updatedAt: Date.now(),
+        });
+        await ctx.scheduler.runAfter(
+          0,
+          internal.functions.fastSearchProvision.releaseIndex,
+          { workspaceId: args.workspaceId },
+        );
+      }
+      await recordAudit(ctx, {
+        workspaceId: args.workspaceId,
+        actorUserId: args.actorUserId,
+        action: "search.fast_disabled",
+      });
+      return { state: "unavailable" };
+    }
+
+    if (
+      existing?.generation === FAST_SEARCH_GENERATION &&
+      existing.optedIn &&
+      existing.status !== "failed"
+    ) {
+      return { state: fastSearchState(workspace, plan, existing) };
+    }
+
+    const now = Date.now();
+    if (existing === null) {
+      await ctx.db.insert("searchIndexes", {
+        workspaceId: args.workspaceId,
+        generation: FAST_SEARCH_GENERATION,
+        optedIn: true,
+        optedInBy: args.actorUserId,
+        optedInAt: now,
+        status: "provisioning",
+        createdAt: now,
+        updatedAt: now,
+      });
+    } else {
+      // A legacy or failed row starts clean. Old D1 coordinates are never
+      // served and are never mistaken for a database in the new account.
+      await ctx.db.patch(existing._id, {
+        generation: FAST_SEARCH_GENERATION,
+        optedIn: true,
+        optedInBy: args.actorUserId,
+        optedInAt: now,
+        status: "provisioning",
+        databaseId: undefined,
+        databaseName: undefined,
+        schemaVersion: undefined,
+        errorCode: undefined,
+        error: undefined,
+        notesIndexed: undefined,
+        notesPending: undefined,
+        updatedAt: now,
+      });
+    }
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: args.actorUserId,
+      action: "search.fast_enabled",
+      details: { generation: FAST_SEARCH_GENERATION },
+    });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.functions.fastSearchProvision.provisionIndex,
+      { workspaceId: args.workspaceId, generation: FAST_SEARCH_GENERATION },
+    );
+    return { state: "preparing" };
   },
 });
 
@@ -497,7 +639,8 @@ async function searchScopeFor(
     const workspace = await ctx.db.get(membership.workspaceId);
     if (workspace === null) continue;
     const binding = await bindingFor(ctx, membership.workspaceId);
-    if (searchProjectionState(workspace, binding) === "ready") {
+    const plan = await planFor(ctx, membership.workspaceId);
+    if (searchProjectionState(workspace, plan, binding) === "ready") {
       eligible.push({
         workspaceId: workspace._id,
         slug: workspace.slug,
@@ -507,7 +650,7 @@ async function searchScopeFor(
       });
       continue;
     }
-    const state = fastSearchState(workspace, binding);
+    const state = fastSearchState(workspace, plan, binding);
     notEligible.push({
       workspaceId: workspace._id,
       slug: workspace.slug,
@@ -626,7 +769,8 @@ export const projectionTargetForWorkspace = internalQuery({
     const workspace = await ctx.db.get(args.workspaceId);
     if (workspace === null) return null;
     const binding = await bindingFor(ctx, args.workspaceId);
-    const state = searchProjectionState(workspace, binding);
+    const plan = await planFor(ctx, args.workspaceId);
+    const state = searchProjectionState(workspace, plan, binding);
     if (state === null) return null;
     return { databaseId: binding!.databaseId as string, state };
   },
@@ -644,6 +788,7 @@ export const projectionTargetForWorkspace = internalQuery({
 export const recordProvisionResult = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
+    generation: v.optional(v.literal("premium-v1")),
     status: v.union(
       v.literal("provisioning"),
       v.literal("backfilling"),
@@ -661,6 +806,12 @@ export const recordProvisionResult = internalMutation({
   handler: async (ctx, args) => {
     const existing = await bindingFor(ctx, args.workspaceId);
     if (existing === null) return { applied: false };
+    if (
+      args.generation !== undefined &&
+      existing.generation !== args.generation
+    ) {
+      return { applied: false };
+    }
     if (!existing.optedIn) {
       // Opted out while this was in flight. The database id is still recorded
       // if the provisioner learned one, because the release needs it — but the
@@ -756,10 +907,11 @@ export const recordProjectionProgress = internalMutation({
     const workspace = await ctx.db.get(args.workspaceId);
     if (workspace === null) return { applied: false };
     const binding = await bindingFor(ctx, args.workspaceId);
+    const plan = await planFor(ctx, args.workspaceId);
     // The same gate that decided the credential could be handed over. A row
     // that is `releasing`, `failed`, `provisioning`, opted out or unentitled is
     // refused here, by the one function that knows what "serving" means.
-    const state = searchProjectionState(workspace, binding);
+    const state = searchProjectionState(workspace, plan, binding);
     if (state === null) return { applied: false };
 
     await ctx.db.patch(binding!._id, {
