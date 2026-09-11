@@ -8,6 +8,7 @@ import {
   redactTelemetryValue,
   telemetryRoute,
 } from "../features/observability/privacy";
+import { cleanPostHogProperties } from "../features/observability/runtime.web";
 
 describe("observability privacy boundary", () => {
   test("removes OAuth credentials and capability tokens", () => {
@@ -32,6 +33,26 @@ describe("observability privacy boundary", () => {
       status: 401,
       request: { authorization: "[redacted]", url: "/s/:token" },
       noteContent: "[redacted]",
+    });
+  });
+
+  test("keeps PostHog's required public routing token without preserving user tokens", () => {
+    const snapshot = { type: 2, data: { node: "already recorder-masked" } };
+    const clean = cleanPostHogProperties(
+      {
+        token: "stale-or-tampered",
+        provider: "dropbox",
+        nested: { token: "customer-secret" },
+        $snapshot_data: snapshot,
+      },
+      "public-project-key",
+    );
+
+    expect(clean).toEqual({
+      provider: "dropbox",
+      nested: { token: "[redacted]" },
+      token: "public-project-key",
+      $snapshot_data: snapshot,
     });
   });
 
