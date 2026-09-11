@@ -124,11 +124,11 @@ index f0a9b5b..edf8d1c 100644
    return {
      path,
 diff --git a/apps/mcp/src/index.js b/apps/mcp/src/index.js
-index 95915db..15ce1f5 100644
+index 9c51cc0..f542785 100644
 --- a/apps/mcp/src/index.js
 +++ b/apps/mcp/src/index.js
-@@ -1283,6 +1283,30 @@ function effectiveVisibility(key, rules, overrides) {
-   return overrideFor(overrides, key) || visibilityOf(key, rules);
+@@ -1328,6 +1328,30 @@ function writesOneRule(path, visibility = "private") {
+   return overrideFor(parsed.overrides, path) === visibility;
  }
  
 +/**
@@ -158,8 +158,8 @@ index 95915db..15ce1f5 100644
  async function persistExactVisibility(store, path, visibility, rules) {
    for (let attempt = 0; attempt < 5; attempt++) {
      const state = await loadPrivacyState(store);
-@@ -1302,6 +1326,15 @@ async function persistExactVisibility(store, path, visibility, rules) {
-     const inherited = visibilityOf(path, state.rules);
+@@ -1356,6 +1380,15 @@ async function persistExactVisibility(store, path, visibility, rules) {
+     }
      if (visibility === inherited) state.overrides.delete(path);
      else state.overrides.set(path, visibility);
 +    // The fold reads across case and the delete writes exactly, so a DIFFERENT
@@ -174,7 +174,7 @@ index 95915db..15ce1f5 100644
      const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
      const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
      if (put) return;
-@@ -4798,6 +4831,13 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
+@@ -4875,6 +4908,13 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
    // write and asked for no confirmation, while `set_visibility` gated the same
    // transition unconditionally — two tools disagreeing about one publication,
    // with the ungated one the default an agent reaches.
@@ -188,7 +188,7 @@ index 95915db..15ce1f5 100644
    const isPublishing =
      scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility !== "team");
    if (isPublishing && args.confirm_team_publish !== true) {
-@@ -5768,6 +5808,11 @@ async function toolSetVisibility(store, scope, rules, overrides, args) {
+@@ -5846,6 +5886,11 @@ async function toolSetVisibility(store, scope, rules, overrides, args) {
      );
    }
    const current = effectiveVisibility(path, rules, overrides);
@@ -200,7 +200,7 @@ index 95915db..15ce1f5 100644
    if (current === visibility) {
      return toolText(`unchanged: ${path}\nvisibility: ${visibility}\netag: ${obj.etag}`);
    }
-@@ -5852,6 +5897,10 @@ async function toolSetFolderVisibility(store, scope, args) {
+@@ -5930,6 +5975,10 @@ async function toolSetFolderVisibility(store, scope, args) {
      // may be widening. Compacting one away is the same failure the paragraph
      // above describes, with a group in place of `private`.
      if (visibility !== "team") continue;
@@ -211,7 +211,7 @@ index 95915db..15ce1f5 100644
      if (notePath.startsWith(`${path}/`) && visibility === visibilityOf(notePath, nextRules)) {
        nextOverrides.delete(notePath);
        compacted.push(notePath);
-@@ -7314,6 +7363,24 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
+@@ -7392,6 +7441,24 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
      return writePermissionError("archive destination");
    }
    if (await store.get(dest)) return toolError("conflict: archive destination already exists");
@@ -236,7 +236,7 @@ index 95915db..15ce1f5 100644
    const body = await obj.arrayBuffer();
    if (destinationVisibility === "private") {
      await persistExactVisibility(store, dest, "private", rules);
-@@ -7507,6 +7574,13 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
+@@ -7585,6 +7652,13 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
    // on every move. Neither branch firing at all was the first version of this
    // and left the note on its new folder's default, which is exactly the
    // publication the narrowing was computed to prevent.
@@ -250,7 +250,7 @@ index 95915db..15ce1f5 100644
    if (destinationVisibility !== "team") {
      try {
        await persistExactVisibility(store, destination, destinationVisibility, rules);
-@@ -7755,6 +7829,13 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
+@@ -7833,6 +7907,13 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
        sourceVisibility,
        destinationFolderVisibility
      );
@@ -264,7 +264,7 @@ index 95915db..15ce1f5 100644
      const fastArchiveCandidate =
        move.source.startsWith("4-archive/") &&
        move.destination.startsWith("4-archive/") &&
-@@ -7962,6 +8043,19 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
+@@ -8040,6 +8121,19 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
    if (scope === "team" && moves.some(({ destination: path }) => hasOverride(overrides, path))) {
      return writePermissionError("folder move destination");
    }
@@ -285,10 +285,10 @@ index 95915db..15ce1f5 100644
      const unsafeMove = moveSafetyRefusal(store);
      if (unsafeMove) return toolError(unsafeMove);
 diff --git a/apps/mcp/test/test.mjs b/apps/mcp/test/test.mjs
-index 090a1c6..dace92f 100644
+index 26445e6..175aa6e 100644
 --- a/apps/mcp/test/test.mjs
 +++ b/apps/mcp/test/test.mjs
-@@ -3577,18 +3577,208 @@ check(
+@@ -3578,18 +3578,208 @@ check(
      (recasedOverrideRead.content?.[0]?.text ?? "") === "not found"
  );
  
@@ -502,7 +502,7 @@ index 090a1c6..dace92f 100644
   *
   * Its compaction loop drops an override that has become redundant *for its own
   * exact path* — correct before the fold, and wrong after it, because the same
-@@ -3662,9 +3852,9 @@ const narrowed = await setFolder(foldFolderA, "private");
+@@ -3663,9 +3853,9 @@ const narrowed = await setFolder(foldFolderA, "private");
   * So no `private` override is compacted away, full stop. This loop cannot see
   * who is relying on one, and a redundant line costs a line of manifest. The
   * rule-shaped version of this was written, shipped, and found wrong within the
@@ -515,7 +515,7 @@ index 090a1c6..dace92f 100644
   */
  const quietA = "1-projects/quiet/x.md";
  const quietTwin = "1-projects/Quiet/x.md";
-@@ -3705,79 +3895,44 @@ check(
+@@ -3706,79 +3896,44 @@ check(
      (await call("team-token", "read_note", { path: `${foldFolderB}/Note.md` }))?.isError === true
  );
  /**
@@ -625,7 +625,7 @@ index 090a1c6..dace92f 100644
  
  /**
   * **The fold's direction, checked in the gateway's own suite.**
-@@ -3786,12 +3941,8 @@ await contextStore.delete("1-projects/portable/keep-moved.md");
+@@ -3787,12 +3942,8 @@ await contextStore.delete("1-projects/portable/keep-moved.md");
   * hole this whole change had in its first version, and it was caught only by
   * `apps/convex/__tests__/privacyEngine.test.ts` — the gateway suite passed with
   * the widening in place. CLAUDE.md calls this suite the fast, offline one a
@@ -640,7 +640,7 @@ index 090a1c6..dace92f 100644
   *
   * `2-areas/private` is a private folder. Publishing one note by exact override
   * must not publish its case-variant, which on R2 and S3 is a different file the
-@@ -3821,7 +3972,6 @@ check(
+@@ -3822,7 +3973,6 @@ check(
  await call("priv-token", "set_visibility", { path: widenFoldPath, visibility: "private" });
  await contextStore.delete(widenFoldPath);
  await contextStore.delete(widenFoldTwin);
@@ -648,7 +648,7 @@ index 090a1c6..dace92f 100644
  // Put the manifest back too, not just the objects. The first version of this
  // block deleted the two notes and left `fold-folder: private`,
  // `Fold-Folder: team` and the note override standing in the shared bucket for
-@@ -3843,6 +3993,17 @@ await setFolder(foldFolderA, "inherit");
+@@ -3844,6 +3994,17 @@ await setFolder(foldFolderA, "inherit");
  for (const key of [`${foldFolderA}/note.md`, `${foldFolderB}/Note.md`]) {
    await contextStore.delete(key);
  }
