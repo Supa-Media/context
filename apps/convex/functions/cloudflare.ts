@@ -648,6 +648,7 @@ export const provisionCloudflareStorage = internalAction({
       // hardcoded id would be a guess about what a token is allowed to do.
       const permissionGroupId = await resolvePermissionGroupId({
         apiToken: setupCredential,
+        accountId: job.accountId,
         name: R2_BUCKET_WRITE_PERMISSION_GROUP,
       });
 

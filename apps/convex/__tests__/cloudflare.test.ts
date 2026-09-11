@@ -100,7 +100,7 @@ interface CloudflareFailure {
 }
 
 interface CloudflareStubOptions {
-  /** What `GET /user/tokens/permission_groups` answers with. */
+  /** What `GET /accounts/:id/tokens/permission_groups` answers with. */
   permissionGroups?: { id: string; name: string }[];
   permissionGroupsFailure?: CloudflareFailure;
   bucketFailure?: CloudflareFailure;
@@ -168,7 +168,10 @@ function cloudflareStub(options: CloudflareStubOptions = {}) {
     };
     calls.push(call);
 
-    if (url.pathname === "/client/v4/user/tokens/permission_groups") {
+    if (
+      url.pathname ===
+      `/client/v4/accounts/${FAKE_ACCOUNT_ID}/tokens/permission_groups`
+    ) {
       if (options.permissionGroupsFailure) {
         return failureResponse(options.permissionGroupsFailure);
       }
@@ -733,7 +736,7 @@ describe("provisioning a bucket in the customer's account", () => {
 
     // Three calls, in the order that makes the third one safe.
     expect(cloudflare.calls.map((call) => `${call.method} ${call.path}`)).toEqual([
-      "GET /client/v4/user/tokens/permission_groups",
+      `GET /client/v4/accounts/${FAKE_ACCOUNT_ID}/tokens/permission_groups`,
       `POST /client/v4/accounts/${FAKE_ACCOUNT_ID}/r2/buckets`,
       `POST /client/v4/accounts/${FAKE_ACCOUNT_ID}/tokens`,
     ]);
@@ -1075,7 +1078,7 @@ describe("every failure is a state the owner can act on", () => {
     expect(row!.errorCode).toBe("PERMISSION_GROUP_UNAVAILABLE");
     expect(row!.error).toMatch(/nothing broader/i);
     expect(cloudflare.calls.map((call) => call.path)).toEqual([
-      "/client/v4/user/tokens/permission_groups",
+      `/client/v4/accounts/${FAKE_ACCOUNT_ID}/tokens/permission_groups`,
     ]);
   });
 
@@ -1187,7 +1190,7 @@ describe("a bucket that exists is never described as if it did not", () => {
 
     // The bucket call happened and succeeded; the mint is what failed.
     expect(cloudflare.calls.map((call) => `${call.method} ${call.path}`)).toEqual([
-      "GET /client/v4/user/tokens/permission_groups",
+      `GET /client/v4/accounts/${FAKE_ACCOUNT_ID}/tokens/permission_groups`,
       `POST /client/v4/accounts/${FAKE_ACCOUNT_ID}/r2/buckets`,
       `POST /client/v4/accounts/${FAKE_ACCOUNT_ID}/tokens`,
     ]);

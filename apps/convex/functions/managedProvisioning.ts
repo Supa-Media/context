@@ -199,6 +199,7 @@ export const provisionManagedStorage = internalAction({
     try {
       const permissionGroupId = await resolvePermissionGroupId({
         apiToken,
+        accountId,
         name: R2_BUCKET_WRITE_PERMISSION_GROUP,
       });
 
