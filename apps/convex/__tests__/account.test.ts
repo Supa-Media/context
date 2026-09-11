@@ -131,6 +131,49 @@ async function seedAuthRows(t: TestConvex, userId: Id<"users">) {
 }
 
 describe("deleteAccount", () => {
+  test("the dedicated account can delete one unshared test workspace without deleting its account", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, TEST_ACCOUNT_EMAIL);
+    const workspaceId = await createWorkspace(t, owner, "one-cuj-only");
+
+    await expect(
+      asUser(t, owner).mutation(api.functions.account.deleteTestWorkspace, {
+        workspaceId,
+      }),
+    ).resolves.toEqual({ deleted: true });
+
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(owner)).not.toBeNull();
+      expect(await ctx.db.get(workspaceId)).toBeNull();
+    });
+  });
+
+  test("individual CUJ cleanup refuses ordinary accounts and shared workspaces", async () => {
+    const ordinary = setupTest();
+    const ordinaryOwner = await createUser(ordinary, "ordinary@example.invalid");
+    const ordinaryWorkspace = await createWorkspace(ordinary, ordinaryOwner, "ordinary-one");
+    const ordinaryError = await captureError(() =>
+      asUser(ordinary, ordinaryOwner).mutation(
+        api.functions.account.deleteTestWorkspace,
+        { workspaceId: ordinaryWorkspace },
+      ),
+    );
+    expect(errorCode(ordinaryError)).toBe("FORBIDDEN");
+
+    const shared = setupTest();
+    const testOwner = await createUser(shared, TEST_ACCOUNT_EMAIL);
+    const member = await createUser(shared, "member@example.invalid");
+    const sharedWorkspace = await createWorkspace(shared, testOwner, "shared-cuj");
+    await addMember(shared, sharedWorkspace, member, "member", testOwner);
+    const sharedError = await captureError(() =>
+      asUser(shared, testOwner).mutation(
+        api.functions.account.deleteTestWorkspace,
+        { workspaceId: sharedWorkspace },
+      ),
+    );
+    expect(errorCode(sharedError)).toBe("FORBIDDEN");
+  });
+
   test("only the dedicated test account schedules deletion of its managed bucket", async () => {
     const t = setupTest();
     const owner = await createUser(t, TEST_ACCOUNT_EMAIL);

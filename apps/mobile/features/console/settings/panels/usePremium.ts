@@ -86,7 +86,9 @@ export function usePremium(options: {
   const upgrade = useCallback(async () => {
     if (workspaceId === null) return;
     if (status?.isTestAccount === true) {
-      await convex.mutation(api.functions.billing.activateTestPremium, { workspaceId });
+      await convex.mutation(api.functions.billing.activateTestPremium, {
+        workspaceId,
+      });
       return;
     }
     const started = await convex.mutation(api.functions.billing.startCheckout, {
@@ -113,6 +115,13 @@ export function usePremium(options: {
     );
   }, [convex, workspaceId]);
 
+  const deleteTestWorkspace = useCallback(async () => {
+    if (workspaceId === null) return;
+    await convex.mutation(api.functions.account.deleteTestWorkspace, {
+      workspaceId,
+    });
+  }, [convex, workspaceId]);
+
   const rawSession = results.session;
   const session =
     rawSession !== undefined &&
@@ -133,5 +142,9 @@ export function usePremium(options: {
     upgrade: canManage ? upgrade : undefined,
     manageBilling: canManage ? manageBilling : undefined,
     retryManagedStorage: canManage ? retryManagedStorage : undefined,
+    deleteTestWorkspace:
+      canManage && status?.isTestAccount === true
+        ? deleteTestWorkspace
+        : undefined,
   };
 }

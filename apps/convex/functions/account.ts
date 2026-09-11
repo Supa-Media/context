@@ -46,7 +46,7 @@
  * sessions) deletes as cleanly as a fully onboarded one.
  */
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
 import { internal } from "../_generated/api";
 import { mutation, type MutationCtx } from "../_generated/server";
@@ -85,6 +85,50 @@ const INVITATION_STATUSES = [
   "declined",
   "revoked",
 ] as const;
+
+/**
+ * Delete one disposable workspace owned by the production CUJ account.
+ *
+ * This is intentionally narrower than a general workspace-delete feature: the
+ * caller must be the exact verified test identity, must have created the
+ * workspace, and must be its only member. That gives the CUJ a safe teardown
+ * path without making an existing shared context—or any customer's storage—a
+ * valid target.
+ */
+export const deleteTestWorkspace = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ deleted: v.boolean() }),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    const user = await ctx.db.get(userId);
+    const workspace = await ctx.db.get(args.workspaceId);
+    const memberships = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    const ownsWorkspace = memberships.some(
+      (membership) =>
+        membership.userId === userId && membership.role === "owner",
+    );
+
+    if (
+      !isProductionTestAccount(user) ||
+      workspace === null ||
+      workspace.createdBy !== userId ||
+      !ownsWorkspace ||
+      memberships.some((membership) => membership.userId !== userId)
+    ) {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message:
+          "Only an unshared workspace created by the production test account can use this cleanup.",
+      });
+    }
+
+    await deleteWorkspaceCascade(ctx, args.workspaceId);
+    return { deleted: true };
+  },
+});
 
 /**
  * Delete the calling user's account, entirely.
@@ -315,7 +359,8 @@ async function deleteWorkspaceCascade(
   workspaceId: Id<"workspaces">,
 ): Promise<void> {
   const workspace = await ctx.db.get(workspaceId);
-  const creator = workspace === null ? null : await ctx.db.get(workspace.createdBy);
+  const creator =
+    workspace === null ? null : await ctx.db.get(workspace.createdBy);
   const deleteManagedTestResources = isProductionTestAccount(creator);
   // A managed-storage copy parks a second encrypted bucket credential. Remove
   // it before its source binding so no orphan can survive account deletion.

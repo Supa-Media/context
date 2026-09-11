@@ -39,6 +39,7 @@ import {
   type PremiumView,
 } from "./premium";
 import { usePremium } from "./usePremium";
+import { useArming } from "../../useArming";
 
 /**
  * Premium, in a context's settings.
@@ -163,6 +164,11 @@ export function PremiumBody({
   const styles = useThemedStyles(makeStyles);
   const [working, setWorking] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const testCleanup = useArming(async () => {
+    if (view.deleteTestWorkspace !== undefined) {
+      await view.deleteTestWorkspace();
+    }
+  });
   /*
     The settling copy changes once, on a timer, and the timer only runs while
     there is something to wait for. Cleared on unmount and never restarted, so
@@ -446,14 +452,14 @@ export function PremiumBody({
                   ? "Manage billing"
                   : status?.isTestAccount === true
                     ? "Activate test Premium"
-                  : "Upgrade this context"
+                    : "Upgrade this context"
             }
             accessibilityLabel={
               control === "manage"
                 ? "Open the billing portal, where the card, invoices and cancellation live"
                 : status?.isTestAccount === true
                   ? "Activate Premium for this test context without a charge"
-                : "Start a subscription for this context"
+                  : "Start a subscription for this context"
             }
             variant={control === "manage" ? "mini" : "decision"}
             disabled={working || session?.status === "pending"}
@@ -477,6 +483,34 @@ export function PremiumBody({
       <Notice style={styles.notice} testID="premium-export-promise">
         <Text variant="rowSub">{EXPORT_PROMISE}</Text>
       </Notice>
+
+      {view.deleteTestWorkspace !== undefined ? (
+        <Card testID="premium-test-cleanup">
+          <Row style={styles.actions}>
+            <View style={styles.testCleanupCopy}>
+              <Text variant="rowTitle">Delete this test context</Text>
+              <Text variant="rowSub">
+                Removes only this unshared test context and its managed bucket
+                and search index. Existing contexts and buckets are untouched.
+              </Text>
+            </View>
+            <Button
+              label={
+                testCleanup.stage === "working"
+                  ? "Deleting…"
+                  : testCleanup.stage === "armed"
+                    ? "Press again to delete"
+                    : "Delete test context"
+              }
+              accessibilityLabel="Delete this unshared production test context and its managed resources"
+              variant="danger"
+              disabled={testCleanup.stage === "working"}
+              onPress={testCleanup.press}
+              testID="premium-delete-test-workspace"
+            />
+          </Row>
+        </Card>
+      ) : null}
     </View>
   );
 }
@@ -507,6 +541,7 @@ const makeStyles = (colors: Colors) =>
       gap: 12,
     },
     actions: { marginTop: 12, gap: 8 },
+    testCleanupCopy: { flex: 1, minWidth: 0, gap: 4 },
     loadingRow: {
       flexDirection: "row",
       alignItems: "center",

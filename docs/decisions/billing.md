@@ -256,8 +256,10 @@ checked server-side by normalized verified email and remains workspace-scoped.
 Deleting the test account through Settings removes its sole-owned contexts,
 releases their Fast Search databases, empties and deletes only their
 deterministically named managed R2 buckets, and revokes those buckets' scoped
-tokens. Ordinary account deletion continues to leave customer-owned storage
-untouched.
+tokens. The Premium panel also offers a two-press **Delete this test context**
+action for an unshared context created by this identity, so one CUJ can be torn
+down without touching any other test context. Ordinary account deletion
+continues to leave customer-owned storage untouched.
 
 ## What is deliberately not built
 
