@@ -735,6 +735,37 @@ const schema = defineSchema({
   }).index("by_workspace", ["workspaceId"]),
 
   /**
+   * A paid copy from customer-owned storage into a managed bucket.
+   *
+   * The source binding remains live until copy and verification finish. Its
+   * id is pinned so a reconnect during the copy makes cutover fail closed.
+   * The destination credential is workspace-bound encrypted metadata and is
+   * never returned by a public function.
+   */
+  managedStorageMigrations: defineTable({
+    workspaceId: v.id("workspaces"),
+    sourceBindingId: v.id("storageBindings"),
+    targetEndpoint: v.string(),
+    targetBucket: v.string(),
+    targetAccessKeyId: v.string(),
+    encryptedTargetSecretAccessKey: v.string(),
+    status: v.union(v.literal("copying"), v.literal("failed")),
+    phase: v.union(
+      v.literal("copy"),
+      v.literal("verify_source"),
+      v.literal("verify_target"),
+    ),
+    cursor: v.optional(v.string()),
+    objectsCopied: v.number(),
+    changesInPass: v.number(),
+    readyToCutover: v.optional(v.boolean()),
+    errorCode: v.optional(v.string()),
+    startedBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
    * THE KEY(S) THAT OPEN ONE CONTEXT'S ENCRYPTED NOTES.
    *
    * See `docs/decisions/encryption.md`. **One *live* row per workspace, plus
@@ -897,7 +928,9 @@ const schema = defineSchema({
      * steady state a reader should trust — `functions/googleConnect.ts` writes
      * both in the same mutation.
      */
-    products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+    products: v.array(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat")),
+    ),
     /**
      * Gmail's own settings and cursor. Present iff `"gmail"` is in `products`.
      * See `docs/decisions/communications.md` for what each field argues.
@@ -950,7 +983,9 @@ const schema = defineSchema({
          * `sweepExpiredAttachments` treats absent the same as the documented
          * 90-day default.
          */
-        attachmentRetentionDays: v.optional(v.union(v.number(), v.literal("forever"))),
+        attachmentRetentionDays: v.optional(
+          v.union(v.number(), v.literal("forever")),
+        ),
         /**
          * Customer-visible folder where this mailbox's day notes and
          * attachments land. Absent on rows written before integration settings
@@ -1018,7 +1053,12 @@ const schema = defineSchema({
     chat: v.optional(
       v.object({
         scopes: v.array(v.string()),
-        spaceSettings: v.optional(v.record(v.string(), v.union(v.literal("excluded"), v.literal("paused")))),
+        spaceSettings: v.optional(
+          v.record(
+            v.string(),
+            v.union(v.literal("excluded"), v.literal("paused")),
+          ),
+        ),
         cursors: v.optional(v.record(v.string(), v.string())),
         destinationFolder: v.optional(v.string()),
         nonceSeed: v.string(),
@@ -1092,7 +1132,9 @@ const schema = defineSchema({
     connectionId: v.id("googleConnections"),
     requestedBy: v.id("users"),
     mode: v.literal("backfill"),
-    services: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+    services: v.array(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat")),
+    ),
     status: v.union(
       v.literal("queued"),
       v.literal("running"),
@@ -1106,7 +1148,9 @@ const schema = defineSchema({
     daysWithMail: v.optional(v.number()),
     bytesWritten: v.optional(v.number()),
     destinationFolder: v.optional(v.string()),
-    currentService: v.optional(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+    currentService: v.optional(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat")),
+    ),
     currentUnit: v.optional(v.string()),
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
@@ -1180,11 +1224,20 @@ const schema = defineSchema({
      * callback.
      */
     flow: v.optional(
-      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"), v.literal("google")),
+      v.union(
+        v.literal("gmail"),
+        v.literal("calendar"),
+        v.literal("chat"),
+        v.literal("google"),
+      ),
     ),
-    products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+    products: v.array(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat")),
+    ),
     backfillDays: v.optional(v.number()),
-    folders: v.optional(v.array(v.union(v.literal("inbox"), v.literal("sent")))),
+    folders: v.optional(
+      v.array(v.union(v.literal("inbox"), v.literal("sent"))),
+    ),
     /**
      * The attachment choices made before leaving for Google's consent
      * screen, carried the same way `backfillDays`/`folders` are — see this
@@ -1195,7 +1248,9 @@ const schema = defineSchema({
      * to row; `googleConnect.ts` is the only reader and reassembles the
      * `number | "forever"` shape on the way out.
      */
-    attachmentMode: v.optional(v.union(v.literal("metadata-only"), v.literal("store"))),
+    attachmentMode: v.optional(
+      v.union(v.literal("metadata-only"), v.literal("store")),
+    ),
     attachmentRetentionDays: v.optional(v.number()),
     attachmentRetentionForever: v.optional(v.boolean()),
     expiresAt: v.number(),
@@ -1570,9 +1625,7 @@ const schema = defineSchema({
     grantTypes: v.optional(v.array(v.string())),
     responseTypes: v.optional(v.array(v.string())),
     scope: v.optional(v.string()),
-    applicationType: v.optional(
-      v.union(v.literal("native"), v.literal("web")),
-    ),
+    applicationType: v.optional(v.union(v.literal("native"), v.literal("web"))),
     /**
      * RFC 7591's `software_id`: what the client says it *is*, as opposed to
      * what it called itself this time.

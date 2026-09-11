@@ -705,6 +705,25 @@ describe("the webhook", () => {
         api.functions.billing.startCheckout,
         { workspaceId },
       );
+      // Existing free/BYO contexts are the migration journey. Payment must
+      // schedule managed provisioning even though a binding already exists;
+      // the provisioner copies it instead of overwriting it.
+      await t.run((ctx) =>
+        ctx.db.insert("storageBindings", {
+          workspaceId,
+          provider: "s3",
+          endpoint: "https://s3.example.invalid",
+          region: "us-east-1",
+          bucket: "existing-bucket",
+          accessKeyId: "existing-key",
+          encryptedSecretAccessKey: "sealed-existing",
+          status: "connected",
+          capabilities: { conditionalWrite: true },
+          boundBy: owner,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        }),
+      );
       const response = await postWebhook(t, checkoutCompleted(sessionId));
       expect(response.status).toBe(200);
 
@@ -719,6 +738,9 @@ describe("the webhook", () => {
       );
       expect(
         scheduled.filter((job) => job.name.includes("syncPremiumSelection")),
+      ).toHaveLength(1);
+      expect(
+        scheduled.filter((job) => job.name.includes("provisionManagedStorage")),
       ).toHaveLength(1);
     } finally {
       vi.unstubAllEnvs();

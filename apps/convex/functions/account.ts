@@ -252,6 +252,8 @@ export const deleteAccount = mutation({
  * alongside it, and what happens to each:
  *
  *  - **`storageBindings`** — swept below. Dropbox's grant is revoked first.
+ *  - **`managedStorageMigrations`** — swept before its source binding; it can
+ *    carry a second encrypted per-bucket credential while a copy is running.
  *  - **`searchIndexes`** — RELEASED below rather than deleted: marked
  *    `releasing` with `fastSearchProvision.releaseIndex` scheduled, which is
  *    the only path that deletes the remote D1 database holding this context's
@@ -310,6 +312,14 @@ async function deleteWorkspaceCascade(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<void> {
+  // A managed-storage copy parks a second encrypted bucket credential. Remove
+  // it before its source binding so no orphan can survive account deletion.
+  const managedMigration = await ctx.db
+    .query("managedStorageMigrations")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  if (managedMigration !== null) await ctx.db.delete(managedMigration._id);
+
   // The storage binding, with the same Dropbox care `disconnectStorage`
   // takes: schedule the revocation first, envelope in the args, because the
   // row it lives on is deleted on the next line. Scheduled, not called — this
@@ -644,10 +654,15 @@ async function deleteWorkspaceCascade(
  * re-check half, and it is not redundant — it is what makes the next table
  * somebody forgets to add here inert instead of exploitable.
  */
-async function voidCapabilitiesAddressedTo(ctx: MutationCtx, name: string): Promise<void> {
+async function voidCapabilitiesAddressedTo(
+  ctx: MutationCtx,
+  name: string,
+): Promise<void> {
   const pending = await ctx.db
     .query("workspaceInvitations")
-    .withIndex("by_invitee", (q) => q.eq("inviteeKind", "name").eq("invitee", name))
+    .withIndex("by_invitee", (q) =>
+      q.eq("inviteeKind", "name").eq("invitee", name),
+    )
     .filter((q) => q.eq(q.field("status"), "pending"))
     .collect();
   for (const invitation of pending) {

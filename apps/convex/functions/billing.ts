@@ -56,7 +56,10 @@ import {
   type QueryCtx,
 } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
-import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAuth";
+import {
+  requireWorkspaceAccess,
+  requireWorkspaceRole,
+} from "./lib/workspaceAuth";
 import {
   MANAGED_STORAGE_CEILING_BYTES,
   PREMIUM_CURRENCY,
@@ -79,7 +82,10 @@ const SESSION_TTL_MS = 15 * 60 * 1000;
 async function requireUserId(ctx: QueryCtx): Promise<Id<"users">> {
   const userId = await getAuthUserId(ctx);
   if (userId === null) {
-    throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Sign in first." });
+    throw new ConvexError({
+      code: "NOT_AUTHENTICATED",
+      message: "Sign in first.",
+    });
   }
   return userId;
 }
@@ -197,7 +203,8 @@ async function hasLiveCheckout(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   return rows.some(
-    (row) => row.kind === "checkout" && row.status !== "failed" && row.expiresAt > now,
+    (row) =>
+      row.kind === "checkout" && row.status !== "failed" && row.expiresAt > now,
   );
 }
 
@@ -276,10 +283,16 @@ export const status = query({
     ),
     /** Ours, from a closed set — never Cloudflare's text. Owner only. */
     managedProvisioningError: v.optional(v.string()),
+    /** Copy progress for an existing bucket moving into managed storage. */
+    managedMigrationObjectsCopied: v.optional(v.number()),
   }),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
-    const { membership } = await requireWorkspaceAccess(ctx, args.workspaceId, userId);
+    const { membership } = await requireWorkspaceAccess(
+      ctx,
+      args.workspaceId,
+      userId,
+    );
     const isOwner = membership.role === "owner";
 
     const plan = await planFor(ctx, args.workspaceId);
@@ -288,6 +301,10 @@ export const status = query({
 
     const binding = await ctx.db
       .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    const migration = await ctx.db
+      .query("managedStorageMigrations")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique();
 
@@ -309,7 +326,9 @@ export const status = query({
       cancelAtPeriodEnd: isOwner ? plan?.cancelAtPeriodEnd : undefined,
       // The id itself is never returned — only whether one exists, which is
       // what decides whether "Manage billing" is drawn.
-      hasStripeCustomer: isOwner ? plan?.stripeCustomerId !== undefined : undefined,
+      hasStripeCustomer: isOwner
+        ? plan?.stripeCustomerId !== undefined
+        : undefined,
       notes: isOwner ? binding?.noteCount : undefined,
       notesTruncated: isOwner ? binding?.noteCountTruncated : undefined,
       notesCountedAt: isOwner ? binding?.noteCountedAt : undefined,
@@ -318,7 +337,12 @@ export const status = query({
       managedProvisioning: plan?.managedProvisioning,
       // Owner only, with the rest of the money fields: a member cannot act on
       // it and does not need to know which of our systems refused.
-      managedProvisioningError: isOwner ? plan?.managedProvisioningError : undefined,
+      managedProvisioningError: isOwner
+        ? plan?.managedProvisioningError
+        : undefined,
+      managedMigrationObjectsCopied: isOwner
+        ? migration?.objectsCopied
+        : undefined,
     };
   },
 });
@@ -368,7 +392,9 @@ export const setEntitlements = mutation({
       in `applyStripeEvent` is the belt to this refusal's braces, for the race
       no mutation-time check can catch.
     */
-    const owing = planIsPaying(planStatus) || (await hasLiveCheckout(ctx, args.workspaceId));
+    const owing =
+      planIsPaying(planStatus) ||
+      (await hasLiveCheckout(ctx, args.workspaceId));
     if (!hasAnyEntitlement(selected) && owing) {
       throw new ConvexError({
         code: "ENTITLEMENTS_EMPTY",
@@ -466,7 +492,8 @@ export const startCheckout = mutation({
     if (!hasAnyEntitlement(selectionOf(plan))) {
       throw new ConvexError({
         code: "ENTITLEMENTS_EMPTY",
-        message: "Choose managed storage, fast search, or both before upgrading.",
+        message:
+          "Choose managed storage, fast search, or both before upgrading.",
       });
     }
     if (planIsPaying(statusOf(plan))) {
@@ -602,7 +629,11 @@ export const billingSession = query({
   returns: v.union(
     v.null(),
     v.object({
-      status: v.union(v.literal("pending"), v.literal("ready"), v.literal("failed")),
+      status: v.union(
+        v.literal("pending"),
+        v.literal("ready"),
+        v.literal("failed"),
+      ),
       kind: v.union(v.literal("checkout"), v.literal("portal")),
       url: v.optional(v.string()),
       errorCode: v.optional(v.string()),
@@ -636,7 +667,11 @@ export const sessionForAction = internalQuery({
     v.object({
       workspaceId: v.id("workspaces"),
       kind: v.union(v.literal("checkout"), v.literal("portal")),
-      status: v.union(v.literal("pending"), v.literal("ready"), v.literal("failed")),
+      status: v.union(
+        v.literal("pending"),
+        v.literal("ready"),
+        v.literal("failed"),
+      ),
       stripeCustomerId: v.optional(v.string()),
       selected: entitlementsValidator,
       /**
@@ -782,7 +817,8 @@ export const applyStripeEvent = internalMutation({
       status = planStatusFromStripe(args.rawStatus);
     } else if (
       args.sessionStatus === "complete" &&
-      (args.paymentStatus === "paid" || args.paymentStatus === "no_payment_required")
+      (args.paymentStatus === "paid" ||
+        args.paymentStatus === "no_payment_required")
     ) {
       status = "active";
     } else {
@@ -862,7 +898,7 @@ export const applyStripeEvent = internalMutation({
         .query("storageBindings")
         .withIndex("by_workspace", (q) => q.eq("workspaceId", plan.workspaceId))
         .unique();
-      if (bound === null) {
+      if (!bindingIsManaged(bound, plan.workspaceId)) {
         await ctx.db.patch(plan._id, { managedProvisioning: "running" });
         await ctx.scheduler.runAfter(
           0,
@@ -885,10 +921,12 @@ export const applyStripeEvent = internalMutation({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", plan.workspaceId))
       .collect();
     const sessionOwner = owners.find(
-      (member) => member.role === "owner" && member.userId === session?.startedBy,
+      (member) =>
+        member.role === "owner" && member.userId === session?.startedBy,
     );
     const premiumActor =
-      sessionOwner?.userId ?? owners.find((member) => member.role === "owner")?.userId;
+      sessionOwner?.userId ??
+      owners.find((member) => member.role === "owner")?.userId;
     if (premiumActor !== undefined) {
       await ctx.scheduler.runAfter(
         0,

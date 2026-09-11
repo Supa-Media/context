@@ -84,11 +84,11 @@ owes and does not yet pay.
 
 ## Three values, three different places, and the split is load-bearing
 
-| value | where | why |
-| --- | --- | --- |
-| `STRIPE_PRICE_ID` | environment variable | An identifier, not a credential — it is visible in every checkout URL the product opens. The same placement `MANAGED_R2_ACCOUNT_ID` has. |
-| `STRIPE_SECRET_KEY` | `appSecrets` | A credential. Encrypted at rest, set in the staff console, fingerprinted, rotatable — the same placement `SEARCH_D1_API_TOKEN` has, and opened only by an `internalAction`. |
-| `STRIPE_WEBHOOK_SECRET` | environment variable, and **refused** by `appSecrets` | The check it performs has to happen before anything the request says is trusted. |
+| value                   | where                                                 | why                                                                                                                                                                         |
+| ----------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `STRIPE_PRICE_ID`       | environment variable                                  | An identifier, not a credential — it is visible in every checkout URL the product opens. The same placement `MANAGED_R2_ACCOUNT_ID` has.                                    |
+| `STRIPE_SECRET_KEY`     | `appSecrets`                                          | A credential. Encrypted at rest, set in the staff console, fingerprinted, rotatable — the same placement `SEARCH_D1_API_TOKEN` has, and opened only by an `internalAction`. |
+| `STRIPE_WEBHOOK_SECRET` | environment variable, and **refused** by `appSecrets` | The check it performs has to happen before anything the request says is trusted.                                                                                            |
 
 The third is the one worth arguing. `__tests__/structure.test.ts` pins the
 complete list of HTTP routes that may reach a decrypted credential at three,
@@ -214,7 +214,7 @@ the reader checked — the same way an account-level bump would.
 `ROUTE_FACTORIES`, because the two tests over the bearer factories ask
 questions a signed route cannot answer: its caller has no `Authorization`
 header and never will, so it cannot be checked against `requestCarriesSecret`,
-and it cannot be asserted to read a *different* bearer secret from its
+and it cannot be asserted to read a _different_ bearer secret from its
 siblings.
 
 What it owes instead is checked in its own test: an HMAC over the raw body,
@@ -246,10 +246,11 @@ second current-generation index.
 ## What is deliberately not built
 
 - **Complete enforcement.** Fast Search consumes its paid entitlement and
-  managed storage is provisioned for a new unbound context, but no write path
-  is made read-only by a lapse yet. Existing BYO/Dropbox storage also still
-  needs the copy-and-cutover migration described in the UX contract; an
-  existing binding is never silently replaced.
+  managed storage is provisioned for both new and existing contexts, but no
+  write path is made read-only by a lapse yet. An existing binding is copied
+  and verified before an id-pinned cutover; it is never silently replaced.
+  The free export and bucket hand-off path remains unbuilt and is still the
+  managed-storage launch blocker.
 - **Metering.** `MANAGED_STORAGE_CEILING_BYTES` is stated and not measured.
   The console shows a note count and says in words that stored bytes are not
   metered yet, because a bar drawn against a denominator nobody measured is a
@@ -259,7 +260,7 @@ second current-generation index.
   because `startPortal` is the only cancellation path in the product and it is
   reached from that context's own Premium section, so deleting the context
   otherwise billed the customer every month with no route to stop it. What is
-  *not* handled is that call failing: there is no row left to record a status
+  _not_ handled is that call failing: there is no row left to record a status
   on, so it is logged and lost, and a subscription Stripe refused to cancel
   stays live with nothing here naming it. Closing that needs a place to park the
   obligation that outlives the workspace, which is a table this design does not
@@ -267,7 +268,7 @@ second current-generation index.
 - **Proration, plan changes, coupons, tax, multi-currency, invoices in the
   app.** All of them live at Stripe, which is where the payment UI deliberately
   went.
-- **An owner-only *section*.** `settingsSectionsFor` filters on the context's
+- **An owner-only _section_.** `settingsSectionsFor` filters on the context's
   kind and cannot express a role gate, so the Premium row is visible to
   members and the panel explains rather than offering. "Absent, not disabled"
   would be better and needs a change to the settings catalogue's shared

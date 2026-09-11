@@ -10,9 +10,9 @@
  *    from the immutable workspace id and an existing one is adopted. If this
  *    ever stops holding, somebody who pressed twice owns two buckets and their
  *    notes are in one of them.
- * 2. **It never overwrites a binding.** A binding is what a person's notes are
- *    behind. A redelivered webhook, or a customer who connected their own
- *    bucket while Cloudflare was answering, must not lose them.
+ * 2. **It never replaces a live binding before a verified copy.** A binding is
+ *    what a person's notes are behind. A redelivered webhook, or a customer
+ *    who reconnects while copying, must not lose them.
  * 3. **Neither credential is ever stored.** Not the operator token it opens,
  *    and not the token it mints — what goes in the row is the SHA-256 the S3
  *    API expects, which cannot be turned back into a token.
@@ -31,7 +31,7 @@
  * Run as temporary local edits and reverted.
  *
  *   adoption removed, so a taken name fails the retry                     1
- *   `completeManagedProvisioning` writing over an existing binding        1
+ *   cutover accepting a different source binding                          1
  *   the minted token stored instead of its digest                        1
  *   the entitlement check dropped, so an unpaid context provisions        1
  *   the webhook scheduling provisioning for a plan with no managed choice 1
@@ -54,7 +54,11 @@ import {
   MANAGED_R2_API_TOKEN_SECRET,
   managedBucketName,
 } from "../functions/lib/managedStorage";
-import { decryptSecret, requireKeyset } from "../functions/lib/crypto";
+import {
+  decryptSecret,
+  encryptSecret,
+  requireKeyset,
+} from "../functions/lib/crypto";
 import { deriveS3SecretAccessKey } from "../functions/lib/cloudflare";
 
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
@@ -69,7 +73,9 @@ const MINTED_ID = "0123456789abcdef0123456789abcde0";
  * what was — "the bucket was created once" is a claim about the absence of a
  * second call.
  */
-function stubCloudflare(options: { bucketTaken?: boolean; mintFails?: boolean } = {}) {
+function stubCloudflare(
+  options: { bucketTaken?: boolean; mintFails?: boolean } = {},
+) {
   const calls: Array<{ url: string; method: string }> = [];
   vi.stubGlobal("fetch", async (url: string, init?: { method?: string }) => {
     const method = init?.method ?? "GET";
@@ -80,7 +86,9 @@ function stubCloudflare(options: { bucketTaken?: boolean; mintFails?: boolean } 
       text: async () => JSON.stringify({ success: true, errors: [], result }),
     });
     if (url.includes("/tokens/permission_groups")) {
-      return ok([{ id: "pg_write", name: "Workers R2 Storage Bucket Item Write" }]);
+      return ok([
+        { id: "pg_write", name: "Workers R2 Storage Bucket Item Write" },
+      ]);
     }
     if (url.includes("/r2/buckets") && method === "POST") {
       if (options.bucketTaken === true) {
@@ -90,7 +98,12 @@ function stubCloudflare(options: { bucketTaken?: boolean; mintFails?: boolean } 
           text: async () =>
             JSON.stringify({
               success: false,
-              errors: [{ code: 10004, message: "The bucket you tried to create already exists" }],
+              errors: [
+                {
+                  code: 10004,
+                  message: "The bucket you tried to create already exists",
+                },
+              ],
             }),
         };
       }
@@ -102,7 +115,10 @@ function stubCloudflare(options: { bucketTaken?: boolean; mintFails?: boolean } 
           ok: false,
           status: 403,
           text: async () =>
-            JSON.stringify({ success: false, errors: [{ code: 9109, message: "Unauthorized" }] }),
+            JSON.stringify({
+              success: false,
+              errors: [{ code: 9109, message: "Unauthorized" }],
+            }),
         };
       }
       return ok({ id: MINTED_ID, value: MINTED_TOKEN });
@@ -173,9 +189,12 @@ describe("provisioning a managed bucket", () => {
     try {
       await configured(t);
       const { workspaceId } = await paidContext(t, "no-secrets");
-      await t.action(internal.functions.managedProvisioning.provisionManagedStorage, {
-        workspaceId,
-      });
+      await t.action(
+        internal.functions.managedProvisioning.provisionManagedStorage,
+        {
+          workspaceId,
+        },
+      );
 
       const everything = await t.run(async (ctx) => {
         const bindings = await ctx.db.query("storageBindings").collect();
@@ -204,9 +223,13 @@ describe("provisioning a managed bucket", () => {
       // no secret at all would otherwise reach the decrypt below as
       // `undefined` and this test would be about nothing.
       expect(row?.encryptedSecretAccessKey).toBeDefined();
-      const stored = await decryptSecret(row!.encryptedSecretAccessKey!, requireKeyset(), {
-        workspaceId: row!.workspaceId,
-      });
+      const stored = await decryptSecret(
+        row!.encryptedSecretAccessKey!,
+        requireKeyset(),
+        {
+          workspaceId: row!.workspaceId,
+        },
+      );
       expect(stored).toBe(await deriveS3SecretAccessKey(MINTED_TOKEN));
       expect(stored).not.toBe(MINTED_TOKEN);
     } finally {
@@ -247,14 +270,19 @@ describe("provisioning a managed bucket", () => {
     }
   });
 
-  test("it never writes over storage that is already there", async () => {
-    // A redelivered webhook, or a customer who connected their own bucket while
-    // Cloudflare was answering. Their notes are behind that binding.
+  test("an existing binding stays live while a resumable migration is parked", async () => {
     const t = setupTest();
     stubCloudflare();
     try {
       await configured(t);
       const { owner, workspaceId } = await paidContext(t, "already-bound");
+      const sourceSecret = await encryptSecret(
+        "source-secret",
+        requireKeyset(),
+        {
+          workspaceId,
+        },
+      );
       await t.run((ctx) =>
         ctx.db.insert("storageBindings", {
           workspaceId,
@@ -263,7 +291,7 @@ describe("provisioning a managed bucket", () => {
           region: "us-east-1",
           bucket: "their-own-bucket",
           accessKeyId: "AKIAFAKE",
-          encryptedSecretAccessKey: "v2:fake",
+          encryptedSecretAccessKey: sourceSecret,
           status: "connected",
           capabilities: { conditionalWrite: true },
           boundBy: owner,
@@ -279,10 +307,144 @@ describe("provisioning a managed bucket", () => {
 
       expect(result.ok).toBe(true);
       expect((await binding(t))?.bucket).toBe("their-own-bucket");
+      const migration = await t.run((ctx) =>
+        ctx.db.query("managedStorageMigrations").unique(),
+      );
+      expect(migration?.sourceBindingId).toBe((await binding(t))?._id);
+      expect(migration?.targetBucket).toBe(managedBucketName(workspaceId));
     } finally {
       vi.unstubAllEnvs();
       vi.unstubAllGlobals();
     }
+  });
+
+  test("a changed verification pass repeats and only a quiet pass permits cutover", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await paidContext(t, "quiet-pass");
+    const sourceBindingId = await t.run((ctx) =>
+      ctx.db.insert("storageBindings", {
+        workspaceId,
+        provider: "s3",
+        endpoint: "https://s3.example.invalid",
+        region: "us-east-1",
+        bucket: "source",
+        accessKeyId: "source-key",
+        encryptedSecretAccessKey: "sealed-source",
+        status: "connected",
+        capabilities: { conditionalWrite: true },
+        boundBy: owner,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    await t.run((ctx) =>
+      ctx.db.insert("managedStorageMigrations", {
+        workspaceId,
+        sourceBindingId,
+        targetEndpoint: "https://managed.example.invalid",
+        targetBucket: managedBucketName(workspaceId),
+        targetAccessKeyId: "target-key",
+        encryptedTargetSecretAccessKey: "sealed-target",
+        status: "copying",
+        phase: "copy",
+        objectsCopied: 0,
+        changesInPass: 0,
+        readyToCutover: false,
+        startedBy: owner,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+
+    const page = (changes: number) =>
+      t.mutation(internal.functions.managedProvisioning.recordMigrationPage, {
+        workspaceId,
+        copied: 1,
+        changes,
+      });
+    expect((await page(1)).cutover).toBe(false); // copy -> verify source
+    expect((await page(1)).cutover).toBe(false); // verify source -> verify target
+    expect((await page(0)).cutover).toBe(false); // changed pass -> repeat
+    expect((await page(0)).cutover).toBe(false); // quiet source -> target
+    expect((await page(0)).cutover).toBe(true); // quiet target -> cutover
+
+    const migration = await t.run((ctx) =>
+      ctx.db.query("managedStorageMigrations").unique(),
+    );
+    expect(migration?.readyToCutover).toBe(true);
+  });
+
+  test("a reconnect during the copy refuses cutover and leaves the new binding live", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await paidContext(t, "reconnect-race");
+    const oldBindingId = await t.run((ctx) =>
+      ctx.db.insert("storageBindings", {
+        workspaceId,
+        provider: "s3",
+        endpoint: "https://old.example.invalid",
+        region: "us-east-1",
+        bucket: "old-source",
+        accessKeyId: "old",
+        encryptedSecretAccessKey: "old-secret",
+        status: "connected",
+        capabilities: { conditionalWrite: true },
+        boundBy: owner,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.insert("managedStorageMigrations", {
+        workspaceId,
+        sourceBindingId: oldBindingId,
+        targetEndpoint: "https://managed.example.invalid",
+        targetBucket: managedBucketName(workspaceId),
+        targetAccessKeyId: "target",
+        encryptedTargetSecretAccessKey: "target-secret",
+        status: "copying",
+        phase: "verify_target",
+        objectsCopied: 3,
+        changesInPass: 0,
+        readyToCutover: true,
+        startedBy: owner,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      await ctx.db.delete(oldBindingId);
+      await ctx.db.insert("storageBindings", {
+        workspaceId,
+        provider: "s3",
+        endpoint: "https://new.example.invalid",
+        region: "us-east-1",
+        bucket: "new-source",
+        accessKeyId: "new",
+        encryptedSecretAccessKey: "new-secret",
+        status: "connected",
+        capabilities: { conditionalWrite: true },
+        boundBy: owner,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    const result = await t.mutation(
+      internal.functions.managedProvisioning.finishManagedStorageMigration,
+      { workspaceId },
+    );
+    expect(result.cutover).toBe(false);
+    expect((await binding(t))?.bucket).toBe("new-source");
+
+    const resumed = await t.mutation(
+      internal.functions.managedProvisioning.resumeManagedStorageMigration,
+      { workspaceId, actorUserId: owner },
+    );
+    expect(resumed).toBe(true);
+    const migration = await t.run((ctx) =>
+      ctx.db.query("managedStorageMigrations").unique(),
+    );
+    expect(migration?.sourceBindingId).toBe((await binding(t))?._id);
+    expect(migration?.phase).toBe("copy");
+    expect(migration?.objectsCopied).toBe(0);
   });
 
   test("nor over one that appeared while Cloudflare was answering", async () => {
@@ -387,9 +549,12 @@ describe("provisioning a managed bucket", () => {
       );
 
       expect(result.errorCode).toBe("CLOUDFLARE_REFUSED");
-      const status = await asUser(t, owner).query(api.functions.billing.status, {
-        workspaceId,
-      });
+      const status = await asUser(t, owner).query(
+        api.functions.billing.status,
+        {
+          workspaceId,
+        },
+      );
       expect(status.managedProvisioning).toBe("failed");
       expect(status.managedProvisioningError).toBe("CLOUDFLARE_REFUSED");
       // Nothing half-written: no binding, so nothing downstream believes there
@@ -410,15 +575,21 @@ describe("provisioning a managed bucket", () => {
     try {
       await configured(t);
       const { workspaceId } = await paidContext(t, "member-view");
-      await t.action(internal.functions.managedProvisioning.provisionManagedStorage, {
-        workspaceId,
-      });
+      await t.action(
+        internal.functions.managedProvisioning.provisionManagedStorage,
+        {
+          workspaceId,
+        },
+      );
       const member = await createUser(t, "member-view-2@example.invalid");
       await addMember(t, workspaceId, member, "member");
 
-      const status = await asUser(t, member).query(api.functions.billing.status, {
-        workspaceId,
-      });
+      const status = await asUser(t, member).query(
+        api.functions.billing.status,
+        {
+          workspaceId,
+        },
+      );
       expect(status.managedProvisioning).toBe("failed");
       expect(status.managedProvisioningError).toBeUndefined();
     } finally {
@@ -436,9 +607,12 @@ describe("provisioning a managed bucket", () => {
       await addMember(t, workspaceId, member, "member");
 
       await expect(
-        asUser(t, member).mutation(api.functions.managedProvisioning.retryManagedProvisioning, {
-          workspaceId,
-        }),
+        asUser(t, member).mutation(
+          api.functions.managedProvisioning.retryManagedProvisioning,
+          {
+            workspaceId,
+          },
+        ),
       ).rejects.toThrow();
     } finally {
       vi.unstubAllEnvs();

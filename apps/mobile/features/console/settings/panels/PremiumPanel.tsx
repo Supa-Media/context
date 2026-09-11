@@ -7,7 +7,11 @@ import { Button } from "../../../design/components/Button";
 import { Card, Row } from "../../../design/components/Card";
 import { Dot } from "../../../design/components/Dot";
 import { Hint } from "../../../design/components/Field";
-import { FormError, Notice, ToggleGroup } from "../../../design/components/Input";
+import {
+  FormError,
+  Notice,
+  ToggleGroup,
+} from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../../design/theme";
@@ -24,6 +28,7 @@ import {
   entitlementRows,
   entitlementsHint,
   formatPrice,
+  managedMigrationCopy,
   premiumControl,
   premiumPill,
   premiumStateOf,
@@ -101,7 +106,8 @@ export function PremiumPanel({
   */
   const client = useConvex();
   const current = selectedContext(data);
-  const workspaceId = data.demo || client === undefined ? null : (current?.id ?? null);
+  const workspaceId =
+    data.demo || client === undefined ? null : (current?.id ?? null);
   if (workspaceId === null) {
     return (
       <PremiumBody
@@ -111,7 +117,13 @@ export function PremiumPanel({
       />
     );
   }
-  return <PremiumLive workspaceId={workspaceId} section={section} returned={returned} />;
+  return (
+    <PremiumLive
+      workspaceId={workspaceId}
+      section={section}
+      returned={returned}
+    />
+  );
 }
 
 /** The half that subscribes. Rendered only where there is a client to do it. */
@@ -172,7 +184,9 @@ export function PremiumBody({
         // Our sentence, never the backend's: a Convex error can carry a
         // function path, and a person reading a billing card is owed the next
         // step instead.
-        setFailure("That did not go through. Check your connection and try again."),
+        setFailure(
+          "That did not go through. Check your connection and try again.",
+        ),
       )
       .finally(() => setWorking(false));
   };
@@ -184,9 +198,11 @@ export function PremiumBody({
   const control = premiumControl(view);
   const session = view.session;
   const returning = checkoutReturnCopy(returned, state, { slow });
+  const migration = status === null ? null : managedMigrationCopy(status);
 
   const toggle = (value: string, next: boolean) => {
-    if (status === undefined || status === null || view.choose === undefined) return;
+    if (status === undefined || status === null || view.choose === undefined)
+      return;
     const chosen: PremiumEntitlements = { ...status.selected };
     if (value === "managedStorage") chosen.managedStorage = next;
     if (value === "fastSearch") chosen.fastSearch = next;
@@ -203,14 +219,16 @@ export function PremiumBody({
           the row and its heading drifted apart once already.
         */
         variant={section === undefined ? "eyebrow" : "paneTitle"}
-        style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}
+        style={
+          section === undefined ? styles.sectionHeadLater : styles.sectionHead
+        }
       >
         {settingsSectionLabel("premium")}
       </Text>
       <Text variant="paneSub" style={styles.sectionSub}>
-        What this brain or workspace pays for. Premium is per context rather than
-        per person, so upgrading this one leaves every other context you can reach
-        exactly as it is.
+        What this brain or workspace pays for. Premium is per context rather
+        than per person, so upgrading this one leaves every other context you
+        can reach exactly as it is.
       </Text>
 
       {/*
@@ -258,7 +276,11 @@ export function PremiumBody({
           </View>
         </Card>
       ) : (
-        <Card testID={returning?.working === true ? "premium-checkout-return" : undefined}>
+        <Card
+          testID={
+            returning?.working === true ? "premium-checkout-return" : undefined
+          }
+        >
           <View style={styles.head}>
             <View style={styles.headText}>
               <Text variant="rowTitle" testID="premium-title" role="status">
@@ -295,6 +317,31 @@ export function PremiumBody({
           {usageLine(status) === null ? null : (
             <Notice style={styles.notice} testID="premium-usage">
               <Text variant="rowSub">{usageLine(status)}</Text>
+            </Notice>
+          )}
+          {migration === null ? null : (
+            <Notice
+              tone={migration.failed ? "warn" : "neutral"}
+              style={styles.notice}
+              testID="managed-storage-migration"
+            >
+              <View style={styles.returnText}>
+                <Text variant="rowTitle" role="status">
+                  {migration.title}
+                </Text>
+                <Text variant="rowSub" style={styles.blurb}>
+                  {migration.body}
+                </Text>
+                {migration.failed && view.retryManagedStorage !== undefined ? (
+                  <Button
+                    label={working ? "Trying again…" : "Try copy again"}
+                    variant="mini"
+                    disabled={working}
+                    onPress={() => run(view.retryManagedStorage)}
+                    testID="managed-storage-retry"
+                  />
+                ) : null}
+              </View>
             </Notice>
           )}
         </Card>
@@ -345,7 +392,11 @@ export function PremiumBody({
         </Card>
       )}
 
-      {failure === null ? <></> : <FormError headline={failure} style={styles.notice} />}
+      {failure === null ? (
+        <></>
+      ) : (
+        <FormError headline={failure} style={styles.notice} />
+      )}
       {session?.status === "failed" ? (
         <FormError
           headline={describeSessionFailure(session.errorCode)}
@@ -373,7 +424,11 @@ export function PremiumBody({
             else, is the kind a browser blocks and a person does not trust.
           */}
           <Button
-            label={session.kind === "portal" ? "Continue to billing" : "Continue to Stripe"}
+            label={
+              session.kind === "portal"
+                ? "Continue to billing"
+                : "Continue to Stripe"
+            }
             accessibilityLabel="Open the payment page, which is hosted by Stripe"
             variant="decision"
             trailing={<Text variant="rowSub">↗</Text>}
