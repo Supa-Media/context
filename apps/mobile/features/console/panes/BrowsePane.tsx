@@ -863,6 +863,22 @@ export function BrowsePane({
           }
           onClose={() => setSharing(null)}
           /*
+            Only what the server already decided: `selected.visibility` came off
+            the listing's own `effectiveVisibility` at this caller's scope, and
+            `access.ts` joins it to the membership without evaluating anything.
+
+            `data.members` rather than a `useMembers` of this pane's own: the
+            console already holds one subscription for the People section, and a
+            second one here made every BrowsePane render test reach for a Convex
+            provider it does not have — 96 of them. One subscription, read in
+            two places.
+          */
+          access={{
+            visibility: selected.visibility,
+            exception: selected.exception,
+            members: data.members?.members,
+          }}
+          /*
             Only when the editor is actually holding this note — the same
             guard the breadcrumb's title uses, for the same reason: the
             plaintext this locks is `files.editor.draft`, and a draft

@@ -36,6 +36,8 @@ import { Text } from "../../design/components/Text";
 import { fonts, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { baseName } from "./paths";
+import { accessRows, accessSummary, type AccessMember } from "./access";
+import type { Visibility } from "./types";
 import {
   describeOpenLink,
   describePersonalShare,
@@ -57,6 +59,7 @@ export function ShareDialog({
   onSetPreviewTitle,
   onClose,
   advanced,
+  access,
 }: {
   path: string;
   /** Every share on this context, or `undefined` while the query is in flight. */
@@ -91,6 +94,21 @@ export function ShareDialog({
   onRevoke: (shareId: string) => void;
   onSetPreviewTitle: (share: NoteShare, titleInPreview: boolean) => void;
   onClose: () => void;
+  /**
+   * What the note reads as, and the people this context has.
+   *
+   * Both arrive already decided — `visibility` off the server's own
+   * `effectiveVisibility` at this caller's scope, `members` off `listMembers` —
+   * and `access.ts` only joins them. Optional because this dialog is also
+   * rendered on the landing page's read-only demo, which has no membership to
+   * show and should draw the section it can rather than an empty one.
+   */
+  access?: {
+    visibility: Visibility;
+    exception: boolean;
+    /** `undefined` while the membership is still loading. Not an empty list. */
+    members: readonly AccessMember[] | undefined;
+  };
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -185,6 +203,35 @@ export function ShareDialog({
             */}
             <View style={styles.section}>
               <Text variant="eyebrow">PEOPLE WITH ACCESS</Text>
+              {/*
+                The list this section is named after, which it did not have.
+
+                It said "PEOPLE WITH ACCESS" and then offered a link — the one
+                thing on the screen that is not a person — so an owner could not
+                answer the question the heading asks about the note in front of
+                them. The summary line above the names carries the half a list
+                cannot show: whether the rule is on this note or inherited from
+                the folder, which is the difference between "fine" and "wait,
+                that folder?".
+              */}
+              {access === undefined ? null : (
+                <View style={styles.access} testID="share-access">
+                  <Text variant="paneSub">
+                    {accessSummary(access.visibility, access.exception)}
+                  </Text>
+                  {accessRows(access.visibility, access.exception, access.members).map((row) => (
+                    <View key={row.key} style={styles.accessRow}>
+                      <Text variant="rowTitle" style={styles.accessName}>
+                        {row.label}
+                      </Text>
+                      <Text variant="meta" style={styles.accessReason}>
+                        {row.reason}
+                      </Text>
+                      <Text variant="meta">{row.role}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
               <Text variant="paneSub">{describeTeamLink()}</Text>
               {problem === null ? null : (
                 <Text variant="meta" testID="share-copy-problem" selectable>
@@ -388,6 +435,18 @@ function SharedWith({
 
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  access: { gap: 8, marginBottom: 4 },
+  accessRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 8,
+    flexWrap: "wrap",
+    paddingVertical: 4,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+  },
+  accessName: { flexShrink: 0 },
+  accessReason: { flexGrow: 1, flexShrink: 1, minWidth: 0, color: colors.muted },
   scrim: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.55)",
