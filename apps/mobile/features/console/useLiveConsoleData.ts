@@ -224,7 +224,7 @@ export function useLiveConsoleData(): ConsoleData {
     () => ({
       workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} },
       invitations: { query: api.functions.invitations.listMyInvitations, args: {} },
-      // Which contexts a blended search would actually reach. It rides in the
+      // Which contexts a blended search will reach. It rides in the
       // same spec for the reason `listMyInvitations` does — Convex dedupes
       // identical subscriptions, so the search page subscribing to it as well
       // is not a second round trip — and it is here rather than on the page
@@ -249,12 +249,14 @@ export function useLiveConsoleData(): ConsoleData {
     specResults.invitations,
   );
   const workspaces = usable<WorkspaceSummary[]>(workspacesResult);
-  // `fastSearch.searchableContexts` answers `{ eligible, notEligible }` now
-  // (see `apps/convex/functions/fastSearch.ts`); this reader only ever wanted
-  // the count of the first half.
-  const searchableContexts = usable<{ eligible: Array<{ workspaceId: string }> }>(
+  // `fastSearch.searchableContexts` answers `{ contexts }` (see
+  // `apps/convex/functions/fastSearch.ts`); this reader only ever wanted how
+  // many there are. That is now every context the person belongs to rather
+  // than the fast-search ones, which is the honest condition for drawing a
+  // Search row: the page reads whatever it is given, quickly or slowly.
+  const searchableContexts = usable<{ contexts: Array<{ workspaceId: string }> }>(
     specResults.searchable,
-  )?.eligible.length;
+  )?.contexts.length;
   const failure =
     workspacesResult instanceof Error
       ? describeQueryFailure(workspacesResult, "your context")

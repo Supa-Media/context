@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Button, PressRow } from "../../design/components/Button";
+import { Icon } from "../../design/components/Icon";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { radii, space } from "../../design/tokens";
@@ -12,36 +13,41 @@ import {
   emptyMessage,
   folderOf,
   noteworthySources,
-  nudgeRows,
-  ownsAnUnsearchableContext,
   scopeLabel,
   toggleScope,
+  upsellRows,
   type BlendedResult,
-  type NudgeRow,
+  type UpsellRow,
+  type UpsellTarget,
 } from "./results";
 import { useBlendedSearch } from "./useBlendedSearch";
 
 /**
- * One row of the nudge: what to say, and — only where there is a press an
- * owner can act on — a button that opens that context's settings.
+ * One row of the upsell: what to say about a context that answered the slow
+ * way, and — only where there is a press an owner can act on — a button that
+ * opens the settings section that changes it.
  *
  * A row rather than a `PressRow`: most rows here have nothing to press
  * (`href` is `null` for a member watching another owner's "off", and for a
  * context that is merely `preparing`), and a row that is not a control must
  * not look like one.
+ *
+ * The label comes off the row rather than being fixed here, because the two
+ * destinations are different offers — "See Premium" and "Turn it on" — and a
+ * single "Open settings" over both is how a paywall gets mistaken for a switch.
  */
-function NudgeRowView({ row, onOpen }: { row: NudgeRow; onOpen: (href: string) => void }) {
+function UpsellRowView({ row, onOpen }: { row: UpsellRow; onOpen: (href: string) => void }) {
   const styles = useThemedStyles(makeStyles);
   return (
-    <View style={styles.nudgeRow} testID={`search-nudge-${row.slug}`}>
+    <View style={styles.nudgeRow} testID={`search-upsell-${row.slug}`}>
       <Text variant="rowSub" style={styles.nudgeText}>
         {row.message}
       </Text>
-      {row.href === null ? null : (
+      {row.href === null || row.action === null ? null : (
         <Button
-          label="Open settings"
+          label={row.action}
           onPress={() => onOpen(row.href as string)}
-          testID={`search-nudge-open-${row.slug}`}
+          testID={`search-upsell-open-${row.slug}`}
         />
       )}
     </View>
@@ -78,8 +84,17 @@ function NudgeRowView({ row, onOpen }: { row: NudgeRow; onOpen: (href: string) =
  *
  * The chips say what was searched before you read what was found, because a
  * result list is only interpretable against the set it came from. Turning every
- * chip off returns to "all fast-search contexts" rather than searching nothing
- * — see `toggleScope`.
+ * chip off returns to "all your contexts" rather than searching nothing — see
+ * `toggleScope`.
+ *
+ * ## The upsell is under the results, never instead of them
+ *
+ * Every context somebody belongs to is searched; the ones without a hosted
+ * index answer from their own bucket, which is slower. That is worth saying and
+ * worth offering to change, and the place for both is **beneath answers the
+ * page has already given**. This page used to draw the offer in place of the
+ * results — four lines naming a setting, over a search that had looked at
+ * nothing — which is how a working product came to read as a broken one.
  */
 export function SearchPane({
   query,
@@ -87,31 +102,61 @@ export function SearchPane({
   onQuery,
   onScope,
   onOpen,
+  onClose,
 }: {
   query: string;
-  /** The scope, as slugs, from the URL. Empty means every eligible context. */
+  /** The scope, as slugs, from the URL. Empty means every context in reach. */
   slugs: string[];
   /** Both of these write the URL rather than local state — see the route. */
   onQuery: (next: string) => void;
   onScope: (next: string[]) => void;
   onOpen: (href: string) => void;
+  /**
+   * The way out, and it is not optional furniture.
+   *
+   * A phone draws no rail and no bottom toolbar on an app-level pane
+   * (`features/app/frame.ts`, and the `browsing` gate in the console layout),
+   * so this page shipped with the context strip as its only exit — and the one
+   * pill for the context you are *in* did nothing here, because it deselects a
+   * note rather than navigating. A search page you can walk into and not out of
+   * is the first thing anybody notices about it.
+   *
+   * **The route implements this as a navigation and never as `router.back()`**,
+   * which looks like the obvious answer and is wrong here twice. A scope change
+   * pushes a history entry — it should — so Back from a page somebody has
+   * narrowed twice walks the scopes rather than leaving, which is a Close that
+   * appears not to work. And this page is a URL people paste to each other, so
+   * the entry behind it is often another app's, or nothing at all.
+   */
+  onClose: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const search = useBlendedSearch({ query, slugs });
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const { state, results, answer, eligible, notEligible } = search;
+  const { state, results, answer, contexts } = search;
   const notes = useMemo(() => noteworthySources(answer), [answer]);
   /*
-    The nudge's rows, built once from the viewer's own not-eligible contexts.
-    Shown in two places — see the reviewer's note on #262: a person with no
-    eligible contexts at all reads this as the empty state, and an owner who
-    already has some eligible reads it in the scope picker, where "which of my
-    contexts could this page also search" is the question they just asked by
-    opening it.
+    The upsell's rows, built once from the contexts that answered the slow way.
+
+    `settingsHref` with the section the offer is actually about — Premium where
+    there is no entitlement, Search where there is and the switch is off. Two
+    destinations rather than one, because `lib/fastSearch.ts` keeps entitlement
+    and opt-in apart and this is the surface where sending "you have not paid"
+    to a switch they cannot throw would waste the one press they give us.
   */
-  const nudge = useMemo(() => nudgeRows(notEligible, (slug) => settingsHref(slug, "search")), [notEligible]);
-  const showNudgeInPicker = eligible.length === 0 || ownsAnUnsearchableContext(notEligible);
+  const upsell = useMemo(
+    () => upsellRows(contexts, (slug, target: UpsellTarget) => settingsHref(slug, target)),
+    [contexts],
+  );
+  /*
+    Shown under a settled answer, and under every slow context in it rather
+    than only the ones with a press behind them — see `upsellRows`. It waits
+    for the answer because a sentence about how a search was served, beside no
+    search, is a sentence about nothing.
+  */
+  const showUpsell =
+    upsell.length > 0 && state !== "idle" && state !== "searching" && state !== "failed";
 
   const open = useCallback(
     (row: BlendedResult) => onOpen(noteHref(row.slug, row.path)),
@@ -134,6 +179,15 @@ export function SearchPane({
       <PaneHead
         title="Search"
         description="Every context you can reach, in one list."
+        leading={
+          <Button
+            label="Close"
+            leading={<Icon name="close" size={14} />}
+            onPress={onClose}
+            accessibilityLabel="Close search"
+            testID="search-close"
+          />
+        }
         trailing={count ? <Pill>{count}</Pill> : undefined}
       />
 
@@ -157,11 +211,11 @@ export function SearchPane({
         <Pressable
           onPress={() => setPickerOpen((open) => !open)}
           accessibilityRole="button"
-          accessibilityLabel={`Change which contexts are searched. Currently ${scopeLabel(slugs, eligible)}`}
+          accessibilityLabel={`Change which contexts are searched. Currently ${scopeLabel(slugs, contexts)}`}
           style={styles.scopeButton}
           testID="search-scope"
         >
-          <Text variant="rowSub">{scopeLabel(slugs, eligible)}</Text>
+          <Text variant="rowSub">{scopeLabel(slugs, contexts)}</Text>
         </Pressable>
         {slugs.length > 0 ? (
           <Button label="All contexts" onPress={() => onScope([])} testID="search-scope-all" />
@@ -171,15 +225,17 @@ export function SearchPane({
       {pickerOpen ? (
         <View testID="search-scope-picker">
           <View style={styles.picker}>
-            {eligible.length === 0 ? (
+            {contexts.length === 0 ? (
               <Text variant="rowSub">Nothing to choose from yet.</Text>
             ) : (
-              eligible.map((context) => {
+              contexts.map((context) => {
                 const on = slugs.length === 0 || slugs.includes(context.slug);
                 return (
                   <PressRow
                     key={context.workspaceId}
-                    accessibilityLabel={`${on ? "Stop searching" : "Search"} @${context.slug}`}
+                    accessibilityLabel={`${on ? "Stop searching" : "Search"} @${context.slug}${
+                      context.search === "slow" ? ", searched from its own bucket" : ""
+                    }`}
                     selected={on}
                     onPress={() => onScope(toggleScope(slugs, context.slug))}
                     radius={radii.sm}
@@ -189,27 +245,24 @@ export function SearchPane({
                     <Text variant="tree" numberOfLines={1}>
                       @{context.slug}
                     </Text>
+                    {/*
+                      A chip says which way its context answers, because that is
+                      what the person is choosing between when they narrow a
+                      scope for speed. Marked on the slow ones rather than the
+                      fast ones: the mark should sit on the exception, and on an
+                      account paying for nothing every chip would otherwise wear
+                      a badge.
+                    */}
+                    {context.search === "slow" ? (
+                      <Text variant="treeMeta" style={styles.chipMark}>
+                        slower
+                      </Text>
+                    ) : null}
                   </PressRow>
                 );
               })
             )}
           </View>
-
-          {/*
-            The nudge, inside the picker rather than beside the chips: opening
-            the scope is exactly the moment somebody is asking "what else could
-            this page search", and a context sitting off to one side of that
-            question is the honest answer to it. Shown whenever there is
-            nothing eligible at all, or the viewer owns a context that could be
-            turned on — see `showNudgeInPicker`.
-          */}
-          {showNudgeInPicker && nudge.length > 0 ? (
-            <View style={styles.nudgeList} testID="search-scope-nudge">
-              {nudge.map((row) => (
-                <NudgeRowView key={row.workspaceId} row={row} onOpen={onOpen} />
-              ))}
-            </View>
-          ) : null}
         </View>
       ) : null}
 
@@ -221,20 +274,6 @@ export function SearchPane({
         {results.length === 0 ? (
           <View style={styles.empty} testID="search-empty">
             <Text variant="rowSub">{emptyMessage(state, query)}</Text>
-            {/*
-              "No context you can reach has fast search on" is the true
-              sentence and it used to be the whole answer. It named a setting
-              that exists and left finding it to the reader — the reviewer's
-              own words on #262. This is the setting, named per context, with
-              a press for whichever one the viewer can actually turn on.
-            */}
-            {state === "no-contexts" && nudge.length > 0 ? (
-              <View style={styles.nudgeList} testID="search-nudge">
-                {nudge.map((row) => (
-                  <NudgeRowView key={row.workspaceId} row={row} onOpen={onOpen} />
-                ))}
-              </View>
-            ) : null}
           </View>
         ) : (
           results.map((row) => (
@@ -297,6 +336,24 @@ export function SearchPane({
             testID="search-more"
           />
         ) : null}
+
+        {/*
+          The offer, at the bottom of the answer it is an offer about.
+
+          Below "Load more" on purpose: reading the results and asking for more
+          of them is the thing somebody came here to do, and an upgrade prompt
+          between a list and its own "more" button is an interruption of the
+          one task the page has. Down here it is what a person reaches after
+          the answer, which is also when "that took a moment" is a thought they
+          have actually had.
+        */}
+        {showUpsell ? (
+          <View style={styles.upsell} testID="search-upsell">
+            {upsell.map((row) => (
+              <UpsellRowView key={row.workspaceId} row={row} onOpen={onOpen} />
+            ))}
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -323,7 +380,14 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: space.x1,
     },
     picker: { flexDirection: "row", flexWrap: "wrap", gap: space.x2 },
-    chip: { paddingHorizontal: space.x3, paddingVertical: space.x1 },
+    chip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: space.x2,
+      paddingHorizontal: space.x3,
+      paddingVertical: space.x1,
+    },
+    chipMark: { color: colors.text2 },
     scroll: { flex: 1 },
     scrollContent: { gap: space.x2, paddingBottom: space.x6 },
     empty: { paddingVertical: space.x4, gap: space.x3 },
@@ -340,6 +404,13 @@ const makeStyles = (colors: Colors) =>
     rowHead: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     rowTitle: { flexShrink: 1 },
     snippet: { color: colors.text2 },
+    upsell: {
+      gap: space.x1,
+      marginTop: space.x4,
+      paddingTop: space.x3,
+      borderTopWidth: 1,
+      borderTopColor: colors.line,
+    },
     note: {
       flexDirection: "row",
       alignItems: "center",

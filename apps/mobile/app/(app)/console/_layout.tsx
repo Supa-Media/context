@@ -62,6 +62,7 @@ import { NavBandProvider } from "../../../features/console/NavBand";
 import { useContextHref, useContextPlaces } from "../../../features/console/useLastPlace";
 import { useMeetingFlow } from "../../../features/meetings/useMeetingFlow";
 import {
+  currentContextPress,
   hrefFor,
   resolveContextRoute,
   routeForPath,
@@ -795,6 +796,27 @@ export default function ConsoleLayout() {
                     router in that fixture to stand in for it.
                   */
                   onOpenRoot={() => {
+                    /*
+                      **And on an app-level pane it is a navigation after all.**
+
+                      Everything above is about pressing this while standing
+                      *in* the context: there is nowhere to go, and deselecting
+                      is the whole of the effect. On Search, Map or Connections
+                      there is somewhere to go and deselecting did nothing you
+                      could see — which, on a phone, left those three panes with
+                      no way out at all: `regionsFor` draws no rail there and the
+                      console passes no bottom toolbar off Browse, so the strip
+                      is the only navigation on the glass and its own pill was
+                      the one dead pill in it.
+
+                      `replace`, and through the remembered place, so leaving a
+                      pane puts somebody back on the note they had open rather
+                      than at the root of a context they never left.
+                    */
+                    if (currentContextPress(route) === "navigate") {
+                      router.replace(contextHrefFrom(current.slug));
+                      return;
+                    }
                     data.files.deselect();
                   }}
                   onSelect={(next) => {
