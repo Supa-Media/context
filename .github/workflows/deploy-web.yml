@@ -39,6 +39,14 @@ jobs:
       # `undefined` and the app cannot reach the control plane at all, which
       # is why the preflight below refuses to continue without it.
       EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      EXPO_PUBLIC_SENTRY_DSN: ${{ secrets.EXPO_PUBLIC_SENTRY_DSN }}
+      EXPO_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: "0.1"
+      EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.EXPO_PUBLIC_POSTHOG_KEY }}
+      EXPO_PUBLIC_POSTHOG_HOST: ${{ secrets.EXPO_PUBLIC_POSTHOG_HOST }}
+      EXPO_PUBLIC_POSTHOG_REPLAY_SAMPLE_RATE: "0.1"
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
       # Read by app.config.js to resolve extra.eas.projectId. An account
       # identifier, not committed (CLAUDE.md: "no internal hostnames, no
       # account identifiers") — see apps/mobile/app.config.js.
