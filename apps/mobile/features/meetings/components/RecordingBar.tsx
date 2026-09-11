@@ -140,6 +140,14 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
 
   const paused = live.session.state === "paused";
   const elapsed = clock(recordElapsedMs(live, now === 0 ? Date.now() : now));
+  /*
+    The drain `end()` is sitting in, named for this meeting — see
+    `MeetingsSnapshot.ending`. The bar is still up while it runs, because the
+    session does not leave `recording` until the recorder has released the
+    device and drained its last chunk, so without this the one press that makes
+    this bar go away appeared to do nothing for five seconds.
+  */
+  const ending = snapshot.ending === live.session.id;
 
   return (
     <View
@@ -152,11 +160,25 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
       testID="recording-bar"
     >
       <View style={styles.bar}>
+        {/*
+          Refused while the meeting is ending, like End beside it. The recorder
+          has already been told to stop, so a pause pressed into that window
+          reaches a stopped device and does nothing to the audio while folding
+          `paused` into a session that is one line away from `finalizing` — a
+          control that changes the record and not the world.
+        */}
         <Pressable
           onPress={paused ? () => void meetings.resume() : () => void meetings.pause()}
           accessibilityRole="button"
           accessibilityLabel={paused ? "Resume recording" : "Pause recording"}
-          style={({ pressed }) => [styles.round, paused && styles.roundPaused, pressed && styles.pressed]}
+          accessibilityState={{ disabled: ending }}
+          disabled={ending}
+          style={({ pressed }) => [
+            styles.round,
+            paused && styles.roundPaused,
+            ending && styles.endBusy,
+            pressed && styles.pressed,
+          ]}
           testID="recording-bar-pause"
         >
           {paused ? <Play /> : <PauseBars />}
@@ -176,12 +198,22 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
         <Pressable
           onPress={end}
           accessibilityRole="button"
-          accessibilityLabel="End the recording"
-          style={({ pressed }) => [styles.end, pressed && styles.pressed]}
+          accessibilityLabel={
+            ending
+              ? "Ending the recording. Saving the last of it."
+              : "End the recording"
+          }
+          accessibilityState={{ disabled: ending, busy: ending }}
+          disabled={ending}
+          style={({ pressed }) => [
+            styles.end,
+            ending && styles.endBusy,
+            pressed && styles.pressed,
+          ]}
           testID="recording-bar-end"
         >
           <Text variant="mini" style={styles.endLabel}>
-            End
+            {ending ? "Ending…" : "End"}
           </Text>
         </Pressable>
       </View>
@@ -269,6 +301,8 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  /* Dimmed in place, never resized: see `LiveMeetingScreen`'s copy. */
+  endBusy: { opacity: 0.5 },
   endLabel: { color: colors.ink, fontSize: 15 },
   glyphRow: { flexDirection: "row", gap: 3 },
   pauseBar: { width: 4, height: 16, borderRadius: 1.2, backgroundColor: colors.okText },

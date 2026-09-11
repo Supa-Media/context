@@ -1614,12 +1614,25 @@ not destroying one.
 named one of them and called it the residual.**
 
  - **The path** carries the title's slug, so a rename between a lost answer and
-   a retry composes a second key. Nothing in the app offers one — and the reason
-   first given here was false, which matters more than the conclusion: it said
-   the title is editable on `LiveMeetingScreen`. That screen renders the title
-   as static text, and `controller.setTitle` has no callers at all. The
-   guarantee is safer than claimed and was argued from a surface that does not
-   exist.
+   a retry composes a second key. **The app offers a rename now, and the bound
+   moved from "nobody can" to "not from inside the window".**
+
+   Twice-wrong history, kept because it is the reasoning a reader repeats: this
+   first said the title was editable on `LiveMeetingScreen` and the residual
+   live, which was false — that screen rendered static text and
+   `controller.setTitle` had no callers, so the guarantee was safer than claimed
+   and argued from a surface that did not exist. It then said nothing in the app
+   offers one, which was true until `MeetingTitleField` existed.
+
+   The window opens at the **first finalize**. `MeetingTitleField` is drawn only
+   on `LiveMeetingScreen`; `[id].tsx` draws that screen for exactly `recording`
+   and `paused`; and the move out of both is `end()`, which queues the finalize.
+   A renameable session has therefore never been finalized. The one transition
+   that could put a renameable session back inside the window is
+   `finalizing -> recording`, which `MEETING_TRANSITIONS` allows and nothing in
+   this app makes — `start()` mints a fresh id and is the only caller of the
+   `start` event. Breaking the bound means adding a rename to
+   `MeetingNoteScreen`, or a route back from `finalizing` to `recording`.
  - **The workspace.** `resolveWorkspaceId` reads a ref re-assigned on every
    render, so a retry taken after the workspace list moved underneath resolves
    somewhere else — and a create in a *different* bucket meets no conflict to

@@ -102,6 +102,33 @@ export interface MeetingsSnapshot {
   durabilityReason: string | null;
   /** A drain is in flight. */
   syncing: boolean;
+  /**
+   * The meeting whose recorder is being stopped right now, or `null`.
+   *
+   * **This exists because `end()` is slow and was silent.** The press runs
+   * `recorder.stop()`, which closes the last chunk, releases the device and
+   * then *waits on `drainSends()`* — and `capture/audio.ts` says in its own
+   * words what that wait buys and what it costs: "the device is already back,
+   * so waiting here costs a spinner rather than a microphone. What it buys is
+   * the last few seconds of the meeting — usually the decision — landing in
+   * the note." It is the right trade. The spinner was never drawn.
+   *
+   * So for as long as the final chunk takes to transcribe — seconds on a good
+   * connection, longer on a bad one — the session was still `recording`, every
+   * screen went on drawing a live meeting with a running clock, and the person
+   * who pressed End had no way to tell a slow upload from a dead button. The
+   * owner's report is the whole of it: *"when I click end, it literally takes,
+   * like, five seconds with no indicator of what's going on."*
+   *
+   * It is a **snapshot** field rather than a session state on purpose. There is
+   * no `MeetingState` for it and there must not be: the contract's states are
+   * what the *gateway* and every other client agree a meeting is, and this is
+   * one device's knowledge of a local call it has not returned from — the same
+   * argument `MeetingRecord.acked` makes for itself. Nothing sends it, nothing
+   * persists it, and a restart mid-end comes back with it clear, which is
+   * correct: that stop is over, whatever it managed to drain.
+   */
+  ending: string | null;
   /** What capture this build can do. Straight off the recorder. */
   capture: MeetingRecorder["capability"];
   /**
@@ -216,6 +243,7 @@ const UNCONFIGURED: MeetingsSnapshot = Object.freeze({
   durable: false,
   durabilityReason: null,
   syncing: false,
+  ending: null,
   capture: NO_CAPTURE,
   captureError: null,
   backgroundCaptureWarning: null,
@@ -665,10 +693,47 @@ export class MeetingsController {
    * `MeetingSession.emptyReason` exists to carry once a meeting has nothing
    * else in it. Absent, a generic sentence takes its place rather than an
    * empty string.
+   *
+   * ## The wait is announced before it starts, not explained after it
+   *
+   * `recorder.stop()` is the slow line here and it is slow on purpose — it
+   * drains the last chunk so the end of the meeting is in the note rather than
+   * arriving after the first sync. Until this method published
+   * `snapshot.ending`, every screen went on drawing a live recording with a
+   * running clock for the whole of that drain, which is how a deliberate
+   * few-second wait reads as a button that did nothing. See the field.
+   *
+   * Set **before** the await and cleared in a `finally` that also covers the
+   * fold, so two things hold: the flag does not clear one tick *before* the
+   * session leaves `recording` — which would flash the live screen back to a
+   * running clock on the way to the note — and nothing thrown out of that body
+   * can leave the app saying a meeting is ending forever, with End and Pause
+   * both refused. The second is belt and braces rather than a live path:
+   * `stopAndFold` swallows the recorder's own failure where it happens, which
+   * is why the check for it sabotages the *clear* rather than the `finally`.
+   *
+   * The `await this.sync()` is deliberately outside it. By then the session is
+   * `finalizing` and `MeetingNoteScreen` is drawn, and that screen already says
+   * what the drain is doing in its own words; holding "Ending…" over a network
+   * round trip would be a second, worse answer to a question already answered.
    */
   async end(): Promise<void> {
     const config = this.require();
     const activityMeetingId = this.snapshot.live?.session.id ?? null;
+    if (activityMeetingId !== null) this.setEnding(activityMeetingId);
+    try {
+      await this.stopAndFold(config, activityMeetingId);
+    } finally {
+      this.setEnding(null);
+    }
+    await this.sync();
+  }
+
+  /** `end()`'s body, split out so one `finally` covers all of it. */
+  private async stopAndFold(
+    config: ConfigureInput,
+    activityMeetingId: string | null,
+  ): Promise<void> {
     await config.recorder.stop().catch(() => {
       // A recorder that will not stop is not a reason to refuse to end a
       // meeting. It is reported through `onError`, which is already wired.
@@ -704,7 +769,6 @@ export class MeetingsController {
     }
 
     this.flush(live.session.id);
-    await this.sync();
   }
 
   /**
@@ -1134,6 +1198,19 @@ export class MeetingsController {
       throw new Error("MeetingsController used before configure()");
     }
     return this.config;
+  }
+
+  /**
+   * Publish, or withdraw, "this device is stopping that recording".
+   *
+   * A no-op when nothing changes, because `end()` clears it unconditionally in
+   * a `finally` and every `set` wakes every subscriber — a notification that
+   * carries no new fact is a render of the recording bar and both meeting
+   * screens for nothing.
+   */
+  private setEnding(meetingId: string | null): void {
+    if (this.snapshot.ending === meetingId) return;
+    this.set({ ...this.snapshot, ending: meetingId });
   }
 
   private set(snapshot: MeetingsSnapshot): void {

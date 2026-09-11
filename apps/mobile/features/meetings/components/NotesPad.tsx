@@ -1,5 +1,5 @@
 import { memo, useRef } from "react";
-import { StyleSheet, TextInput } from "react-native";
+import { StyleSheet, TextInput, type StyleProp, type TextStyle } from "react-native";
 import { fonts, leading, layout } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 
@@ -59,6 +59,21 @@ export interface NotesPadProps {
   autoFocus?: boolean;
   editable?: boolean;
   placeholder?: string;
+  /**
+   * Layout for a caller that is not the live screen.
+   *
+   * Merged *after* the pad's own style, so a caller overrides the geometry —
+   * `flex: 1` and the reading margin are right for a control that is the whole
+   * screen and wrong for one inside a card on `MeetingNoteScreen`. The type
+   * face, the size and the colours are not offered: the human's notes read the
+   * same wherever they are typed.
+   *
+   * **It must be stable across renders**, like `onChangeText`, or it is the
+   * prop that re-renders a memoised input while somebody is typing into it.
+   * Hold it in a `StyleSheet` (a `useThemedStyles` result is one), never as an
+   * object literal in JSX.
+   */
+  style?: StyleProp<TextStyle>;
   testID?: string;
 }
 
@@ -68,6 +83,7 @@ function NotesPadImpl({
   autoFocus = false,
   editable = true,
   placeholder = "Type your notes…",
+  style,
   testID,
 }: NotesPadProps) {
   const colors = useColors();
@@ -103,7 +119,7 @@ function NotesPadImpl({
       autoCapitalize="sentences"
       spellCheck={false}
       accessibilityLabel="Your notes for this meeting"
-      style={styles.pad}
+      style={[styles.pad, style]}
     />
   );
 }

@@ -7,11 +7,13 @@ import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { writeClipboard } from "../design/clipboard";
+import { noteHref } from "../console/nav";
+import { NotesPad } from "./components/NotesPad";
 import { meetings } from "./controller";
 import { renderMeetingNote } from "./note";
 import { ERRORS, isMeetingId } from "./protocol";
 import { attendeeCount, dayHeading, duration, sourceLabel } from "./format";
-import { pendingSteps } from "./record";
+import { notesOnlyOnDevice, pendingSteps } from "./record";
 import type { MeetingRecord } from "./record";
 import { MEETINGS_ROUTE } from "./route";
 import { useMeetingsSnapshot } from "./useMeetings";
@@ -93,6 +95,17 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
     })();
   }, [record]);
 
+  /*
+    Stable across every render of this screen, so the pad below is never
+    re-rendered by an enhancement landing or a sync settling while somebody is
+    typing into it. `NotesPad`'s own header is the argument; this is the same
+    `useCallback` `LiveMeetingScreen` holds, at the other end of the meeting.
+  */
+  const onChangeNotes = useCallback(
+    (text: string) => meetings.setNotes(meetingId, text),
+    [meetingId],
+  );
+
   if (record === null) {
     /*
       Three different answers, and collapsing any two of them tells somebody
@@ -137,6 +150,16 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
 
   const { session } = record;
   const people = attendeeCount(session.attendees);
+  /*
+    "The note has not been written yet", said as the two states in which that
+    is true. `empty` is excluded with `complete` and for the stronger reason:
+    that session captured nothing and is terminal, so there is no note now and
+    never will be one — a pad over it would be collecting words for a file that
+    is not coming. Its own branch in `Landing` offers a new recording instead,
+    which is where those words belong.
+  */
+  const notesEditable = session.state === "finalizing" || session.state === "failed";
+  const noteHrefForRecord = noteEditorHref(record);
 
   return (
     <ScreenScroll contentContainerStyle={styles.content} testID="meeting-note">
@@ -151,9 +174,39 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
         </Pressable>
       </View>
 
-      <Text variant="paneTitle" style={styles.title}>
-        {session.title}
-      </Text>
+      {/*
+        The title is the note's `# ` heading, so renaming a finished meeting is
+        editing the note — and the first thing somebody does when they want to
+        rename something is press its name. That press used to land on nothing:
+        *"i can't even edit the meeting title."*
+
+        It is a second door to the same place `Edit note` opens rather than an
+        editor of its own, because `complete` is terminal and the path is
+        claimed: the app cannot rename this meeting, only the note it became.
+        Where there is no note to open — still finalizing, failed, empty, or a
+        record with no context to address — it stays the heading it was, with
+        no affordance and nothing to press.
+
+        Renaming *before* End is the live screen's field, which is the window
+        in which a rename is still the meeting's own.
+      */}
+      {noteHrefForRecord === null ? (
+        <Text variant="paneTitle" style={styles.title} testID="meeting-title">
+          {session.title}
+        </Text>
+      ) : (
+        <Pressable
+          onPress={() => router.push(noteHrefForRecord)}
+          accessibilityRole="link"
+          accessibilityLabel={`${session.title}. Open the note to rename it or edit it.`}
+          style={({ pressed }) => pressed && styles.pressed}
+          testID="meeting-title"
+        >
+          <Text variant="paneTitle" style={styles.title}>
+            {session.title}
+          </Text>
+        </Pressable>
+      )}
 
       <View style={styles.metaRow}>
         <Text variant="rowSub">
@@ -175,14 +228,52 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
 
       <Summary record={record} />
 
+      {/*
+        THE NOTES THIS SCREEN USED TO SHOW AND NOT TAKE.
+
+        A meeting ends and the thing you actually want is to add the two lines
+        you did not have time to type while somebody was talking. This card
+        printed them and offered no way in — the owner's words: *"there's no way
+        to add post meeting notes."*
+
+        **Whether it takes them is decided by whether the note exists yet**, and
+        that is a correctness rule rather than a preference:
+
+         - **Before the note is written** (`finalizing`, or `failed` and waiting
+           on a retry) the note is composed *from this session* when the
+           finalize runs, so what is typed here lands in the file. On the
+           gateway path the same text rides the `notes` route, which accepts it
+           in every state but `complete`.
+         - **Once the note is in the bucket** there is nothing left that would
+           ever write these words out. The gateway says so in its own refusal —
+           *"this session is already complete; edit the note instead"* — and
+           `createConvexGateway` has already done its one write. So the card
+           goes back to being a record of what was typed, and `Landing` below
+           carries the way to the note, which is the thing to edit now.
+
+        A pad that took keystrokes into a meeting nothing will write again would
+        be the appears-to-work-and-does-nothing defect this feature keeps being
+        rewritten for. The one narrow seam is a keystroke landing in the seconds
+        between the two, which `notesOnlyOnDevice` names and `Landing` says.
+      */}
       <View style={styles.ownNotes} testID="meeting-own-notes">
         <View style={styles.ownNotesHead}>
           <Icon name="file" size={13} color={colors.muted} />
-          <Text variant="railHead">My notes, unchanged</Text>
+          <Text variant="railHead">{notesEditable ? "My notes" : "My notes, unchanged"}</Text>
         </View>
-        <Text style={styles.ownNotesBody}>
-          {session.notes.trim() === "" ? "You didn't type anything during this one." : session.notes}
-        </Text>
+        {notesEditable ? (
+          <NotesPad
+            initialValue={session.notes}
+            onChangeText={onChangeNotes}
+            placeholder="Add what you did not have time to type…"
+            style={styles.ownNotesPad}
+            testID="meeting-own-notes-pad"
+          />
+        ) : (
+          <Text style={styles.ownNotesBody}>
+            {session.notes.trim() === "" ? "You didn't type anything during this one." : session.notes}
+          </Text>
+        )}
       </View>
 
       <View style={styles.actions}>
@@ -271,6 +362,30 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
       <Landing record={record} />
     </ScreenScroll>
   );
+}
+
+/**
+ * The console's own file page for this meeting's note, or `null`.
+ *
+ * Two facts and both come from somewhere that already knows them: the **path**
+ * is the gateway's answer and is the only thing that says where a note is, and
+ * the **context** is the destination the recording was started with — the one
+ * this device pointed the finalize at. Neither is guessed.
+ *
+ * `null` where either is missing, which is not a defensive default but the two
+ * real cases: a meeting that has not been written yet has no path, and a record
+ * from a build before `MeetingRecord.destination` existed has no slug. A link
+ * built on a guessed context would open the right path in the wrong brain, and
+ * the address bar would not say so.
+ *
+ * Exported for the suite, which is the only way to check a URL that is built
+ * from two nullable halves without rendering a console.
+ */
+export function noteEditorHref(record: MeetingRecord): string | null {
+  const slug = record.destination?.contextSlug ?? null;
+  const path = record.session.notePath;
+  if (slug === null || path === null) return null;
+  return noteHref(slug, path);
 }
 
 /** The generated note, or the honest absence of one. */
@@ -410,6 +525,7 @@ function Landing({ record }: { record: MeetingRecord }) {
   const colors = useColors();
   const router = useRouter();
   const { session } = record;
+  const href = noteEditorHref(record);
 
   if (session.state === "empty") {
     return (
@@ -547,6 +663,49 @@ function Landing({ record }: { record: MeetingRecord }) {
         <Text style={styles.path} numberOfLines={1}>
           {session.notePath}
         </Text>
+        {/*
+          THE WAY IN, WHICH IS THE ANSWER TO "HOW DO I EDIT ANY OF THIS".
+
+          `complete` is terminal by the contract and deliberately so: *"once the
+          note is in the customer's bucket, the note is the meeting and it is
+          edited as a note"*. That is a good decision and it was missing its
+          other half — the app printed the address and offered no door, so the
+          title, the summary, the notes and the transcript were all visibly
+          there and all read-only, on a screen whose whole point is that the
+          meeting is now a file the customer owns.
+
+          This is that door, and it is the console's ordinary file page rather
+          than a meetings-only editor: one editor, one set of conflict rules,
+          one audit trail. A deep link, not a share — `noteHref`'s own header —
+          so it grants nothing and shows the note only to somebody whose
+          membership already reaches it.
+
+          Drawn only when this device can address the note: the path is the
+          gateway's and the context is the destination the recording was
+          started with, and a record from a build before destinations existed
+          has none. No slug, no honest link — so no button, rather than one
+          that guesses a context and opens somebody else's.
+        */}
+        {href === null ? null : (
+          <Pressable
+            onPress={() => router.push(href)}
+            accessibilityRole="button"
+            accessibilityLabel="Open this meeting's note to edit it"
+            style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+            testID="meeting-edit-note"
+          >
+            <Icon name="file" size={15} color={colors.text} />
+            <Text variant="mini">Edit note</Text>
+          </Pressable>
+        )}
+        {notesOnlyOnDevice(record) ? (
+          <Text variant="rowSub" testID="meeting-notes-stranded">
+            What you typed after this was written up is on this device only —
+            {href === null
+              ? " open the note in your context to add it."
+              : " open the note to add it."}
+          </Text>
+        ) : null}
         {record.rejection !== undefined ? (
           <Text variant="rowSub" testID="meeting-rejection">
             Part of this meeting was not sent. {rejectionNotice(record.rejection)}
@@ -639,6 +798,22 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   ownNotesHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   ownNotesBody: { fontSize: 14.5, lineHeight: 23, color: colors.text2 },
+  /*
+    `NotesPad` in a card rather than as the screen: no `flex: 1` (this sits in
+    a scroll view, where a flexing child has no height to take), no reading
+    margin (the card's own padding is the margin here), and a floor so the
+    control reads as something to type into rather than as one blank line.
+    Everything about the *text* is left to the pad — the human's notes look the
+    same wherever they are typed.
+  */
+  ownNotesPad: {
+    flex: undefined,
+    minHeight: 92,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    fontSize: 14.5,
+    lineHeight: 23,
+  },
   actions: { flexDirection: "row", gap: 9 },
   action: {
     flex: 1,
