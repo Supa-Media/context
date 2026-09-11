@@ -55,6 +55,7 @@
     "react-native-worklets"
   ],
   "gated": [
+    "@sentry/react-native",
     "context-activity-kit"
   ]
 }

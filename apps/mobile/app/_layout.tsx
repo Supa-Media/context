@@ -5,6 +5,8 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SupaConvexProvider } from "@supa-media/core/providers";
 import { ErrorBoundary } from "../features/app/ErrorBoundary";
+import { Observability } from "../features/observability/Observability";
+import { resetObservabilityUser } from "../features/observability/client";
 import { ShellTitleBand } from "../features/app/ShellTitleBandView";
 import { holdSplash, releaseSplash } from "../features/app/splash";
 import { shouldHandleCodeHere } from "../features/auth/handleCode";
@@ -50,24 +52,26 @@ holdSplash();
 
 export default function RootLayout() {
   return (
-    <AppearanceProvider>
-      <KeyboardProvider>
-        <SafeAreaProvider>
+    <Observability>
+      <AppearanceProvider>
+        <KeyboardProvider>
+          <SafeAreaProvider>
           {/*
             `shouldHandleCode` keeps ConvexAuthProvider's hands off the `?code=`
             that Dropbox (and any future /connect/ provider) sends back — left
             to its default, it redeems that foreign code as a login code, gets
             `tokens: null`, and stores the sign-out. See features/auth/handleCode.
           */}
-          <SupaConvexProvider
-            url={process.env.EXPO_PUBLIC_CONVEX_URL}
-            shouldHandleCode={shouldHandleCodeHere}
-          >
-            <AppGround />
-          </SupaConvexProvider>
-        </SafeAreaProvider>
-      </KeyboardProvider>
-    </AppearanceProvider>
+            <SupaConvexProvider
+              url={process.env.EXPO_PUBLIC_CONVEX_URL}
+              shouldHandleCode={shouldHandleCodeHere}
+            >
+              <AppGround />
+            </SupaConvexProvider>
+          </SafeAreaProvider>
+        </KeyboardProvider>
+      </AppearanceProvider>
+    </Observability>
   );
 }
 
@@ -93,7 +97,7 @@ function AppGround() {
     true for all of them. `releaseSplash` is idempotent and the deadline is its
     own backstop, so a session that never resolves is still bounded.
   */
-  const { isLoading } = useConvexAuth();
+  const { isAuthenticated, isLoading } = useConvexAuth();
   /*
     The remembered appearance choice, read a second time here — `readStarted`
     in theme.tsx makes that a no-op past the first call, not a second device
@@ -113,6 +117,13 @@ function AppGround() {
   useEffect(() => {
     if (!isLoading && appearanceReady) releaseSplash();
   }, [isLoading, appearanceReady]);
+
+  // An expired or remotely-revoked session has no sign-out button to run its
+  // cleanup. Clear vendor identity as soon as Convex resolves that state, so a
+  // later account on the same device cannot inherit the previous user's ID.
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) resetObservabilityUser();
+  }, [isAuthenticated, isLoading]);
 
   return (
     <>

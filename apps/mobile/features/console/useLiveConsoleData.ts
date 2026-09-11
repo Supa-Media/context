@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import {
   useAction,
@@ -40,6 +40,10 @@ import {
   type StorageActions,
 } from "./types";
 import type { GoogleConnection } from "./google/GoogleConnectionsCard";
+import {
+  resetObservabilityUser,
+  setObservabilityUser,
+} from "../observability/client";
 
 /**
  * The live console.
@@ -570,6 +574,12 @@ export function useLiveConsoleData(): ConsoleData {
     email: members.members.find((member) => member.isMe)?.email,
   });
 
+  const viewerUserId = members.members.find((member) => member.isMe)?.userId;
+  useEffect(() => {
+    if (viewerUserId === undefined) return;
+    setObservabilityUser(viewerUserId);
+  }, [viewerUserId]);
+
   return {
     demo: false,
     viewer,
@@ -615,6 +625,7 @@ export function useLiveConsoleData(): ConsoleData {
       // stance — it can report, and it can never block this.
       await forgetLocalCopies();
       await authActions?.signOut();
+      resetObservabilityUser();
     },
     // Three tiles, not the mockup's four. "in your own bucket" is still gone:
     // nothing measures a bucket's size, so there is no honest value to put in
