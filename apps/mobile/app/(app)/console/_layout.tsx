@@ -978,6 +978,15 @@ export default function ConsoleLayout() {
               this caller holds it. Built per path rather than once, because
               narrowing a note names the note — see `removalHandler`.
             */
+            groupSlug: current?.slug,
+            onCreateGroup:
+              data.groups?.actions === undefined
+                ? undefined
+                : (path, label, userIds) => {
+                    void data.groups!.actions!.createWith(label, userIds).then((name) =>
+                      data.files.shareWithGroup(path, name),
+                    );
+                  },
             removalRouteFor: (path) =>
               removalHandler({
                 path,

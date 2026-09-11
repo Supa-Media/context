@@ -903,6 +903,22 @@ export function BrowsePane({
               ? undefined
               : (group) => files.shareWithGroup(sharing, group)
           }
+          /*
+            Make one here, and point this note at it in the same press. The
+            group is created, populated, and then named as this note's rule —
+            which is the whole sequence somebody previously did by hand across
+            two screens.
+          */
+          groupSlug={current?.slug}
+          onCreateGroup={
+            data.groups?.actions === undefined
+              ? undefined
+              : (label, userIds) => {
+                  void data.groups!.actions!.createWith(label, userIds).then((name) =>
+                    files.shareWithGroup(sharing, name),
+                  );
+                }
+          }
           access={{
             visibility: selected.visibility,
             exception: selected.exception,

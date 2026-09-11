@@ -113,6 +113,10 @@ export function Explorer({
     removalRouteFor?: (
       path: string,
     ) => ((route: RemovalRoute, row: AccessRow) => void) | undefined;
+    /** The workspace's slug, for showing the name a new group's label becomes. */
+    groupSlug?: string;
+    /** Make a group and point this path at it. Owner-only upstream. */
+    onCreateGroup?: (path: string, label: string, userIds: readonly string[]) => void;
   };
   /** "@seyi" — named in the empty state so it is obvious whose tree this is. */
   contextLabel: string;
@@ -734,6 +738,10 @@ export function ExplorerDialogs({
     removalRouteFor?: (
       path: string,
     ) => ((route: RemovalRoute, row: AccessRow) => void) | undefined;
+    /** The workspace's slug, for showing the name a new group's label becomes. */
+    groupSlug?: string;
+    /** Make a group and point this path at it. Owner-only upstream. */
+    onCreateGroup?: (path: string, label: string, userIds: readonly string[]) => void;
   };
 }) {
   if (dialog === null) return null;
@@ -853,6 +861,12 @@ export function ExplorerDialogs({
           }
           groups={access?.groups}
           onRemovalRoute={access?.removalRouteFor?.(dialog.path)}
+          groupSlug={access?.groupSlug}
+          onCreateGroup={
+            access?.onCreateGroup === undefined
+              ? undefined
+              : (label, userIds) => access.onCreateGroup!(dialog.path, label, userIds)
+          }
           onShareWithGroup={
             access?.onShareWithGroup === undefined
               ? undefined

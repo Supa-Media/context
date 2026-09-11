@@ -44,6 +44,7 @@ import {
   type RemovalRoute,
 } from "./access";
 import { noMatchHint, recipientsFor, type RecipientGroup } from "./recipients";
+import { canMakeGroup, memberLabel, previewGroupName } from "../groups/groups";
 import { isGroupVisibility, type Visibility } from "./types";
 import {
   describeOpenLink,
@@ -69,6 +70,8 @@ export function ShareDialog({
   access,
   onShareWithGroup,
   onRemovalRoute,
+  onCreateGroup,
+  groupSlug,
   groups,
 }: {
   path: string;
@@ -103,6 +106,21 @@ export function ShareDialog({
    * standing rule for a control somebody may not use.
    */
   onRemovalRoute?: (route: RemovalRoute, row: AccessRow) => void;
+  /**
+   * Make a group out of people picked here, and point this note at it.
+   *
+   * `GroupsPanel` opens by admitting "Nobody should have to come here first",
+   * and until now it was the only door: sharing one note with three people
+   * meant leaving the note, opening Settings, typing a label, adding three
+   * members one at a time, coming back and typing the group's name. The moment
+   * a group should exist is this one.
+   *
+   * Absent for anybody who is not an owner and in the demo, like every other
+   * group control — `createGroup` and `addGroupMember` are owner-only.
+   */
+  onCreateGroup?: (label: string, userIds: readonly string[]) => void;
+  /** The workspace's own slug, for showing the name a label will become. */
+  groupSlug?: string;
   /**
    * A section drawn under everything else here, behind its own "ADVANCED"
    * label — today, whatever `EncryptionAdvancedSection` in
@@ -167,6 +185,14 @@ export function ShareDialog({
    * why they reach the note at all is still on screen to read.
    */
   const [removing, setRemoving] = useState<string | null>(null);
+  /**
+   * The group being made here, or `null` when nothing is.
+   *
+   * `label` seeds from whatever was typed into the share field, because that is
+   * usually the word somebody wants — they typed "leads", found no group, and
+   * are now making one.
+   */
+  const [making, setMaking] = useState<{ label: string; picked: string[] } | null>(null);
 
   /**
    * Copy, and get out of the way.
@@ -317,6 +343,42 @@ export function ShareDialog({
               mints the share row that already existed. Different verbs, one
               field, because the difference is ours and not theirs.
             */}
+            {/*
+              Where a group is born.
+
+              Offered under the field rather than inside the suggestion list:
+              the list answers "who do you mean", and this is a different verb
+              that should not move around as rows come and go. Absent entirely
+              for a non-owner, which is this console's rule for a control the
+              server would refuse.
+            */}
+            {onCreateGroup === undefined || groupSlug === undefined ? null : making === null ? (
+              <Pressable
+                style={styles.makeGroup}
+                accessibilityLabel="Make a group from people here"
+                testID="share-make-group"
+                onPress={() => setMaking({ label: recipient.trim(), picked: [] })}
+              >
+                <Text variant="rowTitle">New group…</Text>
+                <Text variant="meta" style={styles.suggestionDetail}>
+                  Name the people you keep picking together, then point notes at the name.
+                </Text>
+              </Pressable>
+            ) : (
+              <GroupMaker
+                slug={groupSlug}
+                members={access?.members ?? []}
+                state={making}
+                onChange={setMaking}
+                onCancel={() => setMaking(null)}
+                onCreate={() => {
+                  onCreateGroup(making.label.trim(), making.picked);
+                  setMaking(null);
+                  setRecipient("");
+                }}
+              />
+            )}
+
             {emptyHint === undefined ? null : (
               <Text variant="meta" style={styles.suggestionDetail} testID="share-no-match">
                 {emptyHint}
@@ -566,6 +628,95 @@ export function ShareDialog({
 }
 
 /**
+ * Making a group without leaving the note.
+ *
+ * A label and a set of people, and nothing else — no role, no description, no
+ * nesting. A group here is a *name a folder rule can point at*; everything
+ * else about it is decided in the Groups panel, which is where renaming one and
+ * dropping somebody from every folder at once still live.
+ *
+ * The assembled name is shown as you type because **the prefix is not yours to
+ * enter** — `buildGroupName` derives it from the workspace slug, so a field
+ * that accepted `supa-leads` would produce `@supa-supa-leads`. Same reasoning,
+ * and the same words, as `GroupsPanel`'s greyed prefix.
+ */
+function GroupMaker({
+  slug,
+  members,
+  state,
+  onChange,
+  onCancel,
+  onCreate,
+}: {
+  slug: string;
+  members: readonly AccessMember[];
+  state: { label: string; picked: string[] };
+  onChange: (next: { label: string; picked: string[] }) => void;
+  onCancel: () => void;
+  onCreate: () => void;
+}) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
+  const ready = canMakeGroup(state.label, state.picked);
+
+  return (
+    <View style={styles.maker} testID="share-group-maker">
+      <View style={styles.row}>
+        <TextInput
+          value={state.label}
+          onChangeText={(label) => onChange({ ...state, label })}
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={styles.input}
+          placeholder="Group name"
+          placeholderTextColor={colors.muted}
+          accessibilityLabel="Group name"
+        />
+        <Button label="Create" variant="white" disabled={!ready} onPress={onCreate} />
+        <Button label="Cancel" onPress={onCancel} />
+      </View>
+
+      <Text variant="meta" style={styles.suggestionDetail}>
+        {`Will be ${previewGroupName(slug, state.label)} — the prefix is this context's, not yours to type.`}
+      </Text>
+
+      {/*
+        Every member, with the ones already picked marked. Not `addableMembers`
+        — that excludes who is already in an existing group, and this group does
+        not exist yet.
+      */}
+      <View style={styles.pickList}>
+        {members.map((member) => {
+          const on = state.picked.includes(member.userId);
+          return (
+            <Pressable
+              key={member.userId}
+              style={[styles.pick, on && styles.pickOn]}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: on }}
+              accessibilityLabel={memberLabel(member)}
+              testID={`share-group-pick-${member.userId}`}
+              onPress={() =>
+                onChange({
+                  ...state,
+                  picked: on
+                    ? state.picked.filter((id) => id !== member.userId)
+                    : [...state.picked, member.userId],
+                })
+              }
+            >
+              <Text variant="meta" style={on ? undefined : styles.suggestionMuted}>
+                {`${on ? "✓ " : ""}${memberLabel(member)}`}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+/**
  * Who currently has this note.
  *
  * Three states, and the first two are deliberately not the same sentence.
@@ -744,6 +895,33 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     overflow: "hidden",
   },
   suggestion: { paddingVertical: 8, paddingHorizontal: 10, gap: 2 },
+  makeGroup: {
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+    gap: 2,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.lineStrong,
+  },
+  maker: {
+    gap: 8,
+    padding: 10,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    backgroundColor: colors.well,
+  },
+  pickList: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  pick: {
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
+  },
+  pickOn: { borderColor: colors.accent, backgroundColor: colors.accentDim },
   /* An answer rather than an offer: on the well, so it does not read as a button. */
   suggestionReaching: { backgroundColor: colors.well },
   suggestionMuted: { color: colors.text2 },
