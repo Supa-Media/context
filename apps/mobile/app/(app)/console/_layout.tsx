@@ -950,6 +950,29 @@ export default function ConsoleLayout() {
           files={data.files}
           dialog={barDialog}
           onClose={() => setBarDialog(null)}
+          /*
+            The share dialog raised from the toolbar is the one a phone
+            reaches, and it was drawing without the people or the groups —
+            which is how it came to be three paragraphs and a keyboard. Read
+            off the console's own single subscriptions; `groups.actions` is
+            absent for anybody who is not an owner, so the field offers no
+            group rows rather than a pick the server would refuse.
+          */
+          access={{
+            members: data.members?.members ?? [],
+            groups:
+              data.groups?.actions === undefined
+                ? undefined
+                : data.groups.groups.map((group) => ({
+                    name: group.name,
+                    label: group.label,
+                    liveCount: group.members.filter((member) => member.live).length,
+                  })),
+            onShareWithGroup:
+              data.groups?.actions === undefined
+                ? undefined
+                : (path, group) => data.files.shareWithGroup(path, group),
+          }}
         />
 
         {/*

@@ -132,6 +132,7 @@ function browser(canSetVisibility: boolean): FileBrowser {
     archive: noop,
     destroy: noop,
     setVisibility: noop,
+    shareWithGroup: () => {},
     setScope: noop,
     openLinkPaths: new Set<string>(),
     linkPaths: [],

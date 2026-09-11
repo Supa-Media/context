@@ -573,6 +573,17 @@ const operationValidator = v.union(
     visibility: visibilityValidator,
   }),
   v.object({
+    kind: v.literal("setNoteGroup"),
+    path: v.string(),
+    /**
+     * The group's full name WITHOUT the `@`, already proven to belong to this
+     * workspace by `setNoteGroup` before the operation is dispatched. A plain
+     * string here rather than a group id: this is the value that lands in
+     * `privacy.md`, and the manifest holds names, not ids.
+     */
+    group: v.string(),
+  }),
+  v.object({
     kind: v.literal("setFolderVisibility"),
     path: v.string(),
     visibility: visibilityValidator,
@@ -608,6 +619,7 @@ type FileOperation =
   | { kind: "archive"; path: string }
   | { kind: "delete"; path: string; confirmation: string }
   | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
+  | { kind: "setNoteGroup"; path: string; group: string }
   | { kind: "setFolderVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
@@ -1256,6 +1268,20 @@ export async function executeOperation(
           scope,
         });
         return { kind: "deleted", ...deleted };
+      }
+      case "setNoteGroup": {
+        // The same writer as `setVisibility`, with a group in place of a tier:
+        // `fileOps.setVisibility` has taken a `Visibility` since #418 and a
+        // group is one. A separate operation rather than a widened
+        // `setVisibility` because the ARGUMENT validator must stay two-valued —
+        // widening it would make every path that takes a visibility a way to
+        // mint a rule, which is exactly what the gateway refuses AI clients.
+        const result = await setVisibility(store, {
+          path: operation.path,
+          visibility: `@${operation.group}` as Visibility,
+          scope,
+        });
+        return { kind: "visibility" as const, ...result };
       }
       case "setVisibility": {
         const result = await setVisibility(store, {
@@ -2108,6 +2134,75 @@ export const setNoteVisibility = action({
         path: args.path,
         visibility: args.visibility,
       },
+    })) as Extract<OperationResult, { kind: "visibility" }>;
+
+    await ctx.runMutation(internal.functions.audit.recordEvent, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      action: "visibility.note",
+      paths: [result.path],
+      details: { visibility: result.visibility, exception: result.exception },
+    });
+    return result;
+  },
+});
+
+/**
+ * Hand one note to a group, by name.
+ *
+ * The share dialog's verb. `setNoteVisibility` takes the two tiers and stays
+ * that way — widening its validator would make every caller that sets a
+ * visibility a way to mint a rule — so pointing a note at a group is its own
+ * action, with its own audit line and its own proof that the group is real.
+ *
+ * **The name is resolved against THIS workspace before anything is written.**
+ * Group names are globally unique but the authority is not: a name that exists
+ * in somebody else's context must be as unusable here as one that exists
+ * nowhere, and `groupByName` answers `null` for both. Writing an unresolvable
+ * name would not leak — the engines read it as reaching nobody — but it would
+ * put a rule in the customer's manifest that no owner can account for.
+ *
+ * Requires `owner`, like every other writer of `privacy.md`.
+ */
+export const setNoteGroup = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    /** The group's full name, with or without its leading `@`. */
+    group: v.string(),
+  },
+  returns: visibilityResultValidator,
+  handler: async (
+      ctx,
+      args,
+    ): Promise<Extract<OperationResult, { kind: "visibility" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+
+    // Tolerated on the way in and stripped once: the console renders the `@`
+    // because that is what the manifest shows, and a caller pasting what they
+    // see should not be a refusal. Stored without it, because the manifest's
+    // own grammar supplies the `@`.
+    const name = args.group.trim().replace(/^@/, "");
+    const group = await ctx.runQuery(internal.functions.groups.groupByName, {
+      workspaceId: args.workspaceId,
+      name,
+    });
+    if (group === null) {
+      throw new ConvexError({
+        code: "GROUP_NOT_FOUND",
+        message: "That group is not one of this context's.",
+      });
+    }
+
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      operation: { kind: "setNoteGroup", path: args.path, group: group.name },
     })) as Extract<OperationResult, { kind: "visibility" }>;
 
     await ctx.runMutation(internal.functions.audit.recordEvent, {

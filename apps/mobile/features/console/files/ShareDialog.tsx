@@ -37,6 +37,7 @@ import { fonts, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { baseName } from "./paths";
 import { accessRows, accessSummary, type AccessMember } from "./access";
+import { recipientsFor, type RecipientGroup } from "./recipients";
 import type { Visibility } from "./types";
 import {
   describeOpenLink,
@@ -60,6 +61,8 @@ export function ShareDialog({
   onClose,
   advanced,
   access,
+  onShareWithGroup,
+  groups,
 }: {
   path: string;
   /** Every share on this context, or `undefined` while the query is in flight. */
@@ -67,6 +70,17 @@ export function ShareDialog({
   /** Where this console is served from. See `shareUrl`. */
   origin: string;
   onShare: (recipient: string) => void;
+  /**
+   * Point this note at a group.
+   *
+   * A different verb from `onShare`, because it is a different thing: a share
+   * hands one note to somebody through a revocable row, and this writes a rule
+   * into `privacy.md` that the group's membership then resolves. Absent where
+   * the caller cannot do it — the demo, and anybody who is not an owner.
+   */
+  onShareWithGroup?: (group: string) => void;
+  /** The groups this context has, for the field to offer. Owner-only upstream. */
+  groups?: readonly RecipientGroup[];
   /**
    * A section drawn under everything else here, behind its own "ADVANCED"
    * label — today, whatever `EncryptionAdvancedSection` in
@@ -176,6 +190,24 @@ export function ShareDialog({
   const openLink = mine?.find((share) => share.audience === "anyone");
   const ready = recipient.trim() !== "";
 
+  /*
+    Built from what the dialog already has: `access.members` is this context's
+    people and `groups` its groups. Anybody already on the note is excluded —
+    offering to share with somebody who can read it is offering to do nothing.
+  */
+  const suggestions = recipientsFor(
+    recipient,
+    access?.members ?? [],
+    groups ?? [],
+    {
+      excludeUserIds: new Set((access?.members ?? []).map((member) => member.userId)),
+      excludeGroups:
+        access !== undefined && access.visibility.startsWith("@")
+          ? new Set([access.visibility.slice(1)])
+          : undefined,
+    },
+  );
+
   const submit = () => {
     if (!ready) return;
     onShare(recipient.trim());
@@ -194,126 +226,33 @@ export function ShareDialog({
             Share “{baseName(path)}”
           </Text>
 
-          <View style={styles.body}>
+          <ScrollView
+            style={styles.body}
+            contentContainerStyle={styles.bodyContent}
+            keyboardShouldPersistTaps="handled"
+          >
             {/*
-              The team link comes first because it is the common case and the
-              one that needs no setup: most people an owner wants to send a note
-              to are people they have already given access to, and for them a
-              share would be redundant machinery around a grant they have.
+              The field first, and the reason is the whole shape of this
+              screen.
+
+              It used to be fourth, under three eyebrow sections that each
+              opened with a paragraph — so on a phone the thing you came here
+              to do was below the fold, and `autoFocus` then raised the
+              keyboard over what was left. A share dialog is a place you type a
+              name; everything else on it is context for that, and context goes
+              after.
+
+              No `autoFocus` for the same reason: the sheet has to be readable
+              before it is typed into.
             */}
-            <View style={styles.section}>
-              <Text variant="eyebrow">PEOPLE WITH ACCESS</Text>
-              {/*
-                The list this section is named after, which it did not have.
-
-                It said "PEOPLE WITH ACCESS" and then offered a link — the one
-                thing on the screen that is not a person — so an owner could not
-                answer the question the heading asks about the note in front of
-                them. The summary line above the names carries the half a list
-                cannot show: whether the rule is on this note or inherited from
-                the folder, which is the difference between "fine" and "wait,
-                that folder?".
-              */}
-              {access === undefined ? null : (
-                <View style={styles.access} testID="share-access">
-                  <Text variant="paneSub">
-                    {accessSummary(access.visibility, access.exception)}
-                  </Text>
-                  {accessRows(access.visibility, access.exception, access.members).map((row) => (
-                    <View key={row.key} style={styles.accessRow}>
-                      <Text variant="rowTitle" style={styles.accessName}>
-                        {row.label}
-                      </Text>
-                      <Text variant="meta" style={styles.accessReason}>
-                        {row.reason}
-                      </Text>
-                      <Text variant="meta">{row.role}</Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-              <Text variant="paneSub">{describeTeamLink()}</Text>
-              {problem === null ? null : (
-                <Text variant="meta" testID="share-copy-problem" selectable>
-                  {problem}
-                </Text>
-              )}
-              <Button
-                label="Copy link"
-                variant="white"
-                onPress={() => {
-                  /*
-                    Minted on demand rather than up front: a token per note for
-                    every note anybody opened would fill the share list with
-                    links nobody asked for. Pressing this is the ask — and the
-                    minting happens *inside* the copy rather than before it,
-                    which is what keeps the clipboard reachable on iOS.
-                  */
-                  copyAndClose({ kind: "team", path });
-                }}
-              />
-            </View>
-
-            {/*
-              **The section this dialog was missing, and the bug it caused.**
-
-              The lock's third position mints an unlisted link, and the only
-              place it then appeared was a row in SHARED WITH below the fold —
-              while the button at the top of this dialog, the one anybody
-              presses, mints a *team* link and copies a `/console/@…` URL. So
-              "publish this, then copy it" handed people the wrong link: one
-              that shows nothing at all to the person they sent it to.
-
-              It is a section of its own rather than a row, because it is a
-              different audience from either of its neighbours — not the people
-              who already have access, and not one named person — and because
-              the press that copies it has to be the press that mints it, for
-              the iOS activation reason `copyShareLink` documents.
-            */}
-            <View style={styles.section}>
-              <Text variant="eyebrow">ANYONE WITH THE LINK</Text>
-              <Text variant="paneSub">{describeOpenLink(openLink !== undefined)}</Text>
-              <View style={styles.row}>
-                <Button
-                  label={openLink === undefined ? "Create link" : "Copy link"}
-                  variant="white"
-                  onPress={() => copyAndClose({ kind: "link", path })}
-                  testID="share-open-link"
-                />
-                {openLink === undefined ? null : (
-                  <Button
-                    label="Revoke"
-                    variant="danger"
-                    onPress={() => onRevoke(openLink.shareId)}
-                    testID="share-open-link-revoke"
-                  />
-                )}
-              </View>
-            </View>
-
-            <View style={styles.section}>
-              <Text variant="eyebrow">SOMEBODY WITHOUT ACCESS</Text>
-              {/*
-                One sentence, not two. `describeShare` said "they sign in to
-                read it, and can open this note and the notes it links to —
-                nothing else in your context", directly under a line that had
-                just said "they get this note and the notes it links to —
-                nothing else". Two paragraphs making the same point read as two
-                points, and the screen was long enough that the controls were
-                below the fold on a phone.
-              */}
-              <Text variant="paneSub">{describePersonalShare()}</Text>
-            </View>
-
             <View style={styles.row}>
               <TextInput
                 value={recipient}
                 onChangeText={setRecipient}
-                autoFocus
                 autoCapitalize="none"
                 autoCorrect={false}
                 style={styles.input}
-                placeholder="@name or email"
+                placeholder="Name, group or email"
                 placeholderTextColor={colors.muted}
                 accessibilityLabel="Share with"
                 onSubmitEditing={submit}
@@ -321,13 +260,161 @@ export function ShareDialog({
               <Button label="Share" variant="white" disabled={!ready} onPress={submit} />
             </View>
 
-            <SharedWith
-              shares={mine}
-              origin={origin}
-              onCopyLink={copyAndClose}
-              onRevoke={onRevoke}
-              onSetPreviewTitle={onSetPreviewTitle}
-            />
+            {/*
+              One field, one list.
+
+              A person and a group are the same kind of token in `privacy.md` —
+              `@kola` and `@supa-leads` are indistinguishable to the parser —
+              so this does not ask which KIND you mean before letting you type.
+              What it does keep separate is the invite row: choosing it is two
+              things, an invitation and then the access, and the row says so
+              before it happens rather than after.
+
+              Picking a group writes the rule; picking a person or an address
+              mints the share row that already existed. Different verbs, one
+              field, because the difference is ours and not theirs.
+            */}
+            {suggestions.length === 0 ? null : (
+              <View style={styles.suggestions} testID="share-suggestions">
+                {suggestions.map((row) => (
+                  <Pressable
+                    key={`${row.kind}:${row.key}`}
+                    style={styles.suggestion}
+                    accessibilityLabel={`Share with ${row.label}`}
+                    testID={`share-suggest-${row.key}`}
+                    onPress={() => {
+                      setRecipient("");
+                      if (row.kind === "group" && onShareWithGroup !== undefined) {
+                        onShareWithGroup(row.group!);
+                        return;
+                      }
+                      onShare(row.kind === "member" ? row.label : row.key);
+                    }}
+                  >
+                    <Text variant="rowTitle">{row.label}</Text>
+                    {row.detail === undefined ? null : (
+                      <Text variant="meta" style={styles.suggestionDetail}>
+                        {row.detail}
+                      </Text>
+                    )}
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
+            {/*
+              The list this section is named after, which it did not have. It
+              said "PEOPLE WITH ACCESS" and then offered a link — the one thing
+              on the screen that is not a person.
+
+              The summary line carries the half a list cannot show: whether the
+              rule is on this note or inherited from the folder, which is the
+              difference between "this is fine" and "wait, that folder?".
+            */}
+            <View style={styles.section}>
+              <Text variant="eyebrow">PEOPLE WITH ACCESS</Text>
+              {access === undefined ? null : (
+                <View style={styles.access} testID="share-access">
+                  <Text variant="paneSub">
+                    {accessSummary(access.visibility, access.exception)}
+                  </Text>
+                  {accessRows(access.visibility, access.exception, access.members).map((row) => (
+                    <View key={row.key} style={styles.accessRow}>
+                      <View style={styles.accessMain}>
+                        <Text variant="rowTitle">{row.label}</Text>
+                        <Text variant="meta" style={styles.accessReason}>
+                          {row.reason}
+                        </Text>
+                      </View>
+                      <Text variant="meta">{row.role}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              <SharedWith
+                shares={mine}
+                origin={origin}
+                onCopyLink={copyAndClose}
+                onRevoke={onRevoke}
+                onSetPreviewTitle={onSetPreviewTitle}
+              />
+            </View>
+
+            {/*
+              One section for the two links, not two sections with a paragraph
+              each.
+
+              They are different audiences and that difference still has to be
+              said — a `/console/@…` link shows nothing to somebody without
+              access, which is the bug the second one was added for — but it is
+              one line beside each button rather than a block above it. Three
+              eyebrow headings for three kinds of link was the dialog reading
+              as a policy document.
+            */}
+            <View style={styles.section}>
+              <Text variant="eyebrow">GENERAL ACCESS</Text>
+              {problem === null ? null : (
+                <Text variant="meta" testID="share-copy-problem" selectable>
+                  {problem}
+                </Text>
+              )}
+
+              <View style={styles.linkRow}>
+                <View style={styles.linkMain}>
+                  <Text variant="rowTitle">People with access</Text>
+                  <Text variant="meta" style={styles.linkNote}>
+                    {describeTeamLink()}
+                  </Text>
+                </View>
+                <Button
+                  label="Copy link"
+                  variant="white"
+                  onPress={() => {
+                    /*
+                      Minted on demand rather than up front, and the minting
+                      happens *inside* the copy rather than before it — which
+                      is what keeps the clipboard reachable on iOS.
+                    */
+                    copyAndClose({ kind: "team", path });
+                  }}
+                />
+              </View>
+
+              <View style={styles.linkRow}>
+                <View style={styles.linkMain}>
+                  <Text variant="rowTitle">Anyone with the link</Text>
+                  <Text variant="meta" style={styles.linkNote}>
+                    {describeOpenLink(openLink !== undefined)}
+                  </Text>
+                </View>
+                <View style={styles.row}>
+                  <Button
+                    label={openLink === undefined ? "Create link" : "Copy link"}
+                    variant="white"
+                    onPress={() => copyAndClose({ kind: "link", path })}
+                    testID="share-open-link"
+                  />
+                  {openLink === undefined ? null : (
+                    <Button
+                      label="Revoke"
+                      variant="danger"
+                      onPress={() => onRevoke(openLink.shareId)}
+                      testID="share-open-link-revoke"
+                    />
+                  )}
+                </View>
+              </View>
+
+              {/*
+                What a typed name actually does, said once, where the field's
+                own outcome is decided — rather than as a third heading with a
+                paragraph under it.
+              */}
+              <Text variant="meta" style={styles.linkNote}>
+                {describePersonalShare()}
+              </Text>
+            </View>
 
             {advanced !== undefined ? (
               <View style={styles.section}>
@@ -335,7 +422,7 @@ export function ShareDialog({
                 {advanced}
               </View>
             ) : null}
-          </View>
+          </ScrollView>
 
           <View style={styles.actions}>
             <Button label="Done" onPress={onClose} />
@@ -445,8 +532,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.line,
   },
-  accessName: { flexShrink: 0 },
-  accessReason: { flexGrow: 1, flexShrink: 1, minWidth: 0, color: colors.muted },
+  accessMain: { flexGrow: 1, flexShrink: 1, minWidth: 0, gap: 1 },
+  accessReason: { color: colors.muted },
+  linkRow: { flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" },
+  linkMain: { flexGrow: 1, flexShrink: 1, minWidth: 160, gap: 1 },
+  linkNote: { color: colors.muted },
   scrim: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.55)",
@@ -464,7 +554,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     padding: 20,
     gap: 14,
   },
-  body: { gap: 16 },
+  /*
+    A scroll surface with a ceiling, so the sheet cannot grow past the screen.
+    It used to be a plain `View`: with three prose sections, a shared-with list
+    and an advanced block, the Done button left the bottom of a phone entirely.
+  */
+  body: { maxHeight: 460 },
+  bodyContent: { gap: 16, paddingBottom: 4 },
   section: { gap: 8 },
   row: { flexDirection: "row", gap: 10, alignItems: "center" },
   input: {
@@ -496,6 +592,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   shareTop: { flexDirection: "row", alignItems: "center", gap: 10 },
   recipient: { flexGrow: 1, flexShrink: 1, color: colors.text },
+  suggestions: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    overflow: "hidden",
+  },
+  suggestion: { paddingVertical: 8, paddingHorizontal: 10, gap: 2 },
+  suggestionDetail: { color: colors.muted },
   previewRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   previewText: { flexGrow: 1, flexShrink: 1 },
   actions: { flexDirection: "row", justifyContent: "flex-end", gap: 10 },

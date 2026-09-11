@@ -351,6 +351,14 @@ export interface FileBrowser {
   destroy: (path: string) => void;
   setVisibility: (path: string, kind: "file" | "folder", visibility: SettableVisibility) => void;
   /**
+   * Point one note at a group, by name.
+   *
+   * Beside `setVisibility` rather than a third value on it: that setter takes
+   * the two tiers and stays that way, because widening it would make every
+   * caller of it a way to mint a rule.
+   */
+  shareWithGroup: (path: string, group: string) => void;
+  /**
    * Move an entry between the three positions of the visibility control —
    * private, team, and a link anybody who has it can open.
    *

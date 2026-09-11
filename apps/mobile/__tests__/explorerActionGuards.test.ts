@@ -346,6 +346,7 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     archive: record("archive"),
     destroy: record("destroy"),
     setVisibility: record("setVisibility"),
+    shareWithGroup: () => {},
     setScope: record("setScope"),
     openLinkPaths: new Set<string>(),
     linkPaths: [],

@@ -85,6 +85,7 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
     archive: noop,
     destroy: noop,
     setVisibility: noop,
+    shareWithGroup: () => {},
     setScope: noop,
     openLinkPaths: new Set<string>(),
     linkPaths: [],
