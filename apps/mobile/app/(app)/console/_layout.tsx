@@ -941,16 +941,16 @@ export default function ConsoleLayout() {
             onCreateGroup:
               data.groups?.actions === undefined
                 ? undefined
-                : (path, label, userIds) => {
-                    void data.groups!.actions!.createWith(label, userIds).then((name) =>
-                      data.files.shareWithGroup(path, name),
-                    );
-                  },
-            removalRouteFor: (path) =>
+                : (path, label, userIds) =>
+                    data
+                      .groups!.actions!.createWith(label, userIds)
+                      .then((name) => data.files.shareWithGroup(path, name)),
+            removalRouteFor: (path, kind) =>
               removalHandler({
                 path,
-                setPrivate: (target) =>
-                  data.files.setVisibility(target, "file", "private"),
+                kind,
+                setPrivate: (target, targetKind) =>
+                  data.files.setVisibility(target, targetKind, "private"),
                 removeMember: data.members?.actions?.remove,
                 openGroups:
                   data.groups?.actions === undefined || !insideContext

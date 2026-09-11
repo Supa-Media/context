@@ -144,7 +144,15 @@ export function ShareDialog({
    * Absent for anybody who is not an owner and in the demo, like every other
    * group control — `createGroup` and `addGroupMember` are owner-only.
    */
-  onCreateGroup?: (label: string, userIds: readonly string[]) => void;
+  /*
+    Answers, because it can fail in ways only the server knows: NAME_TAKEN, a
+    reserved word, TOO_MANY_GROUPS. The rejection is caught HERE rather than at
+    the call site, for the reason `copyAndClose` states a few lines up — the
+    console's notice line sits behind this modal, so a failure raised there is
+    a message nobody can read, and the person is left pressing Create on a
+    button that appears to do nothing.
+  */
+  onCreateGroup?: (label: string, userIds: readonly string[]) => Promise<unknown>;
   /** The workspace's own slug, for showing the name a label will become. */
   groupSlug?: string;
   /**
@@ -250,6 +258,8 @@ export function ShareDialog({
    * are now making one.
    */
   const [making, setMaking] = useState<{ label: string; picked: string[] } | null>(null);
+  /** Why the last Create was refused, or `null`. Shown inside the maker. */
+  const [makeProblem, setMakeProblem] = useState<string | null>(null);
 
   /**
    * Copy, and get out of the way.
@@ -318,7 +328,7 @@ export function ShareDialog({
   const rows =
     access === undefined
       ? []
-      : accessRows(access.visibility, access.exception, access.members);
+      : accessRows(access.visibility, access.exception, access.members, entryKind);
   const reachingUserIds = new Set(
     rows.filter((row) => row.role !== "group").map((row) => row.key),
   );
@@ -438,7 +448,10 @@ export function ShareDialog({
                 style={styles.makeGroup}
                 accessibilityLabel="Make a group from people here"
                 testID="share-make-group"
-                onPress={() => setMaking({ label: recipient.trim(), picked: [] })}
+                onPress={() => {
+                  setMakeProblem(null);
+                  setMaking({ label: recipient.trim(), picked: [] });
+                }}
               >
                 <Text variant="meta" style={styles.makeGroupText}>
                   New group from people here…
@@ -449,12 +462,32 @@ export function ShareDialog({
                 slug={groupSlug}
                 members={access?.members ?? []}
                 state={making}
+                problem={makeProblem}
                 onChange={setMaking}
-                onCancel={() => setMaking(null)}
-                onCreate={() => {
-                  onCreateGroup(making.label.trim(), making.picked);
+                onCancel={() => {
+                  setMakeProblem(null);
                   setMaking(null);
-                  setRecipient("");
+                }}
+                onCreate={() => {
+                  setMakeProblem(null);
+                  void onCreateGroup(making.label.trim(), making.picked).then(
+                    () => {
+                      setMaking(null);
+                      setRecipient("");
+                    },
+                    (error: unknown) => {
+                      /*
+                        The maker stays OPEN on a refusal, holding the label and
+                        the people that were picked. Closing it would make the
+                        person re-choose four names to fix one word.
+                      */
+                      setMakeProblem(
+                        error instanceof Error && error.message.length > 0
+                          ? error.message
+                          : "That group could not be made.",
+                      );
+                    },
+                  );
                 }}
               />
             )}
@@ -852,6 +885,7 @@ function GroupMaker({
   slug,
   members,
   state,
+  problem,
   onChange,
   onCancel,
   onCreate,
@@ -859,6 +893,8 @@ function GroupMaker({
   slug: string;
   members: readonly AccessMember[];
   state: { label: string; picked: string[] };
+  /** What the server refused, or `null`. */
+  problem: string | null;
   onChange: (next: { label: string; picked: string[] }) => void;
   onCancel: () => void;
   onCreate: () => void;
@@ -884,6 +920,12 @@ function GroupMaker({
         <Button label="Cancel" onPress={onCancel} />
       </View>
 
+      {problem === null ? null : (
+        <Text variant="meta" style={styles.routeDanger} testID="share-group-problem">
+          {problem}
+        </Text>
+      )}
+
       <Text variant="meta" style={styles.suggestionDetail}>
         {`Name the people you keep picking together. Will be ${previewGroupName(slug, state.label)} — the prefix is this context's, not yours to type.`}
       </Text>
@@ -900,8 +942,14 @@ function GroupMaker({
             <Pressable
               key={member.userId}
               style={[styles.pick, on && styles.pickOn]}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: on }}
+              /*
+                Web props, like `AudienceControl` beside it. The RN-flavoured
+                `accessibilityRole` / `accessibilityState` pair does not reach
+                the DOM as `aria-checked` here, so a screen reader was told this
+                was a checkbox and never told whether it was ticked.
+              */
+              role="checkbox"
+              aria-checked={on}
               accessibilityLabel={memberLabel(member)}
               testID={`share-group-pick-${member.userId}`}
               onPress={() =>

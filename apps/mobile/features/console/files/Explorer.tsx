@@ -112,11 +112,22 @@ export function Explorer({
      */
     removalRouteFor?: (
       path: string,
+      /** Decides which visibility mutation the narrow route means. */
+      kind: "file" | "folder",
     ) => ((route: RemovalRoute, row: AccessRow) => void) | undefined;
     /** The workspace's slug, for showing the name a new group's label becomes. */
     groupSlug?: string;
-    /** Make a group and point this path at it. Owner-only upstream. */
-    onCreateGroup?: (path: string, label: string, userIds: readonly string[]) => void;
+    /**
+     * Make a group and point this path at it. Owner-only upstream.
+     *
+     * Answers, so the sheet can show a refusal from the control plane where
+     * the person can read it — the notice line sits behind the modal.
+     */
+    onCreateGroup?: (
+      path: string,
+      label: string,
+      userIds: readonly string[],
+    ) => Promise<unknown>;
   };
   /** "@seyi" — named in the empty state so it is obvious whose tree this is. */
   contextLabel: string;
@@ -737,11 +748,22 @@ export function ExplorerDialogs({
      */
     removalRouteFor?: (
       path: string,
+      /** Decides which visibility mutation the narrow route means. */
+      kind: "file" | "folder",
     ) => ((route: RemovalRoute, row: AccessRow) => void) | undefined;
     /** The workspace's slug, for showing the name a new group's label becomes. */
     groupSlug?: string;
-    /** Make a group and point this path at it. Owner-only upstream. */
-    onCreateGroup?: (path: string, label: string, userIds: readonly string[]) => void;
+    /**
+     * Make a group and point this path at it. Owner-only upstream.
+     *
+     * Answers, so the sheet can show a refusal from the control plane where
+     * the person can read it — the notice line sits behind the modal.
+     */
+    onCreateGroup?: (
+      path: string,
+      label: string,
+      userIds: readonly string[],
+    ) => Promise<unknown>;
   };
 }) {
   if (dialog === null) return null;
@@ -878,7 +900,10 @@ export function ExplorerDialogs({
                   )
               : undefined
           }
-          onRemovalRoute={access?.removalRouteFor?.(dialog.path)}
+          onRemovalRoute={access?.removalRouteFor?.(
+            dialog.path,
+            findEntry(files.listings, dialog.path)?.kind ?? "file",
+          )}
           groupSlug={access?.groupSlug}
           onCreateGroup={
             access?.onCreateGroup === undefined

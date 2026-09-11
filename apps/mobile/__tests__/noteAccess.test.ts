@@ -252,3 +252,74 @@ describe("turning a chosen route into an action", () => {
     ).not.toThrow();
   });
 });
+
+/**
+ * ## A folder is not a note, and the narrow route is not narrow on one
+ *
+ * This sheet opens for folders as well as notes — `shareTarget` in the console
+ * layout is whatever is selected, and `ShareDialog` has always offered a folder
+ * its team link. So the removal routes are drawn over folders too, and two
+ * things about them were wrong when they assumed a note.
+ *
+ * **The mutation differs.** `setVisibility` switches on `kind` to call
+ * `setNoteVisibility` or `setDirectoryVisibility`; a route that hardcodes
+ * `"file"` sends a folder path to the note mutation.
+ *
+ * **And the blast radius differs, which matters more.** A note's exact-note
+ * rule changes one file. A folder's default **cascades to everything inside
+ * it** (`cascadeFrom` in `useFileBrowser`), so "Only this note changes" — the
+ * sentence that makes this the *safe* route — is false on a folder, and false
+ * in the direction that loses somebody access to a whole subtree they meant to
+ * keep shared. The route that reassures has to stop reassuring.
+ */
+describe("the same routes over a folder", () => {
+  test("the narrow route names the folder, and admits it is not narrow", () => {
+    const [narrow] = accessRows("team", false, MEMBERS, "folder")[1].removal;
+    expect(narrow.id).toBe("note-private");
+    expect(narrow.label).toMatch(/folder/i);
+    expect(narrow.detail).toMatch(/everything in it|inside it|and everything/i);
+    // It is still the narrower of the two, so it is still offered first and
+    // still not the destructive one.
+    expect(narrow.danger).toBe(false);
+  });
+
+  test("a note keeps the sentence that is true of a note", () => {
+    const [narrow] = accessRows("team", false, MEMBERS, "file")[1].removal;
+    expect(narrow.detail).toMatch(/only this note/i);
+  });
+
+  test("defaulting to a note keeps every existing caller honest", () => {
+    expect(accessRows("team", false, MEMBERS)[1].removal).toEqual(
+      accessRows("team", false, MEMBERS, "file")[1].removal,
+    );
+  });
+
+  /** Leaving the context is the same act whatever you were looking at. */
+  test("the context-wide route does not change with the kind", () => {
+    const note = accessRows("team", false, MEMBERS, "file")[1].removal[1];
+    const folder = accessRows("team", false, MEMBERS, "folder")[1].removal[1];
+    expect(folder).toEqual(note);
+  });
+
+  /**
+   * The dispatcher has to send the folder to the folder mutation. It used to
+   * hardcode `"file"` at both call sites.
+   */
+  test("the handler narrows a folder as a folder", () => {
+    const calls: string[] = [];
+    const handle = removalHandler({
+      path: "1-projects",
+      kind: "folder",
+      setPrivate: (path, kind) => calls.push(`${kind}:${path}`),
+    })!;
+    handle({ id: "note-private", label: "", detail: "", danger: false }, {
+      key: "u2",
+      label: "kola",
+      role: "editor",
+      reason: "",
+      isMe: false,
+      removal: [],
+    });
+    expect(calls).toEqual(["folder:1-projects"]);
+  });
+});

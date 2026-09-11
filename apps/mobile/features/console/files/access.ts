@@ -85,7 +85,7 @@ export interface AccessRow {
  * questions — who reaches this, and what can be done about them — are pinned
  * independently.
  */
-function removalFor(role: string): RemovalRoute[] {
+function removalFor(role: string, kind: "file" | "folder"): RemovalRoute[] {
   // An owner reaches everything they own; there is no rule that takes it back,
   // and `removeMember` / `setMemberRole` both refuse an owner outright.
   if (role === "owner") return [];
@@ -105,12 +105,28 @@ function removalFor(role: string): RemovalRoute[] {
   }
 
   return [
-    {
-      id: "note-private",
-      label: "Make this note private",
-      detail: "Takes it back from everyone except owners. Only this note changes.",
-      danger: false,
-    },
+    /*
+      The narrower of the two, but "narrow" is relative and on a folder it is
+      not narrow at all: a folder's default **cascades to everything inside
+      it**, while a note's exact-note rule changes one file. "Only this note
+      changes" is the sentence that makes this the reassuring route, and it is
+      false on a folder — in the direction that quietly closes a whole subtree
+      somebody meant to keep shared. So the words change with the kind.
+    */
+    kind === "folder"
+      ? {
+          id: "note-private",
+          label: "Make this folder private",
+          detail:
+            "Takes it back from everyone except owners — this folder and everything in it.",
+          danger: false,
+        }
+      : {
+          id: "note-private",
+          label: "Make this note private",
+          detail: "Takes it back from everyone except owners. Only this note changes.",
+          danger: false,
+        },
     {
       id: "workspace-remove",
       label: "Remove from this context",
@@ -158,6 +174,12 @@ export function accessRows(
    * true either way.
    */
   members: readonly AccessMember[] | undefined,
+  /**
+   * What this path is. Decides the wording of the narrow removal route and
+   * which mutation it means — see `removalFor`. Defaults to a note, which is
+   * what every caller meant before folders were considered.
+   */
+  kind: "file" | "folder" = "file",
 ): AccessRow[] {
   if (members === undefined) return [];
   const label = (member: AccessMember) =>
@@ -174,7 +196,7 @@ export function accessRows(
           role: member.role,
           reason: "Owns this context",
           isMe: member.isMe,
-          removal: removalFor(member.role),
+          removal: removalFor(member.role, kind),
         })),
       {
         key: visibility,
@@ -182,7 +204,7 @@ export function accessRows(
         role: "group",
         reason: "Named on this note. Who is in it is set in this context's groups.",
         isMe: false,
-        removal: removalFor("group"),
+        removal: removalFor("group", kind),
       },
     ];
   }
@@ -200,7 +222,7 @@ export function accessRows(
             ? "This note is shared with the workspace"
             : "The folder it is in is shared with the workspace",
       isMe: member.isMe,
-      removal: removalFor(member.role),
+      removal: removalFor(member.role, kind),
     }));
 }
 
@@ -218,21 +240,27 @@ export function accessRows(
  */
 export function removalHandler(deps: {
   path: string;
-  /** Narrow this note to `private`. Owner-only upstream. */
-  setPrivate?: (path: string) => void;
+  /**
+   * What `path` is. `setVisibility` switches on it to call the note mutation
+   * or the directory one, so a handler that assumed `"file"` sent a folder to
+   * the wrong one. Defaults to a note.
+   */
+  kind?: "file" | "folder";
+  /** Narrow this path to `private`. Owner-only upstream. */
+  setPrivate?: (path: string, kind: "file" | "folder") => void;
   /** Remove somebody from the context entirely. Owner-only upstream. */
   removeMember?: (userId: string) => void;
   /** Open the groups settings section. */
   openGroups?: () => void;
 }): ((route: RemovalRoute, row: AccessRow) => void) | undefined {
-  const { path, setPrivate, removeMember, openGroups } = deps;
+  const { path, kind = "file", setPrivate, removeMember, openGroups } = deps;
   if (setPrivate === undefined && removeMember === undefined && openGroups === undefined) {
     return undefined;
   }
 
   return (route, row) => {
     if (route.id === "note-private") {
-      setPrivate?.(path);
+      setPrivate?.(path, kind);
       return;
     }
     if (route.id === "manage-group") {

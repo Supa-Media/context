@@ -919,11 +919,10 @@ export function BrowsePane({
           onCreateGroup={
             data.groups?.actions === undefined
               ? undefined
-              : (label, userIds) => {
-                  void data.groups!.actions!.createWith(label, userIds).then((name) =>
-                    files.shareWithGroup(sharing, name),
-                  );
-                }
+              : (label, userIds) =>
+                  data
+                    .groups!.actions!.createWith(label, userIds)
+                    .then((name) => files.shareWithGroup(sharing, name))
           }
           access={{
             visibility: selected.visibility,
@@ -939,7 +938,8 @@ export function BrowsePane({
           */
           onRemovalRoute={removalHandler({
             path: sharing,
-            setPrivate: (path) => files.setVisibility(path, "file", "private"),
+            kind: selected.kind,
+            setPrivate: (path, kind) => files.setVisibility(path, kind, "private"),
             removeMember: data.members?.actions?.remove,
             openGroups:
               data.groups?.actions === undefined || onOpenSettings === undefined

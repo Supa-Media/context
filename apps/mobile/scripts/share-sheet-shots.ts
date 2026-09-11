@@ -192,6 +192,37 @@ describe("share sheet shots", () => {
     write("sheet-going-public", 390, 844);
   });
 
+  /**
+   * A refusal from the control plane, shown where it can be read.
+   *
+   * `createGroup` rejects a name it will not take — NAME_TAKEN, a reserved
+   * word, TOO_MANY_GROUPS. The console's notice line sits *behind* this modal,
+   * so the sheet answers for itself, and the maker stays open holding the
+   * label and the people already picked rather than making somebody re-choose
+   * four names to fix one word.
+   */
+  test("a refused group name is said here, and nothing is lost", async () => {
+    mount(
+      dialog({
+        onCreateGroup: () => Promise.reject(new Error("That name is already taken.")),
+      }),
+      390,
+      844,
+    );
+    press(byId("share-make-group"));
+    type(document.body.querySelector('[aria-label="Group name"]'), "leads");
+    press(byId("share-group-pick-u3"));
+    await act(async () => {
+      press(document.body.querySelector('[aria-label="Create"]'));
+    });
+
+    expect(byId("share-group-problem")?.textContent).toContain("already taken");
+    // Still open, still holding the pick.
+    expect(byId("share-group-maker")).not.toBeNull();
+    expect(byId("share-group-pick-u3")?.getAttribute("aria-checked")).toBe("true");
+    write("sheet-group-refused", 390, 844);
+  });
+
   /** A group, made from the note that needed it. */
   test("a group can be made here", () => {
     mount(dialog(), 390, 844);
