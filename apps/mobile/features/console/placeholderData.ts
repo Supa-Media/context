@@ -515,6 +515,7 @@ const SEYI_TREE: DemoContextTree = {
     "2-areas": listing("2-areas", "private", [
       folder("2-areas/public-worship", "team"),
       folder("2-areas/supa-media", "private"),
+      file("2-areas/architecture-map.md"),
       file("2-areas/weekly-review.md"),
     ]),
     "2-areas/public-worship": listing("2-areas/public-worship", "team", [
@@ -626,6 +627,67 @@ const SEYI_TREE: DemoContextTree = {
       "Held back from this folder's team default while the vendor quotes",
       "are still in it. The frontmatter above is ignored — privacy.md is",
       "what decides, and it lists this note as an exception.",
+      "",
+    ].join("\n"),
+    /*
+      The note `apps/mobile/e2e/webkit/htmlPreview.spec.ts` renders, and the
+      only fixture in this file whose content is chosen by an attacker rather
+      than by a persona.
+
+      It carries three things on purpose:
+
+       - an `html-preview` fence holding a small version of the real
+         architecture diagram, so "the diagram draws" is measurable;
+       - a `<script>` inside that fence which sets `window.PWNED`. **Anyone can
+         email `<name>@context.lc`**, so this is exactly what a note written by
+         a stranger looks like, and the WebKit suite asserts the global is
+         still undefined after the frame has loaded. A bare `sandbox` attribute
+         is what makes that true, and jsdom cannot prove it — it does not
+         enforce iframe sandboxing at all;
+       - a plain ```` ```html ```` fence below it, which must stay a code block.
+         Opting in is the whole convention.
+
+      The `<script>` is inert everywhere this file is read: it is inside a
+      fenced code block in a string in a TypeScript module, and the only thing
+      that ever renders it is a frame that cannot run code.
+    */
+    "2-areas/architecture-map.md": [
+      "# Where the notes actually live",
+      "",
+      "Three zones, and only one of them holds a note.",
+      "",
+      "```html-preview",
+      "<script>window.PWNED = 1</script>",
+      "<style>",
+      ".zmap{--ink:#17171B;--ln:#B9B9B2;--ht:#B0740B;font-family:system-ui,sans-serif;",
+      "display:grid;grid-template-columns:1fr 96px;color:var(--ink)}",
+      ".zmap .stk{grid-column:1;display:flex;flex-direction:column;gap:8px}",
+      ".zmap .bd{border:1.5px solid var(--bc);background:var(--bg);border-radius:12px;padding:10px 12px}",
+      ".zmap .bd h3{font-size:13px;margin:0;color:var(--bi)}",
+      ".zmap .bd p{font-family:ui-monospace,monospace;font-size:11px;margin:2px 0 0;color:var(--bi);opacity:.72}",
+      ".zmap .c1{--bc:#3B5BA5;--bg:#EDF1FA;--bi:#1E3266}",
+      ".zmap .c2{--bc:#6D4AA6;--bg:#F3EEFB;--bi:#3E2A63}",
+      ".zmap .c3{--bc:#2E6B4F;--bg:#E9F3ED;--bi:#1C4732}",
+      ".zmap .rail{grid-column:2;position:relative}",
+      ".zmap .rail .br{position:absolute;top:16px;bottom:22px;left:6px;right:20px;",
+      "border:3px solid var(--ht);border-left:none;border-radius:0 14px 14px 0}",
+      "</style>",
+      '<div class="zmap">',
+      '  <div class="stk">',
+      '    <div class="bd c1"><h3>CLOUDFLARE</h3><p>stateless - stores nothing</p></div>',
+      '    <div class="bd c2"><h3>CONVEX - the directory</h3><p>metadata only - never note content</p></div>',
+      '    <div class="bd c3"><h3>THE FILES</h3><p>one bucket per workspace</p></div>',
+      "  </div>",
+      '  <div class="rail"><div class="br"></div></div>',
+      "</div>",
+      "```",
+      "",
+      "The block above is a diagram. The block below is a quotation, and stays",
+      "one:",
+      "",
+      "```html",
+      "<div>quoted, never drawn</div>",
+      "```",
       "",
     ].join("\n"),
     // Carries a wikilink, a checked and an unchecked task, and a plain bullet

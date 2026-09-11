@@ -162,6 +162,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The communications console reads through `FileBrowser`, not a new tool
 - A note's anchor is a query parameter, not a URL fragment
 - A message body is rendered, never linkified
+- A diagram lives in the note, and the browser is the only thing that makes it safe
 
 ## [Meetings](./meetings.md)
 
