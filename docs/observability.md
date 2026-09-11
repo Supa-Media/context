@@ -27,6 +27,13 @@ content.
 The executable privacy boundary is
 `apps/mobile/features/observability/privacy.ts`; changes to it require tests.
 
+PostHog's top-level `properties.token` is its public, write-only project routing
+key, not a user credential. The web transport scrubs every ordinary property,
+then restores only that one top-level field from `EXPO_PUBLIC_POSTHOG_KEY`.
+Never preserve the event's incoming value, and never exempt nested `token`
+fields from redaction: without the routing key PostHog silently drops the
+event, while a broader exemption could leak a real credential.
+
 ## Configuration
 
 Set these in the EAS environment used by each build/update. The sample rates
@@ -54,6 +61,17 @@ older binaries that receive a newer OTA bundle. A fresh EAS build is required
 before native crashes become available. PostHog analytics is cross-platform;
 masked replay is web-only and does not need a native bridge.
 
+Convex backend exceptions use Convex's native Sentry integration rather than
+the mobile SDK. Configure it independently for every Convex deployment in
+Deployment Settings → Integrations, using the same Sentry DSN and a static
+`service=context-control-plane` tag. The production integration is expected to
+be Active; mobile/EAS environment variables do not configure it.
+
+In PostHog, keep **Record user sessions** enabled, remove stale authorized-domain
+allowlists, select total-privacy masking, and leave console-log, canvas, network,
+header, and payload capture disabled. SDK masking remains the primary boundary;
+the project settings are defense in depth.
+
 ## Release verification
 
 For staging first:
@@ -64,10 +82,13 @@ For staging first:
    render error in a non-production build.
 4. In Sentry, confirm the issue has readable application frames, an internal
    user id, environment/release data, and a `posthog.session_id` tag.
-5. In PostHog web, confirm the matching session has screen events and a replay
+5. Trigger one controlled, non-mutating Convex authorization error and confirm
+   it arrives in the same Sentry project with `service=context-control-plane`,
+   the Convex function name/type, deployment, environment, and request id.
+6. In PostHog web, confirm the matching session has screen events and a replay
    in which text and images are masked. On native, confirm analytics only and no
    replay.
-6. Inspect both payloads and verify there is no email, context handle, note path,
+7. Inspect both payloads and verify there is no email, context handle, note path,
    note body, OAuth code, share token, or storage credential.
 
 ## Initial alerts and dashboards
