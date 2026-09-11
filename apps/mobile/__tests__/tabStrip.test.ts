@@ -7,13 +7,19 @@ import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 
 /**
- * The tab strip and the mobile count button, mounted for real.
+ * The tab strip, mounted for real.
  *
  * `fileTabs.test.ts` pins the *model* — `tabsReducer`, `tabLabel`, `dirtyCount`
  * — as pure functions, and that is where every question about what a gesture
  * should do is settled. This file asks the other half of the question: whether
- * the components actually present that model, once react-native-web has turned
+ * the component actually presents that model, once react-native-web has turned
  * it into DOM.
+ *
+ * **The phone half used to live here and no longer exists.** A tab-count button
+ * and a switcher sheet were tested in this file against a state no phone could
+ * ever reach — nothing at that density can open a second tab — so the count was
+ * asserted at "3" in jsdom and read "1" for the whole life of the app. A phone
+ * gets `RecentSheet` now; `recentSheet.test.ts` is its render test.
  *
  * Four of the assertions here are about things that cannot be checked by reading
  * the source, because each one is a claim about the *result* of a style cascade
@@ -50,17 +56,8 @@ import { createRoot } from "react-dom/client";
  *    `overflow-y`, so the shorthand itself resolves to `""`. Ask for the axis.
  */
 
-// The switcher reads the home indicator. A provider would be a second thing
-// under test; the insets are the platform's business, not this component's.
-jest.mock("react-native-safe-area-context", () => ({
-  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
-}));
-
-// Imported after the mock, which `jest.mock` hoists above it anyway.
 const { TabStrip } =
   require("../features/console/files/TabStrip") as typeof import("../features/console/files/TabStrip");
-const { TabCountButton, TabSwitcher } =
-  require("../features/console/files/TabSwitcher") as typeof import("../features/console/files/TabSwitcher");
 const { emptyTabs, tabsReducer } =
   require("../features/console/files/tabs") as typeof import("../features/console/files/tabs");
 const { darkColors } =
@@ -128,9 +125,9 @@ function mount(element: ReactElement, width = 900): Mounted {
     root.render(createElement(ThemeProvider, { scheme: "dark", children: element }));
   });
 
-  // Queried from the document rather than from the container, because
-  // react-native-web's `Modal` portals its children to the end of `body` — so
-  // the switcher sheet is nowhere inside the div this root rendered into. Each
+  // Queried from the document rather than from the container: the strip is
+  // inside it, but `FocusRing` and friends are free to portal, and a query that
+  // only ever worked because nothing did is a trap for the next component. Each
   // test unmounts, so nothing accumulates between them.
   const find = (testID: string) =>
     document.body.querySelector<HTMLElement>(`[data-testid="${testID}"]`);
@@ -326,93 +323,5 @@ describe("the tab strip draws what tabs.ts says", () => {
     const strip = mountStrip(emptyTabs);
     expect(strip.find("tab-strip")).toBeNull();
     strip.unmount();
-  });
-});
-
-describe("the mobile tab-count button", () => {
-  test("shows how many notes are open", () => {
-    const button = mount(
-      createElement(TabCountButton, { state: openTabs(NOTES, PLAN, AREAS), onPress: () => {} }),
-    );
-
-    expect(button.need("tab-count").textContent).toBe("3");
-    expect(button.need("tab-count").getAttribute("aria-label")).toBe("3 notes open");
-    expect(button.find("tab-count-dot")).toBeNull();
-
-    button.unmount();
-  });
-
-  test("reflects dirtyCount, in the dot and in the label", () => {
-    const state = tabsReducer(openTabs(NOTES, PLAN), { type: "edited", path: NOTES });
-    const button = mount(createElement(TabCountButton, { state, onPress: () => {} }));
-
-    expect(button.need("tab-count").textContent).toBe("2");
-    expect(button.find("tab-count-dot")).not.toBeNull();
-    // The dot is the whole warning that leaving is lossy, so it is said out loud
-    // too — a warning only sighted people get is not a warning.
-    expect(button.need("tab-count").getAttribute("aria-label")).toBe(
-      "2 notes open, 1 with unsaved changes",
-    );
-
-    button.unmount();
-  });
-
-  test("pressing it opens the switcher", () => {
-    const onPress = jest.fn<() => void>();
-    const button = mount(createElement(TabCountButton, { state: openTabs(NOTES), onPress }));
-
-    button.click("tab-count");
-    expect(onPress).toHaveBeenCalledTimes(1);
-    expect(button.need("tab-count").getAttribute("aria-label")).toBe("1 note open");
-
-    button.unmount();
-  });
-});
-
-describe("the mobile switcher sheet", () => {
-  test("lists every open note with its folder underneath", () => {
-    const sheet = mount(
-      createElement(TabSwitcher, {
-        state: tabsReducer(openTabs(NOTES, AREAS), { type: "edited", path: NOTES }),
-        onActivate: () => {},
-        onClose: () => {},
-        onDismiss: () => {},
-      }),
-      390,
-    );
-
-    // The folder is on its own line for every row, which is why the name is the
-    // bare base name here and not `tabLabel`'s collision-qualified one.
-    expect(sheet.need(`switch-${NOTES}`).textContent).toContain("notes");
-    expect(sheet.need(`switch-${NOTES}`).textContent).toContain("1-projects");
-    expect(sheet.need(`switch-${AREAS}`).textContent).toContain("2-areas");
-
-    expect(sheet.find(`switch-dot-${NOTES}`)).not.toBeNull();
-    expect(sheet.find(`switch-dot-${AREAS}`)).toBeNull();
-
-    // The close × is its own target, never nested inside the row that opens it.
-    expect(sheet.need(`switch-open-${NOTES}`).contains(sheet.need(`switch-close-${NOTES}`))).toBe(
-      false,
-    );
-
-    sheet.unmount();
-  });
-
-  test("closing the last note dismisses the sheet, rather than leaving an empty one", () => {
-    // An empty switcher is a dead end: no rows to press, and the only way out is
-    // a scrim somebody has to guess at.
-    const onDismiss = jest.fn<() => void>();
-    const sheet = mount(
-      createElement(TabSwitcher, {
-        state: emptyTabs,
-        onActivate: () => {},
-        onClose: () => {},
-        onDismiss,
-      }),
-      390,
-    );
-
-    expect(onDismiss).toHaveBeenCalledTimes(1);
-    sheet.unmount();
   });
 });

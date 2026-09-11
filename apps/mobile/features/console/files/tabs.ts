@@ -1,12 +1,17 @@
 /**
  * Open tabs, as data.
  *
- * The console keeps several notes open at once, and the same model drives both
- * shapes of the UI: a tab strip on desktop, and on mobile the Obsidian
- * arrangement — a count button in the bottom toolbar that opens a switcher
- * sheet. Neither shape is in here. There is no React, no React Native and no
- * DOM in this file, because the transitions worth being sure about are not
- * visual ones:
+ * The console keeps several notes open at once, behind a tab strip. **On a
+ * pointer only** — a phone used to draw a count button and a switcher sheet
+ * over this same state, and could not open a second tab to put in them: the
+ * only verb that does is web-gated in `menu.ts`, on a row menu inside an
+ * Explorer that `frame.ts` hides at compact. The count read `1` for the life of
+ * the app. That half is now `files/RecentSheet.tsx`, over `history.ts`, and
+ * nothing here changed to make it so.
+ *
+ * No shape of the UI is in this file. There is no React, no React Native and no
+ * DOM in it, because the transitions worth being sure about are not visual
+ * ones:
  *
  *  - **Closing the active tab.** Which tab you land on afterwards is the
  *    difference between "that was fine" and "where did my place go" — the
@@ -181,8 +186,8 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
       // A dirty tab closes. Whether to ask first is a question about a modal,
       // and a modal decision has no business living inside a data structure —
       // the reducer publishes `dirty`, `dirtyCount` and `isTabDirty`, and the
-      // UI confirms before dispatching. For a long time nothing did: the ×,
-      // the switcher sheet and ⌘W all reached this case directly, and this
+      // UI confirms before dispatching. For a long time nothing did: the × and
+      // ⌘W both reached this case directly, and this
       // paragraph described a guard that was never written. See
       // `app/(app)/console/_layout.tsx`, which now asks. A reducer that refused would also be undoable only
       // by a second, differently-named action, which is how "close anyway"
@@ -260,7 +265,6 @@ export function tabAt(state: TabsState, index: number): string | null {
   return state.tabs[index].path;
 }
 
-/** What the tab strip and the mobile count button show. */
 /**
  * Whether closing this tab would throw a draft away.
  *

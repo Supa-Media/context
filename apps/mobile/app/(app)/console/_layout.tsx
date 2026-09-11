@@ -42,6 +42,8 @@ import {
   canGoForward,
   currentPath,
   emptyHistory,
+  hasSomewhereToGo,
+  recentPaths,
   stepped,
   visited,
   type HistoryState,
@@ -51,9 +53,9 @@ import {
   applyRowIntent,
   intentForRowCommand,
 } from "../../../features/console/files/rowCommand";
-import { TabSwitcher, tabCountLabel } from "../../../features/console/files/TabSwitcher";
+import { RecentSheet } from "../../../features/console/files/RecentSheet";
 import { statusSegments } from "../../../features/console/files/status";
-import { closeIntent, dirtyCount, isTabDirty } from "../../../features/console/files/tabs";
+import { closeIntent, isTabDirty } from "../../../features/console/files/tabs";
 import { needsDecision } from "../../../features/console/files/editor";
 import { useUnsavedGuard } from "../../../features/console/files/useUnsavedGuard";
 import { atName } from "../../../features/console/format";
@@ -188,12 +190,17 @@ export default function ConsoleLayout() {
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   /*
-    The phone's answer to the tab strip. Held here beside `tabs` for the same
-    reason the tab model is: the switcher acts on the model, and a piece of
-    state that lives one level down from the thing it opens is a ref waiting to
-    be written.
+    The phone's answer to the tab strip: a Recent sheet over `history`, where
+    the tab count and its switcher used to be. `RecentSheet.tsx` carries the
+    whole argument — the short version is that nothing on a phone could open a
+    second tab, so the count could only ever read `1` and its × was a no-op you
+    could watch.
+
+    Held here beside `history` for the reason the tab state is: the sheet acts
+    on that model, and a piece of state living one level down from the thing it
+    opens is a ref waiting to be written.
   */
-  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [recentOpen, setRecentOpen] = useState(false);
   /*
     The toolbar's `+` raises the explorer's own dialog. Held here rather than
     inside `Explorer` because the toolbar is a sibling of the explorer, not a
@@ -226,9 +233,8 @@ export default function ConsoleLayout() {
 
     `tabs.ts`'s `closed` case says a modal decision has no business inside a
     data structure and that "the UI confirms before dispatching". Nothing did:
-    the tab's ×, the switcher sheet and ⌘W all reached the reducer directly, so
-    a dirty tab closed silently and the draft was gone. One state, so all three
-    routes ask.
+    the tab's × and ⌘W both reached the reducer directly, so a dirty tab closed
+    silently and the draft was gone. One state, so both routes ask.
 
     What they ask about is now much narrower. A draft autosave can write is
     written on the way out instead of being asked about — see `closeTab` — so
@@ -313,10 +319,10 @@ export default function ConsoleLayout() {
   );
   const current = selectedContext(data);
   /*
-    Which half of `tabs.ts` is on screen. `TabStrip` is the pointer half and
-    `TabSwitcher` the thumb half — see either file's header for why they are two
-    components rather than one with a breakpoint. Read here rather than inside
-    them because it also decides whether the bottom toolbar carries a count.
+    Whether tabs are on screen at all. `TabStrip` is the pointer instrument and
+    there is no thumb half any more — a phone gets Recent instead, over the same
+    `history` its `‹ ›` already read. Read here rather than inside either,
+    because it also decides which of the two the bottom toolbar carries.
   */
   const phone = densityFor(width) === "compact";
   const insideContext = route.kind === "context";
@@ -339,8 +345,17 @@ export default function ConsoleLayout() {
     makes it come back: the flag would still be true.
   */
   useEffect(() => {
-    if (!phone || !browsing) setSwitcherOpen(false);
+    if (!phone || !browsing) setRecentOpen(false);
   }, [phone, browsing]);
+
+  /**
+   * Whether the Recent sheet has anywhere to send you.
+   *
+   * The list itself is built where it is drawn, below: this runs on every
+   * render of the whole console and the sheet is closed for nearly all of them,
+   * so the cheap `.some()` is the one that belongs up here.
+   */
+  const somewhereToGo = hasSomewhereToGo(history, data.files.selectedPath);
 
   /**
    * Close a tab: write what is pending, and ask only about what cannot be.
@@ -680,7 +695,7 @@ export default function ConsoleLayout() {
           Settings is inside a context, so gating on that shipped Browse's
           whole toolbar to a screen with no notes on it: a file tree, a `+`
           that wrote a note you could not see, a Save with nothing to save, and
-          a tab count whose sheet activated notes behind the settings pane.
+          a Recent key whose sheet selected notes behind the settings pane.
           Tapping a note in that drawer selected it and closed the drawer with
           no visible change at all.
         */
@@ -722,11 +737,11 @@ export default function ConsoleLayout() {
           browsing ? (
             <ConsoleBottomBar
               data={data}
-              tabs={tabs}
               history={history}
+              hasRecent={somewhereToGo}
               onStep={step}
               onSearch={() => setPaletteOpen(true)}
-              onOpenTabs={() => setSwitcherOpen(true)}
+              onOpenRecent={() => setRecentOpen(true)}
               onNewNote={(folder) => setBarDialog({ kind: "create", folder })}
               onStartMeeting={startMeetingFlow}
             />
@@ -739,7 +754,7 @@ export default function ConsoleLayout() {
           onCloseTab={closeTab}
           onDialog={setBarDialog}
           onSearch={() => setPaletteOpen(true)}
-          paletteOpen={paletteOpen || treeOverlay || switcherOpen || openSettingsSection !== null}
+          paletteOpen={paletteOpen || treeOverlay || recentOpen || openSettingsSection !== null}
         />
         {/*
           The contexts, built here and drawn inside whatever scroller the
@@ -894,20 +909,28 @@ export default function ConsoleLayout() {
         </NavBandProvider>
 
         {/*
-          The tab sheet, mounted only where there is a control that opens it.
-          `TabSwitcher` closes itself when the last tab goes (see its effect),
-          and the guard on `tabs.length` is what stops it re-opening empty if
-          something else empties the strip while it is up.
+          The Recent sheet, mounted only where there is a control that opens it.
+          It closes itself when the list empties (see its effect), and the guard
+          on `somewhereToGo` is what stops it re-opening onto a single row
+          pointing at the note already on screen — a context switch clears the
+          history from under it, and this component sits above the route that
+          does that.
+
+          `select` rather than `router`: the note is a selection this browser
+          holds, the URL follows it through `useNoteAddress`, and asking the
+          router to navigate instead remounts the route under the press. See
+          `docs/decisions/app-and-console.md` on the breadcrumb root, which is
+          the same press taking the same shortcut for the same reason.
         */}
-        {switcherOpen && phone && tabs.state.tabs.length > 0 ? (
-          <TabSwitcher
-            state={tabs.state}
-            onActivate={(path) => {
-              tabs.activate(path);
-              setSwitcherOpen(false);
+        {recentOpen && phone && somewhereToGo ? (
+          <RecentSheet
+            paths={recentPaths(history)}
+            currentPath={data.files.selectedPath}
+            onOpen={(path) => {
+              data.files.select(path);
+              setRecentOpen(false);
             }}
-            onClose={closeTab}
-            onDismiss={() => setSwitcherOpen(false)}
+            onDismiss={() => setRecentOpen(false)}
           />
         ) : null}
 
@@ -1389,21 +1412,27 @@ function Rail({
  */
 function ConsoleBottomBar({
   data,
-  tabs,
   history,
+  hasRecent,
   onStep,
   onSearch,
-  onOpenTabs,
+  onOpenRecent,
   onNewNote,
   onStartMeeting,
 }: {
   data: ConsoleData;
-  tabs: ReturnType<typeof useTabs>;
   /** Where you have been, for `‹` and `›`. */
   history: HistoryState;
+  /**
+   * Whether the Recent sheet has anywhere to send you.
+   *
+   * Computed by the caller, which is where the selection is — the list always
+   * contains the note on screen, so "not empty" is the wrong question.
+   */
+  hasRecent: boolean;
   onStep: (delta: -1 | 1) => void;
   onSearch: () => void;
-  onOpenTabs: () => void;
+  onOpenRecent: () => void;
   /** Raises the naming dialog for a destination — see the `new` action. */
   onNewNote: (folder: string) => void;
   /** Opens the meeting destination sheet. It does not start recording. */
@@ -1449,12 +1478,25 @@ function ConsoleBottomBar({
           spend most of a session with at least one of them unavailable, and a
           bar whose first two positions come and go moves every other target.
         */
+        /*
+          Held, `‹` opens the same Recent sheet its own target further along the
+          row opens. That is where every browser on every platform keeps its
+          history list, so it costs nothing to honour and it puts the list under
+          the thumb that just pressed back and found it went one step too few.
+
+          A second route, never the only one — see `onLongPress` in
+          `BottomBar`. `disabled` suppresses the hold with the press, which is
+          right: at the start of a history there is nothing behind you, and that
+          is precisely when the sheet has nothing to offer either.
+        */
         {
           id: "back",
           label: "Go back",
+          hint: "Hold for recent",
           icon: "chevronLeft" as const,
           disabled: !canGoBack(history),
           onPress: () => onStep(-1),
+          onLongPress: hasRecent ? onOpenRecent : undefined,
         },
         {
           id: "forward",
@@ -1504,35 +1546,44 @@ function ConsoleBottomBar({
             ]
           : []),
         /*
-          The tab count, in the position Obsidian, Safari and Chrome all put it:
-          a number in the toolbar rather than a strip above the note. The strip
-          is not drawn at this density at all — see `EditorRegion` — so this is
-          the only way to a note that is open but not in front of you.
+          Recent, in the slot the tab count used to hold.
 
-          Absent with nothing open, rather than a `0`. There is no sheet to
-          raise, and a control that opens an empty sheet is worse than one that
-          is not there. It is the last item on the bar for that reason too:
-          appearing and disappearing must not move a target somebody is already
-          reaching for, which is `BottomBar`'s rule, and the end of the row is
-          the one place where it cannot.
+          **The count is gone rather than fixed, and that is the change.** It
+          was Obsidian's, Safari's and Chrome's number-in-a-square, and its
+          whole affordance was that the number moves as you work — on a phone it
+          could not. Nothing here opens a second tab: `openInNewTab` is
+          `platform === "web"` only (`menu.ts`), its row menu lives in the
+          Explorer, and `frame.ts` hides the Explorer at `compact`. Every open
+          arrives as a `preview`, and a preview replaces the preview slot. A `1`
+          that is always `1` is a label pretending to be a state.
+
+          What a phone actually needs from that slot is the thing `‹` gives one
+          step at a time: somewhere you were. `history.ts` already holds it.
+
+          No `count` and no `marker`. A recency list has no number worth
+          printing, and the dot the tab control carried said "unsaved" about a
+          console that autosaves at 2s — a warning that resolves itself while
+          you read it. The states that do not resolve are a conflict and a
+          failed save, and those are `needsDecision`, which speaks in the notice
+          line rather than as a dot in a sheet.
+
+          **Dimmed in place, never absent** — the rule `‹` and `›` two positions
+          up already live by, and this is the third control over the same
+          history. The tab count it replaces was conditional, and its own
+          comment defended that as "the last item on the bar", which it was not:
+          Save, a rule and the meeting key all sat after it, so every one of
+          them slid sideways the first time a note opened. A recency control is
+          unavailable for the first moments of every session and available for
+          the rest, which is precisely the shape `BottomBar` says must not come
+          and go.
         */
-        ...(tabs.state.tabs.length > 0
-          ? [
-              {
-                id: "tabs",
-                // One phrasing, from the file that owns the counting.
-                label: tabCountLabel(tabs.state),
-                icon: "file" as const,
-                // The number *is* the control — see `count` in `BottomBar`.
-                // The accent badge it replaces read as a notification about
-                // something that had happened, rather than a count of what is
-                // already open.
-                count: tabs.state.tabs.length,
-                marker: dirtyCount(tabs.state) > 0,
-                onPress: onOpenTabs,
-              },
-            ]
-          : []),
+        {
+          id: "recent",
+          label: "Recently opened",
+          icon: "clock" as const,
+          disabled: !hasRecent,
+          onPress: onOpenRecent,
+        },
         {
           id: "save",
           label: "Save this note",
