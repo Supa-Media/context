@@ -46,6 +46,7 @@ import {
 import { noMatchHint, recipientsFor, type RecipientGroup } from "./recipients";
 import { canMakeGroup, memberLabel, previewGroupName } from "../groups/groups";
 import { isGroupVisibility, type Visibility } from "./types";
+import { SCOPE_LABELS, describeGoingPublic, scopeOf, type NoteScope } from "./scope";
 import {
   describeOpenLink,
   describePersonalShare,
@@ -72,6 +73,8 @@ export function ShareDialog({
   onRemovalRoute,
   onCreateGroup,
   groupSlug,
+  entryKind = "file",
+  onSetScope,
   groups,
 }: {
   path: string;
@@ -121,6 +124,37 @@ export function ShareDialog({
   onCreateGroup?: (label: string, userIds: readonly string[]) => void;
   /** The workspace's own slug, for showing the name a label will become. */
   groupSlug?: string;
+  /**
+   * What this path is.
+   *
+   * A folder has **two** audience positions, not three: `createLinkShare` runs
+   * `checkSharePath`, which is note-only, so an unlisted link over a folder is
+   * a press that always fails. The dialog used to offer one anyway — it drew
+   * "Create link" for whatever it was given — which is a control that cannot
+   * work, on the one screen where a control that cannot work is most expensive.
+   */
+  entryKind?: "file" | "folder";
+  /**
+   * Move this path between audiences — the control that used to be a padlock in
+   * the top bar.
+   *
+   * ## Why the icon had to go
+   *
+   * It cycled private → team → *link anyone can open*, unlabelled, 20pt, and
+   * most notes sit at `team` already by folder inheritance. So one tap on a
+   * padlock published a note to a link needing no account, with the icon
+   * changing to a globe as the only feedback. `scope.ts` argues at length that
+   * widening should be one deliberate step at a time and that private → anyone
+   * in a single press is "the accident worth making impossible" — which is
+   * right about the rule and wrong about where the risk sits, because team →
+   * anyone was also a single press from the state nearly everything is in.
+   *
+   * Here the positions are named, the current one is visible without decoding
+   * an icon, and the step to a public link is confirmed in words.
+   *
+   * Absent for anybody who may not set visibility, which is owner-only.
+   */
+  onSetScope?: (from: NoteScope, to: NoteScope) => void;
   /**
    * A section drawn under everything else here, behind its own "ADVANCED"
    * label — today, whatever `EncryptionAdvancedSection` in
@@ -449,9 +483,34 @@ export function ShareDialog({
               difference between "this is fine" and "wait, that folder?".
             */}
             <View style={styles.section}>
-              <Text variant="eyebrow">PEOPLE WITH ACCESS</Text>
+              <Text variant="eyebrow">WHO CAN READ IT</Text>
               {access === undefined ? null : (
                 <View style={styles.access} testID="share-access">
+                  {/*
+                    The padlock that used to live in the top bar, with its
+                    positions named. See `onSetScope` for why an unlabelled
+                    cycling icon was the wrong shape for this decision.
+
+                    Absent — not disabled — when the rule names a group, because
+                    `setScope` refuses that case in `useFileBrowser` and says
+                    why: `scopeOf` maps a group to the `private` POSITION, so a
+                    segmented control would draw "Only me" as current over a
+                    note two colleagues can read, and the step out of it would
+                    silently delete the group rule. The way out is the group
+                    row's own route, in the list below.
+                  */}
+                  {onSetScope === undefined ? null : isGroupVisibility(access.visibility) ? (
+                    <Text variant="meta" style={styles.accessReason} testID="share-scope-group">
+                      {`This note is shared with ${access.visibility}. Change that where the group is defined — the row below takes you there.`}
+                    </Text>
+                  ) : (
+                    <AudienceControl
+                      scope={scopeOf(access.visibility, openLink !== undefined)}
+                      canOpenLink={entryKind === "file"}
+                      name={baseName(path)}
+                      onSet={onSetScope}
+                    />
+                  )}
                   <Text variant="paneSub">
                     {accessSummary(access.visibility, access.exception)}
                   </Text>
@@ -575,30 +634,43 @@ export function ShareDialog({
                 />
               </View>
 
-              <View style={styles.linkRow}>
-                <View style={styles.linkMain}>
-                  <Text variant="rowTitle">Anyone with the link</Text>
-                  <Text variant="meta" style={styles.linkNote}>
-                    {describeOpenLink(openLink !== undefined)}
-                  </Text>
-                </View>
-                <View style={styles.row}>
-                  <Button
-                    label={openLink === undefined ? "Create link" : "Copy link"}
-                    variant="white"
-                    onPress={() => copyAndClose({ kind: "link", path })}
-                    testID="share-open-link"
-                  />
-                  {openLink === undefined ? null : (
+              {/*
+                Copy and revoke, never mint.
+
+                This row used to carry "Create link", which minted exactly the
+                object the padlock's third position minted — two controls for
+                one state, on one screen, which is the complaint this whole
+                change answers. The audience control above owns whether a link
+                exists; this row hands you the one that does.
+
+                Absent entirely when there is none, rather than a row offering
+                to copy nothing. A folder never has one: `createLinkShare` is
+                note-only.
+              */}
+              {openLink === undefined ? null : (
+                <View style={styles.linkRow}>
+                  <View style={styles.linkMain}>
+                    <Text variant="rowTitle">Anyone with the link</Text>
+                    <Text variant="meta" style={styles.linkNote}>
+                      {describeOpenLink(true)}
+                    </Text>
+                  </View>
+                  <View style={styles.row}>
+                    <Button
+                      label="Copy link"
+                      variant="white"
+                      onPress={() => copyAndClose({ kind: "link", path })}
+                      testID="share-open-link"
+                    />
                     <Button
                       label="Revoke"
                       variant="danger"
                       onPress={() => onRevoke(openLink.shareId)}
                       testID="share-open-link-revoke"
                     />
-                  )}
+                  </View>
                 </View>
-              </View>
+              )}
 
               {/*
                 What a typed name actually does, said once, where the field's
@@ -624,6 +696,92 @@ export function ShareDialog({
         </Pressable>
       </Pressable>
     </Modal>
+  );
+}
+
+/**
+ * The three positions, named, with the dangerous one confirmed.
+ *
+ * Two positions for a folder — `createLinkShare` is note-only, so a third would
+ * be a press that always fails, which is what the old "Create link" button was
+ * doing for folders.
+ *
+ * The confirmation is only on the way *to* `anyone`. Every other move narrows
+ * or stays inside the context, and a dialog that asks before making something
+ * more private teaches people to dismiss it without reading — which is the
+ * habit that then costs them the one that mattered.
+ */
+function AudienceControl({
+  scope,
+  canOpenLink,
+  name,
+  onSet,
+}: {
+  scope: NoteScope;
+  canOpenLink: boolean;
+  name: string;
+  onSet: (from: NoteScope, to: NoteScope) => void;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [confirming, setConfirming] = useState(false);
+
+  const positions: NoteScope[] = canOpenLink
+    ? ["private", "team", "anyone"]
+    : ["private", "team"];
+
+  return (
+    <View style={styles.audienceWrap}>
+      <View style={styles.audience} role="radiogroup" testID="share-audience">
+        {positions.map((position) => {
+          const on = position === scope;
+          return (
+            <Pressable
+              key={position}
+              style={[styles.segment, on && styles.segmentOn]}
+              role="radio"
+              aria-checked={on}
+              accessibilityLabel={SCOPE_LABELS[position].label}
+              testID={`share-audience-${position}`}
+              onPress={() => {
+                if (on) return;
+                if (position === "anyone") {
+                  setConfirming(true);
+                  return;
+                }
+                setConfirming(false);
+                onSet(scope, position);
+              }}
+            >
+              <Text variant="meta" style={on ? styles.segmentTextOn : styles.segmentText}>
+                {SCOPE_LABELS[position].label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Text variant="meta" style={styles.accessReason}>
+        {SCOPE_LABELS[scope].detail}
+      </Text>
+
+      {!confirming ? null : (
+        <View style={styles.confirm} testID="share-confirm-public">
+          <Text variant="meta">{describeGoingPublic(name)}</Text>
+          <View style={styles.row}>
+            <Button
+              label="Create the link"
+              variant="danger"
+              testID="share-confirm-public-yes"
+              onPress={() => {
+                setConfirming(false);
+                onSet(scope, "anyone");
+              }}
+            />
+            <Button label="Cancel" onPress={() => setConfirming(false)} />
+          </View>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -806,6 +964,38 @@ function SharedWith({
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   access: { gap: 8, marginBottom: 4 },
+  audienceWrap: { gap: 6 },
+  audience: {
+    flexDirection: "row",
+    gap: 4,
+    padding: 3,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.well,
+  },
+  segment: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 7,
+    paddingHorizontal: 4,
+    borderRadius: radii.md,
+  },
+  segmentOn: { backgroundColor: colors.surface },
+  segmentText: { color: colors.muted },
+  segmentTextOn: { color: colors.text },
+  confirm: {
+    gap: 8,
+    padding: 10,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.critBorder,
+    backgroundColor: colors.critWash,
+  },
   accessRow: {
     flexDirection: "row",
     alignItems: "baseline",

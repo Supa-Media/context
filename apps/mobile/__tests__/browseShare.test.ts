@@ -457,6 +457,8 @@ describe("the unlisted link has a control of its own", () => {
     const pane = paneRoot();
     pane.render(
       dataWith({
+        // The row exists only where a link does — see below.
+        shares: [openShare],
         copyShareLink: async (target: unknown) => {
           asked.push(target);
           return { ok: true, message: "Link copied." };
@@ -476,16 +478,29 @@ describe("the unlisted link has a control of its own", () => {
    * renders outside the pane's own container, so a test that mounted two panes
    * to compare states would be reading one dialog twice.
    */
-  test("with no link yet, it offers to create one and has nothing to revoke", () => {
+  /**
+   * **This row no longer mints anything, and that is the point.**
+   *
+   * It used to read "Create link" when there was none — minting exactly the
+   * share row the top bar's padlock minted on its third press. Two controls,
+   * one state, one screen: the complaint this whole change answers. Whether a
+   * link exists is now the audience control's question, and this row's only
+   * job is handing you the link that does exist.
+   *
+   * So with none, the row is **absent** rather than offering to copy nothing —
+   * the console's standing rule, applied to a row instead of a button.
+   */
+  test("with no link yet, there is no row at all — nothing here creates one", () => {
     const pane = paneRoot();
     pane.render(dataWith());
     press("browse-share");
-    expect(
-      document.body.querySelector('[data-testid="share-open-link"]')?.textContent,
-    ).toContain("Create link");
+    expect(document.body.querySelector('[data-testid="share-open-link"]')).toBeNull();
     expect(
       document.body.querySelector('[data-testid="share-open-link-revoke"]'),
     ).toBeNull();
+    // The positive control: the sheet did open, so this cannot pass on a
+    // dialog that failed to mount.
+    expect(document.body.querySelector('[data-testid="share-access"]')).not.toBeNull();
   });
 
   test("with one live, it offers to copy that link and to take it back", () => {

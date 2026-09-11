@@ -909,6 +909,12 @@ export function BrowsePane({
             which is the whole sequence somebody previously did by hand across
             two screens.
           */
+          entryKind={selected.kind}
+          onSetScope={
+            files.canSetVisibility
+              ? (from, to) => files.setScope(sharing, selected.kind, from, to)
+              : undefined
+          }
           groupSlug={current?.slug}
           onCreateGroup={
             data.groups?.actions === undefined

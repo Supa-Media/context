@@ -860,6 +860,24 @@ export function ExplorerDialogs({
                 }
           }
           groups={access?.groups}
+          /*
+            The audience control, wired straight from the browser rather than
+            threaded through `access`: `setScope` is already the single point
+            every surface goes through — its group guard lives there — and this
+            component holds `files` anyway. Owner-only, absent otherwise.
+          */
+          entryKind={findEntry(files.listings, dialog.path)?.kind ?? "file"}
+          onSetScope={
+            files.canSetVisibility
+              ? (from, to) =>
+                  files.setScope(
+                    dialog.path,
+                    findEntry(files.listings, dialog.path)?.kind ?? "file",
+                    from,
+                    to,
+                  )
+              : undefined
+          }
           onRemovalRoute={access?.removalRouteFor?.(dialog.path)}
           groupSlug={access?.groupSlug}
           onCreateGroup={
