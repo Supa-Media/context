@@ -59,6 +59,22 @@ function stateFor(doc: string, cursor?: number | [number, number]): EditorState 
 }
 
 /**
+ * The same document, read-only — reading mode, `privacy.md`, an encrypted note.
+ *
+ * `EditorState.readOnly` rather than a flag of the extension's own, because
+ * that is the condition `revealSelection` asks about and there must not be a
+ * second one for the two to disagree over.
+ */
+function readingStateFor(doc: string, cursor?: number): EditorState {
+  const state = stateFor(doc, cursor);
+  return EditorState.create({
+    doc: state.doc,
+    selection: state.selection,
+    extensions: [markdownLanguage(), EditorState.readOnly.of(true)],
+  });
+}
+
+/**
  * What the reader actually sees: the document with every hidden range removed.
  *
  * Asserting on this rather than on the list of hidden strings is what would
@@ -1217,5 +1233,85 @@ describe("html-preview fences", () => {
     expect(() => decorationsFor(stateFor(doc, 10_000))).not.toThrow();
     expect(() => decorationsFor(stateFor(doc, 0))).not.toThrow();
     expect(() => decorationsFor(stateFor(doc, [0, doc.length]))).not.toThrow();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * NOTHING REVEALS IN A DOCUMENT NOBODY CAN TYPE INTO.
+ *
+ * The reveal rule exists because you cannot edit syntax you cannot see. A
+ * read-only note has no caret to edit with — `editability` drops
+ * `contenteditable` — but `state.selection` is still a range at 0, so without
+ * `revealSelection` the note's first construct draws its own asterisks at a
+ * reader who can do nothing about them, and a preview at the top of a note sits
+ * there as its own source.
+ *
+ * Three states share the condition: reading mode, `privacy.md`, and an
+ * encrypted envelope. One check per changed call site, each paired with the
+ * editable case so the rule cannot widen onto a note somebody is typing into.
+ *
+ * ## Sabotage record
+ *
+ * `revealSelection` returning the ranges unconditionally: **2** failed, one per
+ * call site, and the two editable checks stayed green — which is the pairing
+ * doing its job.
+ */
+describe("a read-only note reveals nothing", () => {
+  const HEADING = "# Chapter transition";
+
+  /** The classes `decorationsFor` drew, so a hidden mark can be told from a styled one. */
+  function hiddenCount(state: EditorState): number {
+    const set = decorationsFor(state);
+    let hidden = 0;
+    const iter = set.iter();
+    while (iter.value !== null) {
+      // A hidden mark is drawn as a zero-width replacement; a style is a class.
+      const spec = iter.value.spec as { class?: string };
+      if (!spec.class && iter.from !== iter.to) hidden += 1;
+      iter.next();
+    }
+    return hidden;
+  }
+
+  test("a cursor in a heading reveals its hashes while the note is editable", () => {
+    expect(hiddenCount(stateFor(HEADING, 3))).toBe(0);
+  });
+
+  test("...and the same cursor in a read-only note does not", () => {
+    expect(hiddenCount(readingStateFor(HEADING, 3))).toBeGreaterThan(0);
+  });
+
+  /*
+    `html-preview`, not `html`: a plain `html` fence is a code block and draws
+    no widget at all. Written the other way first, and both halves passed —
+    the editable one because there was nothing to withdraw. A fixture that
+    produces no preview cannot show one being kept.
+  */
+  /*
+    Shaped like `DIAGRAM` above — a line before and a line after — because a
+    lone fence at the very top of a document draws no widget, and a fixture
+    that produces no preview cannot show one being kept. Written both of the
+    other ways first: a plain ```html fence (a code block, no widget) and a
+    bare ```html-preview with nothing around it. Each made the editable half
+    pass for the wrong reason.
+  */
+  const PREVIEW = ["# Map", "", "```html-preview", "<div>x</div>", "```", "", "after"].join("\n");
+  /** Inside the fence's body, which is what withdraws a preview. */
+  const IN_FENCE = PREVIEW.indexOf("<div>") + 2;
+
+  test("a preview is drawn when the cursor is elsewhere", () => {
+    expect(htmlPreviews(stateFor(PREVIEW, 10_000)).length).toBe(1);
+  });
+
+  test("...and withdrawn when the cursor enters its fence, while editable", () => {
+    expect(htmlPreviews(stateFor(PREVIEW, IN_FENCE))).toEqual([]);
+  });
+
+  test("...but the same cursor in a read-only note leaves it drawn", () => {
+    const previews = htmlPreviews(readingStateFor(PREVIEW, IN_FENCE));
+    expect(previews.length).toBe(1);
+    expect(previews[0]!.html).toBe("<div>x</div>");
   });
 });

@@ -42,6 +42,7 @@ import type { ConsoleData } from "../features/console/types";
 import type { FileBrowser } from "../features/console/files/browser";
 import type { FolderListing } from "../features/console/files/types";
 import { layout } from "../features/design/tokens";
+import { resetReadMode } from "../features/console/files/readMode";
 
 const mockInsets = { top: 59, bottom: 34, left: 0, right: 0 };
 
@@ -308,6 +309,16 @@ const OPEN_LINK = {
 };
 
 function mountConsole(data: ConsoleData, width = 390) {
+  /*
+    Reading mode is module state — `files/readMode.ts` says why it is a bus
+    rather than a route parameter — so a test that turns it on leaves it on for
+    the next one. Reset here rather than in a hook because a fresh mount is
+    exactly the moment the mode should be its default, and every test in this
+    file starts with one. Found the hard way: the editability check below failed
+    in a full run and passed alone, because the test above it had pressed the
+    eye and never let go.
+  */
+  resetReadMode();
   mockData = () => data;
   Object.defineProperty(document.documentElement, "clientWidth", {
     value: width,
@@ -787,6 +798,58 @@ describe("the top row ends in one group, and it is the note's", () => {
     expect(app.find("storage-pill")).toBeNull();
     // And search is on the toolbar, where the thumb is, not doubled up here.
     expect(app.find("frame-search")).toBeNull();
+  });
+
+  /**
+   * THE eye. Reading mode is a control somebody has to find, and "it is in the
+   * trailing group" is exactly the claim that was made about Share once and was
+   * not true of any screen.
+   *
+   * It leads the group rather than following Share: this changes how the note
+   * in front of you is drawn and is undone by pressing it again, Share opens a
+   * sheet that grants somebody access, and the reversible one is the safer
+   * neighbour for a thumb.
+   *
+   * ## Sabotage record
+   *
+   * Dropping the button from `_layout.tsx`: **3** failed here. Leaving it drawn
+   * but never passing `reading` into `NoteEditor`: **1** — the editability
+   * check, which is the one that says the press does anything.
+   */
+  test("the note carries a reading toggle, before Share", () => {
+    const app = mountConsole(dataWith());
+    const eye = app.find("note-read");
+    expect(eye).not.toBeNull();
+    // Before Share in the DOM, which is what "leads the group" means on a row
+    // laid out in order.
+    const share = app.find("note-share");
+    expect(eye!.compareDocumentPosition(share!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  test("...and it names the act, since a glyph cannot", () => {
+    const app = mountConsole(dataWith());
+    expect(app.find("note-read")!.getAttribute("aria-label")).toBe("Read this note");
+    app.press(app.find("note-read"));
+    expect(app.find("note-read")!.getAttribute("aria-label")).toBe("Edit this note");
+  });
+
+  /**
+   * The press has to reach the document, or the eye is decoration.
+   *
+   * `contenteditable` is what `editability` drops, and it is what every other
+   * consequence of read-only hangs off — the paste, drop and cut handlers all
+   * open with the same question. Asserting on it rather than on a class is
+   * asserting on the thing that makes the mode true.
+   */
+  test("...and pressing it stops the note being editable", () => {
+    const app = mountConsole(dataWith());
+    const editable = () =>
+      document.body.querySelector('[contenteditable="true"]') !== null;
+    expect(editable()).toBe(true);
+    app.press(app.find("note-read"));
+    expect(editable()).toBe(false);
+    app.press(app.find("note-read"));
+    expect(editable()).toBe(true);
   });
 
   /**

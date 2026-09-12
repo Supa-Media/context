@@ -876,10 +876,7 @@ function fenceBody(
  */
 export function htmlPreviews(state: EditorState, frontEnd = 0): HtmlPreview[] {
   const previews: HtmlPreview[] = [];
-  const selection = state.selection.ranges.map((range) => ({
-    from: range.from,
-    to: range.to,
-  }));
+  const selection = revealSelection(state);
   syntaxTree(state).iterate({
     from: 0,
     to: state.doc.length,
@@ -1096,12 +1093,35 @@ function nodeAt(node: SyntaxNode | null, name: string): SyntaxNode | null {
  * position, which is why styles and hides are collected separately and
  * concatenated rather than pushed as they are found.
  */
+/**
+ * The selection the reveal rule may act on.
+ *
+ * NOTHING REVEALS IN A DOCUMENT NOBODY CAN TYPE INTO. Markup comes back when
+ * the caret enters it, because you cannot edit syntax you cannot see. A
+ * read-only document has no caret to enter anything with — `editability` drops
+ * `contenteditable` — but `state.selection` is still a range at 0, so the
+ * note's first construct would draw its own asterisks at a reader who cannot
+ * act on them, and an HTML preview at the top of a note would sit there as its
+ * own source.
+ *
+ * So read-only is an empty selection, which is the same sentence the reveal
+ * rule already makes: reveal for editing, and there is no editing. One
+ * condition covers reading mode, `privacy.md` and an encrypted envelope, and it
+ * is `state.readOnly` rather than a flag of this extension's own so there is
+ * nothing for the two to disagree about.
+ *
+ * Both callers take it from here rather than each mapping the ranges, because
+ * the two are one rule: `htmlPreviews` withdrawing a preview while
+ * `decorationsFor` keeps the markup hidden is a half-revealed note.
+ */
+function revealSelection(state: EditorState): Array<{ from: number; to: number }> {
+  if (state.readOnly) return [];
+  return state.selection.ranges.map((range) => ({ from: range.from, to: range.to }));
+}
+
 export function decorationsFor(state: EditorState): DecorationSet {
   const tree = syntaxTree(state);
-  const selection = state.selection.ranges.map((range) => ({
-    from: range.from,
-    to: range.to,
-  }));
+  const selection = revealSelection(state);
 
   /*
     Frontmatter is decided from the text, before the tree is consulted, and
