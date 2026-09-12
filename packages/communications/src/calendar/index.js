@@ -24,6 +24,7 @@ export { CALENDAR_FENCE_MARKER, NO_TITLE, defangCalendarFence, renderCalendarDay
 export {
   applyIncremental,
   horizonDates,
+  mergeEventCaches,
   planSyncRequest,
   projectDay,
   pruneCacheToWindow,

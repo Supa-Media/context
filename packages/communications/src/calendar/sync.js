@@ -149,6 +149,30 @@ export function projectDay(cache, date) {
   return events;
 }
 
+/**
+ * Combine the independently persisted caches for every active account that
+ * contributes to one shared calendar folder.
+ *
+ * The caller decides which accounts are active and share a destination; this
+ * pure primitive only makes their union explicit. Duplicate keys mean the
+ * same account contribution was supplied twice, which is unsafe to resolve
+ * with last-writer-wins semantics, so it fails closed instead.
+ *
+ * @param {Map<string, {event: object, dates: string[]}>[]} caches
+ * @returns {Map<string, {event: object, dates: string[]}>}
+ */
+export function mergeEventCaches(caches) {
+  const merged = new Map();
+  for (const cache of caches ?? []) {
+    if (!(cache instanceof Map)) throw new TypeError("calendar cache contribution must be a Map");
+    for (const [key, entry] of cache) {
+      if (merged.has(key)) throw new TypeError(`duplicate calendar cache key: ${key}`);
+      merged.set(key, { ...entry, dates: [...entry.dates] });
+    }
+  }
+  return merged;
+}
+
 /** Drop cache entries with no date left inside `[windowStart, windowEnd)` — hygiene, not correctness. */
 export function pruneCacheToWindow(cache, windowStart, windowEnd) {
   const next = new Map();
