@@ -454,7 +454,10 @@ function SettingsStorageChoiceLive({
         onChoose: () => {
           if (managed.paid) {
             if (managed.status?.selected.managedStorage) onOpenPremium?.();
-            else managed.toggle("managedStorage", true);
+            else {
+              managed.toggle("managedStorage", true);
+              onOpenPremium?.();
+            }
             return;
           }
           managed.choose();
