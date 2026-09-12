@@ -376,7 +376,7 @@ describe("storage settings import", () => {
     );
     expect(screen.q("settings-vault-import")).not.toBe(null);
     expect(screen.text).toContain("Have an Obsidian vault or existing Markdown notes?");
-    expect(screen.text).toContain("How should this vault join your existing notes?");
+    expect(screen.text).toContain("How should these notes be added?");
     expect(screen.text).toContain("Merge without replacing");
     expect(screen.text).toContain("Keep it in its own folder");
     screen.unmount();
