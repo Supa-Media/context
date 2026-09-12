@@ -16,6 +16,7 @@ import {
   applyIncremental,
   calendarDayNotePath,
   horizonDates,
+  isCalendarDayNote,
   planSyncRequest,
   projectDay,
   pruneCacheToWindow,
@@ -175,6 +176,25 @@ export async function syncCalendarAccount({ connection, store, fetchImpl, now })
     );
     const dayEvents = projectDay(cache, date);
     const existing = await store.get(path);
+    // A DESTINATION IS THE OWNER'S TO CHOOSE, SO A PATH IS NO LONGER PROOF.
+    //
+    // While this always wrote `0-inbox/calendar/`, every key it touched was
+    // one it had written itself. A configured destination ends that: the
+    // control plane happily accepts `2-areas/communications/daily` — its own
+    // test picks exactly that — and `YYYY-MM-DD.md` is how the owner's
+    // Obsidian daily notes in that folder are already named, in a bucket this
+    // product syncs to Obsidian on purpose. A full pass walks all fourteen
+    // horizon days and deletes the note at every date with no events, so
+    // without this the first scheduled pass after somebody points Calendar at
+    // their daily notes deletes two weeks of them.
+    //
+    // So ask whose note this is before destroying it. `isCalendarDayNote`
+    // reads the frontmatter the renderer always emits, and is false for
+    // anything it cannot read as one — including ciphertext, which is the
+    // gateway's own rule (`sealNoteContent`: a note this request cannot open
+    // is a note it cannot write) arriving here through the call graph rather
+    // than a second check somebody has to remember.
+    if (existing && !isCalendarDayNote(existing.text)) continue;
     if (!dayEvents.length) {
       if (existing) {
         await store.delete(path);

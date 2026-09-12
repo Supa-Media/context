@@ -22,6 +22,22 @@ export function runCalendarPathChecks(check) {
     "the customer root still wraps a configured destination",
     calendarDayNotePath({ date: "2026-09-07" }, { root: "vault", folder: "2-areas/schedule" }) === "vault/2-areas/schedule/2026-09-07.md"
   );
+  check("a destination that normalizes away is refused, never turned into a rootless key", (() => {
+    // `channelDestinationFolder`, the same decision for a channel day, answers
+    // `null` here and its caller throws. This one built `/2026-09-07.md`
+    // instead — a key with no folder at all, and `<root>//2026-09-07.md` under
+    // a customer root. Two implementations of "is this a folder we will file
+    // into" is how one of them ends up weaker; this is that.
+    for (const folder of ["/", "///", "  /  "]) {
+      try {
+        calendarDayNotePath({ date: "2026-09-07" }, { folder });
+        return false;
+      } catch (error) {
+        if (!(error instanceof TypeError)) return false;
+      }
+    }
+    return true;
+  })());
   check("a traversing destination is refused instead of escaping the bucket folder", (() => {
     try {
       calendarDayNotePath({ date: "2026-09-07" }, { folder: "../elsewhere" });
