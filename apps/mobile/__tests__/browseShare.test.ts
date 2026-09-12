@@ -323,6 +323,25 @@ describe("an owner reading a note can share it", () => {
    * with no name is the failure this check exists to catch. What is gone is the
    * ellipsis, which cannot be drawn in a padlock-sized target.
    */
+  /**
+   * The padlock beside it is not coming back.
+   *
+   * `_layout.tsx` took it off the phone for a reason it states at length: two
+   * controls for one question, overlapping on the dangerous state, with
+   * audience moved inside `ShareDialog` as named positions and the public step
+   * confirmed in words. #461 drew it here as an icon while claiming to match
+   * the phone, which reintroduced on a pointer layout exactly what the phone
+   * had removed.
+   *
+   * Nothing became unreachable: the dialog this row opens takes `onSetScope`.
+   * That is what makes this check an assertion about *where* the control is
+   * rather than about whether it exists.
+   */
+  test("and the row carries no second control for the same question", () => {
+    const pane = paneWith();
+    expect(pane.querySelector('[data-testid="browse-visibility"]')).toBeNull();
+  });
+
   test("and it names itself, for anything that cannot see a glyph", () => {
     const pane = paneWith();
     const share = pane.querySelector('[data-testid="browse-share"]');
