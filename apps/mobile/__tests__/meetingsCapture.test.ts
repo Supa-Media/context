@@ -337,6 +337,14 @@ function mockDeviceConstructor(this: unknown, options?: { extension?: string }):
     stop: async () => {
       api.stops += 1;
       api.isRecording = false;
+      /*
+        In the same ordered log as the reads, the sends and the deletes, so a
+        test can assert the microphone went back *before* the audio was cut
+        rather than merely that it went back. The two are indistinguishable
+        from the outside otherwise, and the difference is a microphone left
+        open for the length of a transcription.
+      */
+      mockLog.push(`device-stop:${index}`);
       if (mockDeviceRefusesToStop) throw new Error("The recorder would not stop.");
     },
     release: () => {
@@ -725,6 +733,14 @@ describe("rotation", () => {
     await recorder.start();
     await advance(SEGMENT_MS + 5_000);
     await recorder.stop();
+    /*
+      `stop()` resolves once the microphone is back and the audio is off the
+      device; it no longer waits for anything to be transcribed. That split is
+      the point rather than a detail — it is what lets a meeting end, and its
+      clock stop, at the moment somebody presses End instead of when Whisper
+      answers — so a test about what was *sent* waits for the sending.
+    */
+    await recorder.drain?.();
 
     expect(transcriber.chunks).toHaveLength(2);
     expect(transcriber.chunks[1]).toMatchObject({
@@ -881,6 +897,10 @@ describe("the audio is transient, structurally", () => {
 
     expect(Object.keys(recorder).sort()).toEqual([
       "capability",
+      // Waiting for what is still being transcribed, which `stop` used to do
+      // and no longer does. It hands back nothing and holds nothing: the
+      // property this test is about is unchanged by it.
+      "drain",
       "onError",
       "onSegment",
       "pause",
@@ -1727,6 +1747,14 @@ describe("the device and a send do not fight over one file", () => {
     await advance(5_000);
 
     await recorder.stop();
+    /*
+      The race this test is about is between `releaseDevice`, which deletes "a
+      recording the session never got round to sending", and a send that is
+      still reading one. `stop()` now returns *during* that window rather than
+      after it, which makes the window wider and this test sharper: the release
+      has already happened by the line above, and the send has not.
+    */
+    await recorder.drain?.();
 
     expect(transcriber.chunks).toHaveLength(1);
     expect(transcriber.chunks[0].durationMs).toBe(5_000);
@@ -2085,6 +2113,93 @@ describe("one continuous recording, sliced while it is written", () => {
     expect(pcmOf(after[0])).toEqual(written);
 
     await recorder.stop();
+  });
+
+  test("the microphone is back before anything is waited for", async () => {
+    /*
+      *"It keeps recording while it's processing."*
+
+      The first version of this path sliced the file while the recorder went on
+      writing it, and `stop()` released the device only afterwards — so every
+      second the drain spent waiting on a transcription was a second the input
+      was still open on a meeting somebody had finished. It was also a
+      tail-chase: each pass found the audio recorded during the previous pass's
+      wait.
+
+      The device is stopped before a byte is taken now, so both are closed at
+      once. Driven with the sends parked, which is the state the defect lived
+      in: with `hang`, nothing can ever come back, and the microphone still has
+      to be back.
+    */
+    const { recorder } = harness({ platform: "ios", hang: true });
+    await recorder.start();
+    mockWriteAudio(2_000);
+
+    await recorder.stop();
+
+    expect(mockDevices[0].isRecording).toBe(false);
+    expect(mockDevices[0].released).toBe(true);
+    // And the audio went out rather than being abandoned with the device.
+    expect(mockHeldSends.length).toBeGreaterThan(0);
+
+    /*
+      THE ORDER, WHICH IS THE WHOLE OF IT.
+
+      "The microphone is back" is true of the broken version too — the release
+      in `stop()`'s `finally` gets there eventually. What was wrong was
+      *when*: the slicing happened first and could wait on a transcription, so
+      the input stayed open for the length of that wait and the file kept
+      growing underneath it. Asserting the input went back before the first
+      byte was sent is the difference, and nothing else observable is.
+    */
+    const stoppedAt = mockLog.indexOf("device-stop:0");
+    const firstSend = mockLog.findIndex((line) => line.startsWith("send:"));
+    expect(stoppedAt).toBeGreaterThanOrEqual(0);
+    expect(firstSend).toBeGreaterThanOrEqual(0);
+    expect(stoppedAt).toBeLessThan(firstSend);
+  });
+
+  test("ending does not wait for the transcript, and `drain` does", async () => {
+    /*
+      *"The post processing step was just really slow… the countdown doesn't
+      stop."*
+
+      Both halves of that were one line: `stop()` waited for every outstanding
+      transcription, and `controller.end()` cannot fold the `end` event until
+      `stop()` resolves — so the session stayed `recording`, with the live
+      screen and its clock, for as long as the network took.
+
+      The wait is worth keeping: the finalize composes the note from the
+      transcript this session holds, so a segment that arrives after it is a
+      note missing the end of the meeting. So it moved rather than went. What
+      this pins is the split — `stop()` returns with the audio off the device
+      and the sends still out, and `drain()` is the one that waits.
+    */
+    const { recorder, transcriber } = harness({ platform: "ios", hang: true });
+    await recorder.start();
+    mockWriteAudio(2_000);
+
+    await recorder.stop();
+    // Off the device and out, and nothing has come back.
+    expect(transcriber.chunks.length).toBeGreaterThan(0);
+    expect(mockHeldSends.length).toBeGreaterThan(0);
+
+    /*
+      `drain` is still waiting — asserted by racing it against a resolved
+      promise rather than by a timeout, which would pass on a slow machine for
+      the wrong reason.
+    */
+    let drained = false;
+    const draining = recorder.drain?.().then(() => {
+      drained = true;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(drained).toBe(false);
+
+    for (const release of mockHeldSends.splice(0)) release();
+    await draining;
+    expect(drained).toBe(true);
   });
 
   test("with nowhere to send, the microphone is let go here too", async () => {

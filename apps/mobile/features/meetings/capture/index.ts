@@ -144,8 +144,28 @@ export interface MeetingRecorder {
   start(options?: CaptureOptions): Promise<void>;
   pause(): Promise<void>;
   resume(): Promise<void>;
-  /** Stop and release the device. Safe to call twice. */
+  /**
+   * Stop capturing and release the device. Safe to call twice.
+   *
+   * **It does not wait for anything to be transcribed**, and that is the
+   * contract rather than an implementation detail: it resolves when the
+   * microphone is back and the audio is off the device, so a caller can end the
+   * meeting — fold the `end`, leave the recording screen, stop the clock — at
+   * the moment the person pressed End. `drain` is the other half.
+   */
   stop(): Promise<void>;
+  /**
+   * Wait until everything captured has been transcribed and emitted.
+   *
+   * Called after `stop`, by a caller that has already ended the meeting. What
+   * it buys is the end of the meeting reaching the note before the finalize
+   * composes it, instead of arriving after the first sync — which is worth a
+   * wait, but not a wait spent in front of a screen still claiming to record.
+   *
+   * Optional, because it is only meaningful to a recorder that sends audio
+   * somewhere. `notesOnly` has nothing in flight, ever.
+   */
+  drain?(): Promise<void>;
   /** Segments as they are produced. Returns an unsubscribe. */
   onSegment(listener: (segment: TranscriptSegment) => void): () => void;
   /**

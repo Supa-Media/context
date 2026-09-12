@@ -129,6 +129,27 @@ export interface MeetingsSnapshot {
    * correct: that stop is over, whatever it managed to drain.
    */
   ending: string | null;
+  /**
+   * The meeting whose audio is still being turned into words, or `null`.
+   *
+   * `ending`'s sibling, for the wait on the other side of the fold. Splitting
+   * `recorder.stop()` from `recorder.drain()` ended the meeting at the moment
+   * somebody pressed End — the clock stops, the bar goes down, the note screen
+   * is drawn — and moved the transcription wait behind it. Which left that
+   * screen saying the one thing it had for a meeting with no note yet:
+   * *"Waiting to reach your context."*
+   *
+   * That is true and it is not the answer. Nothing is wrong with the
+   * connection; the last of the audio is still being transcribed, and the
+   * finalize is deliberately held until it is so the note is not written
+   * without the end of the meeting. A person reading "waiting to reach your
+   * context" has been told a network problem they do not have.
+   *
+   * Client-local, like `ending` and for the same reasons: no `MeetingState`
+   * exists for it, nothing sends it, and a restart mid-drain comes back with
+   * it clear — which is correct, because that drain is over.
+   */
+  transcribing: string | null;
   /** What capture this build can do. Straight off the recorder. */
   capture: MeetingRecorder["capability"];
   /**
@@ -244,6 +265,7 @@ const UNCONFIGURED: MeetingsSnapshot = Object.freeze({
   durabilityReason: null,
   syncing: false,
   ending: null,
+  transcribing: null,
   capture: NO_CAPTURE,
   captureError: null,
   backgroundCaptureWarning: null,
@@ -725,6 +747,40 @@ export class MeetingsController {
       await this.stopAndFold(config, activityMeetingId);
     } finally {
       this.setEnding(null);
+    }
+    /*
+      THE MEETING HAS ENDED BY HERE, AND THE SLOW PART IS AFTER IT.
+
+      `stop()` resolves once the microphone is back and the audio is off the
+      device; `drain()` waits for what is still being transcribed. They used to
+      be one call, and the whole of it ran before the fold above — so a session
+      stayed `recording` for as long as a transcription took. The person got
+      the live screen, a running clock and a microphone chip over a meeting
+      they had finished: *"the post processing step was just really slow… the
+      countdown doesn't stop."*
+
+      Ordered this way the wait is unchanged in length and completely different
+      to sit through: `stopAndFold` has already moved the session to
+      `finalizing`, so `[id].tsx` is drawing `MeetingNoteScreen` and that screen
+      says what is outstanding in its own words.
+
+      **Before `sync()`, and that is the reason the wait exists at all.** The
+      finalize composes the note from the transcript this session holds, so a
+      segment that arrives after it is a note missing the end of the meeting —
+      usually the decision. Waiting here is what puts it in.
+    */
+    if (activityMeetingId !== null) this.setTranscribing(activityMeetingId);
+    try {
+      await config.recorder.drain?.();
+    } catch {
+      /*
+        A drain that fails is not a reason to refuse to file the meeting. What
+        it means is that some audio never came back as words, which is already
+        reported through `onError` by the send that failed — and the note is
+        still worth writing with the transcript that did arrive.
+      */
+    } finally {
+      this.setTranscribing(null);
     }
     await this.sync();
   }
@@ -1211,6 +1267,12 @@ export class MeetingsController {
   private setEnding(meetingId: string | null): void {
     if (this.snapshot.ending === meetingId) return;
     this.set({ ...this.snapshot, ending: meetingId });
+  }
+
+  /** The same, for the wait after the meeting has ended. See the field. */
+  private setTranscribing(meetingId: string | null): void {
+    if (this.snapshot.transcribing === meetingId) return;
+    this.set({ ...this.snapshot, transcribing: meetingId });
   }
 
   private set(snapshot: MeetingsSnapshot): void {
