@@ -167,6 +167,23 @@ without passing through the gateway. The read-time parse is what actually
 protects anything; the write-time one just tells an author while they still have
 the text in front of them.
 
+**And the response file is held to the same rule, because a response is written
+by rewriting it.** `renderResponsesFile` emits the marker and the rows, so a
+heading the author put above their table, or a "## Notes from triage" section
+below it, is not in what comes back out. Both parsers used to drop such a line
+and answer with no error, which turned the next submission into a rewrite that
+deleted it — and the person that write belongs to is a **`member`**, the lowest
+role here, who on a private response file cannot see what went and cannot read
+it back afterwards. So a body line that is neither a row nor blank (`table`), or
+any text before the first response (`sections`), refuses with a message naming
+the two ways out: move the notes to the form's own note, or point the form at a
+file holding only the responses. Inert rather than half-working, applied to the
+file the block names rather than only to the block. The checks are `prose the
+author keeps around the table refuses rather than being silently dropped` and
+`the same is true of a sections file with a note before the first response`,
+each paired with a positive one so the refusal cannot widen onto a file this
+package itself wrote.
+
 ## Forms need conditional writes, and say so when they cannot have them
 
 Every response is a read-modify-write of one shared file, which makes a form the

@@ -681,9 +681,36 @@ export function parseResponsesFile(text, config) {
   return config.layout === "table" ? parseTable(body, config) : parseSections(body, config);
 }
 
+/**
+ * What a response file may not hold, said the same way for both layouts.
+ *
+ * Named constants because the refusal is the guarantee: a caller reading
+ * "only the table" has to be able to act on it, and a message that drifts
+ * between the two layouts reads as two different problems.
+ */
+const STRAY_TABLE_CONTENT =
+  "this response file holds text outside its table, and a response is written by rewriting the " +
+  "whole file — that text cannot be reproduced, so nothing has been written. Move the notes to " +
+  "the form's own note, or point the form at a response file holding only the table.";
+
+const STRAY_SECTION_CONTENT =
+  "this response file holds text before its first response, and a response is written by " +
+  "rewriting the whole file — that text cannot be reproduced, so nothing has been written. Move " +
+  "the notes to the form's own note, or point the form at a response file holding only the responses.";
+
 function parseTable(lines, config) {
   const columns = columnsFor(config);
-  const rows = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  const trimmed = lines.map((line) => line.trim());
+  // `renderTable` writes rows and nothing else, so a line that is neither a
+  // row nor blank is content this file cannot be written back with. Refusing
+  // is the point: dropping it parsed cleanly and made the next submission a
+  // rewrite that deleted the author's own headings and notes — and the person
+  // that write belongs to is a `member`, who cannot read a private response
+  // file to see what went. Inert rather than half-working, the rule `forms.md`
+  // states for a form block, applied to the file it names.
+  const stray = trimmed.find((line) => line !== "" && !line.startsWith("|"));
+  if (stray !== undefined) return { error: STRAY_TABLE_CONTENT };
+  const rows = trimmed.filter((line) => line.startsWith("|"));
   if (!rows.length) return { error: "the response file has lost its table header" };
   const heading = splitRow(rows[0]);
   if (heading.length !== columns.length || heading.some((cell, i) => cell !== columns[i])) {
@@ -756,6 +783,14 @@ function parseSections(lines, config) {
     current.values[pending.name] = unescapeBlock(pending.lines.join("\n").trim());
     pending = null;
   };
+
+  // The same rule the table layout keeps, at the one place this layout can
+  // hold a line the renderer will not write back: before the first response.
+  // Everything after a header belongs to a text field and round-trips.
+  for (const line of lines) {
+    if (/^##\s+(\S+)\s+·\s+(\S+)\s+·\s+(\S+)\s*$/.test(line)) break;
+    if (line.trim() !== "") return { error: STRAY_SECTION_CONTENT };
+  }
 
   for (const line of lines) {
     const header = /^##\s+(\S+)\s+·\s+(\S+)\s+·\s+(\S+)\s*$/.exec(line);
