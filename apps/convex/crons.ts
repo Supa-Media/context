@@ -1,10 +1,25 @@
 /**
- * Scheduled maintenance.
+ * Scheduled maintenance, and — since 2026-09-10 — one scheduled engine.
  *
  * Nothing here may hold a decision. A cron is the wrong place for anything a
- * person would want to see refused in the moment, so this file is limited to
- * jobs whose only effect is that the database stops accumulating things nobody
- * reads.
+ * person would want to see refused in the moment, and that rule is unchanged.
+ *
+ * What has changed is the second half of the original sentence. This file was
+ * written for jobs whose only effect is that the database stops accumulating
+ * things nobody reads, and it later gained a job that *restarts* work over a
+ * disposable derivative (`restart stalled search backfills`) — still a repair,
+ * still nothing a customer's bucket would notice. `sync due Google accounts`
+ * is a third kind and it should be named rather than filed quietly beside the
+ * sweeps: it calls a third party on a customer's quota and writes canonical
+ * Markdown into their bucket, on a clock, with nobody present.
+ *
+ * That is admitted here rather than argued away, because the honest limit on
+ * this file is not "only deletions" — it is that **every job here must hold no
+ * decision, and a job that acts outside this database must additionally
+ * re-ask, at the moment it acts, everything that could have changed since it
+ * was scheduled**. The sync job's own comment below makes that case in full,
+ * and `googleForwardSyncJob` is where the re-asking lives. A fourth job of
+ * this kind owes the same two paragraphs.
  */
 
 import { cronJobs } from "convex/server";
@@ -143,6 +158,48 @@ crons.interval(
   "restart stalled search backfills",
   { hours: 1 },
   internal.functions.fastSearch.sweepStalledBackfills,
+  {},
+);
+
+/**
+ * Poll every connected Google account that is due.
+ *
+ * **The second job here that starts work rather than deleting it**, and it owes
+ * the same argument the search sweep above makes. It holds no decision:
+ * whether a connection may sync at all — is it still connected, is its context
+ * personal, does it enable a product this engine can advance, does this
+ * deployment allow reading a restricted scope — is the connection's own state,
+ * re-asked by `googleForwardSyncJob` inside the pass, before a credential is
+ * opened. What this decides is only *when to look*.
+ *
+ * One thing is genuinely this job's alone and is not re-asked inside the pass:
+ * **due-ness**. The sweep decides a connection is due and the pass then syncs
+ * without asking whether it should have waited. That is deliberate — the pass
+ * runs minutes later and re-deciding due-ness against a clock that has moved
+ * would make a claimed pass refuse itself — but it is worth stating plainly
+ * rather than letting "every gate is re-asked" imply more than is true.
+ *
+ * It exists because nothing else ever looked. Connecting a mailbox recorded a
+ * grant and a `historyId` and then nothing advanced it: no cron, no webhook —
+ * Google's push path is deliberately not built (`docs/decisions/communications.md`)
+ * — and the gateway's `scheduled()` handler has no trigger configured. A
+ * person connected Gmail and their mail never arrived.
+ *
+ * **Five minutes because that is the floor**, not because every account is
+ * polled that often. `syncIntervalMinutes` is per connection and defaults to
+ * fifteen; the sweep starts a pass only where `now >= lastSyncAt + interval`,
+ * which is how one fixed tick serves many different frequencies. Below five
+ * the tick would be finer than the shortest interval anybody may choose, and
+ * every extra tick is a transaction that reads an index to find nothing.
+ *
+ * And, as above: each run only touches connections nothing has written to in
+ * fifteen minutes, so a pass that is still running is never overtaken by a
+ * second one.
+ */
+crons.interval(
+  "sync due Google accounts",
+  { minutes: 5 },
+  internal.functions.googleSync.sweepDueGoogleSyncs,
   {},
 );
 

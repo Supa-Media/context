@@ -63,7 +63,18 @@ import { SettingsPane } from "../features/console/panes/SettingsPane";
 import {
   GoogleConnectionsCard,
   type GoogleConnection,
+  type GoogleSyncSchedule,
 } from "../features/console/google/GoogleConnectionsCard";
+
+/** A connection that is polled hourly and has actually read mail. */
+const SYNCING_HOURLY: GoogleSyncSchedule = {
+  intervalMinutes: 60,
+  everSynced: true,
+  cursorReady: true,
+  catchingUp: false,
+  lastAttemptAt: Date.parse("2026-09-09T09:00:00.000Z"),
+  nextDueAt: Date.parse("2026-09-09T10:00:00.000Z"),
+};
 import type { ConsoleData } from "../features/console/types";
 import type { SettingsSectionKey } from "../features/console/settings/sections";
 
@@ -119,6 +130,7 @@ const THREE_SERVICE_ACCOUNT: GoogleConnection = {
   email: "someone@example.com",
   syncServices: { gmail: true, calendar: true, chat: true },
   syncStatus: "active",
+  sync: SYNCING_HOURLY,
   gmail: {
     backfillDays: 90,
     folders: ["inbox"],
@@ -225,6 +237,7 @@ describe("each panel narrows the Google card rather than repeating it", () => {
           workspaceId: "ws_1",
           disconnect: async () => null,
           saveDestination: async () => null,
+          saveSyncInterval: async () => null,
         },
       }),
     );
@@ -251,6 +264,7 @@ describe("each panel narrows the Google card rather than repeating it", () => {
           workspaceId: "ws_1",
           disconnect: async () => null,
           saveDestination: async () => null,
+          saveSyncInterval: async () => null,
         },
         connections: [THREE_SERVICE_ACCOUNT],
       }),

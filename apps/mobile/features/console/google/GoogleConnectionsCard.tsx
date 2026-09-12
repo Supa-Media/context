@@ -10,11 +10,54 @@ import { useArming } from "../useArming";
 import { GOOGLE_REDIRECT_ORIGINS, type GoogleSyncServices } from "./google";
 import { useGoogleStart } from "./useGoogleStart";
 
+/**
+ * The floor, and the choices offered for it.
+ *
+ * The floor is the server's (`functions/googleSync.ts`,
+ * `MIN_SYNC_INTERVAL_MINUTES`) and is restated here only to build the picker —
+ * a value typed past it is refused by the mutation, not by this list, which is
+ * why the refusal is shown rather than prevented.
+ */
+export const SYNC_INTERVAL_CHOICES = [5, 15, 30, 60, 240, 1440] as const;
+
+export interface GoogleSyncSchedule {
+  intervalMinutes: number;
+  /** Has a pass ever actually read mail from this account? */
+  everSynced: boolean;
+  /**
+   * A cursor exists, so the next pass will read whatever arrives.
+   *
+   * Separate from `everSynced` because forward-only makes them genuinely
+   * different: the pass that establishes a cursor reads nothing, by design,
+   * and a card that treated it as a sync would show a mailbox as current
+   * before a single message had been read — the same confusion this block
+   * exists to end, one state later.
+   */
+  cursorReady: boolean;
+  /** The last pass ran out of history pages and there is more to drain. */
+  catchingUp: boolean;
+  /** When a pass last finished, successfully or not. */
+  lastAttemptAt?: number;
+  nextDueAt?: number;
+  lastFailureAt?: number;
+  lastFailureCode?: string;
+  lastFailure?: string;
+}
+
 export interface GoogleConnection {
   connectionId: string;
   email: string;
   syncServices: GoogleSyncServices;
   syncStatus: string;
+  /**
+   * How often this account is polled, and how the last poll went.
+   *
+   * Required rather than optional on purpose: every site that builds one of
+   * these has to say whether this connection has ever synced, because "it
+   * looks connected" and "it is actually syncing" being the same screen is the
+   * defect this card is being changed to fix.
+   */
+  sync: GoogleSyncSchedule;
   lastSyncStartedAt?: number;
   lastSyncCompletedAt?: number;
   errorCode?: string;
@@ -67,6 +110,12 @@ export interface GoogleActions {
     service: "gmail" | "calendar" | "chat",
     destinationPath: string,
   ) => Promise<unknown>;
+  /**
+   * How often this account is polled. Owner-only like every other action on
+   * this object — the whole object is absent for anybody else, which is how
+   * the control ends up *absent* rather than disabled.
+   */
+  saveSyncInterval: (connectionId: string, syncIntervalMinutes: number) => Promise<unknown>;
 }
 
 /**
@@ -401,6 +450,21 @@ function ConnectedGoogleRow({
             />
           ) : null}
         </View>
+        {/*
+          The schedule is the *account's* — one grant, one pass — but only
+          Gmail is advanced by that pass today, so it is drawn only where Gmail
+          is in view. A Calendar or Chat panel showing "every 15 minutes, next
+          due at 10:15" would be a promise this loop does not yet keep for
+          those two; their own status lines already say their sync is pending.
+          When they join the loop, this condition is what goes.
+        */}
+        {connection.syncServices.gmail && showBlock("gmail") ? (
+          <GoogleSyncScheduleBlock
+            connectionId={connection.connectionId}
+            sync={connection.sync}
+            saveSyncInterval={actions?.saveSyncInterval}
+          />
+        ) : null}
         {showAccountError ? (
           <FormError
             headline={inlineErrorCode ? statusLabel(inlineErrorCode) : "Google needs attention"}
@@ -429,6 +493,123 @@ function ConnectedGoogleRow({
       </View>
     </Row>
   );
+}
+
+/**
+ * HOW OFTEN THIS ACCOUNT IS POLLED, AND WHETHER IT EVER HAS BEEN.
+ *
+ * Per account rather than per service, because the loop is: one Google account
+ * is one grant, and one pass advances whichever products it enables. Putting a
+ * schedule inside each service block would offer three answers to a question
+ * that has one.
+ *
+ * The picker is owner-only by being drawn only when `saveSyncInterval` was
+ * passed — `GoogleActions` is absent in full for anybody else, which is this
+ * repository's rule throughout: *absent* rather than disabled. The status
+ * lines above it are shown to the owner either way, because a person who
+ * cannot change the schedule can still need to know the last pass failed.
+ *
+ * The floor is not enforced here. `SYNC_INTERVAL_CHOICES` starts at it, and
+ * anything lower is refused by the mutation — so a refusal is *rendered*
+ * rather than made impossible to provoke, which is what makes the server-side
+ * check the one that matters.
+ */
+function GoogleSyncScheduleBlock({
+  connectionId,
+  sync,
+  saveSyncInterval,
+}: {
+  connectionId: string;
+  sync: GoogleSyncSchedule;
+  saveSyncInterval?: GoogleActions["saveSyncInterval"];
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [saving, setSaving] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  return (
+    <View style={styles.serviceBlock}>
+      <Text variant="rowTitle">Sync schedule</Text>
+      <Text variant="rowSub" style={styles.rowSub}>
+        {describeSchedule(sync)}
+      </Text>
+      {saveSyncInterval ? (
+        <View style={styles.intervalRow}>
+          {SYNC_INTERVAL_CHOICES.map((minutes) => (
+            <Button
+              key={minutes}
+              label={intervalLabel(minutes)}
+              variant={minutes === sync.intervalMinutes ? "white" : "mini"}
+              disabled={saving !== null || minutes === sync.intervalMinutes}
+              accessibilityLabel={`Sync every ${intervalLabel(minutes)}`}
+              testID={`google-sync-interval-${minutes}-${connectionId}`}
+              onPress={() => {
+                setSaving(minutes);
+                setSaveError(null);
+                void saveSyncInterval(connectionId, minutes)
+                  .catch((reason) => {
+                    setSaveError(
+                      reason instanceof Error ? reason.message : "That schedule did not save.",
+                    );
+                  })
+                  .finally(() => setSaving(null));
+              }}
+            />
+          ))}
+        </View>
+      ) : null}
+      {saveError ? <FormError headline="Schedule was not saved" next={saveError} /> : null}
+      {sync.lastFailure ? (
+        <Text variant="foot" style={styles.note}>
+          {`Last failure${formatWhen(sync.lastFailureAt) ? ` ${formatWhen(sync.lastFailureAt)}` : ""}: ${sync.lastFailure}`}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+/** "5 min", "1 hour", "Daily" — the picker's own words. */
+function intervalLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  if (minutes === 1440) return "Daily";
+  const hours = minutes / 60;
+  return `${hours} hour${hours === 1 ? "" : "s"}`;
+}
+
+/**
+ * One sentence that never lets "connected" pass for "syncing".
+ *
+ * A connection that has never read anything says exactly that, with what is
+ * about to happen next — which is the state every connected mailbox in this
+ * product was in, indistinguishable from a healthy one, until the loop
+ * existed.
+ */
+function describeSchedule(sync: GoogleSyncSchedule): string {
+  const every = `Every ${intervalLabel(sync.intervalMinutes)}`;
+  const next = sync.nextDueAt === undefined ? "due now" : `next ${formatWhen(sync.nextDueAt)}`;
+  // Still working through a backlog: the interval is not what happens next.
+  if (sync.catchingUp) return `${every} · catching up on older mail · next pass shortly`;
+  if (!sync.everSynced) {
+    if (sync.lastFailureAt !== undefined && !sync.cursorReady) {
+      return `${every} · has not synced successfully yet · ${next}`;
+    }
+    // A cursor and no mail read is its own state, and saying "never synced"
+    // over it would be as wrong as saying nothing: this account is watching,
+    // it has simply had nothing to read since it was connected.
+    if (sync.cursorReady) return `${every} · watching for new mail; none read yet · ${next}`;
+    return `${every} · never synced yet · ${next}`;
+  }
+  return `${every} · ${next}`;
+}
+
+function formatWhen(value: number | undefined): string | null {
+  if (value === undefined) return null;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function GoogleServiceBlock({
@@ -616,6 +797,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   inlineError: { marginTop: 10 },
   empty: { marginTop: 4 },
   connect: { marginTop: 14, gap: 12 },
+  intervalRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
   connectionBody: { flexBasis: 280 },
   connectionActions: { marginLeft: "auto", gap: 8, maxWidth: 220 },
   alsoRemoved: { marginTop: 2 },

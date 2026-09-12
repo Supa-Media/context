@@ -753,27 +753,79 @@ export async function listHistoryPage({ fetchImpl, accessToken, startHistoryId, 
     throw error;
   }
   const ids = new Set();
+  let lastRecordId;
   for (const record of body.history ?? []) {
+    if (record?.id !== undefined) {
+      const id = String(record.id);
+      if (lastRecordId === undefined || historyIdIsAfter(id, lastRecordId)) lastRecordId = id;
+    }
     for (const added of record.messagesAdded ?? []) {
       if (added?.message?.id) ids.add(String(added.message.id));
     }
   }
-  return { messageIds: ids, nextPageToken: body.nextPageToken, historyId: body.historyId };
+  return {
+    messageIds: ids,
+    nextPageToken: body.nextPageToken,
+    historyId: body.historyId,
+    lastRecordId,
+  };
 }
 
-/** Every message id added since `startHistoryId`, and the historyId to resume from next time. */
+/**
+ * Is `a` a later history id than `b`?
+ *
+ * Compared as decimal digit strings — length first, then lexicographically —
+ * rather than through `Number`. A Gmail `historyId` is an unsigned 64-bit
+ * value delivered as a string, and the ones large enough to lose precision as
+ * a double are exactly the ones nobody would notice going wrong.
+ */
+function historyIdIsAfter(a, b) {
+  const left = String(a).replace(/^0+(?=\d)/, "");
+  const right = String(b).replace(/^0+(?=\d)/, "");
+  if (left.length !== right.length) return left.length > right.length;
+  return left > right;
+}
+
+/**
+ * Every message id added since `startHistoryId`, and where to resume.
+ *
+ * **`history.list` returns the MAILBOX'S CURRENT `historyId` on every page**,
+ * not a per-page cursor. A walk that stops at `maxPages` and reports that
+ * value tells its caller "you are caught up" while holding only the first N
+ * pages — and everything after them is then skipped forever, silently, with no
+ * gap signalled. That is the one failure mode in this whole path that loses
+ * somebody's mail without saying so, and a mailbox whose cursor is weeks old
+ * is precisely where it fires.
+ *
+ * So a truncated walk says `truncated: true` and carries `lastRecordId`: the
+ * id of the last history *record* it actually walked, which is a valid
+ * `startHistoryId` for the next call and covers exactly the records collected
+ * here. Resuming from it is what makes a truncated pass make progress rather
+ * than repeat itself. `historyId` still reports the mailbox head, because a
+ * caller that reached the end wants it — but a caller must consult
+ * `truncated` before believing it.
+ */
 export async function listAllHistory({ fetchImpl, accessToken, startHistoryId, maxPages = 50 }) {
   const messageIds = new Set();
   let pageToken;
   let historyId = startHistoryId;
+  let lastRecordId;
+  let truncated = false;
   for (let page = 0; page < maxPages; page += 1) {
     const result = await listHistoryPage({ fetchImpl, accessToken, startHistoryId, pageToken });
     for (const id of result.messageIds) messageIds.add(id);
     if (result.historyId) historyId = result.historyId;
+    if (
+      result.lastRecordId !== undefined &&
+      (lastRecordId === undefined || historyIdIsAfter(result.lastRecordId, lastRecordId))
+    ) {
+      lastRecordId = result.lastRecordId;
+    }
     if (!result.nextPageToken) break;
     pageToken = result.nextPageToken;
+    if (page + 1 >= maxPages) truncated = true;
   }
-  return { messageIds, historyId };
+  return { messageIds, historyId, truncated, lastRecordId };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -852,6 +904,21 @@ export function renderDay(options) {
 export async function writeDayPart(store, part, maxAttempts = 3) {
   const bytes = new TextEncoder().encode(part.text).length;
   if (!store.capabilities?.conditionalWrite) {
+    /*
+      NO CONDITIONAL WRITE STILL MEANS NO POINTLESS WRITE.
+      This branch used to `put` unconditionally, which made "re-syncing an
+      unchanged day writes nothing" true on R2 and S3 and false on exactly the
+      backends CLAUDE.md already flags — B2 and Wasabi — where a scheduled loop
+      would then rewrite every touched day on every pass forever, and count the
+      bytes again each time against the connection's quota. The read-compare is
+      the same one the conditional branch does; what this backend cannot give
+      is the *atomicity* that turns a race into a retry, and that is the
+      degradation, not "write blindly".
+    */
+    const current = await store.get(part.path);
+    if (current && (await current.text()) === part.text) {
+      return { path: part.path, bytes, wrote: false };
+    }
     await store.put(part.path, part.text);
     return { path: part.path, bytes, wrote: true };
   }
@@ -1085,8 +1152,15 @@ export async function runBackfill(options) {
  * connection's window again, which regenerates every day from live state and
  * is therefore a correct reconcile regardless of what was missed.
  *
+ * `truncated` is the other half of the same honesty: the history walk ran out
+ * of pages before it ran out of history, so `historyId` here is the last
+ * record walked rather than the mailbox head, and the caller has more to do.
+ * A caller that ignores it and stores the cursor anyway is still correct about
+ * what it wrote; it is only wrong about being finished — which is why this is
+ * returned rather than thrown.
+ *
  * @returns {Promise<{gapDetected: boolean, daysTouched: string[], bytesWritten: number,
- *                     quotaExceeded: boolean, historyId?: string}>}
+ *                     quotaExceeded: boolean, historyId?: string, truncated: boolean}>}
  */
 export async function runIncrementalSync(options) {
   let history;
@@ -1095,16 +1169,30 @@ export async function runIncrementalSync(options) {
       fetchImpl: options.fetchImpl,
       accessToken: options.accessToken,
       startHistoryId: options.startHistoryId,
+      ...(options.maxHistoryPages === undefined ? {} : { maxPages: options.maxHistoryPages }),
     });
   } catch (error) {
     if (error instanceof GmailHistoryExpiredError) {
-      return { gapDetected: true, daysTouched: [], bytesWritten: 0, quotaExceeded: false };
+      return { gapDetected: true, daysTouched: [], bytesWritten: 0, quotaExceeded: false, truncated: false };
     }
     throw error;
   }
 
+  // Where the next pass should start. A complete walk ends at the mailbox
+  // head; a truncated one ends at the last record it actually read, and
+  // `undefined` (a truncated walk that saw no record ids at all) means "do not
+  // move the cursor", which the caller must honour.
+  const resumeFrom = history.truncated ? history.lastRecordId : history.historyId;
+
   if (history.messageIds.size === 0) {
-    return { gapDetected: false, daysTouched: [], bytesWritten: 0, quotaExceeded: false, historyId: history.historyId };
+    return {
+      gapDetected: false,
+      daysTouched: [],
+      bytesWritten: 0,
+      quotaExceeded: false,
+      historyId: resumeFrom,
+      truncated: history.truncated,
+    };
   }
 
   // Which days changed. Fetching each changed message once here — rather than
@@ -1160,5 +1248,12 @@ export async function runIncrementalSync(options) {
       break;
     }
   }
-  return { gapDetected: false, daysTouched, bytesWritten, quotaExceeded, historyId: history.historyId };
+  return {
+    gapDetected: false,
+    daysTouched,
+    bytesWritten,
+    quotaExceeded,
+    historyId: resumeFrom,
+    truncated: history.truncated,
+  };
 }

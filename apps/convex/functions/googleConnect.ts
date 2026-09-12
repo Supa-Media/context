@@ -64,6 +64,12 @@ import { hashToken } from "./lib/crypto";
 import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
+// The scheduling half of a connection is the loop's (`googleSync.ts`), and the
+// console reads both halves off one row. The view is imported from the leaf
+// both files share rather than from the loop itself: importing the loop here
+// would close a cycle, and a cycle in this module graph surfaces as an export
+// that is sometimes missing rather than as an error.
+import { syncStatusOf } from "./lib/googleSchedule";
 import {
   createPkcePair,
   exchangeGoogleCode,
@@ -217,7 +223,14 @@ function validateBackfillDays(value: number | undefined): number {
   return days;
 }
 
-function defaultGoogleDestinationFolder(
+/**
+ * Where a product's daily notes land when nobody has chosen a folder.
+ *
+ * Exported for `googleSync.ts`, which needs the same answer when it hands a
+ * pass its destination — one implementation, so a synced day and the console's
+ * own "daily file pattern" can never name two different folders.
+ */
+export function defaultGoogleDestinationFolder(
   service: GoogleSyncService,
   mailboxSlug: string | undefined,
 ): string {
@@ -768,6 +781,29 @@ export const listGoogleConnections = query({
       syncStatus: v.string(),
       lastSyncStartedAt: v.optional(v.number()),
       lastSyncCompletedAt: v.optional(v.number()),
+      /**
+       * THE ANSWER TO "IS THIS THING ACTUALLY RUNNING?"
+       *
+       * `syncStatus` above is the connection's health, which a freshly
+       * connected account and a happily syncing one both report as fine —
+       * which is exactly how a mailbox that never synced once looked identical
+       * to one working. These five fields are the difference: how often it is
+       * polled, whether it has *ever* read mail, when it is next due, and what
+       * went wrong last, kept after a later pass succeeded.
+       */
+      sync: v.object({
+        intervalMinutes: v.number(),
+        everSynced: v.boolean(),
+        /** A cursor exists, so new mail will be read — which is not the same as having read any. */
+        cursorReady: v.boolean(),
+        /** The last pass ran out of history pages and there is more to drain. */
+        catchingUp: v.boolean(),
+        lastAttemptAt: v.optional(v.number()),
+        nextDueAt: v.optional(v.number()),
+        lastFailureAt: v.optional(v.number()),
+        lastFailureCode: v.optional(v.string()),
+        lastFailure: v.optional(v.string()),
+      }),
       errorCode: v.optional(v.string()),
       lastError: v.optional(v.string()),
       gmail: v.optional(
@@ -870,6 +906,7 @@ export const listGoogleConnections = query({
       out.push({
         connectionId: row._id,
         email: row.address,
+        sync: syncStatusOf(row),
         syncServices: {
           gmail: gmail !== undefined,
           calendar: calendar !== undefined,

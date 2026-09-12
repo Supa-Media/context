@@ -135,6 +135,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   "mail.disconnected": "Disconnected mail",
   "mail.rekeyed": "Rotated a mail credential",
   "google_sync_destination_updated": "Changed a Google sync destination",
+  "google_sync_interval_updated": "Changed how often Google syncs",
+  "google_sync_wrote": "Synced mail into this context",
   "encryption.export": "Exported this context's encryption keys",
   "encryption.rekeyed": "Rotated an encryption key",
 };
