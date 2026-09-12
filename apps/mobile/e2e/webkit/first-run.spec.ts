@@ -36,7 +36,7 @@ test("the first decision is control versus convenience", async ({ page }) => {
   const managed = await page.getByTestId("choose-managed").boundingBox();
   expect(own).not.toBeNull();
   expect(managed).not.toBeNull();
-  await expect(page.getByTestId("choose-managed")).toContainText("$20 a month");
+  await expect(page.getByTestId("choose-managed")).toContainText("$5 a month");
   await expect(page.getByTestId("choose-managed")).toContainText("50 GB");
   await expect(page.getByText("Recommended")).toHaveCount(0);
   await expect(page.getByTestId("choose-bucket")).toHaveCount(0);
@@ -75,7 +75,7 @@ test("pressing it asks before it charges", async ({ page }) => {
   await page.getByTestId("choose-managed").tap();
 
   // The price, the unit, and the exit — all three on the screen before Stripe.
-  await expect(page.getByTestId("managed-confirm-price")).toContainText("$20 a month");
+  await expect(page.getByTestId("managed-confirm-price")).toContainText("$5 a month");
   await expect(page.getByTestId("managed-confirm-unit")).toContainText("nothing else");
   await expect(page.getByTestId("managed-confirm-export-promise")).toBeVisible();
 

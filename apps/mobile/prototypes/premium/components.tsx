@@ -135,7 +135,7 @@ export interface StepState {
  * A named list rather than a bar, for `StepRail`'s reason one screen up: a bar
  * implies a percentage, and this one cannot honestly produce one — the wait is
  * a webhook that arrives when it arrives. Naming the steps says what is
- * happening, which is what somebody who has just been charged $20 is actually
+ * happening, which is what somebody who has just been charged $5 is actually
  * asking.
  */
 export function StepList({ steps, testID }: { steps: ReadonlyArray<StepState>; testID?: string }) {

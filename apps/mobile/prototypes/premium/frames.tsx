@@ -117,7 +117,7 @@ const BASE: PremiumStatus = {
   active: { managedStorage: false, fastSearch: false },
   canManage: true,
   configured: true,
-  priceCents: 2000,
+  priceCents: 500,
   currency: "usd",
   interval: "month",
   ceilingBytes: 50_000_000_000,
@@ -678,7 +678,7 @@ export const FRAMES: ReadonlyArray<ProtoFrame> = [
     title: "Pricing — the way in",
     group: "Acquisition",
     kind: "page",
-    note: "Free first, then the two things $20 buys. The billable unit is on the price itself.",
+    note: "Free first, then the two things $5 buys. The billable unit is on the price itself.",
     evidence: [
       { label: "Price, ceiling and entitlement copy come from the shipping module", state: "built" },
       { label: "A pricing surface anywhere in the product", state: "proposed" },

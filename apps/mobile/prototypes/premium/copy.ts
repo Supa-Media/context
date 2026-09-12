@@ -18,7 +18,7 @@
  *
  * ## The rules every string below was written against
  *
- * - The price is **$20 a month**, said in full wherever a person is deciding.
+ * - The price is **$5 a month**, said in full wherever a person is deciding.
  *   It is never inlined as a literal — `formatPrice(status)` renders it from
  *   the same config the checkout uses, so a price change cannot leave copy
  *   behind. `{price}` below is that substitution.
@@ -76,7 +76,7 @@ export const pricing = {
  *
  * The two free paths keep the positions they have today and the third is added
  * beneath them rather than beside them as an equal. Ordering free-before-paid
- * is not modesty: a first-run screen that leads with a $20 card is selling
+ * is not modesty: a first-run screen that leads with a $5 card is selling
  * before it has explained, and the person who genuinely has no storage still
  * finds it — it is on the same screen, it says what it costs, and it says what
  * it saves them.

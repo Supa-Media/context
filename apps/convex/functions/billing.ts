@@ -29,7 +29,7 @@
  * ## Owner-only, and why that is not the same as write access
  *
  * `requireWorkspaceRole(..., "owner")` on all three mutations. An editor may
- * write every note in a context; committing somebody's card to $20 a month, or
+ * write every note in a context; committing somebody's card to $5 a month, or
  * changing what the context is paying for, is a different authority — the same
  * argument `fastSearch.ts` makes about deciding where a copy of the notes is
  * kept.
@@ -166,7 +166,7 @@ function deploymentSells(): boolean {
  * Selling is not the same question. A deployment with a price id can take a
  * payment; one without a customer-data account has nowhere to put the bucket
  * that payment buys. Offering managed storage on such a deployment would be
- * taking $20 for something that cannot be delivered, which is the worst
+ * taking $5 for something that cannot be delivered, which is the worst
  * failure this flow has — so the answer is a fact the console reads *before*
  * drawing the option, and a first run simply does not show it where this is
  * false.
@@ -438,7 +438,7 @@ export const activateTestPremium = mutation({
  * price, because there is only one.
  *
  * **Both off is refused while a subscription is live**, and the refusal names
- * the alternative. Silently keeping a $20 subscription that entitles nothing
+ * the alternative. Silently keeping a $5 subscription that entitles nothing
  * is the worst of the three possible behaviours; cancelling on somebody's
  * behalf because they moved a switch is the second worst. Cancelling is the
  * portal's, deliberately — it is where the card and the invoices already are.
@@ -467,7 +467,7 @@ export const setEntitlements = mutation({
 
       It used to read `planIsPaying` alone, and between pressing Upgrade and
       the webhook landing the status is still `none`: emptying both boxes was
-      allowed, and the plan then activated entitling nothing. $20 a month for
+      allowed, and the plan then activated entitling nothing. $5 a month for
       zero, and the window is however long Stripe takes.
 
       A live checkout attempt is therefore part of the condition. The snapshot
@@ -913,7 +913,7 @@ export const applyStripeEvent = internalMutation({
       `setEntitlements` refuses an empty selection while a checkout is in
       flight, which closes the ordinary path. This is the belt to that: two
       tabs, or a mutation landing between the press and the webhook, can still
-      leave the plan empty at the moment it activates — $20 a month entitling
+      leave the plan empty at the moment it activates — $5 a month entitling
       nothing.
 
       What somebody paid for is what they chose **at checkout**, so the attempt

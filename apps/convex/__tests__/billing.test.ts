@@ -284,7 +284,7 @@ describe("choosing what a context pays for", () => {
     /*
       The refusal used to read `planIsPaying`, and between pressing Upgrade and
       the webhook landing the status is still `none` — so emptying both boxes
-      was allowed, and the plan then activated entitling nothing. $20 a month
+      was allowed, and the plan then activated entitling nothing. $5 a month
       for zero. Reviewer reproduced it as `active {fastSearch:false,
       managedStorage:false}`.
     */
@@ -1094,7 +1094,7 @@ describe("the webhook", () => {
       two tabs, or a mutation landing between the press and the webhook. What a
       person paid for is what they chose **at checkout**, so that selection is
       snapshotted on the attempt row and restored if the live one is empty when
-      the plan activates. Nobody ends up paying $20 for nothing.
+      the plan activates. Nobody ends up paying $5 for nothing.
     */
     const t = setupTest();
     vi.stubEnv("STRIPE_WEBHOOK_SECRET", SIGNING_SECRET);
@@ -1556,7 +1556,7 @@ describe("the return from Stripe", () => {
  *
  * Selling and delivering are different questions, and the console has to ask
  * the second one before it draws a managed-storage option. A deployment with a
- * Stripe price and no customer-data account can take $20 and has nowhere to
+ * Stripe price and no customer-data account can take $5 and has nowhere to
  * put the bucket that money buys — which is the worst failure this flow has,
  * because it happens *after* the payment.
  *

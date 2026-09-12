@@ -554,7 +554,7 @@ function planIsPayingStatus(raw: string): boolean {
   return premiumStateOf(raw) === "premium";
 }
 
-/** "$20 a month" — the price, in the words on the row. */
+/** "$5 a month" — the price, in the words on the row. */
 export function formatPrice(status: PremiumStatus): string {
   const amount = status.priceCents / 100;
   const rendered =
@@ -672,7 +672,7 @@ export function demoPremiumView(): PremiumView {
       active: { managedStorage: false, fastSearch: false },
       canManage: false,
       configured: false,
-      priceCents: 2000,
+      priceCents: 500,
       currency: "usd",
       interval: "month",
       ceilingBytes: 50_000_000_000,

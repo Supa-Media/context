@@ -27,7 +27,7 @@ import type { ManagedConfirmState } from "./steps/ManagedConfirm";
  * **It does not offer what cannot be delivered.** `available` is
  * `billing.status.managedStorageAvailable` — a price to charge *and* somewhere
  * to put the bucket — and the card is absent rather than disabled when it is
- * false. Taking $20 for storage that cannot be created is the worst failure
+ * false. Taking $5 for storage that cannot be created is the worst failure
  * this flow has, because it happens after the payment.
  *
  * ## Why a checkout is two round trips
@@ -57,7 +57,7 @@ export const SETTLING_SLOW_MS = 25_000;
 export interface ManagedOffer {
   /** Whether this deployment can provide managed storage at all. */
   available: boolean;
-  /** `$20 a month`, from the same config the checkout charges. */
+  /** `$5 a month`, from the same config the checkout charges. */
   price: string;
   /** The plan as the control plane reports it, or `null` before it answers. */
   status: PremiumStatus | null;

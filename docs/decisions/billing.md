@@ -2,13 +2,10 @@
 
 _Decided 2026-09. See `docs/decisions/README.md` for the index._
 
-**Nothing has been run against Stripe.** `api.stripe.com` is not reachable
-from the environment this was written in and no test-mode key exists there, so
-every request shape below follows Stripe's published documentation and every
-fixture was built from it. The live contract is unverified — field names,
-required parameters and error shapes have not been confirmed against a real
-account, and the first run against Stripe should be treated as the first test
-of this code rather than a deployment of it.
+**The Stripe contract was verified on 2026-09-12.** The production and test
+products, monthly prices, subscription update, and price reads all succeeded
+against Stripe's API. The request shapes below are still pinned by fixtures so
+an API change fails in CI before it reaches checkout.
 
 ## A plan belongs to a workspace, never to a person
 
@@ -31,11 +28,17 @@ filter — the same shape `searchIndexes` uses, for the same reason.
 ## Two entitlements, one price
 
 Managed storage and fast search are selected independently and the price is
-$20 either way. That is a decision rather than an oversight: somebody running
+$5 either way. That is a decision rather than an oversight: somebody running
 their own bucket may still want the index, and somebody who wants us to hold
 the bucket may not want a copy of their notes in a database we run. Metering
 two prices to sell one subscription buys nothing and doubles the number of
 states every screen has to describe.
+
+The price changed from $20 to $5 on 2026-09-12. Stripe received new monthly
+prices in test and live mode because an existing Price amount is immutable.
+The product defaults and deployment configuration now point at the $5 prices;
+the former $20 prices are archived. The one active Context.LC subscription was
+moved to $5 with its billing date unchanged and without a mid-cycle proration.
 
 **`selected` is stored apart from `active`.** `selected` is what the owner
 asked for and is kept whether or not anybody is paying; `active` is
@@ -47,7 +50,7 @@ length, and for the same reason: "you are not paying for this" and "you have
 not asked for this" are different sentences.
 
 **Both off is refused while a subscription is live**, and the refusal names the
-alternative. Silently keeping a $20 subscription that entitles nothing is the
+alternative. Silently keeping a $5 subscription that entitles nothing is the
 worst of the three possible behaviours; cancelling on somebody's behalf because
 they moved a switch is the second worst. Cancelling belongs to the portal,
 where the card and the invoices already are.

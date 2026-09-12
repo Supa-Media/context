@@ -235,7 +235,7 @@ describe("the callback screen's body", () => {
 describe("the storage choice: two paths, provider details behind the click", () => {
   test("starts with control versus convenience and gives managed storage its 50 GB", () => {
     const screen = mountCard({
-      managed: { price: "$20/month", onChoose: () => {} },
+      managed: { price: "$5/month", onChoose: () => {} },
     });
     const own = screen.q("choose-own-storage");
     const managed = screen.q("choose-managed");

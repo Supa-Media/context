@@ -100,7 +100,7 @@ const status = (over: Partial<PremiumStatus> = {}): PremiumStatus => ({
   active: { managedStorage: false, fastSearch: false },
   canManage: true,
   configured: true,
-  priceCents: 2000,
+  priceCents: 500,
   currency: "usd",
   interval: "month",
   ceilingBytes: 50_000_000_000,
@@ -463,7 +463,7 @@ describe("what each screen offers", () => {
 
 describe("what the section says about itself", () => {
   test("the price is on the card", () => {
-    expect(mount(view()).textContent ?? "").toContain("$20 a month");
+    expect(mount(view()).textContent ?? "").toContain("$5 a month");
   });
 
   test("per context, said out loud, because it is what people get wrong", () => {

@@ -54,7 +54,7 @@ const status = (over: Partial<PremiumStatus> = {}): PremiumStatus => ({
   active: { managedStorage: false, fastSearch: false },
   canManage: true,
   configured: true,
-  priceCents: 2000,
+  priceCents: 500,
   currency: "usd",
   interval: "month",
   ceilingBytes: 50_000_000_000,
@@ -419,7 +419,7 @@ describe("the two entitlements", () => {
 
   test("the price does not move, and the group says so", () => {
     expect(entitlementsHint(status())).toContain(
-      "$20 a month whichever you choose",
+      "$5 a month whichever you choose",
     );
   });
 
@@ -469,8 +469,8 @@ describe("the two entitlements", () => {
 });
 
 describe("the price and the ceiling, as words", () => {
-  test("twenty dollars a month", () => {
-    expect(formatPrice(status())).toBe("$20 a month");
+  test("five dollars a month", () => {
+    expect(formatPrice(status())).toBe("$5 a month");
   });
 
   test("a currency we do not have a symbol for is still legible", () => {
