@@ -297,6 +297,31 @@ describe("Obsidian vault import", () => {
     expect(f.backend.snapshot()["index.md"]).toBe("# Context\n");
   });
 
+  // The create-only claim above is tested against a backend that honours the
+  // precondition. `initialCapabilities()` starts every binding at
+  // `conditionalWrite: false` — "B2 and arbitrary S3-compatible endpoints do
+  // not reliably [support it]" — and every other conditional write in
+  // `fileOps.ts` reads `store.capabilities` before relying on one. An importer
+  // that sends the precondition and trusts the answer, on a binding recorded as
+  // not having proven it, is the exact failure the probe exists to prevent:
+  // "a lost write with no error, which is the one failure mode a notes product
+  // cannot have" — here, during onboarding, over the customer's own vault.
+  test("does not lose an existing file on a backend whose conditional writes were never proven", async () => {
+    const f = await fixture({ conditionalWrite: false, ignoreIfMatch: true });
+    const result = await asUser(f.t, f.owner).action(api.functions.files.importVaultBatch, {
+      workspaceId: f.workspaceId,
+      files: [{
+        path: "index.md",
+        bytes: new TextEncoder().encode("# Replacement\n").buffer,
+        contentType: "text/markdown; charset=utf-8",
+      }],
+    });
+
+    expect(result.created).toEqual([]);
+    expect(result.skipped).toEqual(["index.md"]);
+    expect(f.backend.snapshot()["index.md"]).toBe("# Context\n");
+  });
+
   test("is owner-only and refuses Obsidian or Context hidden state", async () => {
     const f = await fixture();
     const file = {
