@@ -1677,6 +1677,17 @@ calendar by scrolling a folder — they reach it from `list_meetings`-style
 tooling, a search hit, or the meeting-link half below. The check is
 `every calendar path this package writes begins with 0-inbox/calendar/, with no account segment`.
 
+That shared file makes **account aggregation a write-time invariant**, not a
+presentation detail. A scheduled pass may update one account's private event
+cache, but it must render the day from the union of every active account cache
+that contributes to the destination; writing the just-synced account alone
+would make the last account polled erase the others. `mergeEventCaches` is the
+pure, fail-closed primitive for that join: account-qualified event keys can be
+unioned without collision, duplicate contributions are rejected, and removing
+one disconnected account removes only its own events. The control-plane runner
+still owns selecting active accounts and persisting each cache in the customer
+store before this invariant becomes live.
+
 ### An event anchor is `evt-` plus the same FNV-1a 64 a message anchor uses
 
 Every event heading carries `{#evt-<16 hex>}`, computed from
