@@ -636,6 +636,7 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
           background is `record()`, and nothing on this path makes one.
         */
         if (continuous) {
+          if (await abandonIfNowhereToSend()) return;
           sliceOnce(MAX_SLICE_MS);
           return;
         }
@@ -855,6 +856,7 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
    * microphone.
    */
   async function sliceAll(): Promise<void> {
+    if (await abandonIfNowhereToSend()) return;
     for (;;) {
       if (sliceOnce(MAX_SLICE_MS)) continue;
       /*
@@ -866,6 +868,30 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
       if (inFlight.size === 0) return;
       await drainSends();
     }
+  }
+
+  /**
+   * WITH NOWHERE TO SEND, THE MICROPHONE GOES BACK — ON THIS PATH TOO.
+   *
+   * `closeChunk` has made this check since a meeting was found recording for
+   * nobody: no transcriber means nothing will ever read these bytes, so
+   * holding the input *"is the shape this feature exists to make impossible"*.
+   * Its own check sits below the continuous branch, which returns before
+   * reaching it — so a first version of this change quietly recorded an
+   * uncapped WAVE file, for the length of a meeting, behind a live indicator,
+   * transcribing none of it. Found by reading the diff rather than by a test,
+   * which is why the test below now exists.
+   *
+   * Asked once per tick rather than once per chunk, which is the same question
+   * at the same rate: the transcriber is installed for the life of a session
+   * and either resolves or does not.
+   *
+   * @returns Whether capture was given up, so the caller stops.
+   */
+  async function abandonIfNowhereToSend(): Promise<boolean> {
+    if (resolveTranscriber() !== null) return false;
+    await abandon(NO_TRANSCRIBER);
+    return true;
   }
 
   /**

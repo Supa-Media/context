@@ -2068,6 +2068,34 @@ describe("one continuous recording, sliced while it is written", () => {
     await recorder.stop();
   });
 
+  test("with nowhere to send, the microphone is let go here too", async () => {
+    /*
+      THE HOLE THIS CHANGE OPENED, FOUND BY READING THE DIFF.
+
+      `closeChunk` has given capture up on a session with no transcriber since a
+      meeting was found recording for nobody — *"recording somebody's meeting in
+      order to throw it away, behind a live indicator, is the shape this feature
+      exists to make impossible"*. That check sits below the continuous branch,
+      and the continuous branch returns first.
+
+      So the first version of this fix recorded an uncapped WAVE file for the
+      length of a meeting, behind a live indicator, and transcribed none of it —
+      a worse version of the bug it was written to cure. `a failure with nowhere
+      to send says so once` covers the rotating path and stayed green
+      throughout, because it now runs on Android.
+    */
+    const { recorder, errors } = harness({ platform: "ios", noTranscriber: true });
+    await recorder.start();
+
+    mockWriteAudio(1_000);
+    await advance(SEGMENT_MS);
+
+    expect(mockDevices[0].released).toBe(true);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].recoverable).toBe(false);
+    expect(recorder.state).toBe("stopped");
+  });
+
   test("the file it is recording into is not left open once per tick", async () => {
     /*
       A descriptor leaked per twenty seconds is a meeting that stops being able

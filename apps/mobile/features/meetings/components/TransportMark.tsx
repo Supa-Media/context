@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { StyleSheet, View } from "react-native";
 import { useColors, type Colors } from "../../design/theme";
 
@@ -53,7 +54,14 @@ export interface TransportMarkProps {
 
 export function TransportMark({ paused, size = 16, testID }: TransportMarkProps) {
   const colors = useColors();
-  const styles = marksFor(colors, size);
+  /*
+    Memoised on the two things it is built from. `useThemedStyles` is the app's
+    usual hook and caches on the theme alone, which would hand one caller the
+    other's geometry — `size` is a prop here. The screen around this control
+    re-renders once a second while a meeting runs, and rebuilding three
+    `StyleSheet` entries on each of those is a cost for nothing.
+  */
+  const styles = useMemo(() => marksFor(colors, size), [colors, size]);
   return paused ? (
     <View style={styles.play} aria-hidden testID={testID} />
   ) : (
@@ -65,10 +73,9 @@ export function TransportMark({ paused, size = 16, testID }: TransportMarkProps)
 }
 
 /**
- * Built per call rather than through `useThemedStyles`, because `size` is a
- * prop and that hook memoises on the theme alone. Three `View` styles on a
- * control that renders when a person presses pause is not a cost worth a cache
- * that would return the wrong geometry for the other caller.
+ * Built here rather than through `useThemedStyles`, because `size` is a prop
+ * and that hook memoises on the theme alone — it would hand one caller the
+ * other caller's geometry. The `useMemo` above is the cache this needs.
  */
 function marksFor(colors: Colors, size: number) {
   return StyleSheet.create({
