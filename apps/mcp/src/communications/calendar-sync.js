@@ -36,6 +36,7 @@ import { fetchAllPages, normalizeGoogleEvent, SyncTokenExpiredError } from "./ca
  * @property {string} calendarId    The provider's calendar id, e.g. "primary".
  * @property {string} timezone      IANA zone the owner's day boundaries are drawn in.
  * @property {string} [root]        The customer's chosen root prefix, if any.
+ * @property {string} [destinationFolder] The customer's chosen daily-note folder.
  * @property {string} accessToken   Bearer token. Never logged, never returned.
  * @property {boolean} [disconnected] When true, sync is a no-op that leaves notes alone.
  * @property {string|null} syncToken
@@ -168,7 +169,10 @@ export async function syncCalendarAccount({ connection, store, fetchImpl, now })
 
   const writes = [];
   for (const date of datesToWrite) {
-    const path = calendarDayNotePath({ date }, { root: connection.root });
+    const path = calendarDayNotePath(
+      { date },
+      { root: connection.root, folder: connection.destinationFolder },
+    );
     const dayEvents = projectDay(cache, date);
     const existing = await store.get(path);
     if (!dayEvents.length) {

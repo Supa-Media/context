@@ -14,6 +14,22 @@ export function runCalendarPathChecks(check) {
     "a root prefix is applied at the boundary, never derived",
     calendarDayNotePath({ date: "2026-09-07" }, { root: "vault" }) === "vault/0-inbox/calendar/2026-09-07.md"
   );
+  check(
+    "a configured destination folder replaces the default Calendar folder",
+    calendarDayNotePath({ date: "2026-09-07" }, { folder: "2-areas/schedule" }) === "2-areas/schedule/2026-09-07.md"
+  );
+  check(
+    "the customer root still wraps a configured destination",
+    calendarDayNotePath({ date: "2026-09-07" }, { root: "vault", folder: "2-areas/schedule" }) === "vault/2-areas/schedule/2026-09-07.md"
+  );
+  check("a traversing destination is refused instead of escaping the bucket folder", (() => {
+    try {
+      calendarDayNotePath({ date: "2026-09-07" }, { folder: "../elsewhere" });
+      return false;
+    } catch (error) {
+      return error instanceof TypeError;
+    }
+  })());
   check("an invalid date throws rather than writing a bad path", (() => {
     try {
       calendarDayNotePath({ date: "not-a-date" });
@@ -30,6 +46,11 @@ export function runCalendarPathChecks(check) {
   check(
     "...and round-trips with a root too",
     JSON.stringify(parseCalendarDayPath(calendarDayNotePath({ date: "2026-09-07" }, { root: "vault" }), { root: "vault" })) ===
+      JSON.stringify({ date: "2026-09-07" })
+  );
+  check(
+    "...and round-trips with a configured destination",
+    JSON.stringify(parseCalendarDayPath(calendarDayNotePath({ date: "2026-09-07" }, { folder: "2-areas/schedule" }), { folder: "2-areas/schedule" })) ===
       JSON.stringify({ date: "2026-09-07" })
   );
   check("a path outside the calendar folder is not one of ours", parseCalendarDayPath("0-inbox/email/x/2026-09-07.md") === null);

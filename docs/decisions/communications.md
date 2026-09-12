@@ -1660,7 +1660,7 @@ connected. `packages/communications/src/calendar` is the prototype, the same
 role `src/` plays for the channel-day contract above; this section is the
 argument behind it.
 
-### A calendar day lands at `0-inbox/calendar/YYYY-MM-DD.md`, with no account level
+### A calendar day defaults to `0-inbox/calendar/YYYY-MM-DD.md`, with no account level
 
 Email nests under `0-inbox/email/<mailbox-slug>/` because a person has
 several mailboxes they think of as separate things, and `privacy.md` needs a
@@ -1686,8 +1686,15 @@ already storing the merge. There is no `YYYY/MM/` nesting either, for the
 same reason a channel day has none: a flat folder sorted by name already
 gives the ordering a date tree would, and nobody reaches a day of their
 calendar by scrolling a folder — they reach it from `list_meetings`-style
-tooling, a search hit, or the meeting-link half below. The check is
-`every calendar path this package writes begins with 0-inbox/calendar/, with no account segment`.
+tooling, a search hit, or the meeting-link half below. The default-path check is
+`every default calendar path begins with 0-inbox/calendar/, with no account segment`.
+
+The folder is a default, not a prison: Settings already lets the owner choose
+a different Calendar destination, and the sync engine now passes that choice
+through `calendarDayNotePath` instead of continuing to write the default while
+the console displayed the custom path. The override changes only the folder;
+the file remains one flat `YYYY-MM-DD.md`, with no account or tenant segment,
+and the same validated customer root still wraps it.
 
 That shared file makes **account aggregation a write-time invariant**, not a
 presentation detail. A scheduled pass may update one account's private event

@@ -34,17 +34,24 @@ export function isCalendarDayDate(value) {
 /** `2026-09-07.md`, and only that shape — a calendar day never splits into parts. */
 const DAY_FILE = /^(\d{4}-\d{2}-\d{2})\.md$/;
 
+function calendarDestinationFolder(folder) {
+  if (folder === undefined || folder === null || String(folder).trim() === "") return CALENDAR_FOLDER;
+  return normalizeRoot(folder).replace(/\/$/g, "");
+}
+
 /**
- * Where one day of the calendar lands.
+ * Where one day of the calendar lands. `CALENDAR_FOLDER` is the default; a
+ * customer-selected folder remains one flat day-note folder with the same
+ * date contract.
  *
  * @param {{date: string}} day
- * @param {{root?: string}} [options]
+ * @param {{root?: string, folder?: string}} [options]
  * @returns {string}
  */
 export function calendarDayNotePath(day, options = {}) {
   if (!day || typeof day !== "object") throw new TypeError("calendarDayNotePath needs a day");
   if (!isCalendarDayDate(day.date)) throw new TypeError(`not a calendar date: ${day.date}`);
-  return `${normalizeRoot(options.root)}${CALENDAR_FOLDER}/${day.date}.md`;
+  return `${normalizeRoot(options.root)}${calendarDestinationFolder(options.folder)}/${day.date}.md`;
 }
 
 /**
@@ -55,7 +62,7 @@ export function calendarDayNotePath(day, options = {}) {
  * `0-inbox/calendar/` stops being listed and stays a note.
  *
  * @param {string} path
- * @param {{root?: string}} [options]
+ * @param {{root?: string, folder?: string}} [options]
  * @returns {{date: string}|null}
  */
 export function parseCalendarDayPath(path, options = {}) {
@@ -63,8 +70,9 @@ export function parseCalendarDayPath(path, options = {}) {
   const root = normalizeRoot(options.root);
   if (root && !path.startsWith(root)) return null;
   const key = path.slice(root.length);
-  if (!key.startsWith(`${CALENDAR_FOLDER}/`)) return null;
-  const rest = key.slice(CALENDAR_FOLDER.length + 1);
+  const folder = calendarDestinationFolder(options.folder);
+  if (!key.startsWith(`${folder}/`)) return null;
+  const rest = key.slice(folder.length + 1);
   // Exactly one segment: a subfolder under `0-inbox/calendar/` is somebody's
   // own folder, not a shape this module writes.
   if (rest.includes("/")) return null;
@@ -81,7 +89,7 @@ export function parseCalendarDayPath(path, options = {}) {
  * `d` and `o` this module accepts.
  *
  * @param {string} path
- * @param {{root?: string}} [options]
+ * @param {{root?: string, folder?: string}} [options]
  * @returns {boolean}
  */
 export function isCalendarDayNotePath(path, options = {}) {
