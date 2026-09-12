@@ -100,7 +100,25 @@ import {
   getProfileHistoryId,
   GmailApiError,
   runIncrementalSync,
+  writeContactDraft,
+  writeDayPart,
 } from "../../mcp/src/communications/gmailSync.js";
+import {
+  ChatApiError,
+  listMessagesPage,
+  listSpacesPage,
+} from "../../mcp/src/communications/googleChat/client.js";
+import {
+  ChatPaginationError,
+  renderSharedGoogleChat,
+  syncGoogleChat,
+} from "../../mcp/src/communications/googleChat/sync.js";
+import {
+  ChatContributionConflictError,
+  ChatContributionIncompleteError,
+  loadActiveChatContributions,
+  persistChatContribution,
+} from "../../mcp/src/communications/googleChat/contributionStore.js";
 import {
   D1_ACCOUNT_SECRET,
   D1_TOKEN_SECRET,
@@ -1270,6 +1288,18 @@ type ForwardSyncJob =
       attachmentMode: "metadata-only" | "store";
       attachmentRetentionDays?: number | "forever";
       historyId?: string;
+    }
+  | {
+      kind: "run";
+      connectionId: Id<"googleConnections">;
+      product: "chat";
+      address: string;
+      destinationFolder: string;
+      nonceSeed: string;
+      workspaceNonceSeed: string;
+      cursors: Record<string, string>;
+      spaceSettings: Record<string, "included" | "excluded" | "paused">;
+      contributorSourceIds: Id<"googleConnections">[];
     };
 
 type ForwardSyncResult = Extract<OperationResult, { kind: "googleForwardSync" }>;
@@ -1348,6 +1378,36 @@ const GMAIL_RATE_LIMIT_REASONS = new Set([
  * was briefly unavailable" are still different sentences to show somebody.
  */
 function classifyForwardSyncError(error: unknown): { code: string; message: string } {
+  if (error instanceof ChatContributionConflictError) {
+    return {
+      code: "CHAT_SYNC_CONFLICT",
+      message: "Google Chat changed during this pass. The next scheduled pass will try again.",
+    };
+  }
+  if (error instanceof ChatPaginationError) {
+    return {
+      code: "CHAT_PAGINATION_STALLED",
+      message: "Google Chat returned a repeating page. The next scheduled pass will try again.",
+    };
+  }
+  if (error instanceof ChatApiError) {
+    if (error.status === 401 || error.status === 403) {
+      return {
+        code: "GOOGLE_ACCESS_REFUSED",
+        message: "Google refused access to Chat. Reconnect the account and approve Chat access.",
+      };
+    }
+    if (error.status === 429) {
+      return {
+        code: "GOOGLE_RATE_LIMITED",
+        message: "Google rate-limited Chat. The next scheduled pass will try again.",
+      };
+    }
+    return {
+      code: "GOOGLE_UNAVAILABLE",
+      message: "Google Chat did not answer reliably. The next scheduled pass will try again.",
+    };
+  }
   if (error instanceof GmailApiError) {
     const reason = typeof error.reason === "string" ? error.reason : undefined;
     const googleStatus = typeof error.googleStatus === "string" ? error.googleStatus : undefined;
@@ -1390,6 +1450,114 @@ function classifyForwardSyncError(error: unknown): { code: string; message: stri
   return {
     code: "GOOGLE_SYNC_FAILED",
     message: "This mailbox did not sync. The next scheduled pass resumes from the same cursor.",
+  };
+}
+
+async function runGoogleChatForwardSync(
+  ctx: ActionCtx,
+  store: FileStore,
+  job: Extract<ForwardSyncJob, { kind: "run"; product: "chat" }>,
+  accessToken: string,
+): Promise<ForwardSyncResult> {
+  if (store.capabilities === undefined) {
+    throw new Error("Google Chat sync requires declared storage capabilities");
+  }
+  // `FileStore` is the deliberately narrow view used by file operations and
+  // omits `StoredObject.arrayBuffer`; every adapter returned by
+  // `storeForBinding` implements the full ContextStore contract that the
+  // shared communications helpers accept. Keep the cast at this one adapter
+  // boundary rather than widening every ordinary file operation.
+  const chatStore = store as unknown as Parameters<typeof writeContactDraft>[0];
+  const result = await syncGoogleChat({
+    listSpaces: ({ pageToken }: { pageToken?: string }) =>
+      listSpacesPage({ fetchImpl: timeoutFetch, accessToken, pageToken }),
+    listMessages: ({
+      spaceName,
+      sinceCreateTime,
+      pageToken,
+    }: {
+      spaceName: string;
+      sinceCreateTime: string;
+      pageToken?: string;
+    }) =>
+      listMessagesPage({
+        fetchImpl: timeoutFetch,
+        accessToken,
+        spaceName,
+        sinceCreateTime,
+        pageToken,
+      }),
+    connection: {
+      account: job.address,
+      nonceSeed: job.nonceSeed,
+      cursors: job.cursors,
+      spaceSettings: job.spaceSettings,
+      destinationFolder: job.destinationFolder,
+    },
+  });
+
+  /*
+   * Commit this account's provider result before reading the shared view.
+   * The manifest-last contribution store means an interrupted pass is never
+   * visible as a complete account slice, and loading every active source
+   * fails closed if a sibling has not completed its first pass yet.
+   */
+  await persistChatContribution({
+    store: chatStore,
+    sourceId: job.connectionId,
+    contribution: result.contribution,
+  });
+  const contributions = await loadActiveChatContributions({
+    store: chatStore,
+    sourceIds: job.contributorSourceIds,
+  });
+  const notes = renderSharedGoogleChat({
+    contributions,
+    nonceSeed: job.workspaceNonceSeed,
+  });
+
+  let daysTouched = 0;
+  let bytesWritten = 0;
+  for (const part of notes) {
+    const written = await writeDayPart(chatStore, part);
+    if (written.wrote) {
+      daysTouched += 1;
+      bytesWritten += written.bytes;
+    }
+  }
+
+  for (const draft of result.contactDrafts) {
+    const written = await writeContactDraft(chatStore, draft, {
+      remainingQuotaBytes: Number.MAX_SAFE_INTEGER - bytesWritten,
+    });
+    if (written.quotaExceeded) {
+      throw new Error("Google Chat Contact exceeded the bounded sync write budget");
+    }
+    if (written.wrote) bytesWritten += written.bytes;
+  }
+
+  /*
+   * The cursor is the commit record. It moves last, after the shared daily
+   * notes and organic Contacts have all settled, so a failed write makes the
+   * next pass ask Google the same question again instead of losing content.
+   */
+  await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+    connectionId: job.connectionId,
+    product: "chat",
+    status: "synced",
+    chatCursors: result.cursors,
+    daysTouched,
+    bytesWritten,
+  });
+  return {
+    kind: "googleForwardSync",
+    connectionId: job.connectionId,
+    status: "synced",
+    daysTouched,
+    bytesWritten,
+    cursorAdvanced: JSON.stringify(result.cursors) !== JSON.stringify(job.cursors),
+    gapDetected: false,
+    truncated: false,
   };
 }
 
@@ -1440,6 +1608,10 @@ async function runGoogleForwardSync(
         "GOOGLE_RECONNECT_REQUIRED",
         "Google needs to be reconnected before this mailbox can sync.",
       );
+    }
+
+    if (job.product === "chat") {
+      return await runGoogleChatForwardSync(ctx, store, job, minted.accessToken);
     }
 
     if (job.historyId === undefined) {
@@ -1615,6 +1787,17 @@ async function runGoogleForwardSync(
       truncated,
     };
   } catch (error) {
+    // The first account in a multi-account workspace can finish before a
+    // sibling has ever stored its contribution. That is an expected warm-up
+    // state, not an outage: keep this account's cursor in place, release the
+    // claim, and let the sibling's own due pass fill the missing slice.
+    if (error instanceof ChatContributionIncompleteError) {
+      return await releaseForwardSync(
+        ctx,
+        job.connectionId,
+        "CHAT_WAITING_FOR_ACCOUNT",
+      );
+    }
     const { code, message } = classifyForwardSyncError(error);
     // Structured, and carrying no mail: an identifier, a code, and the name of
     // whatever was thrown.

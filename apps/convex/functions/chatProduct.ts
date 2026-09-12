@@ -655,13 +655,11 @@ export const setChatSpaceState = mutation({
 });
 
 /**
- * Record the cursors a completed sync pass advanced to. Called by whatever
- * schedules `apps/mcp`'s `syncGoogleChat` with the `cursors` it returned —
- * not yet built; see `docs/decisions/communications.md`, "What phase 1 does
- * NOT wire up" for the identical gap Gmail's own sync has. Merges rather than
- * replaces, so a sync pass that only touched some of this connection's
- * spaces cannot clobber another space's cursor from a concurrent or partial
- * run.
+ * Record cursors from a completed Chat pass. The scheduled account runner now
+ * commits through `googleSync.recordGoogleForwardSyncPass` so the cursor and
+ * account-level schedule move together; this narrower helper remains for an
+ * internal partial-space caller. It merges rather than replaces, so a pass
+ * that touched only some spaces cannot clobber another space's cursor.
  */
 export const recordChatCursors = internalMutation({
   args: { connectionId: v.id("googleConnections"), cursors: v.record(v.string(), v.string()) },

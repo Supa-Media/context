@@ -1245,6 +1245,8 @@ const schema = defineSchema({
     updatedAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])
+    /** One shared-note writer per workspace at a time. */
+    .index("by_workspace_sync_started", ["workspaceId", "syncStartedAt"])
     /** One connection per address per context — the uniqueness `chooseMailboxSlug` assumes for Gmail. */
     .index("by_workspace_address", ["workspaceId", "address"])
     /**
