@@ -1557,6 +1557,72 @@ this belongs to has its own guard —
 [app-and-console](./app-and-console.md), *a route with no way in is a route
 nobody has*.
 
+### The phone has a meter, and it always did
+
+**The claim that was never checked.** `capture/level.ts` argued that a level
+does not belong on `MeetingRecorder`, and gave three reasons. The second was
+that *"only one of the five recorders can produce one — the desktop shell holds
+an `AnalyserNode` on the stream it is recording; the phone's `expo-audio` and
+the browser's `MediaRecorder` do not"*.
+
+Half of it was false. `expo-audio` meters on both phone platforms: iOS from
+`AVAudioRecorder.averagePower`, Android by converting `MediaRecorder`'s
+`maxAmplitude`, both answering in dBFS on `getStatus()`. It is behind one flag
+— `isMeteringEnabled` — and nothing set it, so `useAudioLevel` answered `null`
+on every phone and the mark beside the clock drew its static silhouette for the
+length of every meeting.
+
+**It cost the owner two evenings, for the reason `Waveform`'s own header
+predicts.** That file records "a meter that responds to sound is a capability
+claim" and the first evening it was written about: *"the bar is still not
+moving. And I can't tell that it can hear me talking."* The fix then was to
+animate the desktop meter, and the phone was left drawing the same unmoving
+mark under the same claim. The second evening was the question that followed —
+why is there a mark shaped like a meter that does not move — and the answer was
+that nobody had asked the device.
+
+**So the recorder reads its own meter and publishes it, and the conclusion
+about the interface survives.** The channel is a module-level publisher in
+`capture/level.ts`, not an event on `MeetingRecorder` and not a field on the
+snapshot: the first reason in that header is intact and is the load-bearing
+one — a level moves ten times a second, everything that reaches the controller
+rebuilds the app's whole meetings snapshot, and six hundred rebuilds a minute
+for a number one leaf reads is a cost for nothing. `notesOnly` still has no
+input, a browser still has no meter, and a build with no shell still has no
+bridge, so an interface method would still oblige implementations to answer a
+question they cannot.
+
+**The shell stays preferred where there is one.** A phone's meter is the
+microphone; the shell's is the louder of the microphone and the machine's own
+audio, which is the honest answer to "is this recording hearing anything" on a
+call.
+
+**The floor is a display decision, not the format's.** -160 dBFS is digital
+silence, and a meter scaled across 160 dB leaves a human voice in the top
+eighth of the bar and everything quieter flat — the unmoving mark again,
+reached by arithmetic instead of by omission. `METER_FLOOR_DB` is -55, roughly
+a quiet room on a phone microphone, which puts speech at arm's length in the
+middle and upper half of the mark.
+
+**`null` is still not zero**, and that is the rule the whole meter rests on:
+`Waveform` draws a different mark for "nothing can tell you" than for
+"listening, and the room is quiet". An absent `metering`, a `NaN`, and the
+`-Infinity` Android's conversion produces for true silence are all published as
+no reading rather than as a silent room.
+
+The checks are `the recorder is asked for a meter, on both platforms`,
+`what the microphone hears reaches the meter, as a fraction of the mark`,
+`a recorder with no reading publishes \`null\`, never a silent room`,
+`the meter goes quiet when the microphone does, rather than keeping its last
+reading`, `decibels become a fraction of the mark, with a floor a voice sits
+above`, `no reading is \`null\`, and never zero`, `with no shell, the
+recorder's own readings reach the leaf`, and `the shell is preferred where
+there is one, because it hears more`.
+
+**Not proven here, and it is the same gap the section below has:** the meter is
+driven from a fake device. That a phone's bar moves when somebody speaks needs
+a native build and a voice.
+
 ### One recording per meeting, because iOS will not let a locked phone start a second one
 
 **The defect.** A meeting recorded on an unlocked phone was fine. The same

@@ -176,6 +176,9 @@ interface MockDevice {
   released: boolean;
   /** Whether `record()` has been called and `stop()` has not. */
   isRecording: boolean;
+  /** What `getStatus().metering` answers — dBFS, or absent for no meter. */
+  metering: number | undefined;
+  getStatus: () => { metering?: number };
   /** What the module constructed it with, so a test can read the format asked for. */
   options: { extension?: string } | null;
   /** Make `prepareToRecordAsync` throw — a device still held by a call. */
@@ -309,6 +312,7 @@ function mockDeviceConstructor(this: unknown, options?: { extension?: string }):
     stops: 0,
     released: false,
     isRecording: false,
+    metering: undefined,
     options: options ?? null,
     refuse: mockDeviceRefusesToPrepare,
     emitStatus: (status) => {
@@ -338,6 +342,13 @@ function mockDeviceConstructor(this: unknown, options?: { extension?: string }):
     release: () => {
       api.released = true;
     },
+    /*
+      The meter, which the module polls ten times a second. `metering` is
+      absent unless a test sets it — which is the real shape: `expo-audio`
+      omits the field for a recorder that was not asked for it and for one that
+      is not running.
+    */
+    getStatus: () => (api.metering === undefined ? {} : { metering: api.metering }),
     addListener: (_name, listener) => {
       listeners.add(listener);
       return { remove: () => listeners.delete(listener) };
@@ -476,6 +487,14 @@ jest.mock("expo-file-system", () => ({
 /* eslint-disable @typescript-eslint/no-require-imports */
 const native =
   require("../features/meetings/capture/audio.ts") as typeof import("../features/meetings/capture/audio");
+/*
+  The channel the recorder publishes its meter on. Reached directly rather than
+  through a screen, because what is being checked is that the *recorder* reads
+  the device and says what it found — `meetingsLevel.test.ts` owns the other
+  half, which is that a leaf drawing a meter hears it.
+*/
+const { METER_FLOOR_DB, onRecorderLevel } =
+  require("../features/meetings/capture/level") as typeof import("../features/meetings/capture/level");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const {
@@ -2131,5 +2150,130 @@ describe("one continuous recording, sliced while it is written", () => {
     expect(errors).toEqual([]);
 
     await recorder.stop();
+  });
+});
+
+
+describe("the phone's own meter", () => {
+  /*
+    THE MARK THAT COULD NOT MOVE.
+
+    `capture/level.ts` said the phone's `expo-audio` cannot produce a level, so
+    `useAudioLevel` answered `null` on every phone and the meter beside the
+    clock drew its static silhouette for the length of every meeting. It was
+    wrong: `expo-audio` meters on both platforms behind `isMeteringEnabled`,
+    which nothing set.
+
+    The owner paid for that twice. Once concluding his microphone was dead —
+    *"the bar is still not moving. And I can't tell that it can hear me
+    talking"* — and once asking why the one that is supposed to move does not.
+    `Waveform`'s own header draws the conclusion: a decoration in the shape of
+    a meter is a capability claim, and it is one nobody can check.
+  */
+
+  /** Everything published to the level channel while `run` executes. */
+  async function levelsDuring(run: () => Promise<void>): Promise<(number | null)[]> {
+    const seen: (number | null)[] = [];
+    const off = onRecorderLevel((level) => seen.push(level));
+    try {
+      await run();
+    } finally {
+      off();
+    }
+    return seen;
+  }
+
+  test("the recorder is asked for a meter, on both platforms", async () => {
+    /*
+      One flag, and the whole defect. `AVAudioRecorder.averagePower` is only
+      updated for a recorder that asked, and Android's `maxAmplitude` is only
+      read for one — so without this the field is absent and every reading is
+      the honest `null` that draws an unmoving mark.
+
+      Flat, like everything else the native record reads: nested under `ios:`
+      or `android:` it would be dropped in silence, which is the trap
+      `PCM_RECORDING_OPTIONS` documents and the reason this asserts the shape
+      rather than trusting it.
+    */
+    const ios = harness({ platform: "ios" });
+    await ios.recorder.start();
+    expect(mockDevices[0].options).toMatchObject({ isMeteringEnabled: true });
+    await ios.recorder.stop();
+
+    const android = harness({ platform: "android" });
+    await android.recorder.start();
+    expect(mockDevices[1].options).toMatchObject({ isMeteringEnabled: true });
+    await android.recorder.stop();
+  });
+
+  test("what the microphone hears reaches the meter, as a fraction of the mark", async () => {
+    const { recorder } = harness({ platform: "ios" });
+    await recorder.start();
+
+    const levels = await levelsDuring(async () => {
+      mockDevices[0].metering = -20; // Speech at arm's length.
+      await advance(500);
+      mockDevices[0].metering = METER_FLOOR_DB; // A quiet room.
+      await advance(500);
+    });
+
+    // Loud first, quiet after, and the loud one is genuinely up the bar rather
+    // than a rounding error above the floor.
+    const loud = levels.find((level) => level !== null && level > 0);
+    expect(loud).toBeGreaterThan(0.5);
+    expect(levels[levels.length - 1]).toBe(0);
+
+    await recorder.stop();
+  });
+
+  test("a recorder with no reading publishes `null`, never a silent room", async () => {
+    /*
+      `Waveform` draws a different mark for "nothing can tell you" than for
+      "listening, and the room is quiet", and collapsing them is the
+      flat-bar-reads-as-dead-microphone defect this was rebuilt to fix. A
+      status with no `metering` in it is the first of those.
+    */
+    const { recorder } = harness({ platform: "ios" });
+    await recorder.start();
+
+    const levels = await levelsDuring(async () => {
+      mockDevices[0].metering = undefined;
+      await advance(500);
+    });
+
+    expect(levels.length).toBeGreaterThan(0);
+    expect(levels.every((level) => level === null)).toBe(true);
+
+    await recorder.stop();
+  });
+
+  test("the meter goes quiet when the microphone does, rather than keeping its last reading", async () => {
+    /*
+      A meter left standing at whatever the room was doing when somebody
+      pressed pause claims a closed microphone is hearing them — the same lie
+      as a mark that never moves, pointed the other way. So stopping the poll
+      publishes `null` rather than simply ceasing.
+    */
+    const { recorder } = harness({ platform: "ios" });
+    await recorder.start();
+    mockDevices[0].metering = -10;
+    await advance(300);
+
+    const onPause = await levelsDuring(async () => {
+      await recorder.pause();
+    });
+    expect(onPause[onPause.length - 1]).toBeNull();
+
+    // And nothing goes on being published for a meeting nobody is recording.
+    const afterPause = await levelsDuring(async () => {
+      await advance(1_000);
+    });
+    expect(afterPause.filter((level) => level !== null)).toEqual([]);
+
+    await recorder.stop();
+    const afterStop = await levelsDuring(async () => {
+      await advance(1_000);
+    });
+    expect(afterStop).toEqual([]);
   });
 });

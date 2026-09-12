@@ -11,6 +11,7 @@ import type { TranscriptSegment } from "../protocol";
 import type { CaptureOptions, MeetingRecorder, RecorderError, RecorderState } from "./index";
 import { MAX_INFLIGHT_CHUNKS, SEGMENT_MS, chunkIdFor } from "./segments";
 import { resolveTranscriber } from "./transcriber";
+import { meterLevel, publishRecorderLevel } from "./level";
 import {
   PCM_BIT_DEPTH,
   PCM_CHANNELS,
@@ -336,8 +337,40 @@ const PCM_RECORDING_OPTIONS = Object.freeze({
   linearPCMBitDepth: PCM_BIT_DEPTH,
   linearPCMIsBigEndian: false,
   linearPCMIsFloat: false,
-  isMeteringEnabled: false,
+  /*
+    The meter. `AVAudioRecorder.averagePower` is only updated for a recorder
+    that was asked for it, and nothing asked — so `useAudioLevel` answered
+    `null` on every phone and the mark beside the clock drew its static
+    silhouette for the length of every meeting. See `LEVEL_INTERVAL_MS`.
+  */
+  isMeteringEnabled: true,
 });
+
+/**
+ * Android's preset, plus the one flat key that turns its meter on.
+ *
+ * `isMeteringEnabled` at the top level, which is where the native record reads
+ * every field from — the flattening trap `PCM_RECORDING_OPTIONS` documents,
+ * used deliberately this time. Nothing else about the recording changes: the
+ * format fields under `android:` are ignored exactly as they always have been,
+ * so this adds a meter without touching what Android records.
+ */
+const ANDROID_RECORDING_OPTIONS = Object.freeze({
+  ...RecordingPresets.HIGH_QUALITY,
+  isMeteringEnabled: true,
+});
+
+/**
+ * How often the phone's own meter is read, in milliseconds.
+ *
+ * Ten times a second, which is what the desktop shell's bridge pushes and what
+ * a meter needs to look like it is responding to a voice rather than sampling
+ * one. `getStatus()` is a cheap native read and the reading goes to a module
+ * channel rather than through the controller, so it re-renders `LiveWaveform`
+ * and nothing else — `capture/level.ts` carries that argument, and it is the
+ * reason this is a poll here rather than an event on `MeetingRecorder`.
+ */
+const LEVEL_INTERVAL_MS = 100;
 
 /**
  * How much audio one slice may carry, as a multiple of the tick.
@@ -525,6 +558,8 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
   let statusSubscription: { remove(): void } | null = null;
   let rotationTimer: ReturnType<typeof setInterval> | null = null;
   let resumeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Reads the device's meter while it is open. See `LEVEL_INTERVAL_MS`. */
+  let levelTimer: ReturnType<typeof setInterval> | null = null;
 
   /** Identity of this capture session. Read once, at `start`, and never again. */
   let sessionKey = "";
@@ -626,6 +661,7 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
 
   function startRotation(): void {
     stopRotation();
+    startLevelPolling();
     rotationTimer = setInterval(() => {
       void queue(async () => {
         /*
@@ -657,9 +693,64 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
     }, SEGMENT_MS);
   }
 
+  /**
+   * PUBLISH WHAT THE MICROPHONE IS HEARING, TEN TIMES A SECOND.
+   *
+   * Straight to `capture/level.ts`'s channel and to nothing else. It does not
+   * touch the session, the controller, or any listener this module already
+   * has: a level is a decoration, *"no meeting, no note, no segment is
+   * affected by whether this hook ever fires"*, and routing it through the
+   * controller would rebuild the app's meetings snapshot six hundred times a
+   * minute for a number one leaf reads.
+   *
+   * A reading that is absent, not a number, or infinite is published as
+   * `null` rather than as zero. `Waveform` draws a different mark for "nothing
+   * can tell you" than for "listening, and the room is quiet", and collapsing
+   * the two is exactly the flat-bar-reads-as-dead-microphone defect the meter
+   * was rebuilt to fix.
+   */
+  function startLevelPolling(): void {
+    stopLevelPolling();
+    levelTimer = setInterval(() => {
+      const active = device;
+      if (active === null || state !== "recording") {
+        publishRecorderLevel(null);
+        return;
+      }
+      try {
+        publishRecorderLevel(meterLevel(active.getStatus().metering));
+      } catch {
+        /*
+          A status read can throw on a device that is going away underneath
+          this timer. It is not a capture failure and it is not worth a chip:
+          the meter says it has no reading and the next tick tries again.
+        */
+        publishRecorderLevel(null);
+      }
+    }, LEVEL_INTERVAL_MS);
+  }
+
+  function stopLevelPolling(): void {
+    if (levelTimer !== null) clearInterval(levelTimer);
+    levelTimer = null;
+    /*
+      Said rather than left. A meter that keeps its last reading after the
+      microphone has gone is the same lie as one that never moves, pointed the
+      other way — it would draw a loud room over a meeting that has ended.
+    */
+    publishRecorderLevel(null);
+  }
+
   function stopRotation(): void {
     if (rotationTimer !== null) clearInterval(rotationTimer);
     rotationTimer = null;
+    /*
+      The meter's life is the rotation's, because they are the same life: both
+      run exactly while this recorder is capturing, and every path that starts
+      or stops one wants the other. Tied here rather than at the six call
+      sites, which is how one of them would come to be missed.
+    */
+    stopLevelPolling();
   }
 
   function cancelResume(): void {
@@ -681,7 +772,7 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
     const opened = new AudioModule.AudioRecorder(
       continuous
         ? (PCM_RECORDING_OPTIONS as never)
-        : RecordingPresets.HIGH_QUALITY,
+        : ANDROID_RECORDING_OPTIONS,
     );
     statusSubscription = opened.addListener("recordingStatusUpdate", onStatus);
     device = opened;
