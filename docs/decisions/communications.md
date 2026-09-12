@@ -1955,6 +1955,15 @@ checks are
 `a grant that covers both leaves the health alone`, and
 `reconnecting a DISCONNECTED account through Calendar makes it healthy again`.
 
+**A Calendar page walk must reach Google's terminal page before it can
+succeed.** The terminal page is the only one that carries `nextSyncToken`, so
+silently returning after a page cap leaves the caller with no safe cursor and
+makes the next scheduled pass replay the same pages. `fetchAllPages` now
+remembers every continuation token, refuses a repeated one, and treats its
+thousand-page ceiling as the same fixed `PAGINATION_STALLED` failure rather
+than a partial result. The fixture repeats one token and throws if a third
+request is attempted.
+
 ### What this does not build yet
 
 **The control-plane connection and the sync engine landed as two separate,
