@@ -1,17 +1,15 @@
-import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { ScrollView, StyleSheet, useWindowDimensions } from "react-native";
 import { useState } from "react";
 import { Overlay } from "../../design/components/Overlay";
-import { Icon } from "../../design/components/Icon";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 
-import { layout, radii, space } from "../../design/tokens";
-import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { layout, space } from "../../design/tokens";
+import { useThemedStyles, type Colors } from "../../design/theme";
 import { SettingsPane, StatusPill } from "../panes/SettingsPane";
 import { AccountSection } from "./AccountSections";
 import { SettingsList } from "./SettingsList";
 import { atName } from "../format";
-import { appSectionsFor, type AppSectionKey } from "../nav";
 import type { CheckoutOutcome } from "@context/shared";
 import { selectedContext, type ConsoleData } from "../types";
 import {
@@ -42,7 +40,6 @@ export function SettingsOverlay({
   data,
   section,
   onSelect,
-  onOpenSection,
   onSwitchContext,
   onSignOut,
   onOpenInvitation,
@@ -60,14 +57,6 @@ export function SettingsOverlay({
   returned?: CheckoutOutcome | null;
   onSelect: (next: SettingsSectionKey) => void;
   /**
-   * Map and Connections, which are console destinations rather than settings.
-   * They are rendered at the foot of whichever section is open because this
-   * list is the only surface `features/app/reachability.ts` claims those two
-   * routes are reachable from — dropping it here would make them unreachable
-   * rather than merely tidier.
-   */
-  onOpenSection?: (key: AppSectionKey) => void;
-  /**
    * Open another context's settings. Absent where there is nowhere to
    * navigate — the landing page's console, and the fixture — in which case
    * the other contexts are still listed but pressing one does nothing.
@@ -80,7 +69,6 @@ export function SettingsOverlay({
   onDismiss: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
   const current = selectedContext(data);
   /*
     A phone shows the list, then the section, rather than both at once. It
@@ -150,53 +138,6 @@ export function SettingsOverlay({
   */
   const health = data.storage && !namesItsOwnContext ? <StatusPill storage={data.storage} /> : null;
 
-  /*
-    Map and Connections, which are console destinations rather than settings.
-
-    Drawn here rather than inside `SettingsPane` because `features/app/
-    reachability.ts` registers this list as the **only** surface `/console/map`
-    is reachable from — and while it lived in the pane, opening an account
-    section took a different branch and Map disappeared from the product until
-    you clicked back to a context one. Chrome that flickers in and out with no
-    rule the reader can infer is worse than either state.
-
-    Rows, not a card of blurbs with an "Open" button pinned right. A
-    destination is a row you press; a button beside a two-line description is
-    a control you have to find, and the descriptions pushed the third item
-    under the fold on a phone.
-  */
-  const elsewhere =
-    onOpenSection === undefined ? null : (
-      <View style={styles.elsewhere}>
-        <Text variant="listGroup" style={styles.elsewhereHead}>
-          Go to
-        </Text>
-        <View style={styles.card}>
-          {appSectionsFor(data.searchableContexts).map((entry, index) => (
-            <View key={entry.key}>
-              {index === 0 ? null : <View style={styles.divider} />}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Open ${entry.label}`}
-                onPress={() => onOpenSection(entry.key)}
-                testID={`settings-open-${entry.key}`}
-                style={styles.elsewhereRow}
-              >
-                <Icon name={SECTION_ICONS[entry.key]} size={19} color={colors.muted} />
-                <View style={styles.elsewhereText}>
-                  <Text variant="rowTitle">{entry.label}</Text>
-                  <Text variant="rowSub" style={styles.elsewhereSub}>
-                    {SECTION_BLURBS[entry.key]}
-                  </Text>
-                </View>
-                <Icon name="chevronRight" size={13} color={colors.muted} />
-              </Pressable>
-            </View>
-          ))}
-        </View>
-      </View>
-    );
-
   const body = account ? (
     <AccountSection
       section={active}
@@ -233,7 +174,6 @@ export function SettingsOverlay({
         </Text>
       )}
       {body}
-      {elsewhere}
     </ScrollView>
   );
 
@@ -285,49 +225,8 @@ export function SettingsOverlay({
   );
 }
 
-/**
- * What each re-homed pane is for, said once.
- *
- * A row that is only a name is a row people press to find out what it does,
- * which on a settings page is a navigation somebody has to come back from.
- * One line each: the row is the target now, so the description is a caption
- * rather than the only thing distinguishing three near-identical blocks.
- */
-const SECTION_BLURBS: Record<AppSectionKey, string> = {
-  search: "Every context you can reach, with a scope you can narrow.",
-  map: "Your contexts, and the AI apps connected to them, as a diagram.",
-  connections: "The address, and the apps holding a grant. Revoke one at a time.",
-};
-
-const SECTION_ICONS: Record<AppSectionKey, "search" | "constellation" | "exchange"> = {
-  search: "search",
-  map: "constellation",
-  connections: "exchange",
-};
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    elsewhere: { marginTop: space.x7 },
-    elsewhereHead: { marginBottom: space.x2 },
-    card: {
-      borderWidth: 1,
-      borderColor: colors.line,
-      borderRadius: radii.card,
-      backgroundColor: colors.surface2,
-      overflow: "hidden",
-      maxWidth: 560,
-    },
-    divider: { height: 1, backgroundColor: colors.line, marginLeft: 46 },
-    elsewhereRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: space.x3,
-      minHeight: layout.minTouchTarget,
-      paddingVertical: space.x2,
-      paddingHorizontal: space.x4,
-    },
-    elsewhereText: { flex: 1, minWidth: 0 },
-    elsewhereSub: { marginTop: 2 },
     scope: { marginBottom: space.x2, color: colors.muted },
     body: { padding: space.x6, paddingBottom: space.x8 },
   });

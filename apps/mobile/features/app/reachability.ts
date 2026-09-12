@@ -414,21 +414,6 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: true,
     from: [
       {
-        surface: "the \"Elsewhere in the console\" list at the foot of settings",
-        control: {
-          file: "features/console/settings/SettingsOverlay.tsx",
-          contains: ["appSectionsFor", "onPress={() => onOpenSection(entry.key)}"],
-        },
-        navigation: [
-          {
-            file: CONSOLE_LAYOUT,
-            contains: ["onOpenSection={(key) => router.push(appSectionHref(key))}"],
-          },
-        ],
-        region: "screen",
-        densities: EVERY_DENSITY,
-      },
-      {
         surface: "Manage sharing… on a context's own menu",
         control: {
           file: "features/console/ContextRowMenu.tsx",
@@ -448,21 +433,6 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     file: "app/(app)/console/search.tsx",
     reachable: true,
     from: [
-      {
-        surface: "the \"Elsewhere in the console\" list at the foot of settings",
-        control: {
-          file: "features/console/settings/SettingsOverlay.tsx",
-          contains: ["appSectionsFor", "onPress={() => onOpenSection(entry.key)}"],
-        },
-        navigation: [
-          {
-            file: CONSOLE_LAYOUT,
-            contains: ["onOpenSection={(key) => router.push(appSectionHref(key))}"],
-          },
-        ],
-        region: "screen",
-        densities: EVERY_DENSITY,
-      },
       {
         /*
           The handoff out of the palette, and the reason the page exists in the
@@ -493,24 +463,20 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
   {
     route: "/console/map",
     file: "app/(app)/console/map.tsx",
-    reachable: true,
-    from: [
-      {
-        surface: "the \"Elsewhere in the console\" list at the foot of settings",
-        control: {
-          file: "features/console/settings/SettingsOverlay.tsx",
-          contains: ["appSectionsFor", "onPress={() => onOpenSection(entry.key)}"],
-        },
-        navigation: [
-          {
-            file: CONSOLE_LAYOUT,
-            contains: ["onOpenSection={(key) => router.push(appSectionHref(key))}"],
-          },
-        ],
-        region: "screen",
-        densities: EVERY_DENSITY,
-      },
-    ],
+    reachable: false,
+    reason:
+      "No door, by decision. Its only one was the \"Elsewhere in the console\" " +
+      "card at the foot of settings — three destinations repeated under all " +
+      "nineteen sections, drawn unconditionally *because* removing it from any " +
+      "one section removed the map from the product. That is a fire escape on " +
+      "every floor rather than a place in the navigation, and the owner's answer " +
+      "when it was put to them was that the map can vanish. It had already lost " +
+      "its rail row (`ConsoleRail.tsx` records why: Map and Connections are facts " +
+      "about a context rather than places inside one) and a phone has no left " +
+      "panel at all, so there was nowhere left that it belonged. The route and " +
+      "the pane are untouched and still render: this is a navigation decision, " +
+      "not a deletion, and giving the map a home again is a door away.",
+    marker: "Reachable from nowhere, deliberately",
   },
   {
     route: "/invite",

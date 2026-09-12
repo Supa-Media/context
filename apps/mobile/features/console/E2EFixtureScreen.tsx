@@ -77,10 +77,10 @@ import { useE2EFixtureConsoleData } from "./e2eFixtureData";
  * its href: the context changes and the open section does not, because
  * switching contexts inside settings must not also change the subject.
  *
- * Three of the overlay's props are absent rather than stubbed, for the reason
- * their own doc comments give: `onOpenSection` and `onOpenInvitation` are
- * navigations with no router behind them here, and `onSignOut` has no session
- * to end. Each is optional and each is drawn as nothing when omitted — a
+ * Two of the overlay's props are absent rather than stubbed, for the reason
+ * their own doc comments give: `onOpenInvitation` would be a navigation with
+ * no router behind it here, and `onSignOut` has no session to end. Each is
+ * optional and each is drawn as nothing when omitted — a
  * button that cannot do what it says is the control `ClientRow`'s Revoke
  * comment refuses to draw. `AccountBlock`'s own sign-out is not optional, so
  * it is the one inert press on this screen (`onSelect={() => {}}` above is
