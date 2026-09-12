@@ -34,12 +34,12 @@
  * `scaffoldContext` and `hasForeignContent`. Guard 2 does not move.
  *
  * The residual race — an object created between the `get` and the `put` — is
- * unavoidable with the `ContextStore` surface, which has no create-if-absent
- * (S3's `If-None-Match: *` is not supported by every backend we accept, and
- * claiming it without a probe is exactly the mistake the capability probe
- * exists to prevent). The window is one round trip, on the first connect of a
- * bucket that was just observed to be empty, so it is documented rather than
- * defended.
+ * retained for compatibility with older custom store implementations that do
+ * not honor create-if-absent. The narrower vault importer uses the current
+ * adapters' create-only operation; scaffolding still keeps its original two
+ * guards because it also runs against legacy/self-hosted stores. The window is
+ * one round trip, on the first connect of a bucket that was just observed to be
+ * empty, so it is documented rather than defended.
  *
  * ## Why the privacy manifest format is copied rather than imported
  *
@@ -77,7 +77,10 @@ export interface ScaffoldStore {
      * every write in this codebase meant before images existed.
      */
     value: string | ArrayBuffer | Uint8Array,
-    options?: { onlyIf?: { etagMatches: string }; contentType?: string },
+    options?: {
+      onlyIf?: { etagMatches?: string; absent?: true };
+      contentType?: string;
+    },
   ): Promise<{ etag: string } | null>;
   list(options?: {
     prefix?: string;

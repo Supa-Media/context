@@ -16,10 +16,11 @@ import {
 } from "../features/onboarding/errors";
 
 describe("the shape of the run", () => {
-  test("connecting a bucket gets you the layout step and the tools step", () => {
+  test("connecting storage offers a vault import before layout and tools", () => {
     expect(stepsFor({ storage: "connected" })).toEqual([
       "name",
       "storage",
+      "vault",
       "structure",
       "agents",
       "done",
@@ -50,7 +51,7 @@ describe("the shape of the run", () => {
   });
 
   test("the storage step hands off differently depending on what happened", () => {
-    expect(afterStorage("connected")).toBe("structure");
+    expect(afterStorage("connected")).toBe("vault");
     expect(afterStorage("skipped")).toBe("done");
   });
 
@@ -84,7 +85,7 @@ describe("what the last screen says about the bucket", () => {
   });
 
   test("every step has a label and a title", () => {
-    const keys: StepKey[] = ["name", "storage", "structure", "agents", "done"];
+    const keys: StepKey[] = ["name", "storage", "vault", "structure", "agents", "done"];
     for (const key of keys) {
       expect(STEP_LABELS[key].length).toBeGreaterThan(0);
       expect(stepTitle(key).length).toBeGreaterThan(0);
@@ -94,8 +95,18 @@ describe("what the last screen says about the bucket", () => {
 
 describe("the progress indicator", () => {
   test("counts the run you are actually in", () => {
-    expect(stepProgress("name", { storage: "connected" })).toEqual({ index: 1, total: 5 });
-    expect(stepProgress("done", { storage: "connected" })).toEqual({ index: 5, total: 5 });
+    expect(stepProgress("name", { storage: "connected" })).toEqual({ index: 1, total: 6 });
+    expect(stepProgress("done", { storage: "connected" })).toEqual({ index: 6, total: 6 });
+  });
+
+  test("a completed vault import replaces the layout question", () => {
+    expect(stepsFor({ storage: "connected", vault: "imported" })).toEqual([
+      "name",
+      "storage",
+      "vault",
+      "agents",
+      "done",
+    ]);
   });
 
   test("shrinks when the layout step is not going to happen", () => {

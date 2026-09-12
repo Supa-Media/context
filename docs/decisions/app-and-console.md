@@ -3205,3 +3205,27 @@ still answers the query* in `shareRecipients.test.ts`.
 
 Shots of every state: `docs/design/share-sheet/`.
 
+### An Obsidian vault is imported before a new layout is proposed
+
+After either a customer-owned bucket or managed storage connects, first-run asks
+one question before proposing PARA: **“Have an Obsidian vault?”** On Mac and web,
+the person chooses the vault folder and Context streams its files directly into
+the connected bucket at the same relative paths. Markdown, folders and
+attachments therefore keep working together; successful import replaces the
+layout question rather than putting PARA beside a structure the person already
+has.
+
+The import is bounded, batched and create-only. Retrying skips objects that
+already landed, and it never overwrites a file already in the destination.
+Bytes pass through the action into the bucket and are never stored in Convex.
+The client shows file-count progress and the server records path-only audit
+metadata. After the last batch, the existing all-private repair path creates a
+valid `privacy.md` from the uploaded top-level folders.
+
+Obsidian application state and Context plumbing do not come along:
+`.obsidian/`, `.trash/`, `.git/`, `.context/`, `.audit/`, system metadata and a
+source `privacy.md` are excluded client-side and refused again server-side.
+This avoids uploading plugin credentials or replacing Context's access map.
+Folder picking is Mac/web-only because native mobile pickers do not preserve a
+vault's relative paths; mobile says where to continue instead of flattening the
+vault.

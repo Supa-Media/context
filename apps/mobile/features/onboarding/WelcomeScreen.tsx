@@ -13,6 +13,7 @@ import { resolveWelcomeRoute } from "./route";
 import { useOnboarding } from "./useOnboarding";
 import { NameStep } from "./steps/NameStep";
 import { StorageStep } from "./steps/StorageStep";
+import { VaultImportStep } from "./steps/VaultImportStep";
 import { StructureStep } from "./steps/StructureStep";
 import { AgentsStep } from "./steps/AgentsStep";
 import { DoneStep } from "./steps/DoneStep";
@@ -166,6 +167,8 @@ function StepBody({
       return <NameStep controller={controller} />;
     case "storage":
       return <StorageStep controller={controller} />;
+    case "vault":
+      return <VaultImportStep controller={controller} />;
     case "structure":
       return <StructureStep controller={controller} />;
     case "agents":
