@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { useConvex } from "convex/react";
+import type { Id } from "@context/convex/_generated/dataModel";
 import { Button } from "../../design/components/Button";
 import { Card, Row } from "../../design/components/Card";
 import { Dot } from "../../design/components/Dot";
@@ -32,10 +34,13 @@ import type { SettingsSectionKey } from "../settings/sections";
 import { useArming } from "../useArming";
 import { ConnectForm } from "../storage/ConnectForm";
 import { StorageChoice } from "../storage/StorageChoice";
+import { VaultImport } from "../storage/VaultImport";
 import { forcePathStyleToAddressing } from "../storage/connect";
 import { describeStorageFailure } from "../storage/errors";
 import { useReverify } from "../storage/useReverify";
 import type { ReverifyState } from "../storage/reverify";
+import { useManagedOffer } from "../../onboarding/useManagedOffer";
+import { ManagedConfirm } from "../../onboarding/steps/ManagedConfirm";
 
 /**
  * A context's settings: its bucket, its credentials, and its ingestion rules.
@@ -165,7 +170,12 @@ export function SettingsPane({
             </View>
           </Card>
         ) : actions ? (
-          <StorageChoice workspaceId={actions.workspaceId} connect={actions.connect} />
+          <SettingsStorageChoice
+            workspaceId={actions.workspaceId}
+            contextName={current == null ? "this context" : `@${current.slug}`}
+            connect={actions.connect}
+            onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")}
+          />
         ) : (
           <Card>
             <Text variant="rowTitle">No storage connected</Text>
@@ -185,14 +195,16 @@ export function SettingsPane({
         // its owner wants is either the same consent screen again or a bucket
         // instead, which is exactly the pair `StorageChoice` draws.
         storage.provider === "dropbox" ? (
-          <StorageChoice
+          <SettingsStorageChoice
             workspaceId={actions.workspaceId}
+            contextName={current == null ? "this context" : `@${current.slug}`}
             connect={async (values) => {
               const result = await actions.connect(values);
               setRebinding(false);
               return result;
             }}
             onCancel={() => setRebinding(false)}
+            onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")}
           />
         ) : (
           <ConnectForm
@@ -229,6 +241,10 @@ export function SettingsPane({
           onRebind={() => setRebinding(true)}
         />
       )}
+
+      {storage?.connected === true && actions ? (
+        <SettingsVaultImport workspaceId={actions.workspaceId} />
+      ) : null}
 
       </>
       ) : null}
@@ -366,6 +382,98 @@ export function SettingsPane({
       </>
       ) : null}
 
+    </View>
+  );
+}
+
+/** Billing is optional in render fixtures and self-hosted builds. */
+function SettingsStorageChoice({
+  workspaceId,
+  contextName,
+  connect,
+  onCancel,
+  onOpenPremium,
+}: {
+  workspaceId: string;
+  contextName: string;
+  connect: StorageActions["connect"];
+  onCancel?: () => void;
+  onOpenPremium?: () => void;
+}) {
+  const client = useConvex();
+  if (client === undefined) {
+    return <StorageChoice workspaceId={workspaceId} connect={connect} onCancel={onCancel} />;
+  }
+  return (
+    <SettingsStorageChoiceLive
+      workspaceId={workspaceId as Id<"workspaces">}
+      contextName={contextName}
+      connect={connect}
+      onCancel={onCancel}
+      onOpenPremium={onOpenPremium}
+    />
+  );
+}
+
+function SettingsStorageChoiceLive({
+  workspaceId,
+  contextName,
+  connect,
+  onCancel,
+  onOpenPremium,
+}: {
+  workspaceId: Id<"workspaces">;
+  contextName: string;
+  connect: StorageActions["connect"];
+  onCancel?: () => void;
+  onOpenPremium?: () => void;
+}) {
+  const managed = useManagedOffer({ workspaceId, returned: null, origin: "settings" });
+
+  if (managed.mode === "confirm" && managed.status !== null) {
+    return (
+      <ManagedConfirm
+        status={managed.status}
+        contextName={contextName}
+        state={managed.session}
+        failure={managed.failure}
+        onToggle={managed.toggle}
+        onContinue={managed.proceed}
+        onBack={managed.back}
+      />
+    );
+  }
+
+  return (
+    <StorageChoice
+      workspaceId={workspaceId}
+      connect={connect}
+      onCancel={onCancel}
+      managed={!managed.available ? undefined : {
+        price: managed.price,
+        onChoose: () => {
+          if (managed.paid) {
+            if (managed.status?.selected.managedStorage) onOpenPremium?.();
+            else {
+              managed.toggle("managedStorage", true);
+              onOpenPremium?.();
+            }
+            return;
+          }
+          managed.choose();
+        },
+      }}
+    />
+  );
+}
+
+/** Existing owners get the same create-only importer after storage is live. */
+function SettingsVaultImport({ workspaceId }: { workspaceId: string }) {
+  const client = useConvex();
+  if (client === undefined) return null;
+  return (
+    <View style={{ marginTop: 24 }}>
+      <VaultImport workspaceId={workspaceId as Id<"workspaces">} testIDPrefix="settings-vault" />
     </View>
   );
 }

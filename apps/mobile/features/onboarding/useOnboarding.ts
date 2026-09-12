@@ -324,7 +324,7 @@ export function useOnboarding(
   const connectState = connectProgress({ submitted, binding, timedOut });
 
   /*
-    The third answer on this step, and the two screens behind it. A person who
+    The managed answer on this step, and the two screens behind it. A person who
     never presses that card subscribes to none of it: the hook reads one query
     for the claimed context and nothing else until it is pressed.
   */

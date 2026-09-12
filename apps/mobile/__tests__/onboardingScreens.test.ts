@@ -51,11 +51,17 @@ interface Rendered {
 function render(node: ReturnType<typeof createElement>): Rendered {
   const container = document.createElement("div");
   document.body.appendChild(container);
-  const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+  const root = createRoot(container, {
+    onUncaughtError: () => {},
+    onCaughtError: () => {},
+  });
   act(() => {
     root.render(node);
   });
-  const rendered = { text: container.textContent ?? "", html: container.innerHTML };
+  const rendered = {
+    text: container.textContent ?? "",
+    html: container.innerHTML,
+  };
   act(() => root.unmount());
   container.remove();
   return rendered;
@@ -133,7 +139,10 @@ describe("the name screen", () => {
       createElement(NameStep, {
         controller: controller({
           name: "seyi",
-          nameStatus: nameStatus("seyi", { available: true, normalized: "seyi" }),
+          nameStatus: nameStatus("seyi", {
+            available: true,
+            normalized: "seyi",
+          }),
         }),
       }),
     );
@@ -153,7 +162,10 @@ describe("the name screen", () => {
       createElement(NameStep, {
         controller: controller({
           name: "seyi",
-          nameStatus: nameStatus("seyi", { available: true, normalized: "seyi" }),
+          nameStatus: nameStatus("seyi", {
+            available: true,
+            normalized: "seyi",
+          }),
           claimFailure: {
             headline: "That name is reserved",
             next: "That name is reserved.",
@@ -176,7 +188,10 @@ describe("the name screen", () => {
       createElement(NameStep, {
         controller: controller({
           name: "seyi",
-          nameStatus: nameStatus("seyi", { available: true, normalized: "seyi" }),
+          nameStatus: nameStatus("seyi", {
+            available: true,
+            normalized: "seyi",
+          }),
           claimFailure: {
             headline: "That's a lot of contexts in one go",
             next: "Creating them is limited to a few an hour. Try again shortly.",
@@ -227,24 +242,37 @@ describe("the layout screen", () => {
 describe("the Obsidian vault screen", () => {
   test("offers a folder import for a new customer-owned or managed bucket", () => {
     const { text } = render(
-      withConvex(createElement(VaultImportStep, { controller: controller({ step: "vault" }) })),
+      withConvex(
+        createElement(VaultImportStep, {
+          controller: controller({
+            step: "vault",
+            claimed: { workspaceId: "w1" as never, slug: "seyi" },
+          }),
+        }),
+      ),
     );
 
-    expect(text).toContain("Have an Obsidian vault?");
-    expect(text).toContain("Choose my vault folder");
+    expect(text).toContain("Have an Obsidian vault or existing Markdown notes?");
+    expect(text).toContain("Choose a vault or notes folder");
     expect(text).toContain("No, start fresh");
-    expect(text).toContain("Existing files in the bucket are never overwritten.");
+    expect(text).toContain("Files already in storage are never overwritten.");
   });
 
-  test("uses a vault already in the connected storage without copying it", () => {
+  test("still offers an import when connected storage already contains files", () => {
     const { text } = render(
-      withConvex(createElement(VaultImportStep, {
-        controller: controller({ step: "vault", structureStep: { kind: "existing" } }),
-      })),
+      withConvex(
+        createElement(VaultImportStep, {
+          controller: controller({
+            step: "vault",
+            claimed: { workspaceId: "w1" as never, slug: "seyi" },
+            structureStep: { kind: "existing" },
+          }),
+        }),
+      ),
     );
 
-    expect(text).toContain("Context will use them in place");
-    expect(text).not.toContain("Choose my vault folder");
+    expect(text).toContain("Have an Obsidian vault or existing Markdown notes?");
+    expect(text).toContain("Choose a vault or notes folder");
   });
 });
 
@@ -272,7 +300,10 @@ describe("the tools screen", () => {
     // promising otherwise describes a product we deliberately do not ship.
     const { text } = render(
       createElement(AgentsStep, {
-        controller: controller({ step: "agents", seedPrompt: defaultSeedPrompt() }),
+        controller: controller({
+          step: "agents",
+          seedPrompt: defaultSeedPrompt(),
+        }),
         onContinue: () => {},
       }),
     );
@@ -286,7 +317,10 @@ describe("the last screen", () => {
     // warning was withheld from exactly the person who most needed it.
     const { text } = render(
       createElement(DoneStep, {
-        controller: controller({ shape: { storage: "unverified" }, step: "done" }),
+        controller: controller({
+          shape: { storage: "unverified" },
+          step: "done",
+        }),
         onOpenConsole: () => {},
       }),
     );
@@ -309,7 +343,10 @@ describe("the last screen", () => {
   test("says nothing about the bucket when the bucket is fine", () => {
     const { text } = render(
       createElement(DoneStep, {
-        controller: controller({ shape: { storage: "connected" }, step: "done" }),
+        controller: controller({
+          shape: { storage: "connected" },
+          step: "done",
+        }),
         onOpenConsole: () => {},
       }),
     );

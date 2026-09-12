@@ -3205,22 +3205,29 @@ still answers the query* in `shareRecipients.test.ts`.
 
 Shots of every state: `docs/design/share-sheet/`.
 
-### An Obsidian vault is imported before a new layout is proposed
+### Storage starts with ownership, then offers existing notes
 
-After either a customer-owned bucket or managed storage connects, first-run asks
-one question before proposing PARA: **“Have an Obsidian vault?”** On Mac and web,
-the person chooses the vault folder and Context streams its files directly into
-the connected bucket at the same relative paths. Markdown, folders and
-attachments therefore keep working together; successful import replaces the
-layout question rather than putting PARA beside a structure the person already
-has.
+The first storage decision has two peer paths: **Bring your own storage** and
+**Context-managed Premium storage**. The first opens the S3-compatible and
+Dropbox provider choices. The second names the 50 GB allowance and continues to
+the existing Premium confirmation. Neither path is marked safer or recommended;
+the choice is technical control versus convenience.
+
+After either path connects, first-run asks **“Have an Obsidian vault or existing
+Markdown notes?”** The same question appears in Storage settings for an existing
+workspace. On Mac and web, the person chooses the folder and Context streams its
+files directly into the connected storage at the same relative paths. Markdown,
+folders and attachments therefore keep working together; a successful first-run
+import replaces the layout question rather than putting PARA beside a structure
+the person already has.
 
 The import is bounded, batched and create-only. Retrying skips objects that
 already landed, and it never overwrites a file already in the destination.
 Bytes pass through the action into the bucket and are never stored in Convex.
 The client shows file-count progress and the server records path-only audit
-metadata. After the last batch, the existing all-private repair path creates a
-valid `privacy.md` from the uploaded top-level folders.
+metadata. After a fresh onboarding import, the existing all-private repair path
+creates a valid `privacy.md` from the uploaded top-level folders. A Settings
+import never rewrites an established workspace's access map.
 
 Obsidian application state and Context plumbing do not come along:
 `.obsidian/`, `.trash/`, `.git/`, `.context/`, `.audit/`, system metadata and a

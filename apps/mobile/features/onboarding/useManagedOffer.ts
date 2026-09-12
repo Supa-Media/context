@@ -14,12 +14,12 @@ import {
 import type { ManagedConfirmState } from "./steps/ManagedConfirm";
 
 /**
- * The third answer on the storage step, wired to the control plane.
+ * The Context-managed answer on the storage step, wired to the control plane.
  *
  * Kept out of `useOnboarding` deliberately. That hook is already the longest
  * file in this folder and its own header says it holds "as little judgement as
  * possible"; this is a self-contained conversation with billing that the first
- * run happens to host, and a person who never presses the third card never
+ * run and Settings both host, and a person who never presses the managed card never
  * subscribes to any of it.
  *
  * ## What it will not do
@@ -42,7 +42,7 @@ import type { ManagedConfirmState } from "./steps/ManagedConfirm";
  *
  * ## Coming back
  *
- * Stripe returns to `/welcome?checkout=done` — a path built by
+ * Stripe returns to the recorded origin, either welcome or Settings, using a path built by
  * `@context/shared` from the origin recorded on the session row, so first run
  * comes back to first run rather than to a console with no storage in it. The
  * screen then follows three facts the control plane reports: the plan turning
@@ -92,11 +92,13 @@ export function useManagedOffer(options: {
   workspaceId: Id<"workspaces"> | null;
   /** What the return from Stripe said, from `/welcome?checkout=…`. */
   returned: CheckoutOutcome | null;
+  /** Determines whether Stripe returns to onboarding or Settings. */
+  origin?: "onboarding" | "settings";
   /** Test seam, so the slow copy does not need a real half-minute. */
   slowAfter?: number;
 }): ManagedOffer {
   const convex = useConvex();
-  const { workspaceId, returned, slowAfter = SETTLING_SLOW_MS } = options;
+  const { workspaceId, returned, origin = "onboarding", slowAfter = SETTLING_SLOW_MS } = options;
   const [mode, setMode] = useState<"choose" | "confirm" | "settling">(
     // A person who has just come back from Stripe is not choosing anything.
     returned === "done" ? "settling" : "choose",
@@ -195,7 +197,7 @@ export function useManagedOffer(options: {
     setOpening(true);
     setFailure(undefined);
     void convex
-      .mutation(api.functions.billing.startCheckout, { workspaceId, origin: "onboarding" })
+      .mutation(api.functions.billing.startCheckout, { workspaceId, origin })
       .then((started) => setSessionId(started.sessionId))
       .catch(() =>
         // Our sentence, never the backend's: a Convex error can carry a
@@ -203,7 +205,7 @@ export function useManagedOffer(options: {
         setFailure("That did not go through. Check your connection and try again."),
       )
       .finally(() => setOpening(false));
-  }, [convex, session, workspaceId]);
+  }, [convex, origin, session, workspaceId]);
 
   const retry = useCallback(() => {
     if (workspaceId === null) return;
