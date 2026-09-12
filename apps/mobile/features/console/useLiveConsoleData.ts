@@ -80,6 +80,8 @@ interface WorkspaceSummary {
   displayName: string;
   kind: string;
   role: string;
+  /** Where meetings land here, when the owner has chosen. Absent is the default. */
+  meetingsFolder?: string;
 }
 
 interface StorageBinding {
@@ -356,6 +358,7 @@ export function useLiveConsoleData(): ConsoleData {
     status: contextTone(
       usable<StorageBinding | null>(results[`storage:${workspace.workspaceId}`])?.status,
     ),
+    meetingsFolder: workspace.meetingsFolder,
   }));
 
   // One entry per reachable context, and all three cases kept apart: the

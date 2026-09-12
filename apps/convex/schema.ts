@@ -104,6 +104,22 @@ const schema = defineSchema({
     customFolders: v.optional(
       v.array(v.object({ folder: v.string(), description: v.string() })),
     ),
+    /**
+     * Where a meeting recorded into this context lands by default.
+     *
+     * Absent is `MEETINGS_FOLDER` — `0-inbox/meetings` — which is what every
+     * context had before this field existed and what a context that has never
+     * set one still has. Stored rather than derived because it is the one
+     * capture destination a person could not change: mail, calendars and Chat
+     * each carry an editable folder per connection, and meetings carried a
+     * constant interpolated into a sentence.
+     *
+     * **This names a folder, not whether the question is asked.** The
+     * destination sheet still asks before every recording — that rule is
+     * `features/meetings/destination.ts`'s and is untouched. What this changes
+     * is which folder the first offer points at.
+     */
+    meetingsFolder: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"]),

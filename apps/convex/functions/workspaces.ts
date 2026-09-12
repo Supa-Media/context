@@ -16,6 +16,12 @@ import { recordAudit } from "./lib/audit";
 import { claimName, checkAvailability, nameRejectionError } from "./lib/nameClaims";
 import { seedIngestionSettings } from "./lib/ingestionStore";
 import { consumeRateLimit } from "./lib/rateLimit";
+/*
+  The gateway's own gate on this value, not a second one. An offer
+  `normalizeMeetingFolder` refuses is an offer the meeting write then rejects,
+  so a setting validated any other way could be saved and silently ignored.
+*/
+import { MEETINGS_FOLDER, normalizeMeetingFolder } from "../../../packages/meetings/src/paths.js";
 import { isProductionTestAccount } from "./lib/testAccount";
 import {
   type FolderRejection,
@@ -83,6 +89,15 @@ const workspaceSummary = v.object({
   kind: v.string(),
   structureTemplate: v.string(),
   role: v.string(),
+  /**
+   * Where meetings land in this context, when somebody has chosen.
+   *
+   * Absent means the default, and the *console* resolves that rather than this
+   * query substituting one: `MEETINGS_FOLDER` lives in `packages/meetings`,
+   * which is the gateway's own gate on the same value, and a second copy here
+   * would be a second place for the default to drift.
+   */
+  meetingsFolder: v.optional(v.string()),
   joinedAt: v.number(),
   createdAt: v.number(),
 });
@@ -499,6 +514,7 @@ export const listMyWorkspaces = query({
         kind: workspace.kind,
         structureTemplate: workspace.structureTemplate,
         role: membership.role,
+        meetingsFolder: workspace.meetingsFolder,
         joinedAt: membership.joinedAt,
         createdAt: workspace.createdAt,
       });
@@ -682,6 +698,98 @@ export const removeMember = mutation({
     });
 
     return { removed: true };
+  },
+});
+
+/**
+ * Choose where meetings land in this context.
+ *
+ * ## Why this exists
+ *
+ * It is the one capture destination a person could not change. A Google
+ * account carries an editable folder per service; forwarded mail carries a
+ * target folder; a meeting carried `MEETINGS_FOLDER`, a constant, interpolated
+ * into a sentence on the settings panel with no control beside it. Somebody
+ * who files meetings under `2-areas/meetings` had to move every note by hand,
+ * forever.
+ *
+ * ## What it does not change
+ *
+ * **The destination is still asked for every time, before the microphone
+ * opens.** `features/meetings/destination.ts` argues that at length and it is
+ * untouched: the first offer is always the person's own brain, the page they
+ * are standing on is offered second with its audience named, and no remembered
+ * setting answers silently. This names the folder the *first offer points at*.
+ * Those are two decisions, and conflating them is why this setting did not
+ * exist.
+ *
+ * ## The validator is the gateway's own
+ *
+ * `normalizeMeetingFolder` is what `packages/meetings` uses to decide whether a
+ * folder a client asked for is one it will file into, and an offer it refuses
+ * is an offer the write then rejects. Calling anything else here would let a
+ * person save a folder the gateway will not honour — a setting that appears to
+ * work and silently files somewhere else, which is the exact defect that
+ * module exists to close.
+ *
+ * Owner-only, and personal-only. Only the personal-inbox offer reads this, so
+ * on a shared workspace it would be a control with no effect.
+ */
+export const setMeetingsFolder = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    /** A folder, or `null` to go back to the default. */
+    folder: v.union(v.string(), v.null()),
+  },
+  returns: v.object({ folder: v.string() }),
+  handler: async (ctx, args) => {
+    const actorId = (await requireAuthId(ctx)) as Id<"users">;
+    await requireWorkspaceRole(ctx, args.workspaceId, actorId, "owner");
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    /*
+      The helper, not a literal. `workspaceAuth.ts` is the one place this error
+      is constructed so that "not a member" and "does not exist" stay
+      byte-identical, and `workspaceAuth.test.ts` fails if the string appears
+      anywhere else in `functions/` — which is how this line was caught.
+    */
+    if (workspace === null) throw workspaceNotFound();
+    if (workspace.kind !== "personal") {
+      throw new ConvexError({
+        code: "MEETINGS_FOLDER_NOT_PERSONAL",
+        message:
+          "Meetings are offered your own brain first, so the folder is a setting on a brain rather than on a shared workspace.",
+      });
+    }
+
+    /*
+      `null` clears the choice rather than storing the default's spelling. A
+      stored "0-inbox/meetings" would stop following the default if it ever
+      moved, which is how a person who never expressed a preference ends up
+      pinned to an old one.
+    */
+    const folder =
+      args.folder === null ? null : normalizeMeetingFolder(args.folder);
+    if (args.folder !== null && folder === null) {
+      throw new ConvexError({
+        code: "MEETINGS_FOLDER_INVALID",
+        message: "Use a folder inside this context — not the root, and not a note.",
+      });
+    }
+
+    await ctx.db.patch(args.workspaceId, {
+      meetingsFolder: folder ?? undefined,
+      updatedAt: Date.now(),
+    });
+
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: actorId,
+      action: "meetings.folder_set",
+      details: { meetingsFolder: folder ?? MEETINGS_FOLDER },
+    });
+
+    return { folder: folder ?? MEETINGS_FOLDER };
   },
 });
 

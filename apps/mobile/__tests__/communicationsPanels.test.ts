@@ -46,6 +46,19 @@ jest.mock("convex/react", () => ({
     });
   },
   useConvexAuth: () => ({ isLoading: false, isAuthenticated: false }),
+  /*
+    Meetings reaches for these now. `undefined` from `useConvex` is exactly
+    what a console with no provider gets — the landing page's copy, and this
+    harness — and it is the state `MeetingsDestination` already handles by
+    drawing the folder with no control. `useMutation` is only ever called
+    through the live half, which that check keeps unrendered; it is stubbed so
+    that a future change reaching for it fails on an assertion rather than on a
+    missing mock. See the same note in `settingsOverlayRender.test.ts`.
+  */
+  useConvex: () => undefined,
+  useMutation: () => async () => {
+    throw new Error("no mutation should run in this harness");
+  },
 }));
 
 jest.mock("../features/console/google/leaveForGoogle", () => ({

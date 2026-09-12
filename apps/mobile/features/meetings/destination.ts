@@ -195,6 +195,20 @@ export interface DestinationContext {
   kind: string;
   /** `owner` | `editor` | `member`. Anything else may not write. */
   role: string;
+  /**
+   * Where meetings land in this context, when its owner has chosen.
+   *
+   * Rides on the context rather than arriving as a separate argument, because
+   * it belongs to exactly one of them: the first offer is always the person's
+   * own brain, so the folder that offer names is that brain's setting.
+   * `ownPersonalContext` already finds the row, and a parallel parameter would
+   * be a second thing the caller has to keep pointed at the same context.
+   *
+   * Absent is `INBOX_FOLDER`, which is what every context had before the
+   * setting existed. A value this module would not file into is treated as
+   * absent rather than honoured — see `resolveDestinations`.
+   */
+  meetingsFolder?: string;
 }
 
 /** Where the viewer is standing, or `null` when that is nowhere in particular. */
@@ -239,6 +253,84 @@ export type DestinationChoice =
  * first because it is the default, and `selectedIndex` falls back to it for
  * every case a remembered choice cannot be honoured.
  */
+/**
+ * Is this typing a folder a meeting could be filed into, and if not, why?
+ *
+ * The settings panel's half of `inboxFolderOf`. Same gate, so a folder the
+ * panel accepts is one the sheet will then offer and the gateway will then
+ * honour — and the console refuses before the round trip rather than after it,
+ * in a sentence rather than a `null`.
+ *
+ * **The control plane still decides.** `setMeetingsFolder` runs the real
+ * `normalizeMeetingFolder`; this exists so the field can say something while
+ * somebody is typing, and a client with the check removed is still refused.
+ *
+ * Returns `null` when there is nothing to say — which includes an empty field,
+ * because somebody who has selected the whole value to retype it should not be
+ * told off mid-word. Saving an empty value is refused by `canSaveMeetingFolder`
+ * instead.
+ */
+export function meetingFolderProblem(value: string): string | null {
+  const filed = collapseFolder(value);
+  if (filed === "") return null;
+  if (filed.length > MAX_FOLDER_LENGTH) return "That folder path is too long.";
+  if (!fileableFolder(filed)) return UNFILEABLE_FOLDER_REFUSAL;
+  return null;
+}
+
+/** Whether Save should do anything: a real folder, and not the one stored. */
+export function canSaveMeetingFolder(value: string, stored: string): boolean {
+  const filed = collapseFolder(value);
+  if (filed === "" || filed.length > MAX_FOLDER_LENGTH || !fileableFolder(filed)) return false;
+  return filed !== collapseFolder(stored);
+}
+
+/**
+ * The gateway's collapse: trim, drop empty segments, rejoin.
+ *
+ * One implementation, used by the offer and by the panel, so a value the panel
+ * calls unchanged is the value the offer would have carried.
+ */
+function collapseFolder(value: string): string {
+  return value
+    .trim()
+    .split("/")
+    .filter((segment) => segment !== "")
+    .join("/");
+}
+
+/**
+ * The folder the first offer names, which is a setting now rather than a
+ * constant.
+ *
+ * **A stored value this module would not file into falls back to the default.**
+ * An offer with no `refusal` on it is a promise, and the only thing that can
+ * keep it is the gateway — so a folder that would be rejected at the write is
+ * not one this sheet may offer, whether it arrived on a request or out of
+ * somebody's settings. A row written by a newer control plane, or one that
+ * predates a rule this bundle ships, lands on `INBOX_FOLDER` rather than on a
+ * destination that cannot be honoured.
+ *
+ * `fileableFolder` rather than `normalizeMeetingFolder`, for the reason the
+ * rest of this module restates that package instead of importing it: the phone
+ * does not bundle it. The empty check is the one rule `fileableFolder` leaves
+ * to its callers — `CONTEXT_ROOT_REFUSAL` argues it for a page, and it is the
+ * same refusal here, because a meeting filed at the root lands beside
+ * `index.md` and `privacy.md`.
+ */
+function inboxFolderOf(own: DestinationContext): string {
+  if (own.meetingsFolder === undefined) return INBOX_FOLDER;
+  /*
+    Collapsed the way the gateway collapses it, so a setting stored with a
+    trailing slash names the same folder as one without. The offer has to
+    carry the spelling the write will use, or `sameDestination` stops matching
+    a remembered choice against the row it came from.
+  */
+  const filed = collapseFolder(own.meetingsFolder);
+  if (filed === "" || !fileableFolder(filed)) return INBOX_FOLDER;
+  return filed;
+}
+
 export function resolveDestinations(input: {
   contexts: readonly DestinationContext[];
   page: CurrentPage | null;
@@ -250,7 +342,11 @@ export function resolveDestinations(input: {
 
   const offers: DestinationOffer[] = [
     {
-      destination: { kind: "personalInbox", contextSlug: own.slug, folder: INBOX_FOLDER },
+      destination: {
+        kind: "personalInbox",
+        contextSlug: own.slug,
+        folder: inboxFolderOf(own),
+      },
       /*
         NOTE: this is a statement about membership, not about `privacy.md`. A
         brain has exactly one member unless its owner has granted somebody

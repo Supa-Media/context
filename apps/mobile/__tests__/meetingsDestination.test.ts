@@ -189,6 +189,103 @@ describe("the default is the person's own brain, wherever they are standing", ()
   });
 });
 
+/*
+  The folder the first offer names is a setting now, not a constant. It was the
+  one capture destination a person could not change: mail, calendars and Chat
+  each carry an editable folder per connection, and a meeting carried
+  `MEETINGS_FOLDER` interpolated into a sentence with no control beside it.
+
+  What is NOT a setting, and must never become one, is whether the question is
+  asked. Every test in the block above still holds: the first offer is the
+  person's own brain wherever they are standing, and the sheet still asks.
+
+  ## Sabotage record
+
+  Applied to `inboxFolderOf` in `features/meetings/destination.ts`.
+
+    honour a stored folder without checking it is fileable      1
+    ignore the setting and always answer INBOX_FOLDER           3
+    keep the stored spelling rather than collapsing it          2
+
+  The first row is one test because the eight refused spellings are asserted
+  together — they are one rule asked eight ways — and it is the test that fails
+  if the gate goes.
+*/
+describe("where the first offer points is the brain's own setting", () => {
+  const filedUnder = (meetingsFolder?: string) =>
+    offers(
+      resolveDestinations({
+        contexts: [{ ...OWN, meetingsFolder }, SHARED],
+        page: null,
+      }),
+    ).offers[0]!.destination.folder;
+
+  test("a brain that has never chosen gets the default it always had", () => {
+    expect(filedUnder(undefined)).toBe(INBOX_FOLDER);
+  });
+
+  test("a brain that has chosen gets its own folder", () => {
+    expect(filedUnder("2-areas/meetings")).toBe("2-areas/meetings");
+  });
+
+  test("the setting names a folder and nothing else — the sheet still asks", () => {
+    const choice = offers(
+      resolveDestinations({
+        contexts: [{ ...OWN, meetingsFolder: "2-areas/meetings" }, SHARED],
+        page: { contextSlug: "field-notes", path: "1-projects/portal", isNote: false },
+      }),
+    );
+    // Two offers, the person's own first, exactly as before. A setting that
+    // answered the question silently would be a different product.
+    expect(choice.offers).toHaveLength(2);
+    expect(choice.selectedIndex).toBe(0);
+    expect(choice.offers[1]!.destination.kind).toBe("currentPage");
+  });
+
+  test("a stored folder the gateway would refuse falls back rather than being offered", () => {
+    /*
+      An offer with no refusal on it is a promise the gateway has to keep. A
+      row written by a newer control plane — or one predating a rule this
+      bundle ships — must not produce a destination whose write is rejected.
+      Checked against the real package, the same way this suite checks the
+      request path.
+    */
+    for (const refused of [
+      "",
+      "   ",
+      "/",
+      ".plumbing/meetings",
+      "2-areas/../../etc",
+      "2-areas/a..b",
+      "1-projects/board.md",
+      "2-areas/%2e%2e/meetings",
+    ]) {
+      expect(normalizeMeetingFolder(refused)).toBeNull();
+      expect(filedUnder(refused)).toBe(INBOX_FOLDER);
+    }
+  });
+
+  test("every folder it does offer is one the gateway files into", () => {
+    for (const allowed of ["2-areas/meetings", "1-projects/calls", "0-inbox/meetings"]) {
+      const folder = filedUnder(allowed);
+      expect(folder).toBe(allowed);
+      expect(normalizeMeetingFolder(folder)).toBe(allowed);
+    }
+  });
+
+  test("a spelling the gateway would collapse is collapsed before it is offered", () => {
+    // The offer has to carry the spelling the write will use, or a remembered
+    // choice stops matching the row it came from.
+    expect(filedUnder("2-areas/meetings/")).toBe("2-areas/meetings");
+    expect(filedUnder("  2-areas//meetings  ")).toBe("2-areas/meetings");
+    expect(normalizeMeetingFolder("2-areas/meetings/")).toBe("2-areas/meetings");
+  });
+
+  test("the default is still the package's spelling, not a second copy", () => {
+    expect(INBOX_FOLDER).toBe(MEETINGS_FOLDER);
+  });
+});
+
 describe("the second offer is the page somebody is looking at", () => {
   test("a folder resolves to itself", () => {
     const choice = offers(
