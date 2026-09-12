@@ -390,6 +390,16 @@ export const layout = {
   /** `@media(max-width:1080px)` — floating tiles are hidden. */
   tileBreakpoint: 1080,
   railWidth: 216,
+  /**
+   * The settings overlay's index, which is wider than the rail it used to
+   * borrow its width from.
+   *
+   * 216 is a column of bare labels. This one carries a mark, a label and what
+   * the setting is currently *set to* — and at 216 the value had about 33pt
+   * left, which is not a column, it is an ellipsis. The panel beside it is
+   * capped at 940, so the 36 points come out of a body that has them.
+   */
+  settingsListWidth: 252,
   treeWidth: 246,
   consoleBodyMinHeight: 566,
   mapHeight: 398,

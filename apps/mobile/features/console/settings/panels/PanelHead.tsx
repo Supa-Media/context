@@ -32,8 +32,20 @@ export function PanelHead({
   const styles = useThemedStyles(makeStyles);
   return (
     <>
+      {/*
+        A heading, but only when this block *is* the screen.
+
+        The overlay's title bar no longer carries the section's name — a bar
+        titled "Storage" over a panel titled "Storage" was the duplicate this
+        redesign removed — so with a `section` this is the only name on the
+        screen and has to be readable as one. Without a `section` these are
+        eyebrows separating eight blocks under a single pane head, and a page
+        of sibling h2s there would be a worse outline rather than a better one.
+      */}
       <Text
         variant={sectioned ? "paneTitle" : "eyebrow"}
+        role={sectioned ? "heading" : undefined}
+        aria-level={sectioned ? 2 : undefined}
         style={sectioned ? styles.head : styles.headLater}
       >
         {settingsSectionLabel(section)}

@@ -1138,14 +1138,20 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
       ];
 
     case "sun":
-      // Four rays, not eight. Eight at 18pt is a blot with a ring in it — the
-      // count `filter` and `globe` both settle on for the same reason.
+      /*
+        Four rays, not eight. Eight at 18pt is a blot with a ring in it — the
+        count `filter` and `globe` both settle on for the same reason.
+
+        The core is 0.24 and the rays 0.2, drawn once at 0.2/0.16 and found
+        too light beside `laptop` and `grid` in the same column: a mark that
+        is correct in isolation and quiet in its row is the row's problem.
+      */
       return [
-        ring("core", u, w, c, { cx: 0.5, cy: 0.5, r: 0.2 }),
-        bar("rayN", u, w, c, { cx: 0.5, cy: 0.13, length: 0.16, angle: 90 }),
-        bar("rayS", u, w, c, { cx: 0.5, cy: 0.87, length: 0.16, angle: 90 }),
-        bar("rayW", u, w, c, { cx: 0.13, cy: 0.5, length: 0.16 }),
-        bar("rayE", u, w, c, { cx: 0.87, cy: 0.5, length: 0.16 }),
+        ring("core", u, w, c, { cx: 0.5, cy: 0.5, r: 0.24 }),
+        bar("rayN", u, w, c, { cx: 0.5, cy: 0.11, length: 0.2, angle: 90 }),
+        bar("rayS", u, w, c, { cx: 0.5, cy: 0.89, length: 0.2, angle: 90 }),
+        bar("rayW", u, w, c, { cx: 0.11, cy: 0.5, length: 0.2 }),
+        bar("rayE", u, w, c, { cx: 0.89, cy: 0.5, length: 0.2 }),
       ];
 
     case "signOut":
@@ -1173,11 +1179,19 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
       ];
 
     case "drive":
+      /*
+        Two separate bays, not one box with a rule through it.
+
+        The first draft was exactly that, and beside `card` two rows down it
+        was a credit card with a line on it — same outline, same radius, same
+        proportions. Two stacked outlines is a rack, and a rack cannot be
+        mistaken for a card at any size.
+      */
       return [
-        rect("body", u, w, c, { x0: 0.1, y0: 0.26, x1: 0.9, y1: 0.74, radius: 0.12 }),
-        bar("divider", u, w, c, { cx: 0.5, cy: 0.5, length: 0.8 }),
-        dot("ledTop", u, c, { cx: 0.74, cy: 0.38, r: 0.055 }),
-        dot("ledBottom", u, c, { cx: 0.74, cy: 0.62, r: 0.055 }),
+        rect("bayTop", u, w, c, { x0: 0.1, y0: 0.18, x1: 0.9, y1: 0.46, radius: 0.09 }),
+        dot("ledTop", u, c, { cx: 0.76, cy: 0.32, r: 0.055 }),
+        rect("bayBottom", u, w, c, { x0: 0.1, y0: 0.54, x1: 0.9, y1: 0.82, radius: 0.09 }),
+        dot("ledBottom", u, c, { cx: 0.76, cy: 0.68, r: 0.055 }),
       ];
 
     case "sliders":

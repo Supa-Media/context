@@ -31,6 +31,8 @@
  * is listed for one and every panel under it refuses in its own words.
  */
 
+import type { IconName } from "../../design/components/Icon";
+
 export type SettingsGroup =
   | "Your account"
   | "What comes in"
@@ -65,6 +67,16 @@ export interface SettingsSectionSpec {
    * our naming being the only way in.
    */
   keywords: string;
+  /**
+   * The row's mark.
+   *
+   * Nineteen rows carrying one word each is a list that has to be read rather
+   * than scanned — so the glyph is part of the catalogue, beside the label,
+   * and not a lookup table somewhere else that a new section can be added
+   * without. Four of them are marks the set already had and that already mean
+   * the right thing; the rest were drawn for this list. See `Icon.tsx`.
+   */
+  icon: IconName;
   /** Absent on a shared workspace, which has no ingestion alias of its own. */
   personalOnly?: boolean;
 }
@@ -76,6 +88,7 @@ export const SETTINGS_SECTIONS = [
     label: "AI apps",
     scope: "account",
     group: "Your account",
+    icon: "grid",
     personalOnly: false,
   },
   {
@@ -84,6 +97,7 @@ export const SETTINGS_SECTIONS = [
     label: "Profile",
     scope: "account",
     group: "Your account",
+    icon: "person",
     personalOnly: false,
   },
   {
@@ -92,6 +106,7 @@ export const SETTINGS_SECTIONS = [
     label: "Invitations",
     scope: "account",
     group: "Your account",
+    icon: "mailOpen",
     personalOnly: false,
   },
   {
@@ -107,6 +122,7 @@ export const SETTINGS_SECTIONS = [
     label: "Your devices",
     scope: "account",
     group: "Your account",
+    icon: "laptop",
     personalOnly: false,
   },
   {
@@ -115,6 +131,7 @@ export const SETTINGS_SECTIONS = [
     label: "Appearance",
     scope: "account",
     group: "Your account",
+    icon: "sun",
     personalOnly: false,
   },
   {
@@ -134,6 +151,7 @@ export const SETTINGS_SECTIONS = [
     label: "Sign out & delete",
     scope: "account",
     group: "Your account",
+    icon: "signOut",
     personalOnly: false,
   },
   {
@@ -146,6 +164,7 @@ export const SETTINGS_SECTIONS = [
       and is it working" before any of the three questions the groups ask.
     */
     group: null,
+    icon: "info",
     personalOnly: false,
   },
   {
@@ -169,6 +188,7 @@ export const SETTINGS_SECTIONS = [
       be the fast one.
     */
     group: null,
+    icon: "card",
     personalOnly: false,
   },
   /*
@@ -205,6 +225,7 @@ export const SETTINGS_SECTIONS = [
     scope: "context",
     label: "Email",
     group: "What comes in",
+    icon: "mail",
     personalOnly: false,
   },
   {
@@ -213,6 +234,7 @@ export const SETTINGS_SECTIONS = [
     scope: "context",
     label: "Calendar",
     group: "What comes in",
+    icon: "calendar",
     personalOnly: false,
   },
   {
@@ -222,6 +244,7 @@ export const SETTINGS_SECTIONS = [
     scope: "context",
     label: "Chats",
     group: "What comes in",
+    icon: "chat",
     personalOnly: false,
   },
   {
@@ -231,6 +254,7 @@ export const SETTINGS_SECTIONS = [
     scope: "context",
     label: "Meetings",
     group: "What comes in",
+    icon: "mic",
     personalOnly: false,
   },
   {
@@ -239,6 +263,7 @@ export const SETTINGS_SECTIONS = [
     scope: "context",
     label: "People",
     group: "Who can see it",
+    icon: "people",
     personalOnly: false,
   },
   {
@@ -253,6 +278,7 @@ export const SETTINGS_SECTIONS = [
     scope: "context",
     label: "Groups",
     group: "Who can see it",
+    icon: "group",
     personalOnly: false,
   },
   {
@@ -267,6 +293,7 @@ export const SETTINGS_SECTIONS = [
     scope: "context",
     label: "Shared links",
     group: "Who can see it",
+    icon: "share",
     personalOnly: false,
   },
   {
@@ -284,16 +311,34 @@ export const SETTINGS_SECTIONS = [
     scope: "context",
     label: "Privacy",
     group: "Who can see it",
+    icon: "lock",
     personalOnly: false,
   },
-  { key: "storage", keywords: "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup", scope: "context", label: "Storage", group: "Your notes", personalOnly: false },
-  { key: "search", keywords: "find index fast lookup rebuild", scope: "context", label: "Search", group: "Your notes", personalOnly: false },
+  {
+    key: "storage",
+    keywords: "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup",
+    scope: "context",
+    label: "Storage",
+    group: "Your notes",
+    icon: "drive",
+    personalOnly: false,
+  },
+  {
+    key: "search",
+    keywords: "find index fast lookup rebuild",
+    scope: "context",
+    label: "Search",
+    group: "Your notes",
+    icon: "search",
+    personalOnly: false,
+  },
   {
     key: "advanced",
     keywords: "audit history log trail export key keys encryption rotate activity",
     scope: "context",
     label: "Advanced",
     group: "Your notes",
+    icon: "sliders",
     personalOnly: false,
   },
 ] as const;
