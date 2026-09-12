@@ -3221,13 +3221,24 @@ folders and attachments therefore keep working together; a successful first-run
 import replaces the layout question rather than putting PARA beside a structure
 the person already has.
 
-The import is bounded, batched and create-only. Retrying skips objects that
-already landed, and it never overwrites a file already in the destination.
-Bytes pass through the action into the bucket and are never stored in Convex.
-The client shows file-count progress and the server records path-only audit
-metadata. After a fresh onboarding import, the existing all-private repair path
-creates a valid `privacy.md` from the uploaded top-level folders. A Settings
-import never rewrites an established workspace's access map.
+An import into storage that already has data starts with an explicit choice.
+**Merge without replacing** keeps the vault's paths and skips every collision.
+**Keep it in its own folder** puts the selected vault under
+`Imports/<vault name>/`. Neither choice can replace an existing object.
+
+The import is bounded, batched and create-only. Convex stores the total counts,
+completed batch numbers, and a fingerprint of the local manifest. It never
+stores file bytes or note bodies. The person must keep the tab open while bytes
+upload because the source vault remains on their device. If the tab closes or a
+request fails, they return, select the same vault, and resume after the last
+completed batch. Stable path ordering keeps batch numbers consistent when the
+browser enumerates the folder in a different order on the second selection.
+
+The client shows the completed file count and percentage. Server audit records
+contain paths and counts only. After a fresh onboarding import, the existing
+all-private repair path creates a valid `privacy.md` from the uploaded top-level
+folders. A Settings import never rewrites an established workspace's access
+map.
 
 Obsidian application state and Context plumbing do not come along:
 `.obsidian/`, `.trash/`, `.git/`, `.context/`, `.audit/`, system metadata and a

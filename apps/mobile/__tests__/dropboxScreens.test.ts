@@ -353,7 +353,16 @@ describe("the storage choice: two paths, provider details behind the click", () 
 
 describe("storage settings import", () => {
   test("offers the Obsidian or Markdown importer after storage is connected", () => {
-    const client = { action: async () => ({}) } as never;
+    const watch = {
+      localQueryResult: () => null,
+      onUpdate: () => () => {},
+      journal: () => undefined,
+    };
+    const client = {
+      action: async () => ({}),
+      mutation: async () => ({}),
+      watchQuery: () => watch,
+    } as never;
     const screen = mount(
       createElement(
         ConvexProvider,
@@ -367,7 +376,9 @@ describe("storage settings import", () => {
     );
     expect(screen.q("settings-vault-import")).not.toBe(null);
     expect(screen.text).toContain("Have an Obsidian vault or existing Markdown notes?");
-    expect(screen.text).toContain("Choose a vault or notes folder");
+    expect(screen.text).toContain("How should this vault join your existing notes?");
+    expect(screen.text).toContain("Merge without replacing");
+    expect(screen.text).toContain("Keep it in its own folder");
     screen.unmount();
   });
 });

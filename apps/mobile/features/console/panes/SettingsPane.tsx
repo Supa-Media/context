@@ -473,7 +473,11 @@ function SettingsVaultImport({ workspaceId }: { workspaceId: string }) {
   if (client === undefined) return null;
   return (
     <View style={{ marginTop: 24 }}>
-      <VaultImport workspaceId={workspaceId as Id<"workspaces">} testIDPrefix="settings-vault" />
+      <VaultImport
+        workspaceId={workspaceId as Id<"workspaces">}
+        existingData
+        testIDPrefix="settings-vault"
+      />
     </View>
   );
 }

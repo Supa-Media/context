@@ -11,6 +11,7 @@ export function VaultImportStep({ controller }: { controller: OnboardingControll
       onSkip={controller.skipVaultImport}
       onComplete={() => controller.finishVaultImport("imported")}
       initializePrivacy
+      existingData={controller.structureStep?.kind === "existing"}
       testIDPrefix="welcome-vault"
     />
   );
