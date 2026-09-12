@@ -97,6 +97,15 @@ So the two are separated, and the separation is the rule rather than a tuning:
   completeness used to be a by-product of the listing it did on the way in.
   `listedAt: null` counts as behind: an unknown reported as complete is the one
   direction that tells somebody their note is not written down.
+- **A gateway write is projected immediately once Fast Search is ready.** The
+  gateway already has the path, plaintext, version and effective visibility,
+  so `write_note` sends an idempotent delete-and-upsert to D1 behind the
+  response instead of waiting for the next bucket census. This closes the
+  post-activation gap where a newly written note could miss the very next
+  search until Fast Search was toggled off and on. The bucket write remains
+  canonical: a projection refusal is retried three times, never rolls back the
+  note, never reaches the caller, and is repaired by ordinary reconciliation.
+  Writes made outside the gateway still rely on that reconciliation path.
 
 **The one exception is a miss, and it is the narrowest one available: a miss may
 pay for a listing, a hit never does.** An answer is only as fresh as the last
