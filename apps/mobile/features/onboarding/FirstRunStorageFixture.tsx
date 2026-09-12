@@ -34,7 +34,7 @@ const FIXTURE_STATUS: PremiumStatus = {
   active: { managedStorage: false, fastSearch: false },
   canManage: true,
   configured: true,
-  priceCents: 2000,
+  priceCents: 500,
   currency: "usd",
   interval: "month",
   ceilingBytes: 50_000_000_000,
@@ -62,7 +62,7 @@ export function FirstRunStorageFixture({
 
   const managed: ManagedOffer = {
     available,
-    price: "$20 a month",
+    price: "$5 a month",
     status: { ...FIXTURE_STATUS, selected },
     mode,
     session: "choosing",

@@ -13,7 +13,7 @@
  * `/settings?settings=premium&checkout=done` for as long as that file has
  * existed. **`/settings` is not a route here.** Settings stopped being a route
  * and became an overlay drawn over a context's own page, addressed as
- * `?settings=<section>` — so somebody who had just been charged $20 landed on
+ * `?settings=<section>` — so somebody who had just been charged $5 landed on
  * `+not-found`, and the `checkout=done` the URL carried was read by nobody.
  *
  * The path is built in `@context/shared` now. This file asserts three things

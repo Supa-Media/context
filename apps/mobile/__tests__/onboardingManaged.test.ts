@@ -7,7 +7,7 @@
  *
  * What these assert, in the order they matter:
  *
- * 1. **It is absent where it cannot be delivered.** A card that takes $20 for
+ * 1. **It is absent where it cannot be delivered.** A card that takes $5 for
  *    storage that cannot be created is the worst failure this flow has,
  *    because it happens *after* the payment. The control plane answers one
  *    question — a price to charge and somewhere to put the bucket — and a
@@ -69,7 +69,7 @@ const status: PremiumStatus = {
   active: { managedStorage: false, fastSearch: false },
   canManage: true,
   configured: true,
-  priceCents: 2000,
+  priceCents: 500,
   currency: "usd",
   interval: "month",
   ceilingBytes: 50_000_000_000,
@@ -80,7 +80,7 @@ const status: PremiumStatus = {
 function offer(over: Partial<ManagedOffer> = {}): ManagedOffer {
   return {
     available: true,
-    price: "$20 a month",
+    price: "$5 a month",
     status,
     mode: "choose",
     session: "choosing",
@@ -142,7 +142,7 @@ describe("offering storage we keep", () => {
     const container = mount(offer());
     const card = container.querySelector('[data-testid="choose-managed"]');
     expect(card).not.toBeNull();
-    expect(card?.textContent ?? "").toContain("$20 a month");
+    expect(card?.textContent ?? "").toContain("$5 a month");
     expect(card?.textContent ?? "").toContain("50 GB");
     expect(container.textContent ?? "").not.toContain("Recommended");
     // The two product paths are peers. Provider details are not a third tier.
@@ -157,7 +157,7 @@ describe("the screen before Stripe", () => {
   const confirming = () => mount(offer({ mode: "confirm" }));
 
   test("states the price", () => {
-    expect(confirming().textContent ?? "").toContain("$20 a month");
+    expect(confirming().textContent ?? "").toContain("$5 a month");
   });
 
   test("and that it covers this context and nothing else", () => {

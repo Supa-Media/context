@@ -21,7 +21,7 @@
  * the same either way. That is a product decision rather than an oversight:
  * somebody who runs their own bucket may still want the index, and somebody
  * who wants us to hold the bucket may not want a copy of their notes in a
- * database we run. Metering two prices to sell one $20 subscription buys
+ * database we run. Metering two prices to sell one $5 subscription buys
  * nothing and doubles the number of states this file has to describe.
  *
  * `selected` is what the owner asked for and is stored whether or not anybody
@@ -41,8 +41,8 @@
  * this module exports nothing shaped like one.
  */
 
-/** $20 a month, per context. Cents, so no float ever holds a price. */
-export const PREMIUM_PRICE_CENTS = 2_000;
+/** $5 a month, per context. Cents, so no float ever holds a price. */
+export const PREMIUM_PRICE_CENTS = 500;
 export const PREMIUM_CURRENCY = "usd";
 export const PREMIUM_INTERVAL = "month";
 

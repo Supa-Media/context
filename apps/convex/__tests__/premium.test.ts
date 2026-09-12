@@ -66,8 +66,8 @@ const bothOff = { managedStorage: false, fastSearch: false };
 const bothOn = { managedStorage: true, fastSearch: true };
 
 describe("the price and the ceiling", () => {
-  test("twenty dollars a month, in cents", () => {
-    expect(PREMIUM_PRICE_CENTS).toBe(2000);
+  test("five dollars a month, in cents", () => {
+    expect(PREMIUM_PRICE_CENTS).toBe(500);
     expect(PREMIUM_CURRENCY).toBe("usd");
     expect(PREMIUM_INTERVAL).toBe("month");
   });
