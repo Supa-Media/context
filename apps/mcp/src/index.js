@@ -75,7 +75,17 @@ import {
   storeForSession,
   readsPrivateAnywhere,
   writesAnywhere,
+  participatesInForms,
 } from "./session.js";
+import {
+  emptyResponsesFile,
+  newResponseId,
+  parseFormBlocks,
+  parseResponsesFile,
+  renderResponsesFile,
+  responseStamp,
+  validateSubmission,
+} from "./forms.js";
 import { enforceOrigin, isTransportPath } from "./origin.js";
 import { validateArguments } from "./toolArguments.js";
 import {
@@ -1753,7 +1763,34 @@ function actorFor(session) {
     userId: session.actorUserId,
     clientId: session.actorClientId,
     grantId: session.grantId,
+    // The two the form tools need, carried the same way and for the same
+    // reason: a form response records *who*, and a form's `submit` policy is
+    // compared against the caller's role in the context the call was routed
+    // to. Both are already on the session `actorFor` is built from, and both
+    // are ids and slugs — never a credential.
+    role: session.role,
+    name: personalNameFor(session),
   };
+}
+
+/**
+ * The caller's username — their own brain's slug, with the `@`.
+ *
+ * A response says who wrote it, and the only name that means anything across
+ * contexts is the one in the global username namespace. It is read off the
+ * connection's covered contexts rather than passed in, so a submission cannot
+ * claim to be from somebody else: `submitted_by` is stamped here, never taken
+ * from an argument.
+ *
+ * `null` for a connection whose person has no personal context — which is not
+ * a state the product produces, but is one a self-hosted deployment or a stale
+ * grant can, and the form tools refuse rather than invent a name.
+ */
+function personalNameFor(session) {
+  const own = (session?.workspaces || []).find(
+    (entry) => entry.kind === "personal" && entry.role === "owner" && entry.slug
+  );
+  return own ? `@${own.slug}` : null;
 }
 
 /**
@@ -2020,6 +2057,29 @@ const EXISTENCE_MASKED_TOOLS = new Set([
   "materialize_move",
 ]);
 
+/**
+ * The tools a connection without `context:write` may still call.
+ *
+ * They write — `toolIsWriting` says so, from their own annotations, and that is
+ * correct — but what they write is one response inside one file an editor
+ * named, in a shape this gateway renders. The authority for them is the form's
+ * own `submit` policy rather than the grant's write scope, because the whole
+ * point of a form is to collect answers from people who may not write notes.
+ *
+ * `participatesInForms` is the floor underneath that: the grant must still have
+ * asked for write, so a client somebody deliberately connected read-only cannot
+ * submit either. Two gates, and this set is only the first of them.
+ *
+ * It exempts the *call*, never the listing. `toolsForSession` needs no branch
+ * for it: a connection that can take part in a form is, by construction, one
+ * whose person owns their own brain — that is where the username a response is
+ * recorded under comes from — so `writesAnywhere` is already true of it and the
+ * full list is already offered. A listing branch would only ever have fired for
+ * a connection whose submissions `mutateFormResponses` then refuses for want of
+ * a name, which is a tool offered to somebody who cannot use it.
+ */
+const FORM_TOOLS = new Set(["submit_form", "update_submission", "retract_submission", "vote_form"]);
+
 /** Is this tool's existence hidden from a caller at this visibility tier? */
 function toolExistenceMasked(name, scope) {
   return EXISTENCE_MASKED_TOOLS.has(name) && scope !== "private";
@@ -2266,7 +2326,11 @@ async function callToolForSession(params, store, session) {
   // Read off `target`, never `session`: the grant's write scope survives only
   // where the caller's role in *that* context can back it up, so a `member` in
   // somebody's brain is refused here even holding a full-access grant.
-  if (toolIsWriting(params?.name) && !hasScope(target, SCOPE_WRITE)) {
+  if (
+    toolIsWriting(params?.name) &&
+    !hasScope(target, SCOPE_WRITE) &&
+    !(FORM_TOOLS.has(params?.name) && participatesInForms(target))
+  ) {
     /*
       Two refusals, because there are two causes and the fix differs. A grant
       that was never given write is a reconnection; a role that cannot back one
@@ -2333,6 +2397,7 @@ const USAGE_METRICS_BY_TOOL = new Map([
   ["write_note", ["note.write"]],
   ["propose_note", ["note.write"]],
   ["save_context", ["note.write"]],
+  ["submit_form", ["note.write"]],
 ]);
 
 /**
@@ -3051,6 +3116,118 @@ function baseToolDefinitions() {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
+      name: "submit_form",
+      description:
+        "Send an answer to a markdown form. The gateway checks the values against the form's fields, stamps your username and the time, and writes the row itself — you never send markdown, and you never need write access to the response file.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "The note the form block is on" },
+          form_id: {
+            type: "string",
+            description: "The form's id. Required only when the note carries more than one form.",
+          },
+          values: {
+            type: "array",
+            minItems: 0,
+            maxItems: 24,
+            description:
+              "One entry per field you are answering. A field you leave out is left empty.",
+            items: {
+              type: "object",
+              properties: {
+                field: { type: "string", description: "The field's name, as the form declares it" },
+                value: { type: "string", description: "Your answer, as text — numbers, dates and yes/no included" },
+              },
+              required: ["field", "value"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["path", "values"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    {
+      name: "update_submission",
+      description:
+        "Replace the answers on a response you submitted. Allowed only where the form sets edit_own, and only on a response whose author is you.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "The note the form block is on" },
+          form_id: {
+            type: "string",
+            description: "The form's id. Required only when the note carries more than one form.",
+          },
+          response_id: { type: "string", description: "The response's id, as shown in the response file" },
+          values: {
+            type: "array",
+            minItems: 0,
+            maxItems: 24,
+            description:
+              "The complete new set of answers. A field you leave out is cleared.",
+            items: {
+              type: "object",
+              properties: {
+                field: { type: "string", description: "The field's name, as the form declares it" },
+                value: { type: "string", description: "Your answer, as text — numbers, dates and yes/no included" },
+              },
+              required: ["field", "value"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["path", "response_id", "values"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    {
+      name: "retract_submission",
+      description:
+        "Delete a response you submitted. Allowed only where the form sets edit_own and the response is yours; an editor of the context may delete any response.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "The note the form block is on" },
+          form_id: {
+            type: "string",
+            description: "The form's id. Required only when the note carries more than one form.",
+          },
+          response_id: { type: "string", description: "The response's id" },
+        },
+        required: ["path", "response_id"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    },
+    {
+      name: "vote_form",
+      description:
+        "Add or remove your upvote on one response. Voters are listed by name so a vote can be taken back; a second vote from you is not a second count.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "The note the form block is on" },
+          form_id: {
+            type: "string",
+            description: "The form's id. Required only when the note carries more than one form.",
+          },
+          response_id: { type: "string", description: "The response to vote on" },
+          vote: {
+            type: "string",
+            enum: ["up", "none"],
+            description: "up adds your vote, none takes it back. Defaults to up.",
+          },
+        },
+        required: ["path", "response_id"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    {
       name: "list_changes",
       description:
         "List recent immutable context change records, filtered to paths visible to this connection. Records contain actions and paths, never note content.",
@@ -3166,6 +3343,14 @@ async function callTool(name, args, store, scope) {
       return toolSaveContext(store, scope, rules, overrides, args);
     case "list_changes":
       return toolListChanges(store, scope, rules, overrides, args.limit);
+    case "submit_form":
+      return toolSubmitForm(store, scope, rules, overrides, args);
+    case "update_submission":
+      return toolUpdateSubmission(store, scope, rules, overrides, args);
+    case "retract_submission":
+      return toolRetractSubmission(store, scope, rules, overrides, args);
+    case "vote_form":
+      return toolVoteForm(store, scope, rules, overrides, args);
     case "list_plugins":
       // **The owner's, like the note census.** `.obsidian/` sits outside the
       // privacy manifest's reach, and `isPlumbing` hides every dot-segment from
@@ -4851,6 +5036,26 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   if (isPersonalCommunicationsPath(path) && store.actor?.workspaceKind === "shared") {
     return toolError("personal communications can only be synced to a personal brain");
   }
+  /*
+   * A FORM BLOCK THAT DOES NOT PARSE IS REFUSED AT THE WRITE, NOT AT THE READ.
+   *
+   * The read-time parse still fails closed — that is what protects a note
+   * hand-edited in Obsidian, which never comes through here. This is the other
+   * half, and it is the cheap half: an author working through the gateway is
+   * told which line is wrong while they still have the text in front of them,
+   * instead of discovering it when somebody's submission is refused.
+   *
+   * Before the write, and before anything is looked up: a note is never stored
+   * carrying a form nobody can use.
+   */
+  const formBlocks = parseFormBlocks(content);
+  const brokenForm = formBlocks.find((block) => block.error);
+  if (brokenForm) {
+    return toolError(
+      `the form block at line ${brokenForm.line} is not valid: ${brokenForm.error}. ` +
+        "Fix it or remove it — a note is not saved with a form that cannot be used."
+    );
+  }
   if (await pathUnderActiveMovedSource(store, path)) {
     return toolError("conflict: that folder is being moved; write to the destination path instead");
   }
@@ -4993,7 +5198,427 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
     version: put.etag,
     visibility: desiredVisibility,
   });
-  return toolText(`written: ${path} (etag ${put.etag})\nvisibility: ${desiredVisibility}`);
+  // After the note is safely stored, never before: a response file for a note
+  // whose own write then failed is a file referring to a form that does not
+  // exist.
+  const forms = formBlocks.length
+    ? await ensureFormResponseFiles(store, scope, rules, formBlocks, path)
+    : { created: [], occupied: [] };
+  const formLines = [
+    ...forms.created.map((responses) => `response file created: ${responses}`),
+    ...forms.occupied.map((detail) => `form not collecting yet: ${detail}`),
+  ];
+  return toolText(
+    `written: ${path} (etag ${put.etag})\nvisibility: ${desiredVisibility}` +
+      (formLines.length ? `\n${formLines.join("\n")}` : "")
+  );
+}
+
+/* --------------------------------- forms ---------------------------------- */
+
+/**
+ * Form participation, and the four tools that are all one write.
+ *
+ * ## Why a submission is not a note write
+ *
+ * A form collects answers from people who cannot write notes. A `member` of a
+ * shared workspace holds no `context:write` in it — by `effectiveScopes`, and
+ * correctly — so every path below writes a file the caller could not write
+ * directly. Three things keep that from being a hole:
+ *
+ *  - **The caller never supplies Markdown.** They send values; `forms.js`
+ *    checks them against the declared fields and renders the row. There is no
+ *    argument on any of these tools that reaches the file as text.
+ *  - **The destination is the form's, not the caller's.** `responses:` is read
+ *    out of a note an editor wrote, and the response file must already carry
+ *    this form's marker — so a submission cannot be aimed at `index.md`, and a
+ *    file that is not a response file is never written to.
+ *  - **Identity is stamped, never claimed.** `by` comes from
+ *    `store.actor.name`, and every ownership test compares against that.
+ *
+ * ## Why the whole file is rewritten every time
+ *
+ * Both layouts have structure a bare append cannot maintain — a table has a
+ * header, and an edit or a vote changes a response in the middle. So each
+ * mutation reads the file, parses it back, changes one response, and rewrites
+ * it under the etag it read. That makes the round-trip property in `forms.js`
+ * load-bearing rather than decorative: a parse that loses a character loses it
+ * from everybody's response, not just the one being edited.
+ *
+ * ## Why a store without conditional writes is refused
+ *
+ * A form is the most contended write this gateway has: a bug tracker shared
+ * with everybody is many people appending to one file. Without `If-Match` two
+ * submissions a second apart silently become one. B2 and Wasabi do not support
+ * it reliably, the adapter probes for it at connect time, and the honest
+ * answer on such a store is to refuse the submission rather than take it and
+ * lose it.
+ */
+
+/** How many times a mutation re-reads and re-applies before giving up. */
+const FORM_WRITE_ATTEMPTS = 4;
+
+/** Roles, ordered, so a form's `submit` policy can be compared against one. */
+const ROLE_RANK = new Map([
+  ["member", 1],
+  ["editor", 2],
+  ["owner", 3],
+]);
+
+function roleAtLeast(role, required) {
+  const held = ROLE_RANK.get(role) || 0;
+  const needed = ROLE_RANK.get(required) || ROLE_RANK.get("member");
+  return held >= needed;
+}
+
+/** Whoever is calling, as a form records and authorizes them. */
+function formActor(store) {
+  return { name: store.actor?.name || null, role: store.actor?.role || null };
+}
+
+/**
+ * Find the form a call names, or the reason it cannot be used.
+ *
+ * The note has to be one this connection can already see, which is where the
+ * refusal for "no such note" and "a note you may not read" become the same
+ * three bytes — the rule every read in this file follows.
+ */
+async function resolveForm(store, scope, rules, overrides, args) {
+  const path = normalizePath(args.path);
+  if (!path || !path.endsWith(".md")) return { refusal: toolError("invalid path (must end in .md)") };
+  if (!canSee(path, scope, rules, overrides)) return { refusal: toolError("not found") };
+  const object = await store.get(path);
+  if (!object) return { refusal: toolError("not found") };
+  const opened = await openStoredNote(store, await object.text());
+  if (!opened.ok) return { refusal: encryptedNoteRefusal(path) };
+
+  const blocks = parseFormBlocks(opened.text);
+  if (!blocks.length) return { refusal: toolError("that note carries no form") };
+
+  const wanted = typeof args.form_id === "string" && args.form_id ? args.form_id : null;
+  let chosen;
+  if (wanted) {
+    chosen = blocks.find((block) => block.config?.id === wanted);
+    // A broken block has no id to match on, so a note whose only form is
+    // broken answers with the parse error rather than "no such form" — the
+    // author needs the first message, not the second.
+    if (!chosen && blocks.length === 1 && blocks[0].error) chosen = blocks[0];
+    if (!chosen) return { refusal: toolError(`that note carries no form called "${wanted}"`) };
+  } else {
+    if (blocks.length > 1) {
+      return { refusal: toolError(`that note carries ${blocks.length} forms; name one with form_id`) };
+    }
+    chosen = blocks[0];
+  }
+  if (chosen.error) {
+    return {
+      refusal: toolError(
+        `this form cannot be used: ${chosen.error} (block at line ${chosen.line}). ` +
+          "An editor of this context can fix the block; nothing has been written."
+      ),
+    };
+  }
+
+  const config = chosen.config;
+  const responses = normalizePath(config.responses);
+  if (!responses || !responses.endsWith(".md") || isPlumbing(responses) || !writesOneRule(responses)) {
+    return { refusal: toolError("this form names a response file that cannot be written") };
+  }
+  if (responses === path) {
+    return { refusal: toolError("this form points its responses at the form itself") };
+  }
+  return { path, config, responsesPath: responses };
+}
+
+/** Read the response file back, refusing anything this gateway did not write. */
+async function readFormResponses(store, config, responsesPath) {
+  const object = await store.get(responsesPath);
+  if (!object) return { missing: true };
+  const stored = await object.text();
+  const opened = await openStoredNote(store, stored);
+  if (!opened.ok) return { refusal: encryptedNoteRefusal(responsesPath) };
+  const parsed = parseResponsesFile(opened.text, config);
+  if (parsed.error) return { refusal: toolError(parsed.error) };
+  return { etag: object.etag, stored, responses: parsed.responses };
+}
+
+/**
+ * One mutation of a response file, retried against a concurrent one.
+ *
+ * `mutate` is handed the responses as they are *right now* and returns either a
+ * refusal or a new list. It is called again on every retry rather than once,
+ * because the checks it makes — "is this response still there", "have you
+ * already voted" — are about the state that is being written over, and
+ * re-applying a decision made against a stale read is how a vote gets counted
+ * twice.
+ */
+async function mutateFormResponses(store, scope, rules, overrides, args, action, mutate) {
+  const actor = formActor(store);
+  if (!actor.name) {
+    return toolError(
+      "this connection has no username to record a response under; create your brain first."
+    );
+  }
+  const form = await resolveForm(store, scope, rules, overrides, args);
+  if (form.refusal) return form.refusal;
+  const { config, responsesPath } = form;
+
+  if (!store?.capabilities?.conditionalWrite) {
+    return toolError(
+      "this context's storage cannot do conditional writes, so two responses arriving together " +
+        "would overwrite each other. Forms need a store that supports them — R2 and S3 do."
+    );
+  }
+
+  for (let attempt = 0; attempt < FORM_WRITE_ATTEMPTS; attempt++) {
+    const current = await readFormResponses(store, config, responsesPath);
+    if (current.refusal) return current.refusal;
+    if (current.missing) {
+      return toolError(
+        "this form has no response file yet. An editor of this context can create it by saving " +
+          "the form's note again; nothing has been written."
+      );
+    }
+
+    const applied = mutate(current.responses, { config, actor });
+    if (applied.refusal) return applied.refusal;
+
+    const rendered = renderResponsesFile(config, applied.responses);
+    let body = rendered;
+    if (isEncryptedNote(current.stored)) {
+      const sealed = await sealNoteContent(store, rendered, current.stored);
+      if (sealed === null) return encryptedNoteRefusal(responsesPath);
+      body = sealed;
+    }
+    const put = await store.put(responsesPath, body, { onlyIf: { etagMatches: current.etag } });
+    // A refused conditional write means somebody else landed a response between
+    // our read and our write. Nothing of theirs is lost: the next pass reads
+    // their row and re-applies ours on top.
+    if (!put) continue;
+
+    await recordChange(store, action, scope, [responsesPath], {
+      form_id: config.id,
+      response_id: applied.responseId,
+      etag: put.etag,
+      // The response file's own visibility is `privacy.md`'s answer, not this
+      // write's, so it is reported rather than decided here.
+      team_visible: effectiveVisibility(responsesPath, rules, overrides) === "team",
+    });
+    await projectWrittenNoteAfterResponse(store, {
+      path: responsesPath,
+      content: rendered,
+      version: put.etag,
+      visibility: effectiveVisibility(responsesPath, rules, overrides),
+    });
+    return toolText(applied.message);
+  }
+
+  return toolError(
+    "conflict: other responses kept landing while this one was being written. Try again."
+  );
+}
+
+/**
+ * `[{ field, value }]` → `{ field: value }`.
+ *
+ * The wire shape is a list of pairs rather than an object of answers because a
+ * form's field names are the author's, not the schema's, and this gateway
+ * refuses to advertise an object node it cannot close — an open one at that
+ * position would accept anything a prompt-injected client put there, which is
+ * the whole reason `toolArguments.js` exists. A duplicate field is refused
+ * rather than resolved: two answers to one question have no right answer.
+ */
+function valuesFromPairs(pairs) {
+  if (!Array.isArray(pairs)) return { error: "values must be a list of { field, value } entries" };
+  const values = {};
+  for (const pair of pairs) {
+    const field = pair?.field;
+    if (Object.prototype.hasOwnProperty.call(values, field)) {
+      return { error: `"${field}" is answered twice` };
+    }
+    values[field] = pair?.value;
+  }
+  return { values };
+}
+
+async function toolSubmitForm(store, scope, rules, overrides, args) {
+  return mutateFormResponses(store, scope, rules, overrides, args, "submit_form", (responses, { config, actor }) => {
+    if (!roleAtLeast(actor.role, config.submit)) {
+      return {
+        refusal: toolError(
+          `permission denied: this form takes responses from ${config.submit}s of this context and above.`
+        ),
+      };
+    }
+    const supplied = valuesFromPairs(args.values);
+    if (supplied.error) return { refusal: toolError(supplied.error) };
+    const checked = validateSubmission(config, supplied.values);
+    if (checked.error) return { refusal: toolError(checked.error) };
+
+    const taken = new Set(responses.map((response) => response.id));
+    let id = newResponseId();
+    while (taken.has(id)) id = newResponseId();
+
+    const response = {
+      id,
+      by: actor.name,
+      at: responseStamp(),
+      values: checked.values,
+      votes: [],
+    };
+    return {
+      responses: [...responses, response],
+      responseId: id,
+      message: `submitted: ${id}\nform: ${config.id}\nrecorded as: ${actor.name}`,
+    };
+  });
+}
+
+/**
+ * The ownership test both editing tools share.
+ *
+ * An editor of the context may act on anybody's response — they can already
+ * rewrite the whole file with `write_note`, so refusing here would be a lock on
+ * a door standing open. A submitter may act on their own, and only where the
+ * form's author allowed it.
+ */
+function mayChangeResponse(response, config, actor, verb) {
+  if (roleAtLeast(actor.role, "editor")) return null;
+  if (response.by !== actor.name) {
+    return toolError(`permission denied: that response is ${response.by}'s, not yours.`);
+  }
+  if (!config.edit_own) {
+    return toolError(`permission denied: this form does not let people ${verb} their own response.`);
+  }
+  return null;
+}
+
+async function toolUpdateSubmission(store, scope, rules, overrides, args) {
+  return mutateFormResponses(store, scope, rules, overrides, args, "update_submission", (responses, { config, actor }) => {
+    const index = responses.findIndex((response) => response.id === args.response_id);
+    if (index === -1) return { refusal: toolError("no such response on this form") };
+    const existing = responses[index];
+    const denied = mayChangeResponse(existing, config, actor, "edit");
+    if (denied) return { refusal: denied };
+
+    const supplied = valuesFromPairs(args.values);
+    if (supplied.error) return { refusal: toolError(supplied.error) };
+    const checked = validateSubmission(config, supplied.values);
+    if (checked.error) return { refusal: toolError(checked.error) };
+
+    const next = responses.slice();
+    // `by`, `at` and the votes other people cast are not the submitter's to
+    // rewrite: an edit changes the answers and nothing else.
+    next[index] = { ...existing, values: checked.values };
+    return {
+      responses: next,
+      responseId: existing.id,
+      message: `updated: ${existing.id}\nform: ${config.id}`,
+    };
+  });
+}
+
+async function toolRetractSubmission(store, scope, rules, overrides, args) {
+  return mutateFormResponses(store, scope, rules, overrides, args, "retract_submission", (responses, { config, actor }) => {
+    const existing = responses.find((response) => response.id === args.response_id);
+    if (!existing) return { refusal: toolError("no such response on this form") };
+    const denied = mayChangeResponse(existing, config, actor, "delete");
+    if (denied) return { refusal: denied };
+    return {
+      responses: responses.filter((response) => response.id !== existing.id),
+      responseId: existing.id,
+      message: `retracted: ${existing.id}\nform: ${config.id}`,
+    };
+  });
+}
+
+async function toolVoteForm(store, scope, rules, overrides, args) {
+  return mutateFormResponses(store, scope, rules, overrides, args, "vote_form", (responses, { config, actor }) => {
+    if (config.votes !== "named") {
+      return { refusal: toolError("this form does not collect votes") };
+    }
+    if (!roleAtLeast(actor.role, config.submit)) {
+      return {
+        refusal: toolError(
+          `permission denied: this form takes votes from ${config.submit}s of this context and above.`
+        ),
+      };
+    }
+    const index = responses.findIndex((response) => response.id === args.response_id);
+    if (index === -1) return { refusal: toolError("no such response on this form") };
+
+    const wants = args.vote === undefined ? "up" : args.vote;
+    const existing = responses[index];
+    const others = existing.votes.filter((voter) => voter !== actor.name);
+    // Idempotent in both directions: voting twice is one vote, and taking back
+    // a vote you never cast is not an error, it is the state you asked for.
+    const votes = wants === "up" ? [...others, actor.name] : others;
+
+    const next = responses.slice();
+    next[index] = { ...existing, votes };
+    return {
+      responses: next,
+      responseId: existing.id,
+      message:
+        `${wants === "up" ? "voted" : "vote withdrawn"}: ${existing.id}\n` +
+        `form: ${config.id}\nvotes: ${votes.length}`,
+    };
+  });
+}
+
+/**
+ * Create the response file for every valid form a just-written note declares.
+ *
+ * Done on the *author's* write rather than on the first submission, because the
+ * author holds write access and the submitter may not: a `member` whose first
+ * bug report had to create a note would be refused, and a member whose first
+ * bug report *could* create one would be a way to create notes.
+ *
+ * Only ever creates. A path that already holds something is left exactly as it
+ * is — including a file that is not a response file, which is reported back so
+ * the author can see their `responses:` is aimed at somebody's note.
+ */
+async function ensureFormResponseFiles(store, scope, rules, blocks, notePath) {
+  const created = [];
+  const occupied = [];
+  for (const block of blocks) {
+    if (!block.config) continue;
+    const responsesPath = normalizePath(block.config.responses);
+    if (
+      !responsesPath ||
+      !responsesPath.endsWith(".md") ||
+      isPlumbing(responsesPath) ||
+      !writesOneRule(responsesPath) ||
+      responsesPath === notePath
+    ) {
+      occupied.push(`${block.config.id} → ${block.config.responses} (not a writable note path)`);
+      continue;
+    }
+    const existing = await store.get(responsesPath);
+    if (existing) {
+      const opened = await openStoredNote(store, await existing.text());
+      const parsed = opened.ok ? parseResponsesFile(opened.text, block.config) : { error: "encrypted" };
+      if (parsed.error) occupied.push(`${block.config.id} → ${responsesPath} (${parsed.error})`);
+      continue;
+    }
+    // Conditional on absence where the store can do it. The gap between the
+    // `get` above and this `put` is small and is still a gap: two editors
+    // saving the same form at once, or a submission landing in between, would
+    // otherwise have the later empty file erase the earlier responses.
+    const put = await store.put(
+      responsesPath,
+      emptyResponsesFile(block.config),
+      store?.capabilities?.conditionalCreate ? { onlyIf: { absent: true } } : undefined
+    );
+    if (!put) continue;
+    created.push(responsesPath);
+    await recordChange(store, "create_note", scope, [responsesPath], {
+      form_id: block.config.id,
+      etag: put.etag,
+      team_visible: visibilityOf(responsesPath, rules) === "team",
+    });
+  }
+  return { created, occupied };
 }
 
 /**
