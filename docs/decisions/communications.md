@@ -961,9 +961,20 @@ active contributions, groups them by configured destination, and renders one
 shared day from their union with a workspace-level nonce seed. Account polling
 order cannot change the bytes; updating one contribution cannot erase another;
 destinations never bleed together; and two copies of the same normalized
-account at one destination fail closed. The runner and persistence layer are
-still required before this is live — the helper is the tested join they must
-use, not a claim that scheduled Chat delivery is enabled.
+account at one destination fail closed.
+
+**Those account contributions now have a customer-storage commit boundary.**
+Each connection owns a hash-addressed manifest and bounded day objects under
+`.context/communications/google-chat/contributions/`; message content still
+never enters Convex. A pass writes day objects first and conditionally commits
+the manifest last. The shared runner must load every active connection's
+manifest and every referenced day before rendering anything, and a missing,
+corrupt, duplicated, re-bound, or concurrently changed contribution aborts the
+join rather than letting the last account erase a sibling. The manifest keeps
+the newest 366 days and removes older plumbing only after its replacement is
+committed. The runner is still required before this is live — these helpers
+are the tested persistence and join boundary it must use, not a claim that
+scheduled Chat delivery is enabled.
 
 **Two rules that join has to keep, because the first draft of it kept
 neither.** A *destination* is the folder a key lands in, not the string a
