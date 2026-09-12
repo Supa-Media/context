@@ -135,11 +135,23 @@ describe("GoogleConnectionsCard", () => {
     );
 
     const text = screen.container.textContent ?? "";
-    expect(text).toContain("Email, Calendar, Chat connected");
+    /*
+      The per-account summary line ("Email, Calendar, Chat connected") is gone
+      from the whole-account card, and what replaced it is stronger: each
+      service states its own status and its own destination directly below,
+      so the three assertions here are about the three blocks rather than
+      about a sentence summarising them. On a *narrowed* panel the same list
+      survives as the sentence qualifying Disconnect, which is where it is
+      load-bearing — see `communicationsPanels.test.ts`.
+    */
+    expect(text).not.toContain("Email, Calendar, Chat connected");
     expect(text).toContain("Email");
     expect(text).toContain("Connected; forward sync setup is pending");
     expect(text).not.toContain("Start Email");
-    expect(text).toContain("Email daily file pattern");
+    // Where each one writes, stated at rest rather than only inside a field.
+    expect(text).toContain("0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md");
+    expect(text).toContain("0-inbox/calendar/YYYY-MM-DD.md");
+    expect(text).toContain("2-areas/communications/daily/YYYY-MM-DD.md");
     expect(text).toContain("Calendar");
     expect(text).toContain("Connected; upcoming event sync setup is pending");
     expect(text).not.toContain("Start Calendar sync");
@@ -187,6 +199,16 @@ describe("GoogleConnectionsCard", () => {
       }),
     );
 
+    /*
+      The field is behind Change now. Three destinations drawn as open forms is
+      what the account card used to be, and nobody edits three paths at once —
+      so the resting state states the path and Change opens the editor.
+    */
+    expect(
+      screen.container.querySelector('[data-testid="google-gmail-destination-google_1"]'),
+    ).toBeNull();
+    await screen.click("edit-google-gmail-destination-google_1");
+
     const input = screen.container.querySelector<HTMLInputElement>(
       '[data-testid="google-gmail-destination-google_1"]',
     );
@@ -207,6 +229,204 @@ describe("GoogleConnectionsCard", () => {
         destinationPath: "2-areas/communications/email/YYYY-MM-DD.md",
       },
     ]);
+    screen.unmount();
+  });
+
+  /*
+    The editor, which is the whole of the P8 fix: the field used to be a plain
+    TextField with a hint sentence, no completion, no validation and no
+    preview, and the mutation was the first thing that checked. These four
+    assert the three things that replaced that — and each is a claim about
+    where somebody's mail is about to be written.
+  */
+  describe("the destination editor", () => {
+    function editorScreen(saver = true) {
+      return render(
+        createElement(GoogleConnectionsCard, {
+          folders: ["2-areas", "2-areas/communications", "2-areas/comms-archive", ".audit"],
+          actions: saver
+            ? {
+                workspaceId: "ws_1",
+                disconnect: async () => null,
+                saveDestination: async (connectionId, service, destinationPath) => {
+                  mockDestinationCalls.push({ connectionId, service, destinationPath });
+                  return null;
+                },
+                saveSyncInterval: async () => null,
+              }
+            : undefined,
+          connections: [
+            {
+              connectionId: "google_1",
+              email: "seyi@supa.media",
+              syncServices: { gmail: true, calendar: false, chat: false },
+              syncStatus: "connected",
+              sync: SYNCING_HOURLY,
+              gmail: {
+                backfillDays: 365,
+                folders: ["inbox", "sent"],
+                destinationFolder: "0-inbox/email/seyi-at-supa-media",
+                destinationPath: "0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md",
+                historyCursorReady: true,
+              },
+            },
+          ],
+        }),
+      );
+    }
+
+    async function type(screen: ReturnType<typeof render>, value: string) {
+      const input = screen.container.querySelector<HTMLInputElement>(
+        '[data-testid="google-gmail-destination-google_1"]',
+      );
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+          input,
+          value,
+        );
+        input!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    }
+
+    test("offers the folders this console has loaded, and never a reserved one", async () => {
+      const screen = editorScreen();
+      await screen.click("edit-google-gmail-destination-google_1");
+      await type(screen, "2-areas/comm");
+
+      expect(
+        screen.container.querySelector(
+          '[data-testid="google-gmail-suggest-google_1-2-areas/communications"]',
+        ),
+      ).not.toBeNull();
+      // A suggestion the validator would then refuse is worse than none.
+      expect(
+        screen.container.querySelector('[data-testid="google-gmail-suggest-google_1-.audit"]'),
+      ).toBeNull();
+      screen.unmount();
+    });
+
+    test("says what the pattern writes today, which nothing ever did before", async () => {
+      const screen = editorScreen();
+      await screen.click("edit-google-gmail-destination-google_1");
+      await type(screen, "2-areas/communications");
+
+      const preview = screen.container.querySelector(
+        '[data-testid="google-gmail-preview-google_1"]',
+      );
+      expect(preview).not.toBeNull();
+      // The day is the reader's, so the assertion is built the same way rather
+      // than pinned to a date this suite would fail on tomorrow.
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+        now.getDate(),
+      ).padStart(2, "0")}`;
+      expect(preview!.textContent).toContain(`2-areas/communications/${today}.md`);
+      screen.unmount();
+    });
+
+    test("refuses in the server's own words before the round trip, and will not save", async () => {
+      const screen = editorScreen();
+      await screen.click("edit-google-gmail-destination-google_1");
+      await type(screen, ".audit/mail");
+
+      expect(screen.container.textContent).toContain(
+        "That folder is reserved for Context internals.",
+      );
+      const save = screen.container.querySelector<HTMLElement>(
+        '[data-testid="save-google-gmail-destination-google_1"]',
+      );
+      expect(save!.getAttribute("aria-disabled")).toBe("true");
+
+      // And nothing reached the control plane.
+      mockDestinationCalls.length = 0;
+      await screen.click("save-google-gmail-destination-google_1");
+      expect(mockDestinationCalls).toEqual([]);
+      screen.unmount();
+    });
+
+    test("will not save the destination that is already stored, however it is spelled", async () => {
+      const screen = editorScreen();
+      await screen.click("edit-google-gmail-destination-google_1");
+      await type(screen, "0-inbox/email/seyi-at-supa-media/");
+
+      const save = screen.container.querySelector<HTMLElement>(
+        '[data-testid="save-google-gmail-destination-google_1"]',
+      );
+      expect(save!.getAttribute("aria-disabled")).toBe("true");
+      screen.unmount();
+    });
+
+    test("cancelling puts the stored value back", async () => {
+      const screen = editorScreen();
+      await screen.click("edit-google-gmail-destination-google_1");
+      await type(screen, "2-areas/communications");
+      await screen.click("cancel-google-gmail-destination-google_1");
+
+      expect(
+        screen.container.querySelector('[data-testid="google-gmail-destination-google_1"]'),
+      ).toBeNull();
+      expect(screen.container.textContent).toContain(
+        "0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md",
+      );
+      screen.unmount();
+    });
+  });
+
+  /*
+    The consequence of Disconnect used to sit beside the button permanently —
+    once per account, on a panel with two of them, making destructive text the
+    loudest thing on the page. It is armed now, like every other irreversible
+    control in this console.
+  */
+  test("what Disconnect takes with it is said between the presses, not beside the button", async () => {
+    const screen = render(
+      createElement(GoogleConnectionsCard, {
+        service: "calendar",
+        actions: {
+          workspaceId: "ws_1",
+          disconnect: async () => null,
+          saveDestination: async () => null,
+          saveSyncInterval: async () => null,
+        },
+        connections: [
+          {
+            connectionId: "google_1",
+            email: "seyi@supa.media",
+            syncServices: { gmail: true, calendar: true, chat: false },
+            syncStatus: "active",
+            sync: SYNCING_HOURLY,
+            gmail: {
+              backfillDays: 90,
+              folders: ["inbox"],
+              destinationFolder: "0-inbox/email/seyi-at-supa-media",
+              destinationPath: "0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md",
+              historyCursorReady: true,
+            },
+            calendar: {
+              destinationFolder: "0-inbox/calendar",
+              destinationPath: "0-inbox/calendar/YYYY-MM-DD.md",
+              syncCursorReady: true,
+            },
+          },
+        ],
+      }),
+    );
+
+    // At rest: the quiet line that a narrowed panel genuinely needs, and no
+    // warning shouting from a column of its own.
+    expect(screen.container.textContent).toContain("This account also syncs Email.");
+    expect(screen.container.textContent).not.toContain("Removes the whole account");
+
+    const disconnect = screen.container.querySelector<HTMLElement>(
+      '[aria-label="Disconnect seyi@supa.media, which also stops Email"]',
+    );
+    expect(disconnect).not.toBeNull();
+    await act(async () => {
+      disconnect!.click();
+    });
+
+    expect(screen.container.textContent).toContain("This removes the whole account");
+    expect(screen.container.textContent).toContain("Email stop too");
     screen.unmount();
   });
 
@@ -245,7 +465,8 @@ describe("GoogleConnectionsCard", () => {
     );
 
     const text = screen.container.textContent ?? "";
-    expect(text).toContain("Email connected");
+    // The summary line went; the block's own status is the claim now.
+    expect(text).not.toContain("Email connected");
     expect(text).toContain("Stopping historical import · 15 of 90 days scanned · 237 emails found · 8 days had mail · 2.0 MB saved");
     expect(text).not.toContain("Email running");
     expect(text).not.toContain("cursor");
@@ -280,7 +501,8 @@ describe("GoogleConnectionsCard", () => {
     );
 
     const text = screen.container.textContent ?? "";
-    expect(text).toContain("Email connected");
+    // The summary line went; the block's own status is the claim now.
+    expect(text).not.toContain("Email connected");
     expect(text).toContain("Ready for new mail");
     expect(text).not.toContain("Calendar:");
     expect(text).not.toContain("0-inbox/calendar/YYYY-MM-DD.md");

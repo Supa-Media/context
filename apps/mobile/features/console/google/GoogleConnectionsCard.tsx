@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
+import { Hint } from "../../design/components/Field";
 import { FormError, TextField, ToggleGroup } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useArming } from "../useArming";
+import { destinationDraft } from "./destination";
 import { GOOGLE_REDIRECT_ORIGINS, type GoogleSyncServices } from "./google";
 import { useGoogleStart } from "./useGoogleStart";
 
@@ -178,26 +180,37 @@ const SERVICE_TITLES: Record<GoogleService, string> = {
  */
 const SERVICE_COPY: Record<
   GoogleService,
-  { sub: string; empty: string; next: string; connect: string }
+  { empty: string; next: string; connect: string }
 > = {
   gmail: {
-    sub: "Each Google account whose mailbox this context reads.",
     empty: "No Google mailbox connected yet.",
     next: "Connect one and it appears here with its sync state and the daily note it writes to, which you can change.",
     connect: "Connect a Gmail account",
   },
   calendar: {
-    sub: "Each Google account whose calendar this context reads.",
     empty: "No Google calendar connected yet.",
     next: "Connect one and it appears here with its sync state and the daily note it writes to, which you can change.",
     connect: "Connect a Google Calendar",
   },
   chat: {
-    sub: "Each Google account whose Chat spaces this context reads.",
     empty: "No Google Chat account connected yet.",
     next: "Connect one and it appears here with the number of spaces it follows and the daily note it writes to, which you can change.",
     connect: "Connect Google Chat",
   },
+};
+
+/**
+ * The card's title on a narrowed panel.
+ *
+ * Names the *account* and the service in one line, so the sub that used to
+ * restate the panel's own heading underneath it can go. "Accounts we read
+ * calendars from" rather than "Google accounts" over "Each Google account whose
+ * calendar this context reads".
+ */
+const SERVICE_ACCOUNTS_TITLE: Record<GoogleService, string> = {
+  gmail: "Accounts we read mail from",
+  calendar: "Accounts we read calendars from",
+  chat: "Accounts we read Chat from",
 };
 
 /** Every service on this account except the one a narrowed panel is about. */
@@ -218,12 +231,23 @@ export function GoogleConnectionsCard({
   actions,
   loading = false,
   service,
+  folders = [],
 }: {
   connections?: GoogleConnection[];
   actions?: GoogleActions;
   loading?: boolean;
   /** Narrow the card to one service. Absent is the whole account. */
   service?: GoogleService;
+  /**
+   * Folders the console has already loaded, offered as completions in the
+   * destination editor. `loadedFolders(files.listings)` — the same source the
+   * forwarding-address card's quick-picks read, rather than a second listing.
+   *
+   * Empty is a card that completes nothing, which is what a panel opened
+   * before the tree landed should do: no suggestions is honest, an invented
+   * folder list is not.
+   */
+  folders?: readonly string[];
 }) {
   const styles = useThemedStyles(makeStyles);
   /*
@@ -240,19 +264,27 @@ export function GoogleConnectionsCard({
 
   return (
     <Card>
+      {/*
+        The scope, once.
+
+        This said it four times: a title ("Google accounts"), a sub ("Each
+        Google account whose calendar this context reads"), a pill, and then
+        every account row underneath repeating "Email, Calendar, Chat
+        connected". On a two-account Calendar panel a reader was told about
+        Email and Chat four times while trying to change one path.
+
+        The title is still the *account* rather than the service, and that is
+        not decoration: Disconnect removes the account, so a card titled
+        "Google calendars" over a button that also stops mail would be the
+        narrower name doing the misleading. What went is the second sentence
+        restating the panel's own heading, and the per-row service list — which
+        now appears once per account, as the sentence that qualifies
+        Disconnect, where it is load-bearing rather than repetitive.
+      */}
       <Row style={styles.head}>
         <Grow>
-          {/*
-            The card is named after its unit, and the unit is a Google
-            *account* on every panel — which is not decoration: Disconnect
-            removes the account, so a card titled "Google calendars" over a
-            button that stops Gmail too would be the narrower name doing the
-            misleading. The sub below says which of the account's services
-            this panel is about.
-          */}
-          <Text variant="rowTitle">Google accounts</Text>
-          <Text variant="rowSub" style={styles.rowSub}>
-            {copy?.sub ?? "Connect each Google account this context should sync."}
+          <Text variant="rowTitle">
+            {service === undefined ? "Google accounts" : SERVICE_ACCOUNTS_TITLE[service]}
           </Text>
         </Grow>
         <Pill tone="neutral">{`${shown.length} connected`}</Pill>
@@ -277,6 +309,7 @@ export function GoogleConnectionsCard({
           connection={connection}
           actions={actions}
           service={service}
+          folders={folders}
         />
       ))}
 
@@ -365,117 +398,147 @@ function GoogleConnectControls({
   );
 }
 
+/**
+ * One connected account: what it is, where it writes, and the way out.
+ *
+ * ## What this replaced
+ *
+ * A `Row` inside the card, holding a bordered `serviceBlock` per service, each
+ * holding a labelled field and its own Save button — three nested surfaces
+ * before the one control, four with the schedule. Beside it, a fixed
+ * right-hand column carrying a `danger` button and the standing sentence
+ * "Removes the whole account — Calendar and Chat stop too", drawn once per
+ * account and never not on screen. On a two-account panel the most visually
+ * dominant thing was destructive text nobody had asked to read.
+ *
+ * Now: one card per account, the destination as a row you open, and the
+ * consequence of Disconnect said **between the two presses** — which is where
+ * every other irreversible control in this console says it (`useArming`, the
+ * same shape as storage's Disconnect and a share's Revoke). The account still
+ * arms; it just no longer shouts while resting.
+ *
+ * `alsoRemoved` stays, as the quiet line above the control rather than beside
+ * it, because it is the one thing a narrowed panel must say: Disconnect is an
+ * *account* action, `GoogleActions` has no per-service call, and a reader who
+ * arrived from the Calendar heading would otherwise have no way to know their
+ * mail stops too.
+ */
 function ConnectedGoogleRow({
   connection,
   actions,
   service,
+  folders,
 }: {
   connection: GoogleConnection;
   actions?: GoogleActions;
   service?: GoogleService;
+  folders: readonly string[];
 }) {
   const styles = useThemedStyles(makeStyles);
   const disconnect = useArming(() => {
     if (actions === undefined) return;
     void actions.disconnect(connection.connectionId);
   });
-  const serviceNames = (["gmail", "calendar", "chat"] as const)
-    .filter((key) => connection.syncServices[key])
-    .map((key) => SERVICE_TITLES[key]);
   const inlineError = connection.lastError ?? connection.syncRun?.lastError;
   const inlineErrorCode = connection.errorCode ?? connection.syncRun?.errorCode;
   const showAccountError = inlineError && connection.syncRun?.status !== "failed";
-  /*
-    Disconnect removes the account, never one service — `GoogleActions` has no
-    per-service call and inventing one here would be a button that acts on
-    something else. Under a per-service heading that has to be said, or the
-    heading itself implies the narrower thing.
-  */
   const alsoRemoved = service === undefined ? [] : otherServices(connection, service);
   const showBlock = (key: GoogleService) => service === undefined || service === key;
 
   return (
-    <Row divided style={styles.connectionRow}>
-      <Grow style={styles.connectionBody}>
-        <Text variant="rowTitle">{connection.email}</Text>
-        <Text variant="rowSub" style={styles.rowSub}>
-          {`${serviceNames.join(", ")} connected`}
-        </Text>
-        <View style={styles.serviceList}>
-          {showBlock("gmail") && connection.syncServices.gmail && connection.gmail ? (
-            <GoogleServiceBlock
-              connectionId={connection.connectionId}
-              service="gmail"
-              title={SERVICE_TITLES.gmail}
-              status={
-                gmailRunDetail(connection) ??
-                (connection.gmail.historyCursorReady
-                  ? "Ready for new mail"
-                  : "Connected; forward sync setup is pending")
-              }
-              destinationPath={connection.gmail.destinationPath}
-              destinationHint="Use a folder plus YYYY-MM-DD.md; custom filenames are not supported yet."
-              error={connection.syncRun?.status === "failed" ? inlineError : undefined}
-              saveDestination={actions?.saveDestination}
-            />
-          ) : null}
-          {showBlock("calendar") && connection.syncServices.calendar && connection.calendar ? (
-            <GoogleServiceBlock
-              connectionId={connection.connectionId}
-              service="calendar"
-              title={SERVICE_TITLES.calendar}
-              status={
-                connection.calendar.syncCursorReady
-                  ? `Ready for calendar changes${formatSyncTime(connection.calendar.lastSyncedAt) ? ` · ${formatSyncTime(connection.calendar.lastSyncedAt)}` : ""}`
-                  : "Connected; upcoming event sync setup is pending"
-              }
-              destinationPath={connection.calendar.destinationPath}
-              destinationHint="Use a folder plus YYYY-MM-DD.md for daily calendar notes."
-              saveDestination={actions?.saveDestination}
-            />
-          ) : null}
-          {showBlock("chat") && connection.syncServices.chat && connection.chat ? (
-            <GoogleServiceBlock
-              connectionId={connection.connectionId}
-              service="chat"
-              title={SERVICE_TITLES.chat}
-              status={
-                connection.chat.cursorCount > 0
-                  ? `Ready for ${connection.chat.cursorCount} Chat space${connection.chat.cursorCount === 1 ? "" : "s"}${formatSyncTime(connection.chat.lastSyncedAt) ? ` · ${formatSyncTime(connection.chat.lastSyncedAt)}` : ""}`
-                  : "Connected; Chat sync setup is pending"
-              }
-              destinationPath={connection.chat.destinationPath}
-              destinationHint="Use a folder plus YYYY-MM-DD.md for daily Chat notes."
-              saveDestination={actions?.saveDestination}
-            />
-          ) : null}
-        </View>
-        {/*
-          The schedule is the *account's* — one grant, one pass — but only
-          Gmail is advanced by that pass today, so it is drawn only where Gmail
-          is in view. A Calendar or Chat panel showing "every 15 minutes, next
-          due at 10:15" would be a promise this loop does not yet keep for
-          those two; their own status lines already say their sync is pending.
-          When they join the loop, this condition is what goes.
-        */}
-        {connection.syncServices.gmail && showBlock("gmail") ? (
-          <GoogleSyncScheduleBlock
-            connectionId={connection.connectionId}
-            sync={connection.sync}
-            saveSyncInterval={actions?.saveSyncInterval}
-          />
-        ) : null}
-        {showAccountError ? (
-          <FormError
-            headline={inlineErrorCode ? statusLabel(inlineErrorCode) : "Google needs attention"}
-            next={inlineError}
-            style={styles.inlineError}
-          />
-        ) : null}
-      </Grow>
-      <View style={styles.connectionActions}>
+    <View style={styles.account}>
+      <Row style={styles.accountHead}>
+        <Grow>
+          <Text variant="rowTitle">{connection.email}</Text>
+        </Grow>
+      </Row>
+
+      {showBlock("gmail") && connection.syncServices.gmail && connection.gmail ? (
+        <GoogleServiceBlock
+          connectionId={connection.connectionId}
+          service="gmail"
+          title={SERVICE_TITLES.gmail}
+          status={
+            gmailRunDetail(connection) ??
+            (connection.gmail.historyCursorReady
+              ? "Ready for new mail"
+              : "Connected; forward sync setup is pending")
+          }
+          destinationPath={connection.gmail.destinationPath}
+          destinationHint="A folder, or a pattern ending in /YYYY-MM-DD.md."
+          error={connection.syncRun?.status === "failed" ? inlineError : undefined}
+          saveDestination={actions?.saveDestination}
+          folders={folders}
+          named={service === undefined}
+        />
+      ) : null}
+      {showBlock("calendar") && connection.syncServices.calendar && connection.calendar ? (
+        <GoogleServiceBlock
+          connectionId={connection.connectionId}
+          service="calendar"
+          title={SERVICE_TITLES.calendar}
+          status={
+            connection.calendar.syncCursorReady
+              ? `Ready for calendar changes${formatSyncTime(connection.calendar.lastSyncedAt) ? ` · ${formatSyncTime(connection.calendar.lastSyncedAt)}` : ""}`
+              : "Connected; upcoming event sync setup is pending"
+          }
+          destinationPath={connection.calendar.destinationPath}
+          destinationHint="A folder, or a pattern ending in /YYYY-MM-DD.md."
+          saveDestination={actions?.saveDestination}
+          folders={folders}
+          named={service === undefined}
+        />
+      ) : null}
+      {showBlock("chat") && connection.syncServices.chat && connection.chat ? (
+        <GoogleServiceBlock
+          connectionId={connection.connectionId}
+          service="chat"
+          title={SERVICE_TITLES.chat}
+          status={
+            connection.chat.cursorCount > 0
+              ? `Ready for ${connection.chat.cursorCount} Chat space${connection.chat.cursorCount === 1 ? "" : "s"}${formatSyncTime(connection.chat.lastSyncedAt) ? ` · ${formatSyncTime(connection.chat.lastSyncedAt)}` : ""}`
+              : "Connected; Chat sync setup is pending"
+          }
+          destinationPath={connection.chat.destinationPath}
+          destinationHint="A folder, or a pattern ending in /YYYY-MM-DD.md."
+          saveDestination={actions?.saveDestination}
+          folders={folders}
+          named={service === undefined}
+        />
+      ) : null}
+
+      {/*
+        The schedule is the *account's* — one grant, one pass — but only Gmail
+        is advanced by that pass today, so it is drawn only where Gmail is in
+        view. A Calendar or Chat panel showing "every 15 minutes, next due at
+        10:15" would be a promise this loop does not yet keep for those two;
+        their own status lines already say their sync is pending. When they
+        join the loop, this condition is what goes.
+      */}
+      {connection.syncServices.gmail && showBlock("gmail") ? (
+        <GoogleSyncScheduleBlock
+          connectionId={connection.connectionId}
+          sync={connection.sync}
+          saveSyncInterval={actions?.saveSyncInterval}
+        />
+      ) : null}
+
+      {showAccountError ? (
+        <FormError
+          headline={inlineErrorCode ? statusLabel(inlineErrorCode) : "Google needs attention"}
+          next={inlineError}
+          style={styles.inlineError}
+        />
+      ) : null}
+
+      <Row divided style={styles.accountFoot}>
+        <Grow>
+          {alsoRemoved.length === 0 ? null : (
+            <Text variant="foot">{`This account also syncs ${listWords(alsoRemoved)}.`}</Text>
+          )}
+        </Grow>
         <Button
-          label={disconnect.stage === "armed" ? "Press again" : "Disconnect"}
+          label={disconnect.stage === "armed" ? "Press again to disconnect" : "Disconnect"}
           accessibilityLabel={
             alsoRemoved.length === 0
               ? `Disconnect ${connection.email}`
@@ -485,13 +548,23 @@ function ConnectedGoogleRow({
           disabled={actions === undefined}
           onPress={disconnect.press}
         />
-        {alsoRemoved.length === 0 ? null : (
-          <Text variant="foot" style={styles.alsoRemoved}>
-            {`Removes the whole account — ${listWords(alsoRemoved)} stop too.`}
+      </Row>
+      {/*
+        The consequence, at the moment of the press rather than beside the
+        button always. Announced when it appears, not only drawn: it is the
+        warning, and a reader who cannot see it is the reader most likely to
+        press again.
+      */}
+      {disconnect.stage === "armed" ? (
+        <Hint style={styles.armedHint}>
+          <Text variant="hint" role="status">
+            {alsoRemoved.length === 0
+              ? `Context stops reading ${connection.email}. Nothing already written to your bucket is touched, and you can connect it again.`
+              : `This removes the whole account — ${listWords(alsoRemoved)} stop too. Nothing already written to your bucket is touched, and you can connect it again.`}
           </Text>
-        )}
-      </View>
-    </Row>
+        </Hint>
+      ) : null}
+    </View>
   );
 }
 
@@ -535,13 +608,39 @@ function GoogleSyncScheduleBlock({
       </Text>
       {saveSyncInterval ? (
         <View style={styles.intervalRow}>
-          {SYNC_INTERVAL_CHOICES.map((minutes) => (
+          {SYNC_INTERVAL_CHOICES.map((minutes) => {
+            const current = minutes === sync.intervalMinutes;
+            return (
             <Button
               key={minutes}
               label={intervalLabel(minutes)}
-              variant={minutes === sync.intervalMinutes ? "white" : "mini"}
-              disabled={saving !== null || minutes === sync.intervalMinutes}
-              accessibilityLabel={`Sync every ${intervalLabel(minutes)}`}
+              /*
+                `mini` with a mark, never `white`.
+
+                The current value was drawn as the hero CTA — the same button
+                the landing page says "Get started" with — *and* disabled. So
+                the loudest element on the card was a fact nobody could act on,
+                and the five buttons that did something were the quiet ones.
+                Marked twice, the way `AppearancePanel` marks its current
+                choice: a leading check (so it reads without colour) and an
+                accent tint (so it reads at a glance).
+              */
+              variant="mini"
+              style={current ? styles.intervalOn : undefined}
+              leading={current ? <Text style={styles.intervalCheck}>{"✓ "}</Text> : undefined}
+              /*
+                The state is in the spoken label rather than in
+                `accessibilityState`: `Button` does not take one, and the
+                current choice is a *disabled* control, which a screen reader
+                already announces. "Syncing every 15 min" says which it is;
+                `AppearancePanel` says "current appearance" the same way.
+              */
+              disabled={saving !== null || current}
+              accessibilityLabel={
+                current
+                  ? `Syncing every ${intervalLabel(minutes)}`
+                  : `Sync every ${intervalLabel(minutes)}`
+              }
               testID={`google-sync-interval-${minutes}-${connectionId}`}
               onPress={() => {
                 setSaving(minutes);
@@ -555,7 +654,8 @@ function GoogleSyncScheduleBlock({
                   .finally(() => setSaving(null));
               }}
             />
-          ))}
+            );
+          })}
         </View>
       ) : null}
       {saveError ? <FormError headline="Schedule was not saved" next={saveError} /> : null}
@@ -612,6 +712,30 @@ function formatWhen(value: number | undefined): string | null {
   }).format(new Date(value));
 }
 
+/**
+ * One service on one account: its state, and where it writes.
+ *
+ * ## The field is opened, not always open
+ *
+ * It used to be a `TextField` with an uppercase label, a hint sentence and a
+ * Save button, drawn at rest inside a bordered block — three of them per
+ * account. Nobody edits three paths at once; what they do is read one and
+ * occasionally change it. So the resting state is a row that states the path,
+ * and Change opens the editor.
+ *
+ * That is also what makes room for the three things the field never had, all
+ * decided in `destination.ts` and pinned by `googleDestination.test.ts`:
+ *
+ *  - **completion**, from the folders the console has already loaded;
+ *  - **validation**, in the server's own words, before the round trip — the
+ *    same `normalizeDestinationFolder` the mutation calls;
+ *  - **a preview** of the key today's sync would write, because a pattern
+ *    carrying `YYYY-MM-DD` is a template and nothing ever showed its output.
+ *
+ * The path is `mono`, which it should always have been: every other path in
+ * this console is, and a proportional face is what let a value scroll out of a
+ * field narrower than itself without anybody noticing.
+ */
 function GoogleServiceBlock({
   connectionId,
   service,
@@ -625,6 +749,8 @@ function GoogleServiceBlock({
   onAction,
   saveDestination,
   destinationReadOnly = false,
+  folders = [],
+  named = true,
 }: {
   connectionId: string;
   service: "gmail" | "calendar" | "chat";
@@ -638,28 +764,69 @@ function GoogleServiceBlock({
   onAction?: () => void;
   saveDestination?: GoogleActions["saveDestination"];
   destinationReadOnly?: boolean;
+  folders?: readonly string[];
+  /**
+   * Whether to name the service above its row.
+   *
+   * On a narrowed panel the heading already said it and the card title says it
+   * again; a third "Calendar" over the one calendar row is the repetition this
+   * rework exists to remove. On the whole-account card the three rows need
+   * telling apart, so there it stays.
+   */
+  named?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(destinationPath);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  /*
+    A destination that changed under us — another console, or the first load
+    landing — closes the editor rather than silently rebasing a draft on top of
+    it. The person can see the new value and decide again; a draft typed
+    against the old one is an edit to something that is no longer there.
+  */
   useEffect(() => {
     setDraft(destinationPath);
     setSaveError(null);
+    setEditing(false);
   }, [destinationPath]);
 
-  const dirty = draft.trim() !== destinationPath.trim();
+  /*
+    `new Date()` per render rather than a memo keyed on nothing: the preview
+    says what *today* writes, and a settings panel left open across midnight
+    should not keep claiming yesterday. The module takes the date rather than
+    reading the clock precisely so this stays the component's business.
+  */
+  const view = useMemo(
+    () => destinationDraft({ value: draft, saved: destinationPath, folders, now: new Date() }),
+    [draft, destinationPath, folders],
+  );
+
+  const canEdit = !destinationReadOnly && saveDestination !== undefined;
+
+  const save = () => {
+    if (saveDestination === undefined) return;
+    setSaving(true);
+    setSaveError(null);
+    void saveDestination(connectionId, service, draft)
+      .then(() => setEditing(false))
+      .catch((reason) => {
+        setSaveError(reason instanceof Error ? reason.message : "That path did not save.");
+      })
+      .finally(() => setSaving(false));
+  };
 
   return (
     <View style={styles.serviceBlock}>
-      <View style={styles.serviceHead}>
-        <View style={styles.serviceText}>
-          <Text variant="rowTitle">{title}</Text>
-          <Text variant="rowSub" style={styles.rowSub}>
+      <Row divided style={styles.serviceRow}>
+        <Grow style={styles.serviceText}>
+          {named ? <Text variant="rowTitle">{title}</Text> : null}
+          <Text variant="rowSub" style={named ? styles.rowSub : undefined}>
             {status}
           </Text>
-        </View>
+        </Grow>
         {actionLabel ? (
           <Button
             label={actionLabel}
@@ -668,40 +835,105 @@ function GoogleServiceBlock({
             testID={`start-google-${service}-${connectionId}`}
           />
         ) : null}
-      </View>
-      <View style={styles.destinationRow}>
-        <TextField
-          label={`${title} daily file pattern`}
-          value={draft}
-          editable={!destinationReadOnly}
-          onChangeText={(value) => {
-            setDraft(value);
-            setSaveError(null);
-          }}
-          autoCapitalize="none"
-          autoCorrect={false}
-          placeholder={destinationPath}
-          hint={destinationHint}
-          containerStyle={styles.destinationField}
-          testID={`google-${service}-destination-${connectionId}`}
-        />
-        <Button
-          label={saving ? "Saving..." : "Save pattern"}
-          disabled={!dirty || saving || destinationReadOnly || saveDestination === undefined}
-          onPress={() => {
-            if (saveDestination === undefined) return;
-            setSaving(true);
-            setSaveError(null);
-            void saveDestination(connectionId, service, draft)
-              .catch((reason) => {
-                setSaveError(reason instanceof Error ? reason.message : "That path did not save.");
-              })
-              .finally(() => setSaving(false));
-          }}
-          style={styles.destinationSave}
-          testID={`save-google-${service}-destination-${connectionId}`}
-        />
-      </View>
+      </Row>
+
+      <Row divided style={styles.serviceRow}>
+        <Grow style={styles.serviceText}>
+          <Text variant="rowSub">Where it lands</Text>
+          <Text variant="mono" numberOfLines={1} style={styles.destinationValue}>
+            {destinationPath}
+          </Text>
+        </Grow>
+        {canEdit && !editing ? (
+          <Button
+            label="Change"
+            accessibilityLabel={`Change where ${title} lands`}
+            onPress={() => setEditing(true)}
+            testID={`edit-google-${service}-destination-${connectionId}`}
+          />
+        ) : null}
+      </Row>
+
+      {editing ? (
+        <View style={styles.editor}>
+          <TextField
+            label={`Where ${title} lands`}
+            value={draft}
+            onChangeText={(value) => {
+              setDraft(value);
+              setSaveError(null);
+            }}
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder={destinationPath}
+            hint={destinationHint}
+            error={view.problem ?? undefined}
+            style={styles.destinationInput}
+            testID={`google-${service}-destination-${connectionId}`}
+          />
+
+          {/*
+            The folders this console has already loaded, under the one being
+            typed. Absent rather than empty when there is nothing to offer: a
+            row of nothing under a field is a control that failed, and a panel
+            opened before the tree landed has genuinely nothing to say.
+          */}
+          {view.suggestions.length === 0 ? null : (
+            <View style={styles.suggestions}>
+              {view.suggestions.map((folder) => (
+                <Button
+                  key={folder}
+                  label={folder}
+                  variant="mini"
+                  accessibilityLabel={`Use ${folder}`}
+                  onPress={() => setDraft(`${folder}/YYYY-MM-DD.md`)}
+                  testID={`google-${service}-suggest-${connectionId}-${folder}`}
+                />
+              ))}
+            </View>
+          )}
+
+          {/*
+            What the pattern writes, today. The one thing that turns a template
+            somebody is guessing at into a path they can read back.
+          */}
+          {view.preview === null ? null : (
+            <Text variant="foot" testID={`google-${service}-preview-${connectionId}`}>
+              {"Today this writes "}
+              <Text variant="mono" style={styles.previewPath}>
+                {view.preview}
+              </Text>
+            </Text>
+          )}
+
+          <Row style={styles.editorActions}>
+            <Button
+              label={saving ? "Saving..." : "Save"}
+              disabled={!view.canSave || saving}
+              onPress={save}
+              testID={`save-google-${service}-destination-${connectionId}`}
+            />
+            <Button
+              label="Cancel"
+              variant="ghost"
+              disabled={saving}
+              onPress={() => {
+                setDraft(destinationPath);
+                setSaveError(null);
+                setEditing(false);
+              }}
+              testID={`cancel-google-${service}-destination-${connectionId}`}
+            />
+          </Row>
+        </View>
+      ) : null}
+
+      {/*
+        The server's refusal, which is not the same thing as `view.problem`.
+        That one is this console's reading of the rule, shown while typing;
+        this one is what actually came back — a conflict with another account's
+        folder, say, which no client-side check can see.
+      */}
       {saveError ? <FormError headline="Pattern was not saved" next={saveError} /> : null}
       {error ? <FormError headline="Sync stopped" next={error} /> : null}
     </View>
@@ -780,26 +1012,37 @@ function gmailRunDetail(connection: GoogleConnection): string | null {
 const makeStyles = (colors: Colors) => StyleSheet.create({
   head: { marginBottom: 12 },
   rowSub: { marginTop: 2 },
-  connectionRow: { alignItems: "flex-start", flexWrap: "wrap" },
-  serviceList: { marginTop: 12, gap: 12 },
-  serviceBlock: {
-    borderColor: colors.line,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 8,
-    padding: 12,
-    gap: 10,
+  /** One account. No border of its own — the card it sits in is the surface. */
+  account: { marginTop: 4 },
+  accountHead: { marginBottom: 2 },
+  accountFoot: { marginTop: 2, flexWrap: "wrap", gap: 10 },
+  armedHint: { marginTop: 10 },
+  serviceBlock: { marginTop: 2 },
+  /*
+    A floor under the text column, so the action group wraps whole rather than
+    squeezing the status line into one word per line. The number and the reason
+    are `PrivacyPanel`'s: a growing column shrinks to zero before a sibling
+    wraps, which at 390pt turned a folder name into five lines of one letter.
+  */
+  serviceRow: { flexWrap: "wrap", alignItems: "flex-start", gap: 10 },
+  serviceText: { flexGrow: 1, flexShrink: 1, flexBasis: 180, minWidth: 180 },
+  destinationValue: { marginTop: 2 },
+  destinationInput: {
+    fontFamily: "JetBrainsMono_400Regular",
+    // A path is read character by character, so the face that shows a `l` and
+    // a `1` apart is the one it belongs in — the same reason every other path
+    // in this console is `mono`.
+    fontSize: 12.5,
   },
-  serviceHead: { flexDirection: "row", gap: 12, alignItems: "flex-start", flexWrap: "wrap" },
-  serviceText: { flexGrow: 1, flexShrink: 1, flexBasis: 240 },
-  destinationRow: { flexDirection: "row", gap: 10, alignItems: "flex-end", flexWrap: "wrap" },
-  destinationField: { flexGrow: 1, flexShrink: 1, flexBasis: 280 },
-  destinationSave: { marginTop: 18 },
+  editor: { marginTop: 12, gap: 10 },
+  suggestions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  previewPath: { color: colors.text2 },
+  editorActions: { gap: 9, flexWrap: "wrap" },
   inlineError: { marginTop: 10 },
   empty: { marginTop: 4 },
   connect: { marginTop: 14, gap: 12 },
   intervalRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
-  connectionBody: { flexBasis: 280 },
-  connectionActions: { marginLeft: "auto", gap: 8, maxWidth: 220 },
-  alsoRemoved: { marginTop: 2 },
+  intervalOn: { backgroundColor: colors.accentDim, borderColor: colors.accent },
+  intervalCheck: { color: colors.accentText },
   note: { marginTop: 2 },
 });

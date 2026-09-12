@@ -124,6 +124,15 @@ function panel(contextId: string, section: SettingsSectionKey): string {
   return panelElement(contextId, section).textContent ?? "";
 }
 
+/*
+  Each service's destination, named once and asserted against by the narrowing
+  tests. They differ from each other on purpose: that is what makes "only the
+  calendar block" an assertion rather than a coincidence.
+*/
+const MAIL_DESTINATION = "0-inbox/email/someone/YYYY-MM-DD.md";
+const CALENDAR_DESTINATION = "0-inbox/calendar/YYYY-MM-DD.md";
+const CHAT_DESTINATION = "2-areas/communications/daily/YYYY-MM-DD.md";
+
 /** One Google account with all three services on, so narrowing has work to do. */
 const THREE_SERVICE_ACCOUNT: GoogleConnection = {
   connectionId: "google_1",
@@ -135,17 +144,17 @@ const THREE_SERVICE_ACCOUNT: GoogleConnection = {
     backfillDays: 90,
     folders: ["inbox"],
     destinationFolder: "0-inbox/email/someone",
-    destinationPath: "0-inbox/email/someone/YYYY-MM-DD.md",
+    destinationPath: MAIL_DESTINATION,
     historyCursorReady: true,
   },
   calendar: {
     destinationFolder: "0-inbox/calendar",
-    destinationPath: "0-inbox/calendar/YYYY-MM-DD.md",
+    destinationPath: CALENDAR_DESTINATION,
     syncCursorReady: true,
   },
   chat: {
     destinationFolder: "2-areas/communications/daily",
-    destinationPath: "2-areas/communications/daily/YYYY-MM-DD.md",
+    destinationPath: CHAT_DESTINATION,
     cursorCount: 2,
   },
 };
@@ -176,9 +185,9 @@ describe("each panel narrows the Google card rather than repeating it", () => {
       }),
     );
     const text = container.textContent ?? "";
-    expect(text).toContain("Calendar daily file pattern");
-    expect(text).not.toContain("Email daily file pattern");
-    expect(text).not.toContain("Chat daily file pattern");
+    expect(text).toContain(CALENDAR_DESTINATION);
+    expect(text).not.toContain(MAIL_DESTINATION);
+    expect(text).not.toContain(CHAT_DESTINATION);
   });
 
   test("Email shows only the mail block", () => {
@@ -192,9 +201,15 @@ describe("each panel narrows the Google card rather than repeating it", () => {
       }),
     );
     const text = container.textContent ?? "";
-    expect(text).toContain("Email daily file pattern");
-    expect(text).not.toContain("Calendar daily file pattern");
-    expect(text).not.toContain("Chat daily file pattern");
+    /*
+      The uppercase field label was the old observable and it is gone with the
+      always-open field. The destination itself is the better one: it differs
+      per service, so "only the mail block" is asserted on the thing that would
+      actually be wrong if the narrowing broke.
+    */
+    expect(text).toContain(MAIL_DESTINATION);
+    expect(text).not.toContain(CALENDAR_DESTINATION);
+    expect(text).not.toContain(CHAT_DESTINATION);
   });
 
   test("Chats shows only the chat block", () => {
@@ -205,9 +220,9 @@ describe("each panel narrows the Google card rather than repeating it", () => {
       }),
     );
     const text = container.textContent ?? "";
-    expect(text).toContain("Chat daily file pattern");
-    expect(text).not.toContain("Email daily file pattern");
-    expect(text).not.toContain("Calendar daily file pattern");
+    expect(text).toContain(CHAT_DESTINATION);
+    expect(text).not.toContain(MAIL_DESTINATION);
+    expect(text).not.toContain(CALENDAR_DESTINATION);
   });
 
   test("an account that does not sync this service is not listed under it", () => {
@@ -288,18 +303,32 @@ describe("only an owner connects, removes, or re-files", () => {
     },
   );
 
-  test("a narrowed card never offers Save pattern without a saver", () => {
+  /*
+    Absent, not disabled — which is this console's rule everywhere else and was
+    the one place it was not followed. There is no `saveDestination` without
+    `googleActions`, so a reader who cannot save is now offered no way *in*
+    either: no Change, so no editor, so no Save. A disabled Save button sitting
+    under a path was an affordance whose only possible outcome was refusal.
+  */
+  test("a narrowed card offers no way into the editor without a saver", () => {
     const container = mount(() =>
       createElement(GoogleConnectionsCard, {
         service: "gmail",
         connections: [THREE_SERVICE_ACCOUNT],
       }),
     );
-    const save = container.querySelector<HTMLButtonElement>(
-      '[data-testid="save-google-gmail-destination-google_1"]',
-    );
-    expect(save).not.toBeNull();
-    expect(save!.getAttribute("aria-disabled")).toBe("true");
+    expect(
+      container.querySelector('[data-testid="edit-google-gmail-destination-google_1"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-testid="save-google-gmail-destination-google_1"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-testid="google-gmail-destination-google_1"]'),
+    ).toBeNull();
+    // The destination is still *stated*: not being able to change it is not a
+    // reason to be unable to see where your mail goes.
+    expect(container.textContent ?? "").toContain(MAIL_DESTINATION);
   });
 
   test("and the forwarding rules stay the owner's", () => {
