@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { useAction, useQueries, type RequestForQueries } from "convex/react";
+import { useCallback, useMemo } from "react";
+import { useAction, useConvex, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { describeQueryFailure } from "../failure";
@@ -7,12 +7,14 @@ import { EMPTY_QUERY_SPEC } from "../querySpec";
 import {
   buildKeyExportDocument,
   canReadAuditTrail,
+  deletionBlockedReason,
   type AdvancedView,
   type DurableMoveJob,
   type ConsoleAuditEvent,
   type KeyExportAction,
   type KeyExportDocument,
   type RawKeyExport,
+  type WorkspaceDeletion,
 } from "./advanced";
 
 /**
@@ -58,8 +60,12 @@ export function useAdvanced(options: {
   workspaceId: Id<"workspaces"> | null;
   /** The caller's role in this context, or `undefined` while it is unknown. */
   role: string | undefined;
+  /** `personal` or `shared`. Only a shared context is deletable from here. */
+  kind: string | undefined;
+  /** The addressable name, with or without its `@`. */
+  slug: string | undefined;
 }): AdvancedView {
-  const { workspaceId, role } = options;
+  const { workspaceId, role, kind, slug } = options;
   // Owner-only in the console — see `canReadAuditTrail` for why this is
   // stricter than what `listEvents` itself allows on the backend, and never
   // relax it without the server-side fix that section describes.
@@ -83,6 +89,18 @@ export function useAdvanced(options: {
         query: api.functions.files.listDurableMoves,
         args: { workspaceId },
       },
+      /*
+        Only for the one fact the deletion card needs: whether the bucket
+        behind this workspace is one we run. The plan itself is Premium's
+        business and `usePremium` subscribes to the same query when that
+        section is open — Convex serves one subscription for both, and
+        deriving it here instead from a bucket name would be a second answer
+        to a question the control plane already answers.
+      */
+      billing: {
+        query: api.functions.billing.status,
+        args: { workspaceId },
+      },
     };
   }, [workspaceId, isOwner]);
 
@@ -94,7 +112,49 @@ export function useAdvanced(options: {
   const moves = usable<DurableMoveJob[]>(rawMoves) ?? [];
   const movesFailed = rawMoves instanceof Error ? rawMoves : null;
 
+  const billing = usable<{ storageIsManaged: boolean }>(results.billing);
+
   const exportEncryptionKeys = useAction(api.functions.encryptionKeys.exportEncryptionKeys);
+  const convex = useConvex();
+
+  const deleteWorkspace = useCallback(
+    async (confirmSlug: string): Promise<void> => {
+      if (workspaceId === null) return;
+      await convex.mutation(api.functions.account.deleteWorkspace, {
+        workspaceId,
+        confirmSlug,
+      });
+    },
+    [convex, workspaceId],
+  );
+
+  /*
+    Absent for anyone who is not an owner — the same rule `keyExport` follows,
+    and `deleteWorkspace` is owner-only on the backend. Present-but-`blocked`
+    is the other state, and it is deliberately not the same thing: a workspace
+    on storage we run, or a brain, has a *reason* worth saying rather than a
+    control worth hiding.
+  */
+  const deletion: WorkspaceDeletion | undefined = useMemo(() => {
+    if (workspaceId === null || !isOwner || slug === undefined) return undefined;
+    /*
+      And not until the plan has answered. `deletionBlockedReason` treats an
+      unanswered question as a refusal, which is the right default for a
+      function that could be called from anywhere — but drawing that refusal
+      here would flash a warning on every load before the answer lands. No
+      card is the honest version of "we do not know yet", and it becomes one
+      the moment the query resolves.
+    */
+    if (billing === undefined) return undefined;
+    return {
+      slug: slug.replace(/^@/, ""),
+      blocked: deletionBlockedReason({
+        kind,
+        storageIsManaged: billing?.storageIsManaged,
+      }),
+      delete: deleteWorkspace,
+    };
+  }, [workspaceId, isOwner, slug, kind, billing, deleteWorkspace]);
 
   // Absent, not disabled, and absent as a whole object — the rule
   // `StorageActions` states, applied to a control that hands somebody a
@@ -133,5 +193,6 @@ export function useAdvanced(options: {
           : "Only an owner of this context can see its audit trail.",
     },
     keyExport,
+    deletion,
   };
 }

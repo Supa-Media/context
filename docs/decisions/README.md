@@ -41,6 +41,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The signature is the whole security of the webhook
 - The API version pins outbound calls and nothing else
 - A third route factory, and why it is enumerated separately
+- Storage we run is offered wherever a context is made, brain or workspace
 - What is deliberately not built
 
 ## [Identity, grants, invitations, and ingestion](./identity-and-access.md)
@@ -60,6 +61,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The two onboarding gates ask two different questions
 - …and a third question nobody was asking: how do you get one?
 - The hook is a capture-only OAuth client, and that is the whole design
+- A workspace's name can be given back, and only its owner can give it
 
 ## [Privacy, visibility, and sharing](./privacy-and-sharing.md)
 

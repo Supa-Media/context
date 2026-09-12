@@ -549,7 +549,14 @@ export function useLiveConsoleData(): ConsoleData {
 
   // Both halves are owner-only in the console — see `useAdvanced` for why the
   // audit trail is stricter here than `listEvents` allows on the backend.
-  const advanced = useAdvanced({ workspaceId: selectedContextId, role: selected?.role });
+  const advanced = useAdvanced({
+    workspaceId: selectedContextId,
+    role: selected?.role,
+    // For the deletion card only: a brain is not deletable from a settings
+    // panel, and the name is what confirms the deletion.
+    kind: selected?.kind,
+    slug: selected?.slug,
+  });
 
   const files = useFileBrowser({
     slug: selected?.slug,

@@ -834,3 +834,58 @@ strictness we cannot test, and the cost of being wrong is their whole settings
 file failing to load. Our entries are identified by the command string instead —
 still recognised on read, so an upgrade replaces an old marked entry rather than
 stacking a second one beside it.
+
+### A workspace's name can be given back, and only its owner can give it
+
+A workspace claims its slug at step 1 of its creation flow — before a bucket,
+before a member, before anything — out of the same global namespace usernames
+come from, and `createWorkspace` counts it against `MAX_WORKSPACES_PER_USER`
+the moment it commits. Until `account.deleteWorkspace` existed, the only thing
+that released either was deleting the whole account. A workspace somebody named
+and never finished was therefore a reservation nobody could cancel, including
+the person who made it: the name was spent globally, one of their ten contexts
+was spent, and the flow's "nothing here expires" was true in a way that read as
+reassurance.
+
+The release path is deletion, not expiry. **A name must never vanish from under
+somebody**, which rules out reaping an idle workspace on a timer: a context with
+no binding is a state the schema supports on purpose, and "no activity" is
+indistinguishable from "not started yet" for a workspace whose members were
+invited and have not answered. So the name comes back when its owner says so and
+never otherwise, and the creation flow now says which it is.
+
+Four guards, and each is the reason the other three are safe to offer:
+
+- **Owner only.** `requireWorkspaceRole(…, "owner")`, which tells a stranger
+  nothing beyond "not found". An editor tearing down somebody else's workspace
+  is the worst thing this mutation could be made to do.
+- **The slug, typed, checked on the server.** `DeleteAccountCard` is armed by
+  pressing twice, which is right for the one account a person has. A person can
+  have ten workspaces open in as many tabs, all reached through the same
+  settings section, so "the one I was looking at" is not a guard and the
+  confirmation is the name itself. The console gates its button on the same
+  comparison, but the mutation is what enforces it — a client that skipped the
+  field cannot skip the check.
+- **Shared only.** A brain's slug is the person's own username and its capture
+  address is live on the apex, so releasing it is account deletion's business
+  and is deliberately not reachable from a settings panel (`PERSONAL_CONTEXT`).
+- **Not while we hold the only key.** On managed storage the notes live in a
+  bucket the customer has no credential for, and the free hand-off path is still
+  unbuilt (`billing.md`, "What is deliberately not built"). Deleting the row
+  would either strand their notes in our infrastructure with nothing pointing at
+  them or destroy the only copy; non-negotiable #1 permits neither, so it is
+  refused with `MANAGED_STORAGE` and the refusal is drawn in place of the field
+  rather than after the press. The export and hand-off work is what lifts it.
+
+What is deleted is `deleteAccount`'s cascade, unchanged — our metadata about the
+workspace, credential envelopes included. **A bucket the customer owns is never
+touched**: the same "revoke the key and we're gone" promise `disconnectStorage`
+makes, which is precisely why this is safe to offer at all. Their notes stay
+where they put them and stay openable in Obsidian.
+
+**The tests that fail if this is reversed.**
+`apps/convex/__tests__/deleteWorkspace.test.ts` walks every guard, proves the
+name is claimable again afterwards, and proves one workspace's deletion leaves
+another's rows alone; `apps/mobile/__tests__/deleteWorkspaceCard.test.ts` holds
+the console half — the typed-name gate, the refusal drawn instead of a button,
+and the sentence saying the files stay.

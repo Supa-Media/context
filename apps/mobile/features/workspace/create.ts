@@ -379,6 +379,22 @@ export function describeInvitesSent(count: number): string | null {
 export const WORKSPACE_PRIVACY_NOTE =
   "These folders start visible to everyone in the workspace, which is what a workspace is for. Marking one private in privacy.md holds it back to the workspace's owners — there is no way yet to restrict a folder to some other subset of the team.";
 
+/**
+ * What paying for storage we run does, in this flow, in order.
+ *
+ * First run's version of this sequence says "Stripe brings you back here", and
+ * here that would be false: this flow is component state and Stripe returns to
+ * a URL, so the checkout is started with `origin: "settings"` and lands on the
+ * workspace's own Premium section. The two steps left in this flow are skipped
+ * exactly as the Dropbox route skips them, so this says where they went —
+ * before the press, on the screen that takes the payment.
+ */
+export const WORKSPACE_AFTER_PAY = [
+  "Stripe brings you back to the workspace's own settings, not to this flow.",
+  "We create its bucket and lay out the standard folders.",
+  "The workspace is ready — usually in a few seconds. Invite its people from its settings.",
+] as const;
+
 /** What a workspace's layout is worth, said once. Reversible, like everything else. */
 export const WORKSPACE_LAYOUT_NOTE =
   "A layout is a leg-up on an empty bucket, not a schema. Rename these, nest inside them, add more, or delete them — in the console, in Obsidian, or by asking a connected AI client. Nothing below the tools cares what they are called.";

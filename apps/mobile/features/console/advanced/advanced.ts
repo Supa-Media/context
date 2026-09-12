@@ -301,9 +301,111 @@ export function describeKeyExportFailure(error: unknown): KeyExportFailure {
   }
 }
 
+/**
+ * Deleting a workspace, as the console offers it.
+ *
+ * Absent — the whole property — for anybody who is not an owner, and in the
+ * demo: `account.deleteWorkspace` is owner-only, so the rule `KeyExportAction`
+ * above follows applies here too, and more so. `blocked` is the other half:
+ * a *present* action that this particular workspace must not use says why in
+ * a sentence, instead of drawing a field and a button whose only outcome is
+ * a refusal from the server.
+ */
+export interface WorkspaceDeletion {
+  /** The name that has to be typed to confirm, without its `@`. */
+  slug: string;
+  /** Why this workspace cannot be deleted here, or `null` when it can. */
+  blocked: string | null;
+  /** Hands the typed name to the server, which checks it independently. */
+  delete: (confirmSlug: string) => Promise<void>;
+}
+
+/**
+ * Why deleting this workspace is refused, or `null` when it is not.
+ *
+ * Two refusals, and both are the server's — restated here so the console can
+ * say them before the press rather than after it. Neither is a place to be
+ * clever: an unanswered question **blocks**, because both inputs arrive a beat
+ * after the first paint and a card that treated `undefined` as "fine" would
+ * offer deletion for exactly the workspace it exists to refuse.
+ */
+export function deletionBlockedReason(input: {
+  kind: string | undefined;
+  storageIsManaged: boolean | undefined;
+}): string | null {
+  if (input.kind === undefined || input.storageIsManaged === undefined) {
+    return "Checking what this workspace is before offering to delete it.";
+  }
+  if (input.kind !== "shared") {
+    // A brain's name is the person's own username and its capture address is
+    // live on the apex. Releasing that is account deletion's business.
+    return "A brain is deleted with the account it belongs to. Delete the account to release its name.";
+  }
+  if (input.storageIsManaged) {
+    return "This workspace's notes are in storage we run, and moving them out to a bucket you own is not built yet. Deleting it here would leave them somewhere you cannot reach, so it is refused until that lands.";
+  }
+  return null;
+}
+
+/**
+ * Whether the typed confirmation matches the name.
+ *
+ * The same shapes the server accepts (`account.deleteWorkspace`): trimmed,
+ * lowercased, and a leading `@` dropped — because the name is shown as
+ * `@acme-eng` everywhere in this console, so that is what people copy.
+ */
+export function deletionConfirmed(typed: string, slug: string): boolean {
+  return typed.trim().toLowerCase().replace(/^@/, "") === slug;
+}
+
+/** A refused deletion, in words somebody can act on. */
+export function describeDeleteWorkspaceFailure(error: unknown): KeyExportFailure {
+  switch (errorCodeOf(error)) {
+    case "INSUFFICIENT_ROLE":
+      return {
+        headline: "Only an owner can delete this workspace",
+        next: "Ask an owner to do it.",
+      };
+    case "CONFIRMATION_MISMATCH":
+      return {
+        headline: "That is not this workspace's name",
+        next: "Nothing was deleted. Type the name exactly as it is shown.",
+      };
+    case "PERSONAL_CONTEXT":
+      return {
+        headline: "A brain is deleted with its account",
+        next: "Delete the account from Settings to release its name.",
+      };
+    case "MANAGED_MIGRATION":
+      return {
+        headline: "A move into storage we run is under way",
+        next: "Let it finish or cancel it first, then delete this workspace.",
+      };
+    case "MANAGED_STORAGE":
+      return {
+        headline: "This workspace is on storage we run",
+        next: "Moving its notes to a bucket you own is not built yet, so deleting it is refused until it is.",
+      };
+    case "WORKSPACE_NOT_FOUND":
+      return {
+        headline: "This workspace is no longer available to you",
+        next: "It may already be gone. Pick a different one.",
+      };
+    case "NOT_AUTHENTICATED":
+      return { headline: "You are signed out", next: "Sign in and try again." };
+    default:
+      return { headline: "That did not work", next: "Try again in a moment." };
+  }
+}
+
 export interface AdvancedView {
   moves: DurableMoveView;
   audit: AuditView;
+  /**
+   * Absent for anybody who is not an owner of this workspace, and in the
+   * demo. Present-but-`blocked` is a different state — see `WorkspaceDeletion`.
+   */
+  deletion?: WorkspaceDeletion;
   /**
    * Absent where the server would refuse it — a non-owner, no context
    * selected, and the demo. See `KeyExportAction`.

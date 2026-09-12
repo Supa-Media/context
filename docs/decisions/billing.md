@@ -264,8 +264,46 @@ action for an unshared context created by this identity, so one CUJ can be torn
 down without touching any other test context. Ordinary account deletion
 continues to leave customer-owned storage untouched.
 
+## Storage we run is offered wherever a context is made, brain or workspace
+
+The managed card was drawn on first run's storage step and not on the bucket
+step of a new workspace. Nothing enforced that — it was a prop the workspace
+step never passed — but on screen it read as policy, and the policy it implied
+is the opposite of "a plan belongs to a workspace, never to a person" above.
+Billing is keyed by `workspaceId` end to end: `billing.status`,
+`startCheckout`, `setEntitlements` and `managedBucketName` all take one, and
+the plan is owner-gated on that workspace alone. A workspace has therefore
+always been a thing that can be put on storage we run; the only route to it was
+finishing the flow and finding Premium in the workspace's own settings, which
+is the worst moment to discover a bucket you did not have to make.
+
+**The checkout starts with `origin: "settings"`, and that is not a shortcut.**
+`CheckoutOrigin` has two values because a return URL is built from a closed set
+and never from anything a client sent, and neither "add a third" nor "reuse
+onboarding's" is right here: that flow lives in `/welcome`, while creating a
+workspace lives in component state behind `/workspace/new`, which would restart
+at step 1 with the name already claimed — the worst possible landing for
+somebody who has just paid. The workspace's own Premium section is a real page
+that already draws the settling wait, so the return goes there. It costs the
+two remaining steps of the flow, exactly as the Dropbox redirect does, and
+`WORKSPACE_AFTER_PAY` says so on the screen that takes the payment rather than
+afterwards — first run's "Stripe brings you back here" would be a promise this
+flow cannot keep.
+
+**The tests that fail if this is reversed.**
+`apps/mobile/__tests__/workspaceManaged.test.ts` — the card absent where the
+deployment cannot deliver it, the confirmation naming the workspace rather than
+the creator, and the first-run return sentence kept out of this flow.
+
 ## What is deliberately not built
 
+- **Deleting a workspace that is on managed storage.** `deleteWorkspace`
+  refuses it (`MANAGED_STORAGE`) rather than choosing between stranding the
+  customer's notes in a bucket they have no key to and destroying the only copy
+  of them. It is the same missing piece as the line below — the free export and
+  hand-off path — surfacing somewhere else, and it lifts when that lands. A
+  workspace on a bucket the customer owns deletes normally, because forgetting
+  our metadata about their storage is all that deletion does to it.
 - **Complete enforcement.** Fast Search consumes its paid entitlement and
   managed storage is provisioned for both new and existing contexts, but no
   write path is made read-only by a lapse yet. An existing binding is copied
