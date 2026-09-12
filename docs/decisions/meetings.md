@@ -1557,6 +1557,85 @@ this belongs to has its own guard —
 [app-and-console](./app-and-console.md), *a route with no way in is a route
 nobody has*.
 
+### One recording per meeting, because iOS will not let a locked phone start a second one
+
+**The defect.** A meeting recorded on an unlocked phone was fine. The same
+meeting with the screen off produced a transcript that stopped a few minutes in
+and no error anywhere — the owner's was 03:01 long, out of a meeting that was
+not.
+
+Everything anybody would check was already right. `UIBackgroundModes: ["audio"]`
+was in the binary, `allowsBackgroundRecording: true` was in the audio session,
+and a native build carrying both had shipped. The entitlement was never the
+problem, and neither were JavaScript timers, which is where this was first
+looked for.
+
+**The cause is that a rotation is a `record()`.** Capture rotated chunks by
+stopping the recorder every twenty seconds and starting a new one, and iOS
+refuses to *start* a recording from the background —
+`AVAudioSessionErrorCodeCannotStartRecording`, a privacy restriction since
+iOS 12.4. The exemption is narrow and is exactly the wrong shape for a rotation:
+a recording that is **already running** when the app is backgrounded may carry
+on, and one that is not may not begin. So every twenty seconds the app gave up
+the one thing a backgrounded recorder is allowed to keep and then asked for it
+back. In the foreground, granted. Locked, refused, and the meeting was over.
+
+**So the device is started once and the chunks come out of the file.**
+`record()` is called by `start`, by `resume` and by the interruption recovery,
+all of which are either in front of the person or already failing. The rotation
+tick touches the device not at all: it reads what the recorder has written since
+last time, cuts it on a sample boundary, wraps it in a WAVE header and sends it.
+This is what the meeting recorders that survive a lock screen do.
+
+**That forces linear PCM, and the cost is disk.** A growing `.m4a` cannot be
+read — AAC in an MPEG-4 container is not valid until `stop()` writes the `moov`
+atom, so a prefix of one is not a shorter recording, it is not a recording. A
+WAVE file writes its header up front and appends samples, so the bytes on disk
+at any moment are the audio so far. 16 kHz mono 16-bit costs about 115 MB an
+hour against roughly 8 MB for AAC, in a cache directory, for the length of one
+meeting — and 16 kHz mono is the transcription model's own input, so nothing
+downstream resamples.
+
+**iOS only.** Android's `MediaRecorder` has no linear-PCM output and does not
+have the disease: its foreground service keeps the process scheduled, so the
+rotation goes on working there. Rotation is therefore kept rather than ported,
+and the tests that were written for it now run against the platform that runs it.
+
+**Nothing trusts the options it asked for.** `parseWavHeader` reads the format
+out of the file the device actually produced. A device may substitute a sample
+rate, and a slice labelled 16 kHz that is really 44.1 kHz transcribes as
+nonsense at a third speed — which reads as a broken model rather than a broken
+header, and is the most expensive kind of wrong. The header is also not
+assumed to be 44 bytes: WAVE permits chunks before `data`, and slicing from a
+constant would feed header bytes into the transcript.
+
+**Two smaller things fell out of it, both of which were latent.** The recorder
+was being constructed with a *nested* `RecordingPresets` object, and the native
+side decodes one flat record — so everything under `ios:` had always been
+dropped in silence. It cost nothing while the answer was AAC either way, and it
+would have cost the whole change here, because `outputFormat` is the field that
+selects linear PCM. And a backed-up send queue no longer drops audio: the file
+is the buffer, so the slicer simply does not advance and the next tick takes the
+same bytes — where a rotation had to drop, because the file it held was about to
+be deleted.
+
+The checks are `the microphone is started once, however long the meeting runs`,
+`the recorder is asked for linear PCM, in the flat record the native side
+reads`, `the slices are the recording, in order, with nothing dropped or
+repeated`, `a slice is as long as the audio it holds, not as long as the tick
+was`, `a backed-up queue leaves the audio on disk instead of dropping it`,
+`ending sends everything still on disk before the microphone goes back`,
+`pausing puts the microphone back, and resuming does not re-send what it heard`,
+`the file it is recording into is not left open once per tick`, and the whole of
+`__tests__/meetingsWav.test.ts`, whose round trip is the one that catches what
+the individual assertions let through.
+
+**What is still not proven here.** Every check above runs against a fake device
+and a fake file system. That a locked iPhone now records for the length of a
+meeting is the claim this change is *for*, and it cannot be made by this suite —
+it needs a native build and a phone with its screen off. Until somebody has run
+that, the honest statement is that the call iOS refuses is no longer made.
+
 ### A meeting is written the way a note is, because that is what it is
 
 **The root cause of the vanished recording, and it is not what the sections
