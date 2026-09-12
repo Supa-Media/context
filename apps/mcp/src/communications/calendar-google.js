@@ -48,6 +48,19 @@ export class CalendarApiError extends Error {
 }
 
 /**
+ * A page walk ended without Google's terminal page and therefore without the
+ * only `nextSyncToken` that can safely advance the calendar cursor. Fixed and
+ * content-free so a scheduler can classify it without carrying provider text.
+ */
+export class CalendarPaginationError extends Error {
+  constructor() {
+    super("Google Calendar pagination did not converge");
+    this.name = "CalendarPaginationError";
+    this.code = "PAGINATION_STALLED";
+  }
+}
+
+/**
  * One page of `calendar.events.list`.
  *
  * The access token is sent **only** in the `Authorization` header, never as a
@@ -148,15 +161,28 @@ export async function fetchAllPages(args) {
   const items = [];
   let pageToken = null;
   let nextSyncToken = null;
+  let complete = false;
+  const seenPageTokens = new Set();
   // A page cap, not a product limit: a fixture or a misbehaving server that
   // never stops paginating must not hang a sync forever.
   for (let page = 0; page < 1000; page += 1) {
     const result = await fetchCalendarPage({ ...args, pageToken });
     items.push(...result.items);
     if (result.nextSyncToken) nextSyncToken = result.nextSyncToken;
-    if (!result.nextPageToken) break;
+    if (!result.nextPageToken) {
+      complete = true;
+      break;
+    }
+    if (seenPageTokens.has(result.nextPageToken)) {
+      throw new CalendarPaginationError();
+    }
+    seenPageTokens.add(result.nextPageToken);
     pageToken = result.nextPageToken;
   }
+  // Hitting the cap is not a partial success. Google's resumable sync token
+  // exists only on the terminal page, so returning the old/null token here
+  // would make the next scheduled pass replay the same thousand pages forever.
+  if (!complete) throw new CalendarPaginationError();
   return { items, nextSyncToken };
 }
 
