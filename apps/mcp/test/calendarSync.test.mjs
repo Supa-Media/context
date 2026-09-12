@@ -118,6 +118,19 @@ export async function runCalendarSyncChecks(check) {
     !firstLogLines.some((line) => line.includes(connection.accessToken))
   );
 
+  const destinationStore = createStore();
+  const destinationSync = await syncCalendarAccount({
+    connection: baseConnection({ destinationFolder: "2-areas/schedule" }),
+    store: destinationStore,
+    fetchImpl: server.fetch,
+    now: NOW,
+  });
+  check(
+    "Calendar sync honors its configured destination folder",
+    destinationSync.writes.some(({ path }) => path === "2-areas/schedule/2026-09-07.md") &&
+      !destinationStore.files.has("0-inbox/calendar/2026-09-07.md"),
+  );
+
   /* --------------------- idempotent regeneration -------------------------- */
 
   const secondRunStore = createStore();
