@@ -3248,6 +3248,21 @@ Folder picking is Mac/web-only because native mobile pickers do not preserve a
 vault's relative paths; mobile says where to continue instead of flattening the
 vault.
 
+The browser picker waits for the file input's own `change` or `cancel` event.
+It must not infer cancellation from the window regaining focus: Chrome restores
+focus before it has finished enumerating a directory, so a focus timer can win
+the race and discard a valid selection. The regression test deliberately sends
+focus first and the selected files later. The import screen also reflects that
+intermediate state as “Reading the selected folder…” instead of leaving the
+button unchanged.
+
+The Settings flow is one staged card rather than a stack of policy boxes. It
+keeps the merge choice visible, shows a folder-reading state, then names the
+file count, size, destination, and one `Upload N files` action. The keep-tab-open
+warning appears when there is actually a local selection to protect and remains
+beside live progress; it is not the first thing somebody sees before choosing a
+folder.
+
 **"Create-only" is a claim about the bucket, not about the request, so the
 capability decides which way it is enforced.** Every adapter here *sends*
 `onlyIf: { absent: true }`; whether the bucket obeys is the question

@@ -63,11 +63,11 @@ describe("the reusable notes importer", () => {
       );
     });
 
-    expect(container.textContent ?? "").toContain("How should this vault join your existing notes?");
+    expect(container.textContent ?? "").toContain("Import Markdown");
+    expect(container.textContent ?? "").toContain("How should these notes be added?");
     expect(container.textContent ?? "").toContain("Merge without replacing");
     expect(container.textContent ?? "").toContain("Keep it in its own folder");
-    expect(container.textContent ?? "").toContain("Keep this tab open while files upload");
-    expect(container.textContent ?? "").toContain("reselect the same vault");
+    expect(container.textContent ?? "").not.toContain("Keep this tab open while files upload");
     expect(container.textContent ?? "").not.toMatch(/overwrite existing/i);
 
     act(() => root.unmount());
@@ -110,8 +110,9 @@ describe("the reusable notes importer", () => {
     expect(container.textContent ?? "").toContain("Have an Obsidian vault or existing Markdown notes?");
     await click("settings-vault-merge");
     await click("settings-vault-choose");
-    expect(container.textContent ?? "").toContain("Nothing has uploaded yet");
-    expect(container.textContent ?? "").toContain("Start upload");
+    expect(container.textContent ?? "").toContain("Ready to upload");
+    expect(container.textContent ?? "").toContain("Keep this tab open");
+    expect(container.textContent ?? "").toContain("Upload 1 file");
     await click("settings-vault-upload");
 
     expect(imported).toHaveBeenCalledTimes(1);
@@ -193,7 +194,7 @@ describe("the reusable notes importer", () => {
     expect(container.textContent ?? "").toContain("34%");
     expect(container.textContent ?? "").toContain("Choose the same vault to resume");
     expect(container.textContent ?? "").toContain("Choose a vault or notes folder");
-    expect(container.textContent ?? "").not.toContain("How should this vault join your existing notes?");
+    expect(container.textContent ?? "").not.toContain("How should these notes be added?");
 
     act(() => root.unmount());
     container.remove();

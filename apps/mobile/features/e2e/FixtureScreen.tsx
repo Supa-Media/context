@@ -1,6 +1,7 @@
 import { CHECKOUT_PARAM, checkoutOutcomeFrom } from "@context/shared";
 import { E2EFixtureScreen } from "../console/E2EFixtureScreen";
 import { FirstRunStorageFixture } from "../onboarding/FirstRunStorageFixture";
+import { VaultImportFixture } from "../onboarding/VaultImportFixture";
 
 /**
  * Which fixture `/e2e-fixture` is showing, decided off the query.
@@ -29,6 +30,8 @@ function first(value: string | string[] | undefined): string | undefined {
 }
 
 export function FixtureScreen({ params }: { params: FixtureParams }) {
+  if (first(params.screen) === "vault-import") return <VaultImportFixture />;
+
   /*
     The storage step, which is otherwise on no browser-reachable screen:
     `/welcome` needs a session and a deployment, and the three screens behind

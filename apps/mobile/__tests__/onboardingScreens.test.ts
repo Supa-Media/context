@@ -264,7 +264,7 @@ describe("the Obsidian vault screen", () => {
     expect(text).toContain("Have an Obsidian vault or existing Markdown notes?");
     expect(text).toContain("Choose a vault or notes folder");
     expect(text).toContain("No, start fresh");
-    expect(text).toContain("Files already in storage are never overwritten.");
+    expect(text).toContain("Existing files stay unchanged.");
   });
 
   test("still offers an import when connected storage already contains files", () => {
@@ -281,7 +281,7 @@ describe("the Obsidian vault screen", () => {
     );
 
     expect(text).toContain("Have an Obsidian vault or existing Markdown notes?");
-    expect(text).toContain("How should this vault join your existing notes?");
+    expect(text).toContain("How should these notes be added?");
     expect(text).toContain("Merge without replacing");
     expect(text).toContain("Keep it in its own folder");
   });
