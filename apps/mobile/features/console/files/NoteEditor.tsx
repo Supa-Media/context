@@ -95,6 +95,7 @@ const SCROLL_GRACE_MS = 250;
 export function NoteEditor({
   state,
   canEdit,
+  reading = false,
   visibility,
   notices,
   pathBar,
@@ -109,6 +110,14 @@ export function NoteEditor({
 }: {
   state: EditorState;
   canEdit: boolean;
+  /**
+   * The note is being read rather than edited.
+   *
+   * Defaults to `false` so a caller that has never heard of reading mode — the
+   * tests that mount a note, and any future embedder — gets exactly the
+   * behaviour it had. The route is the only thing that turns it on.
+   */
+  reading?: boolean;
   /**
    * Who can read this note, as the access map answers it — a Properties row.
    *
@@ -192,7 +201,22 @@ export function NoteEditor({
   };
 }) {
   const styles = useThemedStyles(makeStyles);
-  const editable = canEdit && !state.readOnly;
+  /*
+    Reading mode joins the two reasons a note was already not editable — no
+    write access, and a note this door never writes (`privacy.md`, an encrypted
+    envelope). It is deliberately the same `editable` rather than a mode of its
+    own: everything downstream of this flag is already correct for "you are not
+    typing into this", from `contenteditable` to the paste and drop handlers
+    `editorSetup`'s `editability` turns off, and a parallel flag would be a
+    second answer for those to disagree about.
+
+    It arrives as a prop rather than being read from the router here. This
+    component takes what it draws and reaches for nothing — calling
+    `useReadMode` inside it put `expo-router` into the dependency graph of
+    every test that mounts a note, and 35 of them stopped at a mock that had
+    never needed it. `BrowsePane` owns the route's half of this.
+  */
+  const editable = canEdit && !state.readOnly && !reading;
   /*
     A passphrase note is `state.encrypted` exactly as a workspace-encrypted
     one is — the flag does not (and must not) say which recipient locked it,

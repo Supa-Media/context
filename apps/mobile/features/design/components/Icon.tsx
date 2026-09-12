@@ -195,6 +195,22 @@ export const ICON_NAMES = [
    */
   "share",
   /**
+   * Reading mode, as an eye.
+   *
+   * Added with the control it is for — the note's read toggle — which is this
+   * set's stated rule. It is deliberately not `book`: that mark is the docs
+   * link in Settings, and one glyph meaning both "open the manual" and "stop
+   * editing this note" is the confusion `copy` and `share` are kept apart to
+   * avoid.
+   *
+   * Drawn as a lens and a pupil rather than an eye with lashes. The lens is
+   * `shackle` over `cradle` — the two arcs this set already has, meeting at
+   * the sides — because the alternative is two near-vertical strokes meeting
+   * at a point, and `filter`'s note has the argument about what a point does
+   * at 20pt.
+   */
+  "eye",
+  /**
    * The file tree's sort order, as Obsidian draws it: an up arrow beside three
    * rules of decreasing length.
    *
@@ -907,6 +923,19 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         dot("k3", u, c, { cx: 0.74, cy: 0.3, r: 0.05 }),
         bar("space", u, w, c, { cx: 0.5, cy: 0.46, length: 0.34 }),
         chevron("head", u, w, c, { cx: 0.5, cy: 0.78, side: 0.26, angle: 135 }),
+      ];
+
+    case "eye":
+      /*
+        The pupil is a ring rather than a dot: filled, it reads as a bullet
+        inside a bracket at small sizes, and the mark stops being an eye. The
+        arcs are shallow — 0.3 of the box each — so the two curves meet at the
+        sides instead of crossing, which is what a taller pair does.
+      */
+      return [
+        shackle("upper", u, w, c, { x0: 0.1, y0: 0.28, x1: 0.9, y1: 0.52 }),
+        cradle("lower", u, w, c, { x0: 0.1, y0: 0.48, x1: 0.9, y1: 0.72 }),
+        ring("pupil", u, w, c, { cx: 0.5, cy: 0.5, r: 0.13 }),
       ];
 
     case "share":

@@ -17,6 +17,7 @@ import { ToastHost } from "../../../features/design/components/Toast";
 import { layout, radii } from "../../../features/design/tokens";
 import { useThemedStyles, type Colors } from "../../../features/design/theme";
 import { AppFrame, FrameIconButton, useFrame } from "../../../features/app/AppFrame";
+import { setReadMode, useReadMode } from "../../../features/console/files/readMode";
 import { useOptionalGlobalSearchParams, useOptionalLocalSearchParams } from "../../../features/app/useOptionalLocalSearchParams";
 import { densityFor } from "../../../features/app/frame";
 import { BottomBar } from "../../../features/console/BottomBar";
@@ -424,6 +425,18 @@ export default function ConsoleLayout() {
       ? selectedEntry.path
       : null;
 
+  /**
+   * Whether the eye is offered, which is a wider question than Share's.
+   *
+   * Any open **note** can be read, including the ones `shareTarget` refuses:
+   * `privacy.md` and an encrypted envelope are exactly the notes somebody is
+   * reading rather than editing, and both are already `readOnly`, so the mode
+   * costs them nothing and the markup goes quiet for them too. A folder has no
+   * document to put into reading mode and gets no eye.
+   */
+  const readable = browsing && selectedEntry !== null && selectedEntry.kind === "file";
+  const reading = useReadMode();
+
   const places = useContextPlaces();
   const contextHrefFrom = useContextHref(data.contexts);
   const { startMeetingFlow, sheet: meetingSheet } = useMeetingFlow({
@@ -567,14 +580,43 @@ export default function ConsoleLayout() {
               them, and `setScope` is still the single point every surface goes
               through. Only the control that drove it changed.
             */
-            shareTarget === null ? undefined : (
-              <FrameIconButton
-                label="Share this"
-                icon="share"
-                grouped
-                onPress={() => setBarDialog({ kind: "share", path: shareTarget })}
-                testID="note-share"
-              />
+            !readable && shareTarget === null ? undefined : (
+              <>
+                {/*
+                  Reading mode, leading the group.
+
+                  Before Share rather than after it, because the two are not
+                  peers: this changes how the note in front of you is drawn and
+                  is undone by pressing it again, and Share opens a sheet that
+                  grants somebody access. The reversible one is the safer
+                  neighbour for a thumb, and the group is read left to right.
+
+                  `selected` is what makes an unlabelled 20pt target honest: the
+                  eye cannot draw "will hide the markup" and "will bring it
+                  back" as two marks, so the state is the fill and the label is
+                  the act — the rule `ICON_NAMES` states for the padlock this
+                  group used to carry.
+                */}
+                {readable ? (
+                  <FrameIconButton
+                    label={reading ? "Edit this note" : "Read this note"}
+                    icon="eye"
+                    grouped
+                    selected={reading}
+                    onPress={() => setReadMode(!reading)}
+                    testID="note-read"
+                  />
+                ) : null}
+                {shareTarget === null ? null : (
+                  <FrameIconButton
+                    label="Share this"
+                    icon="share"
+                    grouped
+                    onPress={() => setBarDialog({ kind: "share", path: shareTarget })}
+                    testID="note-share"
+                  />
+                )}
+              </>
             )
           ) : (
             <>

@@ -16,6 +16,7 @@ import { useNoteEncryption } from "../encryption/useNoteEncryption";
 import { useNoteLockPropagation } from "../encryption/lockPropagation";
 import { FolderView } from "../files/FolderView";
 import { NoteEditor } from "../files/NoteEditor";
+import { useReadMode } from "../files/readMode";
 import { ShareDialog } from "../files/ShareDialog";
 import { consoleOrigin } from "../files/shareOrigin";
 import { noteHeading } from "../files/frontmatter";
@@ -167,6 +168,12 @@ export function BrowsePane({
    * one dialog is not two dialogs — `ShareDialog` holds nothing of its own
    * beyond a draft recipient.
    */
+  /*
+    Reading mode, from the bus the layout's eye writes to. `NoteEditor` takes
+    it as a prop and reaches for nothing itself — see the comment on `reading`
+    there, and `files/readMode.ts` for why this is a bus and not the route.
+  */
+  const reading = useReadMode();
   const [sharing, setSharing] = useState<string | null>(null);
 
   /**
@@ -637,6 +644,7 @@ export function BrowsePane({
       <NoteEditor
         state={files.editor}
         canEdit={files.canEdit}
+        reading={reading}
         /*
           What the note's own frontmatter cannot say. `visibility:` in a note
           is prose — `privacy.md` decides access — so the Properties panel
