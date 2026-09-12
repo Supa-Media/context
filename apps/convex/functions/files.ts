@@ -141,6 +141,7 @@ import {
   setFolderVisibility,
   setVisibility,
   writeFile,
+  importVaultFiles,
   writeImage,
   readImage,
 } from "./lib/fileOps";
@@ -251,6 +252,13 @@ const imageWrittenValidator = v.object({
 const imageValidator = v.object({
   kind: v.literal("image"),
   bytes: v.bytes(),
+});
+
+const vaultImportResultValidator = v.object({
+  kind: v.literal("vaultImported"),
+  created: v.array(v.string()),
+  skipped: v.array(v.string()),
+  bytesCreated: v.number(),
 });
 
 const fileValidator = v.object({
@@ -511,6 +519,7 @@ const operationResultValidator = v.union(
   privacyResetValidator,
   imageWrittenValidator,
   imageValidator,
+  vaultImportResultValidator,
   searchResultsValidator,
   notePathsValidator,
   indexMaintainedValidator,
@@ -579,6 +588,14 @@ const operationValidator = v.union(
     path: v.string(),
     text: v.string(),
     expectedEtag: v.optional(v.string()),
+  }),
+  v.object({
+    kind: v.literal("importVault"),
+    files: v.array(v.object({
+      path: v.string(),
+      bytes: v.bytes(),
+      contentType: v.string(),
+    })),
   }),
   v.object({
     kind: v.literal("removeEncryption"),
@@ -650,6 +667,10 @@ type FileOperation =
   | { kind: "maintainIndex"; passes?: number }
   | { kind: "projectIndex"; passes?: number }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
+  | {
+      kind: "importVault";
+      files: Array<{ path: string; bytes: ArrayBuffer; contentType: string }>;
+    }
   /**
    * Replace an encrypted note's content with plaintext. A separate operation
    * from `write` rather than one more of its shapes — `writeFile` never
@@ -714,6 +735,7 @@ type OperationResult =
       truncated: boolean;
       errorCode?: string;
     }
+  | { kind: "vaultImported"; created: string[]; skipped: string[]; bytesCreated: number }
   | {
       kind: "listing";
       path: string;
@@ -1826,6 +1848,16 @@ export async function executeOperation(
         });
         return { kind: "imageWritten", ...written };
       }
+      case "importVault": {
+        const imported = await importVaultFiles(store, {
+          scope,
+          files: operation.files.map((file) => ({
+            ...file,
+            bytes: new Uint8Array(file.bytes),
+          })),
+        });
+        return { kind: "vaultImported", ...imported };
+      }
       case "readImage": {
         const bytes = await readImage(store, operation.leaf);
         return { kind: "image", bytes };
@@ -2443,6 +2475,66 @@ export const writeNote = action({
       paths: [result.path],
       details: { conflictCheck: result.conflictCheck },
     });
+    return result;
+  },
+});
+
+const MAX_VAULT_IMPORT_BATCH_FILES = 20;
+const MAX_VAULT_IMPORT_BATCH_BYTES = 4_500_000;
+
+/**
+ * Upload one retryable batch from a locally selected Obsidian vault.
+ *
+ * Owner-only because a vault import can create non-Markdown attachments and a
+ * large path tree. Bytes cross this action directly into the workspace bucket;
+ * the control plane stores only the ordinary audit metadata below.
+ */
+export const importVaultBatch = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    files: v.array(v.object({ path: v.string(), bytes: v.bytes(), contentType: v.string() })),
+  },
+  returns: vaultImportResultValidator,
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "vaultImported" }>> => {
+    if (args.files.length === 0 || args.files.length > MAX_VAULT_IMPORT_BATCH_FILES) {
+      throw new ConvexError({
+        code: "IMPORT_BATCH_INVALID",
+        message: `Upload between 1 and ${MAX_VAULT_IMPORT_BATCH_FILES} files at a time.`,
+      });
+    }
+    const batchBytes = args.files.reduce((total, file) => total + file.bytes.byteLength, 0);
+    if (batchBytes > MAX_VAULT_IMPORT_BATCH_BYTES) {
+      throw new ConvexError({
+        code: "IMPORT_BATCH_INVALID",
+        message: "That upload batch is too large. Choose the vault again to retry in smaller pieces.",
+      });
+    }
+
+    const actorUserId = await callerId(ctx);
+    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      operation: { kind: "importVault", files: args.files },
+    })) as Extract<OperationResult, { kind: "vaultImported" }>;
+
+    if (result.created.length > 0) {
+      await ctx.runMutation(internal.functions.audit.recordEvent, {
+        workspaceId: args.workspaceId,
+        actorUserId,
+        action: "vault.import",
+        paths: result.created,
+        details: {
+          filesCreated: result.created.length,
+          filesSkipped: result.skipped.length,
+          bytesCreated: result.bytesCreated,
+        },
+      });
+    }
     return result;
   },
 });

@@ -351,6 +351,10 @@ export function memoryS3(
         (init.headers as Record<string, string>) ?? {},
       );
       const expected = headers.get("if-match")?.replace(/^"(.*)"$/, "$1");
+      const createOnly = headers.get("if-none-match") === "*";
+      if (createOnly && objects.has(key)) {
+        return new Response("", { status: 412 });
+      }
       if (
         expected &&
         !options.ignoreIfMatch &&

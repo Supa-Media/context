@@ -5,8 +5,10 @@
 import { describe, expect, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { ConvexProvider } from "convex/react";
 import { NameStep } from "../features/onboarding/steps/NameStep";
 import { StructureStep } from "../features/onboarding/steps/StructureStep";
+import { VaultImportStep } from "../features/onboarding/steps/VaultImportStep";
 import { AgentsStep } from "../features/onboarding/steps/AgentsStep";
 import { defaultSeedPrompt, seedPromptFor } from "../features/onboarding/agents";
 import { DoneStep } from "../features/onboarding/steps/DoneStep";
@@ -59,6 +61,11 @@ function render(node: ReturnType<typeof createElement>): Rendered {
   return rendered;
 }
 
+function withConvex(node: ReturnType<typeof createElement>): ReturnType<typeof createElement> {
+  const client = { action: async () => ({}) } as never;
+  return createElement(ConvexProvider, { client }, node);
+}
+
 /** A controller with nothing happening, for a screen to read. */
 function controller(overrides: Partial<OnboardingController>): OnboardingController {
   return {
@@ -85,6 +92,8 @@ function controller(overrides: Partial<OnboardingController>): OnboardingControl
     managed: null,
     skipStorage: () => {},
     continuePastStorage: () => {},
+    skipVaultImport: () => {},
+    finishVaultImport: () => {},
     structureStep: { kind: "ask" },
     template: "para",
     setTemplate: () => {},
@@ -212,6 +221,30 @@ describe("the layout screen", () => {
       }),
     );
     expect(rendered.text).toMatch(/1 folder\b/);
+  });
+});
+
+describe("the Obsidian vault screen", () => {
+  test("offers a folder import for a new customer-owned or managed bucket", () => {
+    const { text } = render(
+      withConvex(createElement(VaultImportStep, { controller: controller({ step: "vault" }) })),
+    );
+
+    expect(text).toContain("Have an Obsidian vault?");
+    expect(text).toContain("Choose my vault folder");
+    expect(text).toContain("No, start fresh");
+    expect(text).toContain("Existing files in the bucket are never overwritten.");
+  });
+
+  test("uses a vault already in the connected storage without copying it", () => {
+    const { text } = render(
+      withConvex(createElement(VaultImportStep, {
+        controller: controller({ step: "vault", structureStep: { kind: "existing" } }),
+      })),
+    );
+
+    expect(text).toContain("Context will use them in place");
+    expect(text).not.toContain("Choose my vault folder");
   });
 });
 

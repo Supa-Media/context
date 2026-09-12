@@ -330,6 +330,29 @@ describe("pressing “Create these”", () => {
   });
 });
 
+describe("the Obsidian fork", () => {
+  test("skipping a vault import leads to the layout question", async () => {
+    const harness = mountOnboarding(happyDeployment());
+    await claimSeyi(harness);
+
+    await harness.act(() => harness.current().skipVaultImport());
+    expect(harness.current().shape.vault).toBe("skipped");
+    expect(harness.current().step).toBe("structure");
+    harness.unmount();
+  });
+
+  test("a successful import skips the layout question", async () => {
+    const harness = mountOnboarding(happyDeployment());
+    await claimSeyi(harness);
+
+    await harness.act(() => harness.current().finishVaultImport("imported"));
+    expect(harness.current().shape.vault).toBe("imported");
+    expect(harness.current().step).toBe("agents");
+    expect(harness.current().seedPrompt).not.toMatch(/`1-projects\/`/);
+    harness.unmount();
+  });
+});
+
 describe("carrying on past a bucket we could not check", () => {
   test("is not recorded as a connected bucket", async () => {
     // The button only appears when the probe failed or timed out. Nobody has

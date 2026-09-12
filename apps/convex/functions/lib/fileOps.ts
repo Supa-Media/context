@@ -757,6 +757,83 @@ export interface WriteResult {
   conflictCheck: "conditional" | "read-compare";
 }
 
+export interface VaultImportFile {
+  path: string;
+  bytes: Uint8Array;
+  contentType: string;
+}
+
+export interface VaultImportResult {
+  created: string[];
+  skipped: string[];
+  bytesCreated: number;
+}
+
+export const MAX_VAULT_IMPORT_FILE_BYTES = 4_500_000;
+
+const VAULT_IMPORT_CONTENT_TYPES = new Set([
+  "text/markdown; charset=utf-8",
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "application/octet-stream",
+]);
+
+/**
+ * Put a bounded piece of an Obsidian vault into its original bucket path.
+ *
+ * This is create-only. A retry skips files that landed before a connection
+ * failed, and an import into a bucket somebody has already edited never
+ * overwrites their newer copy. Hidden folders are refused again here rather
+ * than trusted to the browser's picker; `.obsidian` can contain plugin tokens
+ * and `.context`/`.audit` are Context's own plumbing.
+ */
+export async function importVaultFiles(
+  store: FileStore,
+  options: { files: readonly VaultImportFile[]; scope: Scope },
+): Promise<VaultImportResult> {
+  const state = await loadPrivacyState(store);
+  const created: string[] = [];
+  const skipped: string[] = [];
+  let bytesCreated = 0;
+
+  for (const file of options.files) {
+    const path = requirePath(file.path);
+    assertWritablePath(path);
+    if (path.split("/").some((segment) => segment.startsWith("."))) {
+      throw new FileOpError("PATH_INVALID", "Hidden folders are not uploaded from an Obsidian vault.");
+    }
+    if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+    if (file.bytes.byteLength > MAX_VAULT_IMPORT_FILE_BYTES) {
+      throw new FileOpError(
+        "CONTENT_TOO_LARGE",
+        `A vault file must be at most ${MAX_VAULT_IMPORT_FILE_BYTES} bytes.`,
+      );
+    }
+    if (!VAULT_IMPORT_CONTENT_TYPES.has(file.contentType)) {
+      throw new FileOpError("PATH_INVALID", "That vault file type cannot be uploaded safely.");
+    }
+
+    // The precondition makes retries idempotent and closes the race between a
+    // preceding GET and PUT. Every supported adapter implements absent-create.
+    const put = await store.put(path, file.bytes, {
+      onlyIf: { absent: true },
+      contentType: file.contentType,
+    });
+    if (put === null) {
+      skipped.push(path);
+    } else {
+      created.push(path);
+      bytesCreated += file.bytes.byteLength;
+    }
+  }
+
+  return { created, skipped, bytesCreated };
+}
+
 /**
  * Save a note.
  *

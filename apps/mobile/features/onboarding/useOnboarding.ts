@@ -42,7 +42,7 @@ import { receivesMail } from "../console/ingestion/settings";
 import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { toBindStorageArgs, type ConnectFormValues, type Provider } from "../console/storage/connect";
 import { describeCreateFailure, describeStructureFailure, type CreateFailure } from "./errors";
-import { afterStorage, afterStructure, type FlowShape, type StepKey, type StorageOutcome } from "./flow";
+import { afterStorage, afterStructure, afterVault, type FlowShape, type StepKey, type StorageOutcome, type VaultOutcome } from "./flow";
 import { seedPromptFor } from "./agents";
 import { canClaim, nameStatus, normalizedName, shouldCheckAvailability, type NameAvailability, type NameStatus } from "./name";
 import type { CheckoutOutcome } from "@context/shared";
@@ -146,6 +146,10 @@ export interface OnboardingController {
    */
   continuePastStorage: () => void;
 
+  // ── Obsidian vault ───────────────────────────────────────────────────────
+  skipVaultImport: () => void;
+  finishVaultImport: (outcome: "imported" | "existing") => void;
+
   // ── Step 3 ────────────────────────────────────────────────────────────────
   structureStep: StructureStep;
   template: StructureTemplate;
@@ -225,6 +229,7 @@ export function useOnboarding(
   // narrowed, by an explicit choice on the storage step, and every path off
   // that step sets it.
   const [storage, setStorage] = useState<StorageOutcome>("connected");
+  const [vault, setVault] = useState<VaultOutcome>("pending");
 
   // ── Step 1 ──────────────────────────────────────────────────────────────────
   const [name, setNameRaw] = useState("");
@@ -399,6 +404,16 @@ export function useOnboarding(
     setStep(afterStorage("unverified"));
   }, []);
 
+  const skipVaultImport = useCallback(() => {
+    setVault("skipped");
+    setStep(afterVault("skipped"));
+  }, []);
+
+  const finishVaultImport = useCallback((outcome: "imported" | "existing") => {
+    setVault(outcome);
+    setStep(afterVault(outcome));
+  }, []);
+
   // ── Step 3 ──────────────────────────────────────────────────────────────────
   const structureStep = structureStepFor(binding?.scaffoldReason);
   const [template, setTemplate] = useState<StructureTemplate>("para");
@@ -438,10 +453,12 @@ export function useOnboarding(
   // naming a folder the scaffold does not write.
   const seedPrompt = useMemo(
     () =>
-      template === "para"
+      vault === "imported" || vault === "existing"
+        ? seedPromptFor([])
+        : template === "para"
         ? seedPromptFor(PARA_FOLDERS)
         : seedPromptFor(toFolderSpecs(folders).map((spec) => spec.folder)),
-    [folders, template],
+    [folders, template, vault],
   );
 
   const finishAgents = useCallback(() => setStep("done"), []);
@@ -468,7 +485,7 @@ export function useOnboarding(
 
   return {
     step,
-    shape: { storage },
+    shape: { storage, vault },
     owned: ownedContexts(workspaces),
     claimed,
     captureReceivesMail: receivesMail(ingestion),
@@ -486,6 +503,8 @@ export function useOnboarding(
     managed: managed.available || managed.mode !== "choose" ? managed : null,
     skipStorage,
     continuePastStorage,
+    skipVaultImport,
+    finishVaultImport,
 
     structureStep,
     template,

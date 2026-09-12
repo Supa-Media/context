@@ -1,7 +1,7 @@
 /**
  * The shape of the first run.
  *
- * Five screens at most, and two of them can be one click each. Kept as a pure
+ * Six screens at most, and three of them can be one click each. Kept as a pure
  * module so the awkward transitions — the one where somebody skips connecting a
  * bucket, and the one where their bucket turns out to already hold a context —
  * are tests rather than something you find out about by clicking.
@@ -15,7 +15,9 @@
  * worth returning to.
  */
 
-export type StepKey = "name" | "storage" | "structure" | "agents" | "done";
+export type StepKey = "name" | "storage" | "vault" | "structure" | "agents" | "done";
+
+export type VaultOutcome = "pending" | "skipped" | "imported" | "existing";
 
 /**
  * What happened on the storage step. Three outcomes, not two.
@@ -34,6 +36,8 @@ export type StorageOutcome = "connected" | "skipped" | "unverified";
 export interface FlowShape {
   /** What the storage step ended in. Drives both the rail and the last screen. */
   storage: StorageOutcome;
+  /** Whether an existing Obsidian vault replaced the proposed starting layout. */
+  vault?: VaultOutcome;
 }
 
 /**
@@ -57,14 +61,20 @@ export interface FlowShape {
  */
 export function stepsFor(shape: FlowShape): StepKey[] {
   if (shape.storage === "connected") {
-    return ["name", "storage", "structure", "agents", "done"];
+    return shape.vault === "imported" || shape.vault === "existing"
+      ? ["name", "storage", "vault", "agents", "done"]
+      : ["name", "storage", "vault", "structure", "agents", "done"];
   }
   return ["name", "storage", "done"];
 }
 
 /** Where the storage step hands off to. */
 export function afterStorage(outcome: StorageOutcome): StepKey {
-  return outcome === "connected" ? "structure" : "done";
+  return outcome === "connected" ? "vault" : "done";
+}
+
+export function afterVault(outcome: Exclude<VaultOutcome, "pending">): StepKey {
+  return outcome === "skipped" ? "structure" : "agents";
 }
 
 /**
@@ -109,6 +119,7 @@ export function storageWarning(shape: FlowShape): string | null {
 export const STEP_LABELS: Record<StepKey, string> = {
   name: "Your name",
   storage: "Your storage",
+  vault: "Your vault",
   structure: "Your layout",
   agents: "Your tools",
   done: "You're set",
@@ -144,6 +155,8 @@ export function stepTitle(key: StepKey): string {
         question rather than naming one of its answers.
       */
       return "Where your notes live";
+    case "vault":
+      return "Bring your Obsidian vault";
     case "structure":
       return "Pick a starting layout";
     case "agents":

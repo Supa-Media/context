@@ -248,6 +248,81 @@ describe("an owner can edit their context", () => {
   });
 });
 
+describe("Obsidian vault import", () => {
+  test("preserves Markdown and attachment paths without retaining their bytes in Convex", async () => {
+    const f = await fixture();
+    const markdown = new TextEncoder().encode("# Imported\n\n![[diagram.png]]\n");
+    const image = new Uint8Array([137, 80, 78, 71]);
+
+    const result = await asUser(f.t, f.owner).action(api.functions.files.importVaultBatch, {
+      workspaceId: f.workspaceId,
+      files: [
+        {
+          path: "Imported/Note.md",
+          bytes: markdown.buffer,
+          contentType: "text/markdown; charset=utf-8",
+        },
+        {
+          path: "Imported/diagram.png",
+          bytes: image.buffer,
+          contentType: "image/png",
+        },
+      ],
+    });
+
+    expect(result.created).toEqual(["Imported/Note.md", "Imported/diagram.png"]);
+    expect(f.backend.snapshot()["Imported/Note.md"]).toContain("# Imported");
+    expect([...f.backend.bytesOf("Imported/diagram.png")!]).toEqual([...image]);
+
+    const database = await f.t.run(async (ctx) => {
+      const tables = ["auditEvents", "storageBindings", "workspaces", "users"] as const;
+      return JSON.stringify(await Promise.all(tables.map((table) => ctx.db.query(table).collect())));
+    });
+    expect(database).not.toContain("# Imported");
+  });
+
+  test("is create-only, so retrying cannot overwrite a file that already exists", async () => {
+    const f = await fixture();
+    const result = await asUser(f.t, f.owner).action(api.functions.files.importVaultBatch, {
+      workspaceId: f.workspaceId,
+      files: [{
+        path: "index.md",
+        bytes: new TextEncoder().encode("# Replacement\n").buffer,
+        contentType: "text/markdown; charset=utf-8",
+      }],
+    });
+
+    expect(result.created).toEqual([]);
+    expect(result.skipped).toEqual(["index.md"]);
+    expect(f.backend.snapshot()["index.md"]).toBe("# Context\n");
+  });
+
+  test("is owner-only and refuses Obsidian or Context hidden state", async () => {
+    const f = await fixture();
+    const file = {
+      path: "notes/new.md",
+      bytes: new TextEncoder().encode("# no\n").buffer,
+      contentType: "text/markdown; charset=utf-8",
+    };
+    const editorError = await captureError(() =>
+      asUser(f.t, f.editor).action(api.functions.files.importVaultBatch, {
+        workspaceId: f.workspaceId,
+        files: [file],
+      }),
+    );
+    expect(errorCode(editorError)).toBe("INSUFFICIENT_ROLE");
+
+    const hiddenError = await captureError(() =>
+      asUser(f.t, f.owner).action(api.functions.files.importVaultBatch, {
+        workspaceId: f.workspaceId,
+        files: [{ ...file, path: ".obsidian/plugins.json" }],
+      }),
+    );
+    expect(errorCode(hiddenError)).toBe("PATH_INVALID");
+    expect(f.backend.snapshot()[".obsidian/plugins.json"]).toBeUndefined();
+  });
+});
+
 /* -------------------------------------------------------------------------- */
 /*                                   roles                                    */
 /* -------------------------------------------------------------------------- */
@@ -834,6 +909,15 @@ describe("a stranger cannot reach another workspace's files", () => {
           workspaceId,
           path: "1-projects/x.md",
           text: "x",
+        }),
+      (workspaceId) =>
+        as.action(api.functions.files.importVaultBatch, {
+          workspaceId,
+          files: [{
+            path: "imported.md",
+            bytes: new TextEncoder().encode("# Imported\n").buffer,
+            contentType: "text/markdown; charset=utf-8",
+          }],
         }),
       (workspaceId) =>
         as.action(api.functions.files.moveEntry, { workspaceId, from: "a.md", to: "b.md" }),
