@@ -9,8 +9,8 @@ import { fonts, layout, radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
-import { Waveform } from "./components/Waveform";
 import { LiveWaveform } from "./components/LiveWaveform";
+import { TransportMark } from "./components/TransportMark";
 import { NotesPad } from "./components/NotesPad";
 import { MeetingTitleField } from "./components/MeetingTitleField";
 import { meetings, recordElapsedMs } from "./controller";
@@ -306,7 +306,23 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
             ]}
             testID="meeting-pause"
           >
-            <Waveform tone={paused ? "muted" : "ok"} paused={paused} size={17} />
+            {/*
+              A BUTTON'S GLYPH, WHICH IS WHAT THIS ALWAYS WAS.
+
+              It drew a `Waveform` — the same five-bar mark the meter beside it
+              is drawn from — so this bar carried two equalizers and only one of
+              them was a meter. The owner read it exactly as it looks: *"why are
+              there two different equalizers, and the one that's supposed to it
+              doesn't even move"*. The static one was a button's icon and was
+              never going to.
+
+              `Waveform`'s own header has the rule this broke — "a meter that
+              responds to sound is a capability claim" — and a mark shaped like
+              a meter makes that claim whether or not anything is measuring. So
+              the one thing on this bar that moves is the meter, and there is
+              one of it.
+            */}
+            <TransportMark paused={paused} size={17} testID="meeting-pause-mark" />
           </Pressable>
 
           <View style={styles.clockGroup}>

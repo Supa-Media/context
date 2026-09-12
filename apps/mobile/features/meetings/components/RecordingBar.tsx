@@ -9,6 +9,7 @@ import { meetings, recordElapsedMs } from "../controller";
 import { meetingHref } from "../route";
 import { clock } from "../format";
 import { useMeetingsSnapshot, useTick } from "../useMeetings";
+import { TransportMark } from "./TransportMark";
 import { Waveform } from "./Waveform";
 
 /**
@@ -181,7 +182,7 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
           ]}
           testID="recording-bar-pause"
         >
-          {paused ? <Play /> : <PauseBars />}
+          <TransportMark paused={paused} testID="recording-bar-mark" />
         </Pressable>
 
         <Pressable
@@ -219,30 +220,6 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
       </View>
     </View>
   );
-}
-
-/** Two bars. The universal pause mark, drawn rather than typed — see `Waveform`. */
-function PauseBars() {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <View style={styles.glyphRow} aria-hidden>
-      <View style={styles.pauseBar} />
-      <View style={styles.pauseBar} />
-    </View>
-  );
-}
-
-/**
- * A triangle, from a border trick.
- *
- * React Native has no polygon primitive and this app draws its marks from
- * `View`s rather than pulling in a vector for one shape (`Icon.tsx` makes the
- * whole argument). A right-pointing triangle is a zero-width box with a left
- * border and transparent top and bottom.
- */
-function Play() {
-  const styles = useThemedStyles(makeStyles);
-  return <View style={styles.play} aria-hidden />;
 }
 
 const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
@@ -304,17 +281,4 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   /* Dimmed in place, never resized: see `LiveMeetingScreen`'s copy. */
   endBusy: { opacity: 0.5 },
   endLabel: { color: colors.ink, fontSize: 15 },
-  glyphRow: { flexDirection: "row", gap: 3 },
-  pauseBar: { width: 4, height: 16, borderRadius: 1.2, backgroundColor: colors.okText },
-  play: {
-    width: 0,
-    height: 0,
-    marginLeft: 3,
-    borderTopWidth: 7,
-    borderBottomWidth: 7,
-    borderLeftWidth: 12,
-    borderTopColor: "transparent",
-    borderBottomColor: "transparent",
-    borderLeftColor: colors.warnText,
-  },
 });

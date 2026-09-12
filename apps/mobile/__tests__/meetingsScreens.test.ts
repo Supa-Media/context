@@ -652,6 +652,44 @@ describe("the live screen is a notepad with a recorder attached", () => {
     mounted.unmount();
   });
 
+  test("the transport has one meter on it, and the pause button is not it", async () => {
+    /*
+      *"Why are there two different equalizers, and the one that's supposed to
+      it doesn't even move?"*
+
+      Because the pause button drew a `Waveform` — the same five-bar mark the
+      live meter beside it is drawn from — so the bar carried two equalizers and
+      only one of them was ever going to move. `Waveform`'s own header states
+      the rule this broke: "a meter that responds to sound is a capability
+      claim". A mark shaped like a meter makes that claim whether or not
+      anything behind it is measuring.
+
+      Counted rather than eyeballed, and counted on the thing that differs: a
+      waveform is five bars, the pause mark is two, and a play triangle is a
+      single leaf. Putting a `Waveform` back on the button is the regression
+      this fails on, and it is the only assertion available — both marks are
+      `View`s, both are the right colour, and a screenshot of either at rest
+      looks deliberate.
+    */
+    await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Two equalizers" });
+    });
+    const mounted = mount(createElement(LiveMeetingScreen, { meetingId: id }));
+
+    expect(mounted.container.querySelectorAll('[data-testid="meeting-level"]')).toHaveLength(1);
+    expect(field<HTMLElement>(mounted.container, "meeting-pause-mark").children).toHaveLength(2);
+
+    // And paused it is a triangle: one box, no children at all.
+    await act(async () => {
+      await meetings.pause();
+    });
+    expect(field<HTMLElement>(mounted.container, "meeting-pause-mark").children).toHaveLength(0);
+    expect(mounted.container.querySelectorAll('[data-testid="meeting-level"]')).toHaveLength(1);
+    mounted.unmount();
+  });
+
   test("a meeting this device does not hold says so rather than drawing an empty note", async () => {
     await configure();
     const mounted = mount(
