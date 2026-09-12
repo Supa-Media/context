@@ -695,6 +695,23 @@ export async function runGmailSyncChecks(check) {
   });
   check("no new mail is a normal, empty answer — not a gap", emptyHistoryResult.gapDetected === false && emptyHistoryResult.daysTouched.length === 0);
 
+  const emptyPagedHistory = createFixtureGmail({
+    messages: [],
+    history: { pages: Array.from({ length: 51 }, () => ({ historyId: "999999" })) },
+  });
+  const emptyPagedResult = await runIncrementalSync({
+    store: createMemoryStore(),
+    fetchImpl: emptyPagedHistory.fetchImpl,
+    accessToken: "tok",
+    mailboxSlug: "p-at-example-invalid",
+    address: "p@example.invalid",
+    folders: ["inbox", "sent"],
+    startHistoryId: "1000",
+    nonce: "n",
+    quotaBytes: 1_000_000,
+  });
+  check("a truncated history walk with no record ids has no safe resume cursor", emptyPagedResult.truncated === true && emptyPagedResult.historyId === undefined);
+
   // Full reconcile: after a gap, the documented fallback is `runBackfill` over
   // the connection's window — prove it actually recovers the messages a
   // reconcile exists to catch.

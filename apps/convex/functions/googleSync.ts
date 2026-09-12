@@ -408,6 +408,10 @@ export const recordGoogleForwardSyncPass = internalMutation({
       await ctx.db.patch(args.connectionId, {
         syncStartedAt: undefined,
         nextSyncAt: now + intervalMs,
+        // A skipped pass is no longer urgently draining anything. Keeping
+        // this set makes `isDue` ignore the retry time above and claim the
+        // same connection on every five-minute sweep.
+        syncCatchUp: undefined,
         updatedAt: now,
       });
       return { accepted: true };
@@ -419,6 +423,10 @@ export const recordGoogleForwardSyncPass = internalMutation({
         syncStartedAt: undefined,
         lastSyncAt: now,
         nextSyncAt: now + failureBackoffMs(intervalMs, failures, args.connectionId),
+        // Failure backoff must win over an earlier truncated pass. Leaving
+        // the urgent flag set makes `isDue` bypass this timestamp and turns a
+        // transient failure into an immediate retry loop.
+        syncCatchUp: undefined,
         syncFailures: failures,
         /*
           BYTES ARE COUNTED ON THE PATH THAT ACTUALLY WRITES THEM.

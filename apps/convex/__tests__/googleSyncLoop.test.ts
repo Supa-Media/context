@@ -826,6 +826,28 @@ describe("a pass that ran out of history pages", () => {
     expect((await sweep(t)).started).toBe(0);
   });
 
+  test.each(["failed", "skipped"] as const)(
+    "a %s catch-up pass clears the urgent flag and honors its retry time",
+    async (status) => {
+      const { t, connectionId } = await scenario();
+      await patchConnection(t, connectionId, {
+        syncIntervalMinutes: 60,
+        syncCatchUp: true,
+        syncStartedAt: Date.now(),
+      });
+      await t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+        connectionId,
+        status,
+        errorCode: status === "failed" ? "GOOGLE_UNAVAILABLE" : "GOOGLE_RECONNECT_REQUIRED",
+        ...(status === "failed" ? { error: "Google did not answer reliably." } : {}),
+      });
+      const row = await readConnection(t, connectionId);
+      expect(row.syncCatchUp).toBeUndefined();
+      expect(row.nextSyncAt).toBeGreaterThan(Date.now());
+      expect((await sweep(t)).started).toBe(0);
+    },
+  );
+
   test("the console says it is catching up rather than claiming it is current", async () => {
     const { t, owner, workspaceId, connectionId } = await scenario();
     await patchConnection(t, connectionId, { syncStartedAt: Date.now() });
@@ -1045,7 +1067,7 @@ function googleAndBucket(options: {
      * this the fixture could never return a `nextPageToken`, and paging was
      * the part of the real client nothing exercised.
      */
-    | { pages: { recordId: string; messageIds?: string[] }[]; historyId: string };
+    | { pages: { recordId?: string; messageIds?: string[] }[]; historyId: string };
   messages?: { id: string; date: string; subject: string; text: string }[];
 }) {
   const calls: string[] = [];
@@ -1079,12 +1101,15 @@ function googleAndBucket(options: {
         const page = options.history.pages[index];
         if (!page) return json({ history: [], historyId: options.history.historyId });
         const body: Record<string, unknown> = {
-          history: [
-            {
-              id: page.recordId,
-              messagesAdded: (page.messageIds ?? []).map((id) => ({ message: { id } })),
-            },
-          ],
+          history:
+            page.recordId === undefined
+              ? []
+              : [
+                  {
+                    id: page.recordId,
+                    messagesAdded: (page.messageIds ?? []).map((id) => ({ message: { id } })),
+                  },
+                ],
           // Every page carries the MAILBOX head, which is the whole trap.
           historyId: options.history.historyId,
         };
@@ -1382,6 +1407,26 @@ describe("one pass, end to end, through the credential barrier", () => {
     // A walk that reached the end may store the head, and only then.
     expect(row.gmail?.historyId).toBe("999999");
     expect(row.syncCatchUp).toBeUndefined();
+  });
+
+  test("a truncated walk with no record boundary fails visibly instead of spinning forever", async () => {
+    const { t, workspaceId, connectionId, backend } = await endToEnd({ historyId: "1000" });
+    const pages = Array.from({ length: 51 }, () => ({}));
+    const google = googleAndBucket({ backend, history: { pages, historyId: "999999" } });
+    vi.stubGlobal("fetch", google.fetchImpl);
+
+    const result = await runPass(t, workspaceId, connectionId);
+
+    expect(result).toMatchObject({
+      status: "failed",
+      truncated: true,
+      cursorAdvanced: false,
+      errorCode: "GOOGLE_SYNC_NO_RESUME_CURSOR",
+    });
+    const row = await readConnection(t, connectionId);
+    expect(row.gmail?.historyId).toBe("1000");
+    expect(row.syncCatchUp).toBeUndefined();
+    expect(row.nextSyncAt).toBeGreaterThan(Date.now());
   });
 
   test("an expired cursor re-baselines forward and records the gap", async () => {
