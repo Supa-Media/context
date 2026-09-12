@@ -286,6 +286,16 @@ export const status = query({
     managedProvisioningError: v.optional(v.string()),
     /** Copy progress for an existing bucket moving into managed storage. */
     managedMigrationObjectsCopied: v.optional(v.number()),
+    managedMigrationObjectsTotal: v.optional(v.number()),
+    managedMigrationObjectsProcessed: v.optional(v.number()),
+    managedMigrationPhase: v.optional(
+      v.union(
+        v.literal("count"),
+        v.literal("copy"),
+        v.literal("verify_source"),
+        v.literal("verify_target"),
+      ),
+    ),
     /** Exact production CUJ account; owner only. */
     isTestAccount: v.optional(v.boolean()),
   }),
@@ -347,6 +357,13 @@ export const status = query({
       managedMigrationObjectsCopied: isOwner
         ? migration?.objectsCopied
         : undefined,
+      managedMigrationObjectsTotal: isOwner
+        ? migration?.objectsTotal
+        : undefined,
+      managedMigrationObjectsProcessed: isOwner
+        ? migration?.objectsProcessedInPhase
+        : undefined,
+      managedMigrationPhase: isOwner ? migration?.phase : undefined,
       isTestAccount: isOwner ? isProductionTestAccount(user) : undefined,
     };
   },

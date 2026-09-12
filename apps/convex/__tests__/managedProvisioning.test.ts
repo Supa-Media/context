@@ -361,6 +361,7 @@ describe("provisioning a managed bucket", () => {
         workspaceId,
         copied: 1,
         changes,
+        processed: 1,
       });
     expect((await page(1)).cutover).toBe(false); // copy -> verify source
     expect((await page(1)).cutover).toBe(false); // verify source -> verify target
@@ -372,6 +373,104 @@ describe("provisioning a managed bucket", () => {
       ctx.db.query("managedStorageMigrations").unique(),
     );
     expect(migration?.readyToCutover).toBe(true);
+    expect(migration?.objectsTotal).toBeUndefined();
+  });
+
+  test("counts first, then exposes resumable phase progress without guessing", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await paidContext(t, "measured-progress");
+    const sourceBindingId = await t.run((ctx) =>
+      ctx.db.insert("storageBindings", {
+        workspaceId,
+        provider: "dropbox",
+        bucket: "dropbox-source",
+        status: "connected",
+        capabilities: { conditionalWrite: false },
+        boundBy: owner,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    await t.run((ctx) =>
+      ctx.db.insert("managedStorageMigrations", {
+        workspaceId,
+        sourceBindingId,
+        targetEndpoint: "https://managed.example.invalid",
+        targetBucket: managedBucketName(workspaceId),
+        targetAccessKeyId: "target-key",
+        encryptedTargetSecretAccessKey: "sealed-target",
+        status: "copying",
+        phase: "count",
+        objectsCopied: 0,
+        objectsProcessedInPhase: 0,
+        changesInPass: 0,
+        readyToCutover: false,
+        startedBy: owner,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+
+    await t.mutation(internal.functions.managedProvisioning.recordMigrationPage, {
+      workspaceId,
+      nextCursor: "second-page",
+      copied: 0,
+      changes: 0,
+      processed: 25,
+    });
+    let migration = await t.run((ctx) =>
+      ctx.db.query("managedStorageMigrations").unique(),
+    );
+    expect(migration).toMatchObject({
+      phase: "count",
+      objectsProcessedInPhase: 25,
+    });
+    expect(migration?.objectsTotal).toBeUndefined();
+
+    await t.mutation(internal.functions.managedProvisioning.recordMigrationPage, {
+      workspaceId,
+      expectedCursor: "second-page",
+      copied: 0,
+      changes: 0,
+      processed: 5,
+    });
+    migration = await t.run((ctx) =>
+      ctx.db.query("managedStorageMigrations").unique(),
+    );
+    expect(migration).toMatchObject({
+      phase: "copy",
+      objectsTotal: 30,
+      objectsProcessedInPhase: 0,
+    });
+
+    await t.mutation(internal.functions.managedProvisioning.recordMigrationPage, {
+      workspaceId,
+      nextCursor: "copy-page-2",
+      copied: 20,
+      changes: 20,
+      processed: 24,
+    });
+    const ownerStatus = await asUser(t, owner).query(
+      api.functions.billing.status,
+      { workspaceId },
+    );
+    expect(ownerStatus).toMatchObject({
+      managedMigrationPhase: "copy",
+      managedMigrationObjectsTotal: 30,
+      managedMigrationObjectsProcessed: 24,
+      managedMigrationObjectsCopied: 20,
+    });
+
+    const member = await createUser(t, "measured-progress-member@example.invalid");
+    await addMember(t, workspaceId, member, "member");
+    const memberStatus = await asUser(t, member).query(
+      api.functions.billing.status,
+      { workspaceId },
+    );
+    expect(memberStatus.managedMigrationPhase).toBeUndefined();
+    expect(memberStatus.managedMigrationObjectsTotal).toBeUndefined();
+    expect(memberStatus.managedMigrationObjectsProcessed).toBeUndefined();
+    expect(memberStatus.managedMigrationObjectsCopied).toBeUndefined();
   });
 
   test("a reconnect during the copy refuses cutover and leaves the new binding live", async () => {
@@ -443,8 +542,10 @@ describe("provisioning a managed bucket", () => {
       ctx.db.query("managedStorageMigrations").unique(),
     );
     expect(migration?.sourceBindingId).toBe((await binding(t))?._id);
-    expect(migration?.phase).toBe("copy");
+    expect(migration?.phase).toBe("count");
     expect(migration?.objectsCopied).toBe(0);
+    expect(migration?.objectsTotal).toBeUndefined();
+    expect(migration?.objectsProcessedInPhase).toBe(0);
   });
 
   test("nor over one that appeared while Cloudflare was answering", async () => {

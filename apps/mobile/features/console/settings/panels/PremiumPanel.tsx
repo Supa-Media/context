@@ -338,6 +338,15 @@ export function PremiumBody({
                 <Text variant="rowSub" style={styles.blurb}>
                   {migration.body}
                 </Text>
+                {migration.percent === undefined ? null : (
+                  <Text
+                    variant="check"
+                    role="status"
+                    style={styles.migrationProgress}
+                  >
+                    {migration.percent}% through this step
+                  </Text>
+                )}
                 {migration.failed && view.retryManagedStorage !== undefined ? (
                   <Button
                     label={working ? "Trying again…" : "Try copy again"}
@@ -531,6 +540,7 @@ const makeStyles = (colors: Colors) =>
     },
     hint: { marginTop: 12 },
     notice: { marginTop: 12 },
+    migrationProgress: { marginTop: 8 },
     settlingPill: { flexDirection: "row", alignItems: "center", gap: 8 },
     returnText: { flex: 1, minWidth: 0 },
     readOnlyRow: { marginTop: 14 },

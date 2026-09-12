@@ -295,14 +295,78 @@ describe("moving an existing context into managed storage", () => {
         selected: { managedStorage: true, fastSearch: false },
         active: { managedStorage: true, fastSearch: false },
         managedProvisioning: "running",
-        managedMigrationObjectsCopied: 42,
+        managedMigrationPhase: "copy",
+        managedMigrationObjectsTotal: 50,
+        managedMigrationObjectsProcessed: 40,
+        managedMigrationObjectsCopied: 38,
       }),
     );
     expect(copy?.title).toMatch(/copying/i);
     expect(copy?.body).toMatch(
       /original storage stays connected and untouched/i,
     );
-    expect(copy?.body).toMatch(/42 files checked/i);
+    expect(copy?.body).toMatch(/40 of 50 files/i);
+    expect(copy?.percent).toBe(80);
+  });
+
+  test("each verification pass is named and never presented as another copy", () => {
+    const source = managedMigrationCopy(
+      status({
+        status: "active",
+        selected: { managedStorage: true, fastSearch: false },
+        managedProvisioning: "running",
+        managedMigrationPhase: "verify_source",
+        managedMigrationObjectsTotal: 50,
+        managedMigrationObjectsProcessed: 10,
+      }),
+    );
+    expect(source?.title).toMatch(/verifying your original/i);
+    expect(source?.body).toMatch(/10 of 50 files/i);
+    expect(source?.percent).toBe(20);
+
+    const target = managedMigrationCopy(
+      status({
+        status: "active",
+        selected: { managedStorage: true, fastSearch: false },
+        managedProvisioning: "running",
+        managedMigrationPhase: "verify_target",
+        managedMigrationObjectsTotal: 50,
+        managedMigrationObjectsProcessed: 45,
+      }),
+    );
+    expect(target?.title).toMatch(/verifying the managed copy/i);
+    expect(target?.percent).toBe(90);
+  });
+
+  test("the counting pass does not invent a percentage before it knows the total", () => {
+    const copy = managedMigrationCopy(
+      status({
+        status: "active",
+        selected: { managedStorage: true, fastSearch: false },
+        managedProvisioning: "running",
+        managedMigrationPhase: "count",
+        managedMigrationObjectsProcessed: 25,
+      }),
+    );
+    expect(copy?.title).toMatch(/measuring/i);
+    expect(copy?.body).toMatch(/25 files found/i);
+    expect(copy?.percent).toBeUndefined();
+  });
+
+  test("an active step never claims one hundred percent", () => {
+    const copy = managedMigrationCopy(
+      status({
+        status: "active",
+        selected: { managedStorage: true, fastSearch: false },
+        managedProvisioning: "running",
+        managedMigrationPhase: "copy",
+        managedMigrationObjectsTotal: 50,
+        managedMigrationObjectsProcessed: 55,
+      }),
+    );
+    expect(copy?.percent).toBe(99);
+    expect(copy?.body).toMatch(/55 files checked/i);
+    expect(copy?.body).toMatch(/more than the earlier count/i);
   });
 
   test("a stopped copy says nothing switched and retry is safe", () => {

@@ -78,6 +78,9 @@ export interface PremiumStatus {
   managedProvisioningError?: string;
   /** Files verified while moving from customer-owned storage. Owner only. */
   managedMigrationObjectsCopied?: number;
+  managedMigrationObjectsTotal?: number;
+  managedMigrationObjectsProcessed?: number;
+  managedMigrationPhase?: "count" | "copy" | "verify_source" | "verify_target";
 }
 
 /** Where an opened Checkout or portal attempt has got to. */
@@ -105,6 +108,7 @@ export function managedMigrationCopy(status: PremiumStatus): {
   title: string;
   body: string;
   failed: boolean;
+  percent?: number;
 } | null {
   if (
     status.status !== "active" ||
@@ -122,14 +126,52 @@ export function managedMigrationCopy(status: PremiumStatus): {
       failed: true,
     };
   }
-  const progress = status.managedMigrationObjectsCopied;
+  const phase = status.managedMigrationPhase;
+  const processed = status.managedMigrationObjectsProcessed;
+  const total = status.managedMigrationObjectsTotal;
+  const percent =
+    processed !== undefined &&
+    total !== undefined &&
+    Number.isFinite(processed) &&
+    Number.isFinite(total) &&
+    processed >= 0 &&
+    total > 0
+      // This row exists only while the step is still active. Reserve 100 for
+      // the phase transition so files added after the census cannot make an
+      // unfinished walk look complete.
+      ? Math.min(99, Math.floor((processed / total) * 100))
+      : undefined;
+  if (phase === "count") {
+    return {
+      title: "Measuring your storage",
+      body:
+        "Your original storage stays connected and untouched while we count what needs to move." +
+        (processed === undefined ? "" : ` ${processed} files found so far.`),
+      failed: false,
+    };
+  }
+  const title =
+    phase === "verify_source"
+      ? "Verifying your original storage"
+      : phase === "verify_target"
+        ? "Verifying the managed copy"
+        : "Copying into managed storage";
+  const progress =
+    processed !== undefined && total !== undefined
+      ? processed > total
+        ? ` ${processed} files checked; this step found more than the earlier count.`
+        : ` ${processed} of ${total} files checked in this step.`
+      : status.managedMigrationObjectsCopied === undefined
+        ? ""
+        : ` ${status.managedMigrationObjectsCopied} files checked so far.`;
   return {
-    title: "Copying into managed storage",
+    title,
     body:
       `Your original storage stays connected and untouched until the copy is verified.` +
-      (progress === undefined ? "" : ` ${progress} files checked so far.`) +
+      progress +
       " You can keep using this context; new edits may make verification take longer.",
     failed: false,
+    percent,
   };
 }
 
