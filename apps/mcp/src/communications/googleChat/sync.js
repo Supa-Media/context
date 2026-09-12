@@ -87,6 +87,80 @@ export function dayNonce(nonceSeed, account, date) {
   return fnv1a64(`${String(nonceSeed ?? "")} ${String(account ?? "")} ${String(date ?? "")}`);
 }
 
+/**
+ * Render the shared Chat daily notes from every active account's persisted
+ * contribution. The runner groups nothing implicitly: destination is part of
+ * each contribution, and two copies of the same account at one destination
+ * fail closed rather than allowing polling order to choose a winner.
+ *
+ * @param {{
+ *   contributions: Array<{
+ *     account: string, destinationFolder?: string,
+ *     days: Array<{date: string, events: object[], unavailableSpaces?: Array<{label: string, reason: string}>}>
+ *   }>,
+ *   nonceSeed: string,
+ *   root?: string,
+ * }} args
+ */
+export function renderSharedGoogleChat({ contributions, nonceSeed, root }) {
+  /** destination -> {folder, accounts, days} */
+  const destinations = new Map();
+  for (const contribution of contributions ?? []) {
+    const account = String(contribution?.account ?? "");
+    const accountKey = account.trim().toLowerCase();
+    if (!accountKey) throw new TypeError("Chat contribution requires an account");
+    const folder = contribution?.destinationFolder;
+    const destinationKey = String(folder ?? "");
+    if (!destinations.has(destinationKey)) {
+      destinations.set(destinationKey, { folder, accounts: new Set(), days: new Map() });
+    }
+    const destination = destinations.get(destinationKey);
+    if (destination.accounts.has(accountKey)) {
+      throw new TypeError(`duplicate Chat contribution: ${account}`);
+    }
+    destination.accounts.add(accountKey);
+    const seenDates = new Set();
+    for (const day of contribution?.days ?? []) {
+      const date = String(day?.date ?? "");
+      if (seenDates.has(date)) {
+        throw new TypeError(`duplicate Chat contribution day: ${date}`);
+      }
+      seenDates.add(date);
+      if (!destination.days.has(date)) {
+        destination.days.set(date, { events: [], unavailableSpaces: [] });
+      }
+      const aggregate = destination.days.get(date);
+      aggregate.events.push(...(day?.events ?? []));
+      aggregate.unavailableSpaces.push(...(day?.unavailableSpaces ?? []));
+    }
+  }
+
+  const notes = [];
+  for (const destinationKey of [...destinations.keys()].sort()) {
+    const destination = destinations.get(destinationKey);
+    for (const date of [...destination.days.keys()].sort()) {
+      const aggregate = destination.days.get(date);
+      const unavailableSpaces = [...aggregate.unavailableSpaces].sort((left, right) =>
+        `${left?.label ?? ""}\0${left?.reason ?? ""}`.localeCompare(`${right?.label ?? ""}\0${right?.reason ?? ""}`)
+      );
+      const parts = planChannelDay(
+        {
+          channel: "google-chat",
+          date,
+          events: aggregate.events,
+          unavailableSpaces,
+          nonce: dayNonce(nonceSeed, `shared:${destinationKey}`, date),
+          now: stableDayUpdated(aggregate.events, date),
+          origin: "google-chat-sync",
+        },
+        { root, folder: destination.folder },
+      );
+      notes.push(...parts);
+    }
+  }
+  return notes;
+}
+
 /** `"included"` unless the connection says otherwise — a newly joined space starts visible. */
 function spaceState(spaceSettings, key) {
   const value = spaceSettings && typeof spaceSettings === "object" ? spaceSettings[key] : undefined;
@@ -226,13 +300,22 @@ export async function syncGoogleChat({ listSpaces, listMessages, connection, now
     }
   }
 
-  const notes = [];
   const dates = new Set(eventsByDay.keys());
   if (unavailableToday.size && today) dates.add(today);
 
-  for (const date of dates) {
-    const events = eventsByDay.get(date) ?? [];
-    const unavailableSpaces = date === today ? [...unavailableToday.values()] : [];
+  const contribution = {
+    account,
+    destinationFolder: connection?.destinationFolder,
+    days: [...dates].sort().map((date) => ({
+      date,
+      events: eventsByDay.get(date) ?? [],
+      unavailableSpaces: date === today ? [...unavailableToday.values()] : [],
+    })),
+  };
+
+  const notes = [];
+
+  for (const { date, events, unavailableSpaces } of contribution.days) {
     const parts = planChannelDay(
       {
         channel: "google-chat",
@@ -249,5 +332,5 @@ export async function syncGoogleChat({ listSpaces, listMessages, connection, now
     for (const part of parts) notes.push(part);
   }
 
-  return { notes, cursors, spaces: spacesSeen, errors };
+  return { notes, contribution, cursors, spaces: spacesSeen, errors };
 }

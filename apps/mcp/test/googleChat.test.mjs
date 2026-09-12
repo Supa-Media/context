@@ -30,7 +30,7 @@ import { listMessagesPage, listSpacesPage } from "../src/communications/googleCh
 import { estimateChatBackfill, estimateChatBackfillWindows, BACKFILL_WINDOW_DAYS } from "../src/communications/googleChat/backfill.js";
 import { chatMessageToEvent, chatSpaceType, isHistoryOn } from "../src/communications/googleChat/transform.js";
 import { CHAT_SCOPES, DEFAULT_BACKFILL_DAYS } from "../src/communications/googleChat/protocol.js";
-import { dayNonce, syncGoogleChat } from "../src/communications/googleChat/sync.js";
+import { dayNonce, renderSharedGoogleChat, syncGoogleChat } from "../src/communications/googleChat/sync.js";
 import { parseChannelDayNote } from "../../../packages/communications/src/note.js";
 import { createChatFixture, fixtureMessage, fixtureSpace } from "./googleChatFixture.mjs";
 
@@ -163,6 +163,110 @@ export async function runGoogleChatChecks(check) {
     check(
       "a configured Chat destination folder controls where daily notes are written",
       result.notes.some((part) => part.path === "2-areas/communications/daily/2026-09-06.md"),
+    );
+    check(
+      "a sync exposes a JSON-safe account contribution for the shared-note runner",
+      result.contribution.account === "acct" &&
+        result.contribution.destinationFolder === "2-areas/communications/daily" &&
+        result.contribution.days[0]?.date === "2026-09-06" &&
+        JSON.parse(JSON.stringify(result.contribution)).days[0]?.events.length === 1,
+    );
+  });
+
+  // -- shared daily notes: aggregate active account contributions ----------
+  await section("sync: shared-account aggregation", async () => {
+    const space = fixtureSpace({ name: ENGINEERING });
+    const accountAEvent = chatMessageToEvent({
+      space,
+      message: fixtureMessage({ name: `${ENGINEERING}/messages/a-1`, createTime: "2026-09-06T09:00:00Z", text: "from account A" }),
+      account: "a@example.com",
+    });
+    const accountBEvent = chatMessageToEvent({
+      space,
+      message: fixtureMessage({ name: `${ENGINEERING}/messages/b-1`, createTime: "2026-09-06T10:00:00Z", text: "from account B" }),
+      account: "b@example.com",
+    });
+    const contributionA = {
+      account: "a@example.com",
+      destinationFolder: "0-inbox/google-chat",
+      days: [{ date: "2026-09-06", events: [accountAEvent], unavailableSpaces: [] }],
+    };
+    const contributionB = {
+      account: "b@example.com",
+      destinationFolder: "0-inbox/google-chat",
+      days: [{ date: "2026-09-06", events: [accountBEvent], unavailableSpaces: [] }],
+    };
+    const combined = renderSharedGoogleChat({ contributions: [contributionA, contributionB], nonceSeed: "workspace-seed" });
+    const combinedDay = noteFor({ notes: combined }, "2026-09-06");
+    check(
+      "two account contributions land in the same shared Chat day",
+      combinedDay?.events.length === 2 && combinedDay.text.includes("from account A") && combinedDay.text.includes("from account B"),
+    );
+
+    const updatedA = {
+      ...contributionA,
+      days: [{ date: "2026-09-06", events: [{ ...accountAEvent, body: "account A edited" }], unavailableSpaces: [] }],
+    };
+    const updatedDay = noteFor(
+      { notes: renderSharedGoogleChat({ contributions: [updatedA, contributionB], nonceSeed: "workspace-seed" }) },
+      "2026-09-06",
+    );
+    check(
+      "updating one account contribution cannot erase another account's message",
+      updatedDay?.text.includes("account A edited") && updatedDay.text.includes("from account B"),
+    );
+    check(
+      "the shared result is byte-identical regardless of account polling order",
+      noteFor(
+        { notes: renderSharedGoogleChat({ contributions: [contributionB, contributionA], nonceSeed: "workspace-seed" }) },
+        "2026-09-06",
+      )?.text === combinedDay?.text,
+    );
+    check(
+      "different destination folders are never merged",
+      renderSharedGoogleChat({
+        contributions: [contributionA, { ...contributionB, destinationFolder: "2-areas/chat" }],
+        nonceSeed: "workspace-seed",
+      }).map(({ path }) => path).sort().join("|") === "0-inbox/google-chat/2026-09-06.md|2-areas/chat/2026-09-06.md",
+    );
+    check(
+      "a duplicate account contribution fails closed instead of silently choosing a winner",
+      (() => {
+        try {
+          renderSharedGoogleChat({ contributions: [contributionA, contributionA], nonceSeed: "workspace-seed" });
+          return false;
+        } catch (error) {
+          return error instanceof TypeError && /duplicate Chat contribution/.test(error.message);
+        }
+      })(),
+    );
+    check(
+      "account identity is normalized before duplicate detection",
+      (() => {
+        try {
+          renderSharedGoogleChat({
+            contributions: [contributionA, { ...contributionA, account: " A@EXAMPLE.COM " }],
+            nonceSeed: "workspace-seed",
+          });
+          return false;
+        } catch (error) {
+          return error instanceof TypeError && /duplicate Chat contribution/.test(error.message);
+        }
+      })(),
+    );
+    check(
+      "one account cannot contribute the same day twice",
+      (() => {
+        try {
+          renderSharedGoogleChat({
+            contributions: [{ ...contributionA, days: [...contributionA.days, ...contributionA.days] }],
+            nonceSeed: "workspace-seed",
+          });
+          return false;
+        } catch (error) {
+          return error instanceof TypeError && /duplicate Chat contribution day/.test(error.message);
+        }
+      })(),
     );
   });
 

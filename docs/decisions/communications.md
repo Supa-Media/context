@@ -941,6 +941,18 @@ untouched, and lets the other spaces finish. The fixture deliberately repeats
 one token and throws if a third request is made, so an unbounded loop fails
 quickly instead of hanging the suite.
 
+**A Chat pass now exposes a JSON-safe account contribution before anything
+writes the shared day.** `syncGoogleChat` still returns its legacy single-account
+notes for callers that already use them, but also returns the exact day slices
+the live runner must persist per account. `renderSharedGoogleChat` takes all
+active contributions, groups them by configured destination, and renders one
+shared day from their union with a workspace-level nonce seed. Account polling
+order cannot change the bytes; updating one contribution cannot erase another;
+destinations never bleed together; and two copies of the same normalized
+account at one destination fail closed. The runner and persistence layer are
+still required before this is live — the helper is the tested join they must
+use, not a claim that scheduled Chat delivery is enabled.
+
 **On the control-plane side, `functions/chatProduct.ts` attaches Chat to the
 same `googleConnections` row Gmail already writes** (2026-09-07) — no second
 table. A first draft of this file built exactly that: `chatConnections` and
