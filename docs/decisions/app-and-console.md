@@ -3266,3 +3266,57 @@ on a backend whose conditional writes were never proven`, and it needs
 so a stub that honoured one and not the other was answering for a backend that
 could not be the one in doubt, and the create-only claim was only ever tested
 where it holds for free.
+
+### A connected account is one card, and its consequence is armed
+
+The Google connections card was the ugliest surface in settings, and none of it
+was accidental — each layer was reasonable on its own day.
+
+**It was four boxes deep.** A `Card` held a `Row` per account, which held a
+bordered block per service, which held the destination field; with the sync
+schedule, four nested bordered surfaces before the one control. Three services
+on two accounts is twelve nested boxes on a screen somebody opened to change
+one path.
+
+**Its right-hand column was permanently red.** `connectionActions` carried a
+`danger` button and the standing sentence "Removes the whole account — Calendar
+and Chat stop too", drawn once per account and never not on screen. So on a
+two-account panel the most visually dominant thing was destructive text nobody
+had asked to read — and the control armed anyway, meaning the warning was
+displayed at all times *and* repeated between the presses.
+
+**It said its own scope four times.** A title ("Google accounts"), a sub ("Each
+Google account whose calendar this context reads"), a pill ("2 connected"), and
+then every account row repeating "Email, Calendar, Chat connected". A reader on
+the Calendar panel was told about Email and Chat four times.
+
+Now: one card per account, the destination as a row that opens on Change, and
+the consequence of Disconnect said **between the two presses** — which is where
+every other irreversible control in this console says it (`useArming`, the same
+shape as storage's Disconnect and a share's Revoke). The service list survives
+as the single quiet line above that control, because a narrowed panel genuinely
+has to say it: `GoogleActions` has no per-service call, so a reader who arrived
+from the Calendar heading would otherwise have no way to know their mail stops
+too.
+
+Three smaller things went with it. The path is `mono`, which it always should
+have been — a proportional face is what let a value scroll out of a field
+narrower than itself without anybody noticing. The current sync interval was
+`variant="white"` — the landing page's hero CTA — *and* disabled, so the
+loudest element on the card was a fact nobody could act on; it is marked the way
+`AppearancePanel` marks its current choice instead. And a reader with no
+`saveDestination` is now offered no way *into* the editor rather than a disabled
+Save button, which is this console's own absent-not-disabled rule finally
+applied here.
+
+**What a "simplification" would cost**: putting the destination back in an
+always-open field returns three forms per account to a screen where nobody
+edits three paths at once. Moving the consequence back beside the button makes
+destructive copy permanent furniture again and leaves the arming saying nothing
+new.
+
+**The tests that fail if this is reversed**: `what Disconnect takes with it is
+said between the presses, not beside the button` and the `the destination
+editor` block in `apps/mobile/__tests__/googleConnectionsCard.test.ts`, plus
+`a narrowed card offers no way into the editor without a saver` in
+`apps/mobile/__tests__/communicationsPanels.test.ts`.

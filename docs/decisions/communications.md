@@ -2449,3 +2449,57 @@ synthesized subject can include the owner's own address alongside everyone
 else's, where a resolved identity would have excluded it. Nothing about
 content, folding, or privacy depends on this value; it is read only to build
 a heading string.
+
+### The destination rule is shared, so the field can say something before Save
+
+`normalizeDestinationFolder` lived in `apps/convex/functions/googleConnect.ts`
+as a private function that threw `ConvexError`. That put the rule out of the
+console's reach, and the field somebody types a sync destination into paid for
+it: no completion, no validation, and no preview of what the pattern produces.
+The mutation was the first thing that checked, and it refused *after* Save —
+into a field narrower than the paths people put in it, so the value being
+checked had already scrolled out of view.
+
+It is `@context/communications/destination` now, and it **answers with a value
+rather than throwing**: `{ ok: true, folder }` or `{ ok: false, code, message }`.
+Two reasons, and only the first is obvious. A thrown message cannot be rendered
+under a field while somebody is still typing. And `normalizeRoot`'s messages
+quote what they refused, which is a reflection — fine for a prefix a customer
+typed into their own binding, wrong for a value that reaches a settings panel
+and a `ConvexError`. The control plane maps the result to its own error and
+keeps the `GOOGLE_` codes its callers switch on, so **the server-side check is
+still the one that matters**: a client with the check removed is still refused.
+
+Two functions came with the move and are new capability rather than a
+relocation. `resolveDestinationPattern` answers what a pattern writes on a
+given day — the half the field never had, because a pattern carrying
+`YYYY-MM-DD` is a template and nothing ever showed its output, so the only way
+to learn you were wrong was to wait for a sync. `suggestDestinationFolders`
+answers what could come next, matching on the **last segment being typed**
+against folders under the same parent: a completion that matched anywhere in
+the path would offer `1-projects/comms` to somebody who committed to `2-areas/`
+two keystrokes ago. Neither ever offers a folder the validator would then
+refuse.
+
+Both take their inputs rather than reading the world — the date, and the folder
+list — so they stay pure, and the console hands them
+`loadedFolders(files.listings)`, the same source the forwarding-address card's
+quick-picks already read. No second listing.
+
+**What a "simplification" would cost**: putting the rule back behind the
+mutation returns the field to guess-and-wait. Letting the console validate with
+a rule of its own is worse than either — a client that allows what the server
+refuses is a Save button that reports success and changes nothing.
+
+**The sabotage row worth remembering**: swapping the local date parts for
+`toISOString` in `resolveDestinationPattern` failed **zero** checks. CI runs in
+UTC, where the local date and the UTC date are the same date, so the check
+written to catch it was asserting a tautology. It forces `TZ` now, with a
+second check asserting the forcing worked — a guard nobody has checked is not a
+guard, and that included that one.
+
+**The tests that fail if this is reversed**:
+`packages/communications/test/destination.test.mjs`, the refusal guard in
+`apps/convex/__tests__/googleConnect.test.ts` (which catches the import being
+swapped for a pass-through, something the package's own suite cannot see), and
+`apps/mobile/__tests__/googleDestination.test.ts`.
