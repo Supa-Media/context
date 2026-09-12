@@ -3157,3 +3157,63 @@ which sentence is true; a refusal is said underneath it, and content still
 waiting on the device is said underneath that. **The test that fails if this is
 reversed** is `A REFUSAL AFTER THE NOTE LANDED DOES NOT UN-SAY THE PATH` in
 `apps/mobile/__tests__/meetingsScreens.test.ts`.
+
+### The folder is a setting; the question is not
+
+Mail, calendars and Chat each carry an editable destination per connection.
+A meeting carried `MEETINGS_FOLDER` — a constant — interpolated into a
+paragraph on the settings panel, with no control beside it and no setter
+anywhere in the codebase. Somebody who files meetings under `2-areas/meetings`
+had to move every note by hand, forever.
+
+The panel's own docstring defended that absence, and the argument it used was
+right about something else: the destination is **asked for every time, before
+the microphone opens, precisely so that no remembered setting can answer it
+silently**. That is a rule about *which context* a meeting lands in, and it is
+untouched — the first offer is still always the person's own brain, the page
+they are standing on is still offered second with its audience named, and the
+sheet still opens. What was neither asked nor settable is *which folder the
+first offer points at*. Two decisions; conflating them is why the setting did
+not exist for as long as it did.
+
+So `workspaces.meetingsFolder` is optional, `setMeetingsFolder` is owner-only
+and personal-only (only the personal-inbox offer reads it, so on a shared
+workspace it would be a control with no effect), and the value rides to the
+sheet on `DestinationContext` — where it belongs, because `ownPersonalContext`
+already finds the one context the setting is about, and a parallel argument
+would be a second thing every caller has to keep pointed at the same row.
+
+Three things hold it honest:
+
+- **The validator is the gateway's own.** `setMeetingsFolder` runs
+  `normalizeMeetingFolder`, the same function that decides whether a folder a
+  client asked for is one the write will accept. Validating any other way would
+  let somebody save a folder the gateway then refuses — a setting that appears
+  to work and files somewhere else, which is verbatim the defect
+  `features/meetings/destination.ts` exists to prevent, arriving through
+  settings instead of through a request.
+- **A stored folder this build would not file into is treated as absent.**
+  `inboxFolderOf` falls back to `INBOX_FOLDER` rather than offering it. An
+  offer with no `refusal` on it is a promise, and a row written by a newer
+  control plane — or one predating a rule this bundle ships — must not produce
+  a destination whose write is rejected. The phone cannot import
+  `packages/meetings`, so the check is `fileableFolder`, the restatement this
+  module already keeps, and the agreement test is what holds the two together.
+- **Clearing stores nothing, not the default's spelling.** A stored
+  `0-inbox/meetings` would stop following the default if it ever moved, pinning
+  somebody who never expressed a preference to a decision they did not make.
+
+**What a "simplification" would cost**: honouring the stored value without the
+fileable check turns a settings typo into meetings that never land, with the
+failure surfacing at the write rather than at the field. Dropping the
+personal-only gate puts a control on a workspace that nothing reads. Letting
+the setting answer *which context* — rather than which folder — drops a
+transcript of a conversation somebody has not read yet into a bucket their
+colleagues are watching, which is the one thing this whole seam was built to
+stop.
+
+**The tests that fail if any of it is reversed**: `where the first offer points
+is the brain's own setting` in `apps/mobile/__tests__/meetingsDestination.test.ts`
+(seven checks, including every folder the real `normalizeMeetingFolder`
+refuses), `apps/convex/__tests__/meetingsFolder.test.ts`, and
+`apps/mobile/__tests__/meetingsFolderPanel.test.ts` for the panel's own gating.

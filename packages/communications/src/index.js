@@ -22,6 +22,14 @@ export {
 } from "./paths.js";
 export { fnv1a64, isMessageAnchor, messageAnchor, spaceKey, threadKey } from "./anchors.js";
 export {
+  DATE_TOKEN,
+  DESTINATION_SEGMENT_LIMIT,
+  destinationPattern,
+  normalizeDestinationFolder,
+  resolveDestinationPattern,
+  suggestDestinationFolders,
+} from "./destination.js";
+export {
   AVERAGE_MESSAGE_BYTES_HIGH,
   AVERAGE_MESSAGE_BYTES_LOW,
   estimateBackfillWindows,

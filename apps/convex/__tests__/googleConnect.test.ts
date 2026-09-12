@@ -783,6 +783,69 @@ describe("the row shape: products and the nested gmail object", () => {
     expect(errorCode(error)).toBe("NOT_OWNER");
   });
 
+  /*
+    The refusals, through the mutation rather than through the module.
+
+    `normalizeDestinationFolder` moved to `@context/communications/destination`
+    so the console could render the same refusal before the round trip. The
+    package has its own checks; what this one holds is the *wiring* — that this
+    mutation still refuses, and still refuses with the codes its callers switch
+    on. Swap the import for a pass-through and the package suite stays green
+    while a dot-folder lands in somebody's bucket.
+  */
+  test("a destination the package refuses is refused here, with the code callers switch on", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const connectionId = await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+
+    const folderNow = async () => {
+      const [row] = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+        workspaceId,
+      });
+      return row?.gmail?.destinationFolder;
+    };
+    // The folder the binding was created with. A refusal must leave it exactly
+    // here — "still the default" is the assertion, not "absent", because a
+    // connection is never without one.
+    const seeded = await folderNow();
+    expect(seeded).toBe("0-inbox/email/person-at-example-invalid");
+
+    const refuse = async (destinationPath: string) =>
+      errorCode(
+        await captureError(() =>
+          asUser(t, owner).mutation(api.functions.googleConnect.updateGoogleSyncDestination, {
+            workspaceId,
+            connectionId,
+            service: "gmail",
+            destinationPath,
+          }),
+        ),
+      );
+
+    // Plumbing: a day note filed under a dot-folder is invisible to the person
+    // whose mail it is, and still on their storage bill.
+    expect(await refuse(".audit/mail")).toBe("GOOGLE_DESTINATION_RESERVED");
+    expect(await refuse("0-inbox/.hidden/mail")).toBe("GOOGLE_DESTINATION_RESERVED");
+    // Traversal, refused rather than resolved.
+    expect(await refuse("2-areas/../../etc")).toBe("GOOGLE_DESTINATION_INVALID");
+    expect(await refuse("2-areas\\mail")).toBe("GOOGLE_DESTINATION_INVALID");
+    // A note is not a folder to file inside.
+    expect(await refuse("1-projects/board-update.md")).toBe("GOOGLE_DESTINATION_INVALID");
+    // The bucket root would put mail beside index.md and privacy.md.
+    expect(await refuse("")).toBe("GOOGLE_DESTINATION_INVALID");
+    expect(await refuse("/")).toBe("GOOGLE_DESTINATION_INVALID");
+
+    // And none of that wrote anything — not even partially.
+    expect(await folderNow()).toBe(seeded);
+  });
+
   test("the owner cannot start a historical Gmail backfill run", async () => {
     enableMailConnect();
     const { t, owner, workspaceId } = await personalScenario();

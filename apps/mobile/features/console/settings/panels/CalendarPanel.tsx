@@ -1,3 +1,4 @@
+import { loadedFolders } from "../../files/browser";
 import { GoogleConnectionsCard } from "../../google/GoogleConnectionsCard";
 import { selectedContext, type ConsoleData } from "../../types";
 import { PanelHead, WorkspaceRefusalCard } from "./PanelHead";
@@ -41,6 +42,7 @@ export function CalendarPanel({
           connections={data.googleConnections}
           actions={data.googleActions}
           loading={data.loading}
+          folders={loadedFolders(data.files.listings)}
         />
       ) : (
         <WorkspaceRefusalCard title="A calendar belongs to a brain">

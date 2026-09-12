@@ -1,3 +1,4 @@
+import { loadedFolders } from "../../files/browser";
 import { GoogleConnectionsCard } from "../../google/GoogleConnectionsCard";
 import { selectedContext, type ConsoleData } from "../../types";
 /*
@@ -57,6 +58,7 @@ export function ChatsPanel({
             connections={data.googleConnections}
             actions={data.googleActions}
             loading={data.loading}
+            folders={loadedFolders(data.files.listings)}
           />
           {/*
             The machine this console is running on, narrowed to the half that

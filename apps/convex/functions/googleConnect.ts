@@ -89,7 +89,18 @@ import {
 // already taken in a workspace — is what makes the choice made once, at
 // connect time, and never recomputed against a different `taken` set.
 // eslint-disable-next-line import/extensions
-import { chooseMailboxSlug, normalizeRoot } from "../../../packages/communications/src/paths.js";
+import { chooseMailboxSlug } from "../../../packages/communications/src/paths.js";
+/*
+  The folder rule is the package's, not this file's. It was private here and
+  threw `ConvexError`, which made it unreachable from the console — so the
+  field somebody types a destination into could offer no completion and no
+  validation, and the mutation was the first thing that checked. Shared now;
+  this file maps the refusal to its own error and stays the check that matters.
+*/
+import {
+  destinationPattern,
+  normalizeDestinationFolder as destinationFolderResult,
+} from "../../../packages/communications/src/destination.js";
 
 /** How long a started connect stays answerable. Same ten minutes as Dropbox's. */
 const ATTEMPT_TTL_MS = 10 * 60 * 1000;
@@ -99,8 +110,6 @@ const STATE_BYTES = 32;
 
 const GOOGLE_CLIENT_ID_ENV_VAR = "GOOGLE_OAUTH_CLIENT_ID";
 const GOOGLE_CLIENT_SECRET_ENV_VAR = "GOOGLE_OAUTH_CLIENT_SECRET";
-const DATE_PATTERN_FILE = /\/(?:YYYY-MM-DD|\{date\})\.md$/;
-const DESTINATION_SEGMENT_LIMIT = 96;
 
 /**
  * The flag. A restricted-scope feature is off by default on every deployment,
@@ -239,47 +248,19 @@ export function defaultGoogleDestinationFolder(
   return "2-areas/communications/daily";
 }
 
-function destinationPattern(folder: string): string {
-  return `${folder}/YYYY-MM-DD.md`;
-}
-
+/**
+ * The package's folder rule, as a throw.
+ *
+ * The rules, the codes and the sentences are all
+ * `@context/communications/destination`'s — the console renders the same
+ * refusal in the same words before the round trip, which is the whole point of
+ * the move. What stays here is turning it into the `ConvexError` this layer
+ * speaks, with the `GOOGLE_` prefix its callers already switch on.
+ */
 function normalizeDestinationFolder(value: string): string {
-  const withoutPattern = value.trim().replace(DATE_PATTERN_FILE, "");
-  let normalized: string;
-  try {
-    normalized = normalizeRoot(withoutPattern).replace(/\/$/g, "");
-  } catch {
-    throw new ConvexError({
-      code: "GOOGLE_DESTINATION_INVALID",
-      message: "Use a folder path inside this context, without '..' or backslashes.",
-    });
-  }
-  if (!normalized) {
-    throw new ConvexError({
-      code: "GOOGLE_DESTINATION_INVALID",
-      message: "Choose a folder where synced files should land.",
-    });
-  }
-  if (normalized.endsWith(".md")) {
-    throw new ConvexError({
-      code: "GOOGLE_DESTINATION_INVALID",
-      message: "Use a folder, or a pattern ending in /YYYY-MM-DD.md.",
-    });
-  }
-  const segments = normalized.split("/");
-  if (segments.some((segment) => segment.startsWith(".") || segment === "privacy.md")) {
-    throw new ConvexError({
-      code: "GOOGLE_DESTINATION_RESERVED",
-      message: "That folder is reserved for Context internals.",
-    });
-  }
-  if (segments.some((segment) => segment.length > DESTINATION_SEGMENT_LIMIT)) {
-    throw new ConvexError({
-      code: "GOOGLE_DESTINATION_INVALID",
-      message: "Keep each folder name under 96 characters.",
-    });
-  }
-  return normalized;
+  const result = destinationFolderResult(value);
+  if (result.ok) return result.folder;
+  throw new ConvexError({ code: `GOOGLE_${result.code}`, message: result.message });
 }
 
 function validateFolders(value: MailFolder[] | undefined): MailFolder[] {

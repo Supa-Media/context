@@ -10,6 +10,7 @@
     "./protocol": "./src/protocol.js",
     "./paths": "./src/paths.js",
     "./anchors": "./src/anchors.js",
+    "./destination": "./src/destination.js",
     "./note": "./src/note.js",
     "./contacts": "./src/contacts.js",
     "./estimate": "./src/estimate.js",
