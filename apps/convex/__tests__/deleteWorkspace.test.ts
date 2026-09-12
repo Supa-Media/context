@@ -43,6 +43,7 @@
  *   the typed-slug comparison dropped                                     1
  *   the personal-context refusal removed                                  1
  *   the managed-bucket refusal removed                                    1
+ *   the in-flight-migration refusal removed                                1
  *   the cascade swapped for a bare `ctx.db.delete(workspaceId)`           2
  */
 
@@ -197,6 +198,52 @@ describe("deleteWorkspace", () => {
       }),
     );
     expect(errorCode(error)).toBe("MANAGED_STORAGE");
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(workspaceId)).not.toBeNull();
+    });
+  });
+
+  test("nor while a move into storage we run is under way", async () => {
+    const { t, owner, workspaceId } = await workspaceOwnedBy();
+    await seedStorageBinding(t, { workspaceId, boundBy: owner, bucket: "their-own-bucket" });
+    const sourceBindingId = await t.run(async (ctx) => {
+      const binding = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      return binding!._id;
+    });
+    /*
+      The managed bucket already exists by this point and already holds a
+      partial copy: deleting the row that names it would leave us paying for
+      storage nobody can reach.
+    */
+    await t.run((ctx) =>
+      ctx.db.insert("managedStorageMigrations", {
+        workspaceId,
+        sourceBindingId,
+        targetEndpoint: "https://managed.example.invalid",
+        targetBucket: managedBucketName(workspaceId),
+        targetAccessKeyId: "fake-target-key",
+        encryptedTargetSecretAccessKey: "sealed-not-a-real-secret",
+        status: "copying" as const,
+        phase: "copy" as const,
+        objectsCopied: 0,
+        changesInPass: 0,
+        readyToCutover: false,
+        startedBy: owner,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+
+    const error = await captureError(() =>
+      asUser(t, owner).mutation(api.functions.account.deleteWorkspace, {
+        workspaceId,
+        confirmSlug: "acme-eng",
+      }),
+    );
+    expect(errorCode(error)).toBe("MANAGED_MIGRATION");
     await t.run(async (ctx) => {
       expect(await ctx.db.get(workspaceId)).not.toBeNull();
     });

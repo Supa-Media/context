@@ -137,6 +137,15 @@ export function useAdvanced(options: {
   */
   const deletion: WorkspaceDeletion | undefined = useMemo(() => {
     if (workspaceId === null || !isOwner || slug === undefined) return undefined;
+    /*
+      And not until the plan has answered. `deletionBlockedReason` treats an
+      unanswered question as a refusal, which is the right default for a
+      function that could be called from anywhere — but drawing that refusal
+      here would flash a warning on every load before the answer lands. No
+      card is the honest version of "we do not know yet", and it becomes one
+      the moment the query resolves.
+    */
+    if (billing === undefined) return undefined;
     return {
       slug: slug.replace(/^@/, ""),
       blocked: deletionBlockedReason({
@@ -145,7 +154,7 @@ export function useAdvanced(options: {
       }),
       delete: deleteWorkspace,
     };
-  }, [workspaceId, isOwner, slug, kind, billing?.storageIsManaged, deleteWorkspace]);
+  }, [workspaceId, isOwner, slug, kind, billing, deleteWorkspace]);
 
   // Absent, not disabled, and absent as a whole object — the rule
   // `StorageActions` states, applied to a control that hands somebody a

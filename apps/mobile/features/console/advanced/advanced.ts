@@ -376,6 +376,11 @@ export function describeDeleteWorkspaceFailure(error: unknown): KeyExportFailure
         headline: "A brain is deleted with its account",
         next: "Delete the account from Settings to release its name.",
       };
+    case "MANAGED_MIGRATION":
+      return {
+        headline: "A move into storage we run is under way",
+        next: "Let it finish or cancel it first, then delete this workspace.",
+      };
     case "MANAGED_STORAGE":
       return {
         headline: "This workspace is on storage we run",

@@ -215,6 +215,26 @@ export const deleteWorkspace = mutation({
       });
     }
 
+    /*
+      A move *into* managed storage that has started is the same refusal one
+      step earlier: the managed bucket already exists, already holds a partial
+      copy, and its scoped token is live. The cascade would delete the row that
+      names both and leave us paying for a bucket nobody can reach — so a
+      migration in flight, or one parked `failed` with its cursor kept for a
+      retry, blocks deletion until it is finished or abandoned.
+    */
+    const migration = await ctx.db
+      .query("managedStorageMigrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (migration !== null) {
+      throw new ConvexError({
+        code: "MANAGED_MIGRATION",
+        message:
+          "A move into storage we run is under way for this workspace. Let it finish or cancel it first.",
+      });
+    }
+
     const binding = await ctx.db
       .query("storageBindings")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
