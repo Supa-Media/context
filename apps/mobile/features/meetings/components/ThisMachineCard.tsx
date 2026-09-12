@@ -226,24 +226,39 @@ function MachineCard({ bridge, focus }: { bridge: DesktopBridge; focus?: Machine
             <Text variant="rowSub" style={styles.sub}>
               {imessageLine(imessage.status)}
             </Text>
+            {imessage.status.permission === "denied" ? (
+              <Text variant="rowSub" style={styles.notice} testID="this-machine-imessage-permission-guide">
+                In System Settings, open Privacy &amp; Security → Full Disk Access, add Context or turn it on,
+                then quit and reopen the app.
+              </Text>
+            ) : null}
             {imessage.status.lastError ? (
               <Text variant="rowSub" style={styles.notice}>
                 {imessage.status.lastError}
               </Text>
             ) : null}
           </View>
-          <Button
-            label={
-              imessage.changing
-                ? "Saving..."
-                : imessage.status.enabled
-                  ? "Pause iMessage"
-                  : "Start iMessage"
-            }
-            disabled={imessage.changing || imessage.status.permission === "denied"}
-            onPress={() => imessage.setEnabled(!imessage.status.enabled)}
-            testID="this-machine-imessage-toggle"
-          />
+          {imessage.status.permission === "denied" ? (
+            <Button
+              label="Open Full Disk Access"
+              disabled={imessage.changing}
+              onPress={() => void bridge.imessage?.requestFullDiskAccess()}
+              testID="this-machine-imessage-open-settings"
+            />
+          ) : (
+            <Button
+              label={
+                imessage.changing
+                  ? "Saving..."
+                  : imessage.status.enabled
+                    ? "Pause iMessage"
+                    : "Start iMessage"
+              }
+              disabled={imessage.changing}
+              onPress={() => imessage.setEnabled(!imessage.status.enabled)}
+              testID="this-machine-imessage-toggle"
+            />
+          )}
         </View>
       )}
     </Card>
@@ -276,18 +291,27 @@ function useImessageStatus(
 } | null {
   const [status, setStatus] = useState<ImessageStatus | null>(null);
   const [changing, setChanging] = useState(false);
+  const permission = useRef<ImessageStatus["permission"] | null>(null);
 
   useEffect(() => {
     if (bridge.imessage === undefined) return;
     let live = true;
     void bridge.imessage.status().then(
       (value) => {
-        if (live) setStatus(value);
+        if (live) {
+          permission.current = value.permission;
+          setStatus(value);
+        }
       },
       () => {},
     );
     const off = bridge.imessage.onChange((value) => {
-      if (live) setStatus(value);
+      if (!live) return;
+      const newlyDenied =
+        value.enabled && value.permission === "denied" && permission.current !== "denied";
+      permission.current = value.permission;
+      setStatus(value);
+      if (newlyDenied) void bridge.imessage?.requestFullDiskAccess();
     });
     return () => {
       live = false;

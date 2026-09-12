@@ -65,7 +65,7 @@ const refusalFor = (desktop) => inspectDesktopBridge({ desktop }).refusal;
  * A structurally complete bridge at the *current* version, from plain values.
  *
  * It carries `meetings`, the machine-approval trio, and `imessage` because
- * `BRIDGE_VERSION` is 5 and row 5 of the required table asks for all three —
+ * `BRIDGE_VERSION` is 6 and row 6 of the required table asks for all three —
  * rows 3 and 4 already asked for the first two, version 4 having added only
  * two payload *fields* (`CaptureStateUpdate.notice`, `CaptureSummary.frames`)
  * and no members at all. `version1Bridge` below is the same object with
@@ -110,6 +110,7 @@ function bridgeLike(overrides = {}) {
     imessage: {
       status: async () => ({ enabled: false, permission: "unknown", lastSyncedAt: null, lastError: null }),
       setEnabled: async () => {},
+      requestFullDiskAccess: async () => {},
       onChange: noop,
     },
     ...overrides,
@@ -442,7 +443,7 @@ export function runBridgeChecks(check) {
     getDesktopBridge({ desktop: Object.freeze({ ...bridgeLike(), imessage: undefined, version: 3 }) }) !== null,
   );
   check(
-    "A VERSION-4 SHELL IS STILL A BRIDGE, though this bundle is version 5",
+    "A VERSION-4 SHELL IS STILL A BRIDGE, though this bundle is version 6",
     getDesktopBridge({ desktop: version4Bridge() }) !== null &&
       refusalFor(version4Bridge()) === null,
   );
@@ -452,7 +453,7 @@ export function runBridgeChecks(check) {
   );
   check(
     "A VERSION-5 SHELL WITHOUT `imessage` IS REFUSED — it promised it",
-    refusalFor(Object.freeze({ ...bridgeLike(), imessage: undefined })) === "surface-incomplete",
+    refusalFor(Object.freeze({ ...bridgeLike(), imessage: undefined, version: 5 })) === "surface-incomplete",
   );
   check(
     "...and one whose `imessage` cannot report status is refused too",
@@ -460,7 +461,7 @@ export function runBridgeChecks(check) {
   );
   check(
     "...and this bundle's own version is accepted by its own table",
-    refusalFor(frozenBridge({})) === null && BRIDGE_VERSION === 5,
+    refusalFor(frozenBridge({})) === null && BRIDGE_VERSION === 6,
   );
   check(
     "a version between the floor and the ceiling is still not an integer version",

@@ -1144,6 +1144,79 @@ describe("this machine, in settings", () => {
     expect(shell.listenerCount()).toBe(0);
   });
 
+  test("a denied iMessage grant explains the exact recovery and opens Full Disk Access", async () => {
+    const shell = fakeDesktopBridge({
+      imessage: {
+        enabled: true,
+        permission: "denied",
+        lastSyncedAt: null,
+        lastError: null,
+      },
+    });
+    installShell(shell);
+
+    const mounted = mount(createElement(ThisMachineCard));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(has(mounted.container, "this-machine-imessage-permission-guide")).toBe(true);
+    expect(mounted.container.textContent).toContain("Privacy & Security → Full Disk Access");
+    expect(mounted.container.textContent).toContain("quit and reopen");
+    expect(has(mounted.container, "this-machine-imessage-toggle")).toBe(false);
+
+    const open = mounted.container.querySelector('[data-testid="this-machine-imessage-open-settings"]');
+    await act(async () => {
+      open?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(shell.imessageFullDiskAccessRequests).toBe(1);
+
+    mounted.unmount();
+  });
+
+  test("the first permission refusal raises the guide without waiting for another click", async () => {
+    const shell = fakeDesktopBridge({
+      imessage: {
+        enabled: true,
+        permission: "unknown",
+        lastSyncedAt: null,
+        lastError: null,
+      },
+    });
+    installShell(shell);
+    const mounted = mount(createElement(ThisMachineCard));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      shell.emitImessage({
+        enabled: true,
+        permission: "denied",
+        lastSyncedAt: null,
+        lastError: null,
+      });
+      await Promise.resolve();
+    });
+    expect(shell.imessageFullDiskAccessRequests).toBe(1);
+
+    // A later status heartbeat in the same denied state must not stack sheets.
+    await act(async () => {
+      shell.emitImessage({
+        enabled: true,
+        permission: "denied",
+        lastSyncedAt: null,
+        lastError: null,
+      });
+      await Promise.resolve();
+    });
+    expect(shell.imessageFullDiskAccessRequests).toBe(1);
+    mounted.unmount();
+  });
+
   /*
     One machine, two settings panels.
 

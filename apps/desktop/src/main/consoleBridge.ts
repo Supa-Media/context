@@ -173,6 +173,7 @@ export interface ConsoleBridgeDeps {
   imessage: () => ImessageStatus;
   /** Turn import on or off. Never touches the microphone, the calendar, or anything else the tray already gates. */
   setImessageEnabled: (enabled: boolean) => void;
+  requestImessageFullDiskAccess: () => Promise<void>;
 }
 
 export interface ConsoleBridge {
@@ -527,6 +528,9 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     deps.setImessageEnabled(enabled);
     return null;
   });
+  handle(BRIDGE_CHANNELS.imessageRequestFullDiskAccess, () =>
+    deps.requestImessageFullDiskAccess(),
+  );
 
   function send(channel: string, payload: unknown): void {
     /*
@@ -600,6 +604,7 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
         BRIDGE_CHANNELS.meetingsWrite,
         BRIDGE_CHANNELS.imessageStatus,
         BRIDGE_CHANNELS.imessageSetEnabled,
+        BRIDGE_CHANNELS.imessageRequestFullDiskAccess,
       ]) {
         deps.ipc.removeHandler(channel);
       }

@@ -17,7 +17,7 @@
  * dropped rather than starting a recording of whatever is happening instead.
  */
 
-import { BrowserWindow, Menu, Notification, app, dialog, ipcMain, session } from "electron";
+import { BrowserWindow, Menu, Notification, app, dialog, ipcMain, session, shell } from "electron";
 import type { MessageBoxOptions, MessageBoxReturnValue } from "electron";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -67,6 +67,10 @@ import { keychainTokenStore } from "./tokenStore.ts";
 import { browserlessRefresher, connectMachine, openInSystemBrowser } from "./connect.ts";
 import { transcribeChunk } from "./transcribe.ts";
 import { ImessageSyncService } from "./imessage.ts";
+import {
+  FULL_DISK_ACCESS_SETTINGS_URL,
+  fullDiskAccessNotice,
+} from "../core/imessage/permission.ts";
 import { trayPresentation } from "../core/tray/presentation.ts";
 import type { TrayState } from "../core/tray/presentation.ts";
 import { AppTray } from "./tray.ts";
@@ -1803,6 +1807,20 @@ async function main(): Promise<void> {
       writeMeeting: writeMeetingFromConsole,
       imessage: () => imessage.status(),
       setImessageEnabled: (enabled) => void update({ imessageEnabled: enabled }),
+      requestImessageFullDiskAccess: async () => {
+        const parent = consoleWindow === null || consoleWindow.isDestroyed() ? null : consoleWindow;
+        const answer = await askSomething(parent, {
+          type: "info",
+          title: "Allow iMessage import",
+          message: fullDiskAccessNotice(app.getName()),
+          detail: `After turning it on, quit and reopen ${app.getName()}, then return to Settings → Chats.`,
+          buttons: ["Open System Settings", "Not now"],
+          defaultId: 0,
+          cancelId: 1,
+          noLink: true,
+        });
+        if (answer.response === 0) await shell.openExternal(FULL_DISK_ACCESS_SETTINGS_URL);
+      },
     });
 
     consoleWindow = createConsoleWindow(url, RENDERER_DIR, {

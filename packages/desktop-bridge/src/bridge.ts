@@ -171,6 +171,8 @@ const REQUIRED_MEMBERS: Readonly<Record<number, readonly string[]>> = Object.fre
     again — the same reason every earlier row is.
   */
   5: VERSION_1_MEMBERS,
+  /** Version 6 adds one method inside `imessage`, not a top-level member. */
+  6: VERSION_1_MEMBERS,
 });
 
 /** The sub-objects, and the methods each must carry, per version. */
@@ -230,6 +232,10 @@ const REQUIRED_SUB_MEMBERS: Readonly<
   5: Object.freeze({
     ...VERSION_3_SUB_MEMBERS,
     imessage: Object.freeze(["status", "setEnabled", "onChange"]),
+  }),
+  6: Object.freeze({
+    ...VERSION_3_SUB_MEMBERS,
+    imessage: Object.freeze(["status", "setEnabled", "requestFullDiskAccess", "onChange"]),
   }),
 });
 

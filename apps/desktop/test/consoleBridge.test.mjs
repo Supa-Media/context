@@ -359,6 +359,7 @@ function mainBridge(overrides = {}) {
       calls.push(`setImessageEnabled:${enabled}`);
       enabledCalls.push(enabled);
     },
+    requestImessageFullDiskAccess: async () => void calls.push("requestImessageFullDiskAccess"),
     ...overrides.deps,
   });
   // `movePin` is how a check stages the shell falling back to the offline
@@ -396,6 +397,7 @@ const HANDLED = [
   BRIDGE_CHANNELS.meetingsWrite,
   BRIDGE_CHANNELS.imessageStatus,
   BRIDGE_CHANNELS.imessageSetEnabled,
+  BRIDGE_CHANNELS.imessageRequestFullDiskAccess,
 ];
 
 /** A well-formed write, so a check can vary exactly one field of it. */
@@ -984,7 +986,7 @@ export async function runConsoleBridgeChecks(check) {
     );
     check(
       "...and the census adds up, so neither side can drift unnoticed",
-      registrations + gatedAsync + gatedSync === 33,
+      registrations + gatedAsync + gatedSync === 34,
     );
   }
 
