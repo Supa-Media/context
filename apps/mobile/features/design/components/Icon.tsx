@@ -1097,16 +1097,35 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
     case "mail":
       return [
         rect("body", u, w, c, { x0: 0.1, y0: 0.24, x1: 0.9, y1: 0.76, radius: 0.12 }),
-        // Two chords meeting at the middle of the body's top edge. A single
-        // chevron would be the open flap, which is the next drawing down.
-        bar("flapL", u, w, c, { cx: 0.3, cy: 0.38, length: 0.3, angle: 20 }),
-        bar("flapR", u, w, c, { cx: 0.7, cy: 0.38, length: 0.3, angle: -20 }),
+        /*
+          Two chords from the body's top corners to a point below its centre.
+
+          Drawn shallower once — 0.3 long at 20° — and at 19pt the pair closed
+          into a single rule across the top of a rounded box, which is `card`
+          four drawings down. A flap has to descend far enough to be a V: these
+          run corner to corner and drop to 0.54, which is a third of the body.
+        */
+        bar("flapL", u, w, c, { cx: 0.31, cy: 0.41, length: 0.46, angle: 34 }),
+        bar("flapR", u, w, c, { cx: 0.69, cy: 0.41, length: 0.46, angle: -34 }),
       ];
 
     case "mailOpen":
       return [
-        rect("body", u, w, c, { x0: 0.1, y0: 0.34, x1: 0.9, y1: 0.84, radius: 0.12 }),
-        chevron("flap", u, w, c, { cx: 0.5, cy: 0.3, side: 0.36, angle: -45 }),
+        /*
+          The letter coming out, not the flap going up.
+
+          A raised flap is the obvious drawing and it cannot be done here: a
+          chevron's arms land exactly on the body's top edge, which is itself
+          a straight rule, so the pair renders as a pentagon — a house, at any
+          size, verified on device at 19pt. A card rising out of the envelope
+          says "there is something in here for you" and has no edge to
+          collide with.
+
+          Deliberately not two equal squares offset on the diagonal, which is
+          `copy`: this is a tall narrow card centred over a wide body.
+        */
+        rect("letter", u, w, c, { x0: 0.28, y0: 0.14, x1: 0.72, y1: 0.5, radius: 0.06 }),
+        rect("body", u, w, c, { x0: 0.1, y0: 0.42, x1: 0.9, y1: 0.84, radius: 0.1 }),
       ];
 
     case "calendar":
@@ -1142,16 +1161,18 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         Four rays, not eight. Eight at 18pt is a blot with a ring in it — the
         count `filter` and `globe` both settle on for the same reason.
 
-        The core is 0.24 and the rays 0.2, drawn once at 0.2/0.16 and found
-        too light beside `laptop` and `grid` in the same column: a mark that
-        is correct in isolation and quiet in its row is the row's problem.
+        A big core and stubby rays, which is the proportion that reads as a
+        sun. Drawn twice the other way round — a small ring with long rays —
+        and on device at 19pt it was a crosshair both times. The ray is a
+        stub *because* the core is large; shorten one without growing the
+        other and it goes back to being an aperture.
       */
       return [
-        ring("core", u, w, c, { cx: 0.5, cy: 0.5, r: 0.24 }),
-        bar("rayN", u, w, c, { cx: 0.5, cy: 0.11, length: 0.2, angle: 90 }),
-        bar("rayS", u, w, c, { cx: 0.5, cy: 0.89, length: 0.2, angle: 90 }),
-        bar("rayW", u, w, c, { cx: 0.11, cy: 0.5, length: 0.2 }),
-        bar("rayE", u, w, c, { cx: 0.89, cy: 0.5, length: 0.2 }),
+        ring("core", u, w, c, { cx: 0.5, cy: 0.5, r: 0.28 }),
+        bar("rayN", u, w, c, { cx: 0.5, cy: 0.09, length: 0.14, angle: 90 }),
+        bar("rayS", u, w, c, { cx: 0.5, cy: 0.91, length: 0.14, angle: 90 }),
+        bar("rayW", u, w, c, { cx: 0.09, cy: 0.5, length: 0.14 }),
+        bar("rayE", u, w, c, { cx: 0.91, cy: 0.5, length: 0.14 }),
       ];
 
     case "signOut":
