@@ -244,6 +244,76 @@ export const ICON_NAMES = [
    * section on.
    */
   "mic",
+
+  /* ------------------------------------------------------------------ *
+   * The settings list.
+   *
+   * Nineteen destinations set in one weight, with no mark on any of them, is
+   * a list that has to be *read* rather than scanned — `BottomBar`'s finding
+   * at the top of this file, one screen further down. These are the marks
+   * that let the eye find a row by its shape.
+   *
+   * Four sections take marks that already exist and mean the right thing:
+   * `mic` for Meetings, `lock` for Privacy, `share` for Shared links, and
+   * `search` for Search. A fifth would have been `gear` for Advanced, and it
+   * is not: `gear` is how settings itself is reached, and a row inside
+   * settings wearing the mark that opens settings is a loop.
+   * ------------------------------------------------------------------ */
+
+  /** AI apps: four panes, which is what a set of connected clients looks like. */
+  "grid",
+  /** Profile — one head over one pair of shoulders. */
+  "person",
+  /** People: two heads over one silhouette, so the plural is the drawing. */
+  "people",
+  /**
+   * Groups — three heads and no shoulders.
+   *
+   * Deliberately not `people` with a third head added: at 18pt that reads as
+   * `people` drawn badly. A cluster with no body is a *set*, which is what a
+   * group is, and it cannot be mistaken for the row above it.
+   */
+  "group",
+  /** Email: an envelope, flap down. */
+  "mail",
+  /**
+   * Invitations — the same envelope with the flap open.
+   *
+   * A pair that differs at one end, like `undo`/`redo` above: two unrelated
+   * marks for two kinds of mail would be two things to learn, and these are
+   * the same thing in two states.
+   */
+  "mailOpen",
+  "calendar",
+  /** Chats: a bubble with a tail and the three dots every platform draws. */
+  "chat",
+  /** Your devices — a laptop, because that is the only machine that captures. */
+  "laptop",
+  /**
+   * Appearance, as a sun.
+   *
+   * A crescent would be the better half of the usual pair and this set cannot
+   * draw one: a crescent is a disc with a disc bitten out of it, and there is
+   * no clipping here — see the header. A sun with four rays is the half that
+   * is drawable, and it is what the row means either way: how this looks.
+   */
+  "sun",
+  /** Sign out & delete: a door with the way out beside it. */
+  "signOut",
+  /** Overview — the section that only tells you things. */
+  "info",
+  /** Premium: a card, which is the thing the section actually changes. */
+  "card",
+  /**
+   * Storage — two bays, not a cylinder.
+   *
+   * A database cylinder needs an ellipse, which React Native's border radii do
+   * not make reliably across both platforms; `globe` records the same refusal
+   * two drawings up.
+   */
+  "drive",
+  /** Advanced: two sliders, off their defaults. */
+  "sliders",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -987,6 +1057,137 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         cradle("cradle", u, w, c, { x0: 0.22, y0: 0.42, x1: 0.78, y1: 0.72 }),
         bar("stem", u, w, c, { cx: 0.5, cy: 0.8, length: 0.12, angle: 90 }),
         bar("base", u, w, c, { cx: 0.5, cy: 0.88, length: 0.3 }),
+      ];
+
+    case "grid":
+      return [
+        rect("a", u, w, c, { x0: 0.12, y0: 0.12, x1: 0.46, y1: 0.46, radius: 0.1 }),
+        rect("b", u, w, c, { x0: 0.54, y0: 0.12, x1: 0.88, y1: 0.46, radius: 0.1 }),
+        rect("c", u, w, c, { x0: 0.12, y0: 0.54, x1: 0.46, y1: 0.88, radius: 0.1 }),
+        rect("d", u, w, c, { x0: 0.54, y0: 0.54, x1: 0.88, y1: 0.88, radius: 0.1 }),
+      ];
+
+    case "person":
+      /*
+        `shackle` for the shoulders, which is the arch it already draws for a
+        padlock turned to the job it was shaped for: an outline open at the
+        bottom. A rounded rectangle would be a head above a box.
+      */
+      return [
+        ring("head", u, w, c, { cx: 0.5, cy: 0.3, r: 0.18 }),
+        shackle("shoulders", u, w, c, { x0: 0.2, y0: 0.56, x1: 0.8, y1: 0.88 }),
+      ];
+
+    case "people":
+      // The second head is smaller and set back, so the pair reads as depth
+      // rather than as two people of different sizes.
+      return [
+        ring("headA", u, w, c, { cx: 0.34, cy: 0.32, r: 0.15 }),
+        ring("headB", u, w, c, { cx: 0.7, cy: 0.34, r: 0.12 }),
+        shackle("shoulders", u, w, c, { x0: 0.1, y0: 0.58, x1: 0.9, y1: 0.88 }),
+      ];
+
+    case "group":
+      return [
+        ring("a", u, w, c, { cx: 0.31, cy: 0.33, r: 0.16 }),
+        ring("b", u, w, c, { cx: 0.69, cy: 0.33, r: 0.16 }),
+        ring("c", u, w, c, { cx: 0.5, cy: 0.69, r: 0.16 }),
+      ];
+
+    case "mail":
+      return [
+        rect("body", u, w, c, { x0: 0.1, y0: 0.24, x1: 0.9, y1: 0.76, radius: 0.12 }),
+        // Two chords meeting at the middle of the body's top edge. A single
+        // chevron would be the open flap, which is the next drawing down.
+        bar("flapL", u, w, c, { cx: 0.3, cy: 0.38, length: 0.3, angle: 20 }),
+        bar("flapR", u, w, c, { cx: 0.7, cy: 0.38, length: 0.3, angle: -20 }),
+      ];
+
+    case "mailOpen":
+      return [
+        rect("body", u, w, c, { x0: 0.1, y0: 0.34, x1: 0.9, y1: 0.84, radius: 0.12 }),
+        chevron("flap", u, w, c, { cx: 0.5, cy: 0.3, side: 0.36, angle: -45 }),
+      ];
+
+    case "calendar":
+      return [
+        rect("body", u, w, c, { x0: 0.12, y0: 0.2, x1: 0.88, y1: 0.88, radius: 0.12 }),
+        bar("head", u, w, c, { cx: 0.5, cy: 0.4, length: 0.76 }),
+        bar("pegL", u, w, c, { cx: 0.34, cy: 0.14, length: 0.14, angle: 90 }),
+        bar("pegR", u, w, c, { cx: 0.66, cy: 0.14, length: 0.14, angle: 90 }),
+      ];
+
+    case "chat":
+      /*
+        Three dots rather than two rules. Rules inside a rounded box is
+        `file`, three drawings up, and at 18pt the only thing separating the
+        two would be the corner radius.
+      */
+      return [
+        rect("bubble", u, w, c, { x0: 0.12, y0: 0.16, x1: 0.88, y1: 0.7, radius: 0.18 }),
+        bar("tail", u, w, c, { cx: 0.3, cy: 0.8, length: 0.2, angle: 58 }),
+        dot("d1", u, c, { cx: 0.34, cy: 0.43, r: 0.055 }),
+        dot("d2", u, c, { cx: 0.5, cy: 0.43, r: 0.055 }),
+        dot("d3", u, c, { cx: 0.66, cy: 0.43, r: 0.055 }),
+      ];
+
+    case "laptop":
+      return [
+        rect("screen", u, w, c, { x0: 0.16, y0: 0.18, x1: 0.84, y1: 0.66, radius: 0.1 }),
+        bar("base", u, w, c, { cx: 0.5, cy: 0.8, length: 0.88 }),
+      ];
+
+    case "sun":
+      // Four rays, not eight. Eight at 18pt is a blot with a ring in it — the
+      // count `filter` and `globe` both settle on for the same reason.
+      return [
+        ring("core", u, w, c, { cx: 0.5, cy: 0.5, r: 0.2 }),
+        bar("rayN", u, w, c, { cx: 0.5, cy: 0.13, length: 0.16, angle: 90 }),
+        bar("rayS", u, w, c, { cx: 0.5, cy: 0.87, length: 0.16, angle: 90 }),
+        bar("rayW", u, w, c, { cx: 0.13, cy: 0.5, length: 0.16 }),
+        bar("rayE", u, w, c, { cx: 0.87, cy: 0.5, length: 0.16 }),
+      ];
+
+    case "signOut":
+      return [
+        rect("door", u, w, c, { x0: 0.12, y0: 0.12, x1: 0.56, y1: 0.88, radius: 0.1 }),
+        bar("shaft", u, w, c, { cx: 0.72, cy: 0.5, length: 0.3 }),
+        chevron("head", u, w, c, { cx: 0.84, cy: 0.5, side: 0.26, angle: 45 }),
+      ];
+
+    case "info":
+      return [
+        ring("edge", u, w, c, { cx: 0.5, cy: 0.5, r: 0.38 }),
+        dot("tittle", u, c, { cx: 0.5, cy: 0.31, r: 0.065 }),
+        // 0.26, for the reason `share`'s stem is 0.48: a bar is laid out
+        // horizontally and turned afterwards, so its declared box is the
+        // horizontal one.
+        bar("stem", u, w, c, { cx: 0.5, cy: 0.58, length: 0.26, angle: 90 }),
+      ];
+
+    case "card":
+      return [
+        rect("body", u, w, c, { x0: 0.08, y0: 0.24, x1: 0.92, y1: 0.76, radius: 0.12 }),
+        bar("stripe", u, w, c, { cx: 0.5, cy: 0.4, length: 0.84 }),
+        bar("chip", u, w, c, { cx: 0.28, cy: 0.62, length: 0.16 }),
+      ];
+
+    case "drive":
+      return [
+        rect("body", u, w, c, { x0: 0.1, y0: 0.26, x1: 0.9, y1: 0.74, radius: 0.12 }),
+        bar("divider", u, w, c, { cx: 0.5, cy: 0.5, length: 0.8 }),
+        dot("ledTop", u, c, { cx: 0.74, cy: 0.38, r: 0.055 }),
+        dot("ledBottom", u, c, { cx: 0.74, cy: 0.62, r: 0.055 }),
+      ];
+
+    case "sliders":
+      // Knobs off centre and on opposite sides: two rings at the same x is a
+      // drawing of a control nobody has touched.
+      return [
+        bar("trackTop", u, w, c, { cx: 0.5, cy: 0.32, length: 0.76 }),
+        ring("knobTop", u, w, c, { cx: 0.66, cy: 0.32, r: 0.13 }),
+        bar("trackBottom", u, w, c, { cx: 0.5, cy: 0.68, length: 0.76 }),
+        ring("knobBottom", u, w, c, { cx: 0.36, cy: 0.68, r: 0.13 }),
       ];
   }
 }
