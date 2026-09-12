@@ -85,4 +85,16 @@ export async function runChatContributionStoreChecks(check) {
     conflicted = error instanceof ChatContributionConflictError;
   }
   check("a concurrent contribution change is refused instead of last-writer-wins", conflicted);
+
+  let unsafeBackend = false;
+  try {
+    await persistChatContribution({
+      store: { ...memoryStore(), capabilities: { conditionalWrite: false } },
+      sourceId: "connection-a",
+      contribution: contribution("a@example.com", [day("2026-09-10", "a")]),
+    });
+  } catch (error) {
+    unsafeBackend = error instanceof TypeError;
+  }
+  check("shared Chat sync refuses a backend that cannot enforce conditional writes", unsafeBackend);
 }

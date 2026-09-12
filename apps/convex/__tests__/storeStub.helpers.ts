@@ -351,8 +351,12 @@ export function memoryS3(
         (init.headers as Record<string, string>) ?? {},
       );
       const expected = headers.get("if-match")?.replace(/^"(.*)"$/, "$1");
+      // `ignoreIfMatch` models a backend that ignores write preconditions, and
+      // If-None-Match is the same feature as If-Match — a bucket that honours
+      // neither must be simulated as honouring neither, or a test asks its
+      // question of a backend that cannot be the one in doubt.
       const createOnly = headers.get("if-none-match") === "*";
-      if (createOnly && objects.has(key)) {
+      if (createOnly && !options.ignoreIfMatch && objects.has(key)) {
         return new Response("", { status: 412 });
       }
       if (

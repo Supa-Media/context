@@ -588,6 +588,70 @@ describe("the live screen is a notepad with a recorder attached", () => {
     mounted.unmount();
   });
 
+  test("the clock stops when the microphone does, not when the transcript lands", async () => {
+    /*
+      *"The post processing step was just really slow… the countdown doesn't
+      stop."*
+
+      `recorder.stop()` used to wait for every outstanding transcription, and
+      `end()` cannot fold the `end` event until it resolves — so the session
+      stayed `recording` for the whole of it. The person got the live screen, a
+      running clock and a microphone chip over a meeting they had finished, for
+      as long as the network took.
+
+      The wait still exists and is still worth having: the finalize composes
+      the note from the transcript this session holds, so a segment arriving
+      after it is a note missing the end of the meeting. It happens *after* the
+      fold now, behind `MeetingNoteScreen` and the sentence that screen already
+      has for it.
+
+      Held open on purpose, because a drain that resolves on the next tick
+      cannot tell a fold-before from a fold-after.
+    */
+    const recorder = fakeRecorder();
+    await configure({ recorder });
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Slow to write up" });
+      // Something to file: a session that captured nothing folds to `empty`,
+      // which is terminal and never reaches a finalize at all.
+      meetings.setNotes(id, "the decision");
+    });
+
+    const release = recorder.holdDrain();
+    let ending: Promise<void> = Promise.resolve();
+    await act(async () => {
+      ending = meetings.end();
+      await Promise.resolve();
+    });
+
+    /*
+      Mid-drain: the meeting is over as far as every screen is concerned. The
+      session has left `recording`, so `[id].tsx` is drawing the note screen,
+      the clock is not running, and the bar is down.
+    */
+    expect(meetings.getSnapshot().live).toBeNull();
+    expect(meetings.getSnapshot().records[0]?.session.state).toBe("finalizing");
+    expect(meetings.getSnapshot().ending).toBeNull();
+
+    /*
+      And the screen says what is actually outstanding. Before this it had one
+      sentence for a meeting with no note — "waiting to reach your context" —
+      which describes a network problem the person does not have.
+    */
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(mounted.container.textContent).toContain("turning the last of the audio into words");
+    expect(mounted.container.textContent).not.toContain("Waiting to reach your context");
+    expect(has(mounted.container, "meeting-ending")).toBe(false);
+    mounted.unmount();
+
+    await act(async () => {
+      release();
+      await ending;
+    });
+    expect(meetings.getSnapshot().records[0]?.session.state).toBe("complete");
+  });
+
   test("a recorder that will not stop still ends the meeting, and stops saying Ending", async () => {
     /*
       THE FAILURE MODE AN INDICATOR ADDS THAT SILENCE COULD NOT.

@@ -951,13 +951,50 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
     for (;;) {
       if (sliceOnce(MAX_SLICE_MS)) continue;
       /*
-        Nothing went. Either there is no more audio — done — or the queue is
-        full, in which case waiting for it and trying again is the whole point.
-        Distinguished by the queue rather than by re-reading the file, because
-        an empty queue and no slice is unambiguous.
+        NOTHING WENT OUT, AND THE TWO REASONS FOR THAT WANT OPPOSITE THINGS.
+
+        **The file is fully cut** — every byte is either sent or in flight — and
+        this is done. It returns *without* waiting for the answers, which is the
+        difference between "the audio is off the device" and "the meeting has
+        been transcribed". Only the first is this function's job, and confusing
+        them is what made ending a meeting take as long as Whisper did:
+        `stop()` did not return, so the controller could not fold the `end`,
+        so the live screen stayed up with its clock running while the person
+        waited on a network round trip. The wait still happens — `drain()` is
+        where — but it happens after the meeting has visibly ended.
+
+        **The queue is full**, and then waiting is exactly the point: the bytes
+        stay on the file and the next pass takes them. Bounded at
+        `MAX_INFLIGHT_CHUNKS` slices in memory at a time, which is what keeps a
+        long backlog from being cut into the heap all at once.
+
+        Told apart by re-reading the file rather than by the queue, because
+        "no slice went out" means both and only the file knows which.
       */
+      if (!hasUncutAudio()) return;
       if (inFlight.size === 0) return;
       await drainSends();
+    }
+  }
+
+  /**
+   * Whether the recording still holds at least one whole sample frame nobody
+   * has taken.
+   *
+   * The terminator for `sliceAll`, and deliberately the same arithmetic
+   * `sliceOnce` uses to decide what it can take — a different rounding here
+   * would either spin on a half sample forever or return with audio still on a
+   * file that is about to be deleted.
+   */
+  function hasUncutAudio(): boolean {
+    const active = device;
+    if (active === null || pcmFormat === null) return false;
+    const uri = active.uri;
+    if (uri === null) return false;
+    try {
+      return alignToFrame(new File(uri).size - pcmRead, pcmFormat) > 0;
+    } catch {
+      return false;
     }
   }
 
@@ -1046,6 +1083,32 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
       exists to stop making.
     */
     if (continuous) {
+      /*
+        THE DEVICE IS STOPPED BEFORE A BYTE IS TAKEN, AND THAT ORDER IS THE FIX.
+
+        The first version of this branch sliced while the recorder went on
+        writing, and the comment on `stop()` below — *"the device is already
+        back, so waiting here costs a spinner rather than a microphone"* — was
+        left standing when it had stopped being true. On this path the device is
+        released *after* `closeChunk`, so every second the drain spent waiting
+        for a transcription was a second the microphone was still open, on a
+        meeting somebody had finished. The owner saw it: *"it keeps recording
+        while it's processing"*.
+
+        It was also a tail-chase. `sliceAll` cuts what is on the file, and a
+        recorder that is still running puts another 32 KB a second on it — so
+        each pass found the audio recorded during the previous pass's wait, and
+        the drain converged only because sending happens to be faster than
+        recording.
+
+        Stopping first closes both: the input is released at the moment the
+        person pressed End, and the file is a fixed size, so what is left to cut
+        is bounded by what the ticks had not taken.
+      */
+      await active.stop().catch(() => {
+        // A recorder that will not stop is not a reason to abandon the audio
+        // it has already written. `releaseDevice` tries again and reports.
+      });
       await sliceAll();
       return;
     }
@@ -1425,12 +1488,35 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
           await releaseDevice();
         }
       });
-      /*
-        The device is already back, so waiting here costs a spinner rather than
-        a microphone. What it buys is the last few seconds of the meeting —
-        usually the decision — landing in the note before the controller
-        finalizes it, instead of arriving after the first sync.
-      */
+    },
+
+    /**
+     * WAIT FOR WHAT IS STILL BEING TRANSCRIBED. SEPARATE FROM `stop()`.
+     *
+     * This used to be the last line of `stop()`, with a comment saying the
+     * wait "costs a spinner rather than a microphone". Two things made that
+     * wrong once a meeting was one continuous recording.
+     *
+     * The microphone half was false on this path — the device is released
+     * *after* `closeChunk`, and `closeChunk` is where the waiting moved to, so
+     * the input stayed open for the length of the drain. That is fixed where it
+     * happened, by stopping the device before slicing.
+     *
+     * The spinner half was worse than it sounds. `controller.end()` cannot fold
+     * the `end` event until `stop()` resolves, so the session stayed
+     * `recording` for the whole of it: the live screen, the running clock, and
+     * the microphone chip, over a meeting the person had finished — for however
+     * long a transcription took. *"The post processing step was just really
+     * slow… the countdown doesn't stop."*
+     *
+     * What the wait buys is unchanged and still worth having: the end of the
+     * meeting reaches the note before the finalize composes it, rather than
+     * arriving after the first sync. So it is kept and moved. The controller
+     * ends the meeting, lands the person on the screen that says *"your context
+     * is writing this up"*, and waits here — which is the same wait in front of
+     * the right words.
+     */
+    async drain() {
       await drainSends();
     },
 

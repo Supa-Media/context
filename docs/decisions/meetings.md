@@ -1623,6 +1623,71 @@ there is one, because it hears more`.
 driven from a fake device. That a phone's bar moves when somebody speaks needs
 a native build and a voice.
 
+### Ending a meeting is not waiting for it to be transcribed
+
+The lock-screen fix worked and arrived with two defects of its own, reported
+together: *"the post process is a little slow, and it keeps recording while
+it's processing… the countdown doesn't stop."* Both were one line.
+
+**`stop()` did too much.** It stopped the device, cut the remaining audio out of
+the file, and then waited for every outstanding transcription. The comment on
+that last wait said it "costs a spinner rather than a microphone", which had
+been true of the rotating recorder and was not true of this one: on the
+continuous path the device is released *after* `closeChunk`, and `closeChunk`
+is where the waiting moved to. So the input stayed open for the length of the
+drain, on a meeting somebody had finished.
+
+It was also a tail-chase. The slicer cuts what is on the file, and a recorder
+that is still running adds another 32 KB a second — so each pass found the
+audio recorded during the previous pass's wait, and the drain converged only
+because sending happens to be faster than recording.
+
+**And `controller.end()` cannot fold the `end` event until `stop()` resolves.**
+So the session stayed `recording` for the whole of it: the live screen, the
+running clock, the microphone chip, over a meeting that was over.
+
+Three changes, in the order they matter:
+
+ - **The device is stopped before a byte is taken.** The input goes back at the
+   moment End is pressed, and the file is a fixed size, so what is left to cut
+   is bounded by what the ticks had not already taken.
+ - **`sliceAll` ends when the file is fully cut, not when the queue is empty.**
+   "The audio is off the device" and "the meeting has been transcribed" are
+   different questions and only the first is that function's. It still waits
+   when the send queue is full, because that is what bounds how much of a
+   backlog is cut into memory at once.
+ - **`stop()` and `drain()` are separate.** `stop()` resolves with the
+   microphone back and the audio queued; `drain()` waits for the words. The
+   controller ends the meeting between them.
+
+**The wait is kept, and keeping it is the point.** The finalize composes the
+note from the transcript the session holds, so a segment arriving after it is a
+note missing the end of the meeting — usually the decision. What changed is
+where it falls: after the fold, behind `MeetingNoteScreen`, instead of in front
+of a screen still claiming to record.
+
+**Which exposed a sentence that was true and unhelpful.** That screen had one
+line for a meeting with no note yet — *"Waiting to reach your context"* — and it
+now had a visible window in which the honest answer was different: nothing is
+wrong with the connection, the last of the audio is still being turned into
+words, and the finalize is held on purpose until it is. `snapshot.transcribing`
+carries that, beside `ending` and for the same reason. Telling somebody about a
+network problem they do not have is the same defect as telling them nothing,
+one sentence further on.
+
+The checks are `the microphone is back before anything is waited for` — which
+asserts the *order* against the recorder's own log, because "the microphone is
+back" is true of the broken version too and only "before the first byte was
+sent" is not — `ending does not wait for the transcript, and \`drain\` does`,
+and `the clock stops when the microphone does, not when the transcript lands`.
+
+**What none of this makes faster.** The transcription takes as long as it takes:
+a round trip per slice, through Convex to a Whisper worker, bounded at three in
+flight. This change is about what the person is looking at while it happens and
+about not holding a microphone through it. If the wait itself needs to shrink,
+that is the chunk size, the concurrency, or the engine — and it is a different
+decision.
+
 ### One recording per meeting, because iOS will not let a locked phone start a second one
 
 **The defect.** A meeting recorded on an unlocked phone was fine. The same
