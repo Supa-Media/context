@@ -28,26 +28,23 @@ import { expect, test } from "@playwright/test";
 
 const STORAGE = "/e2e-fixture?screen=first-run-storage";
 
-test("the three answers are in order, and the paid one says what it costs", async ({ page }) => {
+test("the first decision is control versus convenience", async ({ page }) => {
   await page.goto(STORAGE);
-  await page.getByTestId("choose-bucket").waitFor();
+  await page.getByTestId("choose-own-storage").waitFor();
 
-  const bucket = await page.getByTestId("choose-bucket").boundingBox();
-  const dropbox = await page.getByTestId("choose-dropbox").boundingBox();
+  const own = await page.getByTestId("choose-own-storage").boundingBox();
   const managed = await page.getByTestId("choose-managed").boundingBox();
-  expect(bucket).not.toBeNull();
-  expect(dropbox).not.toBeNull();
+  expect(own).not.toBeNull();
   expect(managed).not.toBeNull();
-
-  /*
-    Free first, paid below — on a phone that is three rows, and at a pointer
-    width it is two beside each other with the third under them. Both are the
-    same rule: a screen that sold above a free option would be selling against
-    its own free tier.
-  */
-  expect(managed!.y).toBeGreaterThan(bucket!.y);
-  expect(managed!.y).toBeGreaterThan(dropbox!.y);
   await expect(page.getByTestId("choose-managed")).toContainText("$20 a month");
+  await expect(page.getByTestId("choose-managed")).toContainText("50 GB");
+  await expect(page.getByText("Recommended")).toHaveCount(0);
+  await expect(page.getByTestId("choose-bucket")).toHaveCount(0);
+  await expect(page.getByTestId("choose-dropbox")).toHaveCount(0);
+
+  await page.getByTestId("choose-own-storage").tap();
+  await expect(page.getByTestId("choose-bucket")).toBeVisible();
+  await expect(page.getByTestId("choose-dropbox")).toBeVisible();
 });
 
 test("the paid card does not draw over the rest of the step", async ({ page }) => {
@@ -85,14 +82,16 @@ test("pressing it asks before it charges", async ({ page }) => {
   // And it is reversible without paying, which is the whole reason it is a
   // screen rather than a redirect.
   await page.getByTestId("managed-confirm-back").tap();
-  await expect(page.getByTestId("choose-bucket")).toBeVisible();
+  await expect(page.getByTestId("choose-own-storage")).toBeVisible();
 });
 
 test("a deployment that cannot provide it never mentions it", async ({ page }) => {
   await page.goto(`${STORAGE}&available=no`);
-  await page.getByTestId("choose-bucket").waitFor();
+  await page.getByTestId("choose-own-storage").waitFor();
   await expect(page.getByTestId("choose-managed")).toHaveCount(0);
-  // Absent, not disabled, and the free paths are exactly as they were.
+  await page.getByTestId("choose-own-storage").tap();
+  // Absent, not disabled, and both self-managed providers still work.
+  await expect(page.getByTestId("choose-bucket")).toBeVisible();
   await expect(page.getByTestId("choose-dropbox")).toBeVisible();
   await expect(page.getByTestId("welcome-storage-skip")).toBeVisible();
 });
@@ -112,9 +111,7 @@ test("and a wait that has gone on too long offers a way out", async ({ page }) =
   await expect(page.getByTestId("managed-settling-carry-on")).toBeVisible();
 });
 
-test("provisioning that failed says the money is safe, and offers both ways on", async ({
-  page,
-}) => {
+test("provisioning that failed says the money is safe, and offers both ways on", async ({ page }) => {
   /*
     Money taken and nothing delivered — the state this whole flow is judged on.
     In a browser because the previous two defects in this work were layouts,
@@ -132,20 +129,25 @@ test("provisioning that failed says the money is safe, and offers both ways on",
 });
 
 test.describe("at a pointer width", () => {
-  test.use({ viewport: { width: 1280, height: 900 }, isMobile: false, hasTouch: false });
+  test.use({
+    viewport: { width: 1280, height: 900 },
+    isMobile: false,
+    hasTouch: false,
+  });
 
-  test("the two free cards share a row and the paid one has its own", async ({ page }) => {
+  test("the two product paths share a row, with providers below the chosen path", async ({ page }) => {
     await page.goto(STORAGE);
-    await page.getByTestId("choose-bucket").waitFor();
-    const bucket = (await page.getByTestId("choose-bucket").boundingBox())!;
-    const dropbox = (await page.getByTestId("choose-dropbox").boundingBox())!;
+    await page.getByTestId("choose-own-storage").waitFor();
+    const own = (await page.getByTestId("choose-own-storage").boundingBox())!;
     const managed = (await page.getByTestId("choose-managed").boundingBox())!;
 
-    // Side by side: same top, different left.
+    expect(Math.abs(own.y - managed.y)).toBeLessThan(2);
+    expect(managed.x).toBeGreaterThan(own.x);
+
+    await page.getByTestId("choose-own-storage").click();
+    const bucket = (await page.getByTestId("choose-bucket").boundingBox())!;
+    const dropbox = (await page.getByTestId("choose-dropbox").boundingBox())!;
     expect(Math.abs(bucket.y - dropbox.y)).toBeLessThan(2);
-    expect(dropbox.x).toBeGreaterThan(bucket.x);
-    // And the third spans both of them rather than sitting in a third column.
-    expect(managed.y).toBeGreaterThan(bucket.y + bucket.height - 2);
-    expect(managed.width).toBeGreaterThan(bucket.width * 1.8);
+    expect(bucket.y).toBeGreaterThan(own.y + own.height - 2);
   });
 });
