@@ -35,7 +35,7 @@ function windowOverlaps(event, timeMin, timeMax) {
   return endMs > minMs && startMs < maxMs;
 }
 
-export function createFakeCalendarServer({ pageSize = 250 } = {}) {
+export function createFakeCalendarServer({ pageSize = 250, timeZone = "UTC" } = {}) {
   /** @type {Array<{seq: number, event: object}>} */
   const changeLog = [];
   let seq = 0;
@@ -115,7 +115,7 @@ export function createFakeCalendarServer({ pageSize = 250 } = {}) {
       const page = items.slice(offset, offset + pageSize);
       const hasMore = offset + pageSize < items.length;
 
-      const body = { kind: "calendar#events", items: page };
+      const body = { kind: "calendar#events", timeZone, items: page };
       if (hasMore) body.nextPageToken = String(offset + pageSize);
       else body.nextSyncToken = `tok-${seq}`;
       return jsonResponse(200, body);

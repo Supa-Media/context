@@ -1074,18 +1074,18 @@ const schema = defineSchema({
       }),
     ),
     /**
-     * Calendar's own settings and cursor. Not implemented by this change —
-     * declared so the shape exists for the sibling work building it, per the
-     * same "declared here, built next" phasing `docs/decisions/search.md`
-     * already uses. `syncToken` is Calendar's own incremental-sync cursor
-     * (the `events.list` `nextSyncToken`), the Calendar analogue of Gmail's
-     * `historyId`.
+     * Calendar's settings and incremental-sync cursor. Event content and the
+     * per-account materialized cache stay in customer storage; this row keeps
+     * only the `events.list` token and the owner-local date of the last full
+     * rolling-horizon refresh.
      */
     calendar: v.optional(
       v.object({
         scopes: v.array(v.string()),
         destinationFolder: v.optional(v.string()),
         syncToken: v.optional(v.string()),
+        /** Owner-local date of the last full horizon refresh. */
+        lastFullSyncDate: v.optional(v.string()),
         lastSyncedAt: v.optional(v.number()),
       }),
     ),

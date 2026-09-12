@@ -120,6 +120,26 @@ import {
   persistChatContribution,
 } from "../../mcp/src/communications/googleChat/contributionStore.js";
 import {
+  CalendarApiError,
+  CalendarPaginationError,
+} from "../../mcp/src/communications/calendar-google.js";
+import { syncCalendarAccount } from "../../mcp/src/communications/calendar-sync.js";
+import {
+  CalendarContributionConflictError,
+  CalendarContributionIncompleteError,
+  loadActiveCalendarContributions,
+  loadCalendarContribution,
+  persistCalendarContribution,
+} from "../../mcp/src/communications/calendarContributionStore.js";
+import {
+  calendarDayNotePath,
+  isCalendarDayNote,
+  mergeEventCaches,
+  projectDay,
+  renderCalendarDay,
+} from "../../../packages/communications/src/calendar/index.js";
+import { fnv1a64 } from "../../../packages/communications/src/anchors.js";
+import {
   D1_ACCOUNT_SECRET,
   D1_TOKEN_SECRET,
   messageFor,
@@ -1292,6 +1312,16 @@ type ForwardSyncJob =
   | {
       kind: "run";
       connectionId: Id<"googleConnections">;
+      product: "calendar";
+      address: string;
+      destinationFolder: string;
+      syncToken?: string;
+      lastFullSyncDate?: string;
+      contributorSourceIds: Id<"googleConnections">[];
+    }
+  | {
+      kind: "run";
+      connectionId: Id<"googleConnections">;
       product: "chat";
       address: string;
       destinationFolder: string;
@@ -1368,6 +1398,13 @@ const GMAIL_RATE_LIMIT_REASONS = new Set([
   "quotaExceeded",
 ]);
 
+class CalendarTimezoneMismatchError extends Error {
+  constructor() {
+    super("Calendar accounts sharing a destination use different timezones");
+    this.name = "CalendarTimezoneMismatchError";
+  }
+}
+
 /**
  * Turn whatever went wrong into a code and a sentence a person can act on.
  *
@@ -1378,6 +1415,42 @@ const GMAIL_RATE_LIMIT_REASONS = new Set([
  * was briefly unavailable" are still different sentences to show somebody.
  */
 function classifyForwardSyncError(error: unknown): { code: string; message: string } {
+  if (error instanceof CalendarTimezoneMismatchError) {
+    return {
+      code: "CALENDAR_TIMEZONE_MISMATCH",
+      message: "Calendar accounts sharing this folder use different timezones. Choose separate folders for them.",
+    };
+  }
+  if (error instanceof CalendarContributionConflictError) {
+    return {
+      code: "CALENDAR_SYNC_CONFLICT",
+      message: "Calendar changed during this pass. The next scheduled pass will try again.",
+    };
+  }
+  if (error instanceof CalendarPaginationError) {
+    return {
+      code: "CALENDAR_PAGINATION_STALLED",
+      message: "Google Calendar returned a repeating page. The next scheduled pass will try again.",
+    };
+  }
+  if (error instanceof CalendarApiError) {
+    if (error.status === 401 || error.status === 403) {
+      return {
+        code: "GOOGLE_ACCESS_REFUSED",
+        message: "Google refused access to Calendar. Reconnect the account and approve Calendar access.",
+      };
+    }
+    if (error.status === 429) {
+      return {
+        code: "GOOGLE_RATE_LIMITED",
+        message: "Google rate-limited Calendar. The next scheduled pass will try again.",
+      };
+    }
+    return {
+      code: "GOOGLE_UNAVAILABLE",
+      message: "Google Calendar did not answer reliably. The next scheduled pass will try again.",
+    };
+  }
   if (error instanceof ChatContributionConflictError) {
     return {
       code: "CHAT_SYNC_CONFLICT",
@@ -1450,6 +1523,147 @@ function classifyForwardSyncError(error: unknown): { code: string; message: stri
   return {
     code: "GOOGLE_SYNC_FAILED",
     message: "This mailbox did not sync. The next scheduled pass resumes from the same cursor.",
+  };
+}
+
+async function writeSharedCalendarDay(
+  store: FileStore,
+  path: string,
+  text: string | null,
+): Promise<{ wrote: boolean; bytes: number }> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const existing = await store.get(path);
+    const existingText = existing === null ? null : await existing.text();
+
+    if (existingText !== null && !isCalendarDayNote(existingText)) {
+      if (text === null) return { wrote: false, bytes: 0 };
+      throw new Error("Calendar cannot replace a note the owner wrote in its destination folder");
+    }
+    if (text === null) {
+      if (existing === null) return { wrote: false, bytes: 0 };
+      const deleted = await store.delete(path, {
+        onlyIf: { etagMatches: existing.etag },
+      });
+      if (deleted !== null) return { wrote: true, bytes: 0 };
+      continue;
+    }
+    if (existingText === text) return { wrote: false, bytes: 0 };
+    const written = await store.put(path, text, {
+      onlyIf:
+        existing === null
+          ? { absent: true }
+          : { etagMatches: existing.etag },
+    });
+    if (written !== null) {
+      return { wrote: true, bytes: new TextEncoder().encode(text).byteLength };
+    }
+  }
+  throw new CalendarContributionConflictError();
+}
+
+async function runGoogleCalendarForwardSync(
+  ctx: ActionCtx,
+  store: FileStore,
+  job: Extract<ForwardSyncJob, { kind: "run"; product: "calendar" }>,
+  accessToken: string,
+): Promise<ForwardSyncResult> {
+  if (store.capabilities?.conditionalWrite !== true) {
+    throw new Error("Shared Calendar sync requires storage with conditional writes");
+  }
+  const calendarStore = store as unknown as Parameters<typeof persistCalendarContribution>[0]["store"];
+  const previous = await loadCalendarContribution({
+    store: calendarStore,
+    sourceId: job.connectionId,
+  });
+  const now = new Date().toISOString();
+  const provider = await syncCalendarAccount({
+    connection: {
+      workspaceId: "private",
+      account: job.address,
+      calendarId: "primary",
+      timezone: previous?.timezone,
+      destinationFolder: job.destinationFolder,
+      accessToken,
+      syncToken: job.syncToken ?? null,
+      lastFullSyncDate: job.lastFullSyncDate ?? null,
+      eventCache: previous?.eventCache ?? new Map(),
+    },
+    store: calendarStore,
+    fetchImpl: timeoutFetch,
+    now,
+    materialize: false,
+  });
+  if (provider.skipped || !provider.syncToken || !provider.lastFullSyncDate) {
+    throw new Error("Google Calendar did not return a resumable cursor");
+  }
+
+  await persistCalendarContribution({
+    store: calendarStore,
+    sourceId: job.connectionId,
+    contribution: {
+      account: job.address,
+      timezone: provider.timezone,
+      destinationFolder: job.destinationFolder,
+      eventCache: provider.eventCache,
+    },
+  });
+  const contributions = await loadActiveCalendarContributions({
+    store: calendarStore,
+    sourceIds: job.contributorSourceIds,
+  });
+  const timezones = new Set(contributions.map((contribution) => contribution.timezone));
+  if (timezones.size !== 1) throw new CalendarTimezoneMismatchError();
+  const timezone = contributions[0]!.timezone;
+  const merged = mergeEventCaches(
+    contributions.map((contribution) => contribution.eventCache),
+  );
+  const nonceSeed = fnv1a64(
+    [...job.contributorSourceIds].map(String).sort().join("\0"),
+  );
+
+  let daysTouched = 0;
+  let bytesWritten = 0;
+  for (const date of provider.datesTouched) {
+    const events = projectDay(merged, date);
+    const path = calendarDayNotePath(
+      { date },
+      { folder: job.destinationFolder },
+    );
+    const text = events.length
+      ? renderCalendarDay({
+          date,
+          timezone,
+          events,
+          nonce: `calendar:${nonceSeed}:${date}`,
+          now,
+          origin: "calendar-sync",
+        })
+      : null;
+    const written = await writeSharedCalendarDay(store, path, text);
+    if (written.wrote) {
+      daysTouched += 1;
+      bytesWritten += written.bytes;
+    }
+  }
+
+  await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+    connectionId: job.connectionId,
+    product: "calendar",
+    status: "synced",
+    calendarSyncToken: provider.syncToken,
+    calendarLastFullSyncDate: provider.lastFullSyncDate,
+    daysTouched,
+    bytesWritten,
+  });
+  return {
+    kind: "googleForwardSync",
+    connectionId: job.connectionId,
+    status: "synced",
+    daysTouched,
+    bytesWritten,
+    cursorAdvanced: provider.syncToken !== job.syncToken,
+    gapDetected: false,
+    truncated: false,
   };
 }
 
@@ -1612,6 +1826,9 @@ async function runGoogleForwardSync(
 
     if (job.product === "chat") {
       return await runGoogleChatForwardSync(ctx, store, job, minted.accessToken);
+    }
+    if (job.product === "calendar") {
+      return await runGoogleCalendarForwardSync(ctx, store, job, minted.accessToken);
     }
 
     if (job.historyId === undefined) {
@@ -1791,11 +2008,16 @@ async function runGoogleForwardSync(
     // sibling has ever stored its contribution. That is an expected warm-up
     // state, not an outage: keep this account's cursor in place, release the
     // claim, and let the sibling's own due pass fill the missing slice.
-    if (error instanceof ChatContributionIncompleteError) {
+    if (
+      error instanceof ChatContributionIncompleteError ||
+      error instanceof CalendarContributionIncompleteError
+    ) {
       return await releaseForwardSync(
         ctx,
         job.connectionId,
-        "CHAT_WAITING_FOR_ACCOUNT",
+        job.product === "calendar"
+          ? "CALENDAR_WAITING_FOR_ACCOUNT"
+          : "CHAT_WAITING_FOR_ACCOUNT",
       );
     }
     const { code, message } = classifyForwardSyncError(error);

@@ -71,6 +71,7 @@ import { internalMutation, internalQuery, mutation } from "../_generated/server"
 import { internal } from "../_generated/api";
 import { recordAudit } from "./lib/audit";
 import { defaultGoogleDestinationFolder, mailConnectEnabled, requireActor } from "./googleConnect";
+import { calendarConnectEnabled } from "./calendarConnect";
 /*
  * The arithmetic lives in a leaf module rather than here, because
  * `googleConnect.ts` reads it too and a cycle between these two files fails as
@@ -204,7 +205,9 @@ export const sweepDueGoogleSyncs = internalMutation({
   args: {},
   returns: v.object({ started: v.number(), examined: v.number() }),
   handler: async (ctx): Promise<{ started: number; examined: number }> => {
-    if (!mailConnectEnabled()) return { started: 0, examined: 0 };
+    if (!mailConnectEnabled() && !calendarConnectEnabled()) {
+      return { started: 0, examined: 0 };
+    }
     const now = Date.now();
     const rows = await ctx.db
       .query("googleConnections")
@@ -223,8 +226,11 @@ export const sweepDueGoogleSyncs = internalMutation({
       // index above is right, which is the point: it is what catches the day
       // somebody changes the index.
       if (row.disconnectedAt !== undefined) continue;
-      if (syncableProductsOf(row).length === 0) continue;
-      if (!isDue(row, now)) continue;
+      const enabledProducts = syncableProductsOf(row).filter((product) =>
+        product === "calendar" ? calendarConnectEnabled() : mailConnectEnabled(),
+      );
+      if (enabledProducts.length === 0) continue;
+      if (!isDue({ ...row, products: enabledProducts }, now)) continue;
       /*
        * Shared Chat days are rendered from every account contribution. Two
        * account passes in the same workspace must not race a stale aggregate
@@ -233,7 +239,7 @@ export const sweepDueGoogleSyncs = internalMutation({
        * lock is safer than a second rule about which product writes which
        * shared path, and the next five-minute tick drains the sibling.
        */
-      if (row.products.includes("chat")) {
+      if (row.products.includes("chat") || row.products.includes("calendar")) {
         const workspaceClaims = await ctx.db
           .query("googleConnections")
           .withIndex("by_workspace_sync_started", (q) =>
@@ -243,11 +249,12 @@ export const sweepDueGoogleSyncs = internalMutation({
           )
           .take(SWEEP_BATCH + 1);
         if (workspaceClaims.length > SWEEP_BATCH) continue;
-        const chatWriterIsRunning = workspaceClaims.some(
+        const sharedWriterIsRunning = workspaceClaims.some(
           (candidate) =>
-            candidate._id !== row._id && candidate.products.includes("chat"),
+            candidate._id !== row._id &&
+            (candidate.products.includes("chat") || candidate.products.includes("calendar")),
         );
-        if (chatWriterIsRunning) continue;
+        if (sharedWriterIsRunning) continue;
       }
       /*
         NOT OVERTAKING A PASS THAT IS STILL RUNNING.
@@ -297,6 +304,16 @@ const forwardSyncJobValidator = v.union(
     attachmentMode: v.union(v.literal("metadata-only"), v.literal("store")),
     attachmentRetentionDays: v.optional(v.union(v.number(), v.literal("forever"))),
     historyId: v.optional(v.string()),
+  }),
+  v.object({
+    kind: v.literal("run"),
+    connectionId: v.id("googleConnections"),
+    product: v.literal("calendar"),
+    address: v.string(),
+    destinationFolder: v.string(),
+    syncToken: v.optional(v.string()),
+    lastFullSyncDate: v.optional(v.string()),
+    contributorSourceIds: v.array(v.id("googleConnections")),
   }),
   v.object({
     kind: v.literal("run"),
@@ -352,9 +369,6 @@ export const googleForwardSyncJob = internalQuery({
     if (connection.disconnectedAt !== undefined) {
       return { kind: "skip" as const, reason: "GOOGLE_DISCONNECTED" };
     }
-    if (!mailConnectEnabled()) {
-      return { kind: "skip" as const, reason: "MAIL_CONNECT_DISABLED" };
-    }
     const workspace = await ctx.db.get(args.workspaceId);
     if (workspace === null || workspace.kind !== "personal") {
       // A mailbox may only ever land in a personal context
@@ -368,10 +382,23 @@ export const googleForwardSyncJob = internalQuery({
       // this connection back in the loop.
       return { kind: "skip" as const, reason: "GOOGLE_RECONNECT_REQUIRED" };
     }
-    const products = syncableProductsOf(connection).filter((product) =>
-      product === "gmail" ? connection.gmail !== undefined : connection.chat !== undefined,
-    );
+    const products = syncableProductsOf(connection).filter((product) => {
+      if (product === "gmail") return mailConnectEnabled() && connection.gmail !== undefined;
+      if (product === "calendar") {
+        return calendarConnectEnabled() && connection.calendar !== undefined;
+      }
+      return mailConnectEnabled() && connection.chat !== undefined;
+    });
     if (products.length === 0) {
+      if (
+        !mailConnectEnabled() &&
+        (connection.products.includes("gmail") || connection.products.includes("chat"))
+      ) {
+        return { kind: "skip" as const, reason: "MAIL_CONNECT_DISABLED" };
+      }
+      if (!calendarConnectEnabled() && connection.products.includes("calendar")) {
+        return { kind: "skip" as const, reason: "CALENDAR_CONNECT_DISABLED" };
+      }
       return { kind: "skip" as const, reason: "NO_SYNCABLE_PRODUCT" };
     }
 
@@ -384,11 +411,42 @@ export const googleForwardSyncJob = internalQuery({
      */
     const product = [...products].sort((left, right) => {
       const last = (candidate: (typeof products)[number]) =>
-        candidate === "gmail"
-          ? (connection.gmail?.lastSyncedAt ?? Number.NEGATIVE_INFINITY)
-          : (connection.chat?.lastSyncedAt ?? Number.NEGATIVE_INFINITY);
+        connection[candidate]?.lastSyncedAt ?? Number.NEGATIVE_INFINITY;
       return last(left) - last(right);
     })[0]!;
+
+    if (product === "calendar") {
+      const calendar = connection.calendar!;
+      const destinationFolder =
+        calendar.destinationFolder ?? defaultGoogleDestinationFolder("calendar", undefined);
+      const workspaceConnections = await ctx.db
+        .query("googleConnections")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .take(51);
+      if (workspaceConnections.length > 50) {
+        return { kind: "skip" as const, reason: "CALENDAR_SOURCE_LIMIT" };
+      }
+      const calendarContributors = workspaceConnections.filter((row) => {
+        if (row.calendar === undefined) return false;
+        const contributesHistory =
+          (row.disconnectedAt === undefined && row.products.includes("calendar")) ||
+          row.calendar.lastSyncedAt !== undefined;
+        if (!contributesHistory) return false;
+        const folder =
+          row.calendar.destinationFolder ?? defaultGoogleDestinationFolder("calendar", undefined);
+        return folder === destinationFolder;
+      });
+      return {
+        kind: "run" as const,
+        connectionId: connection._id,
+        product: "calendar" as const,
+        address: connection.address,
+        destinationFolder,
+        syncToken: calendar.syncToken,
+        lastFullSyncDate: calendar.lastFullSyncDate,
+        contributorSourceIds: calendarContributors.map((row) => row._id),
+      };
+    }
 
     if (product === "chat") {
       const workspaceConnections = await ctx.db
@@ -461,12 +519,17 @@ export const googleForwardSyncJob = internalQuery({
 export const recordGoogleForwardSyncPass = internalMutation({
   args: {
     connectionId: v.id("googleConnections"),
-    product: v.optional(v.union(v.literal("gmail"), v.literal("chat"))),
+    product: v.optional(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat")),
+    ),
     status: v.union(v.literal("synced"), v.literal("skipped"), v.literal("failed")),
     /** The cursor to store. Absent leaves the existing one exactly where it is. */
     historyId: v.optional(v.string()),
     /** Chat advances one cursor per space, only after its notes and Contacts settle. */
     chatCursors: v.optional(v.record(v.string(), v.string())),
+    /** Calendar advances only after its shared days settle. */
+    calendarSyncToken: v.optional(v.string()),
+    calendarLastFullSyncDate: v.optional(v.string()),
     daysTouched: v.optional(v.number()),
     bytesWritten: v.optional(v.number()),
     /** Gmail expired the cursor. Forward-only: it is re-baselined and the gap is recorded, not backfilled. */
@@ -575,6 +638,15 @@ export const recordGoogleForwardSyncPass = internalMutation({
           lastSyncedAt: now,
         }
       : connection.chat;
+    const calendar = product === "calendar" && connection.calendar
+      ? {
+          ...connection.calendar,
+          syncToken: args.calendarSyncToken ?? connection.calendar.syncToken,
+          lastFullSyncDate:
+            args.calendarLastFullSyncDate ?? connection.calendar.lastFullSyncDate,
+          lastSyncedAt: now,
+        }
+      : connection.calendar;
     /*
       A GAP IS RECORDED, NOT SMOOTHED OVER.
 
@@ -590,15 +662,14 @@ export const recordGoogleForwardSyncPass = internalMutation({
     const catchUp = args.catchUp === true;
     const productCompletedAt = syncableProductsOf(connection).map((candidate) => {
       if (candidate === product) return now;
-      return candidate === "gmail"
-        ? connection.gmail?.lastSyncedAt
-        : connection.chat?.lastSyncedAt;
+      return connection[candidate]?.lastSyncedAt;
     });
     const nextProductDueAt = productCompletedAt.some((at) => at === undefined)
       ? now
       : Math.min(...(productCompletedAt as number[])) + intervalMs;
     await ctx.db.patch(args.connectionId, {
       gmail,
+      calendar,
       chat,
       syncStartedAt: undefined,
       lastSyncAt: now,

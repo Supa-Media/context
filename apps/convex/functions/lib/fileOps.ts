@@ -146,7 +146,10 @@ const ARCHIVE_ROOT = "4-archive";
  * stub.
  */
 export interface FileStore extends ScaffoldStore {
-  delete(key: string): Promise<void>;
+  delete(
+    key: string,
+    options?: { onlyIf?: { etagMatches?: string } },
+  ): Promise<void | null>;
   capabilities?: { conditionalWrite: boolean };
 }
 
