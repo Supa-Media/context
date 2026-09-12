@@ -204,6 +204,19 @@ describe("a half-visible mechanism never claims the whole", () => {
     expect(settingsPreview("chats", { ...base, googleConnections: [] }, null)).toBeNull();
   });
 
+  test("no Google mailbox is not 'no mail' either", () => {
+    /*
+      `useLiveConsoleData` builds `googleConnections` through `usable()`,
+      which returns `undefined` for a query in flight **and** for one that came
+      back an error — so an empty list is three different things and only one
+      of them is "no mailbox". This row said "Not connected" for all three,
+      which a person with Gmail connected would read on every load until the
+      subscription landed, and for ever if it failed.
+    */
+    const base = demoData();
+    expect(settingsPreview("email", { ...base, googleConnections: [] }, null)).toBeNull();
+  });
+
   test("meetings and devices keep quiet, because nothing here knows", () => {
     const base = demoData();
     expect(settingsPreview("meetings", base, null)).toBeNull();
@@ -214,10 +227,22 @@ describe("a half-visible mechanism never claims the whole", () => {
 describe("the rows that can answer, do", () => {
   test("appearance says which of the three it is set to", () => {
     const base = demoData();
-    expect(settingsPreview("appearance", base, "dark")).toBe("Dark");
-    expect(settingsPreview("appearance", base, "light")).toBe("Light");
-    expect(settingsPreview("appearance", base, "system")).toBe("System");
+    expect(settingsPreview("appearance", base, { choice: "dark", ready: true })).toBe("Dark");
+    expect(settingsPreview("appearance", base, { choice: "light", ready: true })).toBe("Light");
+    expect(settingsPreview("appearance", base, { choice: "system", ready: true })).toBe("System");
     expect(settingsPreview("appearance", base, null)).toBeNull();
+  });
+
+  test("and says nothing while the device has not answered", () => {
+    /*
+      `choice` is `"system"` before `ensureAppearanceLoaded` resolves on a
+      native cold start. Read alone it tells somebody on Dark that they are on
+      System and then flips — a value invented out of an absence, which is the
+      one thing this module exists to refuse.
+    */
+    const base = demoData();
+    expect(settingsPreview("appearance", base, { choice: "system", ready: false })).toBeNull();
+    expect(settingsPreview("appearance", base, { choice: "dark", ready: false })).toBeNull();
   });
 
   test("profile says the handle the person is signed in as", () => {

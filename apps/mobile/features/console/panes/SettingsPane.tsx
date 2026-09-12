@@ -147,7 +147,7 @@ export function SettingsPane({
         Telling the second to revoke a key sends them looking for a screen that
         does not exist.
       */}
-      <PanelHead section="storage" sectioned={section !== undefined}>
+      <PanelHead section="storage" sectioned={section !== undefined} first>
         {storage?.provider === "dropbox"
           ? "Your Dropbox, your folder. Unlink Context in your Dropbox account settings and it loses access immediately — every file stays exactly where it is."
           : "Your bucket, your credentials. Revoke the key at your provider and Context loses access immediately — no export needed."}
@@ -252,7 +252,14 @@ export function SettingsPane({
       ) : null}
 
       {show("premium") ? (
-        <PremiumPanel data={data} section={section} returned={returned} />
+      <>
+      <PanelHead section="premium" sectioned={section !== undefined}>
+        What this context costs, and what changes if it costs something.
+        Downloading everything is free on either plan and still works after
+        you cancel.
+      </PanelHead>
+      <PremiumPanel data={data} section={section} returned={returned} />
+      </>
       ) : null}
 
       {show("people") ? (
@@ -301,11 +308,17 @@ export function SettingsPane({
         out one note at a time" in widening order.
       */}
       {show("groups") ? (
-        <GroupsPanel
+      <>
+      <PanelHead section="groups" sectioned={section !== undefined}>
+        A named set of people, so a folder rule can point at "leads" rather
+        than at three usernames you have to keep in step by hand.
+      </PanelHead>
+      <GroupsPanel
           view={data.groups}
           members={data.members.members}
-          slug={current?.slug.replace(/^@/, "") ?? ""}
-        />
+        slug={current?.slug.replace(/^@/, "") ?? ""}
+      />
+      </>
       ) : null}
 
       {show("privacy") ? <PrivacyPanel data={data} inline={section === undefined} /> : null}

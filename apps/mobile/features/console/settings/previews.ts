@@ -56,7 +56,17 @@ import type { SettingsSectionKey } from "./sections";
 export function settingsPreview(
   key: SettingsSectionKey,
   data: ConsoleData,
-  appearance: AppearanceChoice | null,
+  /**
+   * The viewer's appearance setting, or `null` where the caller has none to
+   * offer — `OverviewPanel`, which draws no Appearance row.
+   *
+   * The whole object rather than the `choice`, and that is the guard rather
+   * than a convenience: `choice` is `"system"` before the device has answered
+   * on a native cold start, so a caller handing over only that reads "System"
+   * to somebody on Dark and then flips. Taking `ready` alongside it makes
+   * dropping it a type error instead of a thing to remember.
+   */
+  appearance: { choice: AppearanceChoice; ready: boolean } | null,
 ): string | null {
   switch (key) {
     case "apps":
@@ -75,9 +85,11 @@ export function settingsPreview(
       return pending === 0 ? null : `${pending} pending`;
     }
 
-    case "appearance":
-      if (appearance === null) return null;
-      return appearance === "system" ? "System" : appearance === "dark" ? "Dark" : "Light";
+    case "appearance": {
+      if (appearance === null || !appearance.ready) return null;
+      const { choice } = appearance;
+      return choice === "system" ? "System" : choice === "dark" ? "Dark" : "Light";
+    }
 
     case "email": {
       const mailboxes = data.googleConnections.filter(
@@ -86,12 +98,17 @@ export function settingsPreview(
       if (mailboxes > 0) return plural(mailboxes, "mailbox", "mailboxes");
       if (receivesMail(data.ingestion)) return "Forwarding on";
       /*
-        A workspace has no capture address at all, so "Not connected" would
-        read as something its owner could go and fix. The panel says why in
-        its own words; the row says nothing.
+        And no "Not connected" from here, however tempting.
+
+        Mail reaches a brain by two mechanisms and this row can only see one
+        and a half of them. `useLiveConsoleData` builds `googleConnections`
+        through `usable()`, which returns `undefined` for a query in flight
+        **and** for one that came back an error — so an empty list is three
+        different things, and only one of them is "no mailbox". Somebody with
+        Gmail connected would read "Not connected" on every load until that
+        subscription landed, and permanently if it failed.
       */
-      if (data.ingestion.availability === "no-address") return null;
-      return data.ingestion.loading ? null : "Not connected";
+      return null;
     }
 
     case "calendar": {

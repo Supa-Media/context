@@ -23,10 +23,17 @@ import { settingsSectionLabel, type SettingsSectionKey } from "../sections";
 export function PanelHead({
   section,
   sectioned,
+  first = false,
   children,
 }: {
   section: SettingsSectionKey;
   sectioned: boolean;
+  /**
+   * The first block of the whole-scroll pane, which has a pane head above it
+   * and needs no 30pt of its own to separate it from a block that is not
+   * there. Meaningless when `sectioned`, where there is only ever one block.
+   */
+  first?: boolean;
   children: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -46,7 +53,7 @@ export function PanelHead({
         variant={sectioned ? "paneTitle" : "eyebrow"}
         role={sectioned ? "heading" : undefined}
         aria-level={sectioned ? 2 : undefined}
-        style={sectioned ? styles.head : styles.headLater}
+        style={sectioned || first ? styles.head : styles.headLater}
       >
         {settingsSectionLabel(section)}
       </Text>

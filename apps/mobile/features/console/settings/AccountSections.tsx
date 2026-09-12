@@ -58,7 +58,7 @@ export function AccountSection({
   if (section === "apps") {
     return (
       <View>
-        <Text variant="paneTitle" style={styles.head}>
+        <Text variant="paneTitle" role="heading" aria-level={2} style={styles.head}>
           {settingsSectionLabel("apps")}
         </Text>
         <Text variant="paneSub" style={styles.sub}>
@@ -119,7 +119,7 @@ export function AccountSection({
   if (section === "profile") {
     return (
       <View>
-        <Text variant="paneTitle" style={styles.head}>
+        <Text variant="paneTitle" role="heading" aria-level={2} style={styles.head}>
           {settingsSectionLabel("profile")}
         </Text>
         <Text variant="paneSub" style={styles.sub}>
@@ -162,7 +162,7 @@ export function AccountSection({
     const invitations = data.invitations ?? [];
     return (
       <View>
-        <Text variant="paneTitle" style={styles.head}>
+        <Text variant="paneTitle" role="heading" aria-level={2} style={styles.head}>
           {settingsSectionLabel("invitations")}
         </Text>
         <Text variant="paneSub" style={styles.sub}>
@@ -218,7 +218,7 @@ export function AccountSection({
 
   return (
     <View>
-      <Text variant="paneTitle" style={styles.head}>
+      <Text variant="paneTitle" role="heading" aria-level={2} style={styles.head}>
         {settingsSectionLabel("account")}
       </Text>
       <Text variant="paneSub" style={styles.sub}>

@@ -319,7 +319,12 @@ const makeStyles = (colors: Colors) =>
     },
     stripOk: { backgroundColor: colors.okWash, borderColor: colors.okBorder },
     stripWarn: { backgroundColor: colors.warnWash, borderColor: colors.warnBorder },
-    stripCrit: { backgroundColor: colors.warnWash, borderColor: colors.warnBorder },
+    /*
+      `crit`, not a second copy of `warn`. "Not working" and "Not verified"
+      are a broken bucket and an unprobed one, and drawing them in the same
+      wash leaves the difference to a hue on four words of text.
+    */
+    stripCrit: { backgroundColor: colors.critWash, borderColor: colors.critBorder },
     stripNeutral: { backgroundColor: colors.surface2, borderColor: colors.line },
     stripOkText: { color: colors.okText },
     stripWarnText: { color: colors.warnText },

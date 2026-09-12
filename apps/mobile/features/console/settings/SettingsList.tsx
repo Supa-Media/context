@@ -88,8 +88,13 @@ export function SettingsList({
     rather than the context's, so it is read from the provider here and passed
     down, instead of `settingsPreview` reaching for a hook and stopping being
     a pure function with tests.
+
+    Handed over whole rather than as `choice`, because `choice` is `"system"`
+    until the device answers on a native cold start — see `settingsPreview`,
+    which takes `ready` with it so that dropping it is a type error rather
+    than a thing to remember.
   */
-  const { choice } = useAppearanceChoice();
+  const appearance = useAppearanceChoice();
   const shown = matchSettingsSections(sections, query);
   const searching = query.trim() !== "";
 
@@ -98,7 +103,7 @@ export function SettingsList({
       key={entry.key}
       icon={entry.icon}
       label={entry.label}
-      value={settingsPreview(entry.key, data, choice)}
+      value={settingsPreview(entry.key, data, appearance)}
       selected={entry.key === active}
       compact={compact}
       testID={`settings-section-${entry.key}`}
@@ -157,6 +162,14 @@ export function SettingsList({
   );
 
   const contextGroups = () => {
+    /*
+      No context, no context sections. `contextHeading` already went `null`
+      here — a viewer with no workspace, or the moment before the list lands —
+      and the rows underneath did not, so thirteen headless rows opened panels
+      whose binding would be `undefined` forever. The old nesting made this
+      impossible by construction; this is that guarantee written down.
+    */
+    if (current === null) return null;
     const context = sections.filter((entry) => entry.scope === "context");
     const ungrouped = context.filter((entry) => entry.group === null);
     const named: SettingsSectionSpec["group"][] = [];

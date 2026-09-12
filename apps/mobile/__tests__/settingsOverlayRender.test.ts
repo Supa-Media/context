@@ -27,10 +27,26 @@
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
+/*
+  The whole of `convex/react` that any settings panel reaches for, not just
+  `useAction`.
+
+  Two sections could not be mounted at all until this grew: `DevicesPanel`
+  calls `useConvexAuth` and `PremiumPanel` calls `useConvex`, and a narrower
+  mock meant the sweep below could not even *render* the two screens whose
+  headings it was written to check. Each stub answers the way an unauthorised,
+  clientless console does, which is the state these panels already handle.
+*/
 jest.mock("convex/react", () => ({
   useAction: () => async () => {
     throw new Error("not used in this test");
   },
+  useMutation: () => async () => {
+    throw new Error("not used in this test");
+  },
+  useConvexAuth: () => ({ isAuthenticated: false, isLoading: false }),
+  useConvex: () => undefined,
+  useQuery: () => undefined,
 }));
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -46,7 +62,10 @@ import { SettingsOverlay } from "../features/console/settings/SettingsOverlay";
 import { SharedLinksPanel } from "../features/console/settings/panels/SharedLinksPanel";
 import { AdvancedPanel } from "../features/console/settings/panels/AdvancedPanel";
 import type { ConsoleData } from "../features/console/types";
-import type { SettingsSectionKey } from "../features/console/settings/sections";
+import {
+  SETTINGS_SECTIONS,
+  type SettingsSectionKey,
+} from "../features/console/settings/sections";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -518,6 +537,36 @@ describe("Overview answers rather than listing properties", () => {
     // `owner`, printed straight off the wire, is what this replaced.
     expect(text).not.toMatch(/\bowner\b(?!s)(?<!the owner)/);
   });
+});
+
+
+describe("every section names itself exactly once", () => {
+  /*
+    A sweep rather than a sample, because the defect this catches is a whole
+    *class* and a spot check is how nine screens of it survived being written.
+
+    Removing the compact title bar's `title` took away the only heading a
+    phone's section screen had, and the replacement went into `PanelHead` —
+    which nine sections did not use. Measured in jsdom before this was
+    written: groups, privacy, apps, profile, invitations, appearance,
+    account, devices and premium each returned zero headings, and `groups`
+    had no section title of any kind, so its name survived only as a row
+    title inside a card.
+
+    "Exactly one" rather than "at least one" is the other half of the change:
+    a bar titled "Overview" over a panel titled "Overview" is what this
+    started as.
+  */
+  test.each(SETTINGS_SECTIONS.map((entry) => [entry.key, entry.label] as const))(
+    "%s",
+    (key, label) => {
+      const host = overlay(key);
+      const headings = Array.from(host.querySelectorAll('[role="heading"]')).map(
+        (node) => node.textContent ?? "",
+      );
+      expect(headings).toEqual([label]);
+    },
+  );
 });
 
 /**
