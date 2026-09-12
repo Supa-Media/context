@@ -484,6 +484,16 @@ pages. A first copy is followed by source and destination reconciliation; any
 changed, added, or removed object repeats the verification cycle. Only a full
 quiet cycle permits cutover.
 
+Progress has a measured denominator rather than an estimate. A read-only
+census walks the live source first, then each copy and verification page records
+how many objects it processed. Settings names the current phase and shows its
+processed-versus-total count and percentage; it shows no percentage during the
+census because the denominator is not known yet. The source may change while
+the job runs, so each completed source walk replaces the earlier total with the
+new count. Existing migrations created before this field was added resume from
+their saved cursor and fall back to a cumulative checked count rather than
+restarting a potentially multi-day copy just to manufacture a percentage.
+
 Cutover is conditional on the exact source binding id recorded at the start.
 If the owner reconnects storage while the copy is running, the migration fails
 closed and the newly connected binding stays live. The source bucket is never

@@ -238,6 +238,28 @@ describe("the export promise is on every one of these screens", () => {
 });
 
 describe("managed-storage migration", () => {
+  test("shows the measured percentage and current phase", () => {
+    const host = mount(
+      view({
+        status: status({
+          status: "active",
+          selected: { managedStorage: true, fastSearch: false },
+          active: { managedStorage: true, fastSearch: false },
+          managedProvisioning: "running",
+          managedMigrationPhase: "copy",
+          managedMigrationObjectsTotal: 50,
+          managedMigrationObjectsProcessed: 40,
+        }),
+      }),
+    );
+    const text =
+      host.querySelector('[data-testid="managed-storage-migration"]')
+        ?.textContent ?? "";
+    expect(text).toMatch(/copying into managed storage/i);
+    expect(text).toMatch(/40 of 50 files/i);
+    expect(text).toMatch(/80% through this step/i);
+  });
+
   test("a failed copy keeps the original-storage promise and offers the owner retry", () => {
     const host = mount(
       view({

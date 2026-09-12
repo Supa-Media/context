@@ -808,12 +808,17 @@ const schema = defineSchema({
     encryptedTargetSecretAccessKey: v.string(),
     status: v.union(v.literal("copying"), v.literal("failed")),
     phase: v.union(
+      v.literal("count"),
       v.literal("copy"),
       v.literal("verify_source"),
       v.literal("verify_target"),
     ),
     cursor: v.optional(v.string()),
     objectsCopied: v.number(),
+    /** Stable denominator measured before the first copy pass. */
+    objectsTotal: v.optional(v.number()),
+    /** Cursor-independent progress within the current phase. */
+    objectsProcessedInPhase: v.optional(v.number()),
     changesInPass: v.number(),
     readyToCutover: v.optional(v.boolean()),
     errorCode: v.optional(v.string()),

@@ -465,9 +465,11 @@ export const beginManagedStorageMigration = internalMutation({
       targetAccessKeyId: args.accessKeyId,
       encryptedTargetSecretAccessKey: args.encryptedSecretAccessKey,
       status: "copying" as const,
-      phase: "copy" as const,
+      phase: "count" as const,
       cursor: undefined,
       objectsCopied: 0,
+      objectsTotal: undefined,
+      objectsProcessedInPhase: 0,
       changesInPass: 0,
       readyToCutover: false,
       errorCode: undefined,
@@ -525,9 +527,11 @@ export const resumeManagedStorageMigration = internalMutation({
       readyToCutover: false,
       ...(sourceChanged
         ? {
-            phase: "copy" as const,
+            phase: "count" as const,
             cursor: undefined,
             objectsCopied: 0,
+            objectsTotal: undefined,
+            objectsProcessedInPhase: 0,
             changesInPass: 0,
           }
         : {}),
@@ -587,6 +591,7 @@ export const recordMigrationPage = internalMutation({
     nextCursor: v.optional(v.string()),
     copied: v.number(),
     changes: v.number(),
+    processed: v.number(),
   },
   returns: v.object({ applied: v.boolean(), cutover: v.boolean() }),
   handler: async (ctx, args) => {
@@ -602,7 +607,9 @@ export const recordMigrationPage = internalMutation({
       !Number.isInteger(args.copied) ||
       args.copied < 0 ||
       !Number.isInteger(args.changes) ||
-      args.changes < 0
+      args.changes < 0 ||
+      !Number.isInteger(args.processed) ||
+      args.processed < 0
     ) {
       return { applied: false, cutover: false };
     }
@@ -617,6 +624,30 @@ export const recordMigrationPage = internalMutation({
       });
       return { applied: false, cutover: false };
     }
+    const objectsProcessedInPhase =
+      (row.objectsProcessedInPhase ?? 0) + args.processed;
+    if (row.phase === "count") {
+      if (args.copied !== 0 || args.changes !== 0) {
+        return { applied: false, cutover: false };
+      }
+      if (args.nextCursor !== undefined) {
+        await ctx.db.patch(row._id, {
+          cursor: args.nextCursor,
+          objectsProcessedInPhase,
+          updatedAt: Date.now(),
+        });
+        return { applied: true, cutover: false };
+      }
+      await ctx.db.patch(row._id, {
+        phase: "copy",
+        cursor: undefined,
+        objectsTotal: objectsProcessedInPhase,
+        objectsProcessedInPhase: 0,
+        changesInPass: 0,
+        updatedAt: Date.now(),
+      });
+      return { applied: true, cutover: false };
+    }
     const changesInPass = row.changesInPass + args.changes;
     if (args.nextCursor === undefined) {
       if (row.phase === "copy") {
@@ -624,6 +655,18 @@ export const recordMigrationPage = internalMutation({
           phase: "verify_source",
           cursor: undefined,
           objectsCopied: row.objectsCopied + args.copied,
+          // The source is allowed to change while the migration runs. The
+          // completed walk is a fresher denominator than the census that
+          // preceded it, whether files were added or removed.
+          // An in-flight migration created by the previous release has no
+          // census. Its processed count starts at the page after its saved
+          // cursor, so treating that partial remainder as a total would be a
+          // lie; keep the denominator absent and use the legacy checked count.
+          objectsTotal:
+            row.objectsTotal === undefined
+              ? undefined
+              : objectsProcessedInPhase,
+          objectsProcessedInPhase: 0,
           changesInPass: 0,
           updatedAt: Date.now(),
         });
@@ -634,6 +677,11 @@ export const recordMigrationPage = internalMutation({
           phase: "verify_target",
           cursor: undefined,
           objectsCopied: row.objectsCopied + args.copied,
+          objectsTotal:
+            row.objectsTotal === undefined
+              ? undefined
+              : objectsProcessedInPhase,
+          objectsProcessedInPhase: 0,
           changesInPass,
           updatedAt: Date.now(),
         });
@@ -644,6 +692,7 @@ export const recordMigrationPage = internalMutation({
           phase: "verify_source",
           cursor: undefined,
           objectsCopied: row.objectsCopied + args.copied,
+          objectsProcessedInPhase: 0,
           changesInPass: 0,
           readyToCutover: false,
           updatedAt: Date.now(),
@@ -652,6 +701,7 @@ export const recordMigrationPage = internalMutation({
       }
       await ctx.db.patch(row._id, {
         readyToCutover: true,
+        objectsProcessedInPhase,
         updatedAt: Date.now(),
       });
       return { applied: true, cutover: true };
@@ -659,6 +709,7 @@ export const recordMigrationPage = internalMutation({
     await ctx.db.patch(row._id, {
       cursor: args.nextCursor,
       objectsCopied: row.objectsCopied + args.copied,
+      objectsProcessedInPhase,
       changesInPass,
       updatedAt: Date.now(),
     });
@@ -729,7 +780,7 @@ export const finishManagedStorageMigration = internalMutation({
   },
 });
 
-/** Copy one resumable page and verify every object before advancing. */
+/** Count or reconcile one resumable page, then schedule the next one. */
 export const runManagedStorageMigration = internalAction({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ copied: v.number(), complete: v.boolean() }),
@@ -777,6 +828,7 @@ export const runManagedStorageMigration = internalAction({
       let copied = 0;
       let changes = 0;
       for (const object of page.objects) {
+        if (migration.phase === "count") continue;
         if (
           typeof object.size === "number" &&
           object.size > MIGRATION_OBJECT_BYTE_CAP
@@ -801,6 +853,7 @@ export const runManagedStorageMigration = internalAction({
           nextCursor: page.truncated ? page.cursor : undefined,
           copied,
           changes,
+          processed: page.objects.length,
         },
       );
       if (!progress.applied) return { copied: 0, complete: false };
