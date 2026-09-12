@@ -313,8 +313,20 @@ describe("an owner reading a note can share it", () => {
     expect(pane.querySelector('[data-testid="browse-share"]')).not.toBeNull();
   });
 
-  test("and it says what it is, with the ellipsis that promises a dialog", () => {
-    expect(paneWith().textContent).toContain("Share");
+  /**
+   * It used to read "Share…" in words, and the ellipsis was the assertion: a
+   * button that promises a dialog rather than an immediate act.
+   *
+   * The control is a glyph now, matching the phone, so the words are in the
+   * accessible name instead of the text. That is the half worth pinning — a
+   * screen reader and an end-to-end test both reach for the label, and an icon
+   * with no name is the failure this check exists to catch. What is gone is the
+   * ellipsis, which cannot be drawn in a padlock-sized target.
+   */
+  test("and it names itself, for anything that cannot see a glyph", () => {
+    const pane = paneWith();
+    const share = pane.querySelector('[data-testid="browse-share"]');
+    expect(share?.getAttribute("aria-label")).toBe("Share this");
   });
 });
 

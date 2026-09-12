@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { FrameIconButton } from "../../app/AppFrame";
 import { ScreenViewport, useSurfacePadding } from "../../app/Screen";
 import { densityFor } from "../../app/frame";
 import { Button } from "../../design/components/Button";
@@ -785,18 +786,40 @@ export function BrowsePane({
             `@supa-leads` — it said "Share with team", and pressing it did
             exactly that to a note the owner had held back.
           */}
+          {/*
+            The phone's glyphs, on the row that already names the note.
+
+            These were two filled word-buttons — "Make private" and "Share…" —
+            and they were the widest thing in the bar: the pair took a third of
+            the row, sat proud of a line whose other content is one line of
+            monospace path and a chip, and on a real desktop they are exactly
+            where a floating widget from some other application lands.
+
+            The earlier note here argued the opposite — "a verb here and a
+            padlock on a phone … a button with room for words says what
+            pressing it will *do*". That argument was about which is more
+            *useful*, and it was answered by the owner looking at both surfaces
+            side by side: one product, two treatments, and the icon one is the
+            one that reads. The `accessibilityLabel` still carries the verb, so
+            nothing that could only see the words has lost them — which is the
+            half of the old argument that was load-bearing.
+
+            Unfilled rather than in a capsule, deliberately. `AppFrame`'s
+            trailing group is a floating container over a document and is the
+            object; this bar already has a surface and a hairline of its own, so
+            a second rounded box around two glyphs would be the box-in-a-box the
+            frame's own comment refuses at every density but the phone.
+          */}
           {files.canSetVisibility &&
           !selected.readOnly &&
           !isGroupVisibility(selected.visibility) ? (
-            <Button
+            <FrameIconButton
               /*
-                A verb here and a padlock on a phone, which is the same control
-                said two ways rather than two controls. `ICON_NAMES` has the
-                argument: an unlabelled 20pt target can only show what is
-                *true*, so the icon draws the state; a button with room for
-                words says what pressing it will *do*, which is the more useful
-                half when there is space for it.
+                The icon draws the state and the label says the act. A shut
+                padlock *is* private, so the note that is `team` shows the open
+                one — `Icon.tsx`'s own rule — and pressing it shuts it.
               */
+              icon={selected.visibility === "team" ? "lockOpen" : "lock"}
               label={selected.visibility === "team" ? "Make private" : "Share with team"}
               onPress={() =>
                 files.setVisibility(
@@ -805,15 +828,14 @@ export function BrowsePane({
                   selected.visibility === "team" ? "private" : "team",
                 )
               }
-              style={styles.share}
               testID="browse-visibility"
             />
           ) : null}
           {files.canShare && !selected.readOnly ? (
-            <Button
-              label="Share…"
+            <FrameIconButton
+              icon="share"
+              label="Share this"
               onPress={() => setSharing(selected.path)}
-              style={styles.share}
               testID="browse-share"
             />
           ) : null}
@@ -1143,10 +1165,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   /**
    * The breadcrumb yields first.
    *
-   * `flexShrink: 1` with `minWidth: 0` is what lets the path ellipsise; the
-   * button carries `flexShrink: 0` so it is never the thing that gives. The
-   * other way round, a long path squeezed "Share…" to "Sha…", which is a
-   * control nobody presses on the theory that it might do something else.
+   * `flexShrink: 1` with `minWidth: 0` is what lets the path ellipsise. The
+   * actions beside it never give: React Native's `flexShrink` defaults to `0`,
+   * so a `FrameIconButton` holds its target while the path ellipsises around
+   * it. They used to carry `flexShrink: 0` explicitly because they were word
+   * buttons, and a long path squeezed "Share…" to "Sha…" — a control nobody
+   * presses on the theory that it might do something else. A glyph cannot be
+   * truncated into a different glyph, so that failure went with the words
+   * rather than being guarded against.
    */
   /**
    * The trailing margin the breadcrumb carries and Share does not.
@@ -1157,7 +1183,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    */
   noteHeadCompact: { paddingRight: layout.readingMargin },
   crumb: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
-  share: { flexGrow: 0, flexShrink: 0 },
   body: { flex: 1, minHeight: 0, padding: space.x4 },
   /**
    * The phone's page scroller: full-bleed, with the chrome paid for in content
