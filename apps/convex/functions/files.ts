@@ -1530,6 +1530,38 @@ async function runGoogleForwardSync(
       };
     }
 
+    if (result.truncated === true && result.historyId === undefined) {
+      /*
+       * PAGED, BUT WITH NO SAFE PLACE TO RESUME.
+       *
+       * Gmail may return pages that contain no records for the requested
+       * `messageAdded` history type while still returning a next page token.
+       * If fifty such pages exhaust this pass's bound, there is no history
+       * record id to persist. Marking the row as catching up would leave the
+       * cursor unchanged and make the next sweep repeat the exact same fifty
+       * pages forever. Fail visibly and honor the retry ladder instead.
+       */
+      await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+        connectionId: job.connectionId,
+        status: "failed",
+        daysTouched: result.daysTouched.length,
+        bytesWritten: result.bytesWritten,
+        errorCode: "GOOGLE_SYNC_NO_RESUME_CURSOR",
+        error: "Google returned more mailbox history but no safe resume point. The next scheduled pass will try again.",
+      });
+      return {
+        kind: "googleForwardSync",
+        connectionId: job.connectionId,
+        status: "failed",
+        daysTouched: result.daysTouched.length,
+        bytesWritten: result.bytesWritten,
+        cursorAdvanced: false,
+        gapDetected: false,
+        truncated: true,
+        errorCode: "GOOGLE_SYNC_NO_RESUME_CURSOR",
+      };
+    }
+
     /*
      * A WALK THAT RAN OUT OF PAGES IS NOT A FINISHED SYNC.
      *

@@ -1487,6 +1487,17 @@ pass makes real progress, so the loop terminates, and the flag is cleared by
 the first pass that reaches the end. The console says "catching up on older
 mail" rather than naming a next due time it does not mean.
 
+There are two cases where that urgent flag must not survive. Gmail can return
+many pages whose `history` arrays are empty after applying the requested
+`messageAdded` filter; if the bounded walk sees a next page token but no
+history-record id, it has no safe cursor to persist. That pass fails visibly
+with `GOOGLE_SYNC_NO_RESUME_CURSOR` and honors the retry ladder instead of
+re-reading the same fifty pages on every sweep. Likewise, any failed or
+skipped catch-up pass clears `syncCatchUp`, so its recorded backoff or retry
+time is authoritative. Both cases were found by comparing the merged loop
+against its saved adversarial review, and both have end-to-end regression
+checks.
+
 **A failed pass counts the bytes it wrote, and a refused grant stays refused.**
 Both were also review findings, and both are the same shape — a branch that
 patched a row *nearly* correctly. Byte accounting that skipped the failure path
