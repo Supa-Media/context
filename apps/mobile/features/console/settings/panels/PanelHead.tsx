@@ -23,18 +23,37 @@ import { settingsSectionLabel, type SettingsSectionKey } from "../sections";
 export function PanelHead({
   section,
   sectioned,
+  first = false,
   children,
 }: {
   section: SettingsSectionKey;
   sectioned: boolean;
+  /**
+   * The first block of the whole-scroll pane, which has a pane head above it
+   * and needs no 30pt of its own to separate it from a block that is not
+   * there. Meaningless when `sectioned`, where there is only ever one block.
+   */
+  first?: boolean;
   children: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
     <>
+      {/*
+        A heading, but only when this block *is* the screen.
+
+        The overlay's title bar no longer carries the section's name — a bar
+        titled "Storage" over a panel titled "Storage" was the duplicate this
+        redesign removed — so with a `section` this is the only name on the
+        screen and has to be readable as one. Without a `section` these are
+        eyebrows separating eight blocks under a single pane head, and a page
+        of sibling h2s there would be a worse outline rather than a better one.
+      */}
       <Text
         variant={sectioned ? "paneTitle" : "eyebrow"}
-        style={sectioned ? styles.head : styles.headLater}
+        role={sectioned ? "heading" : undefined}
+        aria-level={sectioned ? 2 : undefined}
+        style={sectioned || first ? styles.head : styles.headLater}
       >
         {settingsSectionLabel(section)}
       </Text>

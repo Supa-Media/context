@@ -7,6 +7,7 @@ import { Icon } from "../../../design/components/Icon";
 import { Notice } from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
+import { PanelHead } from "./PanelHead";
 import { radii } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { capabilitiesForRole } from "../../capabilities";
@@ -38,7 +39,6 @@ import {
 import { selectedContext, type ConsoleData } from "../../types";
 import { useArming } from "../../useArming";
 import { isFilteredView } from "../../visibility";
-import { settingsSectionLabel } from "../sections";
 
 /**
  * What is private by default, folder by folder.
@@ -214,16 +214,10 @@ export function PrivacyPanel({
 
   return (
     <View>
-      <Text
-        variant={inline ? "eyebrow" : "paneTitle"}
-        style={inline ? styles.sectionHeadLater : styles.sectionHead}
-      >
-        {settingsSectionLabel("privacy")}
-      </Text>
-      <Text variant="paneSub" style={styles.sectionSub}>
+      <PanelHead section="privacy" sectioned={!inline}>
         What is private by default, folder by folder. Two words decide it, and neither of
         them is public — nothing here is on the internet, and nothing here is indexed.
-      </Text>
+      </PanelHead>
 
       <Card>
         <Row style={styles.meaningRow}>

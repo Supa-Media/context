@@ -11,6 +11,7 @@ import { leading } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { relativeTime } from "../format";
 import { PaneHead } from "../ConsoleShell";
+import { PanelHead } from "../settings/panels/PanelHead";
 import { atName } from "../format";
 import { EmailPanel } from "../settings/panels/EmailPanel";
 import { CalendarPanel } from "../settings/panels/CalendarPanel";
@@ -18,6 +19,7 @@ import { ChatsPanel } from "../settings/panels/ChatsPanel";
 import { MeetingsPanel } from "../settings/panels/MeetingsPanel";
 import { FastSearchCard } from "../search/FastSearchCard";
 import type { CheckoutOutcome } from "@context/shared";
+import { OverviewPanel } from "../settings/panels/OverviewPanel";
 import { PremiumPanel } from "../settings/panels/PremiumPanel";
 import { MembersSection } from "../members/MembersSection";
 import { GroupsPanel } from "../settings/panels/GroupsPanel";
@@ -26,7 +28,7 @@ import { shareBackSuggestions } from "../members/members";
 import { SharedLinksPanel } from "../settings/panels/SharedLinksPanel";
 import { AdvancedPanel } from "../settings/panels/AdvancedPanel";
 import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
-import { settingsSectionLabel, type SettingsSectionKey } from "../settings/sections";
+import type { SettingsSectionKey } from "../settings/sections";
 import { useArming } from "../useArming";
 import { ConnectForm } from "../storage/ConnectForm";
 import { StorageChoice } from "../storage/StorageChoice";
@@ -68,11 +70,21 @@ import type { ReverifyState } from "../storage/reverify";
 export function SettingsPane({
   data,
   onClose,
+  onSelect,
   section,
   returned = null,
 }: {
   data: ConsoleData;
   onClose: () => void;
+  /**
+   * Open another section, for the blocks that link to one.
+   *
+   * Absent on the whole-pane scroll — the landing page's console and the
+   * `/settings` fallback — where every block is already on screen and a link
+   * to one of them would be a link to somewhere the reader is. Overview's
+   * facts render as plain facts there, which is what they were.
+   */
+  onSelect?: (key: SettingsSectionKey) => void;
   /**
    * Render one section rather than the whole scroll.
    *
@@ -128,12 +140,6 @@ export function SettingsPane({
 
       {show("storage") ? (
       <>
-      <Text
-        variant={section === undefined ? "eyebrow" : "paneTitle"}
-        style={styles.sectionHead}
-      >
-        {settingsSectionLabel("storage")}
-      </Text>
       {/*
         The sentence has to name the thing the reader can actually go and do,
         and that differs by backend: an S3 owner revokes a key at their
@@ -141,11 +147,11 @@ export function SettingsPane({
         Telling the second to revoke a key sends them looking for a screen that
         does not exist.
       */}
-      <Text variant="paneSub" style={styles.sectionSub}>
+      <PanelHead section="storage" sectioned={section !== undefined} first>
         {storage?.provider === "dropbox"
           ? "Your Dropbox, your folder. Unlink Context in your Dropbox account settings and it loses access immediately — every file stays exactly where it is."
           : "Your bucket, your credentials. Revoke the key at your provider and Context loses access immediately — no export needed."}
-      </Text>
+      </PanelHead>
 
       {storage === null || storage === undefined ? (
         // `undefined` is the binding still in flight, which is what the
@@ -229,63 +235,39 @@ export function SettingsPane({
 
       {show("overview") ? (
       <>
-      <Text
-        variant={section === undefined ? "eyebrow" : "paneTitle"}
-        style={styles.sectionHead}
-      >
-        {settingsSectionLabel("overview")}
-      </Text>
-      <Text variant="paneSub" style={styles.sectionSub}>
+      <PanelHead section="overview" sectioned={section !== undefined}>
         {current?.kind === "shared"
           ? "A workspace several people share. It has no address of its own — only a personal brain can be sent mail."
-          : "Your brain. One bucket, one set of privacy rules, one history — and every other brain or workspace can point somewhere else entirely."}
-      </Text>
-      <Card>
-        <SettingRow label="Name" value={atName(current?.slug ?? "—")} />
-        <SettingRow
-          label="Kind"
-          value={current?.kind === "shared" ? "Shared workspace" : "Personal brain"}
-          divided
-        />
-        <SettingRow label="You are" value={current?.role ?? "—"} divided />
-        <SettingRow
-          label="Storage"
-          value={
-            storage === undefined
-              ? "Checking…"
-              : storage === null
-                ? "Nothing connected yet"
-                : `${storage.provider === "dropbox" ? "Dropbox" : storage.provider.toUpperCase()}${storage.bucket ? ` · ${storage.bucket}` : ""}`
-          }
-          divided
-        />
-      </Card>
+          : "One bucket, one set of privacy rules, one history."}
+      </PanelHead>
+      {/*
+        The second half of that sentence used to be "— and every other brain
+        or workspace can point somewhere else entirely", which explains the
+        tenancy model to somebody who is already inside one context looking at
+        their own bucket, and cost three lines at the top of the section
+        settings opens on.
+      */}
+      <OverviewPanel data={data} onSelect={onSelect} />
       </>
       ) : null}
 
       {show("premium") ? (
-        <PremiumPanel data={data} section={section} returned={returned} />
+      <>
+      <PanelHead section="premium" sectioned={section !== undefined}>
+        What this context costs, and what changes if it costs something.
+        Downloading everything is free on either plan and still works after
+        you cancel.
+      </PanelHead>
+      <PremiumPanel data={data} section={section} returned={returned} />
+      </>
       ) : null}
 
       {show("people") ? (
       <>
-      <Text
-        /*
-          In the overlay one block is the whole panel, so its name is the
-          panel's title rather than a label separating it from the block above
-          — there is no block above. An eyebrow at 11pt uppercase over a page
-          of cards reads as a category marker, which is what it was when this
-          pane was one scroll of eight of them.
-        */
-        variant={section === undefined ? "eyebrow" : "paneTitle"}
-        style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}
-      >
-        {settingsSectionLabel("people")}
-      </Text>
-      <Text variant="paneSub" style={styles.sectionSub}>
+      <PanelHead section="people" sectioned={section !== undefined}>
         Everyone who can reach this context, and what each of them may do. Write access
         is never implied by read — a role is granted, not inherited.
-      </Text>
+      </PanelHead>
       <MembersSection
         view={data.members}
         viewerRole={current?.role}
@@ -306,16 +288,10 @@ export function SettingsPane({
 
       {show("shares") ? (
       <>
-      <Text
-        variant={section === undefined ? "eyebrow" : "paneTitle"}
-        style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}
-      >
-        {settingsSectionLabel("shares")}
-      </Text>
-      <Text variant="paneSub" style={styles.sectionSub}>
+      <PanelHead section="shares" sectioned={section !== undefined}>
         Every note you have handed to somebody outside this context, one link at a
         time — with a Revoke beside each.
-      </Text>
+      </PanelHead>
       <SharedLinksPanel view={data.shares} />
       </>
       ) : null}
@@ -332,11 +308,17 @@ export function SettingsPane({
         out one note at a time" in widening order.
       */}
       {show("groups") ? (
-        <GroupsPanel
+      <>
+      <PanelHead section="groups" sectioned={section !== undefined}>
+        A named set of people, so a folder rule can point at "leads" rather
+        than at three usernames you have to keep in step by hand.
+      </PanelHead>
+      <GroupsPanel
           view={data.groups}
           members={data.members.members}
-          slug={current?.slug.replace(/^@/, "") ?? ""}
-        />
+        slug={current?.slug.replace(/^@/, "") ?? ""}
+      />
+      </>
       ) : null}
 
       {show("privacy") ? <PrivacyPanel data={data} inline={section === undefined} /> : null}
@@ -358,17 +340,11 @@ export function SettingsPane({
 
       {show("search") ? (
       <>
-      <Text
-        variant={section === undefined ? "eyebrow" : "paneTitle"}
-        style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}
-      >
-        {settingsSectionLabel("search")}
-      </Text>
-      <Text variant="paneSub" style={styles.sectionSub}>
+      <PanelHead section="search" sectioned={section !== undefined}>
         Where this context&apos;s search is answered from. Your Markdown never moves:
         the index is a copy that can be deleted and rebuilt, and it is off until an
         owner turns it on.
-      </Text>
+      </PanelHead>
 
       {/*
         Under the same gear as storage and ingestion, and here rather than at
@@ -383,15 +359,9 @@ export function SettingsPane({
 
       {show("advanced") ? (
       <>
-      <Text
-        variant={section === undefined ? "eyebrow" : "paneTitle"}
-        style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}
-      >
-        {settingsSectionLabel("advanced")}
-      </Text>
-      <Text variant="paneSub" style={styles.sectionSub}>
+      <PanelHead section="advanced" sectioned={section !== undefined}>
         Background folder moves, audit trail, and key export. Most people never need this.
-      </Text>
+      </PanelHead>
       <AdvancedPanel view={data.advanced} demo={data.demo} />
       </>
       ) : null}
@@ -408,30 +378,6 @@ export function SettingsPane({
  * to change. It replaces a column of full-width fields where every value had
  * the same visual weight as every other.
  */
-function SettingRow({
-  label,
-  value,
-  divided = false,
-}: {
-  label: string;
-  value: string;
-  divided?: boolean;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <Row divided={divided}>
-      <View style={styles.settingRow}>
-        <Text variant="rowTitle" style={styles.settingRowLabel}>
-          {label}
-        </Text>
-        <Text variant="mono" numberOfLines={1}>
-          {value}
-        </Text>
-      </View>
-    </Row>
-  );
-}
-
 /**
  * Exported because the overlay draws it, not the pane.
  *
@@ -775,20 +721,10 @@ function joinSentences(...parts: Array<string | undefined>): string | undefined 
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   /** A re-homed pane's row: what it is on the left, the way in on the right. */
-  settingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    minHeight: 24,
-  },
-  settingRowLabel: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
   sectionRow: { flexDirection: "row", alignItems: "center", gap: 14 },
   sectionRowText: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
 
   headActions: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
-  sectionHead: { marginBottom: 4 },
-  sectionHeadLater: { marginTop: 30, marginBottom: 4 },
-  sectionSub: { marginBottom: 12, maxWidth: 546 },
   rowSub: { marginTop: 2 },
   checks: {
     marginTop: 15,

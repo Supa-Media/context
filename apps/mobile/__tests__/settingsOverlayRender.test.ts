@@ -27,10 +27,26 @@
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
+/*
+  The whole of `convex/react` that any settings panel reaches for, not just
+  `useAction`.
+
+  Two sections could not be mounted at all until this grew: `DevicesPanel`
+  calls `useConvexAuth` and `PremiumPanel` calls `useConvex`, and a narrower
+  mock meant the sweep below could not even *render* the two screens whose
+  headings it was written to check. Each stub answers the way an unauthorised,
+  clientless console does, which is the state these panels already handle.
+*/
 jest.mock("convex/react", () => ({
   useAction: () => async () => {
     throw new Error("not used in this test");
   },
+  useMutation: () => async () => {
+    throw new Error("not used in this test");
+  },
+  useConvexAuth: () => ({ isAuthenticated: false, isLoading: false }),
+  useConvex: () => undefined,
+  useQuery: () => undefined,
 }));
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -46,7 +62,10 @@ import { SettingsOverlay } from "../features/console/settings/SettingsOverlay";
 import { SharedLinksPanel } from "../features/console/settings/panels/SharedLinksPanel";
 import { AdvancedPanel } from "../features/console/settings/panels/AdvancedPanel";
 import type { ConsoleData } from "../features/console/types";
-import type { SettingsSectionKey } from "../features/console/settings/sections";
+import {
+  SETTINGS_SECTIONS,
+  type SettingsSectionKey,
+} from "../features/console/settings/sections";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -354,6 +373,200 @@ describe("the list is the context switcher too", () => {
     // is my bucket", which is the question the row is there to settle.
     expect(host.querySelectorAll('[data-testid="settings-section-storage"]')).toHaveLength(1);
   });
+});
+
+
+/**
+ * The redesign, in the four claims that are the whole of it.
+ *
+ * Every one of these was green before this block existed, which is the same
+ * complaint this file's header opens with: the list rendered, the sections
+ * navigated, and none of that noticed that nineteen rows said nothing about
+ * what they were set to, or that the section's name was drawn twice.
+ *
+ * Mutations these catch, and the old suite did not:
+ *
+ *  - `settingsPreview` returning `null` for everything — the rows go back to
+ *    being labels, and the reason for the whole change is gone;
+ *  - the scope chips moving back below the sections, or the sections nesting
+ *    inside a context row again;
+ *  - `Overlay` rendering `title` on a phone's section screen again;
+ *  - a second row lit at the same time as the section, which is what the two
+ *    stacked highlight bands were.
+ */
+describe("a row says what it is set to", () => {
+  test("Storage carries the bucket it is bound to, in the list", () => {
+    const host = overlay("overview");
+    act(() => {
+      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
+    });
+    const row = host.querySelector('[data-testid="settings-section-storage"]');
+    expect(row).not.toBeNull();
+    /*
+      The demo binds a bucket, so this is the real label rather than an
+      absence. `storagePillLabel` builds it, and its own tests pin the string
+      — what this pins is that the *row* carries it, which is the difference
+      between a list of destinations and a list of answers.
+    */
+    expect(row!.textContent ?? "").toContain("Storage");
+    expect((row!.textContent ?? "").replace("Storage", "").trim()).not.toBe("");
+  });
+
+  test("a row with nothing to say carries only its label", () => {
+    // Meetings has no persisted state to report, by design — so the row must
+    // not invent one. See `settingsPreview`'s header for the three absences
+    // this protects.
+    const host = overlay("overview");
+    act(() => {
+      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
+    });
+    const row = host.querySelector('[data-testid="settings-section-meetings"]');
+    expect(row).not.toBeNull();
+    expect((row!.textContent ?? "").trim()).toBe("Meetings");
+  });
+});
+
+describe("the contexts are a scope bar above the sections", () => {
+  function listed(host: HTMLElement, selector: string): number {
+    const node = host.querySelector(selector);
+    if (node === null) throw new Error(`no ${selector}`);
+    // Document order, which is what "above" means to a reader and to a
+    // screen reader both.
+    return Array.prototype.indexOf.call(host.querySelectorAll("*"), node);
+  }
+
+  test("every context comes before the first section row", () => {
+    const host = overlay("overview");
+    act(() => {
+      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
+    });
+    const firstSection = listed(host, '[data-testid^="settings-section-"]');
+    for (const slug of ["seyi", "lk", "public-worship"]) {
+      expect(listed(host, `[data-testid="settings-context-${slug}"]`)).toBeLessThan(firstSection);
+    }
+  });
+
+  test("one thing is lit at a time", () => {
+    /*
+      The open context used to wear `surface3` and its open section
+      `accentDim`, stacked directly on top of each other — the old
+      `contextOn`/`rowOn` pair, whose comment worried the two "read as one
+      selection spanning both". With the contexts lifted out there is one
+      selection left, and this is what says so.
+    */
+    const host = overlay("storage");
+    act(() => {
+      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
+    });
+    const selected = host.querySelectorAll('[data-testid^="settings-section-"][aria-current="true"]');
+    expect(selected).toHaveLength(1);
+    expect(selected[0]!.getAttribute("data-testid")).toBe("settings-section-storage");
+
+    /*
+      `aria-current` rather than `aria-selected`, and that is the assertion
+      rather than an incidental choice of selector: react-native-web drops
+      `accessibilityState={{ selected }}` for `role="button"`, so a test
+      reading `aria-selected` here would have passed on a list that announced
+      nothing. Checked against the rendered DOM before this was written.
+    */
+    const chips = host.querySelectorAll('[data-testid^="settings-context-"][aria-current="true"]');
+    expect(chips).toHaveLength(1);
+  });
+});
+
+describe("the section is named once", () => {
+  test("a phone's title bar does not repeat the heading below it", () => {
+    /*
+      `Overlay`'s bar used to draw `chosen.label`, and `PanelHead` draws the
+      same word as the panel's title twenty-four points underneath — about
+      seventy points of the first screenful spent restating a word already on
+      it. The bar names where Back goes instead.
+    */
+    const host = overlay("overview");
+    const headings = Array.from(host.querySelectorAll('[role="heading"]')).map(
+      (node) => node.textContent ?? "",
+    );
+    expect(headings.filter((text) => text === "Overview")).toHaveLength(1);
+    expect(headings).not.toContain("Settings");
+
+    // And the way back is named, not a bare chevron.
+    const back = host.querySelector('[data-testid="settings-overlay-back"]');
+    expect(back?.textContent ?? "").toContain("Settings");
+  });
+
+  test("the list screen is titled, because nothing under it is", () => {
+    const host = overlay("overview");
+    act(() => {
+      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
+    });
+    const headings = Array.from(host.querySelectorAll('[role="heading"]')).map(
+      (node) => node.textContent ?? "",
+    );
+    expect(headings).toContain("Settings");
+  });
+});
+
+describe("Overview answers rather than listing properties", () => {
+  test("the bucket, whether it is working, and when anybody last checked", () => {
+    const host = overlay("overview");
+    const strip = host.querySelector('[data-testid="overview-health"]');
+    expect(strip).not.toBeNull();
+    // The word the old title-bar pill carried, now beside the thing it is a
+    // claim about.
+    expect(strip!.textContent ?? "").toContain("Connected");
+  });
+
+  test("each fact is the way into the section that changes it", () => {
+    const chosen: string[] = [];
+    const host = overlay("overview", (next) => chosen.push(next));
+    const fact = host.querySelector('[data-testid="overview-fact-privacy"]');
+    expect(fact).not.toBeNull();
+    act(() => {
+      (fact as HTMLElement).click();
+    });
+    expect(chosen).toEqual(["privacy"]);
+  });
+
+  test("the role is a sentence about you, not a lower-cased enum", () => {
+    const host = overlay("overview");
+    const identity = host.querySelector('[data-testid="overview-identity"]');
+    expect(identity).not.toBeNull();
+    const text = identity!.textContent ?? "";
+    expect(text).toContain("Personal brain");
+    expect(text).toContain("you're the owner");
+    // `owner`, printed straight off the wire, is what this replaced.
+    expect(text).not.toMatch(/\bowner\b(?!s)(?<!the owner)/);
+  });
+});
+
+
+describe("every section names itself exactly once", () => {
+  /*
+    A sweep rather than a sample, because the defect this catches is a whole
+    *class* and a spot check is how nine screens of it survived being written.
+
+    Removing the compact title bar's `title` took away the only heading a
+    phone's section screen had, and the replacement went into `PanelHead` —
+    which nine sections did not use. Measured in jsdom before this was
+    written: groups, privacy, apps, profile, invitations, appearance,
+    account, devices and premium each returned zero headings, and `groups`
+    had no section title of any kind, so its name survived only as a row
+    title inside a card.
+
+    "Exactly one" rather than "at least one" is the other half of the change:
+    a bar titled "Overview" over a panel titled "Overview" is what this
+    started as.
+  */
+  test.each(SETTINGS_SECTIONS.map((entry) => [entry.key, entry.label] as const))(
+    "%s",
+    (key, label) => {
+      const host = overlay(key);
+      const headings = Array.from(host.querySelectorAll('[role="heading"]')).map(
+        (node) => node.textContent ?? "",
+      );
+      expect(headings).toEqual([label]);
+    },
+  );
 });
 
 /**

@@ -151,6 +151,40 @@ const variantsFor = (colors: Colors) => ({
     letterSpacing: tracking(14, -0.01),
     color: colors.text,
   },
+  /**
+   * A grouped list's heading — the settings list's, and nothing else's yet.
+   *
+   * `railHead` is 10.5pt at 0.13em in `muted`, and in a 216pt rail beside a
+   * handful of rows that is a quiet label doing a small job. In the settings
+   * list it was the *only* thing separating nineteen rows, and it was the
+   * least visible type on the screen. Bigger, heavier, and in `text2`, with
+   * the card edge underneath it now carrying the separation the heading used
+   * to carry alone.
+   */
+  listGroup: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    lineHeight: leading(12, 1.5),
+    fontWeight: "600",
+    letterSpacing: tracking(12, 0.05),
+    textTransform: "uppercase",
+    color: colors.text2,
+  },
+  /**
+   * The trailing value on a settings row, on a phone.
+   *
+   * `rowSub` at 12.5 is the pointer size and reads as a caption beside a
+   * label you can already see. Here the value is half the reason the row
+   * exists — "R2 · brain" is the answer, "Storage" is only the question — so
+   * it is read at the size the rest of the phone is read at, one step under
+   * the label rather than two. The same argument `railTouch` makes.
+   */
+  rowValueTouch: {
+    fontFamily: fonts.body,
+    fontSize: 14.5,
+    lineHeight: leading(14.5, 1.4),
+    color: colors.muted,
+  },
   /** `.rowsub`. */
   rowSub: {
     fontFamily: fonts.body,
