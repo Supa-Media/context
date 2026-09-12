@@ -773,11 +773,9 @@ deleting and regenerating one file rather than unpicking a year of edits.
 address-book import.** The normalized events already read for iMessage, Gmail
 and Google Chat yield the sender and recipients, their email/phone/provider
 identifiers, and a link back to the message anchor in the channel-day note.
-iMessage and Gmail materialize those drafts in the same durable pass that
-writes the day; a failed contact write holds the iMessage cursor rather than
-silently losing the relationship. Chat returns the same JSON-safe drafts with
-its account contribution so the shared-account runner can materialize them
-when scheduled Chat delivery is enabled. The owner's own email and provider
+iMessage, Gmail and Chat materialize those drafts in the same durable pass that
+writes the day; a failed contact write holds the provider cursor rather than
+silently losing the relationship. The owner's own email and provider
 identity are filtered at the connection boundary. No macOS Contacts permission,
 Google People scope, or second provider crawl is part of this path.
 
@@ -993,9 +991,19 @@ join rather than letting the last account erase a sibling. The manifest keeps
 the newest 366 days and removes older plumbing only after its replacement is
 committed. A store whose connection probe found that it cannot enforce
 conditional writes is refused rather than given a false concurrency
-guarantee. The runner is still required before this is live — these helpers
-are the tested persistence and join boundary it must use, not a claim that
-scheduled Chat delivery is enabled.
+guarantee.
+
+**The account-level forward loop now runs that Chat boundary** (2026-09-12).
+The same five-minute sweep that drives Gmail selects the least-recently-synced
+product on the shared Google row, opens the customer's store through the one
+credential barrier, persists this account's contribution, loads every current
+and disconnected contributor, writes the shared day and organic Contacts, and
+only then advances the per-space cursors. A missing sibling contribution is a
+quiet warm-up skip rather than an outage; its cursor stays put until the sibling
+has completed a pass. Chat-bearing account rows are serialized per workspace
+so two account passes cannot race a stale aggregate over a newer one. Gmail-only
+rows retain the sweep's bounded parallelism because their destination folders
+are per-account and never overlap.
 
 **Two rules that join has to keep, because the first draft of it kept
 neither.** A *destination* is the folder a key lands in, not the string a

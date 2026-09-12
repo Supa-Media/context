@@ -104,7 +104,7 @@ function spreadMs(connectionId: string): number {
  * not need a second cron, a second claim, or a second set of status fields.
  * See `docs/decisions/communications.md` for what each of them still needs.
  */
-export const ENGINE_PRODUCTS = ["gmail"] as const;
+export const ENGINE_PRODUCTS = ["gmail", "chat"] as const;
 
 /** The interval in force for a row: the owner's choice, or the default, never below the floor. */
 export function syncIntervalMinutesOf(connection: { syncIntervalMinutes?: number }): number {
@@ -131,7 +131,14 @@ export function syncableProductsOf(connection: { products: string[] }): string[]
  * was computed from.
  */
 export function isDue(
-  connection: { lastSyncAt?: number; syncIntervalMinutes?: number; syncCatchUp?: boolean },
+  connection: {
+    products: string[];
+    gmail?: { lastSyncedAt?: number };
+    chat?: { lastSyncedAt?: number };
+    lastSyncAt?: number;
+    syncIntervalMinutes?: number;
+    syncCatchUp?: boolean;
+  },
   now: number,
 ): boolean {
   /*
@@ -142,8 +149,28 @@ export function isDue(
     last record walked.
   */
   if (connection.syncCatchUp === true) return true;
-  if (connection.lastSyncAt === undefined) return true;
-  return now >= connection.lastSyncAt + syncIntervalMinutesOf(connection) * 60_000;
+  const products = syncableProductsOf(connection);
+  const completedAt = products.map((product) =>
+    product === "gmail"
+      ? connection.gmail?.lastSyncedAt
+      : connection.chat?.lastSyncedAt,
+  );
+  // A product newly added to an already-running Google account has never had
+  // a chance to establish its own cursor. The account's recent Gmail pass
+  // must not make that new Chat product look current.
+  if (
+    completedAt.length > 1 &&
+    completedAt.some((at) => at !== undefined) &&
+    completedAt.some((at) => at === undefined)
+  ) {
+    return true;
+  }
+  if (completedAt.length === 0) return false;
+  if (completedAt.every((at) => at === undefined)) {
+    if (connection.lastSyncAt === undefined) return true;
+    return now >= connection.lastSyncAt + syncIntervalMinutesOf(connection) * 60_000;
+  }
+  return now >= Math.min(...(completedAt as number[])) + syncIntervalMinutesOf(connection) * 60_000;
 }
 
 /** The schedule as the console reads it. One implementation, two readers. */
@@ -159,23 +186,21 @@ export function syncStatusOf(connection: Doc<"googleConnections">): {
   lastFailure?: string;
 } {
   const intervalMinutes = syncIntervalMinutesOf(connection);
+  const products = syncableProductsOf(connection);
+  const productLastSyncedAt = products.map((product) =>
+    product === "gmail"
+      ? connection.gmail?.lastSyncedAt
+      : connection.chat?.lastSyncedAt,
+  );
   return {
     intervalMinutes,
-    /*
-      The distinction the product has been missing. A connection that has never
-      synced and one syncing fine were the same screen, and this is the field
-      that separates them: it is about mail actually read, so a pass that was
-      skipped or that failed does not make it true.
-    */
-    everSynced: connection.gmail?.lastSyncedAt !== undefined,
-    /*
-      A cursor exists, so this connection is watching — but watching is not the
-      same as having read anything, and the two used to be one screen. A
-      baseline pass (and a re-baseline after a gap) sets this and deliberately
-      leaves `everSynced` alone, because forward-only means neither one read a
-      single message.
-    */
-    cursorReady: connection.gmail?.historyId !== undefined,
+    /* A successful provider read, not merely a connected grant. */
+    everSynced: productLastSyncedAt.some((at) => at !== undefined),
+    /* Gmail has an explicit history cursor. Chat's successful first pass
+       establishes its per-space baselines, including the valid zero-space case. */
+    cursorReady:
+      connection.gmail?.historyId !== undefined ||
+      connection.chat?.lastSyncedAt !== undefined,
     catchingUp: connection.syncCatchUp === true,
     lastAttemptAt: connection.lastSyncAt,
     nextDueAt:

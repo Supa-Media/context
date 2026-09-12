@@ -226,6 +226,30 @@ export const sweepDueGoogleSyncs = internalMutation({
       if (syncableProductsOf(row).length === 0) continue;
       if (!isDue(row, now)) continue;
       /*
+       * Shared Chat days are rendered from every account contribution. Two
+       * account passes in the same workspace must not race a stale aggregate
+       * over a newer one, so the account-level claim is also a workspace
+       * writer lock. Gmail is serialized with it deliberately: one simpler
+       * lock is safer than a second rule about which product writes which
+       * shared path, and the next five-minute tick drains the sibling.
+       */
+      if (row.products.includes("chat")) {
+        const workspaceClaims = await ctx.db
+          .query("googleConnections")
+          .withIndex("by_workspace_sync_started", (q) =>
+            q
+              .eq("workspaceId", row.workspaceId)
+              .gte("syncStartedAt", now - SYNC_STALL_MS + 1),
+          )
+          .take(SWEEP_BATCH + 1);
+        if (workspaceClaims.length > SWEEP_BATCH) continue;
+        const chatWriterIsRunning = workspaceClaims.some(
+          (candidate) =>
+            candidate._id !== row._id && candidate.products.includes("chat"),
+        );
+        if (chatWriterIsRunning) continue;
+      }
+      /*
         NOT OVERTAKING A PASS THAT IS STILL RUNNING.
 
         A claimed pass sets `syncStartedAt` and clears it when it reports, so a
@@ -273,6 +297,21 @@ const forwardSyncJobValidator = v.union(
     attachmentMode: v.union(v.literal("metadata-only"), v.literal("store")),
     attachmentRetentionDays: v.optional(v.union(v.number(), v.literal("forever"))),
     historyId: v.optional(v.string()),
+  }),
+  v.object({
+    kind: v.literal("run"),
+    connectionId: v.id("googleConnections"),
+    product: v.literal("chat"),
+    address: v.string(),
+    destinationFolder: v.string(),
+    nonceSeed: v.string(),
+    workspaceNonceSeed: v.string(),
+    cursors: v.record(v.string(), v.string()),
+    spaceSettings: v.record(
+      v.string(),
+      v.union(v.literal("included"), v.literal("excluded"), v.literal("paused")),
+    ),
+    contributorSourceIds: v.array(v.id("googleConnections")),
   }),
 );
 
@@ -329,11 +368,64 @@ export const googleForwardSyncJob = internalQuery({
       // this connection back in the loop.
       return { kind: "skip" as const, reason: "GOOGLE_RECONNECT_REQUIRED" };
     }
-    if (!connection.products.includes("gmail") || !connection.gmail) {
+    const products = syncableProductsOf(connection).filter((product) =>
+      product === "gmail" ? connection.gmail !== undefined : connection.chat !== undefined,
+    );
+    if (products.length === 0) {
       return { kind: "skip" as const, reason: "NO_SYNCABLE_PRODUCT" };
     }
 
-    const gmail = connection.gmail;
+    /*
+     * One account owns one claim, but each product owns its own cursor. Pick
+     * the least-recently-synced product so a Gmail pass cannot starve Chat on
+     * a row that carries both grants. A missing timestamp wins, which lets a
+     * newly-added product establish its baseline before the already-running
+     * sibling is polled again.
+     */
+    const product = [...products].sort((left, right) => {
+      const last = (candidate: (typeof products)[number]) =>
+        candidate === "gmail"
+          ? (connection.gmail?.lastSyncedAt ?? Number.NEGATIVE_INFINITY)
+          : (connection.chat?.lastSyncedAt ?? Number.NEGATIVE_INFINITY);
+      return last(left) - last(right);
+    })[0]!;
+
+    if (product === "chat") {
+      const workspaceConnections = await ctx.db
+        .query("googleConnections")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .take(51);
+      if (workspaceConnections.length > 50) {
+        return { kind: "skip" as const, reason: "CHAT_SOURCE_LIMIT" };
+      }
+      // A disconnect stops provider reads; it does not delete notes already
+      // written into the customer's bucket. Keep every row that has ever held
+      // Chat in the shared contribution set so another active account cannot
+      // erase the disconnected account's history on its next render.
+      const chatContributors = workspaceConnections.filter((row) => row.chat !== undefined);
+      const chat = connection.chat!;
+      return {
+        kind: "run" as const,
+        connectionId: connection._id,
+        product: "chat" as const,
+        address: connection.address,
+        destinationFolder:
+          chat.destinationFolder ?? defaultGoogleDestinationFolder("chat", undefined),
+        nonceSeed: chat.nonceSeed,
+        // Every writer in the same active source set must render the same
+        // fence nonce. The seeds are non-credentials; sorting makes the value
+        // independent of which account's pass happened to run last.
+        workspaceNonceSeed: chatContributors
+          .map((row) => row.chat!.nonceSeed)
+          .sort()
+          .join(":"),
+        cursors: chat.cursors ?? {},
+        spaceSettings: chat.spaceSettings ?? {},
+        contributorSourceIds: chatContributors.map((row) => row._id),
+      };
+    }
+
+    const gmail = connection.gmail!;
     return {
       kind: "run" as const,
       connectionId: connection._id,
@@ -369,9 +461,12 @@ export const googleForwardSyncJob = internalQuery({
 export const recordGoogleForwardSyncPass = internalMutation({
   args: {
     connectionId: v.id("googleConnections"),
+    product: v.optional(v.union(v.literal("gmail"), v.literal("chat"))),
     status: v.union(v.literal("synced"), v.literal("skipped"), v.literal("failed")),
     /** The cursor to store. Absent leaves the existing one exactly where it is. */
     historyId: v.optional(v.string()),
+    /** Chat advances one cursor per space, only after its notes and Contacts settle. */
+    chatCursors: v.optional(v.record(v.string(), v.string())),
     daysTouched: v.optional(v.number()),
     bytesWritten: v.optional(v.number()),
     /** Gmail expired the cursor. Forward-only: it is re-baselined and the gap is recorded, not backfilled. */
@@ -463,7 +558,8 @@ export const recordGoogleForwardSyncPass = internalMutation({
       return { accepted: true };
     }
 
-    const gmail = connection.gmail
+    const product = args.product ?? "gmail";
+    const gmail = product === "gmail" && connection.gmail
       ? {
           ...connection.gmail,
           historyId: args.historyId ?? connection.gmail.historyId,
@@ -472,6 +568,13 @@ export const recordGoogleForwardSyncPass = internalMutation({
           lastSyncedAt: args.baseline === true ? connection.gmail.lastSyncedAt : now,
         }
       : connection.gmail;
+    const chat = product === "chat" && connection.chat
+      ? {
+          ...connection.chat,
+          cursors: args.chatCursors ?? connection.chat.cursors,
+          lastSyncedAt: now,
+        }
+      : connection.chat;
     /*
       A GAP IS RECORDED, NOT SMOOTHED OVER.
 
@@ -485,14 +588,24 @@ export const recordGoogleForwardSyncPass = internalMutation({
     */
     const gap = args.gapDetected === true;
     const catchUp = args.catchUp === true;
+    const productCompletedAt = syncableProductsOf(connection).map((candidate) => {
+      if (candidate === product) return now;
+      return candidate === "gmail"
+        ? connection.gmail?.lastSyncedAt
+        : connection.chat?.lastSyncedAt;
+    });
+    const nextProductDueAt = productCompletedAt.some((at) => at === undefined)
+      ? now
+      : Math.min(...(productCompletedAt as number[])) + intervalMs;
     await ctx.db.patch(args.connectionId, {
       gmail,
+      chat,
       syncStartedAt: undefined,
       lastSyncAt: now,
       // A pass that knows it left work behind is due at once; anything else
       // waits its interval. `syncCatchUp` is cleared either way, so a
       // connection that has caught up stops being due every tick.
-      nextSyncAt: catchUp ? now : now + intervalMs,
+      nextSyncAt: catchUp ? now : nextProductDueAt,
       syncCatchUp: catchUp ? true : undefined,
       syncFailures: undefined,
       syncBytesWritten: (connection.syncBytesWritten ?? 0) + (args.bytesWritten ?? 0),
@@ -526,14 +639,14 @@ export const recordGoogleForwardSyncPass = internalMutation({
       day notes' own paths are `gmail.destinationFolder` plus a date, which the
       row already carries.
     */
-    if ((args.daysTouched ?? 0) > 0) {
+    if ((args.daysTouched ?? 0) > 0 || (args.bytesWritten ?? 0) > 0) {
       await recordAudit(ctx, {
         workspaceId: connection.workspaceId,
         actorUserId: connection.boundBy,
         action: "google_sync_wrote",
         details: {
           connectionId: args.connectionId,
-          product: "gmail",
+          product,
           days: args.daysTouched ?? 0,
           bytes: args.bytesWritten ?? 0,
         },
