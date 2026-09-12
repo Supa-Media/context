@@ -26,6 +26,24 @@ function calendarDate(iso) {
 }
 
 /**
+ * A day note's `updated` value must describe the provider data, not the wall
+ * clock of whichever scheduled pass happened to regenerate it. Otherwise a
+ * quiet Chat day is byte-different every few minutes and a real store has to
+ * rewrite it forever. Gmail's scheduled path uses the same rule: the newest
+ * message timestamp advances exactly when the day gains a message. An
+ * unavailable-only notice has no message timestamp, so the day's own stable
+ * midnight is the honest fallback.
+ */
+function stableDayUpdated(events, date) {
+  let latest = Date.parse(`${date}T00:00:00.000Z`);
+  for (const event of events) {
+    const sentAt = Date.parse(String(event?.sentAt ?? ""));
+    if (Number.isFinite(sentAt) && sentAt > latest) latest = sentAt;
+  }
+  return new Date(latest).toISOString();
+}
+
+/**
  * The per-day fence nonce, deterministic for a given connection and date so
  * two syncs of the same day are byte-identical, but not derivable by a
  * message sender who does not hold `nonceSeed` — the property the package's
@@ -192,7 +210,7 @@ export async function syncGoogleChat({ listSpaces, listMessages, connection, now
         events,
         unavailableSpaces,
         nonce: dayNonce(nonceSeed, account, date),
-        now,
+        now: stableDayUpdated(events, date),
         origin: "google-chat-sync",
       },
       { root, folder: connection?.destinationFolder }
